@@ -1,0 +1,482 @@
+(defpackage #:genesis
+  (:use :cl :iterate))
+
+(in-package #:genesis)
+
+(defun read-s-expression (filespec)
+  (with-open-file (s filespec)
+    (read s)))
+
+(defparameter *cl-symbol-names* (read-s-expression "~/Documents/aquarius/genesis/cl-symbols.lisp-expr"))
+(defparameter *system-symbol-names* (read-s-expression "~/Documents/aquarius/genesis/system-symbols.lisp-expr"))
+
+(defparameter *interned-symbols* '(nil)
+  "A list of all non-keyword symbols that have been created
+via GENESIS-INTERN.")
+(declaim (type list *interned-symbols*))
+
+(defparameter *interned-keywords* '()
+  "A list of all keyword symbols that have been created via
+GENESIS-INTERN.")
+(declaim (type list *interned-keywords*))
+
+(defparameter *use-bootstrap-package-system* t)
+
+(defun genesis-intern (name &optional keywordp)
+  (cond (keywordp
+         (or (find name *interned-keywords*
+                   :key 'symbol-name
+                   :test 'string=)
+             (if *use-bootstrap-package-system*
+                 (let ((sym (make-symbol name)))
+                   (push sym *interned-keywords*)
+                   (setf (symbol-value sym) sym)
+                   (setf (get sym :genesis-symbol-mode) :constant)
+                   sym)
+                 ;; Call in to the system.
+                 (funcall (genesis-intern "INTERN") name "KEYWORD"))))
+        ((string= name "NIL") nil)
+        (t (or (find name *interned-symbols*
+                     :key 'symbol-name
+                     :test 'string=)
+               (if *use-bootstrap-package-system*
+                   (let ((sym (make-symbol name)))
+                     (push sym *interned-symbols*)
+                     sym)
+                   ;; Call in to the system.
+                   (funcall (genesis-intern "INTERN") name))))))
+
+(defun genesis-symbol-constant-p (symbol)
+  (or (eql symbol 'nil)
+      (eql (get symbol :genesis-symbol-mode) :constant)))
+
+(defun genesis-symbol-special-p (symbol)
+  (or (eql symbol 'nil)
+      (eql (get symbol :genesis-symbol-mode) :special)
+      (eql (get symbol :genesis-symbol-mode) :constant)))
+
+(defun genesis-macro-function (symbol &optional env)
+  (declare (type symbol symbol)
+           (type list env))
+  (dolist (e env)
+    (unless (consp e)
+      (error "Funny environment..."))
+    (when (eql (first e) :macros)
+      (let ((x (assoc symbol (rest e))))
+        (when x
+          (return-from genesis-macro-function (cdr x))))))
+  (when (and (fboundp symbol)
+             (get symbol :genesis-symbol-macrop))
+    (symbol-function symbol)))
+
+(defun genesis-symbol-package (symbol)
+  (get symbol 'genesis-symbol-package))
+
+(defun (setf genesis-symbol-package) (value symbol)
+  (setf (get symbol 'genesis-symbol-package) value))
+
+(defun genesis-symbol-plist (symbol)
+  (get symbol 'genesis-symbol-plist))
+
+(defun (setf genesis-symbol-plist) (value symbol)
+  (setf (get symbol 'genesis-symbol-plist) value))
+
+(defun symbol-setf-function (name)
+  "Return the symbol coresponding to NAME's SETF function."
+  (or (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL"))
+      (setf (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL"))
+            (make-symbol (format nil "(SETF ~A)" name)))))
+
+(defun resolve-function-name (name)
+  (cond ((symbolp name)
+         name)
+        ((and (= (length name) 2)
+              (eql (first name) (genesis-intern "SETF"))
+              (symbolp (second name)))
+         (symbol-setf-function (second name)))
+        (t (error "Invalid function name ~S." name))))
+
+(defun genesis-fdefinition (name)
+  (symbol-function (resolve-function-name name)))
+
+(defun (setf genesis-fdefinition) (value name)
+  (let ((sym (resolve-function-name name)))
+    (setf (get sym :genesis-symbol-macrop) nil
+          (symbol-function sym) value)))
+
+(defun early-load (pathspec)
+  (format t "; Loading file ~S:~%" pathspec)
+  (with-open-file (s pathspec)
+    (do ((form (primitive-read s nil s)
+	       (primitive-read s nil s)))
+	((eql form s) t)
+      (format t "; Loading ~S~%" form)
+      (genesis-eval form))))
+
+(defmacro defbuiltin (name lambda-list &body body)
+  (let ((other-name (cond ((symbolp name) (make-symbol (symbol-name name)))
+                          (t (list (first name) (make-symbol (symbol-name (second name))))))))
+    `(progn (setf (genesis-fdefinition ,(cond ((symbolp name)
+                                               `(genesis-intern ',(symbol-name name)))
+                                              ((and (= (length name) 2)
+                                                    (eql (first name) 'setf)
+                                                    (symbolp (second name)))
+                                               `(list (genesis-intern "SETF")
+                                                      (genesis-intern ,(symbol-name (second name)))))
+                                              (t (error "Bad built-in name ~S." name))))
+                  (flet ((,other-name ,lambda-list ,@body))
+                    #',other-name))
+            ',name)))
+
+;;; Forward a genesis function to a built-in function.
+(defmacro define-forwarding-builtin (name &optional host-name (should-inline t))
+  (let ((genesis-name (cond ((symbolp name)
+                             `(genesis-intern ,(symbol-name name)))
+                            ((and (= (length name) 2)
+                                  (eql (first name) 'setf)
+                                  (symbolp (second name)))
+                             `(list (genesis-intern "SETF")
+                                    (genesis-intern ,(symbol-name (second name)))))
+                            (t (error "Bad built-in name ~S." name)))))
+    ;; Inlining slows stuff down for some reason. Tell translate to replace calls
+    ;; instead.
+    `(progn
+       ,(when should-inline
+          `(setf (get (resolve-function-name ,genesis-name) 'genesis-replace-with)
+                 ',(or host-name name)))
+       (eval `(defun ,(resolve-function-name ,genesis-name) (&rest args)
+                (declare (dynamic-extent args))
+                (declare (optimize speed))
+                (apply #',',(or host-name name) args))))))
+
+(setf (symbol-value (genesis-intern "T")) (genesis-intern "T")
+      (get (genesis-intern "T") :genesis-symbol-mode) :special)
+(setf (symbol-value (genesis-intern "*FEATURES*"))
+      (list (genesis-intern "X86-64" t)
+            (genesis-intern "LISP-OS" t)
+            (genesis-intern "IEEE-FLOATING-POINT" t)
+            (genesis-intern "ANSI-CL" t)
+            (genesis-intern "COMMON-LISP" t))
+      (get (genesis-intern "*FEATURES*") :genesis-symbol-mode) :special)
+
+(defbuiltin /show0 (control &rest arguments)
+  (apply 'format t control arguments))
+
+(define-forwarding-builtin macro-function genesis-macro-function)
+(defbuiltin (setf macro-function) (value symbol &optional env)
+  (when env
+    (error "TODO: (setf macro-function) with environment."))
+  (cond (value
+         (setf (get symbol :genesis-symbol-macrop) t
+               (symbol-function symbol) value))
+        (t (setf (get symbol :genesis-symbol-macrop) nil)
+           (fmakunbound symbol)
+           nil)))
+
+(define-forwarding-builtin funcall)
+(define-forwarding-builtin apply)
+(define-forwarding-builtin eq)
+(define-forwarding-builtin eql)
+(define-forwarding-builtin null)
+(define-forwarding-builtin not)
+(define-forwarding-builtin values)
+(define-forwarding-builtin values-list)
+(define-forwarding-builtin eval genesis-eval nil)
+(define-forwarding-builtin error error nil)
+
+(define-forwarding-builtin car)
+(define-forwarding-builtin (setf car))
+(define-forwarding-builtin cdr)
+(define-forwarding-builtin (setf cdr))
+(define-forwarding-builtin cons)
+(define-forwarding-builtin consp)
+(define-forwarding-builtin list)
+(define-forwarding-builtin list*)
+(define-forwarding-builtin copy-list)
+(define-forwarding-builtin endp)
+
+(define-forwarding-builtin fdefinition genesis-fdefinition nil)
+(define-forwarding-builtin (setf fdefinition) (setf genesis-fdefinition) nil)
+
+(define-forwarding-builtin gensym gensym nil)
+(defbuiltin make-symbol (name)
+  (make-symbol (crunch-string name)))
+(define-forwarding-builtin symbolp)
+(define-forwarding-builtin boundp)
+(define-forwarding-builtin fboundp)
+(define-forwarding-builtin makunbound)
+(define-forwarding-builtin fmakunbound)
+
+(define-forwarding-builtin symbol-name)
+(define-forwarding-builtin symbol-package genesis-symbol-package)
+(define-forwarding-builtin (setf symbol-package) (setf genesis-symbol-package))
+(define-forwarding-builtin symbol-value)
+(define-forwarding-builtin (setf symbol-value))
+(define-forwarding-builtin symbol-function)
+(defbuiltin (setf symbol-function) (value symbol)
+  (setf (get symbol :genesis-symbol-macrop) nil
+         (symbol-function symbol) value))
+(define-forwarding-builtin symbol-plist genesis-symbol-plist)
+(define-forwarding-builtin (setf symbol-plist) (setf genesis-symbol-plist))
+
+(define-forwarding-builtin load early-load nil)
+
+(defbuiltin proclaim (form)
+  (cond ((eql (first form) (genesis-intern "SPECIAL"))
+         (dolist (symbol (rest form))
+           (setf (get symbol :genesis-symbol-mode) :special)))))
+
+(define-forwarding-builtin 1+)
+(define-forwarding-builtin 1-)
+(define-forwarding-builtin +)
+(define-forwarding-builtin -)
+(define-forwarding-builtin *)
+(define-forwarding-builtin /)
+(define-forwarding-builtin rem)
+(define-forwarding-builtin truncate)
+(define-forwarding-builtin ash)
+(define-forwarding-builtin logand)
+(define-forwarding-builtin logior)
+(define-forwarding-builtin logxor)
+(define-forwarding-builtin lognot)
+(define-forwarding-builtin expt)
+(define-forwarding-builtin zerop)
+(define-forwarding-builtin plusp)
+(define-forwarding-builtin minusp)
+(define-forwarding-builtin min)
+(define-forwarding-builtin max)
+(define-forwarding-builtin <)
+(define-forwarding-builtin <=)
+(define-forwarding-builtin >)
+(define-forwarding-builtin >=)
+(define-forwarding-builtin =)
+(define-forwarding-builtin integerp)
+(define-forwarding-builtin realp)
+(define-forwarding-builtin numberp)
+
+(defstruct genesis-struct
+  slots)
+
+(defbuiltin %make-struct (size)
+  (make-genesis-struct :slots (make-array size)))
+(define-forwarding-builtin structure-object-p genesis-struct-p)
+(defbuiltin %struct-slot (struct slot)
+  (aref (genesis-struct-slots struct) slot))
+(defbuiltin (setf %struct-slot) (value struct slot)
+  (setf (aref (genesis-struct-slots struct) slot) value))
+
+(defbuiltin concat-symbols (&rest symbols)
+  (genesis-intern (apply 'concatenate 'string (mapcar 'string symbols))))
+
+(define-forwarding-builtin string string nil)
+(define-forwarding-builtin stringp stringp nil)
+(define-forwarding-builtin string= string= nil)
+(define-forwarding-builtin char= char= nil)
+(define-forwarding-builtin characterp)
+
+(define-forwarding-builtin char-code)
+(define-forwarding-builtin code-char)
+;; Avoid spreading any host-specific attributes about.
+(define-forwarding-builtin char-int char-code)
+(defbuiltin char-bits (char)
+  (declare (ignore char))
+  0)
+
+(define-forwarding-builtin schar)
+(define-forwarding-builtin (setf schar))
+(define-forwarding-builtin char-upcase char-upcase nil)
+(define-forwarding-builtin char-downcase char-downcase nil)
+(define-forwarding-builtin upper-case-p upper-case-p nil)
+(define-forwarding-builtin lower-case-p lower-case-p nil)
+
+(defun crunch-string (string)
+  "Convert a string to a simple-string or a simple-base-string."
+  (if (array-header-p string)
+      (crunch-string (subseq (array-header-storage string)
+                             0
+                             (or (array-header-fill-pointer string)
+                                 (length (array-header-storage string)))))
+      (make-array (length string)
+                  :element-type (if (every #'standard-char-p string)
+                                    'standard-char
+                                    'character)
+                  :initial-contents string)))
+
+(defbuiltin simplify-string (string)
+  (crunch-string string))
+
+;;; The big function for switching over to the full package system.
+(defbuiltin jettison-bootstrap-package-system ()
+  ;; Ensure that the CL and SYS symbols exist.
+  (mapc 'genesis-intern *cl-symbol-names*)
+  (mapc 'genesis-intern *system-symbol-names*)
+  (format t "Jettisoning bootstrap package system... ")
+  ;; Prevent GENESIS-INTERN from creating new symbols.
+  (setf *use-bootstrap-package-system* nil)
+  (let ((import-fn (genesis-intern "IMPORT"))
+	(export-fn (genesis-intern "EXPORT"))
+	(sys-int-syms '())
+	(sys-syms '())
+	(cl-syms '())
+	(key-syms '()))
+    ;; Figure out the correct package for each symbol and
+    ;; clear the package slot.
+    (mapc (lambda (sym)
+            (let ((name (symbol-name sym)))
+              (setf (genesis-symbol-package sym) nil)
+              (cond ((member name *cl-symbol-names* :test #'string=)
+                     (push sym cl-syms))
+                    ((member name *system-symbol-names* :test #'string=)
+                     (push sym sys-syms))
+                    (t (push sym sys-int-syms)))))
+          *interned-symbols*)
+    ;; Now import symbols into the packages.
+    (funcall import-fn cl-syms "COMMON-LISP")
+    (funcall import-fn sys-syms "SYSTEM")
+    (funcall import-fn sys-int-syms "SYSTEM.INTERNALS")
+    ;; Export symbols from just CL & SYS.
+    (funcall export-fn cl-syms "COMMON-LISP")
+    (funcall export-fn sys-syms "SYSTEM")
+    ;; Do the same for keywords.
+    (mapc (lambda (sym)
+            (setf (genesis-symbol-package sym) nil)
+            (push sym key-syms))
+          *interned-keywords*)
+    (funcall import-fn key-syms "KEYWORD")
+    (funcall export-fn key-syms "KEYWORD")
+    (format t "Done.~%")))
+
+(defstruct array-header
+  dimensions
+  fill-pointer
+  info
+  storage)
+
+(define-forwarding-builtin %array-header-p array-header-p)
+(defbuiltin %make-array-header (dimensions fill-pointer info storage)
+  (make-array-header :dimensions dimensions
+                     :fill-pointer fill-pointer
+                     :info info
+                     :storage storage))
+(define-forwarding-builtin %array-header-dimensions array-header-dimensions)
+(define-forwarding-builtin (setf %array-header-dimensions) (setf array-header-dimensions))
+(define-forwarding-builtin %array-header-fill-pointer array-header-fill-pointer)
+(define-forwarding-builtin (setf %array-header-fill-pointer) (setf array-header-fill-pointer))
+(define-forwarding-builtin %array-header-info array-header-info)
+(define-forwarding-builtin (setf %array-header-info) (setf array-header-info))
+(define-forwarding-builtin %array-header-storage array-header-storage)
+(define-forwarding-builtin (setf %array-header-storage) (setf array-header-storage))
+
+(define-forwarding-builtin %simple-array-p vectorp)
+(define-forwarding-builtin %simple-array-length length)
+(define-forwarding-builtin simple-string-p stringp)
+(defbuiltin %simple-array-aref (array index)
+  (aref array index))
+(defbuiltin (setf %simple-array-aref) (value array index)
+  (setf (aref array index) value))
+(define-forwarding-builtin svref)
+(define-forwarding-builtin (setf svref))
+
+(defparameter *array-element-types*
+  `((bit . ,(genesis-intern "BIT"))
+    ((unsigned-byte 2) . (,(genesis-intern "UNSIGNED-BYTE") 2))
+    ((unsigned-byte 4) . (,(genesis-intern "UNSIGNED-BYTE") 4))
+    ((unsigned-byte 8) . (,(genesis-intern "UNSIGNED-BYTE") 8))
+    ((unsigned-byte 16) . (,(genesis-intern "UNSIGNED-BYTE") 16))
+    ((unsigned-byte 32) . (,(genesis-intern "UNSIGNED-BYTE") 32))
+    ((unsigned-byte 64) . (,(genesis-intern "UNSIGNED-BYTE") 64))
+    ((signed-byte 1) . (,(genesis-intern "SIGNED-BYTE") 1))
+    ((signed-byte 2) . (,(genesis-intern "SIGNED-BYTE") 2))
+    ((signed-byte 4) . (,(genesis-intern "SIGNED-BYTE") 4))
+    ((signed-byte 8) . (,(genesis-intern "SIGNED-BYTE") 8))
+    ((signed-byte 16) . (,(genesis-intern "SIGNED-BYTE") 16))
+    ((signed-byte 32) . (,(genesis-intern "SIGNED-BYTE") 32))
+    ((signed-byte 64) . (,(genesis-intern "SIGNED-BYTE") 64))
+    (base-char . ,(genesis-intern "BASE-CHAR"))
+    (character . ,(genesis-intern "CHARACTER"))
+    (single-float . ,(genesis-intern "SINGLE-FLOAT"))
+    (double-float . ,(genesis-intern "DOUBLE-FLOAT"))
+    (t . (genesis-intern "T"))))
+
+(defbuiltin %simple-array-element-type (array)
+  (let ((element-type (array-element-type array)))
+    (dolist (x *array-element-types* (error "Impossible"))
+      (when (subtypep element-type (car x))
+        (return (cdr x))))))
+
+(defun convert-element-type (element-type)
+  "Convert an element-type to a host element-type (recreating lists & symbols)."
+  (cond ((eql element-type (genesis-intern "T")) 't)
+	((eql element-type (genesis-intern "BIT")) 'bit)
+	((eql element-type (genesis-intern "BASE-CHAR")) 'base-char)
+	((eql element-type (genesis-intern "CHARACTER")) 'character)
+	((eql element-type (genesis-intern "SINGLE-FLOAT")) 'single-float)
+	((eql element-type (genesis-intern "DOUBLE-FLOAT")) 'double-float)
+	((eql element-type (genesis-intern "LONG-FLOAT")) 'long-float)
+	((and (listp element-type)
+              (= (length element-type) 2)
+	      (eql (first element-type) (genesis-intern "UNSIGNED-BYTE"))
+              (integerp (second element-type)))
+	 (list 'unsigned-byte (second element-type)))
+        ((and (listp element-type)
+              (= (length element-type) 2)
+	      (eql (first element-type) (genesis-intern "SIGNED-BYTE"))
+              (integerp (second element-type)))
+	 (list 'signed-byte (second element-type)))
+	(t (error "Unknown element type ~S." element-type))))
+
+(defbuiltin %allocate-and-fill-array (length element-type initial-element)
+  (make-array length :element-type (convert-element-type element-type) :initial-element initial-element))
+(defbuiltin %allocate-and-clear-array (length element-type)
+  (make-array length :element-type (convert-element-type element-type)))
+
+(defbuiltin open (pathspec)
+  (open pathspec))
+(defbuiltin close (stream)
+  (close stream))
+(define-forwarding-builtin streamp streamp nil)
+(define-forwarding-builtin read-char read-char nil)
+(defbuiltin peek-char (&optional peek-type (stream *standard-input*) (eof-error-p t) eof-value recursive-p)
+  (peek-char (cond ((eql peek-type (genesis-intern "T")) t)
+                   (t peek-type))
+             stream
+             eof-error-p
+             eof-value
+             recursive-p))
+(define-forwarding-builtin unread-char unread-char nil)
+(defbuiltin format (stream control &rest arguments)
+  (apply 'format
+         (if (eql stream (genesis-intern "T"))
+             't
+             stream)
+         control
+         arguments))
+
+(defstruct (genesis-std-instance
+             (:constructor make-genesis-std-instance (class slots)))
+  class
+  slots)
+
+(define-forwarding-builtin allocate-std-instance make-genesis-std-instance)
+(define-forwarding-builtin std-instance-p genesis-std-instance-p)
+(define-forwarding-builtin std-instance-class genesis-std-instance-class)
+(define-forwarding-builtin (setf std-instance-class) (setf genesis-std-instance-class))
+(define-forwarding-builtin std-instance-slots genesis-std-instance-slots)
+(define-forwarding-builtin (setf std-instance-slots) (setf genesis-std-instance-slots))
+
+(defparameter *object-genesis-addresses* (make-hash-table :weakness :key))
+(defparameter *next-object-address* 0)
+(declaim (type fixnum *next-object-address*))
+
+(defbuiltin lisp-object-address (object)
+  (typecase object
+    ((signed-byte 61) (ldb (byte 60 0) object))
+    (character (char-code object))
+    (t (or (gethash object *object-genesis-addresses*)
+           (setf (gethash object *object-genesis-addresses*) (incf *next-object-address*))))))
+
+(defbuiltin (setf compiler-macro-function) (value name &optional environment)
+  (when environment
+    (error "TODO: setf compiler-macro-function with environment."))
+  (setf (getf (genesis-symbol-plist name) (genesis-intern "COMPILER-MACRO-FUNCTION"))
+        value))
