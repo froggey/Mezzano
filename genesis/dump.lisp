@@ -174,21 +174,23 @@
 			     :assembled-code (strip-array-header mc)
 			     :constants (strip-array-header constants)))))
 
-#+nil(defun compile-genesis-function (object)
-  (let ((fn (genesis-eval (glist (genesis-eval (glist (gintern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
-				       (glist (gintern "QUOTE") (genesis-function-source object))
-				       (glist (gintern "QUOTE") (convert-environment (genesis-function-source-environment object)))))))
+(defun compile-genesis-function (object)
+  (let ((fn (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
+                                (list (genesis-intern "QUOTE") (genesis-function-source object))
+                                (list (genesis-intern "QUOTE") (convert-environment (genesis-function-source-environment object)))))))
+    #+nil(let ((*print-circle* nil))
+      (format t "Asm: ~S~%" (genesis-function-lap-code fn)))
     (setf (genesis-function-lap-code object) (genesis-function-lap-code fn)
 	  (genesis-function-assembled-code object) (genesis-function-assembled-code fn)
 	  (genesis-function-constants object) (genesis-function-constants fn))
     object))
 
-#+nil(defbuiltin #:assemble-lap (code)
+(defbuiltin #:assemble-lap (code)
   (multiple-value-bind (mc constants)
-      (genesis-eval (glist (genesis-eval (glist (gintern "INTERN") "ASSEMBLE" "SYS.LAP-X86"))
-			   (glist (gintern "QUOTE") code)
-			   (gintern "BASE-ADDRESS" t) 12
-			   (gintern "INITIAL-SYMBOLS" t) (glist (gintern "QUOTE") *lap-symbols*)))
+      (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "ASSEMBLE" "SYS.LAP-X86"))
+                          (list (genesis-intern "QUOTE") code)
+                          (genesis-intern "BASE-ADDRESS" t) 12
+                          (genesis-intern "INITIAL-SYMBOLS" t) (list (genesis-intern "QUOTE") *lap-symbols*)))
     (make-genesis-function :lap-code code
 			   :assembled-code (strip-array-header mc)
 			   :constants (strip-array-header constants))))
@@ -243,11 +245,9 @@
 							     :environment (second info))
 				    (gethash object compiled-functions) fn))
 			     (t ;; A regular function.
-                              (setf (cddr info) nil)
 			      (when (null (third info))
-				  (setf (cddr info) (list #+nil(make-genesis-function :source (first info)
-                                                                                      :source-environment (second info))
-                                                          (list (first info) #+nil(second info)))))
+				  (setf (cddr info) (list (make-genesis-function :source (first info)
+                                                                                 :source-environment (second info)))))
 			      (setf fn (third info)
 				    (gethash object compiled-functions) fn)))))
 		   (setf object fn)))
@@ -265,9 +265,9 @@
       ;; Give addresses to NIL and T, this is required for LAP.
       (add-static-object 'nil)
       (add-static-object (genesis-intern "T"))
-      (push (list 'nil (logior (+ (* (+ (gethash 'nil static-objects) 2) 8) *static-area-base*) 2))
+      (push (cons 'nil (logior (+ (* (+ (gethash 'nil static-objects) 2) 8) *static-area-base*) 2))
             *lap-symbols*)
-      (push (list (genesis-intern "T") (logior (+ (* (+ (gethash (genesis-intern "T") static-objects) 2) 8) *static-area-base*) 2))
+      (push (cons (genesis-intern "T") (logior (+ (* (+ (gethash (genesis-intern "T") static-objects) 2) 8) *static-area-base*) 2))
             *lap-symbols*)
       ;; Visit all visible objects, including extra objects.
       (dolist (r roots)
@@ -670,9 +670,8 @@
 	     ((eql form result)
 	      (setf forms (cdr result)))
 	  (setf (cdr tail) (cons form nil)))))
-    forms
-    #+nil(make-genesis-function :source (glist (gintern "LAMBDA") *nil-value*
-					  (gcons (gintern "PROGN") forms))
+    (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
+                                         (cons (genesis-intern "PROGN") forms))
 			   :source-environment nil)))
 
 ;;; Build a (u-b 8) array holding a bootable image
@@ -680,7 +679,7 @@
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
 	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
-	 (entry-function #+nil(make-toplevel-function "test.lisp"))
+	 (entry-function (make-toplevel-function "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
@@ -748,3 +747,9 @@
 			     :if-exists :overwrite :if-does-not-exist :create)
 	    (write-sequence image s))))))
   t)
+
+(defun flush-compiled-function-cache ()
+  (maphash (lambda (k v)
+             (declare (ignore k))
+             (setf (cddr v) nil))
+           *function-info*))
