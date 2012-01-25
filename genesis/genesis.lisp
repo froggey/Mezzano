@@ -294,6 +294,9 @@ GENESIS-INTERN.")
   (declare (ignore char))
   0)
 
+(defbuiltin name-char (name)
+  (name-char (crunch-string name)))
+
 (define-forwarding-builtin schar)
 (define-forwarding-builtin (setf schar))
 (define-forwarding-builtin char-upcase char-upcase nil)

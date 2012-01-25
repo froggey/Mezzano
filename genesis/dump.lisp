@@ -160,20 +160,6 @@
 		     nil)))
 	(t vector)))
 
-#+nil(defun compile-function (source &optional environment)
-  (let ((lap-code (genesis-eval (glist (genesis-eval (glist (gintern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
-				       (glist (gintern "QUOTE") source)
-				       (glist (gintern "QUOTE") (convert-environment environment))))))
-    (multiple-value-bind (mc constants)
-	(genesis-eval (glist (genesis-eval (glist (gintern "INTERN") "ASSEMBLE" "SYS.LAP-X86"))
-			     (glist (gintern "QUOTE") lap-code)
-			     (gintern "BASE-ADDRESS" t) 12))
-      (make-genesis-function :source source
-			     :source-environment environment
-			     :lap-code lap-code
-			     :assembled-code (strip-array-header mc)
-			     :constants (strip-array-header constants)))))
-
 (defun compile-genesis-function (object)
   (let ((fn (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
                                 (list (genesis-intern "QUOTE") (genesis-function-source object))
@@ -477,7 +463,7 @@
 	    here
 	    (sys.lap-x86:ud2)
 	    (sys.lap-x86:jmp here)
-	    (:align 4)
+	    #+nil(:align 4) ; TODO!! ######
 	    ;; 8 word stack for startup.
 	    (:d64/le 0 0 0 0 0 0 0 0)
 	    initial-stack
@@ -542,7 +528,7 @@
   ;; +0 CAR.
   (setf (nibbles:ub64ref/le image (+ offset 0)) (value-of (car object) value-table))
   ;; +8 CDR.
-  (setf (nibbles:ub64ref/le image (+ offset 8)) (value-of (car object) value-table)))
+  (setf (nibbles:ub64ref/le image (+ offset 8)) (value-of (cdr object) value-table)))
 
 (defmethod dump-object ((object genesis-std-instance) value-table image offset)
   ;; +0 Class.
@@ -707,6 +693,23 @@
 		     function-map)
 	    ;; Special objects.
 	    (setf (gethash :undefined-function object-values) (gethash undefined-function-thunk object-values)))
+          ;; Additionally, produce a map file for use with bochs.
+          (with-open-file (s "../crap.map" :direction :output :if-exists :overwrite :if-does-not-exist :create)
+            (flet ((frob (object)
+                     (when (and (symbolp object)
+                                (fboundp object)
+                                (gethash (symbol-function object) object-values))
+                       (format s "~8,'0X ~A~%"
+                               (logand (gethash (symbol-function object) object-values) -16)
+                               (symbol-name object)))))
+              (maphash (lambda (obj addr)
+                         (declare (ignore addr))
+                         (frob obj))
+		     static-objects)
+              (maphash (lambda (obj addr)
+                         (declare (ignore addr))
+                         (frob obj))
+		     dynamic-objects)))
 	  ;; Print out the locations of various objects.
 	  (format t "Multiboot header at ~X.~%" (gethash multiboot-header object-values))
 	  (format t "GDT at ~X. IDT at ~X.~%" (gethash gdt object-values) (gethash idt object-values))
