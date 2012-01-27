@@ -307,8 +307,9 @@
 		 (genesis-closure
 		  (values 'closure 6))
 		 (genesis-function
-		  ;; TODO: size.
-		  (values 'function 42)))
+                  (values 'function
+                          (+ (ceiling (+ (length (genesis-function-assembled-code k)) 12) 8)
+                             (length (genesis-function-constants k))))))
 	     (let ((x (alexandria:ensure-gethash type types (list 0 0))))
 	       (incf (first x))
 	       (incf (second x) size))))
@@ -694,7 +695,7 @@
 	    ;; Special objects.
 	    (setf (gethash :undefined-function object-values) (gethash undefined-function-thunk object-values)))
           ;; Additionally, produce a map file for use with bochs.
-          (with-open-file (s "../crap.map" :direction :output :if-exists :overwrite :if-does-not-exist :create)
+          (with-open-file (s "../crap.map" :direction :output :if-exists :supersede :if-does-not-exist :create)
             (flet ((frob (object)
                      (when (and (symbolp object)
                                 (fboundp object)
@@ -747,7 +748,7 @@
 	  (dotimes (i (array-total-size page-tables))
 	    (setf (nibbles:ub64ref/le image (+ 4096 (- dynamic-end load-base) (* i 8))) (row-major-aref page-tables i)))
 	  (with-open-file (s "../crap.image" :direction :output :element-type '(unsigned-byte 8)
-			     :if-exists :overwrite :if-does-not-exist :create)
+			     :if-exists :supersede :if-does-not-exist :create)
 	    (write-sequence image s))))))
   t)
 
