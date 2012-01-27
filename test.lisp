@@ -15,34 +15,6 @@
                   :datum list
                   :expected-type 'list))))
 
-(defun null (x)
-  (null x))
-
-(defun not (x)
-  (not x))
-
-(defun car (x)
-  (car x))
-
-(defun cdr (x)
-  (cdr x))
-
-(defun eq (x y)
-  (eq x y))
-
-(defun eql (x y)
-  (eq x y))
-
-(defun <  (x y) (< x y))
-(defun <= (x y) (<= x y))
-(defun >  (x y) (> x y))
-(defun >= (x y) (>= x y))
-(defun =  (x y) (= x y))
-
-(defun + (x y) (+ x y))
-(defun symbol-plist (symbol) (symbol-plist symbol))
-(defun boundp (symbol) (boundp symbol))
-
 (defun (setf system::symbol-mode) (value symbol)
   (let ((flags (sys.int::%symbol-flags symbol))
         (bits (ecase value
@@ -84,11 +56,19 @@
 
 (defvar *keyboard-shifted* nil)
 
+(defun write-char (c &optional stream)
+  (cond ((eql c #\Newline)
+         (incf *screen-offset* (- 80 (rem *screen-offset* 80))))
+        (t (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 *screen-offset*)
+                 (logior (char-code c) #x0F00))
+           (incf *screen-offset*)))
+  (when (>= *screen-offset* (* 80 25))
+    (setf *screen-offset* 0))
+  c)
+
 (defun write-to-the-screen (str)
   (dotimes (i (sys.int::%simple-array-length str))
-    (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 *screen-offset*)
-	  (logior (char-code (schar str i)) #x0F00))
-    (setf *screen-offset* (1+ *screen-offset*))))
+    (write-char (schar str i))))
 
 (write-to-the-screen "Hello, World!")
 
@@ -103,4 +83,61 @@
   (write-to-the-screen (symbol-name symbol))
   (loop))
 
-(loop)
+(defun poll-keyboard ()
+  (loop (let ((cmd (system::io-port/8 #x64)))
+          (when (= (logand cmd 1) 1)
+            ;; Byte ready.
+            (return (system::io-port/8 #x60))))))
+
+(defun read-char (&optional stream eof-error-p eof-value recursive-p)
+  (loop
+     (let* ((scancode (poll-keyboard))
+            (key (#+ignore aref svref (if *keyboard-shifted*
+                           *gb-keymap-high*
+                           *gb-keymap-low*)
+                       (logand scancode #x7F))))
+       (cond ((= (logand scancode #x80) 0)
+              ;; Key press.
+              (cond ((eql key :shift)
+                     (setf *keyboard-shifted* t))
+                    ((characterp key)
+                     (return key))))
+             (t ;; Key release.
+              (case key
+                (:shift (setf *keyboard-shifted* nil))))))))
+
+(setf *standard-input* nil
+      *standard-output* nil)
+
+(defun write-unsigned-integer (x base)
+  (unless (= x 0)
+    (write-unsigned-integer (truncate x base) base)
+    (write-char (schar "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                       (rem x base)))))
+
+(defun write-integer (x &optional (base 10))
+  (cond ((= x 0)
+         (write-char #\0))
+        ((< x 0)
+         (write-char #\-)
+         (write-unsigned-integer (- 0 x) base))
+        (t (write-unsigned-integer x base))))
+
+(defun backtrace ()
+  (do ((fp (sys.int::read-frame-pointer)
+           (sys.int::memref-unsigned-byte-64 fp 0)))
+      ((= fp 0))
+    (write-char #\Newline)
+    (write-integer fp 16)
+    (write-char #\Space)
+    (write-integer (sys.int::memref-unsigned-byte-64 fp -2) 16)))
+
+(defun error (what &optional a b c d)
+  (write-to-the-screen "Error: ")
+  (write-to-the-screen (if (symbolp what)
+                           (symbol-name what)
+                           what))
+  (backtrace)
+  (loop))
+
+(loop (write (read)))
