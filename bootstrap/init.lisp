@@ -305,6 +305,12 @@
 	    (values form nil)))
       (values form nil)))
 
+(defmacro prog1 (first-form &rest forms)
+  (let ((sym (gensym)))
+    `(let ((,sym ,first-form))
+       (progn ,@forms)
+       ,sym)))
+
 (load "setf.lisp")
 (load "defmacro.lisp")
 (load "basic-macros.lisp")

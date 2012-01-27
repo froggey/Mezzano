@@ -65,9 +65,7 @@ GENESIS-INTERN.")
       (let ((x (assoc symbol (rest e))))
         (when x
           (return-from genesis-macro-function (cdr x))))))
-  (when (and (fboundp symbol)
-             (get symbol :genesis-symbol-macrop))
-    (symbol-function symbol)))
+  (get symbol :genesis-macro-function))
 
 (defun genesis-symbol-package (symbol)
   (get symbol 'genesis-symbol-package))
@@ -101,7 +99,7 @@ GENESIS-INTERN.")
 
 (defun (setf genesis-fdefinition) (value name)
   (let ((sym (resolve-function-name name)))
-    (setf (get sym :genesis-symbol-macrop) nil
+    (setf (get sym :genesis-macro-function) nil
           (symbol-function sym) value)))
 
 (defun early-load (pathspec)
@@ -174,9 +172,11 @@ GENESIS-INTERN.")
   (when env
     (error "TODO: (setf macro-function) with environment."))
   (cond (value
-         (setf (get symbol :genesis-symbol-macrop) t
-               (symbol-function symbol) value))
-        (t (setf (get symbol :genesis-symbol-macrop) nil)
+         (setf (get symbol :genesis-macro-function) value
+               (symbol-function symbol) (lambda (&rest x)
+                                          (declare (ignore x))
+                                          (error "Undefined function ~S." symbol))))
+        (t (setf (get symbol :genesis-macro-function) nil)
            (fmakunbound symbol)
            nil)))
 
@@ -221,7 +221,7 @@ GENESIS-INTERN.")
 (define-forwarding-builtin (setf symbol-value))
 (define-forwarding-builtin symbol-function)
 (defbuiltin (setf symbol-function) (value symbol)
-  (setf (get symbol :genesis-symbol-macrop) nil
+  (setf (get symbol :genesis-macro-function) nil
          (symbol-function symbol) value))
 (define-forwarding-builtin symbol-plist genesis-symbol-plist)
 (define-forwarding-builtin (setf symbol-plist) (setf genesis-symbol-plist))
