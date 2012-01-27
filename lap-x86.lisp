@@ -944,3 +944,12 @@
   (when (consp idtr)
     (modrm-single :gpr-32 idtr '(#x0f #x01) 3)))
 
+(define-instruction idiv8 (rhs)
+  (modrm-single :gpr-8 rhs #xF6 7))
+(define-instruction idiv16 (rhs)
+  (modrm-single :gpr-16 rhs #xF7 7))
+(define-instruction idiv32 (rhs)
+  (modrm-single :gpr-32 rhs #xF7 7))
+(define-instruction idiv64 (rhs)
+  (modrm-single :gpr-64 rhs #xF7 7))
+
