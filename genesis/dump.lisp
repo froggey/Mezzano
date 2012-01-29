@@ -625,16 +625,16 @@
   ;; +6 Number of slots.
   (setf (nibbles:ub16ref/le image (+ offset 6)) 0)
   ;; +12 The code.
-  (setf (aref image (+ offset 12)) #x48
-	(aref image (+ offset 13)) #x8B
-	(aref image (+ offset 14)) #x05
-	(aref image (+ offset 15)) #x19
+  (setf (aref image (+ offset 12)) #x48 ;; mov64 :rbx (:rip 21)/pool[1]
+	(aref image (+ offset 13)) #x89
+	(aref image (+ offset 14)) #x1D
+	(aref image (+ offset 15)) #x15
 	(aref image (+ offset 16)) #x00
 	(aref image (+ offset 17)) #x00
 	(aref image (+ offset 18)) #x00
-	(aref image (+ offset 19)) #xFF
+	(aref image (+ offset 19)) #xFF ;; jmp (:rip 7)/pool[0]
 	(aref image (+ offset 20)) #x25
-	(aref image (+ offset 21)) #x0B
+	(aref image (+ offset 21)) #x07
 	(aref image (+ offset 22)) #x00
 	(aref image (+ offset 23)) #x00
 	(aref image (+ offset 24)) #x00)
@@ -658,6 +658,13 @@
 	      (setf forms (cdr result)))
 	  (setf (cdr tail) (cons form nil)))))
     (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
+                                         (cons (genesis-intern "PROGN")
+                                               (mapcar (lambda (x)
+                                                         (list (genesis-intern "SETF")
+                                                               (list (genesis-intern "SYMBOL-FUNCTION")
+                                                                     (list (genesis-intern "QUOTE") (first x)))
+                                                               (second x)))
+                                                       (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
                                          (cons (genesis-intern "PROGN") forms))
 			   :source-environment nil)))
 

@@ -15,7 +15,7 @@
                   :datum list
                   :expected-type 'list))))
 
-(defun (setf system::symbol-mode) (value symbol)
+(defun (setf system:symbol-mode) (value symbol)
   (let ((flags (sys.int::%symbol-flags symbol))
         (bits (ecase value
                 ((nil) 0)
@@ -29,7 +29,7 @@
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special (dolist (var (rest declaration-specifier))
-               (setf (system::symbol-mode var) :special)))))
+               (setf (system:symbol-mode var) :special)))))
 
 (defvar *screen-offset* 0)
 
@@ -78,18 +78,19 @@
       (write-to-the-screen (symbol-name invoked-through))
       (write-to-the-screen "#<function>"))
   (loop))
+
 (defun sys.int::raise-unbound-error (symbol)
   (write-to-the-screen "Unbound symbol: ")
   (write-to-the-screen (symbol-name symbol))
   (loop))
 
 (defun poll-keyboard ()
-  (loop (let ((cmd (system::io-port/8 #x64)))
+  (loop (let ((cmd (system:io-port/8 #x64)))
           (when (= (logand cmd 1) 1)
             ;; Byte ready.
-            (return (system::io-port/8 #x60))))))
+            (return (system:io-port/8 #x60))))))
 
-(defun read-char (&optional stream eof-error-p eof-value recursive-p)
+(defun read-keyboard-char ()
   (loop
      (let* ((scancode (poll-keyboard))
             (key (#+ignore aref svref (if *keyboard-shifted*
@@ -105,6 +106,9 @@
              (t ;; Key release.
               (case key
                 (:shift (setf *keyboard-shifted* nil))))))))
+
+(defun read-char (&optional stream eof-error-p eof-value recursive-p)
+  (read-keyboard-char))
 
 (setf *standard-input* nil
       *standard-output* nil)
@@ -139,5 +143,21 @@
                            what))
   (backtrace)
   (loop))
+
+(defun indirect-funcall (l)
+  (funcall l))
+(defun indirect-funcall* (l a)
+  (funcall l a))
+
+(system:io-port/8 #xe9)
+
+(indirect-funcall* #'(lambda (a &optional (b 4321))
+                      (indirect-funcall #'(lambda ()
+                                            (write-integer a)
+                                            (write-char #\Space)
+                                            (write-integer b))))
+                  1234)
+
+(system:io-port/8 #xe9)
 
 (loop (write (read)))

@@ -10,6 +10,8 @@
 (defvar *rename-list* nil)
 (defvar *code-accum* nil)
 (defvar *trailers* nil)
+(defvar *environment* nil)
+(defvar *environment-chain* nil)
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
@@ -41,7 +43,9 @@
 	(*rename-list* '())
 	(*code-accum* '())
 	(*trailers* '())
-	(arg-registers '(:r8 :r9 :r10 :r11 :r12)))
+	(arg-registers '(:r8 :r9 :r10 :r11 :r12))
+        (*environment-chain* '())
+        (*environment* *environment*))
     (when (> (+ (length (lambda-information-required-args lambda))
 		(length (lambda-information-optional-args lambda)))
 	     5)
@@ -51,42 +55,165 @@
 							   (sys.lap-x86:mov64 :r8 (:constant "TODO: more than 5 required & optional arguments."))
 							   (sys.lap-x86:call (:symbol-function :r13))
 							   (sys.lap-x86:ud2)))))
-    (let ((current-arg-index 0))
+    ;; Save environment pointer.
+    (when *environment*
+      (let ((slot (find-stack-slot)))
+        (setf (aref *stack-values* slot) (cons :environment :home))
+        (push slot *environment-chain*)
+        (emit `(sys.lap-x86:mov64 (:stack ,slot) :rbx))))
+    (let ((env-size 0))
+      ;; Count and place non-local lexical variables (environment size).
       (dolist (arg (lambda-information-required-args lambda))
-	(incf current-arg-index)
-	(cond ((lexical-variable-p arg)
-	       (let ((ofs (find-stack-slot)))
-		 (setf (aref *stack-values* ofs) (cons arg :home))
-		 (emit `(sys.lap-x86:mov64 (:stack ,ofs) ,(pop arg-registers)))))
-	      (t (error "TODO: non-lexical-variables."))))
+        (when (and (lexical-variable-p arg)
+                   (not (localp arg)))
+          (incf env-size)))
       (dolist (arg (lambda-information-optional-args lambda))
-	(let* ((mid-label (gensym))
-	       (end-label (gensym))
-	       (var-ofs (find-stack-slot)))
-	  (setf (aref *stack-values* var-ofs) (cons (first arg) :home))
-	  (let ((sup-ofs (when (third arg)
-			   (find-stack-slot))))
-	    (when (third arg)
-	      (setf (aref *stack-values* sup-ofs) (cons (third arg) :home)))
-	    (emit `(sys.lap-x86:cmp64 (:cfp -24) ,(fixnum-to-raw current-arg-index))
-		  `(sys.lap-x86:jle ,mid-label)
-		  `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers)))
-	    (when (third arg)
-	      (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) t)))
-	    (emit `(sys.lap-x86:jmp ,end-label)
-		  mid-label)
-	    (let ((tag (cg-form (second arg))))
-	      (load-in-r8 tag t)
-	      (setf *r8-value* nil)
-	      (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8))
-	      (when (third arg)
-		(emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) nil))))
-	    (emit end-label)
-	    (incf current-arg-index)))))
-    (when (lambda-information-rest-arg lambda)
-      (let ((ofs (find-stack-slot)))
-	(setf (aref *stack-values* ofs) (cons (lambda-information-rest-arg lambda) :home))
-	(emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13))))
+        (when (and (lexical-variable-p (first arg))
+                   (not (localp (first arg))))
+          (incf env-size))
+        (when (and (third arg)
+                   (lexical-variable-p (third arg))
+                   (not (localp (third arg))))
+          (incf env-size)))
+      (when (and (lambda-information-rest-arg lambda)
+                 (lexical-variable-p (lambda-information-rest-arg lambda))
+                 (not (localp (lambda-information-rest-arg lambda))))
+        (incf env-size))
+      (unless (zerop env-size)
+        (push '() *environment*)
+        ;; TODO: Check escaping stuff. My upward funargs D:
+        ;; Allocate local environment on the stack.
+        (emit `(sys.lap-x86:sub64 :csp ,(* (+ env-size 2 (if (evenp env-size) 0 1)) 8)))
+        ;; Zero slots.
+        (dotimes (i (1+ env-size))
+          (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) 0)))
+        ;; Initialize the header. Simple-vector use tag 0.
+        (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
+              ;; Get value.
+              `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
+        (when *environment-chain*
+          ;; Auch. Stash R8.
+          (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+                `(sys.lap-x86:sub64 :lsp 8)
+                `(sys.lap-x86:mov64 (:lsp 0) :r8)
+                ;; Fetch saved environment link.
+                `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
+                `(sys.lap-x86:mov64 (:csp 8) :r8)
+                ;; Restore R8.
+                `(sys.lap-x86:mov64 :r8 (:lsp 0))
+                `(sys.lap-x86:add64 :lsp 8)))
+        (let ((slot (find-stack-slot)))
+          (setf (aref *stack-values* slot) (cons :environment :home))
+          (push slot *environment-chain*)
+          (emit `(sys.lap-x86:mov64 (:stack ,slot) :rbx))))
+      ;; Compile argument setup code.
+      (let ((current-arg-index 0))
+        ;; Environemnt vector is in :RBX for required arguments.
+        (dolist (arg (lambda-information-required-args lambda))
+          (incf current-arg-index)
+          (cond ((and (lexical-variable-p arg)
+                      (localp arg))
+                 (let ((ofs (find-stack-slot)))
+                   (setf (aref *stack-values* ofs) (cons arg :home))
+                   (emit `(sys.lap-x86:mov64 (:stack ,ofs) ,(pop arg-registers)))))
+                ((lexical-variable-p arg)
+                 ;; Non-local variable.
+                 ;; +1 to align on the data. Backlink is skipped by magic.
+                 (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size (length (first *environment*))) 8)))
+                                           ,(pop arg-registers)))
+                 (push arg (first *environment*)))
+                (t (return-from codegen-lambda
+                     (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
+                                              (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                                              (sys.lap-x86:mov64 :r8 (:constant "TODO: special required variables"))
+                                              (sys.lap-x86:call (:symbol-function :r13))
+                                              (sys.lap-x86:ud2)))))))
+        ;; Need to load environment vector for optional args because the
+        ;; initializer may trash :RBX.
+        (dolist (arg (lambda-information-optional-args lambda))
+          (when (or (not (lexical-variable-p (first arg)))
+                    (and (third arg)
+                         (not (lexical-variable-p (third arg)))))
+            (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
+                                     (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                                     (sys.lap-x86:mov64 :r8 (:constant "TODO: special variables. &OPTIONAL"))
+                                     (sys.lap-x86:call (:symbol-function :r13))
+                                     (sys.lap-x86:ud2))))
+          (let ((mid-label (gensym))
+                (end-label (gensym))
+                (var-ofs nil)
+                (sup-ofs nil))
+            (when (localp (first arg))
+              (setf var-ofs (find-stack-slot))
+              (setf (aref *stack-values* var-ofs) (cons (first arg) :home)))
+            (when (and (third arg)
+                       (localp (third arg)))
+              (setf sup-ofs (find-stack-slot))
+              (setf (aref *stack-values* sup-ofs) (cons (third arg) :home)))
+            ;; Check if this argument was supplied.
+            (emit `(sys.lap-x86:cmp64 (:cfp -24) ,(fixnum-to-raw current-arg-index))
+                  `(sys.lap-x86:jle ,mid-label))
+            ;; Argument supplied, stash wherever.
+            (cond (var-ofs
+                   ;; Local var.
+                   (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers))))
+                  (t ;; Non-local var. RBX will still be valid.
+                   ;; +1 to align on the data. Backlink is skipped by magic.
+                   (setf var-ofs (length (first *environment*)))
+                   (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size var-ofs) 8)))
+                                             ,(pop arg-registers)))
+                   (push (first arg) (first *environment*))))
+            (when (third arg)
+              (cond (sup-ofs
+                     (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) t)))
+                    (t ;; Non-local var. RBX will still be valid.
+                     ;; +1 to align on the data. Backlink is skipped by magic.
+                     (setf sup-ofs (length (first *environment*)))
+                     (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size sup-ofs) 8)))
+                                               ,t))
+                     (push (third arg) (first *environment*)))))
+            (emit `(sys.lap-x86:jmp ,end-label)
+                  mid-label)
+            ;; Argument not supplied. Evaluate init-form.
+            (let ((tag (cg-form (second arg))))
+              (load-in-r8 tag t)
+              (setf *r8-value* nil)
+              ;; Possibly reload the environment.
+              (when (or (not (localp (first arg)))
+                        (and (third arg)
+                             (not (localp (third arg)))))
+                (emit `(sys.lap-x86:mov64 :rbx (:stack ,(first *environment-chain*)))))
+              (cond ((localp (first arg))
+                     ;; Local var.
+                     (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8)))
+                    (t ;; Non-local var. RBX will still be valid.
+                     ;; +1 to align on the data. Backlink is skipped by magic.
+                     (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size var-ofs) 8)))
+                                               ,:r8))))
+              (when (third arg)
+                (cond ((localp (third arg))
+                       (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) nil)))
+                      (t ;; Non-local var. RBX will still be valid.
+                       ;; +1 to align on the data. Backlink is skipped by magic.
+                       (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size sup-ofs) 8)))
+                                               ,t))))))
+            (emit end-label)
+            (incf current-arg-index))))
+      (when (and (lambda-information-rest-arg lambda)
+                 ;; Avoid generating code &REST code when the variable isn't used.
+                 (not (and (lexical-variable-p (lambda-information-rest-arg lambda))
+                           (zerop (lexical-variable-use-count (lambda-information-rest-arg lambda))))))
+        (unless (and (lexical-variable-p (lambda-information-rest-arg lambda))
+                     (localp (lambda-information-rest-arg lambda)))
+          (return-from codegen-lambda
+            (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
+                                     (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                                     (sys.lap-x86:mov64 :r8 (:constant "TODO: non-local lexical-variables/special variables. &REST"))
+                                     (sys.lap-x86:call (:symbol-function :r13))
+                                     (sys.lap-x86:ud2)))))
+        (let ((ofs (find-stack-slot)))
+          (setf (aref *stack-values* ofs) (cons (lambda-information-rest-arg lambda) :home))
+          (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13)))))
     (let ((code-tag (cg-form `(progn ,@(lambda-information-body lambda)))))
       (when code-tag
 	(load-in-r8 code-tag t)
@@ -104,7 +231,7 @@
   (let ((entry-label (gensym "ENTRY"))
 	(invalid-arguments-label (gensym "BADARGS")))
     (push (list invalid-arguments-label
-		`(sys.lap-x86:mov64 :r13 (:constant %invalid-argument-error))
+		`(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
 		`(sys.lap-x86:call (:symbol-function :r13)))
 	  *trailers*)
     (nconc
@@ -132,8 +259,7 @@
 		 (lambda-information-optional-args lambda))
 	    ;; A range.
 	    (list `(sys.lap-x86:sub32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
-		  `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (+ (length (lambda-information-required-args lambda))
-					     (length (lambda-information-optional-args lambda)))))
+		  `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
 		  `(sys.lap-x86:ja ,invalid-arguments-label)))
 	   ((lambda-information-optional-args lambda)
 	    ;; Maximum number of arguments.
@@ -146,7 +272,10 @@
 	   ;; No arguments
 	   (t (list `(sys.lap-x86:test32 :ecx :ecx)
 		    `(sys.lap-x86:jnz ,invalid-arguments-label))))
-     (when (lambda-information-rest-arg lambda)
+     (when (and (lambda-information-rest-arg lambda)
+                ;; Avoid generating code &REST code when the variable isn't used.
+                (not (and (lexical-variable-p (lambda-information-rest-arg lambda))
+                          (zerop (lexical-variable-use-count (lambda-information-rest-arg lambda))))))
        (let ((regular-argument-count (+ (length (lambda-information-required-args lambda))
 					(length (lambda-information-optional-args lambda))))
 	     (rest-loop-head (gensym "REST-LOOP-HEAD"))
@@ -400,7 +529,7 @@
   (cg-form `(error '"TODO multiple-value-call")))
 
 (defun cg-multiple-value-prog1 (form)
-  (cg-form `(error '"TODO multiple-value-call")))
+  (cg-form `(error '"TODO multiple-value-prog1")))
 
 (defun cg-progn (form)
   (if (rest form)
@@ -719,14 +848,68 @@
 		     `(sys.lap-x86:mov64 :lsp :rbx))
 	       (setf *r8-value* (list (gensym))))))))
 
+;;; Locate a variable in the environment.
+(defun find-var (var env chain)
+  (assert chain (var env chain) "No environment chain?")
+  (assert env (var env chain) "No environment?")
+  (cond ((member var (first env))
+         (values (first chain) 0 (position var (first env))))
+        ((rest chain)
+         (find-var var (rest env) (rest chain)))
+        (t ;; Walk the environment using the current chain as a root.
+         (let ((depth 0))
+           (dolist (e (rest env)
+                    (error "~S not found in environment?" var))
+             (incf depth)
+             (when (member var e)
+               (return (values (first chain) depth
+                               (position var e)))))))))
+
 (defun cg-variable (form)
-  (when (not (localp form))
-    (return-from cg-variable (cg-form '(error '"TODO: non-local lexical variables."))))
-  (cons form (incf *run-counter*)))
+  (cond
+    ((localp form)
+     (cons form (incf *run-counter*)))
+    (t ;; Non-local variable, requires an environment lookup.
+     (multiple-value-bind (stack-slot depth offset)
+         (find-var form *environment* *environment-chain*)
+       (unless (zerop depth)
+         (return-from cg-variable (cg-form '(error '"TODO: deep non-local lexical variables."))))
+       (smash-r8)
+       (emit `(sys.lap-x86:mov64 :r8 (:stack ,stack-slot))
+             `(sys.lap-x86:mov64 :r8 (:r8 ,(1+ (* (1+ offset) 8)))))
+       (setf *r8-value* (list (gensym)))))))
 
 (defun cg-lambda (form)
   (let ((lap-code (codegen-lambda form)))
-    (list 'quote lap-code)))
+    (cond (*environment*
+           ;; Generate a closure on the stack.
+           ;; FIXME: Escape analysis.
+           (smash-r8)
+           (emit `(sys.lap-x86:sub64 :csp ,(* 6 8))
+                 ;; Fill using 32-bit writes.
+                 ;; There are no mem64,imm64 instructions.
+                 `(sys.lap-x86:mov32 (:csp  0) #x00020001)
+                 `(sys.lap-x86:mov32 (:csp  4) #x00000002)
+                 `(sys.lap-x86:mov32 (:csp  8) #x00000000)
+                 `(sys.lap-x86:mov32 (:csp 12) #x151D8948)
+                 `(sys.lap-x86:mov32 (:csp 16) #xFF000000)
+                 `(sys.lap-x86:mov32 (:csp 20) #x00000725)
+                 `(sys.lap-x86:mov32 (:csp 24) #xCCCCCC00)
+                 `(sys.lap-x86:mov32 (:csp 28) #xCCCCCCCC)
+                 ;; Zero out constant pool.
+                 `(sys.lap-x86:mov32 (:csp 32) 0)
+                 `(sys.lap-x86:mov32 (:csp 36) 0)
+                 `(sys.lap-x86:mov32 (:csp 40) 0)
+                 `(sys.lap-x86:mov32 (:csp 44) 0)
+                 ;; Produce closure object.
+                 `(sys.lap-x86:lea64 :r8 (:csp 12))
+                 ;; Fill constant pool.
+                 `(sys.lap-x86:mov64 :r9 (:constant ,lap-code))
+                 `(sys.lap-x86:mov64 (:r8 ,(+ 32 -12)) :r9)
+                 `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
+                 `(sys.lap-x86:mov64 (:r8 ,(+ 40 -12)) :r9))
+           (setf *r8-value* (list (gensym))))
+          (t (list 'quote lap-code)))))
 
 (defun raise-type-error (reg typespec)
   (unless (eql reg :r8)

@@ -160,6 +160,7 @@
 	    (:commutative-arithmetic
 	     ;; Arguments can be freely re-ordered, assumed to be associative.
 	     ;; Addition, multiplication and the logical operators use this.
+             ;; FIXME: Float arithemetic is non-commutative.
 	     (let ((const-args '())
 		   (nonconst-args '())
 		   (value nil))
