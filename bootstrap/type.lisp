@@ -144,16 +144,16 @@
 (setf (get 't 'type-symbol) #'(lambda (x) (declare (ignore x)) t))
 
 (defun or-type (object type)
-  (dolist (t (cdr type))
-    (when (typep object t)
-      (return t))))
-(setf (get 'or 'compound-type) #'or-type)
+  (dolist (elt (cdr type))
+    (when (typep object elt)
+      (return elt))))
+(setf (get 'or 'compound-type) 'or-type)
 
 (defun member-type (object type)
   (dolist (o (cdr type))
     (when (eql object o)
       (return t))))
-(setf (get 'member 'compound-type) #'member-type)
+(setf (get 'member 'compound-type) 'member-type)
 
 (defun subtypep (type-1 type-2 &optional environment)
   (let ((t1 (typeexpand type-1 environment))
