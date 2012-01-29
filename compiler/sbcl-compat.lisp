@@ -1,4 +1,6 @@
-(defpackage #:system (:export #:lambda-name))
+(defpackage #:system (:export #:lambda-name
+                              #:io-port/8))
+(defpackage #:system.internals (:nicknames #:sys.int))
 (in-package #:system.compiler)
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (shadow '(macro-function compiler-macro-function)))
@@ -16,3 +18,10 @@
 (defun compiler-macro-function (symbol &optional env)
   (declare (ignore symbol env))
   nil)
+(defun sys.int::function-symbol (name)
+  (cond ((symbolp name)
+         name)
+        (t (or (get (second name) 'setf-symbol)
+               (setf (get (second name) 'setf-symbol)
+                     (make-symbol (format nil "~A" name)))))))
+(declaim (declaration system:lambda-name))
