@@ -415,10 +415,11 @@
 		 *r8-value* (list (gensym))))
 	  ((/= (fourth (first *rename-list*)) 0)
 	   ;; Not returning a value, but there were return-from forms reached.
-	   (emit label)
+	   (smash-r8)
+           (emit label)
 	   (setf *stack-values* (copy-stack-values stack-slots)
-		 *r8-value* nil)
-	   nil)
+		 *r8-value* (list (gensym))))
+          ;; No value returned, no return-from forms reached.
 	  (t nil))))
 
 (defun cg-go (form)

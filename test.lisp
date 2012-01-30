@@ -77,11 +77,13 @@
   (if (symbolp invoked-through)
       (write-to-the-screen (symbol-name invoked-through))
       (write-to-the-screen "#<function>"))
+  (backtrace)
   (loop))
 
 (defun sys.int::raise-unbound-error (symbol)
   (write-to-the-screen "Unbound symbol: ")
   (write-to-the-screen (symbol-name symbol))
+  (backtrace)
   (loop))
 
 (defun poll-keyboard ()
