@@ -87,7 +87,7 @@
         ;; Zero slots.
         (dotimes (i (1+ env-size))
           (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) 0)))
-        ;; Initialize the header. Simple-vector use tag 0.
+        ;; Initialize the header. Simple-vector uses tag 0.
         (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
               ;; Get value.
               `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
@@ -98,7 +98,7 @@
                 `(sys.lap-x86:mov64 (:lsp 0) :r8)
                 ;; Fetch saved environment link.
                 `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
-                `(sys.lap-x86:mov64 (:csp 8) :r8)
+                `(sys.lap-x86:mov64 (:rbx 1) :r8)
                 ;; Restore R8.
                 `(sys.lap-x86:mov64 :r8 (:lsp 0))
                 `(sys.lap-x86:add64 :lsp 8)))
@@ -199,29 +199,45 @@
                                                ,t))))))
             (emit end-label)
             (incf current-arg-index))))
-      (when (and (lambda-information-rest-arg lambda)
-                 ;; Avoid generating code &REST code when the variable isn't used.
-                 (not (and (lexical-variable-p (lambda-information-rest-arg lambda))
-                           (zerop (lexical-variable-use-count (lambda-information-rest-arg lambda))))))
-        (unless (and (lexical-variable-p (lambda-information-rest-arg lambda))
-                     (localp (lambda-information-rest-arg lambda)))
-          (return-from codegen-lambda
-            (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
-                                     (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
-                                     (sys.lap-x86:mov64 :r8 (:constant "TODO: non-local lexical-variables/special variables. &REST"))
-                                     (sys.lap-x86:call (:symbol-function :r13))
-                                     (sys.lap-x86:ud2)))))
-        (let ((ofs (find-stack-slot)))
-          (setf (aref *stack-values* ofs) (cons (lambda-information-rest-arg lambda) :home))
-          (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13)))))
-    (let ((code-tag (cg-form `(progn ,@(lambda-information-body lambda)))))
+      (let ((rest-arg (lambda-information-rest-arg lambda)))
+        (when (and rest-arg
+                   ;; Avoid generating code &REST code when the variable isn't used.
+                   (not (and (lexical-variable-p rest-arg)
+                             (zerop (lexical-variable-use-count rest-arg)))))
+          (unless (lexical-variable-p rest-arg)
+            (return-from codegen-lambda
+              (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
+                                       (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                                       (sys.lap-x86:mov64 :r8 (:constant "TODO: special variables. &REST"))
+                                       (sys.lap-x86:call (:symbol-function :r13))
+                                       (sys.lap-x86:ud2)))))
+          (cond ((localp rest-arg)
+                 (let ((ofs (find-stack-slot)))
+                   (setf (aref *stack-values* ofs) (cons rest-arg :home))
+                   (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13))))
+                ((lexical-variable-p rest-arg)
+                 ;; Non-local variable.
+                 ;; +1 to align on the data. Backlink is skipped by magic.
+                 (emit `(sys.lap-x86:mov64 :rbx (:stack ,(first *environment-chain*)))
+                       `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size (length (first *environment*))) 8)))
+                                           :r13))
+                 (push rest-arg (first *environment*)))))))
+    (let ((code-tag (let ((*for-value* :multiple))
+                      (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
-	(load-in-r8 code-tag t)
-	(emit `(sys.lap-x86:mov64 :rbx :lfp)
-	      `(sys.lap-x86:mov64 :lfp (:cfp -8))
-	      `(sys.lap-x86:mov32 :ecx 1)
-	      `(sys.lap-x86:leave)
-	      `(sys.lap-x86:ret))))
+        (cond ((eql code-tag :multiple)
+               ;; FIXME. Not right when >5 arguments are supplied.
+               (emit `(sys.lap-x86:mov64 :rbx :lfp)
+                     `(sys.lap-x86:mov64 :lfp (:cfp -8))
+                     `(sys.lap-x86:leave)
+                     `(sys.lap-x86:ret)))
+              (t (load-in-r8 code-tag t)
+                 ;; FIXME. Not right when >5 arguments are supplied.
+                 (emit `(sys.lap-x86:mov64 :rbx :lfp)
+                       `(sys.lap-x86:mov64 :lfp (:cfp -8))
+                       `(sys.lap-x86:mov32 :ecx 1)
+                       `(sys.lap-x86:leave)
+                       `(sys.lap-x86:ret))))))
     (sys.int::assemble-lap (nconc
 			    (generate-entry-code lambda)
 			    (nreverse *code-accum*)
@@ -230,7 +246,8 @@
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
 	(invalid-arguments-label (gensym "BADARGS")))
-    (push (list invalid-arguments-label
+    (push (list `(sys.lap-x86:ud2)
+                invalid-arguments-label
 		`(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
 		`(sys.lap-x86:call (:symbol-function :r13)))
 	  *trailers*)
@@ -280,7 +297,8 @@
 					(length (lambda-information-optional-args lambda))))
 	     (rest-loop-head (gensym "REST-LOOP-HEAD"))
 	     (rest-loop-test (gensym "REST-LOOP-TEST"))
-	     (pop-args-over (gensym "POP-ARGS-OVER")))
+	     (pop-args-over (gensym "POP-ARGS-OVER"))
+             (dx-rest (lexical-variable-dynamic-extent (lambda-information-rest-arg lambda))))
 	 ;; Assemble the rest list into r13.
 	 (nconc
 	  ;; Push all argument registers and create two scratch stack slots.
@@ -297,47 +315,67 @@
 		    '(:rbx :r8 :r9 :r10 :r11 :r12)))
 	  (list
 	   ;; Number of arguments processed.
-	   `(sys.lap-x86:mov64 (:cfp -32) ,(fixnum-to-raw regular-argument-count))
-	   ;; Call CONS to create the result cell.
-	   ;; TODO: Dynamic-extent for rest lists.
-	   ;; Stash in the result slot and the scratch slot.
-	   `(sys.lap-x86:mov64 :r8 nil)
-	   `(sys.lap-x86:mov64 :r9 :r8)
-	   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-	   `(sys.lap-x86:mov64 :r13 (:constant cons))
-	   `(sys.lap-x86:call (:symbol-function :r13))
-	   `(sys.lap-x86:mov64 :rbx :lsp)
-	   `(sys.lap-x86:mov64 (:lsp) :r8)
+	   `(sys.lap-x86:mov64 (:cfp -32) ,(fixnum-to-raw regular-argument-count)))
+	   ;; Create the result cell.
+          (cond
+            (dx-rest
+             (list `(sys.lap-x86:sub64 :csp 16)
+                   `(sys.lap-x86:mov64 (:csp 0) nil)
+                   `(sys.lap-x86:mov64 (:csp 8) nil)
+                   `(sys.lap-x86:lea64 :r8 (:csp 1))))
+            (t
+             (list `(sys.lap-x86:mov64 :r8 nil)
+                   `(sys.lap-x86:mov64 :r9 :r8)
+                   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+                   `(sys.lap-x86:mov64 :r13 (:constant cons))
+                   `(sys.lap-x86:call (:symbol-function :r13))
+                   `(sys.lap-x86:mov64 :rbx :lsp))))
+          (list
+           ;; Stash in the result slot and the scratch slot.
+           `(sys.lap-x86:mov64 (:lsp) :r8)
 	   `(sys.lap-x86:mov64 (:lsp 8) :r8)
 	   ;; Now walk the arguments, adding to the list.
 	   `(sys.lap-x86:mov64 :rax (:cfp -32))
 	   `(sys.lap-x86:jmp ,rest-loop-test)
-	   rest-loop-head
-	   `(sys.lap-x86:mov64 :r8 (:lsp :rax 24))
-	   `(sys.lap-x86:mov64 :r9 nil)
-	   `(sys.lap-x86:add64 :rax ,(fixnum-to-raw 1))
-	   `(sys.lap-x86:mov64 (:cfp -32) :rax)
-	   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-	   `(sys.lap-x86:mov64 :r13 (:constant cons))
-	   `(sys.lap-x86:call (:symbol-function :r13))
-	   `(sys.lap-x86:mov64 :rbx :lsp)
+	   rest-loop-head)
+          ;; Create a new cons.
+          (cond
+            (dx-rest
+             (list `(sys.lap-x86:sub64 :csp 16)
+                   `(sys.lap-x86:mov64 (:csp 0) nil)
+                   `(sys.lap-x86:mov64 (:csp 8) nil)
+                   `(sys.lap-x86:lea64 :r8 (:csp 1))
+                   `(sys.lap-x86:mov64 :r9 (:lsp :rax 24))
+                   `(sys.lap-x86:add64 :rax ,(fixnum-to-raw 1))
+                   `(sys.lap-x86:mov64 (:cfp -32) :rax)
+                   `(sys.lap-x86:mov64 (:car :r8) :r9)))
+            (t
+             (list `(sys.lap-x86:mov64 :r8 (:lsp :rax 24))
+                   `(sys.lap-x86:mov64 :r9 nil)
+                   `(sys.lap-x86:add64 :rax ,(fixnum-to-raw 1))
+                   `(sys.lap-x86:mov64 (:cfp -32) :rax)
+                   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+                   `(sys.lap-x86:mov64 :r13 (:constant cons))
+                   `(sys.lap-x86:call (:symbol-function :r13))
+                   `(sys.lap-x86:mov64 :rbx :lsp))))
+          (list
 	   `(sys.lap-x86:mov64 :r9 (:lsp))
 	   `(sys.lap-x86:mov64 (:cdr :r9) :r8)
 	   `(sys.lap-x86:mov64 (:lsp) :r8)
 	   `(sys.lap-x86:mov64 :rax (:cfp -32))
 	   rest-loop-test
-	   `(sys.lap-x86:cmp64 (:cfp -24) :rax)
+	   `(sys.lap-x86:cmp64 :rax (:cfp -24))
 	   `(sys.lap-x86:jl ,rest-loop-head)
 	   ;; The rest list has been created!
 	   ;; Now store it in R13 and restore the other registers.
-	   `(sys.lap-x86:mov64 :r13 (:lfp 8))
+	   `(sys.lap-x86:mov64 :r13 (:lsp 8))
 	   `(sys.lap-x86:mov64 :r13 (:cdr :r13))
-	   `(sys.lap-x86:mov64 :rbx (:lfp 16))
-	   `(sys.lap-x86:mov64 :r8 (:lfp 24))
-	   `(sys.lap-x86:mov64 :r9 (:lfp 32))
-	   `(sys.lap-x86:mov64 :r10 (:lfp 40))
-	   `(sys.lap-x86:mov64 :r11 (:lfp 48))
-	   `(sys.lap-x86:mov64 :r12 (:lfp 56))
+	   `(sys.lap-x86:mov64 :rbx (:lsp 16))
+	   `(sys.lap-x86:mov64 :r8 (:lsp 24))
+	   `(sys.lap-x86:mov64 :r9 (:lsp 32))
+	   `(sys.lap-x86:mov64 :r10 (:lsp 40))
+	   `(sys.lap-x86:mov64 :r11 (:lsp 48))
+	   `(sys.lap-x86:mov64 :r12 (:lsp 56))
 	   ;; Pop all the arguments off and the two scrach slots.
 	   `(sys.lap-x86:add64 :lsp ,(* 8 8))
 	   `(sys.lap-x86:mov64 :rax (:cfp -24))
@@ -357,7 +395,7 @@
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
-	   (when (and tag *for-value*)
+	   (when (and tag *for-value* (not (eql tag :multiple)))
 	     (push tag *load-list*))
 	   tag))
     (etypecase form
@@ -367,7 +405,7 @@
 	      ((if) (save-tag (cg-if form)))
 	      ((let) (cg-let form))
 	      ((load-time-value) (cg-load-time-value form))
-	      ((multiple-value-call) (cg-multiple-value-call form))
+	      ((multiple-value-call) (save-tag (cg-multiple-value-call form)))
 	      ((multiple-value-prog1) (cg-multiple-value-prog1 form))
 	      ((progn) (cg-progn form))
 	      ((progv) (cg-progv form))
@@ -389,7 +427,7 @@
            (save-tag tag))
          tag)))))
 
-;;; TODO: Unwinding over special bindings (let and progv).
+;;; TODO: Unwinding over special bindings (let, progv and unwind-protect).
 (defun cg-block (form)
   (when (not (localp (second form)))
     (return-from cg-block (cg-form '(error '"TODO: Escaping blocks."))))
@@ -399,11 +437,18 @@
 	 (tag (cg-form `(progn ,@(cddr form)))))
     (cond ((and *for-value* tag (/= (fourth (first *rename-list*)) 0))
 	   ;; Returning a value, exit is reached normally and there were return-from forms reached.
-	   (load-in-r8 tag t)
-	   (smash-r8)
-	   (emit label)
-	   (setf *stack-values* (copy-stack-values stack-slots)
-		 *r8-value* (list (gensym))))
+           (cond ((eql *for-value* :multiple)
+                  (unless (eql tag :multiple)
+                    (load-multiple-values tag)
+                    (smash-r8))
+                  (emit label)
+                  (setf *stack-values* (copy-stack-values stack-slots)
+                        *r8-value* :multiple))
+                 (t (load-in-r8 tag t)
+                    (smash-r8)
+                    (emit label)
+                    (setf *stack-values* (copy-stack-values stack-slots)
+                          *r8-value* (list (gensym))))))
 	  ((and *for-value* tag)
 	   ;; Returning a value, exit is reached normally, but no return-from forms were reached.
 	   tag)
@@ -412,7 +457,9 @@
 	   (smash-r8)
 	   (emit label)
 	   (setf *stack-values* (copy-stack-values stack-slots)
-		 *r8-value* (list (gensym))))
+		 *r8-value* (if (eql *for-value* :multiple)
+                                :multiple
+                                (list (gensym)))))
 	  ((/= (fourth (first *rename-list*)) 0)
 	   ;; Not returning a value, but there were return-from forms reached.
 	   (smash-r8)
@@ -488,7 +535,9 @@
       (let ((tag (cg-form (third form))))
 	(when tag
 	  (when *for-value*
-	    (load-in-r8 tag t))
+            (if (eql *for-value* :multiple)
+                (load-multiple-values tag)
+                (load-in-r8 tag t)))
 	  (emit `(sys.lap-x86:jmp ,end-label))
 	  (incf branch-count)
 	  (branch-to end-label)))
@@ -498,13 +547,17 @@
       (let ((tag (cg-form (fourth form))))
 	(when tag
 	  (when *for-value*
-	    (load-in-r8 tag t))
+	    (if (eql *for-value* :multiple)
+                (load-multiple-values tag)
+                (load-in-r8 tag t)))
 	  (incf branch-count)
 	  (branch-to end-label)))
       (emit-label end-label)
       (setf *stack-values* (copy-stack-values stack-slots))
       (unless (zerop branch-count)
-	(setf *r8-value* (list (gensym)))))))
+	(setf *r8-value* (if (eql *for-value* :multiple)
+                             :multiple
+                             (list (gensym))))))))
 
 (defun localp (var)
   (or (null (lexical-variable-used-in var))
@@ -512,29 +565,92 @@
 	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
 
 (defun cg-let (form)
-  (dolist (b (second form))
-    (let ((var (first b))
-	  (init-form (second b)))
-      (when (or (symbolp var)
-		(not (localp var)))
-	(format t "TODO: let binding for ~S.~%" (if (symbolp var) var (lexical-variable-name var)))
-	(return-from cg-let (cg-form `(error '"TODO complex let binding"))))
-      (if (eql (lexical-variable-use-count var) 0)
-	  (let ((*for-value* nil))
-	    (cg-form init-form))
-	  (let ((slot (find-stack-slot)))
-	    (setf (aref *stack-values* slot) (cons var :home))
-	    (let* ((*for-value* t)
-		   (tag (cg-form init-form)))
-	      (load-in-r8 tag t)
-	      (setf *r8-value* (cons var :dup))
-	      (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8)))))))
-  (cg-form `(progn ,@(cddr form))))
+  (let* ((bindings (second form))
+         (variables (mapcar 'first bindings))
+         (body (cddr form)))
+    (when (some 'symbolp variables)
+      (return-from cg-let (cg-form `(error '"TODO complex let binding"))))
+    (let ((env-size (count-if (lambda (x) (and (lexical-variable-p x) (not (localp x)))) variables))
+          (*environment* *environment*)
+          (*environment-chain* *environment-chain*))
+      (unless (zerop env-size)
+        (push (remove-if 'localp variables) *environment*)
+        ;; TODO: Check escaping stuff. My upward funargs D:
+        ;; Allocate local environment on the stack.
+        (emit `(sys.lap-x86:sub64 :csp ,(* (+ env-size 2 (if (evenp env-size) 0 1)) 8)))
+        ;; Zero slots.
+        (dotimes (i (1+ env-size))
+          (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) 0)))
+        ;; Initialize the header. Simple-vector uses tag 0.
+        (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
+              ;; Get value.
+              `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
+        (when *environment-chain*
+          ;; Set back-link.
+          (emit `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
+                `(sys.lap-x86:mov64 (:rbx 1) :r8)))
+        (let ((slot (find-stack-slot)))
+          (setf (aref *stack-values* slot) (cons :environment :home))
+          (push slot *environment-chain*)
+          (emit `(sys.lap-x86:mov64 (:stack ,slot) :rbx))))
+      (dolist (b (second form))
+        (let* ((var (first b))
+               (init-form (second b)))
+          (cond ((zerop (lexical-variable-use-count var))
+                 (let ((*for-value* nil))
+                   (cg-form init-form)))
+                ((localp var)
+                 (let ((slot (find-stack-slot)))
+                   (setf (aref *stack-values* slot) (cons var :home))
+                   (let* ((*for-value* t)
+                          (tag (cg-form init-form)))
+                     (load-in-r8 tag t)
+                     (setf *r8-value* (cons var :dup))
+                         (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8)))))
+                (t (let* ((env-slot (position var (first *environment*)))
+                          (*for-value* t)
+                          (tag (cg-form init-form)))
+                     (load-in-r8 tag t)
+                     (emit `(sys.lap-x86:mov64 :rbx (:stack ,(first *environment-chain*)))
+                           `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (1+ env-slot) 8)))
+                                               :r8)))))))
+      (cg-form `(progn ,@body)))))
 
 ;;;(defun cg-load-time-value (form))
 
 (defun cg-multiple-value-call (form)
-  (cg-form `(error '"TODO multiple-value-call")))
+  (let ((function (second form))
+        (value-forms (cddr form)))
+    (cond ((null value-forms)
+           ;; Just like a regular call.
+           (cg-function-form `(funcall ,function)))
+          ((null (cdr value-forms))
+           ;; Single value form.
+           (let ((fn-tag (let ((*for-value* t)) (cg-form function))))
+             (when (not fn-tag)
+               (return-from cg-multiple-value-call nil))
+             (let ((value-tag (let ((*for-value* :multiple))
+                                (cg-form (first value-forms)))))
+               (when (not value-tag)
+                 (return-from cg-multiple-value-call nil))
+               (load-multiple-values value-tag)
+               (load-in-reg :r13 fn-tag t)
+               (let ((type-error-label (gensym))
+                     (function-label (gensym)))
+                 (emit-trailer (type-error-label)
+                   (raise-type-error :r13 '(or function symbol)))
+                 (emit `(sys.lap-x86:mov8 :al :r13l)
+                       `(sys.lap-x86:and8 :al #b1111)
+                       `(sys.lap-x86:cmp8 :al #b1100)
+                       `(sys.lap-x86:je ,function-label)
+                       `(sys.lap-x86:cmp8 :al #b0010)
+                       `(sys.lap-x86:jne ,type-error-label)
+                       `(sys.lap-x86:mov64 :r13 (:symbol-function :r13))
+                       function-label
+                       `(sys.lap-x86:call :r13)
+                       `(sys.lap-x86:mov64 :lsp :rbx)))
+               (setf *r8-value* (list (gensym))))))
+          (t (cg-function-form `(error '"TODO multiple-value-call with >1 arguments."))))))
 
 (defun cg-multiple-value-prog1 (form)
   (cg-form `(error '"TODO multiple-value-prog1")))
@@ -559,8 +675,10 @@
   (let* ((label (assoc (second form) *rename-list*))
 	 (*for-value* (third label))
 	 (tag (cg-form (third form))))
-    (when *for-value*
-      (load-in-r8 tag t))
+    (cond ((eql *for-value* :multiple)
+           (load-multiple-values tag))
+          (*for-value*
+           (load-in-r8 tag t)))
     (incf (fourth label))
     (smash-r8)
     (emit `(sys.lap-x86:jmp ,(second label)))
@@ -733,6 +851,7 @@
   "Check if the value in R8 is on the load-list and flush it to the stack if it is."
   ;; Avoid flushing if it's already on the stack.
   (when (and *r8-value*
+             (not (eql *r8-value* :multiple))
 	     (not (condemed-p *r8-value*))
 	     (not (tag-saved-on-stack-p *r8-value*)))
     (let ((slot (find-stack-slot)))
@@ -753,6 +872,12 @@
 	((characterp value)
 	 (emit `(sys.lap-x86:mov64 ,register ,(character-to-raw value))))
 	(t (emit `(sys.lap-x86:mov64 ,register (:constant ,value))))))
+
+(defun load-multiple-values (tag)
+  (cond ((eql tag :multiple))
+        (t (load-in-r8 tag t)
+           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                 `(sys.lap-x86:mov64 :rbx :lsp)))))
 
 (defun load-in-r8 (tag &optional kill)
   (multiple-value-bind (loc true-tag)
@@ -822,6 +947,42 @@
 	(load-in-r8 (nth 0 args) t))))
   t)
 
+;; Compile a VALUES form.
+(defun cg-values (forms)
+  (cond ((null forms)
+         ;; No values.
+         (cond ((eql *for-value* :multiple)
+                ;; R8 must hold NIL.
+                (load-in-r8 ''nil)
+                (emit `(sys.lap-x86:xor32 :ecx :ecx)
+                      `(sys.lap-x86:mov64 :rbx :lsp))
+                :multiple)
+               (t (cg-form ''nil))))
+        ((null (rest forms))
+         ;; Single value.
+         (let ((*for-value* t))
+           (cg-form (first forms))))
+        (t ;; Multiple-values
+         (cond ((eql *for-value* :multiple)
+                ;; The MV return convention happens to be almost identical
+                ;; to the standard calling convention!
+                (when (prep-arguments-for-call forms)
+                  (load-constant :rcx (length forms))
+                  (let ((stack-count (- (length forms) 5)))
+                    (cond ((> stack-count 0)
+                           (emit `(sys.lap-x86:lea64 :rbx (:lsp ,(* stack-count 8)))))
+                          (t (emit `(sys.lap-x86:mov64 :rbx :lsp)))))
+                  :multiple))
+               (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
+                (let ((tag (cg-form (first forms))))
+                  (unless tag (return-from cg-values nil))
+                  (let ((*for-value* nil))
+                    (dolist (f (rest forms))
+                      (when (not (cg-form f))
+                        (setf *load-list* (delete tag *load-list*))
+                        (return-from cg-values nil))))
+                  tag))))))
+
 (defun cg-function-form (form)
   (let ((fn (match-builtin (first form) (length (rest form)))))
     (cond (fn
@@ -855,18 +1016,24 @@
 			  `(sys.lap-x86:jne ,type-error-label)
 			  `(sys.lap-x86:mov64 :r13 (:symbol-function :r13))
 			  function-label
-			  `(sys.lap-x86:call :r13)
-			  `(sys.lap-x86:mov64 :lsp :rbx))
-		    (setf *r8-value* (list (gensym))))
+			  `(sys.lap-x86:call :r13))
+                    (cond ((eql *for-value* :multiple)
+                           :multiple)
+                          (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
+                             (setf *r8-value* (list (gensym))))))
 		   (t ;; Flush the unused function.
 		    (setf *load-list* (delete fn-tag *load-list*))))))
+          ((eql (first form) 'values)
+           (cg-values (rest form)))
 	  (t (when (prep-arguments-for-call (rest form))
 	       (load-constant :r13 (first form))
 	       (smash-r8)
 	       (load-constant :rcx (length (rest form)))
-	       (emit `(sys.lap-x86:call (:symbol-function :r13))
-		     `(sys.lap-x86:mov64 :lsp :rbx))
-	       (setf *r8-value* (list (gensym))))))))
+	       (emit `(sys.lap-x86:call (:symbol-function :r13)))
+               (cond ((eql *for-value* :multiple)
+                      :multiple)
+                     (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
+                        (setf *r8-value* (list (gensym))))))))))
 
 ;;; Locate a variable in the environment.
 (defun find-var (var env chain)

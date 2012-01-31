@@ -146,20 +146,7 @@
   (backtrace)
   (loop))
 
-(defun indirect-funcall (l)
-  (funcall l))
-(defun indirect-funcall* (l a)
-  (funcall l a))
-
-(system:io-port/8 #xe9)
-
-(indirect-funcall* #'(lambda (a &optional (b 4321))
-                      (indirect-funcall #'(lambda ()
-                                            (write-integer a)
-                                            (write-char #\Space)
-                                            (write-integer b))))
-                  1234)
-
-(system:io-port/8 #xe9)
+(defun integerp (object)
+  (system:fixnump object))
 
 (loop (write (read)))

@@ -1,5 +1,7 @@
 (defpackage #:system (:export #:lambda-name
-                              #:io-port/8))
+                              #:io-port/8
+                              #:char-bits
+                              #:fixnump))
 (defpackage #:system.internals (:nicknames #:sys.int))
 (in-package #:system.compiler)
 (eval-when (:compile-toplevel :load-toplevel :execute)

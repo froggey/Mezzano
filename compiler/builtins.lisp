@@ -219,7 +219,8 @@
         ;; :rdx holds the remainder as a fixnum.
         `(sys.lap-x86:mov64 :r8 :rdx))
   (setf *r8-value* (list (gensym))))
-;; FIXME: check for /0 and return multiple values.
+
+;; FIXME: check for /0.
 (defbuiltin truncate (number divisor)
   (load-in-reg :r8 divisor t)
   (fixnum-check :r8)
@@ -229,10 +230,16 @@
         `(sys.lap-x86:cqo)
         `(sys.lap-x86:idiv64 :r8)
         ;; :rax holds the dividend as a integer.
+        ;; :rdx holds the remainder as a fixnum.
         ;; FIXME: Figure out what to do in the overflow case...
         `(sys.lap-x86:shl64 :rax 3)
         `(sys.lap-x86:mov64 :r8 :rax))
-  (setf *r8-value* (list (gensym))))
+  (cond ((eql *for-value* :multiple)
+         (emit `(sys.lap-x86:mov64 :r9 :rdx)
+               `(sys.lap-x86:mov64 :rbx :lsp))
+         (load-constant :rcx 2)
+         :multiple)
+        (t (setf *r8-value* (list (gensym))))))
 
 ;; FIXME should use &rest.
 (defbuiltin < (x y)
@@ -410,6 +417,27 @@
 	  `(sys.lap-x86:cmp8 :al #b0010)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  `(sys.lap-x86:mov64 (:symbol-value :r9) :r8))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin symbol-function (symbol)
+  (let ((type-error-label (gensym))
+	(undefined-function-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r8 'symbol))
+    (emit-trailer (undefined-function-error-label)
+      (load-constant :r13 'sys.int::raise-undefined-function-error)
+      (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:ud2)))
+    (load-in-reg :r8 symbol t)
+    (emit `(sys.lap-x86:mov8 :al :r8l)
+	  `(sys.lap-x86:and8 :al #b1111)
+	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:jne ,type-error-label)
+          ;; FIXME FIXME FIXME!
+          `(sys.lap-x86:cmp64 (:symbol-function :r8) 0)
+	  `(sys.lap-x86:je ,undefined-function-error-label)
+          `(sys.lap-x86:cmp64 :r8 (:symbol-function :r8)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf symbol-function) (value symbol)
@@ -693,3 +721,11 @@
           `(sys.lap-x86:and32 :r8d #x1e000000)
           `(sys.lap-x86:shr32 :r8d 22))
     (setf *r8-value* (list (gensym)))))
+
+(defbuiltin system:fixnump (object)
+  (load-in-reg :r8 object t)
+  (emit `(sys.lap-x86:test8 :r8l #b0111)
+        `(sys.lap-x86:mov64 :r8 nil)
+        `(sys.lap-x86:mov64 :r9 t)
+        `(sys.lap-x86:cmov64z :r8 :r9))
+  (setf *r8-value* (list (gensym))))

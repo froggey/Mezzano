@@ -135,13 +135,13 @@
 	     (env (list* bindings env)))
 	;; Lower &KEY and &AUX arguments so they don't have to be dealt with.
 	(when aux
-	  (setf body (lower-aux-arguments body aux declares)))
+	  (setf body (list (lower-aux-arguments body aux declares))))
 	(when enable-keys
 	  (unless rest
 	    ;; Add in a &REST arg and make it dynamic-extent.
 	    (setf rest (gensym))
 	    (push (list 'dynamic-extent rest) declares))
-	  (setf body (lower-key-arguments body rest keys allow-other-keys declares)))
+	  (setf body (list (lower-key-arguments body rest keys allow-other-keys declares))))
 	;; Add required, optional and rest arguments to the environment & lambda.
 	(labels ((add-var (name)
 		   (let ((var (make-variable name declares)))
@@ -212,6 +212,7 @@
 
 (defun compiler-macroexpand-1 (form env)
   "Expand one level of macros and compiler macros."
+  #+sbcl (setf env (sb-c::make-null-lexenv))
   ;; Detect (funcall #'name ..) and call the appropriate compiler macro.
   (let* ((name (if (and (eq (first form) 'funcall)
 			(consp (second form))
