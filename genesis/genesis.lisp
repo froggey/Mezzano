@@ -7,8 +7,8 @@
   (with-open-file (s filespec)
     (read s)))
 
-(defparameter *cl-symbol-names* (read-s-expression "~/Documents/aquarius/genesis/cl-symbols.lisp-expr"))
-(defparameter *system-symbol-names* (read-s-expression "~/Documents/aquarius/genesis/system-symbols.lisp-expr"))
+(defparameter *cl-symbol-names* (read-s-expression "~/Documents/LispOS/cl-symbols.lisp-expr"))
+(defparameter *system-symbol-names* (read-s-expression "~/Documents/LispOS/system-symbols.lisp-expr"))
 
 (defparameter *interned-symbols* '(nil)
   "A list of all non-keyword symbols that have been created

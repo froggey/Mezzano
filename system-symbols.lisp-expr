@@ -1,0 +1,17 @@
+;;;; -*- Mode: Lisp -*-
+;;;; A list of all symbols that should be exported from the SYSTEM package.
+;;;; This only needs to cover symbols in the bootstrap files.
+(
+"DOTTED-LIST-LENGTH"
+"PARSE-ORDINARY-LAMBDA-LIST"
+"LAMBDA-NAME"
+"PROCLAIMED-SPECIAL-P"
+"SYMBOL-MACRO-FUNCTION"
+"VARIABLE-INFORMATION"
+"SYMBOL-MODE"
+"IO-PORT/8"
+"IO-PORT/16"
+"IO-PORT/32"
+"CHAR-BITS"
+"FIXNUMP"
+)
