@@ -442,3 +442,12 @@
                                     &whole))
 
 (load "../closette.lisp")
+(load "../lap.lisp")
+(load "../lap-x86.lisp")
+(load "../compiler/compiler.lisp")
+(load "../compiler/pass1.lisp")
+(load "../compiler/constprop.lisp")
+(load "../compiler/simplify.lisp")
+(load "../compiler/lift.lisp")
+(load "../compiler/codegen.lisp")
+(load "../compiler/builtins.lisp")
