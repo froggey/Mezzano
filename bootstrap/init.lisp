@@ -451,3 +451,4 @@
 (load "../compiler/lift.lisp")
 (load "../compiler/codegen.lisp")
 (load "../compiler/builtins.lisp")
+(load "numbers.lisp")

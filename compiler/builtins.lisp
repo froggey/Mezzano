@@ -116,8 +116,7 @@
 	  `(sys.lap-x86:shr32 :r8d 1))
     (setf *r8-value* (list (gensym)))))
 
-;; FIXME should use &rest.
-(defbuiltin logior (x y)
+(defbuiltin sys.int::binary-logior (x y)
   ;; The constant folder will have moved any constant arguments to the front, so only check that.
   (cond ((and (consp x) (eql (first x) 'quote)
 	      (typep (second x) 'fixnum))
@@ -136,7 +135,26 @@
            (emit `(sys.lap-x86:or64 :r8 :r9))
            (setf *r8-value* (list (gensym))))))
 
-(defbuiltin logand (x y)
+(defbuiltin sys.int::binary-logxor (x y)
+  ;; The constant folder will have moved any constant arguments to the front, so only check that.
+  (cond ((and (consp x) (eql (first x) 'quote)
+	      (typep (second x) 'fixnum))
+	 (load-in-r8 y t)
+	 (fixnum-check :r8)
+	 ;; Small integers can be encoded directly into the instruction.
+	 (if (typep (second x) '(signed-byte 28))
+	     (emit `(sys.lap-x86:or64 :r8 ,(fixnum-to-raw (second x))))
+	     (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
+		   `(sys.lap-x86:or64 :r8 :rax)))
+	 (setf *r8-value* (list (gensym))))
+	(t (load-in-reg :r9 y t)
+           (fixnum-check :r9)
+           (load-in-reg :r8 x t)
+           (fixnum-check :r8)
+           (emit `(sys.lap-x86:xor64 :r8 :r9))
+           (setf *r8-value* (list (gensym))))))
+
+(defbuiltin sys.int::binary-logand (x y)
   ;; The constant folder will have moved any constant arguments to the front, so only check that.
   (cond ((and (consp x) (eql (first x) 'quote)
 	      (typep (second x) 'fixnum))
@@ -162,7 +180,7 @@
        (eql (first tag) 'quote)
        (typep (second tag) type)))
 
-(defbuiltin + (x y)
+(defbuiltin sys.int::binary-+ (x y)
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
       (when (constant-type-p x 'fixnum)
@@ -191,7 +209,7 @@
                    `(sys.lap-x86:jo ,ovfl))
              (setf *r8-value* (list (gensym)))))))
 
-(defbuiltin - (x y)
+(defbuiltin sys.int::binary-- (x y)
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
       (load-constant :r10 '-)
@@ -208,6 +226,7 @@
     (setf *r8-value* (list (gensym)))))
 
 ;; FIXME: check for /0
+;; FIXME: default divisor to 1
 (defbuiltin rem (number divisor)
   (load-in-reg :r8 divisor t)
   (fixnum-check :r8)
@@ -221,6 +240,7 @@
   (setf *r8-value* (list (gensym))))
 
 ;; FIXME: check for /0.
+;; FIXME: default divisor to 1
 (defbuiltin truncate (number divisor)
   (load-in-reg :r8 divisor t)
   (fixnum-check :r8)
@@ -241,8 +261,7 @@
          :multiple)
         (t (setf *r8-value* (list (gensym))))))
 
-;; FIXME should use &rest.
-(defbuiltin < (x y)
+(defbuiltin sys.int::binary-< (x y)
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -250,7 +269,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :l))
 
-(defbuiltin <= (x y)
+(defbuiltin sys.int::binary-<= (x y)
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -258,7 +277,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :le))
 
-(defbuiltin > (x y)
+(defbuiltin sys.int::binary-> (x y)
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -266,7 +285,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :g))
 
-(defbuiltin >= (x y)
+(defbuiltin sys.int::binary->= (x y)
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -274,7 +293,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :ge))
 
-(defbuiltin = (x y)
+(defbuiltin sys.int::binary-= (x y)
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)

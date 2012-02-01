@@ -149,4 +149,7 @@
 (defun integerp (object)
   (system:fixnump object))
 
+(defun numberp (object)
+  (integerp object))
+
 (loop (write (read)))
