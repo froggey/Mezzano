@@ -574,6 +574,12 @@
         `(sys.lap-x86:mov64 :r9 t)
         `(,(fourth (predicate-info pred)) :r8 :r9)))
 
+(defun predicate-result (pred)
+  (cond ((eql *for-value* :predicate)
+         pred)
+        (t (load-predicate pred)
+           (setf *r8-value* (list (gensym))))))
+
 (defun cg-if (form)
   (let* ((else-label (gensym))
 	 (end-label (gensym))
