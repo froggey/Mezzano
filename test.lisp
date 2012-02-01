@@ -152,4 +152,17 @@
 (defun numberp (object)
   (integerp object))
 
+(defvar *bump-pointer* #x8001000000)
+
+(defun cons (car cdr)
+  (let* ((address *bump-pointer*)
+         (val (sys.int::%%assemble-value address 1)))
+    (setf (car val) car
+          (cdr val) cdr)
+    (incf *bump-pointer* 16)
+    val))
+
+(defun list (&rest args)
+  args)
+
 (loop (write (read)))

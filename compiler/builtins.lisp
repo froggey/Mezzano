@@ -704,3 +704,10 @@
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:test8 :r8l #b0111))
   (predicate-result :z))
+
+(defbuiltin sys.int::%%assemble-value (address tag)
+  (load-in-reg :rax tag)
+  (load-in-reg :r8 address)
+  (emit `(sys.lap-x86:shr32 :eax 3)
+        `(sys.lap-x86:or64 :r8 :rax))
+  (setf *r8-value* (list (gensym))))
