@@ -301,33 +301,6 @@ This must be sorted from most-specific to least-specific.")
 	      :element-type t
 	      :initial-contents objects))
 
-(defun vector-pop (vector)
-  (check-vector-has-fill-pointer vector)
-  (when (zerop (fill-pointer vector))
-    (error "Vector ~S is empty." vector))
-  (aref vector (decf (fill-pointer vector))))
-
-(defun vector-push (new-element vector)
-  "Attempts to set the element of VECTOR designated by its fill-pointer
-to NEW-ELEMENT and increments the fill-pointer by one. Returns NIL if the fill-pointer
-is too large; otherwise the index of the new element is returned."
-  (check-vector-has-fill-pointer vector)
-  (let ((fp (fill-pointer vector)))
-    (when (< fp (array-dimension vector 0))
-      (setf (aref vector fp) new-element)
-      (incf (fill-pointer vector))
-      fp)))
-
-(defun vector-push-extend (new-element vector &optional (extension (1+ (length vector))))
-  "Sets the element of VECTOR designated by its fill-pointer to NEW-ELEMENT, increments
-the fill-pointer by one and returns the index of the new element. VECTOR is extended by
-at least MIN-EXTENSION if required."
-  (check-type extension (integer 1) "a positive integer")
-  (check-vector-has-fill-pointer vector)
-  (when (>= (fill-pointer vector) (array-dimension vector 0))
-    (adjust-array vector (+ (array-dimension vector 0) extension)))
-  (vector-push new-element vector))
-
 (defun %row-major-aref (array index)
   "ROW-MAJOR-AREF with no bounds check."
   (if (%array-header-p array)
@@ -431,3 +404,30 @@ at least MIN-EXTENSION if required."
 (defun (setf char) (value string index)
   (check-type string string)
   (setf (aref string index) value))
+
+(defun vector-pop (vector)
+  (check-vector-has-fill-pointer vector)
+  (when (zerop (fill-pointer vector))
+    (error "Vector ~S is empty." vector))
+  (aref vector (decf (fill-pointer vector))))
+
+(defun vector-push (new-element vector)
+  "Attempts to set the element of VECTOR designated by its fill-pointer
+to NEW-ELEMENT and increments the fill-pointer by one. Returns NIL if the fill-pointer
+is too large; otherwise the index of the new element is returned."
+  (check-vector-has-fill-pointer vector)
+  (let ((fp (fill-pointer vector)))
+    (when (< fp (array-dimension vector 0))
+      (setf (aref vector fp) new-element)
+      (incf (fill-pointer vector))
+      fp)))
+
+(defun vector-push-extend (new-element vector &optional (extension (1+ (length vector))))
+  "Sets the element of VECTOR designated by its fill-pointer to NEW-ELEMENT, increments
+the fill-pointer by one and returns the index of the new element. VECTOR is extended by
+at least MIN-EXTENSION if required."
+  (check-type extension (integer 1) "a positive integer")
+  (check-vector-has-fill-pointer vector)
+  (when (>= (fill-pointer vector) (array-dimension vector 0))
+    (adjust-array vector (+ (array-dimension vector 0) extension)))
+  (vector-push new-element vector))
