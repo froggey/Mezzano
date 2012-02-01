@@ -181,7 +181,7 @@
 			   :assembled-code (strip-array-header mc)
 			   :constants (strip-array-header constants))))
 
-(defun generate-dump-layout (&optional extra-static-objects)
+(defun generate-dump-layout (undefined-function-thunk &optional extra-static-objects)
   "Scan the entire Genesis environment, creating a final memory layout for a dump image."
   (let ((static-objects (make-hash-table))
 	(static-offset 0)
@@ -190,7 +190,7 @@
 	(compiled-functions (make-hash-table))
 	(visited-objects (make-hash-table))
         ;; Scan from NIL.
-	(roots (append extra-static-objects (list nil)))
+	(roots (append extra-static-objects (list undefined-function-thunk nil)))
 	(*lap-symbols* '()))
     (labels ((add-static-object (x)
 	       (setf (gethash x static-objects) static-offset)
@@ -248,12 +248,15 @@
 		       (format t "Compiling function ~S~%" (genesis-function-source object)))
 		     (compile-genesis-function object))
 		 (map-slots #'visit object))))
-      ;; Give addresses to NIL and T, this is required for LAP.
+      ;; Give addresses to NIL, T, and the undefined function thunk. This is required for LAP.
       (add-static-object 'nil)
       (add-static-object (genesis-intern "T"))
+      (add-static-object undefined-function-thunk)
       (push (cons 'nil (logior (+ (* (+ (gethash 'nil static-objects) 2) 8) *static-area-base*) 2))
             *lap-symbols*)
       (push (cons (genesis-intern "T") (logior (+ (* (+ (gethash (genesis-intern "T") static-objects) 2) 8) *static-area-base*) 2))
+            *lap-symbols*)
+      (push (cons (genesis-intern "UNDEFINED-FUNCTION") (logior (+ (* (+ (gethash undefined-function-thunk static-objects) 2) 8) *static-area-base*) #b1100))
             *lap-symbols*)
       ;; Visit all visible objects, including extra objects.
       (dolist (r roots)
@@ -443,8 +446,8 @@
 	    (sys.lap-x86:movseg :ss :eax)
 	    ;; Switch to the proper stack.
 	    ;; FIXME: This is a huge hack and will break if the static area grows too much.
-	    (sys.lap-x86:mov64 :csp #x300000)
-	    (sys.lap-x86:mov64 :lsp #x400000)
+	    (sys.lap-x86:mov64 :csp #x500000)
+	    (sys.lap-x86:mov64 :lsp #x600000)
 	    ;; Clear frame pointers.
 	    (sys.lap-x86:mov64 :cfp 0)
 	    (sys.lap-x86:mov64 :lfp 0)
@@ -678,11 +681,12 @@
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
-	(generate-dump-layout (list multiboot-header setup-code gdt idt undefined-function-thunk entry-function))
+	(generate-dump-layout undefined-function-thunk (list multiboot-header setup-code gdt idt entry-function))
       (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
-	  (generate-physical-dump-layout static-size dynamic-size)
+	  (generate-physical-dump-layout (+ static-size #x40000) dynamic-size)
 	(let ((image (make-array (+ (- image-end load-base) #x1000) :element-type '(unsigned-byte 8)))
 	      (object-values (make-hash-table)))
+          (format t "Entry function MC size: ~D bytes~%" (length (genesis-function-assembled-code entry-function)))
 	  (format t "Image size: ~D kilowords (~D kilobytes)~%" (/ (length image) 1024.0 8) (/ (length image) 1024.0))
 	  ;; Produce a map from objects to their values.
 	  (flet ((add-object (obj base-address)

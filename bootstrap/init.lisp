@@ -441,6 +441,28 @@
                                     &rest
                                     &whole))
 
+(defun equalp (x y)
+  (typecase x
+    (character (and (characterp y)
+                    (char-equal x y)))
+    (number (and (numberp y)
+                 (= x y)))
+    (cons (and (consp y)
+               (equalp (car x) (car y))
+               (equalp (cdr x) (cdr y))))
+    (vector (and (vectorp y)
+                 (eql (length x) (length y))
+                 (dotimes (i (length x) t)
+                   (when (not (equalp (aref x i) (aref y i)))
+                     (return nil)))))
+    (array (and (arrayp y)
+                (equalp (array-dimensions x) (array-dimensions y))
+                (dotimes (i (array-total-size x) t)
+                  (when (not (equalp (row-major-aref x i) (row-major-aref y i)))
+                    (return nil)))))
+    ;; TODO: structures and hash-tables.
+    (t (eq x y))))
+
 (load "../closette.lisp")
 (load "../lap.lisp")
 (load "../lap-x86.lisp")

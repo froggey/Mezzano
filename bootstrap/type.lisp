@@ -98,7 +98,7 @@
 	 (or (eql max '*)
 	     (<= object max)))))
 
-(setf (get 'integer 'compound-type) #'integer-type-p)
+(setf (get 'integer 'compound-type) 'integer-type-p)
 
 (defun real-type-p (object type)
   (destructuring-bind (&optional (min '*) (max '*))
@@ -116,7 +116,7 @@
 		  (error "Bad REAL type ~S." type))
 		(< object (first max)))
 	       (t (<= object max))))))
-(setf (get 'real 'compound-type) #'real-type-p)
+(setf (get 'real 'compound-type) 'real-type-p)
 
 (defun cons-type-p (object type)
   (destructuring-bind (&optional (car-type '*) (cdr-type '*))
@@ -130,7 +130,7 @@
 	     (typep (car object) car-type))
 	 (or (eql cdr-type 't)
 	     (typep (cdr object) cdr-type)))))
-(setf (get 'cons 'compound-type) #'cons-type-p)
+(setf (get 'cons 'compound-type) 'cons-type-p)
 
 (setf (get 'null 'type-symbol) 'null)
 (setf (get 'list 'type-symbol) 'listp)

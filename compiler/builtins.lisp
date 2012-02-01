@@ -425,7 +425,7 @@
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
     (emit-trailer (undefined-function-error-label)
-      (load-constant :r13 'sys.int::raise-undefined-function-error)
+      (load-constant :r13 'sys.int::raise-undefined-function)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
             `(sys.lap-x86:call (:symbol-function :r13))
             `(sys.lap-x86:ud2)))
@@ -434,8 +434,7 @@
 	  `(sys.lap-x86:and8 :al #b1111)
 	  `(sys.lap-x86:cmp8 :al #b0010)
 	  `(sys.lap-x86:jne ,type-error-label)
-          ;; FIXME FIXME FIXME!
-          `(sys.lap-x86:cmp64 (:symbol-function :r8) 0)
+          `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function)
 	  `(sys.lap-x86:je ,undefined-function-error-label)
           `(sys.lap-x86:cmp64 :r8 (:symbol-function :r8)))
     (setf *r8-value* (list (gensym)))))
