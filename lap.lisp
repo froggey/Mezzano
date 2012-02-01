@@ -38,10 +38,13 @@ a vector of constants and an alist of symbols & addresses."
        (*missing-symbols* '())
        (*mc-end* nil (+ base-address (length *machine-code*)))
        (*machine-code* nil)
+       (prev-mc nil)
        (*current-address* base-address base-address)
        (*symbol-table* nil)
-       (*prev-symbol-table* (make-hash-table) *symbol-table*))
-      ((eql prev-bytes-emitted *bytes-emitted*)
+       (*prev-symbol-table* (make-hash-table) *symbol-table*)
+       (attempt 0 (1+ attempt)))
+      ((and (eql prev-bytes-emitted *bytes-emitted*)
+            (equalp prev-mc *machine-code*))
        (when *missing-symbols*
 	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
        (values *machine-code*
@@ -51,8 +54,11 @@ a vector of constants and an alist of symbols & addresses."
 			    (push (cons k v) alist))
 			  *symbol-table*)
 		 alist)))
+    (when (> attempt 10)
+      (error "Internal assembler error. Code has not settled after 10 iterations."))
     (setf prev-bytes-emitted *bytes-emitted*
 	  *bytes-emitted* 0
+          prev-mc *machine-code*
 	  *machine-code* (make-array 128
 				   :element-type '(unsigned-byte 8)
 				   :fill-pointer 0
