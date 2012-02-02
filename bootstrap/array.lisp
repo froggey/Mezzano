@@ -21,14 +21,14 @@
     (unsigned-byte 8)
     (unsigned-byte 16)
     (unsigned-byte 32)
-    (unsigned-byte 64)
+;    (unsigned-byte 64)
     (signed-byte 1)
     (signed-byte 2)
     (signed-byte 4)
     (signed-byte 8)
     (signed-byte 16)
     (signed-byte 32)
-    (signed-byte 64)
+;    (signed-byte 64)
     base-char
     character
     single-float
