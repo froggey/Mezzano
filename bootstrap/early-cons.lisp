@@ -295,6 +295,10 @@
 	  (funcall #'(setf car) (cdar itr) itr)))
       (single-mapcar function list)))
 
+(defun mapc (function list &rest more-lists)
+  (apply 'mapcar function list more-lists)
+  list)
+
 (defun maplist (function list &rest more-lists)
   (when (null list)
     (return-from maplist nil))

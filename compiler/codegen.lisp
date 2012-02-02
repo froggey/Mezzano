@@ -329,7 +329,7 @@
                    `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
                    `(sys.lap-x86:mov64 :r13 (:constant cons))
                    `(sys.lap-x86:call (:symbol-function :r13))
-                   `(sys.lap-x86:mov64 :rbx :lsp))))
+                   `(sys.lap-x86:mov64 :lsp :rbx))))
           (list
            ;; Stash in the result slot and the scratch slot.
            `(sys.lap-x86:mov64 (:lsp) :r8)
@@ -357,7 +357,7 @@
                    `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
                    `(sys.lap-x86:mov64 :r13 (:constant cons))
                    `(sys.lap-x86:call (:symbol-function :r13))
-                   `(sys.lap-x86:mov64 :rbx :lsp))))
+                   `(sys.lap-x86:mov64 :lsp :rbx))))
           (list
 	   `(sys.lap-x86:mov64 :r9 (:lsp))
 	   `(sys.lap-x86:mov64 (:cdr :r9) :r8)
@@ -884,12 +884,12 @@
 	   (values (or (when best
 			 best-loc)
 		       ;; R8 might hold a duplicate (thanks to let or setq), use that instead of home.
-		       (when (and *r8-value* (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
+		       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
 			 :r8)
 		       home-loc
 		       (error "Cannot find tag ~S." tag))
 		   (or best
-		       (when (and *r8-value* (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
+		       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
 			 *r8-value*)
 		       home))))
 	(t (error "What kind of tag is this? ~S" tag))))

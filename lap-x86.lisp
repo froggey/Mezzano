@@ -953,3 +953,11 @@
 (define-instruction idiv64 (rhs)
   (modrm-single :gpr-64 rhs #xF7 7))
 
+(define-instruction imul8 (rhs)
+  (modrm-single :gpr-8 rhs #xF7 5))
+(define-instruction imul16 (rhs)
+  (modrm-single :gpr-16 rhs #xF7 5))
+(define-instruction imul32 (rhs)
+  (modrm-single :gpr-32 rhs #xF7 5))
+(define-instruction imul64 (rhs)
+  (modrm-single :gpr-64 rhs #xF7 5))

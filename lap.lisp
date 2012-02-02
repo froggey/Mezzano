@@ -54,7 +54,7 @@ a vector of constants and an alist of symbols & addresses."
 			    (push (cons k v) alist))
 			  *symbol-table*)
 		 alist)))
-    (when (> attempt 10)
+    (when (> attempt 50)
       (error "Internal assembler error. Code has not settled after 10 iterations."))
     (setf prev-bytes-emitted *bytes-emitted*
 	  *bytes-emitted* 0

@@ -38,7 +38,7 @@
 
 (deftype mod (n)
   (unless (and (integerp s) (plusp s))
-	     (error 'type-error :expected-type '(integer 1) :datum s))
+    (error 'type-error :expected-type '(integer 1) :datum s))
   `(integer 0 (,n)))
 
 (deftype fixnum ()

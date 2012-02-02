@@ -2,7 +2,9 @@
                               #:io-port/8
                               #:char-bits
                               #:fixnump))
-(defpackage #:system.internals (:nicknames #:sys.int))
+(defpackage #:system.internals
+  (:nicknames #:sys.int)
+  (:use #:cl))
 (in-package #:system.compiler)
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (shadow '(macro-function compiler-macro-function)))
