@@ -72,6 +72,13 @@
     (setf *screen-offset* 0))
   c)
 
+(defun terpri (&optional stream)
+  (write-char #\Newline))
+
+(defun fresh-line (&optional stream)
+  (unless (zerop (rem *screen-offset* 80))
+    (terpri)))
+
 (defun write-to-the-screen (str)
   (dotimes (i (sys.int::%simple-array-length str))
     (write-char (schar str i))))
@@ -129,6 +136,20 @@
     (error "Multiple unread-char!"))
   (setf *unread-char* character)
   nil)
+
+(defun peek-char (&optional peek-type stream eof-error-p eof-value recursive-p)
+  (cond ((eql peek-type nil)
+         (let ((ch (read-char)))
+           (unread-char ch)
+           ch))
+        ((eql peek-type t)
+         (do ((ch (read-char) (read-char)))
+             ((not (sys.int::whitespace[2]p ch))
+              (unread-char ch)
+              ch)))
+        ((characterp peek-type)
+         (error "TODO: character peek."))
+        (t (error "Bad peek type ~S." peek-type))))
 
 (setf *standard-input* nil
       *standard-output* nil)
@@ -365,14 +386,77 @@
       (when (= lhs rhs)
 	(return-from /= nil)))))
 
+(defun sys.int::simplify-string (string)
+  (if (simple-string-p string)
+      string
+      (make-array (length string)
+                  :element-type (if (every 'base-char-p string)
+                                    'base-char
+                                    'character)
+                  :initial-contents string)))
+
 (defun make-symbol (name)
   (check-type name string)
-  (prog1 (sys.int::%make-symbol *bump-pointer*
-                                (make-array (length name)
-                                            :element-type (if (every 'base-char-p name)
-                                                              'base-char
-                                                              'character)
-                                            :initial-contents name))
+  (prog1 (sys.int::%make-symbol *bump-pointer* (sys.int::simplify-string name))
     (incf *bump-pointer* (* 8 6))))
 
-(loop (write (read)))
+(defun eval (form)
+  (typecase form
+    (symbol (symbol-value form))
+    (cons (case (first form)
+            ((quote) (second form))
+            (t (apply (first form) (mapcar 'eval (rest form))))))
+    (t form)))
+
+(defun apply (function arg &rest more-args)
+  (declare (dynamic-extent more-args))
+  (cond (more-args
+         ;; Convert (... (final-list ...)) to (... final-list...)
+         (do* ((arg-list (cons arg more-args))
+               (i arg-list (cdr i)))
+              ((null (cddr i))
+               (setf (cdr i) (cadr i))
+               (apply function arg-list))))
+        (t (apply function arg))))
+
+(defun write-string (string)
+  (dotimes (i (length string))
+    (write-char (char string i))))
+
+(defun write (object)
+  (typecase object
+    (integer (write-integer object))
+    (cons
+     (write-char #\()
+     (write (car object))
+     (write-string " . ")
+     (write (cdr object))
+     (write-char #\)))
+    (symbol (write-string (symbol-name object)))
+    (string
+     (write-char #\")
+     (dotimes (i (length object))
+       (let ((c (char object i)))
+         (case c
+           (#\\ (write-char #\\) (write-char #\\))
+           (#\" (write-char #\\) (write-char #\"))
+           (t (write-char c)))))
+     (write-char #\"))
+    (character
+     (write-char #\#)
+     (write-char #\\)
+     (write-char object))
+    (t (write-char #\#)
+       (write-char #\<)
+       (write-string "Unknown-object ")
+       (write-integer (logior (sys.int::%%value-address object)
+                              (sys.int::%%value-tag object))
+                      16)
+       (write-char #\>))))
+
+(loop
+   (fresh-line)
+   (write-char #\>)
+   (let ((form (read)))
+     (fresh-line)
+     (write (eval form))))
