@@ -208,8 +208,16 @@
   form)
 
 (defun simp-function-form (form)
-  (simp-implicit-progn (cddr form))
-  form)
+  ;; (funcall 'symbol ...) -> (symbol ...)
+  (cond ((and (eql (first form) 'funcall)
+              (listp (second form))
+              (= (list-length (second form)) 2)
+              (eql (first (second form)) 'quote)
+              (symbolp (second (second form))))
+         (simp-implicit-progn (cddr form))
+         (list* (second (second form)) (cddr form)))
+        (t (simp-implicit-progn (cdr form))
+           form)))
 
 (defun simp-variable (form)
   form)

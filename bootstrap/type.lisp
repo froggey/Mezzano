@@ -237,3 +237,23 @@
     `(do ((,value ,place ,place))
 	 ((typep ,value ',typespec))
        (setf ,value (check-type-error ',place ,value ',typespec ,string)))))
+
+(define-compiler-macro typep (&whole whole object type-specifier &optional environment)
+  (when environment
+    (return-from typep whole))
+  (unless (and (listp type-specifier)
+               (= (list-length type-specifier) 2)
+               (eql (first type-specifier) 'quote))
+    (return-from typep whole))
+  (setf type-specifier (second type-specifier))
+  (let ((type-symbol (cond ((symbolp type-specifier)
+                            type-specifier)
+                           ((and (consp type-specifier)
+                                 (null (rest type-specifier))
+                                 (symbolp (first type-specifier)))
+                            (first type-specifier)))))
+    (when type-symbol
+      (let ((test (get type-symbol 'type-symbol)))
+	(when test
+	  (return-from typep `(funcall ',test ,object))))))
+  whole)
