@@ -10,6 +10,7 @@
 	    ((if) (ll-if form))
 	    ((let) (ll-let form))
 	    ((load-time-value) (ll-load-time-value form))
+	    ((multiple-value-bind) (ll-multiple-value-bind form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((progn) (ll-progn form))
@@ -47,6 +48,7 @@
   form)
 
 (defun ll-let (form)
+  ;; Patch up definition points after a lambda has been lifted.
   (dolist (binding (second form))
     (when (and (lexical-variable-p (first binding))
 	       (not (eql (lexical-variable-definition-point (first binding)) *current-lambda*)))
@@ -58,10 +60,36 @@
 
 ;;;(defun ll-load-time-value (form))
 
-;;; TODO: Do lifting here as well. (single value functions, quote)
-(defun ll-multiple-value-call (form)
-  (ll-implicit-progn (cdr form))
+(defun ll-multiple-value-bind (form)
+  ;; Patch up definition points after a lambda has been lifted.
+  (dolist (var (second form))
+    (when (and (lexical-variable-p var)
+	       (not (eql (lexical-variable-definition-point var) *current-lambda*)))
+      (incf *change-count*)
+      (setf (lexical-variable-definition-point var) *current-lambda*)))
+  (ll-implicit-progn (cddr form))
   form)
+
+;; Reduce (multiple-value-call #'(lambda (&optional ... &rest unused) ...) value-form)
+;; back down to (multiple-value-bind (vars...) value-form body...).
+(defun ll-multiple-value-call (form)
+  (cond ((and (lambda-information-p (second form))
+              (null (lambda-information-required-args (second form)))
+              (lambda-information-rest-arg (second form))
+              (every (lambda (x)
+                       (and (equal ''nil (second x)) ; An init-form of NIL.
+                            (eql (third x) nil)))    ; No suppliedp arg.
+                     (lambda-information-optional-args (second form)))
+              (lexical-variable-p (lambda-information-rest-arg (second form)))
+              (zerop (lexical-variable-use-count (lambda-information-rest-arg (second form))))
+              (= (length form) 3))
+         (incf *change-count*)
+         ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
+         (ll-form `(multiple-value-bind ,(mapcar 'first (lambda-information-optional-args (second form)))
+                       ,(third form)
+                     ,@(lambda-information-body (second form)))))
+        (t (ll-implicit-progn (cdr form))
+           form)))
 
 (defun ll-multiple-value-prog1 (form)
   (ll-implicit-progn (cdr form))

@@ -10,6 +10,7 @@
 	    ((if) (simp-if form))
 	    ((let) (simp-let form))
 	    ((load-time-value) (simp-load-time-value form))
+	    ((multiple-value-bind) (simp-multiple-value-bind form))
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
 	    ((progn) (simp-progn form))
@@ -96,6 +97,18 @@
 	(simp-form `(progn ,@(cddr form))))))
 
 ;;;(defun simp-load-time-value (form))
+
+(defun simp-multiple-value-bind (form)
+  ;; If no variables are used, or there are no variables then
+  ;; remove the form.
+  (cond ((every (lambda (var)
+                  (and (lexical-variable-p var)
+                       (zerop (lexical-variable-use-count var))))
+                (second form))
+         (incf *change-count*)
+         (simp-form `(progn ,@(cddr form))))
+        (t (simp-implicit-progn (cddr form) t)
+           form)))
 
 (defun simp-multiple-value-call (form)
   (simp-implicit-progn (cdr form))

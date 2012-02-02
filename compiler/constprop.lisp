@@ -13,6 +13,7 @@
 	    ((if) (cp-if form))
 	    ((let) (cp-let form))
 	    ((load-time-value) (cp-load-time-value form))
+	    ((multiple-value-bind) (cp-multiple-value-bind form))
 	    ((multiple-value-call) (cp-multiple-value-call form))
 	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
 	    ((progn) (cp-progn form))
@@ -99,6 +100,10 @@
     form))
 
 ;;;(defun cp-load-time-value (form))
+
+(defun cp-multiple-value-bind (form)
+  (cp-implicit-progn (cddr form))
+  form)
 
 (defun cp-multiple-value-call (form)
   (cp-implicit-progn (cdr form))
