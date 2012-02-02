@@ -1,3 +1,9 @@
+(defun 1+ (x)
+  (+ x 1))
+
+(defun 1- (x)
+  (+ x 1))
+
 (setf (symbol-function 'sys.int::raise-undefined-function)
       (lambda (invoked-through)
 	(let ((str (if (symbolp invoked-through)
@@ -104,13 +110,25 @@
               (cond ((eql key :shift)
                      (setf *keyboard-shifted* t))
                     ((characterp key)
+                     (write-char key)
                      (return key))))
              (t ;; Key release.
               (case key
                 (:shift (setf *keyboard-shifted* nil))))))))
 
+(defvar *unread-char* nil)
+
 (defun read-char (&optional stream eof-error-p eof-value recursive-p)
-  (read-keyboard-char))
+  (cond (*unread-char*
+         (prog1 *unread-char*
+           (setf *unread-char* nil)))
+        (t (read-keyboard-char))))
+
+(defun unread-char (character &optional stream)
+  (when *unread-char*
+    (error "Multiple unread-char!"))
+  (setf *unread-char* character)
+  nil)
 
 (setf *standard-input* nil
       *standard-output* nil)
@@ -164,5 +182,197 @@
 
 (defun list (&rest args)
   args)
+
+(defun plusp (number)
+  (> number 0))
+
+(defun minusp (number)
+  (< number 0))
+
+(defun zerop (number)
+  (= number 0))
+
+(defun expt (base power)
+  (let ((accum 1))
+    (dotimes (i power accum)
+      (setf accum (* accum base)))))
+
+(defun 1- (number)
+  (- number 1))
+
+(defun 1+ (number)
+  (+ number 1))
+
+;;; (type tag size-in-bits 16-byte-aligned-p)
+(defvar *array-info*
+  '((bit 3 1 nil)
+    ((unsigned-byte 2) 4 2 nil)
+    ((unsigned-byte 4) 5 4 nil)
+    ((unsigned-byte 8) 6 8 nil)
+    ((unsigned-byte 16) 7 16 nil)
+    ((unsigned-byte 32) 8 32 nil)
+    ((unsigned-byte 64) 9 64 nil)
+    ((signed-byte 1) 10 1 nil)
+    ((signed-byte 2) 11 2 nil)
+    ((signed-byte 4) 12 4 nil)
+    ((signed-byte 8) 13 8 nil)
+    ((signed-byte 16) 14 16 nil)
+    ((signed-byte 32) 15 32 nil)
+    ((signed-byte 64) 16 64 nil)
+    (base-char 1 8 nil)
+    (character 2 32 nil)
+    (single-float 17 32 t)
+    (double-float 18 64 t)
+    (long-float 19 128 t)
+    (sys.int::xmm-vector 20 128 t)
+    ((complex single-float) 21 64 t)
+    ((complex double-float) 22 128 t)
+    ((complex long-float) 23 256 t)
+    (t 0 64 nil)))
+
+(defun sys.int::%allocate-and-clear-array (length real-element-type)
+  (let* ((info (assoc real-element-type *array-info* :test 'equal))
+         (total-size (+ 64 ; header word.
+                        (if (fourth info) 64 0) ; padding for alignment.
+                        (* length (third info))))
+         (address *bump-pointer*))
+    ;; Align on a 16-byte boundary.
+    (unless (zerop (rem total-size 128))
+      (incf total-size (- 128 (rem total-size 128))))
+    ;; Clear memory.
+    (dotimes (i (truncate total-size 64))
+      (setf (sys.int::memref-unsigned-byte-64 address i) 0))
+    ;; Set header word.
+    (setf (sys.int::memref-unsigned-byte-64 address 0)
+          (logior (ash length 8)
+                  (ash (second info) 1)))
+    ;; Advance pointer.
+    (incf *bump-pointer* (truncate total-size 8))
+    ;; Return value.
+    (sys.int::%%assemble-value address #b0111)))
+
+(defun sys.int::%make-array-header (dimensions fill-pointer info storage)
+  (let* ((address *bump-pointer*)
+         (val (sys.int::%%assemble-value address #b0011)))
+    (setf (sys.int::%array-header-dimensions val) dimensions
+          (sys.int::%array-header-fill-pointer val) fill-pointer
+          (sys.int::%array-header-info val) info
+          (sys.int::%array-header-storage val) storage)
+    (incf *bump-pointer* 32)
+    val))
+
+(defun sys.int::%make-character (code &optional bits)
+  (check-type code (or (integer 0 #xD7FF)
+                       (integer #xE000 #x0010FFFF))
+              "a unicode code-point")
+  (check-type bits (or null (integer 0 15)))
+  (sys.int::%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010))
+
+(defun char-code (character)
+  (check-type character character)
+  (logand (ash (sys.int::%%value-address character) -4) #x1FFFFF))
+
+(defun system:char-bits (character)
+  (check-type character character)
+  (logand (ash (ash (sys.int::%%value-address character) -4) -21) 15))
+
+(defun char-upcase (char)
+  (let ((code (char-code char)))
+    (if (<= #x61 code #x7A)
+        (sys.int::%make-character (logand code (lognot #x20))
+                                  (system:char-bits char))
+        char)))
+
+;;; FIXME: some parts must run with the GC off.
+(defun sys.int::%simple-array-aref (array index)
+  (ecase (sys.int::%simple-array-type array)
+    (0 ;; simple-vector
+     (svref array index))
+    ((1 2) ;; simple-base-string or simple-string
+     (schar array index))))
+(defun (setf sys.int::%simple-array-aref) (value array index)
+  (ecase (sys.int::%simple-array-type array)
+    (0 ;; simple-vector
+     (setf (svref array index) value))
+    ((1 2) ;; simple-base-string or simple-string
+     (setf (schar array index) value))))
+
+(defparameter *array-types*
+  #(t
+    base-char
+    character
+    bit
+    (unsigned-byte 2)
+    (unsigned-byte 4)
+    (unsigned-byte 8)
+    (unsigned-byte 16)
+    (unsigned-byte 32)
+    (unsigned-byte 64)
+    (signed-byte 1)
+    (signed-byte 2)
+    (signed-byte 4)
+    (signed-byte 8)
+    (signed-byte 16)
+    (signed-byte 32)
+    (signed-byte 64)
+    single-float
+    double-float
+    long-float
+    sys.int::xmm-vector
+    (complex single-float)
+    (complex double-float)
+    (complex long-float)))
+
+(defun sys.int::%simple-array-element-type (array)
+  (svref *array-types* (sys.int::%simple-array-type array)))
+
+(defun simple-string-p (object)
+  (when (sys.int::%simple-array-p object)
+    (let ((tag (sys.int::%simple-array-type object)))
+      (or (eql tag 1) (eql tag 2)))))
+
+(defun char= (character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (check-type character character)
+  (dolist (c more-characters t)
+    (check-type c character)
+    (when (not (eql character c))
+      (return nil))))
+
+(defun every (predicate sequence)
+  (if (listp sequence)
+      (dolist (i sequence t)
+        (unless (funcall predicate i)
+          (return nil)))
+      (dotimes (i (length sequence) t)
+        (unless (funcall predicate (aref sequence i))
+          (return nil)))))
+
+(defun base-char-p (character)
+  (check-type character character)
+  (and (zerop (system:char-bits character))
+       (< (char-code character) 256)))
+
+(defun /= (number &rest more-numbers)
+  "Returns true if no two numbers are the same in value; otherwise, returns false."
+  (declare (dynamic-extent more-numbers))
+  (check-type number number)
+  (do ((lhs number (car n))
+       (n more-numbers (cdr n)))
+      ((endp n) t)
+    (dolist (rhs n)
+      (check-type rhs number)
+      (when (= lhs rhs)
+	(return-from /= nil)))))
+
+(defun make-symbol (name)
+  (check-type name string)
+  (prog1 (sys.int::%make-symbol *bump-pointer*
+                                (make-array (length name)
+                                            :element-type (if (every 'base-char-p name)
+                                                              'base-char
+                                                              'character)
+                                            :initial-contents name))
+    (incf *bump-pointer* (* 8 6))))
 
 (loop (write (read)))
