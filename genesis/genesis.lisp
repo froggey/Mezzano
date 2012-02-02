@@ -44,7 +44,7 @@ GENESIS-INTERN.")
                      (push sym *interned-symbols*)
                      sym)
                    ;; Call in to the system.
-                   (funcall (genesis-intern "INTERN") name))))))
+                   (funcall (genesis-intern "INTERN") name "SYS.INT"))))))
 
 (defun genesis-symbol-constant-p (symbol)
   (or (eql symbol 'nil)
