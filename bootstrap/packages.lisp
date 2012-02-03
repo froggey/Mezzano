@@ -19,7 +19,7 @@
   external-symbols)
 
 (defun list-all-packages ()
-  (remove-duplicates (mapcar #'cdr *package-list*)))
+  (remove-duplicates (mapcar 'cdr *package-list*)))
 
 (defmacro in-package (name)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
@@ -28,7 +28,7 @@
 (defun find-package (name)
   (if (packagep name)
       name
-      (cdr (assoc (string name) *package-list* :test #'string=))))
+      (cdr (assoc (string name) *package-list* :test 'string=))))
 
 (defun find-package-or-die (name)
   (or (find-package name)
@@ -54,7 +54,7 @@
   (dolist (n nicknames)
     (when (find-package n)
       (error "A package named ~S already exists." n)))
-  (let ((use-list (mapcar #'find-package use))
+  (let ((use-list (mapcar 'find-package use))
 	(package (%make-package (simplify-string (string package-name))
 				(mapcar (lambda (x) (simplify-string (string x))) nicknames))))
     ;; Use packages.
@@ -67,10 +67,10 @@
 
 (defun find-symbol (string &optional (package *package*))
   (let ((p (find-package-or-die package)))
-    (let ((sym (member string (package-internal-symbols p) :key #'symbol-name :test #'string=)))
+    (let ((sym (member string (package-internal-symbols p) :key 'symbol-name :test 'string=)))
       (when sym
 	(return-from find-symbol (values (car sym) :internal))))
-    (let ((sym (member string (package-external-symbols p) :key #'symbol-name :test #'string=)))
+    (let ((sym (member string (package-external-symbols p) :key 'symbol-name :test 'string=)))
       (when sym
 	(return-from find-symbol (values (car sym) :external))))
     (dolist (pak (package-use-list p)
@@ -167,6 +167,7 @@
 	(import (list symbol) p)
 	(when (string= (package-name p) "KEYWORD")
 	  ;; TODO: Constantness.
+          (proclaim `(constant ,symbol))
 	  (setf (symbol-value symbol) symbol)
 	  (export (list symbol) p))
 	(values symbol nil))))
@@ -188,7 +189,7 @@
       (when (eq (symbol-package symbol) package)
 	(setf (symbol-package symbol) nil)))
     (setf (package-name p) nil)
-    (setf *package-list* (remove p *package-list* :key #'cdr))
+    (setf *package-list* (remove p *package-list* :key 'cdr))
     t))
 
 (defun keywordp (object)

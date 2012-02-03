@@ -351,28 +351,30 @@
       (funcall #'(setf cadr) new-value i)
       (return new-value))))
 
+(declaim (inline assoc))
 (defun assoc (item alist &key key test test-not)
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
     (setq test (complement test)))
   (unless test
-    (setq test #'eql))
+    (setq test 'eql))
   (unless key
-    (setq key #'identity))
+    (setq key 'identity))
   (dolist (i alist)
     (when (funcall test item (funcall key (car i)))
       (return i))))
 
+(declaim (inline member))
 (defun member (item list &key key test test-not)
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
     (setq test (complement test)))
   (unless test
-    (setq test #'eql))
+    (setq test 'eql))
   (unless key
-    (setq key #'identity))
+    (setq key 'identity))
   (do ((i list (cdr i)))
       ((endp i))
     (when (funcall test item (funcall key (car i)))

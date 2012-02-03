@@ -218,11 +218,19 @@
 	code)
     (funcall #'(setf cdr) (cons (%setf (car itr) (car (cdr itr))) nil) tail)))
 
+(defmacro declaim (&rest declaration-specifiers)
+  (labels ((frob (decs)
+             (when decs
+               (cons (list 'proclaim (list 'quote (car decs)))
+                     (frob (cdr decs))))))
+    (cons 'eval-when
+          (cons '(:compile-toplevel :load-toplevel :execute)
+                (frob declaration-specifiers)))))
+
 ;;; DEFVAR.
 (defmacro defvar (name initial-value)
   (list 'progn
-	(list 'eval-when '(:compile-toplevel :load-toplevel :execute)
-	      (list 'proclaim (list 'quote (list 'special name))))
+	(list 'declaim (list 'special name))
 	(list 'if (list 'not (list 'boundp (list 'quote name)))
 	      (list 'setq name initial-value))
 	(list 'quote name)))
@@ -230,18 +238,15 @@
 ;;; DEFPARAMETER.
 (defmacro defparameter (name initial-value)
   (list 'progn
-	(list 'eval-when '(:compile-toplevel :load-toplevel :execute)
-	      (list 'proclaim (list 'quote (list 'special name))))
+	(list 'declaim (list 'special name))
 	(list 'setq name initial-value)
 	(list 'quote name)))
 
 (defmacro defconstant (name initial-value &optional docstring)
   (list 'progn
-	(list 'eval-when '(:compile-toplevel :load-toplevel :execute)
-	      (list 'proclaim (list 'quote (list 'special name))))
+	(list 'declaim (list 'special name))
 	(list 'setq name initial-value)
-	(list 'eval-when '(:compile-toplevel :load-toplevel :execute)
-	      (list 'proclaim (list 'quote (list 'constant name))))
+        (list 'declaim (list 'constant name))
 	(list 'quote name)))
 
 ;; NOTE: incomplete.
@@ -276,9 +281,11 @@
 		(list 'quote name))
 	  (list 'quote name))))
 
+(declaim (inline identity))
 (defun identity (thing)
   thing)
 
+(declaim (inline complement))
 (defun complement (fn)
   #'(lambda (&rest args) (not (apply fn args))))
 

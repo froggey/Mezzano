@@ -13,6 +13,7 @@
       (and (vectorp object)
 	   (subtypep (array-element-type object) 'character))))
 
+(declaim (inline compare-sequence))
 (defun compare-sequence (predicate seq1 seq2 &key (start1 0) end1 (start2 0) end2)
   (unless end1 (setf end1 (length seq1)))
   (when (or (< start1 0) (> end1 (length seq1)))
@@ -28,14 +29,14 @@
 (defun string= (string1 string2 &key (start1 0) end1 (start2 0) end2)
     "Returns true if STRING1 and STRING2 are the same length and contain the
 same characters in the corresponding positions; otherwise it returns false."
-  (compare-sequence #'char= (string string1) (string string2)
+  (compare-sequence 'char= (string string1) (string string2)
 		    :start1 start1 :end1 end1
 		    :start2 start2 :end2 end2))
 
 (defun string-equal (string1 string2 &key (start1 0) end1 (start2 0) end2)
   "Returns true if STRING1 and STRING2 are the same length and contain the
 same characters in the corresponding positions; otherwise it returns false."
-  (compare-sequence #'char-equal (string string1) (string string2)
+  (compare-sequence 'char-equal (string string1) (string string2)
 		    :start1 start1 :end1 end1
 		    :start2 start2 :end2 end2))
 
