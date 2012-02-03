@@ -1076,5 +1076,4 @@ otherwise the matching variable definition."
            ;; A closure.
            (values nil (genesis-intern "T") nil))
           (t ;; A regular function.
-           (format t "f-l-e: ~S~%" (second info))
            (values (first info) nil nil)))))
