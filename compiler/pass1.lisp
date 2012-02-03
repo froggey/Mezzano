@@ -294,9 +294,15 @@
 		  (pass1-function-form form env))))))))
 
 (defun expand-inline-function (symbol arg-list)
-  (let ((expansion (get symbol 'inline-form)))
-    (when expansion
-      `(funcall ,(pass1-lambda expansion nil) ,@arg-list))))
+  (let ((expansion (get symbol 'sys.int::inline-form)))
+    (cond (expansion
+           `(funcall ,(pass1-lambda expansion nil) ,@arg-list))
+          ((and (get symbol 'sys.int::inline-mode)
+                (fboundp symbol))
+           (multiple-value-bind (expansion closurep)
+               (function-lambda-expression (symbol-function symbol))
+             (when (and expansion (not closurep))
+               `(funcall ,(pass1-lambda expansion nil) ,@arg-list)))))))
 
 (defun pass1-function-form (form env)
   (let ((fn (find-function (first form) env))

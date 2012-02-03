@@ -1066,3 +1066,15 @@ otherwise the matching variable definition."
 							  (list (genesis-intern "PROGN") form))
 						   nil)
 				     nil)))))
+
+(defbuiltin function-lambda-expression (function)
+  (check-type function function)
+  (let ((info (gethash function *function-info*)))
+    (cond ((null info)
+           (values nil (genesis-intern "T") nil))
+          ((or (functionp (first info)))
+           ;; A closure.
+           (values nil (genesis-intern "T") nil))
+          (t ;; A regular function.
+           (format t "f-l-e: ~S~%" (second info))
+           (values (first info) nil nil)))))
