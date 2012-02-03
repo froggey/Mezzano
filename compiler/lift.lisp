@@ -76,6 +76,7 @@
   (cond ((and (lambda-information-p (second form))
               (null (lambda-information-required-args (second form)))
               (lambda-information-rest-arg (second form))
+              (not (lambda-information-enable-keys (second form)))
               (every (lambda (x)
                        (and (equal ''nil (second x)) ; An init-form of NIL.
                             (eql (third x) nil)))    ; No suppliedp arg.
@@ -136,9 +137,11 @@
   (let ((name (lambda-information-name lambda))
 	(required-args (lambda-information-required-args lambda))
 	(optional-args (lambda-information-optional-args lambda))
-	(rest-arg (lambda-information-rest-arg lambda)))
+	(rest-arg (lambda-information-rest-arg lambda))
+        (enable-keys (lambda-information-enable-keys lambda))
+        (key-args (lambda-information-key-args lambda)))
     ;; Attempt to match the argument list with the function's lambda list.
-    (when (or optional-args rest-arg)
+    (when (or optional-args rest-arg enable-keys key-args)
       ;; Bail out.
       (warn 'simple-style-warning
 	    :format-control "Cannot inline ~S yet."
@@ -178,6 +181,8 @@
 (defun ll-lambda (form)
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
+      (setf (second arg) (ll-form (second arg))))
+    (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (ll-form (second arg))))
     (ll-implicit-progn (lambda-information-body form)))
   form)

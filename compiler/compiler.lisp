@@ -42,7 +42,10 @@ A list of any declaration-specifiers."
   body
   required-args
   optional-args
-  rest-arg)
+  rest-arg
+  enable-keys
+  key-args
+  allow-other-keys)
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
 (defstruct lexical-variable
@@ -71,6 +74,9 @@ A list of any declaration-specifiers."
 			form))
     (let ((*change-count* 0))
       (setf form (ll-form (detect-uses form)))
+      ;; Key arg conversion must be performed after lambda-lifting, so as not to
+      ;; complicate the lift code.
+      (setf form (lower-keyword-arguments form))
       (setf form (cp-form (detect-uses form)))
       (setf form (simp-form (detect-uses form)))
       (detect-uses form)
@@ -116,6 +122,8 @@ A list of any declaration-specifiers."
      (decf (lexical-variable-use-count form)))
     (lambda-information
      (dolist (arg (lambda-information-optional-args form))
+       (flush-form (second arg)))
+     (dolist (arg (lambda-information-key-args form))
        (flush-form (second arg)))
      (implicit-progn (lambda-information-body form))))))
 
@@ -202,7 +210,9 @@ A list of any declaration-specifiers."
       (lambda-information
        (let* ((info (make-lambda-information :name (lambda-information-name form)
 					     :docstring (lambda-information-docstring form)
-					     :lambda-list (lambda-information-lambda-list form)))
+					     :lambda-list (lambda-information-lambda-list form)
+                                             :enable-keys (lambda-information-enable-keys form)
+                                             :allow-other-keys (lambda-information-allow-other-keys form)))
 	      (*current-lambda* info))
 	 (push (cons form info) replacements)
 	 (setf (lambda-information-required-args info)
@@ -217,6 +227,13 @@ A list of any declaration-specifiers."
 	 (when (lambda-information-rest-arg form)
 	   (setf (lambda-information-rest-arg info)
 		 (copy-variable (lambda-information-rest-arg form))))
+         (setf (lambda-information-key-args info)
+	       (mapcar (lambda (x)
+			 (list (copy-variable (second (first x)))
+			       (copy-form (second x))
+			       (when (third x)
+				 (copy-form (third x)))))
+		       (lambda-information-key-args form)))
 	 (setf (lambda-information-body info)
 	       (implicit-progn (lambda-information-body form)))
 	 info)))))
@@ -273,7 +290,7 @@ A list of any declaration-specifiers."
 		 (unless (go-tag-p i)
 		   (detect-uses i))))
 	      ((the) (detect-uses (third form)))
-	      ((unwind-protect) (detect-uses (cdr form)))
+	      ((unwind-protect) (implicit-progn (cdr form)))
 	    (t (implicit-progn (cdr form)))))
     (lexical-variable
      (pushnew *current-lambda* (lexical-variable-used-in form))
@@ -289,5 +306,129 @@ A list of any declaration-specifiers."
 	   (reset-var (third arg))))
        (when (lambda-information-rest-arg form)
 	 (reset-var (lambda-information-rest-arg form)))
+       (dolist (arg (lambda-information-key-args form))
+	 (reset-var (second (first arg)))
+	 (detect-uses (second arg))
+	 (when (third arg)
+	   (reset-var (third arg))))
+       (implicit-progn (lambda-information-body form))))))
+  form)
+
+(defun variable-name (var)
+  (if (symbolp var)
+      var
+      (lexical-variable-name var)))
+
+(defun lower-key-arguments* (body rest keys allow-other-keys)
+  (let* ((values (mapcar (lambda (x)
+                           (make-lexical-variable :name (gensym (string (variable-name (cadar x))))
+                                                  :definition-point *current-lambda*))
+                         keys))
+         (suppliedp (mapcar (lambda (x)
+                              (make-lexical-variable :name (if (third x)
+                                                               (gensym (string (variable-name (third x))))
+                                                               (gensym))
+                                                     :definition-point *current-lambda*))
+                            keys))
+         (itr (make-lexical-variable :name (gensym)
+                                     :definition-point *current-lambda*))
+         (current-keyword (make-lexical-variable :name (gensym)
+                                                 :definition-point *current-lambda*))
+         (tb (make-tagbody-information :definition-point *current-lambda*))
+         (head-tag (make-go-tag :name (gensym "HEAD") :tagbody tb))
+         (test-tag (make-go-tag :name (gensym "TEST") :tagbody tb)))
+    (push head-tag (tagbody-information-go-tags tb))
+    (push test-tag (tagbody-information-go-tags tb))
+    (labels ((create-key-test-list (key-args values suppliedp)
+               (cond (key-args
+                      `(if (eql ,current-keyword ',(caar (first key-args)))
+                           (if ,(first suppliedp)
+                               'nil
+                               (progn (setq ,(first suppliedp) 't)
+                                      (setq ,(first values) (cadr ,itr))))
+                           ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
+                     (allow-other-keys
+                      ''nil)
+                     (t `(error '"Unknown &KEY argument ~S. Expected one of ~S."
+                                ,current-keyword
+                                ',(mapcar 'caar keys)))))
+             (create-key-let-body (key-args values suppliedp)
+               (cond (key-args
+                      `(let ((,(second (first (first key-args))) (if ,(first suppliedp)
+                                                                     ,(first values)
+                                                                     ,(second (first key-args)))))
+                         ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp))))
+                     (t `(progn ,@body)))))
+      `((let ,(append (mapcar (lambda (x) (list x ''nil)) values)
+                      (mapcar (lambda (x) (list x ''nil)) suppliedp)
+                      (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
+          (tagbody ,tb
+             (go ,test-tag)
+             ,head-tag
+             (if (null (cdr ,itr))
+                 (error '"Odd number of &KEY arguments.")
+                 'nil)
+             (let ((,current-keyword (car ,itr)))
+               ,(create-key-test-list keys values suppliedp))
+             (setq ,itr (cddr ,itr))
+             ,test-tag
+             (if ,itr
+                 (go ,head-tag)
+                 'nil))
+          ,(create-key-let-body keys values suppliedp))))))
+
+(defun lower-keyword-arguments (form)
+  "Walk form, lowering keyword arguments to simple lisp code."
+  (flet ((implicit-progn (forms)
+	   (dolist (i forms)
+	     (lower-keyword-arguments i))))
+    (etypecase form
+      (cons (case (first form)
+	      ((block) (implicit-progn (cddr form)))
+	      ((go))
+	      ((if) (implicit-progn (cdr form)))
+	      ((let)
+	       (dolist (b (second form))
+		 (lower-keyword-arguments (second b)))
+	       (implicit-progn (cddr form)))
+	      ((load-time-value) (error "TODO: load-time-value"))
+	      ((multiple-value-bind) (implicit-progn (cddr form)))
+	      ((multiple-value-call) (implicit-progn (cdr form)))
+	      ((multiple-value-prog1) (implicit-progn (cdr form)))
+	      ((progn) (implicit-progn (cdr form)))
+	      ((progv) (implicit-progn (cdr form)))
+	      ((quote))
+	      ((return-from) (lower-keyword-arguments (third form)))
+	      ((setq) (lower-keyword-arguments (third form)))
+	      ((tagbody)
+	       (dolist (i (cddr form))
+		 (unless (go-tag-p i)
+		   (lower-keyword-arguments i))))
+	      ((the) (lower-keyword-arguments (third form)))
+	      ((unwind-protect) (lower-keyword-arguments (cdr form)))
+	    (t (implicit-progn (cdr form)))))
+    (lexical-variable)
+    (lambda-information
+     (let ((*current-lambda* form))
+       (when (lambda-information-enable-keys form)
+         (unless (lambda-information-rest-arg form)
+           ;; Add in a &REST arg and make it dynamic-extent.
+           (setf (lambda-information-rest-arg form)
+                 (make-lexical-variable :name (gensym "REST")
+                                        :definition-point *current-lambda*
+                                        :ignore :maybe
+                                        :dynamic-extent t)))
+         (setf (lambda-information-body form)
+               (lower-key-arguments* (lambda-information-body form)
+                                     (lambda-information-rest-arg form)
+                                     (lambda-information-key-args form)
+                                     (lambda-information-allow-other-keys form)))
+         ;; Remove the old keyword arguments.
+         (setf (lambda-information-enable-keys form) nil
+               (lambda-information-key-args form) '()
+               (lambda-information-allow-other-keys form) nil)
+         (incf *change-count*))
+       (dolist (arg (lambda-information-optional-args form))
+	 (lower-keyword-arguments (second arg)))
        (implicit-progn (lambda-information-body form))))))
   form)

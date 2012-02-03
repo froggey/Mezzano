@@ -221,6 +221,8 @@
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (cp-form (second arg))))
+    (dolist (arg (lambda-information-key-args form))
+      (setf (second arg) (cp-form (second arg))))
     (cp-implicit-progn (lambda-information-body form)))
   form)
 

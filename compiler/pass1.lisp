@@ -59,38 +59,6 @@
 		(ignorable ,@(remove-if-not #'test ignorable))
 		(dynamic-extent ,@(remove-if-not #'test dynamic-extent))))))
 
-(defun lower-key-arguments (body rest keys allow-other-keys declares)
-  (let ((values (mapcar (lambda (x)
-			  (gensym (string (cadar x))))
-			keys))
-	(suppliedp (mapcar (lambda (x)
-			     (if (caddr x)
-				 (gensym (string (caddr x)))
-				 (gensym)))
-			   keys))
-	(itr (gensym)))
-    `(let ,(append values suppliedp)
-       (do ((,itr ,rest (cddr ,itr)))
-	   ((null ,itr))
-	 (when (null (cdr ,itr))
-	   (error "Odd number of &KEY arguments."))
-	 (,(if allow-other-keys 'case 'ecase)
-	   (car ,itr)
-	   ,@(mapcar (lambda (arg value suppliedp)
-		       `(,(caar arg) (unless ,suppliedp
-				       (setq ,suppliedp t
-					     ,value (cadr ,itr)))))
-		     keys values suppliedp)))
-       (let* ,(mapcan (lambda (arg value suppliedp)
-			(cons (list (cadar arg) `(if ,suppliedp ,value ,(cadr arg)))
-			      (when (caddr arg)
-				(list (list (caddr arg) suppliedp)))))
-		      keys values suppliedp)
-	 ,(forward-declares (nconc (mapcar #'cadar keys)
-				   (remove 'nil (mapcar #'caddr keys)))
-			    declares)
-	 ,@body))))
-
 (defun lower-aux-arguments (body aux declares)
   `(let* ,aux
      ,(forward-declares (mapcar 'car aux) declares)
@@ -129,19 +97,15 @@
 	(parse-ordinary-lambda-list lambda-list)
       (let* ((info (make-lambda-information :name name
 					    :docstring docstring
-					    :lambda-list lambda-list))
+					    :lambda-list lambda-list
+                                            :enable-keys enable-keys
+                                            :allow-other-keys allow-other-keys))
 	     (*current-lambda* info)
 	     (bindings (list :bindings))
 	     (env (list* bindings env)))
-	;; Lower &KEY and &AUX arguments so they don't have to be dealt with.
+	;; Lower &AUX arguments so they don't have to be dealt with.
 	(when aux
 	  (setf body (list (lower-aux-arguments body aux declares))))
-	(when enable-keys
-	  (unless rest
-	    ;; Add in a &REST arg and make it dynamic-extent.
-	    (setf rest (gensym))
-	    (push (list 'dynamic-extent rest) declares))
-	  (setf body (list (lower-key-arguments body rest keys allow-other-keys declares))))
 	;; Add required, optional and rest arguments to the environment & lambda.
 	(labels ((add-var (name)
 		   (let ((var (make-variable name declares)))
@@ -150,16 +114,26 @@
 	  (setf (lambda-information-required-args info) (mapcar #'add-var required))
 	  (setf (lambda-information-optional-args info)
 		(mapcar (lambda (opt)
-			  (let ((var (add-var (first opt)))
-				(init-form (second opt))
+			  (let ((var (first opt))
+				(init-form (pass1-form (second opt) env))
 				(suppliedp (third opt)))
-			    (list var (pass1-form init-form env) (when suppliedp
-								   (add-var suppliedp)))))
+			    (list (add-var var) init-form (when suppliedp
+                                                            (add-var suppliedp)))))
 			optional))
 	  (when rest
-	    (setf (lambda-information-rest-arg info) (add-var rest))))
+	    (setf (lambda-information-rest-arg info) (add-var rest)))
+          (setf (lambda-information-key-args info)
+                (mapcar (lambda (key)
+                          (let ((keyword (first (first key)))
+                                (var (second (first key)))
+                                (init-form (pass1-form (second key) env))
+                                (suppliedp (third key)))
+                            (list (list keyword (add-var var))
+                                  init-form
+                                  (when suppliedp (add-var suppliedp)))))
+                        keys)))
 	;; Add special variables to the environment.
-	;; NOTE: Does not quite work properly with &key and &aux arguments.
+	;; NOTE: Does not quite work properly with &aux arguments.
 	;; Special declarations will apply inside their init-forms.
 	(let* ((lambda-variables (append required
 					 (mapcar #'car optional)
@@ -184,6 +158,11 @@
 	    (check-variable-usage (third opt))))
 	(when (lexical-variable-p (lambda-information-rest-arg info))
 	  (check-variable-usage (lambda-information-rest-arg info)))
+        (dolist (opt (lambda-information-key-args info))
+	  (when (lexical-variable-p (second (first opt)))
+	    (check-variable-usage (second (first opt))))
+	  (when (lexical-variable-p (third opt))
+	    (check-variable-usage (third opt))))
 	info))))
 
 (defun pass1-implicit-progn (forms env)
