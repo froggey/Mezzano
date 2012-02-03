@@ -86,12 +86,13 @@
       (if value
 	  (progn
 	    (incf *change-count*)
-	    (if (eql (second value) 'nil)
+	    (if (eql (or (not (consp value)) (second value)) 'nil)
 		;; Use the else branch.
 		(pick-branch (fourth form) (third form))
 		;; Use the true branch.
 		(pick-branch (third form) (fourth form))))
 	  (progn
+            (flush-mutable-variables)
 	    (setf (third form) (cp-form (third form)))
 	    (setf (fourth form) (cp-form (fourth form)))
 	    form)))))
@@ -161,6 +162,7 @@
                ;; original binding.
                (cond ((zerop (third info))
                       ;; Send it back, and remove this form.
+                      (incf *change-count*)
                       (setf (second (fourth info)) (third form))
                       ''nil)
                      (t ;; Just propagate forward.

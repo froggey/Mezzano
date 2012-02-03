@@ -200,6 +200,7 @@
 
 (defun simp-the (form)
   (cond ((eql (second form) 't)
+         (incf *change-count*)
          (simp-form (third form)))
         (t (setf (third form) (simp-form (third form)))
            form)))
@@ -216,6 +217,7 @@
               (= (list-length (second form)) 2)
               (eql (first (second form)) 'quote)
               (symbolp (second (second form))))
+         (incf *change-count*)
          (simp-implicit-progn (cddr form))
          (list* (second (second form)) (cddr form)))
         (t (simp-implicit-progn (cdr form))
