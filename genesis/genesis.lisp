@@ -291,8 +291,12 @@ GENESIS-INTERN.")
 (defbuiltin (setf %struct-slot) (value struct slot)
   (setf (aref (genesis-struct-slots struct) slot) value))
 
+;;; Concat-symbols must intern in *PACKAGE*, genesis-intern always uses SYS.INT.
 (defbuiltin concat-symbols (&rest symbols)
-  (genesis-intern (apply 'concatenate 'string (mapcar 'string symbols))))
+  (let ((name (apply 'concatenate 'string (mapcar 'string symbols))))
+    (if *use-bootstrap-package-system*
+        (genesis-intern name)
+        (genesis-eval (list (genesis-intern "INTERN") name)))))
 
 (define-forwarding-builtin string string nil)
 (define-forwarding-builtin stringp stringp nil)
