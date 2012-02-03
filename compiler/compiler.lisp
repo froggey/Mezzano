@@ -68,11 +68,13 @@ A list of any declaration-specifiers."
   used-in)
 
 (defun run-optimizers (form)
-  (dotimes (i 4 (progn (warn 'simple-style-warning
+  (dotimes (i 5 (progn (warn 'simple-style-warning
 			      :format-control "Possible optimizer infinite loop."
 			      :format-arguments '())
 			form))
     (let ((*change-count* 0))
+      ;; Must be run before lift.
+      (setf form (il-form (detect-uses form)))
       (setf form (ll-form (detect-uses form)))
       ;; Key arg conversion must be performed after lambda-lifting, so as not to
       ;; complicate the lift code.

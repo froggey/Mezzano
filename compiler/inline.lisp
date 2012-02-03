@@ -1,0 +1,129 @@
+;;;; Function inlining.
+
+(in-package #:system.compiler)
+
+(defun il-form (form)
+  (etypecase form
+    (cons (case (first form)
+	    ((block) (il-block form))
+	    ((go) (il-go form))
+	    ((if) (il-if form))
+	    ((let) (il-let form))
+	    ((load-time-value) (il-load-time-value form))
+	    ((multiple-value-bind) (il-multiple-value-bind form))
+	    ((multiple-value-call) (il-multiple-value-call form))
+	    ((multiple-value-prog1) (il-multiple-value-prog1 form))
+	    ((progn) (il-progn form))
+	    ((progv) (il-progv form))
+	    ((quote) (il-quote form))
+	    ((return-from) (il-return-from form))
+	    ((setq) (il-setq form))
+	    ((tagbody) (il-tagbody form))
+	    ((the) (il-the form))
+	    ((unwind-protect) (il-unwind-protect form))
+	    (t (il-function-form form))))
+    (lexical-variable (il-variable form))
+    (lambda-information (il-lambda form))))
+
+(defun il-implicit-progn (x)
+  (do ((i x (cdr i)))
+      ((endp i))
+    (setf (car i) (il-form (car i)))))
+
+(defun il-block (form)
+  (il-implicit-progn (cddr form))
+  form)
+
+(defun il-go (form)
+  form)
+
+(defun il-if (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun il-let (form)
+  (dolist (b (second form))
+    ;; Run on the init-form.
+    (setf (second b) (il-form (second b))))
+  (il-implicit-progn (cddr form))
+  form)
+
+;;;(defun il-load-time-value (form))
+
+(defun il-multiple-value-bind (form)
+  (il-implicit-progn (cddr form))
+  form)
+
+(defun il-multiple-value-call (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun il-multiple-value-prog1 (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun il-progn (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun il-progv (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun il-quote (form)
+  form)
+
+(defun il-return-from (form)
+  (setf (third form) (il-form (third form)))
+  form)
+
+(defun il-setq (form)
+  ;; Walk the value form.
+  (setf (third form) (il-form (third form)))
+  form)
+
+(defun il-tagbody (form)
+  (do ((i (cddr form) (cdr i)))
+      ((endp i))
+    (unless (go-tag-p (car i))
+      (setf (car i) (il-form (car i)))))
+  form)
+
+(defun il-the (form)
+  (setf (third form) (il-form (third form)))
+  form)
+
+(defun il-unwind-protect (form)
+  (il-implicit-progn (cdr form))
+  form)
+
+(defun expand-inline-function (symbol arg-list)
+  (let ((expansion (get symbol 'sys.int::inline-form)))
+    (cond (expansion
+           `(funcall ,(pass1-lambda expansion nil) ,@arg-list))
+          ((and (get symbol 'sys.int::inline-mode)
+                (fboundp symbol))
+           (multiple-value-bind (expansion closurep)
+               (function-lambda-expression (symbol-function symbol))
+             (when (and expansion (not closurep))
+               `(funcall ,(pass1-lambda expansion nil) ,@arg-list)))))))
+
+(defun il-function-form (form)
+  (il-implicit-progn (cdr form))
+  (let ((inlined-form (expand-inline-function (first form) (rest form))))
+    (cond (inlined-form
+           (incf *change-count*)
+           inlined-form)
+          (t form))))
+
+(defun il-variable (form)
+  form)
+
+(defun il-lambda (form)
+  (let ((*current-lambda* form))
+    (dolist (arg (lambda-information-optional-args form))
+      (setf (second arg) (il-form (second arg))))
+    (dolist (arg (lambda-information-key-args form))
+      (setf (second arg) (il-form (second arg))))
+    (il-implicit-progn (lambda-information-body form)))
+  form)

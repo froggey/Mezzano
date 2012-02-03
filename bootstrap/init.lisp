@@ -471,6 +471,7 @@
 (load "../compiler/constprop.lisp")
 (load "../compiler/simplify.lisp")
 (load "../compiler/lift.lisp")
+(load "../compiler/inline.lisp")
 (load "../compiler/codegen.lisp")
 (load "../compiler/builtins.lisp")
 (load "numbers.lisp")
