@@ -199,8 +199,10 @@
 	     `(progn ,@(cddr form))))))
 
 (defun simp-the (form)
-  (setf (third form) (simp-form (third form)))
-  form)
+  (cond ((eql (second form) 't)
+         (simp-form (third form)))
+        (t (setf (third form) (simp-form (third form)))
+           form)))
 
 (defun simp-unwind-protect (form)
   (setf (second form) (simp-form (second form)))
