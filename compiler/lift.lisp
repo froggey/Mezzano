@@ -133,38 +133,86 @@
   (ll-implicit-progn (cdr form))
   form)
 
+;; NOTE: Only support required and keyword args.
+;; Doesn't support fuzzy allow-other-keys matching or suppliedp variables.
+(defun arguments-match-lambda-list (lambda arg-list)
+  (let ((arg-count (length arg-list))
+        (req-count (length (lambda-information-required-args lambda))))
+    (cond ((lambda-information-enable-keys lambda)
+           (let ((keywords (mapcar 'caar (lambda-information-key-args lambda))))
+             (when (and (>= arg-count req-count)
+                        (evenp (- arg-count req-count)))
+               (do ((i (nthcdr req-count arg-list) (cddr i)))
+                   ((null i)
+                    t)
+                 (when (third (car i))
+                   (return nil))
+                 (unless (and (listp (car i))
+                              (= (length (car i)) 2)
+                              (eql (first (car i)) 'quote)
+                              (member (second (car i)) keywords))
+                   (return nil))))))
+          (t (= arg-count req-count)))))
+
 (defun lift-lambda (lambda arg-list)
   (let ((name (lambda-information-name lambda))
 	(required-args (lambda-information-required-args lambda))
 	(optional-args (lambda-information-optional-args lambda))
 	(rest-arg (lambda-information-rest-arg lambda))
-        (enable-keys (lambda-information-enable-keys lambda))
         (key-args (lambda-information-key-args lambda)))
     ;; Attempt to match the argument list with the function's lambda list.
-    (when (or optional-args rest-arg enable-keys key-args)
+    (when (or optional-args rest-arg)
       ;; Bail out.
       (warn 'simple-style-warning
 	    :format-control "Cannot inline ~S yet."
 	    :format-arguments (list name))
       (return-from lift-lambda))
-    (when (/= (length arg-list) (length required-args))
+    (unless (arguments-match-lambda-list lambda arg-list)
       ;; Bail out.
       (warn 'simple-warning
-	    :format-control "Not inlining ~S, called with ~S arguments but wanted ~S."
-	    :format-arguments (list name (length arg-list) (length required-args)))
+	    :format-control "Not inlining ~S, arguments do not match."
+	    :format-arguments (list name))
       (return-from lift-lambda))
     (incf *change-count*)
     ;; Fix argument definition points.
     (dolist (arg required-args)
       (when (lexical-variable-p arg)
 	(setf (lexical-variable-definition-point arg) *current-lambda*)))
-    (dolist (arg optional-args)
+    #+nil(dolist (arg optional-args)
       (when (lexical-variable-p arg)
 	(setf (lexical-variable-definition-point arg) *current-lambda*)))
-    (when (lexical-variable-p rest-arg)
+    #+nil(when (lexical-variable-p rest-arg)
       (setf (lexical-variable-definition-point rest-arg) *current-lambda*))
-    `(let ,(mapcar #'list required-args arg-list)
-       ,@(mapcar #'ll-form (lambda-information-body lambda)))))
+    (dolist (arg key-args)
+      (when (lexical-variable-p (second (first arg)))
+	(setf (lexical-variable-definition-point (second (first arg))) *current-lambda*))
+      (when (lexical-variable-p (third arg))
+	(setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
+    (let* ((argument-vars (mapcar (lambda (x)
+                                    (declare (ignore x))
+                                    (make-lexical-variable :name (gensym)
+                                                           :definition-point *current-lambda*
+                                                           :ignore :maybe))
+                                  arg-list))
+           (key-pairs (nthcdr (length required-args) argument-vars)))
+      (labels ((build-key-bindings (keys)
+                 (cond (keys
+                        (do ((p 0 (+ p 2))
+                             (i (nthcdr (length required-args) arg-list) (cddr i)))
+                            ((null i)
+                             ;; Not provided, use the initform.
+                             `(let ((,(cadar (first keys)) ,(second (first keys))))
+                                ,(build-key-bindings (rest keys))))
+                          (when (eql (car i) (caar (first keys)))
+                            ;; Keywords match, use this argument.
+                            (return `(let ((,(cadar (first keys)) ,(nth (1+ p) key-pairs)))
+                                       ,(build-key-bindings (rest keys)))))))
+                       (t `(progn ,@(mapcar #'ll-form (lambda-information-body lambda)))))))
+        ;; Evaluate arguments.
+        `(let ,(mapcar #'list argument-vars arg-list)
+           ;; Bind required arguments.
+           (let ,(mapcar #'list required-args argument-vars)
+             ,(build-key-bindings key-args)))))))
 
 (defun ll-function-form (form)
   (ll-implicit-progn (cdr form))
