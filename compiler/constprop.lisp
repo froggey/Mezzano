@@ -41,12 +41,30 @@
 	       (decf (lexical-variable-use-count form)))
 	     (second val))))))
 
+(defun flush-mutable-variable (var)
+  "Remove a single mutable variables from the *known-variables* list."
+  (do ((i *known-variables* (cdr i)))
+      ((null i))
+    (when (and (first i)
+               (eql var (first (first i)))
+               (not (zerop (lexical-variable-write-count (first (first i))))))
+      (setf (first i) nil))))
+
+(defun flush-mutable-variables ()
+  "Remove all mutable variables from the *known-variables* list."
+  (do ((i *known-variables* (cdr i)))
+      ((null i))
+    (when (and (first i)
+               (not (zerop (lexical-variable-write-count (first (first i))))))
+      (setf (first i) nil))))
+
 (defun cp-implicit-progn (x)
   (do ((i x (cdr i)))
       ((endp i))
     (setf (car i) (cp-form (car i)))))
 
 (defun cp-block (form)
+  (flush-mutable-variables)
   (cp-implicit-progn (cddr form))
   form)
 
@@ -85,15 +103,16 @@
 	    (val (second b)))
 	;; Run on the init-form.
 	(setf (second b) (cp-form (second b)))
-	;; Add constants to the new constants list.
+	;; Add variables to the new constants list.
+        ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
+        ;; or lambda is seen.
 	(when (and (lexical-variable-p var)
-		   (eql (lexical-variable-write-count var) 0)
 		   (or (lambda-information-p val)
 		       (and (consp val) (eq (first val) 'quote))
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
-	  (push b new-constants))))
+	  (push (list var val 0 b) new-constants))))
     ;; Run on the body, with the new constants.
     (let ((*known-variables* new-constants))
       (cp-implicit-progn (cddr form)))
@@ -129,10 +148,31 @@
   form)
 
 (defun cp-setq (form)
+  ;; Walk the value form.
   (setf (third form) (cp-form (third form)))
-  form)
+  (let ((info (assoc (second form) *known-variables*)))
+    (if info
+        (cond ((or (lambda-information-p (third form))
+                   (and (consp (third form)) (eq (first (third form)) 'quote))
+                   (and (lexical-variable-p (third form))
+                        (localp (third form))
+                        (eql (lexical-variable-write-count (third form)) 0)))
+               ;; The value is constant. Attempt to push it back to the
+               ;; original binding.
+               (cond ((zerop (third info))
+                      ;; Send it back, and remove this form.
+                      (setf (second (fourth info)) (third form))
+                      ''nil)
+                     (t ;; Just propagate forward.
+                      (setf (second info) (third form))
+                      form)))
+              (t ;; Non-constant, flush.
+               (flush-mutable-variable (second form))
+               form))
+        form)))
 
 (defun cp-tagbody (form)
+  (flush-mutable-variables)
   (do ((i (cddr form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
@@ -214,10 +254,12 @@
 	(progn
 	  (incf *change-count*)
 	  (decf (lexical-variable-use-count form))
+          (incf (third val))
 	  (copy-form (second val)))
 	form)))
 
 (defun cp-lambda (form)
+  (flush-mutable-variables)
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (cp-form (second arg))))
