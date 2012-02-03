@@ -57,6 +57,8 @@
   (let ((use-list (mapcar 'find-package use))
 	(package (%make-package (simplify-string (string package-name))
 				(mapcar (lambda (x) (simplify-string (string x))) nicknames))))
+    (setf (package-internal-symbols package) (make-hash-table :test 'equal)
+          (package-external-symbols package) (make-hash-table :test 'equal))
     ;; Use packages.
     (use-package use-list package)
     ;; Install the package in the package registry.
@@ -67,12 +69,14 @@
 
 (defun find-symbol (string &optional (package *package*))
   (let ((p (find-package-or-die package)))
-    (let ((sym (member string (package-internal-symbols p) :key 'symbol-name :test 'string=)))
-      (when sym
-	(return-from find-symbol (values (car sym) :internal))))
-    (let ((sym (member string (package-external-symbols p) :key 'symbol-name :test 'string=)))
-      (when sym
-	(return-from find-symbol (values (car sym) :external))))
+    (multiple-value-bind (sym present-p)
+        (gethash string (package-internal-symbols p))
+      (when present-p
+	(return-from find-symbol (values sym :internal))))
+    (multiple-value-bind (sym present-p)
+        (gethash string (package-external-symbols p))
+      (when present-p
+	(return-from find-symbol (values sym :external))))
     (dolist (pak (package-use-list p)
 	     (values nil nil))
       (multiple-value-bind (symbol status)
@@ -94,8 +98,9 @@
 	((:internal :external)
 	 ;; TODO: Restarts unintern-old-symbol and don't import.
 	 (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol))))
-    (unless (find symbol (package-external-symbols package))
-      (pushnew symbol (package-internal-symbols package)))
+    (unless (eql symbol (gethash (symbol-name symbol) (package-external-symbols package)))
+      (unless (eql symbol (gethash (symbol-name symbol) (package-internal-symbols package)))
+        (setf (gethash (symbol-name symbol) (package-internal-symbols package)) symbol)))
     (unless (symbol-package symbol)
       (setf (symbol-package symbol) package))))
 
@@ -117,9 +122,9 @@
 	(error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q))))
   (import-one-symbol symbol package)
   ;; Remove from the internal-symbols list.
-  (setf (package-internal-symbols package) (delete symbol (package-internal-symbols package)))
+  (remhash (symbol-name symbol) (package-internal-symbols package))
   ;; And add to the external-symbols list.
-  (pushnew symbol (package-external-symbols package)))
+  (setf (gethash (symbol-name symbol) (package-external-symbols package)) symbol))
 
 (defun export (symbols &optional (package *package*))
   (let ((p (find-package-or-die package)))
@@ -139,7 +144,6 @@
   (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
   (setf *package* (find-package-or-die "SYSTEM.INTERNALS")))
 
-;; Function FIND-SYMBOL
 ;; Function FIND-ALL-SYMBOLS
 ;; Function RENAME-PACKAGE
 ;; Function SHADOW
@@ -161,9 +165,13 @@
     (let ((p (find-package-or-die package)))
       (multiple-value-bind (symbol status)
 	  (find-symbol name p)
+        (when (string= name "READTABLE-CASE")
+          (format t "Intern RT-CASE ~S ~S~%" symbol status))
 	(when status
 	  (return-from intern (values symbol status))))
       (let ((symbol (make-symbol name)))
+        (when (string= name "READTABLE-CASE")
+          (format t "Importing into ~S~%" (package-name p)))
 	(import (list symbol) p)
 	(when (string= (package-name p) "KEYWORD")
 	  ;; TODO: Constantness.
@@ -182,12 +190,14 @@
     (dolist (other (package-use-list p))
       (setf (package-used-by-list other) (remove p (package-used-by-list other))))
     ;; Remove all symbols.
-    (dolist (symbol (package-internal-symbols p))
-      (when (eq (symbol-package symbol) package)
-	(setf (symbol-package symbol) nil)))
-    (dolist (symbol (package-external-symbols p))
-      (when (eq (symbol-package symbol) package)
-	(setf (symbol-package symbol) nil)))
+    (maphash (lambda (name symbol)
+               (when (eq (symbol-package symbol) package)
+                 (setf (symbol-package symbol) nil)))
+             (package-internal-symbols p))
+    (maphash (lambda (name symbol)
+               (when (eq (symbol-package symbol) package)
+                 (setf (symbol-package symbol) nil)))
+             (package-external-symbols p))
     (setf (package-name p) nil)
     (setf *package-list* (remove p *package-list* :key 'cdr))
     t))

@@ -789,6 +789,39 @@
           `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
+(defbuiltin (setf svref) (value simple-vector index)
+  (let ((type-error-label (gensym))
+        (bounds-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r9 'simple-vector))
+    (emit-trailer (bounds-error-label)
+      (load-constant :r13 'sys.int::raise-bounds-error)
+      (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:ud2)))
+    (load-in-reg :r8 value t)
+    (load-in-reg :r9 simple-vector t)
+    (load-in-reg :r10 index t)
+    (fixnum-check :r10)
+    (emit `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:jne ,type-error-label)
+          ;; Load header word.
+          `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
+          ;; Check array type.
+          `(sys.lap-x86:test8 :al :al)
+          `(sys.lap-x86:jnz ,type-error-label)
+          ;; Check bounds.
+          `(sys.lap-x86:mov64 :rcx :r10)
+          `(sys.lap-x86:shr64 :rcx 3)
+          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:cmp64 :rcx :rax)
+          `(sys.lap-x86:jae ,bounds-error-label)
+          ;; Store!
+          `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
+    (setf *r8-value* (list (gensym)))))
+
 (define-tag-type-predicate characterp #b1010)
 
 (defbuiltin system.internals::read-frame-pointer ()
@@ -907,6 +940,22 @@
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:and32 :r8d #x1e000000)
           `(sys.lap-x86:shr32 :r8d 22))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin char-int (char)
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+		  (raise-type-error :r8 'character))
+    (load-in-r8 char t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov8 :al :r8l)
+	  `(sys.lap-x86:and8 :al #b1111)
+	  `(sys.lap-x86:cmp8 :al #b1010)
+	  `(sys.lap-x86:jne ,type-error-label)
+	  ;; Mask away the tag bits.
+	  `(sys.lap-x86:and32 :r8d -16)
+	  ;; Shift to fixnum.
+	  `(sys.lap-x86:shr32 :r8d 1))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin system:fixnump (object)

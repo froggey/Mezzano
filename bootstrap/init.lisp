@@ -253,6 +253,9 @@
 (defun equal (x y)
   (cond
     ((eql x y))
+    ((stringp x)
+     (and (stringp y)
+          (string= x y)))
     ((consp x)
      (and (consp y)
 	  (equal (car x) (car y))
@@ -336,7 +339,6 @@
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
 
 (load "defstruct.lisp")
-(load "packages.lisp")
 
 (defmacro defun (name lambda-list &body body)
   (let ((base-name (if (consp name)
@@ -360,11 +362,6 @@
 		    (block ,base-name ,@body))
 		',name)
        ',name)))
-
-(setf (symbol-function '%load) #'load)
-(defun load (pathname)
-  (let ((*package* *package*))
-    (%load pathname)))
 
 (defun function-symbol (name)
   "Convert a function name to a symbol."
@@ -424,6 +421,15 @@
 (load "array.lisp")
 (load "sequence.lisp")
 (load "hash-table.lisp")
+
+;;; Package system loaded here!
+(load "packages.lisp")
+
+(setf (symbol-function '%load) #'load)
+(defun load (pathname)
+  (let ((*package* *package*))
+    (%load pathname)))
+
 (load "string.lisp")
 (load "reader.lisp")
 

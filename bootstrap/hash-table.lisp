@@ -14,7 +14,7 @@
   (storage (error "No storage provided.") :type simple-vector))
 
 (defun hash-table-size (hash-table)
-  (/ (length (hash-table-storage hash-table)) 2))
+  (ash (length (hash-table-storage hash-table)) -1))
 
 (defun hash-table-key-at (hash-table index)
   (svref (hash-table-storage hash-table) (* index 2)))
@@ -73,12 +73,14 @@
 		      (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
 	     ;; Can't happen. Resizing the hash-table adds new slots.
 	     (error "Impossible!"))
-	   (incf (hash-table-used hash-table))
+           (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
+             (incf (hash-table-used hash-table)))
 	   (incf (hash-table-count hash-table))
 	   (setf (hash-table-key-at hash-table free-slot) key
 		 (hash-table-value-at hash-table free-slot) value)))
 	;; No rehash/resize needed. Insert directly.
-	(t (incf (hash-table-used hash-table))
+	(t (unless (eql (hash-table-key-at hash-table free-slot) *hash-table-tombstone*)
+             (incf (hash-table-used hash-table)))
 	   (incf (hash-table-count hash-table))
 	   (setf (hash-table-key-at hash-table free-slot) key
 		 (hash-table-value-at hash-table free-slot) value))))))
