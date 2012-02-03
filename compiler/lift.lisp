@@ -203,7 +203,7 @@
                              ;; Not provided, use the initform.
                              `(let ((,(cadar (first keys)) ,(second (first keys))))
                                 ,(build-key-bindings (rest keys))))
-                          (when (eql (car i) (caar (first keys)))
+                          (when (eql (second (car i)) (caar (first keys)))
                             ;; Keywords match, use this argument.
                             (return `(let ((,(cadar (first keys)) ,(nth (1+ p) key-pairs)))
                                        ,(build-key-bindings (rest keys)))))))
