@@ -145,3 +145,11 @@
                            (setf ,n ,sym)))
                       symbols)
             ,n)))))
+
+(declaim (inline 1+))
+(defun 1+ (x)
+  (+ x 1))
+
+(declaim (inline 1-))
+(defun 1- (x)
+  (- x 1))

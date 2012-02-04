@@ -1,9 +1,3 @@
-(defun 1+ (x)
-  (+ x 1))
-
-(defun 1- (x)
-  (+ x 1))
-
 (setf (symbol-function 'sys.int::raise-undefined-function)
       (lambda (invoked-through)
 	(let ((str (if (symbolp invoked-through)
