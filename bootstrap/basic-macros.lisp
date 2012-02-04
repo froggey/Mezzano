@@ -132,11 +132,6 @@
 			 ((or (eql keys 't)
 			      (eql keys 'otherwise))
 			  `(t ,@body))
-			 ((listp keys)
-			  `((or ,@(mapcar (lambda (key)
-					    `(typep ,test-key ',key))
-					  keys))
-			    ,@body))
 			 (t `((typep ,test-key ',keys) ,@body)))))
 		   cases)))))
 
@@ -147,15 +142,9 @@
        (cond
 	 ,@(mapcar (lambda (clause)
 		     (declare (type cons clause))
-		     (let ((keys (car clause))
+		     (let ((key (car clause))
 			   (body (cdr clause)))
-		       (cond
-			 ((listp keys)
-			  `((or ,@(mapcar (lambda (key)
-					    `(typep ,test-key ',key))
-					  keys))
-			    ,@body))
-			 (t `((typep ,test-key ',keys) ,@body)))))
+                       `((typep ,test-key ',key) ,@body)))
 		   cases)
 	 (t (error "~S fell through ETYPECASE expression." ,test-key))))))
 
