@@ -1025,20 +1025,11 @@
         `(sys.lap-x86:or64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::%%value-address (value)
+(defbuiltin sys.int::lisp-object-address (value)
   (load-in-reg :r8 value t)
   (smash-r8)
-  ;; Clear tag bits, then convert to fixnum.
-  (emit `(sys.lap-x86:and64 :r8 -16)
-        `(sys.lap-x86:shl64 :r8 3))
-  (setf *r8-value* (list (gensym))))
-
-(defbuiltin sys.int::%%value-tag (value)
-  (load-in-reg :r8 value t)
-  (smash-r8)
-  ;; Convert to fixnum, then clear address bits.
-  (emit `(sys.lap-x86:shl64 :r8 3)
-        `(sys.lap-x86:and64 :r8 #b1111000))
+  ;; Convert to fixnum.
+  (emit `(sys.lap-x86:shl64 :r8 3))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%make-symbol (address name)

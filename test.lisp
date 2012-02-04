@@ -293,11 +293,11 @@
 
 (defun char-code (character)
   (check-type character character)
-  (logand (ash (sys.int::%%value-address character) -4) #x1FFFFF))
+  (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
 
 (defun system:char-bits (character)
   (check-type character character)
-  (logand (ash (ash (sys.int::%%value-address character) -4) -21) 15))
+  (logand (ash (ash (sys.int::lisp-object-address character) -4) -21) 15))
 
 (defun char-upcase (char)
   (let ((code (char-code char)))
@@ -473,22 +473,32 @@
      (write-char #\<)
      (write (sys.int::structure-name (sys.int::%struct-slot object 0)))
      (write-char #\Space)
-     (write-integer (logior (sys.int::%%value-address object)
-                            (sys.int::%%value-tag object))
-                    16)
+     (write-integer (sys.int::lisp-object-address object) 16)
      (write-char #\>))
     (t (write-char #\#)
        (write-char #\<)
        (write-string "Unknown-object ")
-       (write-integer (logior (sys.int::%%value-address object)
-                              (sys.int::%%value-tag object))
-                      16)
+       (write-integer (sys.int::lisp-object-address object) 16)
        (write-char #\>)))
   object)
 
 (defun fmakunbound (name)
   (sys.int::%fmakunbound (sys.int::function-symbol name))
   name)
+
+(defun min (number &rest more-numbers)
+  (declare (dynamic-extent more-numbers))
+  (check-type number number)
+  (dolist (n more-numbers number)
+    (when (< n number)
+      (setf number n))))
+
+(defun max (number &rest more-numbers)
+  (declare (dynamic-extent more-numbers))
+  (check-type number number)
+  (dolist (n more-numbers number)
+    (when (> n number)
+      (setf number n))))
 
 (setf *package* (find-package "CL-USER"))
 (loop
