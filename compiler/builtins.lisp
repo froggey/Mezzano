@@ -69,6 +69,13 @@
     (when (and x (eql (length (first x)) arg-count))
       (second x))))
 
+(defun constant-type-p (tag type)
+  (and (consp tag)
+       (consp (cdr tag))
+       (null (cddr tag))
+       (eql (first tag) 'quote)
+       (typep (second tag) type)))
+
 (defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset)
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -202,9 +209,10 @@
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin sys.int::binary-logior (x y)
-  ;; The constant folder will have moved any constant arguments to the front, so only check that.
-  (cond ((and (consp x) (eql (first x) 'quote)
-	      (typep (second x) 'fixnum))
+  (when (constant-type-p y 'fixnum)
+    (psetf x y
+           y x))
+  (cond ((constant-type-p x 'fixnum)
 	 (load-in-r8 y t)
 	 (fixnum-check :r8)
          (smash-r8)
@@ -223,9 +231,10 @@
            (setf *r8-value* (list (gensym))))))
 
 (defbuiltin sys.int::binary-logxor (x y)
-  ;; The constant folder will have moved any constant arguments to the front, so only check that.
-  (cond ((and (consp x) (eql (first x) 'quote)
-	      (typep (second x) 'fixnum))
+  (when (constant-type-p y 'fixnum)
+    (psetf x y
+           y x))
+  (cond ((constant-type-p x 'fixnum)
 	 (load-in-r8 y t)
 	 (fixnum-check :r8)
          (smash-r8)
@@ -244,9 +253,10 @@
            (setf *r8-value* (list (gensym))))))
 
 (defbuiltin sys.int::binary-logand (x y)
-  ;; The constant folder will have moved any constant arguments to the front, so only check that.
-  (cond ((and (consp x) (eql (first x) 'quote)
-	      (typep (second x) 'fixnum))
+  (when (constant-type-p y 'fixnum)
+    (psetf x y
+           y x))
+  (cond ((constant-type-p x 'fixnum)
 	 (load-in-r8 y t)
 	 (fixnum-check :r8)
          (smash-r8)
@@ -271,13 +281,6 @@
   (emit `(sys.lap-x86:xor64 :r8 -8))
   (setf *r8-value* (list (gensym))))
 
-(defun constant-type-p (tag type)
-  (and (consp tag)
-       (consp (cdr tag))
-       (null (cddr tag))
-       (eql (first tag) 'quote)
-       (typep (second tag) type)))
-
 (defbuiltin sys.int::binary-+ (x y)
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
@@ -288,7 +291,9 @@
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 3))
 	    `(sys.lap-x86:call (:symbol-function :r13))
 	    `(sys.lap-x86:ud2)))
-    ;; The constant folder will have moved any constant arguments to the front, so only check that.
+    (when (constant-type-p y 'fixnum)
+      (psetf x y
+             y x))
     (cond ((constant-type-p x 'fixnum)
            (load-in-r8 y t)
            (fixnum-check :r8)
@@ -388,52 +393,89 @@
         (t (setf *r8-value* (list (gensym))))))
 
 (defbuiltin ash (integer count)
-  (let ((done-label (gensym))
-	(shift-left (gensym))
-	(shift-right (gensym))
-	(sign-extend (gensym))
-	(ovfl (gensym)))
-    (emit-trailer (ovfl)
-      (load-constant :r10 'ash)
-      (load-constant :r13 'sys.int::raise-overflow)
-      (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 3))
-	    `(sys.lap-x86:call (:symbol-function :r13))
-	    `(sys.lap-x86:ud2)))
-    (load-in-reg :r9 count t)
-    (fixnum-check :r9)
-    (load-in-reg :r8 integer t)
-    (smash-r8)
-    (fixnum-check :r8)
-    (emit `(sys.lap-x86:mov64 :rcx :r9)
-          `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:cmp64 :rcx 0)
-          `(sys.lap-x86:jz ,done-label)
-          `(sys.lap-x86:jl ,shift-right)
-          ;; Left shift.
-          ;; Perform the shift one bit at a time so that overflow can be checked for.
-          `(sys.lap-x86:sar64 :rcx 3)
-          shift-left
-          `(sys.lap-x86:shl64 :rax 1)
-          `(sys.lap-x86:jc ,ovfl)
-          `(sys.lap-x86:sub64 :rcx 1)
-          `(sys.lap-x86:jnz ,shift-left)
-          `(sys.lap-x86:jmp ,done-label)
-          ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
-          shift-right
-          `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw -64))
-          `(sys.lap-x86:jle ,sign-extend)
-          `(sys.lap-x86:sar64 :rcx 3)
-          `(sys.lap-x86:neg64 :rcx)
-          `(sys.lap-x86:sar64 :rax :cl)
-          `(sys.lap-x86:and64 :rax -8)
-          `(sys.lap-x86:jmp ,done-label)
-          sign-extend
-          `(sys.lap-x86:cqo)
-          `(sys.lap-x86:and64 :rdx -8)
-          `(sys.lap-x86:mov64 :rax :rdx)
-          done-label
-          `(sys.lap-x86:mov64 :r8 :rax))
-    (setf *r8-value* (list (gensym)))))
+  (cond ((constant-type-p count 'fixnum)
+         (setf count (second count))
+         (load-in-reg :r8 integer t)
+         (fixnum-check :r8)
+         (cond ((minusp count)
+                ;; Right shift.
+                (setf count (- count))
+                (smash-r8)
+                (cond ((>= count 61)
+                       ;; All bits shifted out.
+                       (emit `(sys.lap-x86:cqo)
+                             `(sys.lap-x86:and64 :rdx -8)
+                             `(sys.lap-x86:mov64 :r8 :rdx)))
+                      (t (emit `(sys.lap-x86:mov64 :rax :r8)
+                               `(sys.lap-x86:sar64 :rax ,count)
+                               `(sys.lap-x86:and64 :rax -8)
+                               `(sys.lap-x86:mov64 :r8 :rax))))
+                (setf *r8-value* (list (gensym))))
+               ((plusp count)
+                ;; Left shift.
+                ;; Perform the shift one bit at a time so that overflow can be checked for.
+                (let ((ovfl (gensym)))
+                  (emit-trailer (ovfl)
+                    (load-constant :r9 count)
+                    (load-constant :r10 'ash)
+                    (load-constant :r13 'sys.int::raise-overflow)
+                    (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 3))
+                          `(sys.lap-x86:call (:symbol-function :r13))
+                          `(sys.lap-x86:ud2)))
+                  (smash-r8)
+                  (dotimes (i count)
+                    (emit `(sys.lap-x86:shl64 :r8 1)
+                          `(sys.lap-x86:jo ,ovfl)))
+                  (setf *r8-value* (list (gensym)))))
+               ((zerop count)
+                ;; Type check only.
+                integer)))
+        (t (let ((done-label (gensym))
+                 (shift-left (gensym))
+                 (shift-right (gensym))
+                 (sign-extend (gensym))
+                 (ovfl (gensym)))
+             (emit-trailer (ovfl)
+                           (load-constant :r10 'ash)
+                           (load-constant :r13 'sys.int::raise-overflow)
+                           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 3))
+                                 `(sys.lap-x86:call (:symbol-function :r13))
+                                 `(sys.lap-x86:ud2)))
+             (load-in-reg :r9 count t)
+             (fixnum-check :r9)
+             (load-in-reg :r8 integer t)
+             (smash-r8)
+             (fixnum-check :r8)
+             (emit `(sys.lap-x86:mov64 :rcx :r9)
+                   `(sys.lap-x86:mov64 :rax :r8)
+                   `(sys.lap-x86:cmp64 :rcx 0)
+                   `(sys.lap-x86:jz ,done-label)
+                   `(sys.lap-x86:jl ,shift-right)
+                   ;; Left shift.
+                   ;; Perform the shift one bit at a time so that overflow can be checked for.
+                   `(sys.lap-x86:sar64 :rcx 3)
+                   shift-left
+                   `(sys.lap-x86:shl64 :rax 1)
+                   `(sys.lap-x86:jo ,ovfl)
+                   `(sys.lap-x86:sub64 :rcx 1)
+                   `(sys.lap-x86:jnz ,shift-left)
+                   `(sys.lap-x86:jmp ,done-label)
+                   ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
+                   shift-right
+                   `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw -64))
+                   `(sys.lap-x86:jle ,sign-extend)
+                   `(sys.lap-x86:sar64 :rcx 3)
+                   `(sys.lap-x86:neg64 :rcx)
+                   `(sys.lap-x86:sar64 :rax :cl)
+                   `(sys.lap-x86:and64 :rax -8)
+                   `(sys.lap-x86:jmp ,done-label)
+                   sign-extend
+                   `(sys.lap-x86:cqo)
+                   `(sys.lap-x86:and64 :rdx -8)
+                   `(sys.lap-x86:mov64 :rax :rdx)
+                   done-label
+                   `(sys.lap-x86:mov64 :r8 :rax))
+             (setf *r8-value* (list (gensym)))))))
 
 (defbuiltin sys.int::binary-< (x y)
   (load-in-reg :r9 x t)
