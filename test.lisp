@@ -454,6 +454,10 @@
                       16)
        (write-char #\>))))
 
+(defun fmakunbound (name)
+  (sys.int::%fmakunbound (sys.int::function-symbol name))
+  name)
+
 (loop
    (fresh-line)
    (write-char #\>)
