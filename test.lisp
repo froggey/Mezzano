@@ -486,20 +486,6 @@
   (sys.int::%fmakunbound (sys.int::function-symbol name))
   name)
 
-(defun min (number &rest more-numbers)
-  (declare (dynamic-extent more-numbers))
-  (check-type number number)
-  (dolist (n more-numbers number)
-    (when (< n number)
-      (setf number n))))
-
-(defun max (number &rest more-numbers)
-  (declare (dynamic-extent more-numbers))
-  (check-type number number)
-  (dolist (n more-numbers number)
-    (when (> n number)
-      (setf number n))))
-
 (setf *package* (find-package "CL-USER"))
 (loop
    (fresh-line)
