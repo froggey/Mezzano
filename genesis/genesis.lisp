@@ -10,38 +10,35 @@
 (defparameter *cl-symbol-names* (read-s-expression "~/Documents/LispOS/cl-symbols.lisp-expr"))
 (defparameter *system-symbol-names* (read-s-expression "~/Documents/LispOS/system-symbols.lisp-expr"))
 
-(defparameter *interned-symbols* '(nil)
-  "A list of all non-keyword symbols that have been created
+(defparameter *interned-symbols* (make-hash-table :test 'equal)
+  "A hash-table of all non-keyword symbols that have been created
 via GENESIS-INTERN.")
-(declaim (type list *interned-symbols*))
+(declaim (type hash-table *interned-symbols*))
+(setf (gethash "NIL" *interned-symbols*) 'nil)
 
-(defparameter *interned-keywords* '()
-  "A list of all keyword symbols that have been created via
+(defparameter *interned-keywords* (make-hash-table :test 'equal)
+  "A hash-table of all keyword symbols that have been created via
 GENESIS-INTERN.")
-(declaim (type list *interned-keywords*))
+(declaim (type hash-table *interned-keywords*))
 
 (defparameter *use-bootstrap-package-system* t)
 
 (defun genesis-intern (name &optional keywordp)
   (cond (keywordp
-         (or (find name *interned-keywords*
-                   :key 'symbol-name
-                   :test 'string=)
+         (or (gethash name *interned-keywords*)
              (if *use-bootstrap-package-system*
                  (let ((sym (make-symbol name)))
-                   (push sym *interned-keywords*)
+                   (setf (gethash name *interned-keywords*) sym)
                    (setf (symbol-value sym) sym)
                    (setf (get sym :genesis-symbol-mode) :constant)
                    sym)
                  ;; Call in to the system.
                  (funcall (genesis-intern "INTERN") name "KEYWORD"))))
         ((string= name "NIL") nil)
-        (t (or (find name *interned-symbols*
-                     :key 'symbol-name
-                     :test 'string=)
+        (t (or (gethash name *interned-symbols*)
                (if *use-bootstrap-package-system*
                    (let ((sym (make-symbol name)))
-                     (push sym *interned-symbols*)
+                     (setf (gethash name *interned-symbols*) sym)
                      sym)
                    ;; Call in to the system.
                    (funcall (genesis-intern "INTERN") name "SYS.INT"))))))
@@ -365,15 +362,14 @@ GENESIS-INTERN.")
 	(key-syms '()))
     ;; Figure out the correct package for each symbol and
     ;; clear the package slot.
-    (mapc (lambda (sym)
-            (let ((name (symbol-name sym)))
-              (setf (genesis-symbol-package sym) nil)
-              (cond ((member name *cl-symbol-names* :test #'string=)
-                     (push sym cl-syms))
-                    ((member name *system-symbol-names* :test #'string=)
-                     (push sym sys-syms))
-                    (t (push sym sys-int-syms)))))
-          *interned-symbols*)
+    (maphash (lambda (name sym)
+               (setf (genesis-symbol-package sym) nil)
+               (cond ((member name *cl-symbol-names* :test #'string=)
+                      (push sym cl-syms))
+                     ((member name *system-symbol-names* :test #'string=)
+                      (push sym sys-syms))
+                     (t (push sym sys-int-syms))))
+             *interned-symbols*)
     ;; Now import symbols into the packages.
     (funcall import-fn cl-syms "COMMON-LISP")
     (funcall import-fn sys-syms "SYSTEM")
@@ -382,10 +378,11 @@ GENESIS-INTERN.")
     (funcall export-fn cl-syms "COMMON-LISP")
     (funcall export-fn sys-syms "SYSTEM")
     ;; Do the same for keywords.
-    (mapc (lambda (sym)
-            (setf (genesis-symbol-package sym) nil)
-            (push sym key-syms))
-          *interned-keywords*)
+    (maphash (lambda (name sym)
+               (declare (ignore name))
+               (setf (genesis-symbol-package sym) nil)
+               (push sym key-syms))
+             *interned-keywords*)
     (funcall import-fn key-syms "KEYWORD")
     (funcall export-fn key-syms "KEYWORD")
     (format t "Done.~%")))
