@@ -177,11 +177,13 @@
     (write-char #\Space)
     (write-integer (sys.int::memref-unsigned-byte-64 fp -2) 16)))
 
-(defun error (what &optional a b c d)
-  (write-to-the-screen "Error: ")
-  (write-to-the-screen (if (symbolp what)
-                           (symbol-name what)
-                           what))
+(defun error (what &rest r)
+  (fresh-line)
+  (write-string "Error: ")
+  (write what)
+  (write-char #\Space)
+  (write r)
+  (fresh-line)
   (backtrace)
   (loop))
 
@@ -400,11 +402,22 @@
   (prog1 (sys.int::%make-symbol *bump-pointer* (sys.int::simplify-string name))
     (incf *bump-pointer* (* 8 6))))
 
+(defun sys.int::raise-type-error (datum expected)
+  (fresh-line)
+  (write-string "Type error. Expected ")
+  (write expected)
+  (write-string " got ")
+  (write datum)
+  (terpri)
+  (loop))
+
 (defun eval (form)
   (typecase form
     (symbol (symbol-value form))
     (cons (case (first form)
+            ((function) (symbol-function (second form)))
             ((quote) (second form))
+            ((setq) (setf (symbol-value (second form)) (eval (third form))))
             (t (apply (first form) (mapcar 'eval (rest form))))))
     (t form)))
 
@@ -429,10 +442,18 @@
     (cons
      (write-char #\()
      (write (car object))
-     (write-string " . ")
-     (write (cdr object))
-     (write-char #\)))
-    (symbol (write-string (symbol-name object)))
+     (do ((i (cdr object) (cdr i)))
+         ((atom i)
+          (when i
+            (write-string " . ")
+            (write i))
+          (write-char #\)))
+       (write-char #\Space)
+       (write (car i))))
+    (symbol
+     (when (keywordp object)
+       (write-char #\:))
+     (write-string (symbol-name object)))
     (string
      (write-char #\")
      (dotimes (i (length object))
@@ -452,15 +473,19 @@
        (write-integer (logior (sys.int::%%value-address object)
                               (sys.int::%%value-tag object))
                       16)
-       (write-char #\>))))
+       (write-char #\>)))
+  object)
 
 (defun fmakunbound (name)
   (sys.int::%fmakunbound (sys.int::function-symbol name))
   name)
 
+(setf *package* (find-package "CL-USER"))
 (loop
    (fresh-line)
    (write-char #\>)
    (let ((form (read)))
      (fresh-line)
-     (write (eval form))))
+     (let ((result (eval form)))
+       (fresh-line)
+       (write result))))
