@@ -3,6 +3,7 @@
 (defstruct genesis-function
   source
   source-environment
+  (suppress-builtins :default)
   lap-code
   assembled-code
   constants)
@@ -10,6 +11,8 @@
 (defstruct genesis-closure
   function
   environment)
+
+(defvar *function-preloads* nil)
 
 (defvar *crunched-symbol-names* (make-hash-table :weakness :key))
 
@@ -26,8 +29,10 @@
   (let ((p (genesis-symbol-package value)))
     (when p
       (funcall fn p)))
-  (when (fboundp value)
-    (funcall fn (symbol-function value)))
+  (let ((x (assoc value *function-preloads*)))
+    (cond (x (funcall fn (cdr x)))
+          ((fboundp value)
+           (funcall fn (symbol-function value)))))
   (when (genesis-symbol-plist value)
     (funcall fn (genesis-symbol-plist value))))
 
@@ -161,15 +166,19 @@
 	(t vector)))
 
 (defun compile-genesis-function (object)
-  (let ((fn (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
-                                (list (genesis-intern "QUOTE") (genesis-function-source object))
-                                (list (genesis-intern "QUOTE") (convert-environment (genesis-function-source-environment object)))))))
-    #+nil(let ((*print-circle* nil))
-      (format t "Asm: ~S~%" (genesis-function-lap-code fn)))
-    (setf (genesis-function-lap-code object) (genesis-function-lap-code fn)
-	  (genesis-function-assembled-code object) (genesis-function-assembled-code fn)
-	  (genesis-function-constants object) (genesis-function-constants fn))
-    object))
+  (progv (list (genesis-eval (list (genesis-intern "INTERN") "*SUPPRESS-BUILTINS*" "SYS.C")))
+      (list (cond ((eql (genesis-function-suppress-builtins object) :default)
+                   (symbol-value (genesis-eval (list (genesis-intern "INTERN") "*SUPPRESS-BUILTINS*" "SYS.C"))))
+                  (t (genesis-function-suppress-builtins object))))
+    (let ((fn (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "COMPILE-LAMBDA" "SYS.C"))
+                                  (list (genesis-intern "QUOTE") (genesis-function-source object))
+                                  (list (genesis-intern "QUOTE") (convert-environment (genesis-function-source-environment object)))))))
+      #+nil(let ((*print-circle* nil))
+             (format t "Asm: ~S~%" (genesis-function-lap-code fn)))
+      (setf (genesis-function-lap-code object) (genesis-function-lap-code fn)
+            (genesis-function-assembled-code object) (genesis-function-assembled-code fn)
+            (genesis-function-constants object) (genesis-function-constants fn))
+      object)))
 
 (defbuiltin #:assemble-lap (code)
   (multiple-value-bind (mc constants)
@@ -519,10 +528,12 @@
   ;; +24 Function.
   ;; Some functions may not be dumpable. They must be replaced with the
   ;; undefined function value.
-  (setf (nibbles:ub64ref/le image (+ offset 24)) (cond ((and (fboundp object)
-							     (gethash (symbol-function object) value-table))
-							(gethash (symbol-function object) value-table))
-						       (t (gethash :undefined-function value-table))))
+  (setf (nibbles:ub64ref/le image (+ offset 24)) (let ((x (assoc object *function-preloads*)))
+                                                   (cond (x (gethash (cdr x) value-table))
+                                                         ((and (fboundp object)
+                                                               (gethash (symbol-function object) value-table))
+                                                          (gethash (symbol-function object) value-table))
+                                                         (t (gethash :undefined-function value-table)))))
   ;; +32 Plist.
   (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-symbol-plist object) value-table))
   ;; +40 Flags & stuff (toodo)
@@ -649,26 +660,72 @@
   (with-input-from-string (stream string)
     (genesis-eval (genesis-eval (list (genesis-intern "READ") stream)))))
 
+(defparameter *builtin-suppression-mode* :default)
+
+(defun fastload-form (form)
+  (when (and (listp form)
+             (= (list-length form) 4)
+             (eql (first form) (genesis-intern "FUNCALL"))
+             (listp (second form))
+             (= (list-length (second form)) 2)
+             (eql (first (second form)) (genesis-intern "FUNCTION"))
+             (listp (second (second form)))
+             (= (list-length (second (second form))) 2)
+             (eql (first (second (second form))) (genesis-intern "SETF"))
+             (eql (second (second (second form))) (genesis-intern "FDEFINITION"))
+             (listp (third form))
+             (= (list-length (third form)) 2)
+             (eql (first (third form)) (genesis-intern "FUNCTION"))
+             (listp (second (third form)))
+             (eql (first (second (third form))) (genesis-intern "LAMBDA"))
+             (listp (third form))
+             (= (list-length (fourth form)) 2)
+             (eql (first (fourth form)) (genesis-intern "QUOTE")))
+    ;; FORM looks like (FUNCALL #'(SETF FDEFINITION) #'(LAMBDA ...) 'name)
+    ;; Check if there's an existing function or an existing preload.
+    (let ((name (resolve-function-name (second (fourth form)))))
+      (when (and (not (assoc name *function-preloads*))
+                 (not (and (fboundp name)
+                           (gethash (symbol-function name) *function-info*))))
+        (push (cons name (make-genesis-function :source (second (third form))
+                                                :source-environment nil
+                                                :suppress-builtins *builtin-suppression-mode*))
+              *function-preloads*)
+        t))))
+
 (defun make-toplevel-function (file)
-  (let ((forms nil))
-    (with-open-file (s file)
-      (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
-	(do* ((result (cons nil nil))
-	      (tail result (cdr tail))
-	      (form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") result)))
-		    (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") result)))))
-	     ((eql form result)
-	      (setf forms (cdr result)))
-	  (setf (cdr tail) (cons form nil)))))
+  (let ((toplevel-forms '()))
+    (flet ((frob (form)
+             (genesis-eval (list (genesis-intern "HANDLE-TOP-LEVEL-FORM")
+                                 (list (genesis-intern "QUOTE") form)
+                                 (lambda (form env)
+                                   (declare (ignore env))
+                                   (format t "; Load ~S~%" form)
+                                   (or (fastload-form form)
+                                       (push form toplevel-forms)))
+                                 (lambda (form env)
+                                   (when env
+                                     (error "TODO: Eval in env."))
+                                   (format t "; Eval ~S~%" form)
+                                   (genesis-eval form))))))
+      ;; Built-ins must not be suppressed when compiling their wrapper functions.
+      (let ((*builtin-suppression-mode* nil))
+        (mapc (lambda (x)
+                (frob (list (genesis-intern "FUNCALL")
+                            (list (genesis-intern "FUNCTION") (list (genesis-intern "SETF") (genesis-intern "FDEFINITION")))
+                            (list (genesis-intern "FUNCTION") (second x))
+                            (list (genesis-intern "QUOTE") (first x)))))
+              (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
+      (with-open-file (s file)
+        (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
+          (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
+                      (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
+               ((eql form s))
+            (frob form)))))
+    (format t "Toplevel:~%~{~S~%~}" (reverse toplevel-forms))
     (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
                                          (cons (genesis-intern "PROGN")
-                                               (mapcar (lambda (x)
-                                                         (list (genesis-intern "SETF")
-                                                               (list (genesis-intern "SYMBOL-FUNCTION")
-                                                                     (list (genesis-intern "QUOTE") (first x)))
-                                                               (second x)))
-                                                       (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
-                                         (cons (genesis-intern "PROGN") forms))
+                                               (nreverse toplevel-forms)))
 			   :source-environment nil)))
 
 ;;; Build a (u-b 8) array holding a bootable image
@@ -676,12 +733,14 @@
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
 	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
+         (*function-preloads* '())
 	 (entry-function (make-toplevel-function "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
-	(generate-dump-layout undefined-function-thunk (list multiboot-header setup-code gdt idt entry-function))
+	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt entry-function
+                                                              (mapcar 'cdr *function-preloads*)))
       (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
 	  (generate-physical-dump-layout (+ static-size #x40000) dynamic-size)
 	(let ((image (make-array (+ (- image-end load-base) #x1000) :element-type '(unsigned-byte 8)))

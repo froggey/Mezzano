@@ -2,6 +2,10 @@
 
 (in-package #:system.compiler)
 
+(defparameter *suppress-builtins* nil
+  "When T, the built-in functions will not be used and full calls will
+be generated instead.")
+
 (defvar *run-counter* nil)
 (defvar *load-list* nil)
 (defvar *r8-value* nil)
@@ -1149,7 +1153,8 @@
                   tag))))))
 
 (defun cg-function-form (form)
-  (let ((fn (match-builtin (first form) (length (rest form)))))
+  (let ((fn (when (not *suppress-builtins*)
+              (match-builtin (first form) (length (rest form))))))
     (cond ((and (eql *for-value* :predicate)
                 (or (eql (first form) 'null)
                     (eql (first form) 'not))

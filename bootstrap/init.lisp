@@ -315,6 +315,16 @@
 	    (values form nil)))
       (values form nil)))
 
+(defun macroexpand (form &optional env)
+  (let ((did-expand nil))
+    (do () (nil)
+       (multiple-value-bind (expansion expanded-p)
+           (macroexpand-1 form env)
+         (if expanded-p
+             (setf form expansion
+                   did-expand t)
+             (return (values form did-expand)))))))
+
 (defmacro prog1 (first-form &rest forms)
   (let ((sym (gensym)))
     `(let ((,sym ,first-form))
@@ -488,3 +498,4 @@
 (load "../compiler/codegen.lisp")
 (load "../compiler/builtins.lisp")
 (load "numbers.lisp")
+(load "file-compiler.lisp")
