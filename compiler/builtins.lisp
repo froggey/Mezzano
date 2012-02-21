@@ -738,7 +738,8 @@
 	  `(sys.lap-x86:mov64 (:symbol-value :r8) #b1110))
     *r8-value*))
 
-(defbuiltin fboundp (symbol)
+;;; FBOUNDP but just for symbols.
+(defbuiltin sys.int::%fboundp (symbol)
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
@@ -1184,3 +1185,9 @@
            :multiple)
           (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
              (setf *r8-value* (list (gensym)))))))
+
+(define-tag-type-predicate sys.int::std-instance-p #b0100)
+(define-accessor sys.int::std-instance-class sys.int::std-instance #b0100 :std-instance-class)
+(define-accessor sys.int::std-instance-slots sys.int::std-instance #b0100 :std-instance-slots)
+
+(define-tag-type-predicate functionp #b1100)

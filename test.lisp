@@ -476,6 +476,9 @@
        (write-char #\>)))
   object)
 
+(defun fboundp (name)
+  (sys.int::%fboundp (sys.int::function-symbol name)))
+
 (defun fmakunbound (name)
   (sys.int::%fmakunbound (sys.int::function-symbol name))
   name)
