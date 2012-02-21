@@ -637,12 +637,14 @@
 	  (t (error "Invalid array type. ~S ~S." type object)))))
 
 (defmethod dump-object ((object genesis-struct) value-table image offset)
-  ;; FIXME: Must set the hash-table rehash-required slot.
   ;; +0 Header word.
   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length (genesis-struct-slots object)) 31))
   ;; Slots.
   (dotimes (i (length (genesis-struct-slots object)))
-    (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8))) (value-of (aref (genesis-struct-slots object) i) value-table))))
+    (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8))) (value-of (aref (genesis-struct-slots object) i) value-table)))
+  ;; Must set the REHASH-REQUIRED flag on hash-tables. (6th slot)
+  (when (genesis-eval (list (genesis-intern "HASH-TABLE-P") object))
+    (setf (nibbles:ub64ref/le image (+ offset 8 (* 6 8))) (value-of (genesis-intern "T") value-table))))
 
 (defmethod dump-object ((object integer) value-table image offset)
   ;; +0 Header word.
