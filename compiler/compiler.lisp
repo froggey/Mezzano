@@ -27,8 +27,11 @@ A list of any declaration-specifiers."
 ;    (error "Compiling nothing!"))
 ;  (pass1-lambda definition nil))
 
+(declaim (special *environment*))
+
 (defun compile-lambda (lambda &optional env)
-  (codegen-lambda (detect-uses (run-optimizers (pass1-lambda lambda env)))))
+  (let ((*environment* (cdr env)))
+    (codegen-lambda (detect-uses (run-optimizers (pass1-lambda lambda (car env)))))))
 
 (defvar *current-lambda* nil
   "A lambda-information struct for the lambda currently being translated.")

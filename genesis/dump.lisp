@@ -154,8 +154,51 @@
 
 (defun convert-environment (env)
   "Convert a Genesis eval environment to a compiler environment."
-  (cond (env nil #+nil(error "TODO: Convert environment ~S." env))
-	(t nil)))
+  ;; Compiler environments are currently annoyingly complicated and actually
+  ;; consist of two seperate environments.
+  ;; The first environment is used by pass1 and describes the which variables
+  ;; are lexical variables and which are special variables.
+  ;; The second environment is used by the code generator and describes the
+  ;; layout of environment vectors.
+  (let ((lexical-variables '()))
+    (labels ((make-lexical-variable (def)
+               ;; Call in to the compiler and allocate a variable.
+               (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN")
+                                                       "MAKE-LEXICAL-VARIABLE"
+                                                       "SYS.C"))
+                                   (genesis-intern "NAME" t)
+                                   (list (genesis-intern "QUOTE")
+                                         (slot-value def 'name)))))
+             (frob-for-pass1 (e)
+               (when e
+                 (cons (let ((node (first e)))
+                         (ecase (first node)
+                           (:bindings
+                            (append (list (genesis-intern "BINDINGS" t))
+                                    ;; Special variables.
+                                    (mapcar (lambda (var)
+                                              (cons var var))
+                                            (second node))
+                                    (mapcar (lambda (var)
+                                              (let ((cvar (make-lexical-variable var)))
+                                                (push (cons var cvar)
+                                                      lexical-variables)
+                                                (cons (slot-value var 'name) cvar)))
+                                            (third node))))))
+                       (frob-for-pass1 (rest e)))))
+             (frob-for-codegen (e)
+               (when e
+                 (let ((node (first e)))
+                   (ecase (first node)
+                     (:bindings
+                      (let ((vars (mapcar (lambda (v)
+                                            (cdr (assoc v lexical-variables)))
+                                          (remove-if 'local-p (third node)))))
+                        (if vars
+                          (cons vars (frob-for-codegen (rest e)))
+                          (frob-for-codegen (rest e))))))))))
+      (cons (frob-for-pass1 env)
+            (frob-for-codegen env)))))
 
 (defun strip-array-header (vector)
   (cond ((array-header-p vector)
@@ -767,12 +810,14 @@
           ;; Additionally, produce a map file for use with bochs.
           (with-open-file (s "../crap.map" :direction :output :if-exists :supersede :if-does-not-exist :create)
             (flet ((frob (object)
-                     (when (and (symbolp object)
-                                (fboundp object)
-                                (gethash (symbol-function object) object-values))
-                       (format s "~8,'0X ~A~%"
-                               (logand (gethash (symbol-function object) object-values) -16)
-                               (symbol-name object)))))
+                     (when (symbolp object)
+                       (let ((fn (or (cdr (assoc object *function-preloads*))
+                                     (when (fboundp object)
+                                       (symbol-function object)))))
+                         (when (and fn (gethash fn object-values))
+                           (format s "~8,'0X ~A~%"
+                                   (logand (gethash fn object-values) -16)
+                                   (symbol-name object)))))))
               (maphash (lambda (obj addr)
                          (declare (ignore addr))
                          (frob obj))
