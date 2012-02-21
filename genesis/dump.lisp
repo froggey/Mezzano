@@ -685,7 +685,7 @@
   (setf (nibbles:ub16ref/le image (+ offset 6)) 0)
   ;; +12 The code.
   (setf (aref image (+ offset 12)) #x48 ;; mov64 :rbx (:rip 21)/pool[1]
-	(aref image (+ offset 13)) #x89
+	(aref image (+ offset 13)) #x8B
 	(aref image (+ offset 14)) #x1D
 	(aref image (+ offset 15)) #x15
 	(aref image (+ offset 16)) #x00
