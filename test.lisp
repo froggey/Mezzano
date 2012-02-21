@@ -356,15 +356,6 @@
     (when (not (eql character c))
       (return nil))))
 
-(defun every (predicate sequence)
-  (if (listp sequence)
-      (dolist (i sequence t)
-        (unless (funcall predicate i)
-          (return nil)))
-      (dotimes (i (length sequence) t)
-        (unless (funcall predicate (aref sequence i))
-          (return nil)))))
-
 (defun base-char-p (character)
   (check-type character character)
   (and (zerop (system:char-bits character))
