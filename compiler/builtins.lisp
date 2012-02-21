@@ -686,7 +686,7 @@
 	  `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function)
 	  `(sys.lap-x86:je ,undefined-function-error-label)
-          `(sys.lap-x86:cmp64 :r8 (:symbol-function :r8)))
+          `(sys.lap-x86:mov64 :r8 (:symbol-function :r8)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf symbol-function) (value symbol)
