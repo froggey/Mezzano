@@ -1038,12 +1038,20 @@ otherwise the matching variable definition."
 					 ((null ,barf))
 				       (unless (member (car ,barf) ',keywords)
 					 (error "Invalid keyword ~S. Wanted one of ~S." (car ,barf) ',keywords)))))))))
-		,(if env-vars
-		     `(let ((old-env *env*)
-			    (*env* (make-array ,(1+ (length env-vars)))))
-			(setf (svref *env* 0) old-env)
-			,@(cdr lambda-body))
-		     `(progn ,@(cdr lambda-body)))))
+		,(cond (env-vars
+                        `(let ((old-env *env*)
+                               (*env* (make-array ,(1+ (length env-vars)))))
+                           (setf (svref *env* 0) old-env)
+                           ,@(cdr lambda-body)))
+                       ((dolist (e env nil)
+                          (when (rest e)
+                            (return t)))
+                        ;; No local environment, but takes one through a closure.
+                        `(progn ,@(cdr lambda-body)))
+                       (t
+                        ;; No environment.
+                        `(let ((*env* nil))
+                           (progn ,@(cdr lambda-body)))))))
 	 #',name))))
 
 ;;; Support functions & macros.
@@ -1066,8 +1074,10 @@ otherwise the matching variable definition."
   ;; They are bound instead of set so that the host streams don't get
   ;; caught by dump.
   (progv
-      (list (genesis-intern "*STANDARD-INPUT*") (genesis-intern "*STANDARD-OUTPUT*"))
-      (list *standard-input* *standard-output*)
+      (list (genesis-intern "*STANDARD-INPUT*")
+            (genesis-intern "*STANDARD-OUTPUT*")
+            (genesis-intern "*ERROR-OUTPUT*"))
+      (list *standard-input* *standard-output* *error-output*)
     (funcall (eval (translate-lambda (pass1-lambda (list (genesis-intern "LAMBDA") '()
 							  (list (genesis-intern "PROGN") form))
 						   nil)
