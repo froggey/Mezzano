@@ -493,6 +493,11 @@
 ;; Reload type.lisp.
 (load "type.lisp")
 
+;; Conditions and error handling.
+(load "condition.lisp")
+(load "restarts.lisp")
+(load "error.lisp")
+
 ;; Compiler.
 (load "../lap.lisp")
 (load "../lap-x86.lisp")
