@@ -195,8 +195,8 @@
                                             (cdr (assoc v lexical-variables)))
                                           (remove-if 'local-p (third node)))))
                         (if vars
-                          (cons vars (frob-for-codegen (rest e)))
-                          (frob-for-codegen (rest e))))))))))
+                            (cons (nreverse vars) (frob-for-codegen (rest e)))
+                            (frob-for-codegen (rest e))))))))))
       (cons (frob-for-pass1 env)
             (frob-for-codegen env)))))
 
