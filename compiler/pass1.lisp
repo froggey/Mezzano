@@ -558,9 +558,14 @@
 
 ;;; (defun pass1-throw (form env))
 
+;;; Translate (unwind-protect form . cleanup-forms) to
+;;; (unwind-protect form (lambda () . cleanup-forms)).
 (defun pass1-unwind-protect (form env)
   (destructuring-bind (protected-form &body cleanup-forms) (cdr form)
     (if cleanup-forms
-	`(unwind-protect ,(pass1-form protected-form env)
-	   ,@(pass1-implicit-progn cleanup-forms env))
+        (list 'unwind-protect
+              (pass1-form protected-form env)
+              (pass1-lambda `(lambda ()
+                               (progn ,@cleanup-forms))
+                            env))
 	(pass1-form protected-form env))))

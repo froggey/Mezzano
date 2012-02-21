@@ -609,11 +609,17 @@ otherwise the matching variable definition."
   (destructuring-bind (value-type value) (rest form)
     `(the ,value-type ,(pass1-form value env))))
 
+;;; Must ensure that any variables referenced by the cleanup forms are non-local.
 (defun pass1-unwind-protect (form env)
   (destructuring-bind (protected-form &body cleanup-forms) (rest form)
     `(unwind-protect ,(pass1-form protected-form env)
-       ,@(mapcar (lambda (f) (pass1-form f env))
-                 cleanup-forms))))
+       ,(pass1-form (list (genesis-intern "FUNCALL")
+                          (list (genesis-intern "FUNCTION")
+                                (list (genesis-intern "LAMBDA")
+                                      (list)
+                                      (list* (genesis-intern "PROGN")
+                                             cleanup-forms))))
+                    env))))
 
 (defun pass1-form (form env)
   (cond
