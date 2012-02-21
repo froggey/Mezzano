@@ -379,3 +379,10 @@
       ((endp i))
     (when (funcall test item (funcall key (car i)))
       (return i))))
+
+(defun get-properties (plist indicator-list)
+  (do ((i plist (cddr i)))
+      ((null i)
+       (values nil nil nil))
+    (when (member (car i) indicator-list)
+      (return (values (first i) (second i) i)))))

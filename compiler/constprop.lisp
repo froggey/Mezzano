@@ -76,7 +76,7 @@
 	   ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
 	   #+nil(unless (and (consp kill-this-one)
 			(eq (first kill-this-one) 'quote))
-	     (warn 'simple-style-warning
+	     (warn 'sys.int::simple-style-warning
 		   :format-control "Deleting unreacable code: ~S."
 		   :format-arguments (list kill-this-one)))
 	   (flush-form kill-this-one)

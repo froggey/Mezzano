@@ -68,7 +68,7 @@ A list of any declaration-specifiers."
   used-in)
 
 (defun run-optimizers (form)
-  (dotimes (i 5 (progn (warn 'simple-style-warning
+  (dotimes (i 5 (progn (warn 'sys.int::simple-style-warning
 			      :format-control "Possible optimizer infinite loop."
 			      :format-arguments '())
 			form))

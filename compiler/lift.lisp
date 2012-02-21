@@ -163,7 +163,7 @@
     ;; Attempt to match the argument list with the function's lambda list.
     (when (or optional-args rest-arg)
       ;; Bail out.
-      (warn 'simple-style-warning
+      (warn 'sys.int::simple-style-warning
 	    :format-control "Cannot inline ~S yet."
 	    :format-arguments (list name))
       (return-from lift-lambda))

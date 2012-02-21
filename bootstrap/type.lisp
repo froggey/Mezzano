@@ -201,7 +201,11 @@
     (let ((struct-type (get type-specifier 'structure-type)))
       (when struct-type
 	(return-from typep (and (structure-object-p object)
-				(eq (%struct-slot object 0) struct-type))))))
+				(eq (%struct-slot object 0) struct-type)))))
+    (when (std-instance-p object)
+      (let ((class (find-class type-specifier nil)))
+        (when (and class (member class (clos::class-precedence-list (class-of object))))
+          (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
 				type-specifier
 				(first type-specifier))

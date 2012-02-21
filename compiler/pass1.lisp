@@ -74,7 +74,7 @@
   "Warn if VARIABLE was not used and not declared IGNORE or IGNORABLE."
   (when (and (not (lexical-variable-ignore variable))
 	     (= (lexical-variable-use-count variable) 0))
-    (warn 'simple-style-warning
+    (warn 'sys.int::simple-style-warning
 	  :format-control "Unused variable ~S."
 	  :format-arguments (list (lexical-variable-name variable)))))
 
@@ -226,7 +226,7 @@
 		   (pass1-form `(symbol-value ',var) env))
 	       (progn
 		 (when (eq (lexical-variable-ignore var) 't)
-		   (warn 'simple-style-warning
+		   (warn 'sys.int::simple-style-warning
 			 :format-control "Reading ignored variable ~S."
 			 :format-arguments (list (lexical-variable-name var))))
 		 (incf (lexical-variable-use-count var))
@@ -526,7 +526,7 @@
 	  (push (pass1-form `(funcall #'(setf symbol-value) ,val ',var) env) forms)
 	  (progn
 	    (when (eq (lexical-variable-ignore var) 't)
-	      (warn 'simple-style-warning
+	      (warn 'sys.int::simple-style-warning
 		    :format-control "Writing ignored variable ~S."
 		    :format-arguments (list (lexical-variable-name var))))
 	    (incf (lexical-variable-use-count var))

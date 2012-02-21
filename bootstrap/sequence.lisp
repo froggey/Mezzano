@@ -193,3 +193,35 @@
 	   ;; Grab the storage vector out of the array
 	   ;; forcing it to a simple-array type.
 	   (array-storage result))))))
+
+;;; FIXME: must work on sequences, not lists.
+(defun every (predicate first-seq &rest sequences)
+  (declare (dynamic-extent sequences))
+  (do* ((lists (cons first-seq sequences)))
+       (nil)
+    (do* ((call-list (cons nil nil))
+	  (call-tail call-list (cdr call-tail))
+	  (itr lists (cdr itr)))
+	 ((null itr)
+	  (when (not (apply predicate (cdr call-list)))
+	    (return-from every nil)))
+      (when (null (car itr))
+	(return-from every t))
+      (setf (cdr call-tail) (cons (caar itr) nil)
+	    (car itr) (cdar itr)))))
+
+(defun some (predicate first-seq &rest sequences)
+  (declare (dynamic-extent sequences))
+  (do* ((lists (cons first-seq sequences)))
+       (nil)
+    (do* ((call-list (cons nil nil))
+	  (call-tail call-list (cdr call-tail))
+	  (itr lists (cdr itr)))
+	 ((null itr)
+	  (let ((result (apply predicate (cdr call-list))))
+	    (when result
+	      (return-from some result))))
+      (when (null (car itr))
+	(return-from some nil))
+      (setf (cdr call-tail) (cons (caar itr) nil)
+	    (car itr) (cdar itr)))))

@@ -427,6 +427,7 @@
       (apply #'format t datum arguments)
       (format t "Warning: ~S ~S~%" datum arguments)))
 
+;; FIXME: This actually depends on CLOS before it's loaded.
 (load "type.lisp")
 (load "array.lisp")
 (load "sequence.lisp")
@@ -486,7 +487,13 @@
     ;; TODO: structures and hash-tables.
     (t (eq x y))))
 
+;; Object system.
 (load "../closette.lisp")
+
+;; Reload type.lisp.
+(load "type.lisp")
+
+;; Compiler.
 (load "../lap.lisp")
 (load "../lap-x86.lisp")
 (load "../compiler/compiler.lisp")
@@ -497,5 +504,7 @@
 (load "../compiler/inline.lisp")
 (load "../compiler/codegen.lisp")
 (load "../compiler/builtins.lisp")
+
+;; Misc stuff.
 (load "numbers.lisp")
 (load "file-compiler.lisp")
