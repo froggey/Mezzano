@@ -26,8 +26,8 @@
       (aref sequence index)))
 
 (defun position (item sequence &key test key); test-not start end from-end
-  (unless test (setf test #'eql))
-  (unless key (setf key #'identity))
+  (unless test (setf test 'eql))
+  (unless key (setf key 'identity))
   (if (listp sequence)
       (do ((p 0 (1+ p))
 	   (i sequence (cdr i)))
@@ -39,7 +39,7 @@
 	  (return i)))))
 
 (defun count-if (predicate sequence &key key);from-end start end
-  (unless key (setf key #'identity))
+  (unless key (setf key 'identity))
   (let ((n 0))
     (if (listp sequence)
 	(dolist (e sequence)
@@ -54,7 +54,7 @@
   (count-if (complement predicate) sequence :key key))
 
 (defun find-if (predicate sequence &key key); (start 0) end from-end
-  (unless key (setf key #'identity))
+  (unless key (setf key 'identity))
   (if (listp sequence)
       (dolist (e sequence)
 	(when (funcall predicate (funcall key e))
@@ -67,14 +67,14 @@
   (when (and test test-not)
     (error "Both :test and :test-not specified"))
   (when test-not (setf test (complement test-not)))
-  (unless test (setf test #'eql))
+  (unless test (setf test 'eql))
   (find-if (lambda (x) (funcall test item x)) sequence :key key))
 
 (defun find-if-not (predicate sequence &key key); (start 0) end from-end
   (find-if (complement predicate) sequence :key key))
 
 (defun remove-if (test sequence &key key); from-end (start 0) end count
-  (unless key (setf key #'identity))
+  (unless key (setf key 'identity))
   (let* ((list (cons nil nil))
 	 (tail list))
     (dolist (e sequence (cdr list))
@@ -86,7 +86,7 @@
   (when (and test test-not)
     (error "Both :test and :test-not specified"))
   (when test-not (setf test (complement test-not)))
-  (unless test (setf test #'eql))
+  (unless test (setf test 'eql))
   (remove-if (lambda (x) (funcall test item x)) sequence :key key))
 
 (defun remove-if-not (test sequence &key key); from-end (start 0) end count
@@ -137,7 +137,7 @@
 
 ;; Selection sort!
 (defun sort (sequence predicate &key key)
-  (unless key (setf key #'identity))
+  (unless key (setf key 'identity))
   (when sequence
     (do* ((ipos sequence (cdr ipos))
 	  (imin ipos ipos))
