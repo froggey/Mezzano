@@ -187,6 +187,7 @@ GENESIS-INTERN.")
 (define-forwarding-builtin values-list)
 (define-forwarding-builtin eval genesis-eval nil)
 (define-forwarding-builtin error error nil)
+(define-forwarding-builtin functionp)
 
 (define-forwarding-builtin car)
 (define-forwarding-builtin (setf car))
