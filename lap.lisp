@@ -106,7 +106,9 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun emit-d64/le (&rest args)
   (dolist (a args)
-    (check-type a (unsigned-byte 64))
+    (setf a (or (resolve-immediate a) 0))
+    (check-type a (or (unsigned-byte 64)
+                      (signed-byte 64)))
     (emit (ldb (byte 8 0) a)
 	  (ldb (byte 8 8) a)
 	  (ldb (byte 8 16) a)

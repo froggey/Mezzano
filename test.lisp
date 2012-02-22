@@ -541,6 +541,8 @@ allocate environment frames."
     (write-char #\))
     (fresh-line)
     (show-restarts restarts)
+    (fresh-line)
+    (backtrace)
     (loop
        (fresh-line)
        (write-string "Pick a restart# ")

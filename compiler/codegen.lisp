@@ -514,9 +514,40 @@ be generated instead.")
 (defun cg-go (form)
   (let ((tag (assoc (second form) *rename-list*)))
     (smash-r8)
-    (let ((*for-value* nil))
-      (unbind-to *special-bindings* (third tag)))
-    (emit `(sys.lap-x86:jmp ,(second tag)))
+    (cond (tag ;; Local jump.
+           (let ((*for-value* nil))
+             (unbind-to *special-bindings* (third tag)))
+           (emit `(sys.lap-x86:jmp ,(second tag))))
+          (t ;; Non-local exit, unwind required.
+           (let ((invalid-go-tag (gensym)))
+             (emit-trailer (invalid-go-tag)
+               (load-constant :r8 (go-tag-name (second form)))
+               (load-constant :r13 'sys.int::raise-bad-go-tag)
+               (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                     `(sys.lap-x86:call (:symbol-function :r13))
+                     `(sys.lap-x86:ud2)))
+             (multiple-value-bind (stack-slot depth offset)
+                 (find-var (go-tag-tagbody (second form)) *environment* *environment-chain*)
+               (emit `(sys.lap-x86:mov64 :r8 (:stack ,stack-slot)))
+               (dotimes (n depth)
+                 (emit `(sys.lap-x86:mov64 :r8 (:r8 1))))
+               (emit `(sys.lap-x86:mov64 :r8 (:r8 9)))
+               ;; R8 holds the tagbody info, ensure it's still valid.
+               (emit `(sys.lap-x86:cmp64 :r8 nil)
+                     `(sys.lap-x86:je ,invalid-go-tag)
+                     ;; TODO: UNWIND!!!!
+                     ;; Restore registers.
+                     `(sys.lap-x86:mov64 :csp (:r8 16))
+                     `(sys.lap-x86:mov64 :cfp (:r8 24))
+                     `(sys.lap-x86:mov64 :lsp (:r8 32))
+                     `(sys.lap-x86:mov64 :lfp (:r8 40))
+                     ;; GO GO GO!
+                     `(sys.lap-x86:mov64 :r8 (:r8 0))
+                     `(sys.lap-x86:add64 :r8 (:r8 ,(* (position (second form)
+                                                                (tagbody-information-go-tags
+                                                                 (go-tag-tagbody (second form))))
+                                                      8)))
+                     `(sys.lap-x86:jmp :r8))))))
     'nil))
 
 (defun branch-to (label))
@@ -731,6 +762,10 @@ be generated instead.")
                   (emit `(sys.lap-x86:xor32 :ecx :ecx)
                         `(sys.lap-x86:call :r13)
                         `(sys.lap-x86:mov64 :lsp :rbx)))))
+            ((eql (cdr b) :tagbody-or-block)
+             ;; Null out the given slot.
+             (emit `(sys.lap-x86:mov64 :r13 (:stack ,(first (first b))))
+                   `(sys.lap-x86:mov64 (:r13 ,(1+ (* (second (first b)) 8))) nil)))
             (t ;; Special variable
              (case *for-value*
                (:predicate (error "Cannot unbind in predicate mode."))
@@ -1067,13 +1102,54 @@ be generated instead.")
   (let ((*for-value* nil)
 	(stack-slots (set-up-for-branch))
 	(*rename-list* *rename-list*)
-	(last-value t))
-    (when (not (tagbody-localp (second form)))
-      (return-from cg-tagbody (cg-form '(error '"TODO: Escaping tagbodies."))))
-    ;; Generate labels for each tag.
-    (dolist (i (tagbody-information-go-tags (second form)))
-      ;(push (list i (gensym (format nil "~S" (go-tag-name i)))) *rename-list*))
-      (push (list i (gensym) *special-bindings*) *rename-list*))
+	(last-value t)
+        (escapes (not (tagbody-localp (second form))))
+        (jump-table (gensym))
+        (*environment* *environment*)
+        (*environment-chain* *environment-chain*)
+        (*special-bindings* *special-bindings*)
+        (tag-labels (mapcar (lambda (tag)
+                              (declare (ignore tag))
+                              (gensym))
+                            (tagbody-information-go-tags (second form)))))
+    (when escapes
+      ;; Emit the jump-table.
+      ;; TODO: Prune local labels out.
+      (emit-trailer (jump-table)
+        (dolist (i tag-labels)
+          (emit `(:d64/le (- ,i ,jump-table)))))
+      (smash-r8)
+      ;; Allocate an environment for the tagbody.
+      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::make-simple-vector))
+            `(sys.lap-x86:mov32 :ecx 8)
+            `(sys.lap-x86:mov32 :r8d ,(* 2 8)) ; Backlink & pointer.
+            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:mov64 :lsp :rbx))
+      (when *environment-chain*
+        ;; Set back-link.
+        (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
+              `(sys.lap-x86:mov64 (:r8 1) :r9)))
+      ;; Construct jump info.
+      (emit `(sys.lap-x86:sub64 :csp 48)
+            `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
+            `(sys.lap-x86:mov64 (:csp 0) :rax)
+            ;; FIXME: Should be the unwind-to point
+            `(sys.lap-x86:mov64 (:csp 8) 0)
+            `(sys.lap-x86:mov64 (:csp 16) :csp)
+            `(sys.lap-x86:mov64 (:csp 24) :cfp)
+            `(sys.lap-x86:mov64 (:csp 32) :lsp)
+            `(sys.lap-x86:mov64 (:csp 40) :lfp)
+            ;; Save in the environment.
+            `(sys.lap-x86:mov64 (:r8 9) :csp))
+      (let ((slot (find-stack-slot)))
+        (setf (aref *stack-values* slot) (cons :environment :home))
+        (push slot *environment-chain*)
+        (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))
+        (push (list (second form)) *environment*)
+        (push (cons (list slot 2) :tagbody-or-block) *special-bindings*)))
+    (mapcar (lambda (tag label)
+              (push (list tag label *special-bindings*) *rename-list*))
+            (tagbody-information-go-tags (second form)) tag-labels)
     (dolist (stmt (cddr form))
       (if (go-tag-p stmt)
 	  (progn
@@ -1082,6 +1158,12 @@ be generated instead.")
 	    (setf last-value t)
 	    (emit (second (assoc stmt *rename-list*))))
 	  (setf last-value (cg-form stmt))))
+    (when escapes
+      ;; Disable the tagbody.
+      (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
+            `(sys.lap-x86:mov64 (:r9 9) nil)
+            ;; Drop the info.
+            `(sys.lap-x86:add64 :csp 48)))
     (if last-value
 	''nil
 	'nil)))
