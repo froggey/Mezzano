@@ -446,7 +446,7 @@
       (values load-offset static-base dynamic-base support-base end-address
 	      pml4 page-tables))))
 
-(defun make-setup-function (gdt idt initial-page-table entry-function)
+(defun make-setup-function (gdt idt special-stack initial-page-table entry-function)
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble
 	  `((sys.lap-x86:!code32)
@@ -503,6 +503,17 @@
 	    ;; Clear frame pointers.
 	    (sys.lap-x86:mov64 :cfp 0)
 	    (sys.lap-x86:mov64 :lfp 0)
+            ;; Initialize GS.
+            (sys.lap-x86:mov64 :rax (:constant ,special-stack))
+            (sys.lap-x86:mov64 :rcx (:simple-array-header :rax))
+            (sys.lap-x86:shr64 :rcx 8)
+            (sys.lap-x86:lea64 :rax (:rax 1 (:rcx 8)))
+            (sys.lap-x86:mov64 (:rip initial-stack-group) :rax)
+            (sys.lap-x86:lea64 :rax (:rip initial-stack-group))
+            (sys.lap-x86:mov64 :rdx :rax)
+            (sys.lap-x86:sar64 :rdx 32)
+            (sys.lap-x86:mov64 :rcx #xC0000101)
+            (sys.lap-x86:wrmsr)
 	    ;; Clear data registers.
 	    (sys.lap-x86:xor32 :r8d :r8d)
 	    (sys.lap-x86:xor32 :r9d :r9d)
@@ -523,6 +534,8 @@
 	    ;; 8 word stack for startup.
 	    (:d64/le 0 0 0 0 0 0 0 0)
 	    initial-stack
+            initial-stack-group
+            (:d64/le 0)
 	    gdtr
 	    (:d16/le ,(1- (* (length gdt) 8)))
 	    (:d32/le 0)
@@ -778,13 +791,15 @@
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
 	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
+	 (special-stack (make-array 2048))
          (*function-preloads* '())
 	 (entry-function (make-toplevel-function "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
-	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function))
+	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
-	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt entry-function
+	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt
+                                                              special-stack entry-function
                                                               (mapcar 'cdr *function-preloads*)))
       (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
 	  (generate-physical-dump-layout (+ static-size #x40000) dynamic-size)
@@ -835,6 +850,7 @@
 	  (format t "Entry point at ~X.~%" (gethash setup-code object-values))
 	  (format t "NIL at ~X.~%" (gethash 'nil object-values))
 	  (format t "UFT at ~X.~%" (gethash undefined-function-thunk object-values))
+          (format t "Special stack vector at ~X.~%" (gethash special-stack object-values))
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002
 		(aref multiboot-header 1) #x00010003

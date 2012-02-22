@@ -285,6 +285,24 @@ allocate environment frames."
     ;; Return value.
     (sys.int::%%assemble-value address #b0111)))
 
+(defun sys.int::%make-struct (length)
+  (let* ((total-size (1+ length))
+         (address *bump-pointer*))
+    ;; Align on a 16-byte boundary.
+    (unless (zerop (logand total-size 1))
+      (incf total-size))
+    ;; Clear memory.
+    (dotimes (i total-size)
+      (setf (sys.int::memref-unsigned-byte-64 address i) 0))
+    ;; Set header word.
+    (setf (sys.int::memref-unsigned-byte-64 address 0)
+          (logior (ash length 8)
+                  (ash 31 1)))
+    ;; Advance pointer.
+    (incf *bump-pointer* (* total-size 8))
+    ;; Return value.
+    (sys.int::%%assemble-value address #b0111)))
+
 (defun sys.int::make-closure (function environment)
   "Allocate a closure object."
   (check-type function function)
@@ -573,12 +591,15 @@ allocate environment frames."
     (cons (car list) (copy-list (cdr list)))))
 
 (setf *package* (find-package "CL-USER"))
-(loop
-   (with-simple-restart (continue "Carry on chaps.")
-     (fresh-line)
-     (write-char #\>)
-     (let ((form (read)))
+(defun repl ()
+  (loop
+     (with-simple-restart (continue "Carry on chaps.")
        (fresh-line)
-       (let ((result (eval form)))
+       (write-char #\>)
+       (let ((form (read)))
          (fresh-line)
-         (write result)))))
+         (let ((result (eval form)))
+           (fresh-line)
+           (write result))))))
+
+(repl)
