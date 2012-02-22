@@ -98,6 +98,29 @@
 	  `(sys.lap-x86:mov16 (:rax :rcx) :dx))
     *r8-value*))
 
+(defbuiltin (setf sys.int::memref-unsigned-byte-32) (new-value base offset)
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :rdx '(unsigned-byte 32)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (load-in-r8 new-value t)
+    (emit `(sys.lap-x86:mov64 :rdx :r8)
+	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:jnz ,type-error-label)
+          `(sys.lap-x86:mov64 :rsi ,(* #x100000000 8))
+	  `(sys.lap-x86:cmp64 :rdx :rsi)
+	  `(sys.lap-x86:jae ,type-error-label)
+	  ;; Convert to raw integers, leaving offset correctly scaled (* 2).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rcx 1)
+	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Write.
+	  `(sys.lap-x86:mov32 (:rax :rcx) :edx))
+    *r8-value*))
+
 (defbuiltin sys.int::memref-unsigned-byte-64 (base offset)
   (let ((overflow-error-label (gensym))
         (ok-label (gensym)))
@@ -148,6 +171,19 @@
 	  `(sys.lap-x86:sar64 :rdx 3)
 	  ;; Write.
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
+    *r8-value*))
+
+(defbuiltin (setf sys.int::memref-t) (new-value base offset)
+  (let ((type-error-label (gensym)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (load-in-r8 new-value t)
+    (emit ;; Convert to raw integers, leaving offset correctly scaled (* 8).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  ;; Write.
+	  `(sys.lap-x86:mov64 (:rax :rcx) :r8))
     *r8-value*))
 
 (defbuiltin sys.int::%simple-array-p (object)

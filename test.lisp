@@ -268,6 +268,56 @@
     ;; Return value.
     (sys.int::%%assemble-value address #b0111)))
 
+(defun sys.int::make-simple-vector (length)
+  "Allocate a SIMPLE-VECTOR with LENGTH elements.
+Equivalent to (make-array length). Used by the compiler to
+allocate environment frames."
+  (let* ((total-size (1+ length))
+         (address *bump-pointer*))
+    ;; Align on a 16-byte boundary.
+    (unless (zerop (logand total-size 1))
+      (incf total-size))
+    ;; Clear memory.
+    (dotimes (i total-size)
+      (setf (sys.int::memref-unsigned-byte-64 address i) 0))
+    ;; Set header word.
+    (setf (sys.int::memref-unsigned-byte-64 address 0)
+          (ash length 8))
+    ;; Advance pointer.
+    (incf *bump-pointer* (* total-size 8))
+    ;; Return value.
+    (sys.int::%%assemble-value address #b0111)))
+
+(defun sys.int::make-closure (function environment)
+  "Allocate a closure object."
+  (check-type function function)
+  (let ((address *bump-pointer*))
+    (incf *bump-pointer* (* 6 8))
+    ;; Initialize and clear constant slots.
+    ;; Function tag, flags and MC size.
+    (setf (sys.int::memref-unsigned-byte-32 address 0) #x00020001
+          ;; Constant pool size and slot count.
+          (sys.int::memref-unsigned-byte-32 address 1) #x00000002
+          (sys.int::memref-unsigned-byte-32 address 2) #x00000000
+          ;; The code.
+          ;; mov64 :rbx (:rip 21)/pool[1]
+          (sys.int::memref-unsigned-byte-32 address 3) #x151D8B48
+          ;; jmp (:rip 7)/pool[0]
+          (sys.int::memref-unsigned-byte-32 address 4) #xFF000000
+          (sys.int::memref-unsigned-byte-32 address 5) #x00000725
+          (sys.int::memref-unsigned-byte-32 address 6) #xCCCCCC00
+          (sys.int::memref-unsigned-byte-32 address 7) #xCCCCCCCC
+          ;; Constant pool.
+          (sys.int::memref-unsigned-byte-32 address 8) 0
+          (sys.int::memref-unsigned-byte-32 address 9) 0
+          (sys.int::memref-unsigned-byte-32 address 10) 0
+          (sys.int::memref-unsigned-byte-32 address 11) 0)
+    (let ((value (sys.int::%%assemble-value address #b1100)))
+      ;; Initialize constant pool
+      (setf (sys.int::memref-t address 4) function
+            (sys.int::memref-t address 5) environment)
+      value)))
+
 (defun sys.int::%make-array-header (dimensions fill-pointer info storage)
   (let* ((address *bump-pointer*)
          (val (sys.int::%%assemble-value address #b0011)))

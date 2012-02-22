@@ -90,27 +90,43 @@ be generated instead.")
         (incf env-size))
       (unless (zerop env-size)
         (push '() *environment*)
-        ;; TODO: Check escaping stuff. My upward funargs D:
-        ;; Allocate local environment on the stack.
-        (emit `(sys.lap-x86:sub64 :csp ,(* (+ env-size 2 (if (evenp env-size) 0 1)) 8)))
-        ;; Zero slots.
-        (dotimes (i (1+ env-size))
-          (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) 0)))
-        ;; Initialize the header. Simple-vector uses tag 0.
-        (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
-              ;; Get value.
-              `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
+        ;; Allocate an environment frame.
+        ;; TODO: Escape analysis for dynamic extent.
+        ;; Ughhhh. Save all registers.
+        (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+              `(sys.lap-x86:mov64 (:lsp -16) nil)
+              `(sys.lap-x86:mov64 (:lsp -24) nil)
+              `(sys.lap-x86:mov64 (:lsp -32) nil)
+              `(sys.lap-x86:mov64 (:lsp -40) nil)
+              `(sys.lap-x86:mov64 (:lsp -48) nil)
+              `(sys.lap-x86:mov64 (:lsp -56) nil)
+              `(sys.lap-x86:sub64 :lsp 56)
+              `(sys.lap-x86:mov64 (:lsp 0) :r8)
+              `(sys.lap-x86:mov64 (:lsp 8) :r9)
+              `(sys.lap-x86:mov64 (:lsp 16) :r10)
+              `(sys.lap-x86:mov64 (:lsp 24) :r11)
+              `(sys.lap-x86:mov64 (:lsp 32) :r12)
+              `(sys.lap-x86:mov64 (:lsp 40) :r13)
+              `(sys.lap-x86:mov64 (:lsp 48) :rcx))
+        (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::make-simple-vector))
+              `(sys.lap-x86:mov32 :ecx 8)
+              `(sys.lap-x86:mov32 :r8d ,(* (1+ env-size) 8))
+              `(sys.lap-x86:call (:symbol-function :r13))
+              `(sys.lap-x86:mov64 :lsp :rbx)
+              `(sys.lap-x86:mov64 :rbx :r8))
         (when *environment-chain*
-          ;; Auch. Stash R8.
-          (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
-                `(sys.lap-x86:sub64 :lsp 8)
-                `(sys.lap-x86:mov64 (:lsp 0) :r8)
-                ;; Fetch saved environment link.
+          (emit ;; Fetch saved environment link.
                 `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
-                `(sys.lap-x86:mov64 (:rbx 1) :r8)
-                ;; Restore R8.
-                `(sys.lap-x86:mov64 :r8 (:lsp 0))
-                `(sys.lap-x86:add64 :lsp 8)))
+                `(sys.lap-x86:mov64 (:rbx 1) :r8)))
+        ;; Restore registers
+        (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
+              `(sys.lap-x86:mov64 :r9 (:lsp 8))
+              `(sys.lap-x86:mov64 :r10 (:lsp 16))
+              `(sys.lap-x86:mov64 :r11 (:lsp 24))
+              `(sys.lap-x86:mov64 :r12 (:lsp 32))
+              `(sys.lap-x86:mov64 :r13 (:lsp 40))
+              `(sys.lap-x86:mov64 :rcx (:lsp 48))
+              `(sys.lap-x86:add64 :lsp 56))
         (let ((slot (find-stack-slot)))
           (setf (aref *stack-values* slot) (cons :environment :home))
           (push slot *environment-chain*)
@@ -750,16 +766,15 @@ be generated instead.")
           (*environment-chain* *environment-chain*))
       (unless (zerop env-size)
         (push (remove-if (lambda (x) (or (symbolp x) (localp x))) variables) *environment*)
-        ;; TODO: Check escaping stuff. My upward funargs D:
-        ;; Allocate local environment on the stack.
-        (emit `(sys.lap-x86:sub64 :csp ,(* (+ env-size 2 (if (evenp env-size) 0 1)) 8)))
-        ;; Zero slots.
-        (dotimes (i (1+ env-size))
-          (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) 0)))
-        ;; Initialize the header. Simple-vector uses tag 0.
-        (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
-              ;; Get value.
-              `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
+        (smash-r8)
+        ;; Allocate an environment frame.
+        ;; TODO: Escape analysis for dynamic extent.
+        (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::make-simple-vector))
+              `(sys.lap-x86:mov32 :ecx 8)
+              `(sys.lap-x86:mov32 :r8d ,(* (1+ env-size) 8))
+              `(sys.lap-x86:call (:symbol-function :r13))
+              `(sys.lap-x86:mov64 :lsp :rbx)
+              `(sys.lap-x86:mov64 :rbx :r8))
         (when *environment-chain*
           ;; Set back-link.
           (emit `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
@@ -817,16 +832,15 @@ be generated instead.")
           (*environment-chain* *environment-chain*))
       (unless (zerop env-size)
         (push (remove-if 'localp variables) *environment*)
-        ;; TODO: Check escaping stuff. My upward funargs D:
-        ;; Allocate local environment on the stack.
-        (emit `(sys.lap-x86:sub64 :csp ,(* (+ env-size 2 (if (evenp env-size) 0 1)) 8)))
-        ;; Default slots to NIL.
-        (dotimes (i (1+ env-size))
-          (emit `(sys.lap-x86:mov64 (:csp ,(* (1+ i) 8)) nil)))
-        ;; Initialize the header. Simple-vector uses tag 0.
-        (emit `(sys.lap-x86:mov64 (:csp) ,(ash (1+ env-size) 8))
-              ;; Get value.
-              `(sys.lap-x86:lea64 :rbx (:csp #b0111)))
+        (smash-r8)
+        ;; Allocate an environment frame.
+        ;; TODO: Escape analysis for dynamic extent.
+        (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::make-simple-vector))
+              `(sys.lap-x86:mov32 :ecx 8)
+              `(sys.lap-x86:mov32 :r8d ,(* (1+ env-size) 8))
+              `(sys.lap-x86:call (:symbol-function :r13))
+              `(sys.lap-x86:mov64 :lsp :rbx)
+              `(sys.lap-x86:mov64 :rbx :r8))
         (when *environment-chain*
           ;; Set back-link.
           (emit `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
@@ -1425,32 +1439,15 @@ be generated instead.")
 (defun cg-lambda (form)
   (let ((lap-code (codegen-lambda form)))
     (cond (*environment*
-           ;; Generate a closure on the stack.
-           ;; FIXME: Escape analysis.
+           ;; Allocate a closure using MAKE-CLOSURE.
+           ;; TODO: Escape analysis for stack-allocated closures.
            (smash-r8)
-           (emit `(sys.lap-x86:sub64 :csp ,(* 6 8))
-                 ;; Fill using 32-bit writes.
-                 ;; There are no mem64,imm64 instructions.
-                 `(sys.lap-x86:mov32 (:csp  0) #x00020001)
-                 `(sys.lap-x86:mov32 (:csp  4) #x00000002)
-                 `(sys.lap-x86:mov32 (:csp  8) #x00000000)
-                 `(sys.lap-x86:mov32 (:csp 12) #x151D8B48)
-                 `(sys.lap-x86:mov32 (:csp 16) #xFF000000)
-                 `(sys.lap-x86:mov32 (:csp 20) #x00000725)
-                 `(sys.lap-x86:mov32 (:csp 24) #xCCCCCC00)
-                 `(sys.lap-x86:mov32 (:csp 28) #xCCCCCCCC)
-                 ;; Zero out constant pool.
-                 `(sys.lap-x86:mov32 (:csp 32) 0)
-                 `(sys.lap-x86:mov32 (:csp 36) 0)
-                 `(sys.lap-x86:mov32 (:csp 40) 0)
-                 `(sys.lap-x86:mov32 (:csp 44) 0)
-                 ;; Produce closure object.
-                 `(sys.lap-x86:lea64 :r8 (:csp 12))
-                 ;; Fill constant pool.
-                 `(sys.lap-x86:mov64 :r9 (:constant ,lap-code))
-                 `(sys.lap-x86:mov64 (:r8 ,(+ 32 -12)) :r9)
-                 `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
-                 `(sys.lap-x86:mov64 (:r8 ,(+ 40 -12)) :r9))
+           (load-constant :r8 lap-code)
+           (load-constant :r13 'sys.int::make-closure)
+           (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
+                 `(sys.lap-x86:mov32 :ecx 16)
+                 `(sys.lap-x86:call (:symbol-function :r13))
+                 `(sys.lap-x86:mov64 :lsp :rbx))
            (setf *r8-value* (list (gensym))))
           (t (list 'quote lap-code)))))
 
