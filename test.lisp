@@ -57,6 +57,7 @@
 (defvar *keyboard-shifted* nil)
 
 (defun write-char (c &optional stream)
+  (setf (system:io-port/8 #xE9) (logand (char-code c) #xFF))
   (cond ((eql c #\Newline)
          (incf *screen-offset* (- 80 (rem *screen-offset* 80))))
         (t (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 *screen-offset*)
@@ -80,18 +81,10 @@
 (write-to-the-screen "Hello, World!")
 
 (defun sys.int::raise-undefined-function (invoked-through)
-  (write-to-the-screen "Undefined function: ")
-  (if (symbolp invoked-through)
-      (write-to-the-screen (symbol-name invoked-through))
-      (write-to-the-screen "#<function>"))
-  (backtrace)
-  (loop))
+  (error 'undefined-function :name symbol))
 
 (defun sys.int::raise-unbound-error (symbol)
-  (write-to-the-screen "Unbound symbol: ")
-  (write-to-the-screen (symbol-name symbol))
-  (backtrace)
-  (loop))
+  (error 'unbound-variable :name symbol))
 
 (defun poll-keyboard ()
   (loop (let ((cmd (system:io-port/8 #x64)))
@@ -171,16 +164,6 @@
     (write-char #\Space)
     (write-integer (sys.int::memref-unsigned-byte-64 fp -2) 16)))
 
-(defun error (what &rest r)
-  (fresh-line)
-  (write-string "Error: ")
-  (write what)
-  (write-char #\Space)
-  (write r)
-  (fresh-line)
-  (backtrace)
-  (loop))
-
 (defun integerp (object)
   (system:fixnump object))
 
@@ -194,6 +177,14 @@
          (val (sys.int::%%assemble-value address 1)))
     (setf (car val) car
           (cdr val) cdr)
+    (incf *bump-pointer* 16)
+    val))
+
+(defun sys.int::allocate-std-instance (class slots)
+  (let* ((address *bump-pointer*)
+         (val (sys.int::%%assemble-value address #b0100)))
+    (setf (sys.int::std-instance-class val) class
+          (sys.int::std-instance-slots val) slots)
     (incf *bump-pointer* 16)
     val))
 
@@ -267,6 +258,12 @@
     (incf *bump-pointer* (truncate total-size 8))
     ;; Return value.
     (sys.int::%%assemble-value address #b0111)))
+
+(defun sys.int::%allocate-and-fill-array (length real-element-type initial-element)
+  (let ((array (sys.int::%allocate-and-clear-array length real-element-type)))
+    (dotimes (i length)
+      (setf (aref array i) initial-element))
+    array))
 
 (defun sys.int::make-simple-vector (length)
   "Allocate a SIMPLE-VECTOR with LENGTH elements.
@@ -437,15 +434,8 @@ allocate environment frames."
   (prog1 (sys.int::%make-symbol *bump-pointer* (sys.int::simplify-string name))
     (incf *bump-pointer* (* 8 6))))
 
-(defun sys.int::raise-type-error (datum expected)
-  (fresh-line)
-  (write-string "Type error. Expected ")
-  (write expected)
-  (write-string " got ")
-  (write datum)
-  (terpri)
-  (backtrace)
-  (loop))
+(defun sys.int::raise-type-error (datum expected-type)
+  (error 'type-error :datum datum :expected-type expected-type))
 
 (defun eval (form)
   (typecase form
@@ -472,7 +462,7 @@ allocate environment frames."
   (dotimes (i (length string))
     (write-char (char string i))))
 
-(defun write (object)
+(defun write (object &rest blah)
   (typecase object
     (integer (write-integer object))
     (cons
@@ -510,6 +500,15 @@ allocate environment frames."
      (write-char #\Space)
      (write-integer (sys.int::lisp-object-address object) 16)
      (write-char #\>))
+    (simple-condition
+     (write-char #\#)
+     (write-char #\<)
+     (write (class-name (class-of object)))
+     (write-char #\Space)
+     (write (simple-condition-format-control object))
+     (write-char #\Space)
+     (write-integer (sys.int::lisp-object-address object) 16)
+     (write-char #\>))
     (t (write-char #\#)
        (write-char #\<)
        (write-string "Unknown-object ")
@@ -524,12 +523,60 @@ allocate environment frames."
   (sys.int::%fmakunbound (sys.int::function-symbol name))
   name)
 
+(defparameter *debugger-depth* 0)
+(defvar *debug-io* nil)
+
+(defun sys.int::enter-debugger (condition)
+  (let* ((*standard-input* *debug-io*)
+	 (*standard-output* *debug-io*)
+	 (debug-level *debugger-depth*)
+	 (*debugger-depth* (1+ *debugger-depth*))
+	 (restarts (compute-restarts))
+	 (restart-count (length restarts)))
+    (fresh-line)
+    (write condition :escape nil :readably nil)
+    (write-char #\Space)
+    (write-char #\()
+    (write (class-name (class-of condition)))
+    (write-char #\))
+    (fresh-line)
+    (show-restarts restarts)
+    (loop
+       (fresh-line)
+       (write-string "Pick a restart# ")
+       (let ((form (read)))
+         (when (and (integerp form) (>= form 0) (< form restart-count))
+           (invoke-restart-interactively (nth (- restart-count form 1) restarts)))))))
+
+(defun show-restarts (restarts)
+  (let ((restart-count (length restarts)))
+    (write-string "Available restarts:")(terpri)
+    (do ((i 0 (1+ i))
+	 (r restarts (cdr r)))
+	((null r))
+      (write i)
+      (write-char #\Space)
+      (write (restart-name (car r)))
+      (terpri))))
+
+(defun sys.int::%invalid-argument-error (&rest args)
+  (fresh-line)
+  (write-string "Invalid arguments to function")
+  (fresh-line)
+  (backtrace)
+  (loop))
+
+(defun copy-list (list)
+  (when list
+    (cons (car list) (copy-list (cdr list)))))
+
 (setf *package* (find-package "CL-USER"))
 (loop
-   (fresh-line)
-   (write-char #\>)
-   (let ((form (read)))
+   (with-simple-restart (continue "Carry on chaps.")
      (fresh-line)
-     (let ((result (eval form)))
+     (write-char #\>)
+     (let ((form (read)))
        (fresh-line)
-       (write result))))
+       (let ((result (eval form)))
+         (fresh-line)
+         (write result)))))
