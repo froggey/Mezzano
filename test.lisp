@@ -1,13 +1,3 @@
-(setf (symbol-function 'sys.int::raise-undefined-function)
-      (lambda (invoked-through)
-	(let ((str (if (symbolp invoked-through)
-		       (symbol-name invoked-through)
-		       "Undefined function")))
-	  (dotimes (i (sys.int::%simple-array-length str))
-	    (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
-		  (logior (char-code (schar str i)) #x0F00))))
-	(loop)))
-
 (defun endp (list)
   (cond ((null list) t)
         ((consp list) nil)
@@ -81,7 +71,7 @@
 (write-to-the-screen "Hello, World!")
 
 (defun sys.int::raise-undefined-function (invoked-through)
-  (error 'undefined-function :name symbol))
+  (error 'undefined-function :name invoked-through))
 
 (defun sys.int::raise-unbound-error (symbol)
   (error 'unbound-variable :name symbol))
@@ -580,11 +570,7 @@ allocate environment frames."
       (terpri))))
 
 (defun sys.int::%invalid-argument-error (&rest args)
-  (fresh-line)
-  (write-string "Invalid arguments to function")
-  (fresh-line)
-  (backtrace)
-  (loop))
+  (error "Invalid arguments to function."))
 
 (defun copy-list (list)
   (when list
