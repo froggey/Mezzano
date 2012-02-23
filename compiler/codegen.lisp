@@ -707,26 +707,25 @@ be generated instead.")
 	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
 
 (defun bind (sym tag)
-  (let ((slot (find-stack-slot)))
-    (push (cons sym :symbol) *special-bindings*)
-    (load-constant :r9 sym)
-     ;; Save the old value on the binding stack.
-     ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
-     ;; Bump binding stack.
-    (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:sub64 (0) 16)
-          ;; Load binding stack pointer into R11.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r11 (0))
-          ;; Read the old symbol value.
-          `(sys.lap-x86:mov64 :r10 (:symbol-value :r9))
-          ;; Store the old value on the stack.
-          `(sys.lap-x86:mov64 (:r11 8) :r10)
-          ;; Store the symbol.
-          `(sys.lap-x86:mov64 (:r11) :r9))
-    ;; Store new value.
-    (load-in-r8 tag t)
-    (emit `(sys.lap-x86:mov64 (:symbol-value :r9) :r8))))
+  (push (cons sym :symbol) *special-bindings*)
+  (load-constant :r9 sym)
+  ;; Save the old value on the binding stack.
+  ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
+  ;; Bump binding stack.
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:sub64 (0) 16)
+        ;; Load binding stack pointer into R11.
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :r11 (0))
+        ;; Read the old symbol value.
+        `(sys.lap-x86:mov64 :r10 (:symbol-value :r9))
+        ;; Store the old value on the stack.
+        `(sys.lap-x86:mov64 (:r11 8) :r10)
+        ;; Store the symbol.
+        `(sys.lap-x86:mov64 (:r11) :r9))
+  ;; Store new value.
+  (load-in-r8 tag t)
+  (emit `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)))
 
 (defun unwind-to (target-reg preserve-registers)
   "Generate unwind code. TARGET-REG holds the target special stack pointer.
