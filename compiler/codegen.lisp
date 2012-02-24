@@ -531,7 +531,7 @@ be generated instead.")
                (emit `(sys.lap-x86:mov64 :r8 (:stack ,stack-slot)))
                (dotimes (n depth)
                  (emit `(sys.lap-x86:mov64 :r8 (:r8 1))))
-               (emit `(sys.lap-x86:mov64 :rax (:r8 9)))
+               (emit `(sys.lap-x86:mov64 :r8 (:r8 ,(1+ (* (1+ offset) 8)))))
                ;; R8 holds the tagbody info, ensure it's still valid.
                (emit `(sys.lap-x86:cmp64 :r8 nil)
                      `(sys.lap-x86:je ,invalid-go-tag)
