@@ -499,6 +499,9 @@ GENESIS-INTERN.")
   class
   slots)
 
+(defmethod print-object ((object genesis-std-instance) stream)
+  (print-unreadable-object (object stream :type t :identity t)))
+
 (define-forwarding-builtin allocate-std-instance make-genesis-std-instance)
 (define-forwarding-builtin std-instance-p genesis-std-instance-p)
 (define-forwarding-builtin std-instance-class genesis-std-instance-class)
