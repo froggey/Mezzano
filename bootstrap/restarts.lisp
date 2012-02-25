@@ -3,7 +3,7 @@
 (defparameter *active-restarts* nil)
 
 (defstruct (restart
-	     (:constructor make-restart (%name function &key interactive-function report-function test-function)))
+	     (:constructor make-restart (name function &key interactive-function report-function test-function)))
   name
   function
   interactive-function
