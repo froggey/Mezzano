@@ -41,12 +41,6 @@
   (unless (zerop (rem *screen-offset* 80))
     (terpri)))
 
-(defun write-to-the-screen (str)
-  (dotimes (i (sys.int::%simple-array-length str))
-    (write-char (schar str i))))
-
-(write-to-the-screen "Hello, World!")
-
 (defun poll-keyboard ()
   (loop (let ((cmd (system:io-port/8 #x64)))
           (when (= (logand cmd 1) 1)
@@ -131,8 +125,17 @@
             (t (apply (first form) (mapcar 'eval (rest form))))))
     (t form)))
 
+(defun (setf macro-function) (value symbol &optional environment)
+  value)
+
 (defvar *debug-io* nil)
 
+(defun format (stream control &rest arguments)
+  (if stream
+      (write control :stream stream)
+      control))
+
+(write-string "Hello, World!")
 
 (setf *package* (find-package "CL-USER"))
 (defun repl ()
