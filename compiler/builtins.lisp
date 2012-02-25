@@ -78,6 +78,59 @@
        (eql (first tag) 'quote)
        (typep (second tag) type)))
 
+(defbuiltin sys.int::memref-unsigned-byte-8 (base offset) ()
+  (let ((type-error-label (gensym)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (smash-r8)
+    (emit ;; Convert to raw integers, leaving offset correctly scaled (* 1).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rcx 3)
+	  ;; Read.
+	  `(sys.lap-x86:mov8 :dl (:rax :rcx))
+          ;; Convert to fixnum.
+          `(sys.lap-x86:and32 :edx #xFF)
+          `(sys.lap-x86:shl32 :edx 3)
+          `(sys.lap-x86:mov32 :r8d :edx))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin sys.int::memref-unsigned-byte-16 (base offset) ()
+  (let ((type-error-label (gensym)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (smash-r8)
+    (emit ;; Convert to raw integers, leaving offset correctly scaled (* 2).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rcx 2)
+	  ;; Read.
+	  `(sys.lap-x86:mov16 :dx (:rax :rcx))
+          ;; Convert to fixnum.
+          `(sys.lap-x86:and32 :edx #xFFFF)
+          `(sys.lap-x86:shl32 :edx 3)
+          `(sys.lap-x86:mov32 :r8d :edx))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin sys.int::memref-unsigned-byte-32 (base offset) ()
+  (let ((type-error-label (gensym)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (smash-r8)
+    (emit ;; Convert to raw integers, leaving offset correctly scaled (* 4).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rcx 1)
+	  ;; Read.
+	  `(sys.lap-x86:mov32 :edx (:rax :rcx))
+          ;; Convert to fixnum.
+          `(sys.lap-x86:shl64 :rdx 3)
+          `(sys.lap-x86:mov64 :r8 :rdx))
+    (setf *r8-value* (list (gensym)))))
+
 (defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)

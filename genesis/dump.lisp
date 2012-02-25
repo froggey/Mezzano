@@ -92,6 +92,12 @@
     ((vector character)
      ;; 4 8-bit bytes per character, plus 1 word header.
      (+ 1 (ceiling (* (array-dimension x 0) 4) 8)))
+    ((vector (unsigned-byte 8))
+     ;; 1 8-bit bytes per element, plus 1 word header.
+     (+ 1 (ceiling (array-dimension x 0) 8)))
+    ((vector (unsigned-byte 16))
+     ;; 2 8-bit bytes per element, plus 1 word header.
+     (+ 1 (ceiling (* (array-dimension x 0) 2) 8)))
     ((vector (unsigned-byte 32))
      ;; 4 8-bit bytes per element, plus 1 word header.
      (+ 1 (ceiling (* (array-dimension x 0) 4) 8)))
@@ -120,6 +126,8 @@
     (array-header #b0011)
     ((vector base-char) #b0111)
     ((vector character) #b0111)
+    ((vector (unsigned-byte 8)) #b0111)
+    ((vector (unsigned-byte 16)) #b0111)
     ((vector (unsigned-byte 32)) #b0111)
     ((vector (unsigned-byte 64)) #b0111)
     ((vector t) #b0111)
@@ -354,6 +362,10 @@
 		  (values 'simple-base-string (1+ (ceiling (length k) 8))))
 		 ((vector character)
 		  (values 'simple-string (1+ (ceiling (* (length k) 4) 8))))
+		 ((vector (unsigned-byte 8))
+		  (values '(simple-array (unsigned-byte 8) (*)) (1+ (ceiling (length k) 8))))
+		 ((vector (unsigned-byte 16))
+		  (values '(simple-array (unsigned-byte 16) (*)) (1+ (ceiling (* (length k) 2) 8))))
 		 ((vector (unsigned-byte 32))
 		  (values '(simple-array (unsigned-byte 32) (*)) (1+ (ceiling (* (length k) 4) 8))))
 		 ((vector (unsigned-byte 64))
@@ -640,6 +652,16 @@
 	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 2))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub32ref/le image (+ offset 8 (* i 4))) (char-int (char object i)))))
+	  ((and (subtypep type '(unsigned-byte 8)) (subtypep '(unsigned-byte 8) type))
+	   ;; +0 Header word.
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 6))
+	   (dotimes (i (length object))
+	     (setf (aref image (+ offset 8 i)) (aref object i))))
+	  ((and (subtypep type '(unsigned-byte 16)) (subtypep '(unsigned-byte 16) type))
+	   ;; +0 Header word.
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 7))
+	   (dotimes (i (length object))
+	     (setf (nibbles:ub16ref/le image (+ offset 8 (* i 2))) (aref object i))))
 	  ((and (subtypep type '(unsigned-byte 32)) (subtypep '(unsigned-byte 32) type))
 	   ;; +0 Header word.
 	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 8))

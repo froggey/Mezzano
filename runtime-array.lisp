@@ -54,14 +54,42 @@ allocate environment frames."
     (0 ;; simple-vector
      (svref array index))
     ((1 2) ;; simple-base-string or simple-string
-     (schar array index))))
+     (schar array index))
+    (6 ; ub8
+     (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                             index))
+    (7 ; ub16
+     (memref-unsigned-byte-16 (+ (logand (lisp-object-address array) -16) 8)
+                              index))
+    (8 ; ub32
+     (memref-unsigned-byte-32 (+ (logand (lisp-object-address array) -16) 8)
+                              index))
+    (9 ; ub64
+     (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
+                              index))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%simple-array-type array)
     (0 ;; simple-vector
      (setf (svref array index) value))
     ((1 2) ;; simple-base-string or simple-string
-     (setf (schar array index) value))))
+     (setf (schar array index) value))
+    (6 ; ub8
+     (setf (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                   index)
+           value))
+    (7 ; ub16
+     (setf (memref-unsigned-byte-16 (+ (logand (lisp-object-address array) -16) 8)
+                                    index)
+           value))
+    (8 ; ub32
+     (setf (memref-unsigned-byte-32 (+ (logand (lisp-object-address array) -16) 8)
+                                    index)
+           value))
+    (0 ; ub64
+     (setf (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
+                                    index)
+           value))))
 
 (defparameter *array-types*
   #(t
