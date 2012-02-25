@@ -386,3 +386,15 @@
        (values nil nil nil))
     (when (member (car i) indicator-list)
       (return (values (first i) (second i) i)))))
+
+(defun list* (object &rest objects)
+  (if objects
+      (do* ((i objects (cdr i))
+	    (result (cons object nil))
+	    (tail result))
+	   ((null (cdr i))
+	    (setf (cdr tail) (car i))
+	    result)
+	(setf (cdr tail) (cons (car i) nil)
+	      tail (cdr tail)))
+      object))

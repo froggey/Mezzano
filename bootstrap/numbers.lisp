@@ -82,6 +82,24 @@
 (define-comparison-operator >= binary->=)
 (define-comparison-operator = binary-=)
 
+(defun /= (number &rest more-numbers)
+  "Returns true if no two numbers are the same in value; otherwise, returns false."
+  (declare (dynamic-extent more-numbers))
+  (check-type number number)
+  (do ((lhs number (car n))
+       (n more-numbers (cdr n)))
+      ((endp n) t)
+    (dolist (rhs n)
+      (check-type rhs number)
+      (when (= lhs rhs)
+	(return-from /= nil)))))
+
+(define-compiler-macro /= (&whole whole number &rest more-numbers)
+  (case (length more-numbers)
+    (0 `(the number ,number))
+    (1 `(not (= ,number ,(first more-numbers))))
+    (t whole)))
+
 (defun min (number &rest more-numbers)
   (declare (dynamic-extent more-numbers))
   (check-type number number)
@@ -153,3 +171,25 @@
 (declaim (inline 1-))
 (defun 1- (x)
   (- x 1))
+
+(declaim (inline plusp))
+(defun plusp (number)
+  (> number 0))
+
+(declaim (inline minusp))
+(defun minusp (number)
+  (< number 0))
+
+(declaim (inline zerop))
+(defun zerop (number)
+  (= number 0))
+
+(declaim (inline evenp))
+(defun evenp (integer)
+  (check-type integer integer)
+  (eql (logand integer 1) 0))
+
+(declaim (inline oddp))
+(defun oddp (integer)
+  (check-type integer integer)
+  (eql (logand integer 1) 1))
