@@ -754,7 +754,7 @@
               *function-preloads*)
         t))))
 
-(defun make-toplevel-function (file)
+(defun make-toplevel-function (&rest files)
   (let ((toplevel-forms '()))
     (flet ((frob (form)
              (genesis-eval (list (genesis-intern "HANDLE-TOP-LEVEL-FORM")
@@ -777,12 +777,13 @@
                             (list (genesis-intern "FUNCTION") (second x))
                             (list (genesis-intern "QUOTE") (first x)))))
               (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
-      (with-open-file (s file)
-        (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
-          (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
-                      (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
-               ((eql form s))
-            (frob form)))))
+      (dolist (file files)
+        (with-open-file (s file)
+          (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
+            (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
+                        (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
+                 ((eql form s))
+              (frob form))))))
     (format t "Toplevel:~%~{~S~%~}" (reverse toplevel-forms))
     (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
                                          (cons (genesis-intern "PROGN")
@@ -796,8 +797,11 @@
 	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
 	 (special-stack (make-array 2048))
          (*function-preloads* '())
-	 (entry-function (make-toplevel-function "../test.lisp"))
          (*symbol-preloads* '())
+	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
+                                                 "../runtime-array.lisp" "../runtime-numbers.lisp"
+                                                 "../character.lisp" "../printer.lisp" "../debug.lisp"
+                                                 "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
@@ -856,6 +860,10 @@
 	  (format t "NIL at ~X.~%" (gethash 'nil object-values))
 	  (format t "UFT at ~X.~%" (gethash undefined-function-thunk object-values))
           (format t "Special stack vector at ~X.~%" (gethash special-stack object-values))
+          (format t "GC pointer at ~X.~%" (+ *linear-map* *static-area-base* (length image)))
+          ;; Set the  GC pointer.
+          (push (cons (genesis-intern "*BUMP-POINTER*") (+ *linear-map* *static-area-base* (length image)))
+                *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002
 		(aref multiboot-header 1) #x00010003

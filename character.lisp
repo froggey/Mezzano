@@ -1,0 +1,46 @@
+(in-package #:sys.int)
+
+(defun %make-character (code &optional bits)
+  (check-type code (or (integer 0 #xD7FF)
+                       (integer #xE000 #x0010FFFF))
+              "a unicode code-point")
+  (check-type bits (or null (integer 0 15)))
+  (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010))
+
+(defun char-code (character)
+  (check-type character character)
+  (logand (ash (lisp-object-address character) -4) #x1FFFFF))
+
+(defun code-char (code)
+  (%make-character code))
+
+(defun system:char-bits (character)
+  (check-type character character)
+  (logand (ash (ash (lisp-object-address character) -4) -21) 15))
+
+(defun char-upcase (char)
+  (let ((code (char-code char)))
+    (if (<= #x61 code #x7A)
+        (%make-character (logand code (lognot #x20))
+                         (system:char-bits char))
+        char)))
+
+(define-compiler-macro char= (&whole whole character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (cond ((null more-characters) (progn (check-type ,character character) 't))
+        ((null (rest more-characters))
+         `(eql ,character ,(first more-characters)))
+        (t whole)))
+
+(defun char= (character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (check-type character character)
+  (every (lambda (c)
+           (check-type c character)
+           (eql character c))
+         more-characters))
+
+(defun base-char-p (character)
+  (check-type character character)
+  (and (zerop (system:char-bits character))
+       (< (char-code character) 256)))
