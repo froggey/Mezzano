@@ -68,6 +68,13 @@ This must be sorted from most-specific to least-specific.")
 
 (defun make-simple-array (length &optional (element-type 't) (initial-element nil initial-element-p))
   (let ((real-element-type (upgraded-array-element-type element-type)))
+    (when (and (eql real-element-type 'character)
+               (not initial-element-p))
+      ;; Character arrays are stored as 32-bit values WITH tags. %ALLOC-CLEAR
+      ;; clears to 0, which would cause uninitialized slots to contain fixnums
+      ;; so here we force an initialization.
+      (setf initial-element (code-char 0)
+            initial-element-p t))
     (cond (initial-element-p
 	   (unless (typep initial-element element-type)
 	     (error 'type-error :expected-type element-type :datum initial-element))
