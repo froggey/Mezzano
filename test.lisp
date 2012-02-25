@@ -1,10 +1,3 @@
-(defun endp (list)
-  (cond ((null list) t)
-        ((consp list) nil)
-        (t (error 'type-error
-                  :datum list
-                  :expected-type 'list))))
-
 (defvar *screen-offset* 0)
 
 (defvar *gb-keymap-low*
@@ -114,9 +107,6 @@
 (setf *standard-input* nil
       *standard-output* nil)
 
-(defun list (&rest args)
-  args)
-
 (defun simple-string-p (object)
   (when (sys.int::%simple-array-p object)
     (let ((tag (sys.int::%simple-array-type object)))
@@ -143,9 +133,6 @@
 
 (defvar *debug-io* nil)
 
-(defun copy-list (list)
-  (when list
-    (cons (car list) (copy-list (cdr list)))))
 
 (setf *package* (find-package "CL-USER"))
 (defun repl ()

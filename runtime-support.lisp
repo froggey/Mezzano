@@ -53,3 +53,17 @@
 
 (defun %invalid-argument-error (&rest args)
   (error "Invalid arguments to function."))
+
+(defun endp (list)
+  (cond ((null list) t)
+        ((consp list) nil)
+        (t (error 'type-error
+                  :datum list
+                  :expected-type 'list))))
+
+(defun list (&rest args)
+  args)
+
+(defun copy-list (list)
+  (when list
+    (cons (car list) (copy-list (cdr list)))))
