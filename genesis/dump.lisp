@@ -13,6 +13,7 @@
   environment)
 
 (defvar *function-preloads* nil)
+(defvar *symbol-preloads* nil)
 
 (defvar *crunched-symbol-names* (make-hash-table :weakness :key))
 
@@ -578,9 +579,11 @@
   ;; +8 Package.
   (setf (nibbles:ub64ref/le image (+ offset 8)) (value-of (genesis-symbol-package object) value-table))
   ;; +16 Value.
-  (setf (nibbles:ub64ref/le image (+ offset 16)) (if (boundp object)
-						     (value-of (symbol-value object) value-table)
-						     #b1110))
+  (setf (nibbles:ub64ref/le image (+ offset 16)) (let ((x (assoc object *symbol-preloads*)))
+                                                   (cond (x (value-of (cdr x) value-table))
+                                                         ((boundp object)
+                                                          (value-of (symbol-value object) value-table))
+                                                         (t #b1110))))
   ;; +24 Function.
   ;; Some functions may not be dumpable. They must be replaced with the
   ;; undefined function value.
@@ -786,7 +789,7 @@
                                                (nreverse toplevel-forms)))
 			   :source-environment nil)))
 
-;;; Build a (u-b 8) array holding a bootable image
+;;; Build a (u-b 8) array holding a bootable image.
 (defun generate-dump ()
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
@@ -794,13 +797,15 @@
 	 (special-stack (make-array 2048))
          (*function-preloads* '())
 	 (entry-function (make-toplevel-function "../test.lisp"))
+         (*symbol-preloads* '())
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))
 	 (undefined-function-thunk (make-undefined-function-thunk)))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
 	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt
                                                               special-stack entry-function
-                                                              (mapcar 'cdr *function-preloads*)))
+                                                              (mapcar 'cdr *function-preloads*)
+                                                              (mapcar 'cdr *symbol-preloads*)))
       (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
 	  (generate-physical-dump-layout (+ static-size #x40000) dynamic-size)
 	(let ((image (make-array (+ (- image-end load-base) #x1000) :element-type '(unsigned-byte 8)))
