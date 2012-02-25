@@ -4,16 +4,17 @@
 
 (defparameter *builtins* (make-hash-table))
 
-(defmacro defbuiltin (name lambda-list &body body)
+(defmacro defbuiltin (name lambda-list (&optional (emit-function t)) &body body)
   `(progn (setf (gethash ',(sys.int::function-symbol name) *builtins*)
 		(list ',lambda-list
 		      (lambda ,lambda-list
 			(declare (lambda-name ,name))
-			,@body)))
+			,@body)
+                      ',emit-function))
 	  ',name))
 
 (defmacro define-reader (name type tag slot)
-  `(defbuiltin ,name (object)
+  `(defbuiltin ,name (object) ()
      (let ((type-error-label (gensym)))
        (emit-trailer (type-error-label)
          (raise-type-error :r8 ',type))
@@ -27,7 +28,7 @@
        (setf *r8-value* (list (gensym))))))
 
 (defmacro define-writer (name type tag slot)
-  `(defbuiltin ,name (value object)
+  `(defbuiltin ,name (value object) ()
      (let ((type-error-label (gensym)))
        (emit-trailer (type-error-label)
          (raise-type-error :r9 ',type))
@@ -45,7 +46,7 @@
           (define-writer (setf ,name) ,type ,tag ,slot)))
 
 (defmacro define-tag-type-predicate (name tag)
-  `(defbuiltin ,name (object)
+  `(defbuiltin ,name (object) ()
      (load-in-reg :r8 object t)
      (emit `(sys.lap-x86:mov8 :al :r8l)
            `(sys.lap-x86:and8 :al #b1111)
@@ -56,11 +57,12 @@
 (defun generate-builtin-functions ()
   (let ((functions '()))
     (maphash (lambda (name fn)
-               (push (list name
-                           `(lambda ,(first fn)
-                              (declare (system:lambda-name ,name))
-                              (,name ,@(first fn))))
-                     functions))
+               (when (third fn)
+                 (push (list name
+                             `(lambda ,(first fn)
+                                (declare (system:lambda-name ,name))
+                                (,name ,@(first fn))))
+                       functions)))
              *builtins*)
     functions))
 
@@ -76,7 +78,7 @@
        (eql (first tag) 'quote)
        (typep (second tag) type)))
 
-(defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset)
+(defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :rdx '(unsigned-byte 16)))
@@ -98,7 +100,7 @@
 	  `(sys.lap-x86:mov16 (:rax :rcx) :dx))
     *r8-value*))
 
-(defbuiltin (setf sys.int::memref-unsigned-byte-32) (new-value base offset)
+(defbuiltin (setf sys.int::memref-unsigned-byte-32) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :rdx '(unsigned-byte 32)))
@@ -121,7 +123,7 @@
 	  `(sys.lap-x86:mov32 (:rax :rcx) :edx))
     *r8-value*))
 
-(defbuiltin sys.int::memref-unsigned-byte-64 (base offset)
+(defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
   (let ((overflow-error-label (gensym))
         (ok-label (gensym)))
     (emit-trailer (overflow-error-label)
@@ -154,7 +156,7 @@
     (setf *r8-value* (list (gensym)))))
 
 ;;; TODO: bignums.
-(defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset)
+(defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
@@ -173,7 +175,7 @@
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
     *r8-value*))
 
-(defbuiltin (setf sys.int::memref-t) (new-value base offset)
+(defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (load-in-reg :rax base t)
     (fixnum-check :rax)
@@ -186,7 +188,7 @@
 	  `(sys.lap-x86:mov64 (:rax :rcx) :r8))
     *r8-value*))
 
-(defbuiltin sys.int::%simple-array-p (object)
+(defbuiltin sys.int::%simple-array-p (object) ()
   (let ((false-out (gensym))
         (out (gensym)))
     (load-in-reg :r8 object t)
@@ -204,7 +206,7 @@
           out)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin sys.int::%simple-array-length (array)
+(defbuiltin sys.int::%simple-array-length (array) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
 		  (raise-type-error :r8 '(simple-array * (*))))
@@ -224,7 +226,7 @@
 	  `(sys.lap-x86:mov64 :r8 :rax))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin sys.int::%simple-array-type (array)
+(defbuiltin sys.int::%simple-array-type (array) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
 		  (raise-type-error :r8 '(simple-array * (*))))
@@ -244,7 +246,7 @@
 	  `(sys.lap-x86:mov32 :r8d :eax))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin sys.int::binary-logior (x y)
+(defbuiltin sys.int::binary-logior (x y) ()
   (when (constant-type-p y 'fixnum)
     (psetf x y
            y x))
@@ -266,7 +268,7 @@
            (emit `(sys.lap-x86:or64 :r8 :r9))
            (setf *r8-value* (list (gensym))))))
 
-(defbuiltin sys.int::binary-logxor (x y)
+(defbuiltin sys.int::binary-logxor (x y) ()
   (when (constant-type-p y 'fixnum)
     (psetf x y
            y x))
@@ -288,7 +290,7 @@
            (emit `(sys.lap-x86:xor64 :r8 :r9))
            (setf *r8-value* (list (gensym))))))
 
-(defbuiltin sys.int::binary-logand (x y)
+(defbuiltin sys.int::binary-logand (x y) ()
   (when (constant-type-p y 'fixnum)
     (psetf x y
            y x))
@@ -310,14 +312,14 @@
            (emit `(sys.lap-x86:and64 :r8 :r9))
            (setf *r8-value* (list (gensym))))))
 
-(defbuiltin lognot (integer)
+(defbuiltin lognot (integer) ()
   (load-in-reg :r8 integer t)
   (fixnum-check :r8)
   (smash-r8)
   (emit `(sys.lap-x86:xor64 :r8 -8))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::binary-+ (x y)
+(defbuiltin sys.int::binary-+ (x y) ()
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
       (when (constant-type-p x 'fixnum)
@@ -350,7 +352,7 @@
                    `(sys.lap-x86:jo ,ovfl))
              (setf *r8-value* (list (gensym)))))))
 
-(defbuiltin sys.int::binary-- (x y)
+(defbuiltin sys.int::binary-- (x y) ()
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
       (load-constant :r10 '-)
@@ -375,7 +377,7 @@
                    `(sys.lap-x86:jo ,ovfl)))))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::binary-* (x y)
+(defbuiltin sys.int::binary-* (x y) ()
   (let ((ovfl (gensym)))
     (emit-trailer (ovfl)
       (load-constant :r10 '*)
@@ -400,7 +402,7 @@
 
 ;; FIXME: check for /0
 ;; FIXME: default divisor to 1
-(defbuiltin rem (number divisor)
+(defbuiltin rem (number divisor) ()
   (load-in-reg :r8 divisor t)
   (fixnum-check :r8)
   (load-in-reg :r9 number t)
@@ -415,7 +417,7 @@
 
 ;; FIXME: check for /0.
 ;; FIXME: default divisor to 1
-(defbuiltin truncate (number divisor)
+(defbuiltin truncate (number divisor) ()
   (load-in-reg :r8 divisor t)
   (fixnum-check :r8)
   (load-in-reg :r9 number t)
@@ -436,7 +438,7 @@
          :multiple)
         (t (setf *r8-value* (list (gensym))))))
 
-(defbuiltin ash (integer count)
+(defbuiltin ash (integer count) ()
   (cond ((constant-type-p count 'fixnum)
          (setf count (second count))
          (load-in-reg :r8 integer t)
@@ -521,7 +523,7 @@
                    `(sys.lap-x86:mov64 :r8 :rax))
              (setf *r8-value* (list (gensym)))))))
 
-(defbuiltin sys.int::binary-< (x y)
+(defbuiltin sys.int::binary-< (x y) ()
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -529,7 +531,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :l))
 
-(defbuiltin sys.int::binary-<= (x y)
+(defbuiltin sys.int::binary-<= (x y) ()
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -537,7 +539,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :le))
 
-(defbuiltin sys.int::binary-> (x y)
+(defbuiltin sys.int::binary-> (x y) ()
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -545,7 +547,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :g))
 
-(defbuiltin sys.int::binary->= (x y)
+(defbuiltin sys.int::binary->= (x y) ()
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -553,7 +555,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :ge))
 
-(defbuiltin sys.int::binary-= (x y)
+(defbuiltin sys.int::binary-= (x y) ()
   (load-in-reg :r9 x t)
   (fixnum-check :r9)
   (load-in-r8 y t)
@@ -561,7 +563,7 @@
   (emit `(sys.lap-x86:cmp64 :r9 :r8))
   (predicate-result :e))
 
-(defbuiltin schar (string index)
+(defbuiltin schar (string index) ()
   (let ((bound-error-label (gensym))
 	(type-error-label (gensym))
 	(base-string-label (gensym))
@@ -610,7 +612,7 @@
 	  `(sys.lap-x86:mov32 :r8d :eax))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf schar) (value string index)
+(defbuiltin (setf schar) (value string index) ()
   (let ((bound-error-label (gensym))
 	(type-error-label (gensym))
 	(char-type-error-label (gensym))
@@ -679,7 +681,7 @@
 (define-reader symbol-name symbol #b0010 :symbol-name)
 (define-accessor symbol-package symbol #b0010 :symbol-package)
 
-(defbuiltin symbol-value (symbol)
+(defbuiltin symbol-value (symbol) ()
   (let ((unbound-error-label (gensym))
 	(type-error-label (gensym)))
     (emit-trailer (unbound-error-label)
@@ -704,7 +706,7 @@
 ;;; TODO: this should do some type checking.
 (define-writer (setf symbol-value) symbol #b0010 :symbol-value)
 
-(defbuiltin symbol-function (symbol)
+(defbuiltin symbol-function (symbol) ()
   (let ((type-error-label (gensym))
 	(undefined-function-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -725,7 +727,7 @@
           `(sys.lap-x86:mov64 :r8 (:symbol-function :r8)))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf symbol-function) (value symbol)
+(defbuiltin (setf symbol-function) (value symbol) ()
   (let ((symbol-type-error-label (gensym))
 	(function-type-error-label (gensym)))
     (emit-trailer (symbol-type-error-label)
@@ -745,12 +747,13 @@
 	  `(sys.lap-x86:mov64 (:symbol-function :r9) :r8))
     *r8-value*))
 
-(define-reader symbol-plist symbol #b0010 :symbol-plist)
+;; TODO type checking? ensure value is a plist?
+(define-accessor symbol-plist symbol #b0010 :symbol-plist)
 
 ;; TODO: type checking, value should be a fixnum.
 (define-accessor sys.int::%symbol-flags symbol #b0010 :symbol-flags)
 
-(defbuiltin boundp (symbol)
+(defbuiltin boundp (symbol) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
@@ -762,7 +765,7 @@
 	  `(sys.lap-x86:cmp64 (:symbol-value :r8) #b1110))
     (predicate-result :ne)))
 
-(defbuiltin makunbound (symbol)
+(defbuiltin makunbound (symbol) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
@@ -775,7 +778,7 @@
     *r8-value*))
 
 ;;; FBOUNDP but just for symbols.
-(defbuiltin sys.int::%fboundp (symbol)
+(defbuiltin sys.int::%fboundp (symbol) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
@@ -788,7 +791,7 @@
     (predicate-result :ne)))
 
 ;;; FMAKUNBOUND but just for symbols.
-(defbuiltin sys.int::%fmakunbound (symbol)
+(defbuiltin sys.int::%fmakunbound (symbol) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
@@ -802,7 +805,7 @@
 
 (define-tag-type-predicate consp #b0001)
 
-(defbuiltin car (list)
+(defbuiltin car (list) ()
   (let ((type-error-label (gensym))
         (out-label (gensym)))
     (emit-trailer (type-error-label)
@@ -819,7 +822,7 @@
           out-label)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin cdr (list)
+(defbuiltin cdr (list) ()
   (let ((type-error-label (gensym))
         (out-label (gensym)))
     (emit-trailer (type-error-label)
@@ -849,29 +852,29 @@
 (define-accessor sys.int::%array-header-storage
     sys.int::%array-header #b0011 :array-header-storage)
 
-(defbuiltin null (object)
+(defbuiltin null (object) ()
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:cmp64 :r8 nil))
   (predicate-result :e))
 
-(defbuiltin not (object)
+(defbuiltin not (object) ()
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:cmp64 :r8 nil))
   (predicate-result :e))
 
-(defbuiltin eq (x y)
+(defbuiltin eq (x y) ()
   (load-in-reg :r9 y t)
   (load-in-reg :r8 x t)
   (emit `(sys.lap-x86:cmp64 :r8 :r9))
   (predicate-result :e))
 
-(defbuiltin eql (x y)
+(defbuiltin eql (x y) ()
   (load-in-reg :r9 y t)
   (load-in-reg :r8 x t)
   (emit `(sys.lap-x86:cmp64 :r8 :r9))
   (predicate-result :e))
 
-(defbuiltin system:io-port/8 (port)
+(defbuiltin system:io-port/8 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
   (cond ((and (consp port)
@@ -896,7 +899,7 @@
         `(sys.lap-x86:mov32 :r8d :eax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf system:io-port/8) (value port)
+(defbuiltin (setf system:io-port/8) (value port) ()
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
@@ -927,7 +930,7 @@
                      `(sys.lap-x86:out8 :dx)))))
     value))
 
-(defbuiltin svref (simple-vector index)
+(defbuiltin svref (simple-vector index) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -960,7 +963,7 @@
           `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf svref) (value simple-vector index)
+(defbuiltin (setf svref) (value simple-vector index) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -995,14 +998,14 @@
 
 (define-tag-type-predicate characterp #b1010)
 
-(defbuiltin system.internals::read-frame-pointer ()
+(defbuiltin system.internals::read-frame-pointer () ()
   (smash-r8)
   (emit `(sys.lap-x86:mov64 :rax :cfp)
         `(sys.lap-x86:shl64 :rax 3)
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin system.internals::structure-object-p (object)
+(defbuiltin system.internals::structure-object-p (object) ()
   (let ((out (gensym)))
     (load-in-reg :r9 object t)
     (smash-r8)
@@ -1019,7 +1022,7 @@
           out)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin system.internals::%struct-slot (object slot)
+(defbuiltin system.internals::%struct-slot (object slot) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -1051,7 +1054,7 @@
           `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf system.internals::%struct-slot) (value object slot)
+(defbuiltin (setf system.internals::%struct-slot) (value object slot) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
     (emit-trailer (type-error-label)
@@ -1083,7 +1086,7 @@
           `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
     *r8-value*))
 
-(defbuiltin char-code (char)
+(defbuiltin char-code (char) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
 		  (raise-type-error :r8 'character))
@@ -1099,7 +1102,7 @@
 	  `(sys.lap-x86:shr32 :r8d 1))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin system:char-bits (character)
+(defbuiltin system:char-bits (character) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'character))
@@ -1113,7 +1116,7 @@
           `(sys.lap-x86:shr32 :r8d 22))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin char-int (char)
+(defbuiltin char-int (char) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
 		  (raise-type-error :r8 'character))
@@ -1129,12 +1132,12 @@
 	  `(sys.lap-x86:shr32 :r8d 1))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin system:fixnump (object)
+(defbuiltin system:fixnump (object) ()
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:test8 :r8l #b0111))
   (predicate-result :z))
 
-(defbuiltin sys.int::%%assemble-value (address tag)
+(defbuiltin sys.int::%%assemble-value (address tag) ()
   (load-in-reg :rax tag t)
   (load-in-reg :r8 address t)
   (smash-r8)
@@ -1143,14 +1146,14 @@
         `(sys.lap-x86:or64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::lisp-object-address (value)
+(defbuiltin sys.int::lisp-object-address (value) ()
   (load-in-reg :r8 value t)
   (smash-r8)
   ;; Convert to fixnum.
   (emit `(sys.lap-x86:shl64 :r8 3))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::%make-symbol (address name)
+(defbuiltin sys.int::%make-symbol (address name) ()
   (load-in-reg :r9 name t)
   (load-in-reg :r8 address t)
   (smash-r8)
@@ -1164,7 +1167,8 @@
         `(sys.lap-x86:mov64 (:symbol-flags :r8) 0))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin apply (function arguments)
+;;; Apply does not generate a function.
+(defbuiltin apply (function arguments) (nil)
   (let ((type-error-label (gensym))
         (fn-type-error-label (gensym))
         (loop-test (gensym))
