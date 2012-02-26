@@ -31,6 +31,13 @@
          (write-unsigned-integer (- 0 x) base stream))
         (t (write-unsigned-integer x base stream))))
 
+(defun terpri (&optional stream)
+  (write-char #\Newline stream))
+
+(defun fresh-line (&optional stream)
+  (unless (start-line-p stream)
+    (terpri stream)))
+
 (defun write-string (string &optional stream)
   (dotimes (i (length string))
     (write-char (char string i) stream)))

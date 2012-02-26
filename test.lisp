@@ -1,3 +1,5 @@
+(in-package #:sys.int)
+
 (defvar *screen-offset* 0)
 
 (defvar *gb-keymap-low*
@@ -23,7 +25,7 @@
 
 (defvar *keyboard-shifted* nil)
 
-(defun write-char (c &optional stream)
+(defun cold-write-char (c stream)
   (setf (system:io-port/8 #xE9) (logand (char-code c) #xFF))
   (cond ((eql c #\Newline)
          (incf *screen-offset* (- 80 (rem *screen-offset* 80))))
@@ -34,12 +36,8 @@
     (setf *screen-offset* 0))
   c)
 
-(defun terpri (&optional stream)
-  (write-char #\Newline))
-
-(defun fresh-line (&optional stream)
-  (unless (zerop (rem *screen-offset* 80))
-    (terpri)))
+(defun cold-start-line-p (stream)
+  (zerop (rem *screen-offset* 80)))
 
 (defun poll-keyboard ()
   (loop (let ((cmd (system:io-port/8 #x64)))
@@ -72,34 +70,26 @@
 
 (defvar *unread-char* nil)
 
-(defun read-char (&optional stream eof-error-p eof-value recursive-p)
+(defstruct cold-stream)
+
+(setf *terminal-io* (make-cold-stream))
+(setf *standard-input* (make-synonym-stream '*terminal-io*)
+      *standard-output* (make-synonym-stream '*terminal-io*)
+      *debug-io* (make-synonym-stream '*terminal-io*)
+      *query-io* (make-synonym-stream '*terminal-io*)
+      *error-output* (make-synonym-stream '*terminal-io*)
+      *trace-output* (make-synonym-stream '*terminal-io*))
+
+(defun cold-read-char (stream)
   (cond (*unread-char*
          (prog1 *unread-char*
            (setf *unread-char* nil)))
         (t (read-keyboard-char))))
 
-(defun unread-char (character &optional stream)
+(defun cold-unread-char (character stream)
   (when *unread-char*
     (error "Multiple unread-char!"))
-  (setf *unread-char* character)
-  nil)
-
-(defun peek-char (&optional peek-type stream eof-error-p eof-value recursive-p)
-  (cond ((eql peek-type nil)
-         (let ((ch (read-char)))
-           (unread-char ch)
-           ch))
-        ((eql peek-type t)
-         (do ((ch (read-char) (read-char)))
-             ((not (sys.int::whitespace[2]p ch))
-              (unread-char ch)
-              ch)))
-        ((characterp peek-type)
-         (error "TODO: character peek."))
-        (t (error "Bad peek type ~S." peek-type))))
-
-(setf *standard-input* nil
-      *standard-output* nil)
+  (setf *unread-char* character))
 
 (defun simple-string-p (object)
   (when (sys.int::%simple-array-p object)
