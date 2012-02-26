@@ -93,7 +93,7 @@
            (write (class-name (class-of object))
                   :stream stream))
           (t (write-string "Unknown-object-" stream)
-             (write-integer (logand (lisp-object-address object) #b1111 stream)))))
+             (write-integer (logand (lisp-object-address object) #b1111) 10 stream))))
   (when fn
     (when type
       (write-char #\Space stream))

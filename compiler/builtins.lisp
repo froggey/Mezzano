@@ -228,6 +228,19 @@
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
     *r8-value*))
 
+(defbuiltin sys.int::memref-t (base offset) ()
+  (let ((type-error-label (gensym)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (smash-r8)
+    (emit ;; Convert to raw integers, leaving offset correctly scaled (* 8).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  ;; Read.
+	  `(sys.lap-x86:mov64 :r8 (:rax :rcx)))
+    (setf *r8-value* (list (gensym)))))
+
 (defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (load-in-reg :rax base t)
