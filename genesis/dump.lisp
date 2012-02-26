@@ -824,6 +824,7 @@
 	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
                                                  "../runtime-array.lisp" "../runtime-numbers.lisp"
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
+                                                 "../type.lisp"
                                                  "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))

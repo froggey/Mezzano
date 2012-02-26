@@ -89,16 +89,7 @@
   (write-char #\# stream)
   (write-char #\< stream)
   (when type
-    (cond ((structure-object-p object)
-           (write (sys.int::structure-name (sys.int::%struct-slot object 0))
-                  :stream stream))
-          ((std-instance-p object)
-           (write (class-name (class-of object))
-                  :stream stream))
-          ((functionp object)
-           (write-string "Function"))
-          (t (write-string "Unknown-object-" stream)
-             (write-integer (logand (lisp-object-address object) #b1111) 10 stream))))
+    (write (type-of object) :stream stream))
   (when fn
     (when type
       (write-char #\Space stream))
