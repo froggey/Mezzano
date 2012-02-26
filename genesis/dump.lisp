@@ -232,12 +232,13 @@
             (genesis-function-constants object) (genesis-function-constants fn))
       object)))
 
-(defbuiltin #:assemble-lap (code)
+(defbuiltin #:assemble-lap (code &optional name)
   (multiple-value-bind (mc constants)
       (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "ASSEMBLE" "SYS.LAP-X86"))
                           (list (genesis-intern "QUOTE") code)
                           (genesis-intern "BASE-ADDRESS" t) 12
-                          (genesis-intern "INITIAL-SYMBOLS" t) (list (genesis-intern "QUOTE") *lap-symbols*)))
+                          (genesis-intern "INITIAL-SYMBOLS" t) (list (genesis-intern "QUOTE") *lap-symbols*)
+                          (genesis-intern "INFO" t) (list (genesis-intern "QUOTE") (list name))))
     (make-genesis-function :lap-code code
 			   :assembled-code (strip-array-header mc)
 			   :constants (strip-array-header constants))))

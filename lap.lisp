@@ -26,12 +26,14 @@
     (incf *bytes-emitted*)
     (vector-push-extend i *machine-code*)))
 
-(defun perform-assembly (instruction-set code-list &key (base-address 0) (initial-symbols '()) &allow-other-keys)
+(defun perform-assembly (instruction-set code-list &key (base-address 0) (initial-symbols '()) info &allow-other-keys)
   "Assemble a list of instructions, returning a u-b 8 vector of machine code,
 a vector of constants and an alist of symbols & addresses."
-  (do ((*constant-pool* (make-array 16
-				    :fill-pointer 0
-				    :adjustable t))
+  (do ((*constant-pool* (let ((x (make-array (+ (length info) 16)
+                                             :fill-pointer (length info)
+                                             :adjustable t)))
+                          (setf (subseq x 0 (length info)) info)
+                          x))
        (prev-bytes-emitted nil)
        (*bytes-emitted* 0)
        (failed-instructions 0 0)
