@@ -16,9 +16,25 @@
   `(setf (gethash ',name *special-forms*)
          (lambda (,form-sym ,env-sym)
            (declare (ignorable ,form-sym ,env-sym)
-                    (system:lambda-name ,name))
-           (destructuring-bind ,lambda-list (cdr ,form-sym)
-             ,@body)))))
+                    (system:lambda-name (special-form ,name)))
+           (block ,name
+             (destructuring-bind ,lambda-list (cdr ,form-sym)
+               ,@body))))))
+
+(defun find-variable (symbol env)
+  "Locate SYMBOL in ENV. Returns a binding list or the symbol if there was no lexical binding."
+  (dolist (e env symbol)
+    (when (and (eql (first e) :special) (member symbol (rest e)))
+      (return symbol))
+    (when (and (eql (first e) :binding) (eql (second e) symbol))
+      (return e))))
+
+(defun find-function (name env)
+  (dolist (e env (fdefinition name))
+    (when (eql (first e) :functions)
+      (let ((fn (assoc name (rest e))))
+	(when fn
+	  (return (cdr fn)))))))
 
 (defun eval-lambda (lambda outer-env)
   (let ((lambda-list (second lambda))
@@ -84,13 +100,55 @@
 	(push (list :special v) env))))
   (eval-progn-body body env))
 
+(defun frob-flet-function (definition env)
+  (destructuring-bind (name lambda-list &body body) definition
+    (values name
+            ;; FIXME: create a named block.
+            (eval-lambda `(lambda ,lambda-list
+                            ,@body)
+                         env))))
+
+(defspecial block (&environment env name &body body)
+  (let ((env (cons (list :block name #+nil(lambda (values)
+                                       (return-from block (values-list values))))
+                   env)))
+    (eval-progn-body body env)))
+
+(defspecial flet (&environment env definitions &body forms)
+  (let ((functions (mapcar (lambda (def)
+                             (multiple-value-bind (name fn)
+                                 (frob-flet-function def env)
+                               (cons name fn)))
+                           definitions)))
+    (multiple-value-bind (body declares)
+        (sys.int::parse-declares forms)
+      (eval-locally-body declares body (cons (list* :functions functions) env)))))
+
 (defspecial function (&environment env name)
   (if (sys.int::lambda-expression-p name)
       (eval-lambda name env)
       (fdefinition name)))
 
+(defspecial labels (&environment env definitions &body forms)
+  (let* ((env (cons (list :functions) env))
+         (functions (mapcar (lambda (def)
+                              (multiple-value-bind (name fn)
+                                  (frob-flet-function def env)
+                                (cons name fn)))
+                            definitions)))
+    (setf (rest (first env)) functions)
+    (multiple-value-bind (body declares)
+        (sys.int::parse-declares forms)
+      (eval-locally-body declares body env))))
+
 (defspecial quote (object)
   object)
+
+(defspecial return-from (&environment env name &optional value)
+  (dolist (e env (error "No block named ~S." name))
+    (when (and (eql (first e) :block)
+               (eql (second e) name))
+      (funcall (third e) (multiple-value-list (eval-in-lexenv value env))))))
 
 (defspecial setq (&environment env symbol value)
   (setf (symbol-value symbol) (eval-in-lexenv value env)))
@@ -120,7 +178,7 @@
     (cond (fn (funcall fn form env))
           #+nil((macro-function (first form) env)
            (eval-in-lexenv (macroexpand-1 form env) env))
-          (t (apply (first form)
+          (t (apply (find-function (first form) env)
                     (mapcar (lambda (f) (eval-in-lexenv f env))
                             (rest form)))))))
 
