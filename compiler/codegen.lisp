@@ -763,6 +763,8 @@ only R8 will be preserved."
           `(sys.lap-x86:je ,unwind-bt)
           `(sys.lap-x86:cmp8 :dl #b1100)
           `(sys.lap-x86:je ,unwind-unwind-protect)
+          `(sys.lap-x86:test64 :r8 :r8)
+          `(sys.lap-x86:jz ,loop-test)
           `(sys.lap-x86:ud2))
     ;; Unbinding one symbol.
     (emit unwind-symbol
@@ -775,19 +777,19 @@ only R8 will be preserved."
           `(sys.lap-x86:jmp ,loop-test))
     ;; Running one cleanup function.
     (emit unwind-unwind-protect
-          `(sys.lap-x86:push :rax)
-          `(sys.lap-x86:push :rcx)
           `(sys.lap-x86:mov64 :r13 :r8)
           `(sys.lap-x86:mov64 :rbx (:rcx 8))
+          `(sys.lap-x86:mov64 (:rcx 0) 0)
+          `(sys.lap-x86:mov64 (:rcx 8) 0)
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:add64 (0) 16)
+          `(sys.lap-x86:push :rax)
+          `(sys.lap-x86:push :rcx)
           `(sys.lap-x86:xor32 :ecx :ecx)
           `(sys.lap-x86:call :r13)
           `(sys.lap-x86:mov64 :lsp :rbx)
           `(sys.lap-x86:pop :rcx)
           `(sys.lap-x86:pop :rax)
-          `(sys.lap-x86:mov64 (:rcx 0) 0)
-          `(sys.lap-x86:mov64 (:rcx 8) 0)
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:add64 (0) 16)
           `(sys.lap-x86:jmp ,loop-test))
     ;; Invalidating one tagbody/block form.
     (emit unwind-bt
