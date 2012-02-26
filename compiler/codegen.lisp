@@ -1252,6 +1252,9 @@ only R8 will be preserved."
             `(sys.lap-x86:mov64 (:csp 0) :rax)
             `(sys.lap-x86:gs)
             `(sys.lap-x86:mov64 :rax (0))
+            ;; Ensure that the info does not get invalidated by a GO to
+            ;; this tagbody.
+            `(sys.lap-x86:sub64 :rax 16)
             `(sys.lap-x86:mov64 (:csp 8) :rax)
             `(sys.lap-x86:mov64 (:csp 16) :csp)
             `(sys.lap-x86:mov64 (:csp 24) :cfp)
