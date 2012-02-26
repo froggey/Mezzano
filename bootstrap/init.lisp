@@ -488,7 +488,7 @@
     (t (eq x y))))
 
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
-  `(%print-unreadable-object (lambda () ,@body) ,object ,stream ,@keys))
+  `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
 
 ;; Object system.
 (load "../closette.lisp")

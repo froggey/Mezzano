@@ -48,4 +48,9 @@
     (write-char #\Newline)
     (write-integer fp 16)
     (write-char #\Space)
-    (write-integer (memref-unsigned-byte-64 fp -2) 16)))
+    (let* ((fn (memref-t fp -2))
+           (name (when (functionp fn) (function-name fn))))
+      (write-integer (lisp-object-address fn) 16)
+      (when name
+        (write-char #\Space)
+        (write name)))))

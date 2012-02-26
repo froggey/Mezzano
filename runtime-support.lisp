@@ -72,7 +72,7 @@
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
-    (case (logand info #xFF)
+    (ecase (logand info #xFF)
       (0 ;; Regular function. First entry in the constant pool.
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
       (1 ;; Closure.

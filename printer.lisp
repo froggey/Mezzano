@@ -69,6 +69,9 @@
     (simple-condition
      (print-unreadable-object (object stream :type t :identity t)
        (write (simple-condition-format-control object) :stream stream)))
+    (function
+     (print-unreadable-object (object stream :type t :identity t)
+       (write (function-name object) :stream stream)))
     ((satisfies sys.int::std-instance-p)
      (print-object object stream))
     (t (print-unreadable-object (object stream :type t :identity t))))
@@ -92,6 +95,8 @@
           ((std-instance-p object)
            (write (class-name (class-of object))
                   :stream stream))
+          ((functionp object)
+           (write-string "Function"))
           (t (write-string "Unknown-object-" stream)
              (write-integer (logand (lisp-object-address object) #b1111) 10 stream))))
   (when fn
