@@ -73,9 +73,6 @@
      (write-char #\# stream)
      (write-char #\\ stream)
      (write-char object stream))
-    (simple-condition
-     (print-unreadable-object (object stream :type t :identity t)
-       (write (simple-condition-format-control object) :stream stream)))
     (function
      (print-unreadable-object (object stream :type t :identity t)
        (write (function-name object) :stream stream)))
