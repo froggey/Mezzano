@@ -105,16 +105,6 @@
                                     'character)
                   :initial-contents string)))
 
-(defun eval (form)
-  (typecase form
-    (symbol (symbol-value form))
-    (cons (case (first form)
-            ((function) (symbol-function (second form)))
-            ((quote) (second form))
-            ((setq) (setf (symbol-value (second form)) (eval (third form))))
-            (t (apply (first form) (mapcar 'eval (rest form))))))
-    (t form)))
-
 (defun (setf macro-function) (value symbol &optional environment)
   value)
 
