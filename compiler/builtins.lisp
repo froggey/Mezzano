@@ -131,6 +131,28 @@
           `(sys.lap-x86:mov64 :r8 :rdx))
     (setf *r8-value* (list (gensym)))))
 
+(defbuiltin (setf sys.int::memref-unsigned-byte-8) (new-value base offset) ()
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :rdx '(unsigned-byte 8)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (load-in-r8 new-value t)
+    (emit `(sys.lap-x86:mov64 :rdx :r8)
+	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:jnz ,type-error-label)
+	  `(sys.lap-x86:cmp64 :rdx ,(* #x100 8))
+	  `(sys.lap-x86:jae ,type-error-label)
+	  ;; Convert to raw integers, leaving offset correctly scaled (* 1).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rcx 3)
+	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Write.
+	  `(sys.lap-x86:mov8 (:rax :rcx) :dl))
+    *r8-value*))
+
 (defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
