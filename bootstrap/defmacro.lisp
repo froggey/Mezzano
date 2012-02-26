@@ -216,7 +216,7 @@ the environment variable (or a gensym if it was not specified)."
 	(env (gensym "ENV")))
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
-      `(progn
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
 	 (funcall #'(setf macro-function)
 		  #'(lambda (,whole ,env)
 		      (declare (lambda-name (macro-function ,name))
@@ -234,7 +234,7 @@ the environment variable (or a gensym if it was not specified)."
 	(env (gensym "ENV")))
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
-      `(progn
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
 	 (funcall #'(setf compiler-macro-function)
 		  #'(lambda (,whole ,env)
 		      (declare (lambda-name (compiler-macro-function ,name))
