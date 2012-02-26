@@ -3,8 +3,11 @@
 (defun integerp (object)
   (system:fixnump object))
 
-(defun numberp (object)
+(defun realp (object)
   (integerp object))
+
+(defun numberp (object)
+  (realp object))
 
 (defun expt (base power)
   (let ((accum 1))
