@@ -11,7 +11,10 @@
 (defun stringp (object)
   (or (simple-string-p object)
       (and (vectorp object)
-	   (subtypep (array-element-type object) 'character))))
+           (let ((element-type (array-element-type object)))
+             (or (eql element-type 'nil)
+                 (eql element-type 'base-char)
+                 (eql element-type 'character))))))
 
 (declaim (inline compare-sequence))
 (defun compare-sequence (predicate seq1 seq2 &key (start1 0) end1 (start2 0) end2)

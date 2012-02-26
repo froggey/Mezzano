@@ -405,12 +405,30 @@ This must be sorted from most-specific to least-specific.")
   (apply #'aref array subscripts))
 
 (defun char (string index)
-  (check-type string string)
-  (aref string index))
+  (cond ((simple-string-p string)
+         (schar string index))
+        ;; Open-coded check for non-displaced non-simple string-like
+        ;; arrays.
+        ((and (%array-header-p string)
+              (fixnump (%array-header-dimensions string))
+              (null (%array-header-info string))
+              (simple-string-p (%array-header-storage string)))
+         (schar (%array-header-storage string) index))
+        (t (check-type string string)
+           (aref string index))))
 
 (defun (setf char) (value string index)
-  (check-type string string)
-  (setf (aref string index) value))
+  (cond ((simple-string-p string)
+         (setf (schar string index) value))
+        ;; Open-coded check for non-displaced non-simple string-like
+        ;; arrays.
+        ((and (%array-header-p string)
+              (fixnump (%array-header-dimensions string))
+              (null (%array-header-info string))
+              (simple-string-p (%array-header-storage string)))
+         (setf (schar (%array-header-storage string) index) value))
+        (t (check-type string string)
+           (setf (aref string index) value))))
 
 (defun vector-pop (vector)
   (check-vector-has-fill-pointer vector)

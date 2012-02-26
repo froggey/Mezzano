@@ -118,6 +118,42 @@
 	       (t (<= object max))))))
 (setf (get 'real 'compound-type) 'real-type-p)
 
+(defun compile-rational-type (object type)
+  "Convert a type specifier with interval designators like INTEGER, REAL and RATIONAL."
+  (cond ((symbolp type)
+         `(typep ,object ',type))
+        (t (destructuring-bind (base &optional (min '*) (max '*))
+               type
+             `(and (typep ,object ',base)
+                   ,(cond ((eql min '*) 't)
+                          ((consp min)
+                           (unless (null (rest min))
+                             (error "Bad type ~S." type))
+                           (when (not (typep (first min) base))
+                             (error "Bad type ~S (lower-limit is not of type ~S)."
+                                    type base))
+                           `(> ,object ',(first min)))
+                          (t (when (not (typep min base))
+                               (error "Bad type ~S (lower-limit is not of type ~S)."
+                                      type base))
+                             `(>= ,object ',min)))
+                   ,(cond ((eql max '*) 't)
+                          ((consp max)
+                           (unless (null (rest max))
+                             (error "Bad type ~S." type))
+                           (when (not (typep (first max) base))
+                             (error "Bad type ~S (upper-limit is not of type ~S)."
+                                    type base))
+                           `(< ,object ',(first max)))
+                          (t (when (not (typep max base))
+                               (error "Bad type ~S (lower-limit is not of type ~S)."
+                                      type base))
+                             `(<= ,object ',max))))))))
+
+(setf (get 'real 'compound-type-optimizer) 'compile-rational-type)
+(setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
+(setf (get 'integer 'compound-type-optimizer) 'compile-rational-type)
+
 (defun cons-type-p (object type)
   (destructuring-bind (&optional (car-type '*) (cdr-type '*))
       (cdr type)
@@ -243,8 +279,10 @@
        (setf ,value (check-type-error ',place ,value ',typespec ,string)))))
 
 (define-compiler-macro typep (&whole whole object type-specifier &optional environment)
+  ;; Simple environments only.
   (when environment
     (return-from typep whole))
+  ;; Only deal with quoted type specifiers.
   (unless (and (listp type-specifier)
                (= (list-length type-specifier) 2)
                (eql (first type-specifier) 'quote))
@@ -260,4 +298,14 @@
       (let ((test (get type-symbol 'type-symbol)))
 	(when test
 	  (return-from typep `(funcall ',test ,object))))))
+  (when (and (listp type-specifier)
+             (symbolp (first type-specifier)))
+    (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
+      (when compiler
+        (let* ((sym (gensym))
+               (code (funcall compiler sym type-specifier)))
+          (when code
+            (return-from typep
+              `(let ((,sym ,object))
+                 ,code)))))))
   whole)
