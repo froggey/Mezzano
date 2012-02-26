@@ -73,12 +73,6 @@
 (defstruct cold-stream)
 
 (setf *terminal-io* (make-cold-stream))
-(setf *standard-input* (make-synonym-stream '*terminal-io*)
-      *standard-output* (make-synonym-stream '*terminal-io*)
-      *debug-io* (make-synonym-stream '*terminal-io*)
-      *query-io* (make-synonym-stream '*terminal-io*)
-      *error-output* (make-synonym-stream '*terminal-io*)
-      *trace-output* (make-synonym-stream '*terminal-io*))
 
 (defun cold-read-char (stream)
   (cond (*unread-char*
@@ -107,8 +101,6 @@
 
 (defun (setf macro-function) (value symbol &optional environment)
   value)
-
-(defvar *debug-io* nil)
 
 (defun format (stream control &rest arguments)
   (if stream

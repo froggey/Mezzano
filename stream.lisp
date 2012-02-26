@@ -9,6 +9,19 @@
              (:constructor make-synonym-stream (symbol)))
   symbol)
 
+(defvar *terminal-io* :terminal-io-is-uninitialized
+  "A bi-directional stream connected to the user's console.")
+(defparameter *debug-io* (make-synonym-stream '*terminal-io*)
+  "Interactive debugging stream.")
+(defparameter *error-output* (make-synonym-stream '*terminal-io*)
+  "Warning and non-interactive error stream.")
+(defparameter *query-io* (make-synonym-stream '*terminal-io*)
+  "User interaction stream.")
+(defparameter *standard-input* (make-synonym-stream '*terminal-io*)
+  "Default input stream.")
+(defparameter *standard-output* (make-synonym-stream '*terminal-io*)
+  "Default output stream.")
+
 (defun streamp (object)
   (or (synonym-stream-p object)
       (cold-stream-p object)
@@ -19,8 +32,9 @@
 (defgeneric stream-read-char (stream))
 (defgeneric stream-write-char (character stream))
 (defgeneric stream-start-line-p (stream))
+(defgeneric stream-close (stream abort))
 
-(defun frob-stream (stream default)
+(defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
          (frob-stream (symbol-value (synonym-stream-symbol stream)) default))
         ((eql stream 'nil)
@@ -92,3 +106,47 @@
     (cond ((cold-stream-p s)
            (cold-start-line-p s))
           (t (stream-start-line-p s)))))
+
+(defmethod stream-start-line-p ((stream stream-object))
+  nil)
+
+(defun close (stream &key abort)
+  (let ((s (frob-stream stream)))
+    (cond ((cold-stream-p s)
+           (cold-close stream abort))
+          (t (stream-close stream abort)))
+    t))
+
+(defmethod stream-close ((stream stream-object) abort)
+  t)
+
+(defclass string-output-stream (stream-object)
+  ((element-type :initarg :element-type)
+   (string :initform nil)))
+
+(defun make-string-output-stream (&key (element-type 'character))
+  (make-instance 'string-output-stream :element-type element-type))
+
+(defun get-output-stream-string (string-output-stream)
+  (check-type string-output-stream string-output-stream)
+  (prog1 (or (slot-value string-output-stream 'string)
+             (make-array 0 :element-type (slot-value stream 'element-type)))
+    (setf (slot-value string-output-stream 'string) nil)))
+
+(defun string-output-stream-write-char (character stream)
+  (unless (slot-value stream 'string)
+    (setf (slot-value stream 'string) (make-array 8
+                                                  :element-type (slot-value stream 'element-type)
+                                                  :adjustable t
+                                                  :fill-pointer 0)))
+  (vector-push-extend character (slot-value stream 'string)))
+
+(defmethod stream-write-char (character (stream string-output-stream))
+  (string-output-stream-write-char character stream))
+
+;; TODO: declares and other stuff.
+(defmacro with-output-to-string ((var) &body body)
+  `(let ((,var (make-string-output-stream)))
+     (unwind-protect (progn ,@body)
+       (close ,var))
+     (get-output-stream-string ,var)))
