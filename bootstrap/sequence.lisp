@@ -25,6 +25,13 @@
       (nth index sequence)
       (aref sequence index)))
 
+(defun (setf elt) (value sequence index)
+  (check-type sequence sequence)
+  (if (listp sequence)
+      ;; TODO: more error checking.
+      (setf (nth index sequence) value)
+      (setf (aref sequence index) value)))
+
 (defun position (item sequence &key test key); test-not start end from-end
   (unless test (setf test 'eql))
   (unless key (setf key 'identity))
@@ -134,6 +141,13 @@
   (if (listp sequence)
       (subseq-list sequence start end)
       (subseq-vector sequence start end)))
+
+(defun (setf subseq) (value sequence start &optional end)
+  (let ((count (min (- (or end (length sequence)) start)
+                    (length value))))
+    (dotimes (i count)
+      (setf (elt sequence (+ start i)) (elt value i)))
+    value))
 
 ;; Selection sort!
 (defun sort (sequence predicate &key key)
