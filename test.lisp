@@ -85,11 +85,6 @@
     (error "Multiple unread-char!"))
   (setf *unread-char* character))
 
-(defun simple-string-p (object)
-  (when (sys.int::%simple-array-p object)
-    (let ((tag (sys.int::%simple-array-type object)))
-      (or (eql tag 1) (eql tag 2)))))
-
 (defun sys.int::simplify-string (string)
   (if (simple-string-p string)
       string

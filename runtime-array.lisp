@@ -119,3 +119,8 @@ allocate environment frames."
 
 (defun %simple-array-element-type (array)
   (svref *array-types* (%simple-array-type array)))
+
+(defun simple-string-p (object)
+  (when (%simple-array-p object)
+    (let ((tag (%simple-array-type object)))
+      (or (eql tag 1) (eql tag 2)))))
