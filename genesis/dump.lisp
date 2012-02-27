@@ -825,6 +825,7 @@
                                                  "../runtime-array.lisp" "../runtime-numbers.lisp"
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
                                                  "../type.lisp" "../eval.lisp" "../stream.lisp"
+                                                 "../format.lisp"
                                                  "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))

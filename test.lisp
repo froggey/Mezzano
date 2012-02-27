@@ -97,15 +97,6 @@
 (defun (setf macro-function) (value symbol &optional environment)
   value)
 
-(defun format (stream control &rest arguments)
-  (declare (dynamic-extent arguments))
-  (if stream
-      (progn (write control :stream stream)
-             (write-char #\Space stream)
-             (write arguments :stream stream))
-      (with-output-to-string (s)
-        (apply 'format s control arguments))))
-
 (write-string "Hello, World!")
 
 (setf *package* (find-package "CL-USER"))
