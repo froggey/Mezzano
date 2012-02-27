@@ -144,3 +144,9 @@
   (let ((r (find-restart 'use-value condition)))
     (when r
       (invoke-restart r value))))
+
+(defmethod print-object ((object restart) stream)
+  (cond (*print-escape*
+         (print-unreadable-object (object stream :type t :identity t)
+           (write (restart-name object) :stream stream)))
+        (report-restart object stream)))

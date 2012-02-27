@@ -288,7 +288,6 @@
     (package                                       (find-class 'package))
     ;;(pathname                                      (find-class 'pathname))
     ;;(readtable                                     (find-class 'readtable))
-    ;;(aquarius-impl::basic-stream                   (find-class 'aquarius-impl::basic-stream))
     (stream                                        (find-class 'stream))
     ;;((and number (not (or integer complex float))) (find-class 'number))
     ;;((string *)                                    (find-class 'string))
@@ -300,6 +299,7 @@
     (array                                         (find-class 'array))
     ;;((and sequence (not (or vector list)))         (find-class 'sequence))
     (function                                      (find-class 'function))
+    (restart                                       (find-class 'restart))
     (t                                             (find-class 't))))
 
 ;;; subclassp and sub-specializer-p
@@ -1382,6 +1382,7 @@
 (defclass pathname (t) ())
 (defclass readtable (t) ())
 (defclass stream (t) ())
+(defclass restart (t) ())
 (defclass list (sequence) ())
 (defclass null (symbol list) ())
 (defclass cons (list) ())

@@ -36,10 +36,7 @@
     (do ((i 0 (1+ i))
 	 (r restarts (cdr r)))
 	((null r))
-      (write (- restart-count i 1))
-      (write-char #\Space)
-      (write (restart-name (car r)))
-      (terpri))))
+      (format t "~S ~S: ~A~%" (- restart-count i 1) (restart-name (car r)) (car r)))))
 
 (defun backtrace ()
   (do ((fp (read-frame-pointer)
