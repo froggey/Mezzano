@@ -22,7 +22,7 @@
 					      (write-string ,(second report) stream))
 					   (second report))
 				    condition stream)))))
-      'name)))
+      ',name)))
 
 (define-condition condition (standard-object)
   ()

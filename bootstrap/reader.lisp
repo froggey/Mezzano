@@ -151,7 +151,6 @@
 
 ;;; Function READ, READ-PRESERVING-WHITESPACE
 ;;; Function READ-DELIMITED-LIST
-;;; Condition Type READER-ERROR
 
 (defun follow-stream-designator (stream default)
   (cond ((null stream) default)
@@ -503,7 +502,9 @@ it as a symbol."
 	  ;; Finished reading the token, convert it to a character
 	  (let ((c (name-char token)))
 	    (when (and (not c) (not *read-suppress*))
-	      (reader-error "Unrecognized character name ~S" token))
+	      (error 'simple-reader-error :stream stream
+                     :format-control "Unrecognized character name ~S."
+                     :format-arguments (list token)))
 	    c)))))
 
 (defun read-#-quote (stream ch p)
@@ -529,7 +530,9 @@ it as a symbol."
 	 (read stream t nil t))
 	(*read-eval*
 	 (eval (read stream t nil t)))
-	(t (reader-error "Cannot #. when *READ-EVAL* is false"))))
+	(t (error 'simple-reader-error :stream stream
+                  :format-control "Cannot #. when *READ-EVAL* is false."
+                  :format-arguments '()))))
 
 (defun read-#-radix (stream ch p)
   "Read a number in the specified radix."

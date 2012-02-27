@@ -85,6 +85,9 @@
 (define-condition reader-error (parse-error stream-error)
   ())
 
+(define-condition simple-reader-error (simple-condition reader-error)
+  ())
+
 (define-condition type-error (error)
   ((datum :initarg :datum
 	  :reader type-error-datum)
