@@ -103,9 +103,13 @@
   value)
 
 (defun format (stream control &rest arguments)
+  (declare (dynamic-extent arguments))
   (if stream
-      (write control :stream stream)
-      control))
+      (progn (write control :stream stream)
+             (write-char #\Space stream)
+             (write arguments :stream stream))
+      (with-output-to-string (s)
+        (apply 'format s control arguments))))
 
 (write-string "Hello, World!")
 
