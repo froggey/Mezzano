@@ -16,6 +16,8 @@
 (defvar *print-readably* nil)
 (defvar *print-right-margin* nil)
 
+(defvar *print-safe* nil)
+
 (defun write-unsigned-integer (x base stream)
   (unless (= x 0)
     (write-unsigned-integer (truncate x base) base stream)
@@ -80,9 +82,9 @@
     (function
      (print-unreadable-object (object stream :type t :identity t)
        (write (function-name object) :stream stream)))
-    ((satisfies sys.int::std-instance-p)
-     (print-object object stream))
-    (t (print-unreadable-object (object stream :type t :identity t))))
+    (t (if *print-safe*
+           (print-unreadable-object (object stream :type t :identity t))
+           (print-object object stream))))
   object)
 
 (defun write (object &key (stream t) (escape *print-escape*) (readably *print-readably*) &allow-other-keys)

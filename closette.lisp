@@ -1401,6 +1401,9 @@
 
 (defgeneric print-object (instance stream))
 
+(defmethod print-object ((instance t) stream)
+  (print-unreadable-object (instance stream :type t :identity t)))
+
 (defmethod print-object ((instance standard-object) stream)
   (print-unreadable-object (instance stream :identity t)
     (format stream "~:(~S~)"
