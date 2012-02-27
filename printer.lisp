@@ -72,7 +72,11 @@
     (character
      (write-char #\# stream)
      (write-char #\\ stream)
-     (write-char object stream))
+     (cond ((and (not (eql object #\Space))
+                 (not (eql object #\Newline))
+                 (standard-char-p object))
+            (write-char object stream))
+           (t (write-string (char-name object)))))
     (function
      (print-unreadable-object (object stream :type t :identity t)
        (write (function-name object) :stream stream)))
