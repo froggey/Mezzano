@@ -12,6 +12,7 @@
 (in-package #:genesis)
 
 (defvar *env* nil)
+(defvar *function-info* (make-hash-table :weakness :key))
 
 (defun parse-lambda (lambda)
   "Pull out the lambda list, a possible docstring, special declarations
@@ -272,7 +273,8 @@ and look for a LAMBDA-NAME declaration."
    (key-args :initarg :key)
    (allow-other-keys :initarg :allow-other-keys)
    (aux-args :initarg :aux)
-   (body :initarg body)))
+   (body :initarg :body)
+   (inline-me :initarg :inline-me :initform nil)))
 
 (defclass pass1-variable ()
   ((name :initarg :name)
@@ -305,7 +307,7 @@ otherwise the matching variable definition."
 (defvar *current-lambda* nil
   "The innermost lambda being translated by pass1.")
 
-(defun pass1-lambda (lambda env)
+(defun pass1-lambda (lambda env &optional ignore-name)
   (multiple-value-bind (lambda-list body specials name docstring)
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest has-keys key allow-other-keys aux)
@@ -313,7 +315,7 @@ otherwise the matching variable definition."
       (let ((*current-lambda* (make-instance 'pass1-lambda
 					     :source-form lambda
 					     :source-env env
-					     :name name
+					     :name (unless ignore-name name)
 					     :lambda-list lambda-list
 					     :specials specials
 					     :docstring docstring
@@ -621,6 +623,13 @@ otherwise the matching variable definition."
                                              cleanup-forms))))
                     env))))
 
+(defun source-for-function (symbol)
+  (when (fboundp symbol)
+    (let ((info (gethash (symbol-function symbol) *function-info*)))
+      (cond ((or (null info) (functionp (first info)))
+             nil)
+            (t (first info))))))
+
 (defun pass1-form (form env)
   (cond
     ((symbolp form)
@@ -721,11 +730,20 @@ otherwise the matching variable definition."
                      (lexical (find-fn-in-env name env))
                      (args (mapcar (lambda (f) (pass1-form f env))
                                    (rest form))))
-                (if lexical
-                    (list* (genesis-intern "FUNCALL")
-                           lexical
-                           args)
-                    (list* name args))))
+                (cond (lexical
+                       (list* (genesis-intern "FUNCALL")
+                              lexical
+                              args))
+                      ;; Attempt to inline the function.
+                      ((and (symbolp name)
+                            (getf (genesis-symbol-plist name) (genesis-intern "INLINE-MODE"))
+                            (source-for-function name))
+                       (let ((l (pass1-lambda (source-for-function name) nil t)))
+                         (setf (slot-value l 'inline-me) t)
+                         (list* (genesis-intern "FUNCALL")
+                                `(function ,l)
+                                args)))
+                      (t (list* name args)))))
              (t ;; Changed, reparse.
               (pass1-form new-form env)))))))
 
@@ -767,11 +785,13 @@ otherwise the matching variable definition."
 		       (second form))
 	     ,(translate-implicit-progn (cddr form) env))))
        ((function)
-	(if (typep (second form) 'pass1-lambda)
-	    `(genesis-close-environment ,(translate-lambda (second form) env) *env*
-					',(slot-value (second form) 'source-form)
-					',(slot-value (second form) 'source-env))
-	    `(genesis-fdefinition ',(second form))))
+        (cond ((not (typep (second form) 'pass1-lambda))
+               `(genesis-fdefinition ',(second form)))
+              ((slot-value (second form) 'inline-me)
+               (translate-lambda (second form) env))
+              (t `(genesis-close-environment ,(translate-lambda (second form) env) *env*
+                                             ',(slot-value (second form) 'source-form)
+                                             ',(slot-value (second form) 'source-env)))))
        ((go)
 	form)
        ((if)
@@ -918,11 +938,10 @@ otherwise the matching variable definition."
 
 (defun translate-lambda (lambda env)
   "Convert a pass1-lambda to code."
-  (let* ((name (if (slot-value lambda 'name)
-                   (if (symbolp (slot-value lambda 'name))
-                       (slot-value lambda 'name)
-                       (make-symbol (format nil "~A" (slot-value lambda 'name))))
-		   (gensym "LAMBDA")))
+  (let* ((name (when (slot-value lambda 'name)
+                 (if (symbolp (slot-value lambda 'name))
+                     (slot-value lambda 'name)
+                     (make-symbol (format nil "~A" (slot-value lambda 'name))))))
 	 (new-ll '())
 	 (lambda-body (cons nil nil))
 	 (tail lambda-body)
@@ -1023,41 +1042,42 @@ otherwise the matching variable definition."
       (when (slot-value lambda 'aux-args)
 	(error "TODO: aux args."))
       (setf (cdr tail) (cons (translate-implicit-progn (slot-value lambda 'body) env) nil))
-      `(flet ((,name ,(nreverse new-ll)
-		,@(when (slot-value lambda 'key-args)
-		    (let ((keywords (mapcar #'caar (slot-value lambda 'key-args)))
-			  (barf (gensym)))
-		      (if (slot-value lambda 'allow-other-keys)
-			  (list `(when (oddp (list-length ,rest-sym))
-				   (error "Odd number of keyword arguments.")))
-			  (list `(progn
-				   (when (oddp (list-length ,rest-sym))
-				     (error "Odd number of keyword arguments."))
-				   (unless (cadr (member ',(genesis-intern "ALLOW-OTHER-KEYS" t) ,rest-sym))
-				     (do ((,barf ,rest-sym (cddr ,barf)))
-					 ((null ,barf))
-				       (unless (member (car ,barf) ',keywords)
-					 (error "Invalid keyword ~S. Wanted one of ~S." (car ,barf) ',keywords)))))))))
-		,(cond (env-vars
-                        `(let ((old-env *env*)
-                               (*env* (make-array ,(1+ (length env-vars)))))
-                           (setf (svref *env* 0) old-env)
-                           ,@(cdr lambda-body)))
-                       ((dolist (e env nil)
-                          (when (rest e)
-                            (return t)))
-                        ;; No local environment, but takes one through a closure.
-                        `(progn ,@(cdr lambda-body)))
-                       (t
-                        ;; No environment.
-                        `(let ((*env* nil))
-                           (progn ,@(cdr lambda-body)))))))
-	 #',name))))
+      (let ((lambda-fragment `(,(nreverse new-ll)
+                                ,@(when (slot-value lambda 'key-args)
+                                        (let ((keywords (mapcar #'caar (slot-value lambda 'key-args)))
+                                              (barf (gensym)))
+                                          (if (slot-value lambda 'allow-other-keys)
+                                              (list `(when (oddp (list-length ,rest-sym))
+                                                       (error "Odd number of keyword arguments.")))
+                                              (list `(progn
+                                                       (when (oddp (list-length ,rest-sym))
+                                                         (error "Odd number of keyword arguments."))
+                                                       (unless (cadr (member ',(genesis-intern "ALLOW-OTHER-KEYS" t) ,rest-sym))
+                                                         (do ((,barf ,rest-sym (cddr ,barf)))
+                                                             ((null ,barf))
+                                                           (unless (member (car ,barf) ',keywords)
+                                                             (error "Invalid keyword ~S. Wanted one of ~S." (car ,barf) ',keywords)))))))))
+                                ,(cond (env-vars
+                                        `(let ((old-env *env*)
+                                               (*env* (make-array ,(1+ (length env-vars)))))
+                                           (setf (svref *env* 0) old-env)
+                                           ,@(cdr lambda-body)))
+                                       ((dolist (e env nil)
+                                          (when (rest e)
+                                            (return t)))
+                                        ;; No local environment, but takes one through a closure.
+                                        `(progn ,@(cdr lambda-body)))
+                                       (t
+                                        ;; No environment.
+                                        `(let ((*env* nil))
+                                           (progn ,@(cdr lambda-body))))))))
+        (if name
+            `(flet ((,name ,@lambda-fragment))
+               #',name)
+            `(lambda ,@lambda-fragment))))))
 
 ;;; Support functions & macros.
 (declaim (inline genesis-close-environment))
-
-(defvar *function-info* (make-hash-table :weakness :key))
 
 (defun genesis-close-environment (lambda env source source-env)
   (cond (env (let ((fn (lambda (&rest args)

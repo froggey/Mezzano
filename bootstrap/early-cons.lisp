@@ -4,6 +4,7 @@
 
 (in-package "SYSTEM.INTERNALS")
 
+(declaim (inline caar cadr cdar cddr))
 (defun caar (x)
   (car (car x)))
 (defun cadr (x)
