@@ -103,7 +103,8 @@ This must be sorted from most-specific to least-specific.")
 		   (initial-contents nil initial-contents-p)
 		   adjustable
 		   fill-pointer
-		   displaced-to displaced-index-offset)
+		   displaced-to displaced-index-offset
+                   memory)
   ;; (n) => n
   (when (and (consp dimensions)
 	     (null (rest dimensions)))
@@ -123,10 +124,13 @@ This must be sorted from most-specific to least-specific.")
       (error "Invalid :FILL-POINTER ~S." fill-pointer))
     (unless (<= 0 fill-pointer dimensions)
       (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer dimensions)))
+  (when (and memory displaced-to)
+    (error ":MEMORY and :DISPLACED-TO are mutually exclusive."))
   (cond ((and (integerp dimensions)
 	      (not adjustable)
 	      (not fill-pointer)
-	      (not displaced-to))
+	      (not displaced-to)
+              (not memory))
 	 ;; Create a simple 1D array.
 	 (let ((array (if initial-element-p
 			  (make-simple-array dimensions element-type initial-element)
@@ -139,6 +143,16 @@ This must be sorted from most-specific to least-specific.")
 	((and (not (integerp dimensions))
 	      (endp dimensions))
 	 (error "TODO: 0D arrays."))
+        (memory
+         ;; Element types must be exact matches.
+         (when (not (member element-type *specialized-array-types*
+                            :test (lambda (x y) (and (subtypep x y) (subtypep y x)))))
+           (error "Element type ~S is not supported for memory arrays." element-type))
+         (check-type memory fixnum)
+         (let ((array (%make-array-header dimensions fill-pointer element-type memory)))
+           (when (or initial-element-p initial-contents-p)
+             (error "TODO: Initialization of memory arrays."))
+           array))
 	(t (let* ((total-size (if (integerp dimensions)
 				  dimensions
 				  (apply #'* dimensions)))

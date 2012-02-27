@@ -91,6 +91,30 @@ allocate environment frames."
                                     index)
            value))))
 
+(defun %memory-aref (type address index)
+  (cond
+    ((equal type '(unsigned-byte 8))
+     (memref-unsigned-byte-8 address index))
+    ((equal type '(unsigned-byte 16))
+     (memref-unsigned-byte-16 address index))
+    ((equal type '(unsigned-byte 32))
+     (memref-unsigned-byte-32 address index))
+    ((equal type '(unsigned-byte 64))
+     (memref-unsigned-byte-64 address index))
+    (t (error "TODO: %MEMORY-AREF ~S." type))))
+
+(defun (setf %memory-aref) (value type address index)
+  (cond
+    ((equal type '(unsigned-byte 8))
+     (setf (memref-unsigned-byte-8 address index) value))
+    ((equal type '(unsigned-byte 16))
+     (setf (memref-unsigned-byte-16 address index) value))
+    ((equal type '(unsigned-byte 32))
+     (setf (memref-unsigned-byte-32 address index) value))
+    ((equal type '(unsigned-byte 64))
+     (setf (memref-unsigned-byte-64 address index) value))
+    (t (error "TODO: SETF %MEMORY-AREF ~S." type))))
+
 (defparameter *array-types*
   #(t
     base-char
