@@ -7,6 +7,8 @@
 
 (defvar *package-list* '()
   "The package registry.")
+(defvar *keyword-package* nil
+  "The keyword package.")
 
 (defstruct (package
 	     (:constructor %make-package (name nicknames))
@@ -35,7 +37,7 @@
       (error "No package named ~S." name)))
 
 (defun use-one-package (package-to-use package)
-  (when (string= (package-name package-to-use) "KEYWORD")
+  (when (eql package-to-use *keyword-package*)
     (error "Cannot use the KEYWORD package."))
   (pushnew package-to-use (package-use-list package))
   (pushnew package (package-used-by-list package-to-use)))
@@ -137,7 +139,7 @@
 ;;; Create the core packages when the file is first loaded.
 ;;; *PACKAGE* is set to system.internals initially.
 (unless *package-list*
-  (make-package "KEYWORD")
+  (setf *keyword-package* (make-package "KEYWORD"))
   (make-package "COMMON-LISP" :nicknames '("CL"))
   (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
   (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS"))
@@ -173,7 +175,7 @@
         (when (string= name "READTABLE-CASE")
           (format t "Importing into ~S~%" (package-name p)))
 	(import (list symbol) p)
-	(when (string= (package-name p) "KEYWORD")
+	(when (eql p *keyword-package*)
 	  ;; TODO: Constantness.
           (proclaim `(constant ,symbol))
 	  (setf (symbol-value symbol) symbol)
@@ -204,7 +206,7 @@
 
 (defun keywordp (object)
   (and (symbolp object)
-       (eq (symbol-package object) (find-package "KEYWORD"))))
+       (eq (symbol-package object) *keyword-package*)))
 
 ;;; TODO: shadowing symbols.
 (defun %defpackage (name nicknames documentation use-list import-list export-list intern-list)
