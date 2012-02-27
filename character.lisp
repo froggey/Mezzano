@@ -127,6 +127,24 @@
        (or (<= #x20 (char-code character) #x7E)
            (eql character #\Newline))))
 
+(defun graphic-char-p (char)
+  "Returns true if CHAR is a graphic character."
+  ;; Treat everything but the Latin1 control characters as graphic characters.
+  (not (or (<= #x00 (char-code char) #x1F)
+	   (<= #x7F (char-code char) #x9F))))
+
+(defun alpha-char-p (char)
+  "Returns true if CHAR is an alphabetic character."
+  ;; Fast path for ASCII.
+  (if (<= (char-code char) #x7F)
+      (or (char<= #\A char #\Z) (char<= #\a char #\z))
+      ;; Assume all Unicode characters are alphabetic.
+      ;; TODO.
+      t))
+
+(defun alphanumericp (char)
+  (or (digit-char-p char) (alpha-char-p char)))
+
 (defparameter *char-name-alist*
   '((#x0000 "Nul" "Null")
     (#x0007 "Bel" "Bell")
