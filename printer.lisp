@@ -97,7 +97,7 @@
   (write-char #\# stream)
   (write-char #\< stream)
   (when type
-    (write (type-of object) :stream stream))
+    (write (type-of object) :stream (make-case-correcting-stream stream :titlecase)))
   (when fn
     (when type
       (write-char #\Space stream))

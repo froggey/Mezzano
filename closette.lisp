@@ -1382,7 +1382,6 @@
 (defclass pathname (t) ())
 (defclass readtable (t) ())
 (defclass stream (t) ())
-;;(defclass aquarius-impl::basic-stream (stream) ())
 (defclass list (sequence) ())
 (defclass null (symbol list) ())
 (defclass cons (list) ())
@@ -1403,7 +1402,8 @@
 
 (defmethod print-object ((instance standard-object) stream)
   (print-unreadable-object (instance stream :identity t)
-    (format stream "~S" (class-name (class-of instance))))
+    (format stream "~:(~S~)"
+            (class-name (class-of instance))))
   instance)
 
 ;;; Slot access
@@ -1520,9 +1520,9 @@
 
 (defmethod print-object ((class standard-class) stream)
   (print-unreadable-object (class stream :identity t)
-    (format stream "~S ~S"
-	    (class-name (class-of class))
-	    (class-name class)))
+    (format stream "~:(~S~) ~S"
+            (class-name (class-of class))
+            (class-name class)))
   class)
 
 (defmethod initialize-instance :after ((class standard-class) &rest args)
@@ -1558,9 +1558,9 @@
 
 (defmethod print-object ((gf standard-generic-function) stream)
   (print-unreadable-object (gf stream :identity t)
-    (format stream "~S ~S"
-	    (class-name (class-of gf))
-	    (generic-function-name gf)))
+    (format stream "~:(~S~) ~S"
+            (class-name (class-of gf))
+            (generic-function-name gf)))
   gf)
 
 (defmethod initialize-instance :after ((gf standard-generic-function) &key)
@@ -1572,7 +1572,7 @@
 
 (defmethod print-object ((method standard-method) stream)
   (print-unreadable-object (method stream :identity t)
-    (format stream "~S ~S ~S ~S"
+    (format stream "~:(~S~) ~S ~S ~S"
 	    (class-name (class-of method))
 	    (generic-function-name (method-generic-function method))
 	    (method-qualifiers method)
