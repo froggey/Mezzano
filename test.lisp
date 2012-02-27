@@ -105,13 +105,18 @@
 (setf *package* (find-package "CL-USER"))
 (defun repl ()
   (loop
-     (with-simple-restart (continue "Carry on chaps.")
+     (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
        (fresh-line)
        (write-char #\>)
        (let ((form (read)))
          (fresh-line)
-         (let ((result (eval form)))
-           (fresh-line)
-           (write result))))))
+         (let ((result (multiple-value-list (eval form))))
+           (if result
+               (dolist (v result)
+                 (fresh-line)
+                 (write v))
+               (progn
+                 (fresh-line)
+                 (write-string "; No values."))))))))
 
 (repl)
