@@ -149,4 +149,4 @@
   (cond (*print-escape*
          (print-unreadable-object (object stream :type t :identity t)
            (write (restart-name object) :stream stream)))
-        (report-restart object stream)))
+        (t (report-restart object stream))))
