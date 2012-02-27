@@ -17,6 +17,7 @@
 (defvar *print-right-margin* nil)
 
 (defvar *print-safe* nil)
+(defvar *print-space-char-ansi* nil)
 
 (defun write-unsigned-integer (x base stream)
   (unless (= x 0)
@@ -74,7 +75,7 @@
     (character
      (write-char #\# stream)
      (write-char #\\ stream)
-     (cond ((and (not (eql object #\Space))
+     (cond ((and (or *print-space-char-ansi* (not (eql object #\Space)))
                  (not (eql object #\Newline))
                  (standard-char-p object))
             (write-char object stream))
