@@ -33,6 +33,7 @@
 (defgeneric stream-write-char (character stream))
 (defgeneric stream-start-line-p (stream))
 (defgeneric stream-close (stream abort))
+(defgeneric stream-listen (stream))
 
 (defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
@@ -113,11 +114,22 @@
 (defun close (stream &key abort)
   (let ((s (frob-stream stream)))
     (cond ((cold-stream-p s)
-           (cold-close stream abort))
-          (t (stream-close stream abort)))
+           (cold-close s abort))
+          (t (stream-close s abort)))
     t))
 
 (defmethod stream-close ((stream stream-object) abort)
+  t)
+
+(defun listen (&optional (input-stream *standard-input*))
+  (let ((s (frob-input-stream input-stream)))
+    (cond ((cold-stream-p s)
+           (cold-listen s))
+          ((slot-value s 'unread-char)
+           t)
+          (t (stream-listen s)))))
+
+(defmethod stream-listen ((stream stream-object))
   t)
 
 (defclass string-output-stream (stream-object)

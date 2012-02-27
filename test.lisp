@@ -85,6 +85,9 @@
     (error "Multiple unread-char!"))
   (setf *unread-char* character))
 
+(defun cold-listen (stream)
+  (or *unread-char* (= (logand (system:io-port/8 #x64) 1) 1)))
+
 (defun sys.int::simplify-string (string)
   (if (simple-string-p string)
       string
