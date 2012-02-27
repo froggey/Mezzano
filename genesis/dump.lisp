@@ -512,8 +512,8 @@
 	    (sys.lap-x86:movseg :ss :eax)
 	    ;; Switch to the proper stack.
 	    ;; FIXME: This is a huge hack and will break if the static area grows too much.
-	    (sys.lap-x86:mov64 :csp #x500000)
-	    (sys.lap-x86:mov64 :lsp #x600000)
+	    (sys.lap-x86:mov64 :csp #x700000)
+	    (sys.lap-x86:mov64 :lsp #x800000)
 	    ;; Clear frame pointers.
 	    (sys.lap-x86:mov64 :cfp 0)
 	    (sys.lap-x86:mov64 :lfp 0)
@@ -828,7 +828,16 @@
                                                  "../test.lisp"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))
-	 (undefined-function-thunk (make-undefined-function-thunk)))
+	 (undefined-function-thunk (make-undefined-function-thunk))
+         (unifont-data (with-open-file (s "../unifontfull-5.1.20080820.hex")
+                         (build-unicode:generate-unifont-table s))))
+    (push (cons (genesis-intern "*UNIFONT-BMP*") unifont-data) *symbol-preloads*)
+    (multiple-value-bind (unicode-info name-store encoding-table name-trie)
+        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
+      (push (cons (genesis-intern "*UNICODE-INFO*") unicode-info) *symbol-preloads*)
+      (push (cons (genesis-intern "*UNICODE-NAME-STORE*") name-store) *symbol-preloads*)
+      (push (cons (genesis-intern "*UNICODE-ENCODING-TABLE*") encoding-table) *symbol-preloads*)
+      (push (cons (genesis-intern "*UNICODE-NAME-TRIE*") name-trie) *symbol-preloads*))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
 	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt
                                                               special-stack entry-function
@@ -866,7 +875,7 @@
                                        (symbol-function object)))))
                          (when (and fn (gethash fn object-values))
                            (format s "~8,'0X ~A~%"
-                                   (logand (gethash fn object-values) -16)
+                                   (gethash fn object-values)
                                    (symbol-name object)))))))
               (maphash (lambda (obj addr)
                          (declare (ignore addr))
