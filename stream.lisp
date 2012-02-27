@@ -150,3 +150,52 @@
      (unwind-protect (progn ,@body)
        (close ,var))
      (get-output-stream-string ,var)))
+
+(defclass case-correcting-stream (stream-object)
+  ((stream :initarg :stream)
+   (case :initarg :case)
+   (position :initform :initial))
+  (:documentation "Convert all output to the specified case.
+CASE may be one of:
+:UPCASE - Convert to uppercase.
+:DOWNCASE - Convert to lowercase.
+:INVERT - Invert the case.
+:TITLECASE - Capitalise the start of each word, downcase the remaining letters.
+:SENTENCECASE - Capitalise the start of the first word."))
+
+(defun make-case-correcting-stream (stream case)
+  (make-instance 'case-correcting-stream
+                 :stream stream
+                 :case case))
+
+(defun case-correcting-write (character stream)
+  (ecase (slot-value stream 'case)
+    (:upcase (write-char (char-upcase character) (slot-value stream 'stream)))
+    (:downcase (write-char (char-downcase character) (slot-value stream 'stream)))
+    (:invert (write-char (if (upper-case-p character)
+			     (char-downcase character)
+			     (char-upcase character))
+			 (slot-value stream 'stream)))
+    (:titlecase
+     (ecase (slot-value stream 'position)
+       ((:initial :after-word)
+	(if (alphanumericp character)
+	    (progn
+	      (setf (slot-value stream 'position) :mid-word)
+	      (write-char (char-upcase character) (slot-value stream 'stream)))
+	    (write-char character (slot-value stream 'stream))))
+       (:mid-word
+	(unless (alphanumericp character)
+	  (setf (slot-value stream 'position) :after-word))
+	(write-char (char-downcase character) (slot-value stream 'stream)))))
+    (:sentencecase
+     (if (eql (slot-value stream 'position) :initial)
+	 (if (alphanumericp character)
+	     (progn
+	       (setf (slot-value stream 'position) nil)
+	       (write-char (char-upcase character) (slot-value stream 'stream)))
+	     (write-char character (slot-value stream 'stream)))
+	 (write-char (char-downcase character) (slot-value stream 'stream))))))
+
+(defmethod stream-write-char (character (stream case-correcting-stream))
+  (case-correcting-write character stream))
