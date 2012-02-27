@@ -186,6 +186,10 @@
       (return elt))))
 (setf (get 'or 'compound-type) 'or-type)
 
+(defun compile-or-type (object type)
+  `(or ,@(mapcar (lambda (x) `(typep ,object ',x)) (rest type))))
+(setf (get 'or 'compound-type-optimizer) 'compile-or-type)
+
 (defun member-type (object type)
   (dolist (o (cdr type))
     (when (eql object o)
@@ -278,6 +282,33 @@
 	 ((typep ,value ',typespec))
        (setf ,value (check-type-error ',place ,value ',typespec ,string)))))
 
+(defun compile-typep-expression (object type-specifier)
+  (let ((type-symbol (cond ((symbolp type-specifier)
+                            type-specifier)
+                           ((and (consp type-specifier)
+                                 (null (rest type-specifier))
+                                 (symbolp (first type-specifier)))
+                            (first type-specifier)))))
+    (when type-symbol
+      (let ((test (get type-symbol 'type-symbol)))
+	(when test
+	  (return-from compile-typep-expression
+            `(funcall ',test ,object))))))
+  (when (and (listp type-specifier)
+             (symbolp (first type-specifier)))
+    (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
+      (when compiler
+        (let* ((sym (gensym))
+               (code (funcall compiler sym type-specifier)))
+          (when code
+            (return-from compile-typep-expression
+              `(let ((,sym ,object))
+                 ,code)))))))
+  (multiple-value-bind (expansion expanded-p)
+      (typeexpand-1 type-specifier)
+    (when expanded-p
+      (compile-typep-expression object expansion))))
+
 (define-compiler-macro typep (&whole whole object type-specifier &optional environment)
   ;; Simple environments only.
   (when environment
@@ -288,24 +319,5 @@
                (eql (first type-specifier) 'quote))
     (return-from typep whole))
   (setf type-specifier (second type-specifier))
-  (let ((type-symbol (cond ((symbolp type-specifier)
-                            type-specifier)
-                           ((and (consp type-specifier)
-                                 (null (rest type-specifier))
-                                 (symbolp (first type-specifier)))
-                            (first type-specifier)))))
-    (when type-symbol
-      (let ((test (get type-symbol 'type-symbol)))
-	(when test
-	  (return-from typep `(funcall ',test ,object))))))
-  (when (and (listp type-specifier)
-             (symbolp (first type-specifier)))
-    (let ((compiler (get (first type-specifier) 'compound-type-optimizer)))
-      (when compiler
-        (let* ((sym (gensym))
-               (code (funcall compiler sym type-specifier)))
-          (when code
-            (return-from typep
-              `(let ((,sym ,object))
-                 ,code)))))))
-  whole)
+  (or (compile-typep-expression object type-specifier)
+      whole))
