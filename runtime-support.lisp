@@ -33,6 +33,10 @@
                (apply function arg-list))))
         (t (apply function arg))))
 
+(defun funcall (function &rest arguments)
+  (declare (dynamic-extent arguments))
+  (apply function arguments))
+
 (defun fboundp (name)
   (%fboundp (function-symbol name)))
 
