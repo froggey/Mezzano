@@ -141,6 +141,39 @@
         (sys.int::parse-declares forms)
       (eval-locally-body declares body env))))
 
+(defspecial let (&environment env bindings &body forms)
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares forms)
+    (let ((special-variables '())
+          (special-values '())
+          (special-declares (apply 'append
+                                   (mapcar #'rest
+                                           (remove-if-not (lambda (dec) (eql (first dec) 'special))
+                                                          declares))))
+          (new-env env))
+      (dolist (b bindings)
+        (multiple-value-bind (name init-form)
+            (sys.int::parse-let-binding b)
+          (let ((value (eval-in-lexenv init-form env)))
+            (ecase (sys.int::symbol-mode name)
+              ((nil :symbol-macro)
+               (cond ((member name special-declares)
+                      (push name special-variables)
+                      (push value special-values))
+                     (t (push (list :binding name value) new-env))))
+              (:special
+               (push name special-variables)
+               (push value special-values))
+              (:constant (error "Cannot bind over constant ~S." name))))))
+      (when special-variables
+        (error "TODO: special-variables"))
+      #+nil(progv special-variables special-values
+             (eval-locally-body declares body new-env))
+      (eval-locally-body declares body new-env))))
+
+(defspecial progn (&environment env &body forms)
+  (eval-progn-body forms env))
+
 (defspecial quote (object)
   object)
 
