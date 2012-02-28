@@ -176,8 +176,9 @@
   "3.1.2.1.2  Conses as forms"
   (let ((fn (gethash (first form) *special-forms*)))
     (cond (fn (funcall fn form env))
-          #+nil((macro-function (first form) env)
-           (eval-in-lexenv (macroexpand-1 form env) env))
+          ((macro-function (first form))
+           ;; TODO: env.
+           (eval-in-lexenv (macroexpand-1 form) env))
           (t (apply (find-function (first form) env)
                     (mapcar (lambda (f) (eval-in-lexenv f env))
                             (rest form)))))))

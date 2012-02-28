@@ -62,7 +62,7 @@ GENESIS-INTERN.")
       (let ((x (assoc symbol (rest e))))
         (when x
           (return-from genesis-macro-function (cdr x))))))
-  (get symbol :genesis-macro-function))
+  (getf (genesis-symbol-plist symbol) (genesis-intern "%MACRO-FUNCTION")))
 
 (defun genesis-symbol-package (symbol)
   (get symbol 'genesis-symbol-package))
@@ -96,7 +96,7 @@ GENESIS-INTERN.")
 
 (defun (setf genesis-fdefinition) (value name)
   (let ((sym (resolve-function-name name)))
-    (setf (get sym :genesis-macro-function) nil
+    (setf (getf (genesis-symbol-plist sym) (genesis-intern "%MACRO-FUNCTION")) nil
           (symbol-function sym) value)))
 
 (defun early-load (pathspec)
@@ -165,15 +165,29 @@ GENESIS-INTERN.")
   (apply 'format t control arguments))
 
 (define-forwarding-builtin macro-function genesis-macro-function)
+
+(defun make-macro-error-function (symbol)
+  (let ((rest-sym (gensym "REST")))
+    (genesis-eval (list (genesis-intern "FUNCTION")
+                        (list (genesis-intern "LAMBDA")
+                              (list (genesis-intern "&REST")
+                                    rest-sym)
+                              (list (genesis-intern "DECLARE")
+                                    (list (genesis-intern "IGNORE") rest-sym))
+                              (list (genesis-intern "ERROR")
+                                    (list (genesis-intern "QUOTE")
+                                          (genesis-intern "UNDEFINED-FUNCTION"))
+                                    (genesis-intern "NAME" t)
+                                    (list (genesis-intern "QUOTE")
+                                          symbol)))))))
+
 (defbuiltin (setf macro-function) (value symbol &optional env)
   (when env
     (error "TODO: (setf macro-function) with environment."))
   (cond (value
-         (setf (get symbol :genesis-macro-function) value
-               (symbol-function symbol) (lambda (&rest x)
-                                          (declare (ignore x))
-                                          (error "Undefined function ~S." symbol))))
-        (t (setf (get symbol :genesis-macro-function) nil)
+         (setf (getf (genesis-symbol-plist symbol) (genesis-intern "%MACRO-FUNCTION")) value
+               (symbol-function symbol) (make-macro-error-function symbol)))
+        (t (setf (getf (genesis-symbol-plist symbol) (genesis-intern "%MACRO-FUNCTION")) nil)
            (fmakunbound symbol)
            nil)))
 
