@@ -86,3 +86,7 @@
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
       (1 ;; Closure.
        (function-name (memref-t address 4))))))
+
+(defvar *gensym-counter* 0)
+(defun gensym (&optional (thing "G"))
+  (make-symbol (format nil "~A~D" thing (prog1 *gensym-counter* (incf *gensym-counter*)))))
