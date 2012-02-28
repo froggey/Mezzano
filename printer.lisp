@@ -64,14 +64,16 @@
        (write-char #\: stream))
      (write-string (symbol-name object) stream))
     (string
-     (write-char #\" stream)
-     (dotimes (i (length object))
-       (let ((c (char object i)))
-         (case c
-           (#\\ (write-char #\\ stream) (write-char #\\ stream))
-           (#\" (write-char #\\ stream) (write-char #\" stream))
-           (t (write-char c stream)))))
-     (write-char #\" stream))
+     (cond (*print-escape*
+            (write-char #\" stream)
+            (dotimes (i (length object))
+              (let ((c (char object i)))
+                (case c
+                  (#\\ (write-char #\\ stream) (write-char #\\ stream))
+                  (#\" (write-char #\\ stream) (write-char #\" stream))
+                  (t (write-char c stream)))))
+            (write-char #\" stream))
+           (t (write-string object stream))))
     (character
      (write-char #\# stream)
      (write-char #\\ stream)
