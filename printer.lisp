@@ -47,7 +47,19 @@
 
 (defun write-object (object stream)
   (typecase object
-    (integer (write-integer object *print-base* stream))
+    (integer
+     (when *print-radix*
+       (case *print-base*
+         (2 (write-string "#b" stream))
+         (8 (write-string "#o" stream))
+         (10) ; Nothing.
+         (16 (write-string "#x" stream))
+         (t (write-char #\# stream)
+            (write-integer *print-base* 10 stream)
+            (write-char #\r stream))))
+     (write-integer object *print-base* stream)
+     (when (and *print-radix* (eql *print-base* 10))
+       (write-char #\. stream)))
     (cons
      (write-char #\( stream)
      (write (car object) :stream stream)
@@ -60,11 +72,26 @@
        (write-char #\Space stream)
        (write (car i) :stream stream)))
     (symbol
-     (when (keywordp object)
-       (write-char #\: stream))
-     (write-string (symbol-name object) stream))
+     (cond ((or *print-escape* *print-readably*)
+            (cond ((null (symbol-package object))
+                   (when *print-gensym*
+                     (write-string "#:" stream)))
+                  ((keywordp object)
+                   (write-char #\: stream))
+                  (t (multiple-value-bind (symbol status)
+                         (find-symbol (symbol-name object) *package*)
+                       (unless (and status (eql symbol object))
+                         ;; Not accessible in the current package.
+                         (multiple-value-bind (symbol status)
+                             (find-symbol (symbol-name object) (symbol-package object))
+                           (write-string (package-name (symbol-package object)) stream)
+                           (write-char #\: stream)
+                           (when (not (eql status :external))
+                             (write-char #\: stream)))))))
+            (write-string (symbol-name object) stream))
+           (t (write-string (symbol-name object) stream))))
     (string
-     (cond (*print-escape*
+     (cond ((or *print-escape* *print-readably*)
             (write-char #\" stream)
             (dotimes (i (length object))
               (let ((c (char object i)))
@@ -75,13 +102,15 @@
             (write-char #\" stream))
            (t (write-string object stream))))
     (character
-     (write-char #\# stream)
-     (write-char #\\ stream)
-     (cond ((and (or *print-space-char-ansi* (not (eql object #\Space)))
-                 (not (eql object #\Newline))
-                 (standard-char-p object))
-            (write-char object stream))
-           (t (write-string (char-name object)))))
+     (cond ((or *print-readably* *print-escape*)
+            (write-char #\# stream)
+            (write-char #\\ stream)
+            (cond ((and (or *print-space-char-ansi* (not (eql object #\Space)))
+                        (not (eql object #\Newline))
+                        (standard-char-p object))
+                   (write-char object stream))
+                  (t (write-string (char-name object)))))
+           (t (write-char object stream))))
     (function
      (print-unreadable-object (object stream :type t :identity t)
        (write (function-name object) :stream stream)))
