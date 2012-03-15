@@ -243,7 +243,7 @@
 	(list 'quote name)))
 
 (defmacro defconstant (name initial-value &optional docstring)
-  (list 'progn
+  (list 'eval-when '(:compile-toplevel :load-toplevel :execute)
 	(list 'declaim (list 'special name))
 	(list 'setq name initial-value)
         (list 'declaim (list 'constant name))
