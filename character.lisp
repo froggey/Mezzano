@@ -6,11 +6,12 @@
                   *unicode-name-trie*))
 
 (defun %make-character (code &optional bits)
-  (check-type code (or (integer 0 #xD7FF)
-                       (integer #xE000 #x0010FFFF))
+  (check-type code (or (integer 0 #x0010FFFF))
               "a unicode code-point")
   (check-type bits (or null (integer 0 15)))
-  (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010))
+  (if (<= #xD800 code #xDFFF)
+      nil
+      (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010)))
 
 (defun make-character (code &key control meta super hyper)
   (%make-character code (logior (if control #b0001 0)
