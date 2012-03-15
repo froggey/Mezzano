@@ -1,5 +1,6 @@
 (eval-when (:compile-toplevel)
-  (defpackage #:sys.eval
+  (defpackage #:system.eval
+    (:nicknames #:sys.eval)
     (:use #:cl)))
 
 (in-package #:sys.eval)
