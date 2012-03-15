@@ -268,11 +268,12 @@
 	(roots (append extra-static-objects (list undefined-function-thunk nil)))
 	(*lap-symbols* '()))
     (labels ((add-static-object (x)
-	       (setf (gethash x static-objects) static-offset)
-	       ;; Two word heap header.
-	       (incf static-offset (+ (object-size x) 2))
-	       (when (oddp static-offset)
-		 (incf static-offset)))
+               (unless (gethash x static-objects)
+                 (setf (gethash x static-objects) static-offset)
+                 ;; Two word heap header.
+                 (incf static-offset (+ (object-size x) 2))
+                 (when (oddp static-offset)
+                   (incf static-offset))))
 	     (add-object (x)
 	       ;; Ignore objects that already have addresses
 	       (cond ((or (gethash x static-objects)
@@ -864,6 +865,10 @@
 	 (undefined-function-thunk (make-undefined-function-thunk))
          (unifont-data (with-open-file (s "../unifontfull-5.1.20080820.hex")
                          (build-unicode:generate-unifont-table s))))
+    (push (cons (genesis-intern "*MULTIBOOT-HEADER*") multiboot-header) *symbol-preloads*)
+    (push (cons (genesis-intern "*GDT*") gdt) *symbol-preloads*)
+    (push (cons (genesis-intern "*IDT*") idt) *symbol-preloads*)
+    (push (cons (genesis-intern "*UNDEFINED-FUNCTION-THUNK*") undefined-function-thunk) *symbol-preloads*)
     (push (cons (genesis-intern "*UNIFONT-BMP*") unifont-data) *symbol-preloads*)
     (multiple-value-bind (unicode-info name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
