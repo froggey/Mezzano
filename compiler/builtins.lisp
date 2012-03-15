@@ -1234,6 +1234,20 @@
         `(sys.lap-x86:or64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
+(defbuiltin sys.int::%pointer-field (value) ()
+  (load-in-reg :r8 value t)
+  (smash-r8)
+  (emit `(sys.lap-x86:and64 :r8 -16)
+        `(sys.lap-x86:shr64 :r8 1))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%tag-field (value) ()
+  (load-in-reg :r8 value t)
+  (smash-r8)
+  (emit `(sys.lap-x86:shl64 :r8 3)
+        `(sys.lap-x86:and64 :r8 #b1111000))
+  (setf *r8-value* (list (gensym))))
+
 (defbuiltin sys.int::lisp-object-address (value) ()
   (load-in-reg :r8 value t)
   (smash-r8)
