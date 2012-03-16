@@ -13,6 +13,15 @@
   function
   environment)
 
+(defstruct genesis-stack-group
+  name
+  control-stack-base
+  control-stack-size
+  data-stack-base
+  data-stack-size
+  binding-stack-base
+  binding-stack-size)
+
 (defvar *function-preloads* nil)
 (defvar *symbol-preloads* nil)
 
@@ -77,6 +86,15 @@
   (funcall fn (array-header-info value))
   (funcall fn (array-header-storage value)))
 
+(defmethod map-slots (fn (value genesis-stack-group))
+  (funcall fn (genesis-stack-group-name value))
+  (funcall fn (genesis-stack-group-control-stack-base value))
+  (funcall fn (genesis-stack-group-control-stack-size value))
+  (funcall fn (genesis-stack-group-data-stack-base value))
+  (funcall fn (genesis-stack-group-data-stack-size value))
+  (funcall fn (genesis-stack-group-binding-stack-base value))
+  (funcall fn (genesis-stack-group-binding-stack-size value)))
+
 (defun object-size (x)
   "Return the size of an object in words."
   (etypecase x
@@ -115,7 +133,8 @@
     (genesis-function
      (+ 1
 	(length (genesis-function-constants x))
-	(ceiling (length (genesis-function-assembled-code x)) 8)))))
+	(ceiling (length (genesis-function-assembled-code x)) 8)))
+    (genesis-stack-group 512)))
 
 (defun object-tag (x)
   "Return the tag of an object."
@@ -134,7 +153,8 @@
     ((vector t) #b0111)
     (integer #b0111)
     (genesis-closure #b1100)
-    (genesis-function #b1100)))
+    (genesis-function #b1100)
+    (genesis-stack-group #b0111)))
 
 ;;; Initial memory layout:
 ;;; 0-2MB         Not mapped, catching bad accesses to zero.
@@ -392,7 +412,9 @@
 		 (genesis-function
                   (values 'function
                           (+ (ceiling (+ (length (genesis-function-assembled-code k)) 12) 8)
-                             (length (genesis-function-constants k))))))
+                             (length (genesis-function-constants k)))))
+                 (genesis-stack-group
+                  (values 'stack-group 512)))
 	     (let ((x (alexandria:ensure-gethash type types (list 0 0))))
 	       (incf (first x))
 	       (incf (second x) size))))
@@ -474,7 +496,7 @@
       (values load-offset static-base dynamic-base support-base end-address
 	      pml4 page-tables))))
 
-(defun make-setup-function (gdt idt special-stack initial-page-table entry-function)
+(defun make-setup-function (gdt idt initial-page-table entry-function initial-stack-group)
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble
 	  `((sys.lap-x86:!code32)
@@ -524,24 +546,20 @@
 	    (sys.lap-x86:movseg :fs :eax)
 	    (sys.lap-x86:movseg :gs :eax)
 	    (sys.lap-x86:movseg :ss :eax)
-	    ;; Switch to the proper stack.
-	    ;; FIXME: This is a huge hack and will break if the static area grows too much.
-	    (sys.lap-x86:mov64 :csp #x700000)
-	    (sys.lap-x86:mov64 :lsp #x800000)
-	    ;; Clear frame pointers.
-	    (sys.lap-x86:mov64 :cfp 0)
-	    (sys.lap-x86:mov64 :lfp 0)
+            ;; Load up values from the initial stack group.
+            (sys.lap-x86:mov64 :r8 (:constant ,initial-stack-group))
+            (sys.lap-x86:mov64 :csp (:r8 ,(- (* 3 8) #b0111)))
+            (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) #b0111)))
+            (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) #b0111)))
             ;; Initialize GS.
-            (sys.lap-x86:mov64 :rax (:constant ,special-stack))
-            (sys.lap-x86:mov64 :rcx (:simple-array-header :rax))
-            (sys.lap-x86:shr64 :rcx 8)
-            (sys.lap-x86:lea64 :rax (:rax 1 (:rcx 8)))
-            (sys.lap-x86:mov64 (:rip initial-stack-group) :rax)
-            (sys.lap-x86:lea64 :rax (:rip initial-stack-group))
-            (sys.lap-x86:mov64 :rdx :rax)
+            (sys.lap-x86:mov64 :rax :r8)
+            (sys.lap-x86:mov64 :rdx :r8)
             (sys.lap-x86:sar64 :rdx 32)
             (sys.lap-x86:mov64 :rcx #xC0000101)
             (sys.lap-x86:wrmsr)
+	    ;; Clear frame pointers.
+	    (sys.lap-x86:mov64 :cfp 0)
+	    (sys.lap-x86:mov64 :lfp 0)
 	    ;; Clear data registers.
 	    (sys.lap-x86:xor32 :r8d :r8d)
 	    (sys.lap-x86:xor32 :r9d :r9d)
@@ -562,8 +580,6 @@
 	    ;; 8 word stack for startup.
 	    (:d64/le 0 0 0 0 0 0 0 0)
 	    initial-stack
-            initial-stack-group
-            (:d64/le 0)
 	    gdtr
 	    (:d16/le ,(1- (* (length gdt) 8)))
 	    (:d32/le 0)
@@ -754,6 +770,36 @@
   (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-closure-function object) value-table)
 	(nibbles:ub64ref/le image (+ offset 40)) (value-of (genesis-closure-environment object) value-table)))
 
+(defmethod dump-object ((object genesis-stack-group) value-table image offset)
+  ;; +0 Array tag.
+  (setf (nibbles:ub64ref/le image (+ offset 0)) (make-sa-header-word 511 30))
+  ;; +8 Binding stack pointer.
+  (setf (nibbles:ub64ref/le image (+ offset 8)) (* (+ (genesis-stack-group-binding-stack-base object)
+                                                      (genesis-stack-group-binding-stack-size object))
+                                                   8))
+  ;; +16 State word. Unsafe, active.
+  (setf (nibbles:ub64ref/le image (+ offset 16)) 0)
+  ;; +24 Saved control stack pointer.
+  (setf (nibbles:ub64ref/le image (+ offset 24)) (* (+ (genesis-stack-group-control-stack-base object)
+                                                       (genesis-stack-group-control-stack-size object)) 8))
+  ;; +32 Name.
+  (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-stack-group-name object) value-table))
+  ;; +40 Control stack base.
+  (setf (nibbles:ub64ref/le image (+ offset 40)) (value-of (genesis-stack-group-control-stack-base object) value-table))
+  ;; +48 Control stack size.
+  (setf (nibbles:ub64ref/le image (+ offset 48)) (value-of (genesis-stack-group-control-stack-size object) value-table))
+  ;; +56 Data stack base.
+  (setf (nibbles:ub64ref/le image (+ offset 56)) (value-of (genesis-stack-group-data-stack-base object) value-table))
+  ;; +64 Data stack size.
+  (setf (nibbles:ub64ref/le image (+ offset 64)) (value-of (genesis-stack-group-data-stack-size object) value-table))
+  ;; +72 Binding stack base.
+  (setf (nibbles:ub64ref/le image (+ offset 72)) (value-of (genesis-stack-group-binding-stack-base object) value-table))
+  ;; +80 Binding stack size.
+  (setf (nibbles:ub64ref/le image (+ offset 80)) (value-of (genesis-stack-group-binding-stack-size object) value-table))
+  ;; +88 Start of TLS slots.
+  (dotimes (i (- 512 11))
+    (setf (nibbles:ub64ref/le image (+ offset 88 (* i 8))) #xFFFFFFFFFFFFFFFE)))
+
 (defun genesis-eval-string (string)
   (with-input-from-string (stream string)
     (genesis-eval (genesis-eval (list (genesis-intern "READ") stream)))))
@@ -851,17 +897,17 @@
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
 	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
-	 (special-stack (make-array 2048))
          (*function-preloads* '())
          (*symbol-preloads* '())
 	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
                                                  "../runtime-array.lisp" "../runtime-numbers.lisp"
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
                                                  "../type.lisp" "../eval.lisp" "../stream.lisp"
-                                                 "../format.lisp"
+                                                 "../format.lisp" "../stack-group.lisp"
                                                  "../test.lisp"))
+         (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
-	 (setup-code (make-setup-function gdt idt special-stack (- #x200000 #x1000) entry-function))
+	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function initial-stack-group))
 	 (undefined-function-thunk (make-undefined-function-thunk))
          (unifont-data (with-open-file (s "../unifontfull-5.1.20080820.hex")
                          (build-unicode:generate-unifont-table s))))
@@ -878,15 +924,22 @@
       (push (cons (genesis-intern "*UNICODE-NAME-TRIE*") name-trie) *symbol-preloads*))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
 	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt
-                                                              special-stack entry-function
+                                                              initial-stack-group entry-function
                                                               (mapcar 'cdr *function-preloads*)
                                                               (mapcar 'cdr *symbol-preloads*)))
       (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
-	  (generate-physical-dump-layout (+ static-size #x40000) dynamic-size)
-	(let ((image (make-array (+ (- image-end load-base) #x1000) :element-type '(unsigned-byte 8)))
-	      (object-values (make-hash-table)))
+	  (generate-physical-dump-layout static-size dynamic-size)
+	(let* ((control-stack-size 4096)
+               (data-stack-size 4096)
+               (binding-stack-size 1024)
+               (bss-size (+ (* control-stack-size 8)
+                            (* data-stack-size 8)
+                            (* binding-stack-size 8)))
+               (image-size (- image-end load-base))
+               (image (make-array (+ image-size #x1000) :element-type '(unsigned-byte 8)))
+               (object-values (make-hash-table)))
           (format t "Entry function MC size: ~D bytes~%" (length (genesis-function-assembled-code entry-function)))
-	  (format t "Image size: ~D kilowords (~D kilobytes)~%" (/ (length image) 1024.0 8) (/ (length image) 1024.0))
+	  (format t "Image size: ~D kilowords (~D kilobytes)~%" (/ image-size 1024.0 8) (/ image-size 1024.0))
 	  ;; Produce a map from objects to their values.
 	  (flet ((add-object (obj base-address)
 		   (setf (gethash obj object-values) (logior base-address
@@ -930,10 +983,10 @@
 	  (format t "Entry point at ~X.~%" (gethash setup-code object-values))
 	  (format t "NIL at ~X.~%" (gethash 'nil object-values))
 	  (format t "UFT at ~X.~%" (gethash undefined-function-thunk object-values))
-          (format t "Special stack vector at ~X.~%" (gethash special-stack object-values))
-          (format t "GC pointer at ~X.~%" (+ *linear-map* *static-area-base* (length image)))
+          (format t "Initial stack group at ~X.~%" (gethash initial-stack-group object-values))
+          (format t "GC pointer at ~X.~%" (+ *linear-map* image-end bss-size))
           ;; Set the  GC pointer.
-          (push (cons (genesis-intern "*BUMP-POINTER*") (+ *linear-map* *static-area-base* (length image)))
+          (push (cons (genesis-intern "*BUMP-POINTER*") (+ *linear-map* image-end bss-size))
                 *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002
@@ -942,14 +995,25 @@
 		;; Strip away the tag bits and advance past the header word.
 		(aref multiboot-header 3) (+ (logand (gethash multiboot-header object-values) #xFFFFFFF0) 8)
 		(aref multiboot-header 4) (- load-base #x1000)
-		(aref multiboot-header 5) 0
-		(aref multiboot-header 6) 0
+		(aref multiboot-header 5) image-end
+		(aref multiboot-header 6) (+ image-end bss-size)
 		(aref multiboot-header 7) (gethash setup-code object-values))
 	  ;; And the GDT.
 	  (setf (aref gdt 0) 0
 		(aref gdt 1) #x00209A0000000000)
 	  (let ((*print-base* 16))
 	    (format t "Multiboot header: ~S~%" multiboot-header))
+          ;; Initialize stack pointers.
+          (setf (genesis-stack-group-control-stack-base initial-stack-group) (/ (+ *linear-map* image-end) 8)
+                (genesis-stack-group-control-stack-size initial-stack-group) control-stack-size
+                (genesis-stack-group-binding-stack-base initial-stack-group) (/ (+ *linear-map* image-end (* control-stack-size 8)) 8)
+                (genesis-stack-group-binding-stack-size initial-stack-group) binding-stack-size
+                (genesis-stack-group-data-stack-base initial-stack-group) (/ (+ *linear-map* image-end (* control-stack-size 8)
+                                                                                (* binding-stack-size 8)) 8)
+                (genesis-stack-group-data-stack-size initial-stack-group) data-stack-size)
+          (format t "Control stack base: ~X~%" (* (genesis-stack-group-control-stack-base initial-stack-group) 8))
+          (format t "Data stack base:    ~X~%" (* (genesis-stack-group-data-stack-base initial-stack-group) 8))
+          (format t "Binding stack base: ~X~%" (* (genesis-stack-group-binding-stack-base initial-stack-group) 8))
 	  ;; Dump static objects.
 	  (maphash (lambda (obj addr)
 		     (dump-object obj object-values image (+ 4096 (* (+ addr 2) 8))))

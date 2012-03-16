@@ -720,6 +720,8 @@ be generated instead.")
       (and (null (cdr (lexical-variable-used-in var)))
 	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
 
+(defconstant +binding-stack-gs-offset+ (- (* 1 8) #b0111))
+
 (defun bind (sym tag)
   (push (cons sym :symbol) *special-bindings*)
   (load-constant :r9 sym)
@@ -727,10 +729,10 @@ be generated instead.")
   ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
   ;; Bump binding stack.
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:sub64 (0) 16)
+        `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
         ;; Load binding stack pointer into R11.
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r11 (0))
+        `(sys.lap-x86:mov64 :r11 (,+binding-stack-gs-offset+))
         ;; Read the old symbol value.
         `(sys.lap-x86:mov64 :r10 (:symbol-value :r9))
         ;; Store the old value on the stack.
@@ -761,7 +763,7 @@ only R8 will be preserved."
           loop-head)
     ;; Unwind one entry.
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :rcx (0))
+          `(sys.lap-x86:mov64 :rcx (,+binding-stack-gs-offset+))
           `(sys.lap-x86:mov64 :r8 (:rcx))
           `(sys.lap-x86:mov8 :dl :r8l)
           `(sys.lap-x86:and8 :dl #b1111)
@@ -781,7 +783,7 @@ only R8 will be preserved."
           `(sys.lap-x86:mov64 (:rcx 0) 0)
           `(sys.lap-x86:mov64 (:rcx 8) 0)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:add64 (0) 16)
+          `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
           `(sys.lap-x86:jmp ,loop-test))
     ;; Running one cleanup function.
     (emit unwind-unwind-protect
@@ -790,7 +792,7 @@ only R8 will be preserved."
           `(sys.lap-x86:mov64 (:rcx 0) 0)
           `(sys.lap-x86:mov64 (:rcx 8) 0)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:add64 (0) 16)
+          `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
           `(sys.lap-x86:push :rax)
           `(sys.lap-x86:push :rcx)
           `(sys.lap-x86:xor32 :ecx :ecx)
@@ -806,11 +808,11 @@ only R8 will be preserved."
           `(sys.lap-x86:mov64 (:rcx 0) 0)
           `(sys.lap-x86:mov64 (:rcx 8) 0)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:add64 (0) 16)
+          `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
           `(sys.lap-x86:jmp ,loop-test))
     (emit loop-test
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 :rax (0))
+          `(sys.lap-x86:cmp64 :rax (,+binding-stack-gs-offset+))
           `(sys.lap-x86:ja ,loop-head)))
   (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
         `(sys.lap-x86:add64 :lsp 8)))
@@ -847,11 +849,11 @@ only R8 will be preserved."
                   `(sys.lap-x86:mov64 :lsp :rbx))
             ;; Drop from special stack.
             (emit `(sys.lap-x86:gs)
-                  `(sys.lap-x86:mov64 :r8 (0))
+                  `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+))
                   `(sys.lap-x86:mov64 (:r8) 0)
                   `(sys.lap-x86:mov64 (:r8 8) 0)
                   `(sys.lap-x86:gs)
-                  `(sys.lap-x86:add64 (0) 16))
+                  `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
             ;; Restore MV-registers.
             (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
                   `(sys.lap-x86:mov64 :r9 (:lsp 8))
@@ -867,21 +869,21 @@ only R8 will be preserved."
                     `(sys.lap-x86:call :r13)
                     `(sys.lap-x86:mov64 :lsp :rbx)
                     `(sys.lap-x86:gs)
-                    `(sys.lap-x86:mov64 :r8 (0))
+                    `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+))
                     `(sys.lap-x86:mov64 (:r8) 0)
                     `(sys.lap-x86:mov64 (:r8 8) 0)
                     `(sys.lap-x86:gs)
-                    `(sys.lap-x86:add64 (0) 16)))))
+                    `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))))
         (:tagbody-or-block
          ;; Null out the given slot.
          (emit `(sys.lap-x86:mov64 :r13 (:stack ,(first (first b))))
                `(sys.lap-x86:mov64 (:r13 ,(1+ (* (second (first b)) 8))) nil)
                `(sys.lap-x86:gs)
-               `(sys.lap-x86:mov64 :rax (0))
+               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
                `(sys.lap-x86:mov64 (:rax) 0)
                `(sys.lap-x86:mov64 (:rax 8) 0)
                `(sys.lap-x86:gs)
-               `(sys.lap-x86:add64 (0) 16)))
+               `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))
         (:symbol ;; Special variable
          (case *for-value*
            (:multiple
@@ -894,26 +896,26 @@ only R8 will be preserved."
             ;; Unbind.
             (load-constant :r9 (car b))
             (emit `(sys.lap-x86:gs)
-                  `(sys.lap-x86:mov64 :rax (0))
+                  `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
                   `(sys.lap-x86:mov64 :r8 (:rax 8))
                   `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)
                   `(sys.lap-x86:mov64 (:rax) 0)
                   `(sys.lap-x86:mov64 (:rax 8) 0)
                   `(sys.lap-x86:gs)
-                  `(sys.lap-x86:add64 (0) 16))
+                  `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
             ;; Restore registers.
             (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
                   `(sys.lap-x86:mov64 :r9 (:lsp 8))
                   `(sys.lap-x86:add64 :lsp 16)))
            (t (load-constant :r9 (car b))
               (emit `(sys.lap-x86:gs)
-                    `(sys.lap-x86:mov64 :rax (0))
+                    `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
                     `(sys.lap-x86:mov64 :r10 (:rax 8))
                     `(sys.lap-x86:mov64 (:symbol-value :r9) :r10)
                     `(sys.lap-x86:mov64 (:rax) 0)
                     `(sys.lap-x86:mov64 (:rax 8) 0)
                     `(sys.lap-x86:gs)
-                    `(sys.lap-x86:add64 (0) 16)))))))
+                    `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))))))
     (unbind-to (rest bindings) target)))
 
 (defun cg-let (form)
@@ -1261,7 +1263,7 @@ only R8 will be preserved."
             `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
             `(sys.lap-x86:mov64 (:csp 0) :rax)
             `(sys.lap-x86:gs)
-            `(sys.lap-x86:mov64 :rax (0))
+            `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
             ;; Ensure that the info does not get invalidated by a GO to
             ;; this tagbody.
             `(sys.lap-x86:sub64 :rax 16)
@@ -1279,9 +1281,9 @@ only R8 will be preserved."
         (push (list (second form)) *environment*)
         (push (cons (list slot 2) :tagbody-or-block) *special-bindings*)
         (emit `(sys.lap-x86:gs)
-              `(sys.lap-x86:sub64 (0) 16)
+              `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
               `(sys.lap-x86:gs)
-              `(sys.lap-x86:mov64 :rax (0))
+              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
               `(sys.lap-x86:mov64 (:rax 8) 8)
               `(sys.lap-x86:mov64 (:rax 0) :r8))))
     (mapcar (lambda (tag label)
@@ -1315,9 +1317,9 @@ only R8 will be preserved."
          (*special-bindings* (cons (cons cleanup-tag :unwind-protect) *special-bindings*)))
     (load-in-r8 cleanup-tag)
     (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:sub64 (0) 16)
+          `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :rax (0))
+          `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
           `(sys.lap-x86:mov64 (:rax 0) :r8))
     ;; Compile the protected form (not for predicate).
     (let ((tag (let ((*for-value* (if (and (keywordp *for-value*)
