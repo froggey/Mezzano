@@ -616,6 +616,15 @@
     (t (or (gethash object value-table)
 	   (error "Unknown value ~S." object)))))
 
+(defun compute-symbol-flags (symbol)
+  (logior (ecase (get symbol :genesis-symbol-mode)
+            ((nil) #b00)
+            ((:special) #b01)
+            ((:constant) #b10)
+            ((:symbol-macro) #b11))
+          ;; TLS offset. Zero means no allocated slot.
+          0))
+
 (defmethod dump-object ((object symbol) value-table image offset)
   ;; +0 Name.
   (setf (nibbles:ub64ref/le image (+ offset 0)) (value-of (crunched-symbol-name object) value-table))
@@ -638,8 +647,8 @@
                                                          (t (gethash :undefined-function value-table)))))
   ;; +32 Plist.
   (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-symbol-plist object) value-table))
-  ;; +40 Flags & stuff (toodo)
-)
+  ;; +40 Flags & stuff
+  (setf (nibbles:ub64ref/le image (+ offset 40)) (value-of (compute-symbol-flags object) value-table)))
 
 (defmethod dump-object ((object cons) value-table image offset)
   ;; +0 CAR.

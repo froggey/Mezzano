@@ -721,27 +721,48 @@ be generated instead.")
 	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
 
 (defconstant +binding-stack-gs-offset+ (- (* 1 8) #b0111))
+(defconstant +tls-base-offset+ (- #b0111))
+(defconstant +tls-offset-shift+ (+ 8 3))
 
 (defun bind (sym tag)
   (push (cons sym :symbol) *special-bindings*)
+  (smash-r8)
   (load-constant :r9 sym)
-  ;; Save the old value on the binding stack.
-  ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
-  ;; Bump binding stack.
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
-        ;; Load binding stack pointer into R11.
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :r11 (,+binding-stack-gs-offset+))
-        ;; Read the old symbol value.
-        `(sys.lap-x86:mov64 :r10 (:symbol-value :r9))
-        ;; Store the old value on the stack.
-        `(sys.lap-x86:mov64 (:r11 8) :r10)
-        ;; Store the symbol.
-        `(sys.lap-x86:mov64 (:r11) :r9))
+  (let ((has-tls-slot (gensym)))
+    ;; Ensure there is a TLS slot.
+    (emit `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jnz ,has-tls-slot)
+          ;; Nope, allocate a new one.
+          `(sys.lap-x86:mov64 :r13 (:constant sys.int::%allocate-tls-slot))
+          `(sys.lap-x86:mov32 :ecx 8)
+          `(sys.lap-x86:mov64 :r8 :r9)
+          `(sys.lap-x86:call (:symbol-function :r13))
+          `(sys.lap-x86:mov64 :lsp :rbx)
+          `(sys.lap-x86:mov64 :r9 (:constant ,sym))
+          `(sys.lap-x86:mov64 :rax :r8)
+          `(sys.lap-x86:shr32 :eax 3)
+          has-tls-slot
+          ;; Save the old value on the binding stack.
+          ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
+          ;; Bump binding stack.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
+          ;; Load binding stack pointer into R11.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r11 (,+binding-stack-gs-offset+))
+          ;; Read the old symbol value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+))
+          ;; Store the old value on the stack.
+          `(sys.lap-x86:mov64 (:r11 8) :r10)
+          ;; Store the symbol.
+          `(sys.lap-x86:mov64 (:r11) :r9)))
   ;; Store new value.
   (load-in-r8 tag t)
-  (emit `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)))
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8)))
 
 (defun unwind-to (target-reg preserve-registers)
   "Generate unwind code. TARGET-REG holds the target special stack pointer.
@@ -779,7 +800,11 @@ only R8 will be preserved."
     ;; Unbinding one symbol.
     (emit unwind-symbol
           `(sys.lap-x86:mov64 :r9 (:rcx 8))
-          `(sys.lap-x86:mov64 (:symbol-value :r8) :r9)
+          `(sys.lap-x86:mov32 :edx (:symbol-flags :r8))
+          `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :edx #xFFFF)
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r9)
           `(sys.lap-x86:mov64 (:rcx 0) 0)
           `(sys.lap-x86:mov64 (:rcx 8) 0)
           `(sys.lap-x86:gs)
@@ -898,7 +923,11 @@ only R8 will be preserved."
             (emit `(sys.lap-x86:gs)
                   `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
                   `(sys.lap-x86:mov64 :r8 (:rax 8))
-                  `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)
+                  `(sys.lap-x86:mov32 :edx (:symbol-flags :r9))
+                  `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
+                  `(sys.lap-x86:and32 :edx #xFFFF)
+                  `(sys.lap-x86:gs)
+                  `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r8)
                   `(sys.lap-x86:mov64 (:rax) 0)
                   `(sys.lap-x86:mov64 (:rax 8) 0)
                   `(sys.lap-x86:gs)
@@ -911,7 +940,11 @@ only R8 will be preserved."
               (emit `(sys.lap-x86:gs)
                     `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
                     `(sys.lap-x86:mov64 :r10 (:rax 8))
-                    `(sys.lap-x86:mov64 (:symbol-value :r9) :r10)
+                    `(sys.lap-x86:mov32 :edx (:symbol-flags :r9))
+                    `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
+                    `(sys.lap-x86:and32 :edx #xFFFF)
+                    `(sys.lap-x86:gs)
+                    `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r10)
                     `(sys.lap-x86:mov64 (:rax) 0)
                     `(sys.lap-x86:mov64 (:rax 8) 0)
                     `(sys.lap-x86:gs)

@@ -771,7 +771,9 @@
 
 (defbuiltin symbol-value (symbol) ()
   (let ((unbound-error-label (gensym))
-	(type-error-label (gensym)))
+	(type-error-label (gensym))
+        (no-tls-slot (gensym))
+        (test-bound (gensym)))
     (emit-trailer (unbound-error-label)
       (load-constant :r13 'sys.int::raise-unbound-error)
       (emit `(sys.lap-x86:mov64 :r8 :r9)
@@ -786,13 +788,52 @@
 	  `(sys.lap-x86:and8 :al #b1111)
 	  `(sys.lap-x86:cmp8 :al #b0010)
 	  `(sys.lap-x86:jne ,type-error-label)
+          ;; Extract the TLS offset.
+          `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jz ,no-tls-slot)
+          ;; Read from the TLS slot.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r8 ((:rax 8) ,+tls-base-offset+))
+          ;; Check if the TLS slot holds a value.
+          `(sys.lap-x86:cmp64 :r8 -2)
+          `(sys.lap-x86:jne ,test-bound)
+          no-tls-slot
 	  `(sys.lap-x86:mov64 :r8 (:symbol-value :r9))
+          test-bound
 	  `(sys.lap-x86:cmp64 :r8 #b1110)
 	  `(sys.lap-x86:je ,unbound-error-label))
     (setf *r8-value* (list (gensym)))))
 
-;;; TODO: this should do some type checking.
-(define-writer (setf symbol-value) symbol #b0010 :symbol-value)
+(defbuiltin (setf symbol-value) (value symbol) ()
+  (let ((type-error-label (gensym))
+        (no-tls-slot (gensym))
+        (out (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r9 'symbol))
+    (load-in-reg :r9 symbol t)
+    (load-in-reg :r8 value t)
+    (emit `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al #b0010)
+          `(sys.lap-x86:jne ,type-error-label)
+          ;; Extract the TLS offset.
+          `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jz ,no-tls-slot)
+          ;; Check if the TLS slot holds a value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
+          `(sys.lap-x86:je ,no-tls-slot)
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8)
+          `(sys.lap-x86:jmp ,out)
+          no-tls-slot
+          `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)
+          out)
+    *r8-value*))
 
 (defbuiltin symbol-function (symbol) ()
   (let ((type-error-label (gensym))
@@ -841,8 +882,11 @@
 ;; TODO: type checking, value should be a fixnum.
 (define-accessor sys.int::%symbol-flags symbol #b0010 :symbol-flags)
 
+;;; TODO: should just test the tag bits.
 (defbuiltin boundp (symbol) ()
-  (let ((type-error-label (gensym)))
+  (let ((type-error-label (gensym))
+        (no-tls-slot (gensym))
+        (out (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
     (load-in-reg :r8 symbol t)
@@ -850,11 +894,27 @@
 	  `(sys.lap-x86:and8 :al #b1111)
 	  `(sys.lap-x86:cmp8 :al #b0010)
 	  `(sys.lap-x86:jne ,type-error-label)
-	  `(sys.lap-x86:cmp64 (:symbol-value :r8) #b1110))
+          ;; Extract the TLS offset.
+          `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jz ,no-tls-slot)
+          ;; Check if the TLS slot holds a value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
+          `(sys.lap-x86:je ,no-tls-slot)
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) #b1110)
+          `(sys.lap-x86:jmp ,out)
+          no-tls-slot
+	  `(sys.lap-x86:cmp64 (:symbol-value :r8) #b1110)
+          out)
     (predicate-result :ne)))
 
 (defbuiltin makunbound (symbol) ()
-  (let ((type-error-label (gensym)))
+  (let ((type-error-label (gensym))
+        (no-tls-slot (gensym))
+        (out (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
     (load-in-reg :r8 symbol t)
@@ -862,7 +922,21 @@
 	  `(sys.lap-x86:and8 :al #b1111)
 	  `(sys.lap-x86:cmp8 :al #b0010)
 	  `(sys.lap-x86:jne ,type-error-label)
-	  `(sys.lap-x86:mov64 (:symbol-value :r8) #b1110))
+          ;; Extract the TLS offset.
+          `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jz ,no-tls-slot)
+          ;; Check if the TLS slot holds a value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
+          `(sys.lap-x86:je ,no-tls-slot)
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) #b1110)
+          `(sys.lap-x86:jmp ,out)
+          no-tls-slot
+	  `(sys.lap-x86:mov64 (:symbol-value :r8) #b1110)
+          out)
     *r8-value*))
 
 ;;; FBOUNDP but just for symbols.
@@ -1253,20 +1327,6 @@
   (smash-r8)
   ;; Convert to fixnum.
   (emit `(sys.lap-x86:shl64 :r8 3))
-  (setf *r8-value* (list (gensym))))
-
-(defbuiltin sys.int::%make-symbol (address name) ()
-  (load-in-reg :r9 name t)
-  (load-in-reg :r8 address t)
-  (smash-r8)
-  (emit `(sys.lap-x86:shr64 :r8 3)
-        `(sys.lap-x86:or64 :r8 #b0010)
-        `(sys.lap-x86:mov64 (:symbol-name :r8) :r9)
-        `(sys.lap-x86:mov64 (:symbol-package :r8) nil)
-        `(sys.lap-x86:mov64 (:symbol-value :r8) #b1110)
-        `(sys.lap-x86:mov64 (:symbol-function :r8) undefined-function)
-        `(sys.lap-x86:mov64 (:symbol-plist :r8) nil)
-        `(sys.lap-x86:mov64 (:symbol-flags :r8) 0))
   (setf *r8-value* (list (gensym))))
 
 ;;; Apply does not generate a function.
