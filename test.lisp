@@ -1,5 +1,18 @@
 (in-package #:sys.int)
 
+;;; Initialize the ISA PIC.
+(setf (io-port/8 #x20) #x11
+      (io-port/8 #xA0) #x11
+      (io-port/8 #x21) #x30
+      (io-port/8 #xA1) #x38
+      (io-port/8 #x21) #x04
+      (io-port/8 #xA1) #x02
+      (io-port/8 #x21) #x01
+      (io-port/8 #xA1) #x01
+      ;; Mask all IRQs except for the cascade IRQ (2).
+      (io-port/8 #x21) #b11111011
+      (io-port/8 #xA1) #b11111111)
+
 (defvar *screen-offset* 0)
 
 (defvar *gb-keymap-low*
