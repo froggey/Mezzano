@@ -34,8 +34,8 @@
         (t (apply function arg))))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
-;;; 11 is where the TLS slots in a stack group start.
-(defparameter *next-symbol-tls-slot* 11)
+;;; 12 is where the TLS slots in a stack group start.
+(defparameter *next-symbol-tls-slot* 12)
 (defconstant +maximum-tls-slot+ 512)
 (defun %allocate-tls-slot (symbol)
   (when (>= *next-symbol-tls-slot* +maximum-tls-slot+)
@@ -45,6 +45,9 @@
     (setf (%symbol-flags symbol) (logior (logand (%symbol-flags symbol) (lognot #b111111111111111100000000))
                                          (ash slot 8)))
     slot))
+
+(defun %symbol-tls-slot (symbol)
+  (ash (logand (%symbol-flags symbol) #b111111111111111100000000) -8))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))

@@ -19,6 +19,8 @@
     (#b0110 'tag-6)
     (#b0111 (cond ((structure-object-p object)
                    (sys.int::structure-name (sys.int::%struct-slot object 0)))
+                  ((stack-group-p object)
+                   'stack-group)
                   (t (let ((ety (array-element-type object)))
                        (case ety
                          (base-char `(simple-base-string ,(array-dimension object 0)))

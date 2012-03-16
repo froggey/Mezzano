@@ -94,3 +94,9 @@ the header word. LENGTH is the number of elements in the array."
           (symbol-package val) nil
           (%symbol-flags val) 0)
     val))
+
+(defun %allocate-stack (length)
+  (when (oddp length)
+    (incf length))
+  (prog1 *bump-pointer*
+    (incf *bump-pointer* (* length 8))))

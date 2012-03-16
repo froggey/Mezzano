@@ -805,9 +805,11 @@
   (setf (nibbles:ub64ref/le image (+ offset 72)) (value-of (genesis-stack-group-binding-stack-base object) value-table))
   ;; +80 Binding stack size.
   (setf (nibbles:ub64ref/le image (+ offset 80)) (value-of (genesis-stack-group-binding-stack-size object) value-table))
-  ;; +88 Start of TLS slots.
-  (dotimes (i (- 512 11))
-    (setf (nibbles:ub64ref/le image (+ offset 88 (* i 8))) #xFFFFFFFFFFFFFFFE)))
+  ;; +88 Resumer.
+  (setf (nibbles:ub64ref/le image (+ offset 88)) (value-of nil value-table))
+  ;; +96 Start of TLS slots.
+  (dotimes (i (- 512 12))
+    (setf (nibbles:ub64ref/le image (+ offset 96 (* i 8))) #xFFFFFFFFFFFFFFFE)))
 
 (defun genesis-eval-string (string)
   (with-input-from-string (stream string)
