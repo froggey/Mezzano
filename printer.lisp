@@ -119,8 +119,9 @@
            (print-object object stream))))
   object)
 
-(defun write (object &key (stream t) (escape *print-escape*) (readably *print-readably*) &allow-other-keys)
-  (let ((*print-escape* escape)
+(defun write (object &key (stream t) (base *print-base*) (escape *print-escape*) (readably *print-readably*) &allow-other-keys)
+  (let ((*print-base* base)
+        (*print-escape* escape)
         (*print-readably* readably))
     (write-object object stream)))
 
