@@ -915,6 +915,7 @@
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
                                                  "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
                                                  "../stream.lisp" "../format.lisp" "../stack-group.lisp"
+                                                 "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
                                                  "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.

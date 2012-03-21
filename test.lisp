@@ -22,6 +22,10 @@
                                     'character)
                   :initial-contents string)))
 
+(when (probe-bochs-vbe)
+  (setf *framebuffer* (make-array '(600 800)
+                                  :element-type '(unsigned-byte 32)
+                                  :memory (+ #x8000000000 *bochs-vbe-framebuffer-address*))))
 (write-string "Hello, World!")
 
 (setf *package* (find-package "CL-USER"))
