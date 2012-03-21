@@ -17,9 +17,7 @@
   c)
 
 (defun cold-start-line-p (stream)
-  (cond (*framebuffer*
-         (zerop *framebuffer-x*))
-        (t (zerop (rem *screen-offset* 80)))))
+  (zerop (rem *screen-offset* 80)))
 
 (defvar *gb-keymap-low*
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace
