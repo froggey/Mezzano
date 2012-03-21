@@ -22,5 +22,21 @@
 							  ,@(when rest (list rest)))))
 	      ,setter))))))
 
+(defmacro define-setf-expander (access-fn lambda-list &body body)
+  (let ((whole (gensym "WHOLE"))
+	(env (gensym "ENV")))
+    (multiple-value-bind (new-lambda-list env-binding)
+	(fix-lambda-list-environment lambda-list)
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
+         (setf (get ',access-fn 'setf-expander)
+               #'(lambda (,whole ,env)
+                   (declare (lambda-name (setf-expander ,access-fn))
+                            (ignorable ,whole ,env))
+                   ,(expand-destructuring-lambda-list new-lambda-list access-fn body
+                                                      whole `(cdr ,whole)
+                                                      (when env-binding
+                                                        (list `(,env-binding ,env))))))
+	 ',access-fn))))
+
 (define-modify-macro incf (&optional (delta 1)) +)
 (define-modify-macro decf (&optional (delta 1)) -)
