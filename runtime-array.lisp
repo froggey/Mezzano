@@ -2,30 +2,30 @@
 
 ;;; (type tag size-in-bits 16-byte-aligned-p)
 (defvar *array-info*
-  '((bit 3 1 nil)
-    ((unsigned-byte 2) 4 2 nil)
-    ((unsigned-byte 4) 5 4 nil)
-    ((unsigned-byte 8) 6 8 nil)
-    ((unsigned-byte 16) 7 16 nil)
-    ((unsigned-byte 32) 8 32 nil)
-    ((unsigned-byte 64) 9 64 nil)
-    ((signed-byte 1) 10 1 nil)
-    ((signed-byte 2) 11 2 nil)
-    ((signed-byte 4) 12 4 nil)
-    ((signed-byte 8) 13 8 nil)
-    ((signed-byte 16) 14 16 nil)
-    ((signed-byte 32) 15 32 nil)
-    ((signed-byte 64) 16 64 nil)
-    (base-char 1 8 nil)
-    (character 2 32 nil)
-    (single-float 17 32 t)
-    (double-float 18 64 t)
-    (long-float 19 128 t)
-    (xmm-vector 20 128 t)
-    ((complex single-float) 21 64 t)
-    ((complex double-float) 22 128 t)
-    ((complex long-float) 23 256 t)
-    (t 0 64 nil)))
+  '((bit #.+array-type-bit+ 1 nil)
+    ((unsigned-byte 2) #.+array-type-unsigned-byte-2+ 2 nil)
+    ((unsigned-byte 4) #.+array-type-unsigned-byte-4+ 4 nil)
+    ((unsigned-byte 8) #.+array-type-unsigned-byte-8+ 8 nil)
+    ((unsigned-byte 16) #.+array-type-unsigned-byte-16+ 16 nil)
+    ((unsigned-byte 32) #.+array-type-unsigned-byte-32+ 32 nil)
+    ((unsigned-byte 64) #.+array-type-unsigned-byte-64+ 64 nil)
+    ((signed-byte 1) #.+array-type-signed-byte-1+ 1 nil)
+    ((signed-byte 2) #.+array-type-signed-byte-2+ 2 nil)
+    ((signed-byte 4) #.+array-type-signed-byte-4+ 4 nil)
+    ((signed-byte 8) #.+array-type-signed-byte-8+ 8 nil)
+    ((signed-byte 16) #.+array-type-signed-byte-16+ 16 nil)
+    ((signed-byte 32) #.+array-type-signed-byte-32+ 32 nil)
+    ((signed-byte 64) #.+array-type-signed-byte-64+ 64 nil)
+    (base-char #.+array-type-base-char+ 8 nil)
+    (character #.+array-type-character+ 32 nil)
+    (single-float #.+array-type-single-float+ 32 t)
+    (double-float #.+array-type-double-float+ 64 t)
+    (long-float #.+array-type-long-float+ 128 t)
+    (xmm-vector #.+array-type-xmm-vector+ 128 t)
+    ((complex single-float) #.+array-type-complex-single-float+ 64 t)
+    ((complex double-float) #.+array-type-complex-double-float+ 128 t)
+    ((complex long-float) #.+array-type-complex-long-float+ 256 t)
+    (t #.+array-type-t+ 64 nil)))
 
 (defun %allocate-and-clear-array (length real-element-type)
   (let* ((info (assoc real-element-type *array-info* :test 'equal))
@@ -46,47 +46,47 @@
   "Allocate a SIMPLE-VECTOR with LENGTH elements.
 Equivalent to (make-array length). Used by the compiler to
 allocate environment frames."
-  (%allocate-array-like 0 length length))
+  (%allocate-array-like +array-type-t+ length length))
 
 ;;; FIXME: some parts must run with the GC off.
 (defun %simple-array-aref (array index)
   (ecase (%simple-array-type array)
-    (0 ;; simple-vector
+    (#.+array-type-t+
      (svref array index))
-    ((1 2) ;; simple-base-string or simple-string
+    ((#.+array-type-base-char+ #.+array-type-character+)
      (schar array index))
-    (6 ; ub8
+    (#.+array-type-unsigned-byte-8+
      (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                              index))
-    (7 ; ub16
+    (#.+array-type-unsigned-byte-16+
      (memref-unsigned-byte-16 (+ (logand (lisp-object-address array) -16) 8)
                               index))
-    (8 ; ub32
+    (#.+array-type-unsigned-byte-32+
      (memref-unsigned-byte-32 (+ (logand (lisp-object-address array) -16) 8)
                               index))
-    (9 ; ub64
+    (#.+array-type-unsigned-byte-64+
      (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                               index))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%simple-array-type array)
-    (0 ;; simple-vector
+    (#.+array-type-t+ ;; simple-vector
      (setf (svref array index) value))
-    ((1 2) ;; simple-base-string or simple-string
+    ((#.+array-type-base-char+ #.+array-type-character+)
      (setf (schar array index) value))
-    (6 ; ub8
+    (#.+array-type-unsigned-byte-8+
      (setf (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                                    index)
            value))
-    (7 ; ub16
+    (#.+array-type-unsigned-byte-16+
      (setf (memref-unsigned-byte-16 (+ (logand (lisp-object-address array) -16) 8)
                                     index)
            value))
-    (8 ; ub32
+    (#.+array-type-unsigned-byte-32+
      (setf (memref-unsigned-byte-32 (+ (logand (lisp-object-address array) -16) 8)
                                     index)
            value))
-    (0 ; ub64
+    (#.+array-type-unsigned-byte-64+
      (setf (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                                     index)
            value))))
@@ -147,7 +147,7 @@ allocate environment frames."
 (defun simple-string-p (object)
   (when (%simple-array-p object)
     (let ((tag (%simple-array-type object)))
-      (or (eql tag 1) (eql tag 2)))))
+      (or (eql tag +array-type-base-char+) (eql tag +array-type-character+)))))
 
 ;;; (destination source count)
 (define-lap-function %fast-copy ()

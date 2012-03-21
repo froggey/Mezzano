@@ -6,20 +6,17 @@
                (setf (system:symbol-mode var) :special)))))
 
 (defun system:symbol-mode (symbol)
-  (let* ((flags (%symbol-flags symbol))
-         (bits (logand flags 3)))
-    (svref #(nil :special :constant :symbol-macro) bits)))
+  (svref #(nil :special :constant :symbol-macro)
+         (ldb (byte 2 0) (%symbol-flags symbol))))
 
 (defun (setf system:symbol-mode) (value symbol)
-  (let ((flags (%symbol-flags symbol))
-        (bits (ecase value
-                ((nil) 0)
-                ((:special) 1)
-                ((:constant) 2)
-                ((:symbol-macro) 3))))
-    (setf (%symbol-flags symbol)
-          (logior (logand flags -4) bits))
-    value))
+  (setf (ldb (byte 2 0) (%symbol-flags symbol))
+        (ecase value
+          ((nil) 0)
+          ((:special) 1)
+          ((:constant) 2)
+          ((:symbol-macro) 3)))
+  value)
 
 ;;; The compiler can only handle (apply function arg-list).
 (defun apply (function arg &rest more-args)
@@ -42,12 +39,11 @@
     (error "Critial error! TLS slots exhausted!"))
   (let ((slot *next-symbol-tls-slot*))
     (incf *next-symbol-tls-slot*)
-    (setf (%symbol-flags symbol) (logior (logand (%symbol-flags symbol) (lognot #b111111111111111100000000))
-                                         (ash slot 8)))
+    (setf (ldb (byte 16 8) (%symbol-flags symbol)) slot)
     slot))
 
 (defun %symbol-tls-slot (symbol)
-  (ash (logand (%symbol-flags symbol) #b111111111111111100000000) -8))
+  (ldb (byte 16 8) (%symbol-flags symbol)))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))
@@ -110,9 +106,9 @@
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
     (ecase (logand info #xFF)
-      (0 ;; Regular function. First entry in the constant pool.
+      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
-      (1 ;; Closure.
+      (#.+function-type-closure+ ;; Closure.
        (function-name (memref-t address 4))))))
 
 (defvar *gensym-counter* 0)
