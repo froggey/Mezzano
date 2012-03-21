@@ -24,6 +24,7 @@
 (defconstant +array-type-unsigned-byte-16+ 7)
 (defconstant +array-type-unsigned-byte-32+ 8)
 (defconstant +array-type-unsigned-byte-64+ 9)
+(defconstant +last-array-type+ 23)
 (defconstant +array-type-bignum+ 25)
 (defconstant +array-type-stack-group+ 30)
 (defconstant +array-type-struct+ 31)

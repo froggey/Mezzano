@@ -22,7 +22,7 @@
        (smash-r8)
        (emit `(sys.lap-x86:mov8 :al :r8l)
              `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,',tag)
+             `(sys.lap-x86:cmp8 :al ,,tag)
              `(sys.lap-x86:jne ,type-error-label)
              `(sys.lap-x86:mov64 :r8 (,',slot :r8)))
        (setf *r8-value* (list (gensym))))))
@@ -36,7 +36,7 @@
        (load-in-reg :r8 value t)
        (emit `(sys.lap-x86:mov8 :al :r9l)
              `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,',tag)
+             `(sys.lap-x86:cmp8 :al ,,tag)
              `(sys.lap-x86:jne ,type-error-label)
              `(sys.lap-x86:mov64 (,',slot :r9) :r8))
        *r8-value*)))
@@ -50,7 +50,7 @@
      (load-in-reg :r8 object t)
      (emit `(sys.lap-x86:mov8 :al :r8l)
            `(sys.lap-x86:and8 :al #b1111)
-           `(sys.lap-x86:cmp8 :al ,',tag))
+           `(sys.lap-x86:cmp8 :al ,,tag))
      (predicate-result :e)))
 
 ;; Produce an alist of symbol names and their associated functions.
@@ -282,10 +282,10 @@
     (load-in-reg :r8 object t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,false-out)
           `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash 23 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
           `(sys.lap-x86:jnbe ,false-out)
           `(sys.lap-x86:mov64 :r8 t)
           `(sys.lap-x86:jmp ,out)
@@ -302,11 +302,11 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0111)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash 23 1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
 	  `(sys.lap-x86:jnbe ,type-error-label)
 	  ;; Convert length to fixnum.
 	  `(sys.lap-x86:shr64 :rax 5)
@@ -322,11 +322,11 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0111)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash 23 1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
 	  `(sys.lap-x86:jnbe ,type-error-label)
 	  ;; Convert tag to fixnum. Low bit is the GC bit, always clear.
           `(sys.lap-x86:and32 :eax #x000000FE)
@@ -672,13 +672,13 @@
 	  `(sys.lap-x86:sar64 :rdx 3)
 	  `(sys.lap-x86:mov8 :cl :r8l)
 	  `(sys.lap-x86:and8 :cl #b1111)
-	  `(sys.lap-x86:cmp8 :cl #b0111)
+	  `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-array-like+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-string.
 	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :cl ,(ash 1 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ 1))
 	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash 2 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ 1))
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; simple-string (not simple-base-string).
 	  `(sys.lap-x86:shr64 :rcx 8)
@@ -696,7 +696,7 @@
 	  out-label
 	  ;; Convert EAX to a real character.
 	  `(sys.lap-x86:shl32 :eax 4)
-	  `(sys.lap-x86:or32 :eax #b1010)
+	  `(sys.lap-x86:or32 :eax ,sys.int::+tag-character+)
 	  `(sys.lap-x86:mov32 :r8d :eax))
     (setf *r8-value* (list (gensym)))))
 
@@ -727,13 +727,13 @@
 	  `(sys.lap-x86:sar64 :rdx 3)
 	  `(sys.lap-x86:mov8 :cl :r9l)
 	  `(sys.lap-x86:and8 :cl #b1111)
-	  `(sys.lap-x86:cmp8 :cl #b0111)
+	  `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-array-like+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-string.
 	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r9))
-	  `(sys.lap-x86:cmp8 :cl ,(ash 1 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ 1))
 	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash 2 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ 1))
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; simple-string (not simple-base-string).
 	  `(sys.lap-x86:shr64 :rcx 8)
@@ -741,7 +741,7 @@
 	  `(sys.lap-x86:jae ,bound-error-label)
           `(sys.lap-x86:mov8 :cl :r8l)
           `(sys.lap-x86:and8 :cl #b1111)
-          `(sys.lap-x86:cmp8 :cl #b1010)
+          `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-character+)
           `(sys.lap-x86:jne ,char-type-error-label)
           `(sys.lap-x86:mov32 :eax :r8d)
           `(sys.lap-x86:shr32 :eax 4)
@@ -755,7 +755,7 @@
 	  `(sys.lap-x86:xor32 :eax :eax)
           `(sys.lap-x86:mov8 :cl :r8l)
           `(sys.lap-x86:and8 :cl #b1111)
-          `(sys.lap-x86:cmp8 :cl #b1010)
+          `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-character+)
           `(sys.lap-x86:jne ,base-char-type-error-label)
           `(sys.lap-x86:mov32 :eax :r8d)
           `(sys.lap-x86:shr32 :eax 4)
@@ -765,9 +765,9 @@
 	  out-label)
     *r8-value*))
 
-(define-tag-type-predicate symbolp #b0010)
-(define-reader symbol-name symbol #b0010 :symbol-name)
-(define-accessor symbol-package symbol #b0010 :symbol-package)
+(define-tag-type-predicate symbolp sys.int::+tag-symbol+)
+(define-reader symbol-name symbol sys.int::+tag-symbol+ :symbol-name)
+(define-accessor symbol-package symbol sys.int::+tag-symbol+ :symbol-package)
 
 (defbuiltin symbol-value (symbol) ()
   (let ((unbound-error-label (gensym))
@@ -786,7 +786,7 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r9l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
           ;; Extract the TLS offset.
           `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
@@ -802,7 +802,7 @@
           no-tls-slot
 	  `(sys.lap-x86:mov64 :r8 (:symbol-value :r9))
           test-bound
-	  `(sys.lap-x86:cmp64 :r8 #b1110)
+	  `(sys.lap-x86:cmp64 :r8 ,sys.int::+tag-unbound-value+)
 	  `(sys.lap-x86:je ,unbound-error-label))
     (setf *r8-value* (list (gensym)))))
 
@@ -816,7 +816,7 @@
     (load-in-reg :r8 value t)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0010)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
           `(sys.lap-x86:jne ,type-error-label)
           ;; Extract the TLS offset.
           `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
@@ -849,7 +849,7 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function)
 	  `(sys.lap-x86:je ,undefined-function-error-label)
@@ -867,20 +867,20 @@
     (load-in-r8 value t)
     (emit `(sys.lap-x86:mov8 :al :r9l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,symbol-type-error-label)
 	  `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b1100)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
 	  `(sys.lap-x86:jne ,function-type-error-label)
 	  `(sys.lap-x86:mov64 (:symbol-function :r9) :r8))
     *r8-value*))
 
 ;; TODO type checking? ensure value is a plist?
-(define-accessor symbol-plist symbol #b0010 :symbol-plist)
+(define-accessor symbol-plist symbol sys.int::+tag-symbol+ :symbol-plist)
 
 ;; TODO: type checking, value should be a fixnum.
-(define-accessor sys.int::%symbol-flags symbol #b0010 :symbol-flags)
+(define-accessor sys.int::%symbol-flags symbol sys.int::+tag-symbol+ :symbol-flags)
 
 ;;; TODO: should just test the tag bits.
 (defbuiltin boundp (symbol) ()
@@ -892,7 +892,7 @@
     (load-in-reg :r8 symbol t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
           ;; Extract the TLS offset.
           `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
@@ -904,10 +904,10 @@
           `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
           `(sys.lap-x86:je ,no-tls-slot)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) #b1110)
+          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) ,sys.int::+tag-unbound-value+)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:cmp64 (:symbol-value :r8) #b1110)
+	  `(sys.lap-x86:cmp64 (:symbol-value :r8) ,sys.int::+tag-unbound-value+)
           out)
     (predicate-result :ne)))
 
@@ -920,7 +920,7 @@
     (load-in-reg :r8 symbol t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
           ;; Extract the TLS offset.
           `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
@@ -932,10 +932,10 @@
           `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
           `(sys.lap-x86:je ,no-tls-slot)
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) #b1110)
+          `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) ,sys.int::+tag-unbound-value+)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:mov64 (:symbol-value :r8) #b1110)
+	  `(sys.lap-x86:mov64 (:symbol-value :r8) ,sys.int::+tag-unbound-value+)
           out)
     *r8-value*))
 
@@ -947,7 +947,7 @@
     (load-in-reg :r8 symbol t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function))
     (predicate-result :ne)))
@@ -960,12 +960,12 @@
     (load-in-reg :r8 symbol t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b0010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  `(sys.lap-x86:mov64 (:symbol-function :r8) undefined-function))
     *r8-value*))
 
-(define-tag-type-predicate consp #b0001)
+(define-tag-type-predicate consp sys.int::+tag-cons+)
 
 (defbuiltin car (list) ()
   (let ((type-error-label (gensym))
@@ -978,7 +978,7 @@
           `(sys.lap-x86:je ,out-label)
           `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0001)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-cons+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :r8 (:car :r8))
           out-label)
@@ -995,24 +995,28 @@
           `(sys.lap-x86:je ,out-label)
           `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0001)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-cons+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :r8 (:cdr :r8))
           out-label)
     (setf *r8-value* (list (gensym)))))
 
-(define-writer (setf car) cons #b0001 :car)
-(define-writer (setf cdr) cons #b0001 :cdr)
+(define-writer (setf car) cons sys.int::+tag-cons+ :car)
+(define-writer (setf cdr) cons sys.int::+tag-cons+ :cdr)
 
-(define-tag-type-predicate sys.int::%array-header-p #b0011)
+(define-tag-type-predicate sys.int::%array-header-p sys.int::+tag-array-header+)
 (define-accessor sys.int::%array-header-dimensions
-    sys.int::%array-header #b0011 :array-header-dimensions)
+    sys.int::%array-header sys.int::+tag-array-header+
+    :array-header-dimensions)
 (define-accessor sys.int::%array-header-fill-pointer
-    sys.int::%array-header #b0011 :array-header-fill-pointer)
+    sys.int::%array-header sys.int::+tag-array-header+
+    :array-header-fill-pointer)
 (define-accessor sys.int::%array-header-info
-    sys.int::%array-header #b0011 :array-header-info)
+    sys.int::%array-header sys.int::+tag-array-header+
+    :array-header-info)
 (define-accessor sys.int::%array-header-storage
-    sys.int::%array-header #b0011 :array-header-storage)
+    sys.int::%array-header sys.int::+tag-array-header+
+    :array-header-storage)
 
 (defbuiltin null (object) ()
   (load-in-reg :r8 object t)
@@ -1221,7 +1225,7 @@
     (fixnum-check :r9)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           ;; Load header word.
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
@@ -1254,7 +1258,7 @@
     (fixnum-check :r10)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           ;; Load header word.
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
@@ -1271,7 +1275,7 @@
           `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
     (setf *r8-value* (list (gensym)))))
 
-(define-tag-type-predicate characterp #b1010)
+(define-tag-type-predicate characterp sys.int::+tag-character+)
 
 (defbuiltin system.internals::read-frame-pointer () ()
   (smash-r8)
@@ -1288,10 +1292,10 @@
     (emit `(sys.lap-x86:mov64 :r8 nil)
           `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,out)
           `(sys.lap-x86:mov8 :al (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash 31 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
           `(sys.lap-x86:mov64 :r9 t)
           `(sys.lap-x86:cmov64e :r8 :r9)
           out)
@@ -1313,10 +1317,10 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash 31 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
           `(sys.lap-x86:shr64 :rax 8)
@@ -1345,10 +1349,10 @@
     (load-in-reg :r8 value t)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash 31 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
           `(sys.lap-x86:shr64 :rax 8)
@@ -1369,7 +1373,7 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b1010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-character+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Mask away the non-code bits.
 	  `(sys.lap-x86:and32 :r8d #x01fffff0)
@@ -1385,7 +1389,7 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b1010)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-character+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:and32 :r8d #x1e000000)
           `(sys.lap-x86:shr32 :r8d 22))
@@ -1399,7 +1403,7 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al #b1010)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-character+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Mask away the tag bits.
 	  `(sys.lap-x86:and32 :r8d -16)
@@ -1409,7 +1413,7 @@
 
 (defbuiltin system:fixnump (object) ()
   (load-in-reg :r8 object t)
-  (emit `(sys.lap-x86:test8 :r8l #b0111))
+  (emit `(sys.lap-x86:test8 :r8l #b111))
   (predicate-result :z))
 
 (defbuiltin sys.int::%%assemble-value (address tag) ()
@@ -1467,7 +1471,7 @@
           loop-head
           `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b0001)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-cons+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 (:lsp -8) nil)
           `(sys.lap-x86:sub64 :lsp 8)
@@ -1518,9 +1522,9 @@
           ;; Finally, do the call.
           `(sys.lap-x86:mov8 :al :r13l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al #b1100)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
           `(sys.lap-x86:je ,function-label)
-          `(sys.lap-x86:cmp8 :al #b0010)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
           `(sys.lap-x86:jne ,fn-type-error-label)
           `(sys.lap-x86:call (:symbol-function :r13))
           `(sys.lap-x86:jmp ,out-label)
@@ -1532,11 +1536,15 @@
           (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
              (setf *r8-value* (list (gensym)))))))
 
-(define-tag-type-predicate sys.int::std-instance-p #b0100)
-(define-accessor sys.int::std-instance-class sys.int::std-instance #b0100 :std-instance-class)
-(define-accessor sys.int::std-instance-slots sys.int::std-instance #b0100 :std-instance-slots)
+(define-tag-type-predicate sys.int::std-instance-p sys.int::+tag-std-instance+)
+(define-accessor sys.int::std-instance-class
+    sys.int::std-instance sys.int::+tag-std-instance+
+    :std-instance-class)
+(define-accessor sys.int::std-instance-slots
+    sys.int::std-instance sys.int::+tag-std-instance+
+    :std-instance-slots)
 
-(define-tag-type-predicate functionp #b1100)
+(define-tag-type-predicate functionp sys.int::+tag-function+)
 
 (defbuiltin values-list (list) ()
   (let ((type-error-label (gensym))
@@ -1560,7 +1568,7 @@
              loop-head
              `(sys.lap-x86:mov8 :al :r8l)
              `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al #b0001)
+             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-cons+)
              `(sys.lap-x86:jne ,type-error-label)
              `(sys.lap-x86:mov64 (:lsp -8) nil)
              `(sys.lap-x86:sub64 :lsp 8)
@@ -1615,7 +1623,7 @@
        :multiple)
       (t (emit `(sys.lap-x86:mov8 :al :r8l)
                `(sys.lap-x86:and8 :al #b1111)
-               `(sys.lap-x86:cmp8 :al #b0001)
+               `(sys.lap-x86:cmp8 :al ,sys.int::+tag-cons+)
                `(sys.lap-x86:jne ,nil-test)
                `(sys.lap-x86:mov64 :r8 (:car :r8))
                `(sys.lap-x86:jne ,out)
