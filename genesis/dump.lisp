@@ -139,22 +139,22 @@
 (defun object-tag (x)
   "Return the tag of an object."
   (etypecase x
-    (symbol #b0010)
-    (genesis-struct #b0111)
-    (cons #b0001)
-    (genesis-std-instance #b0100)
-    (array-header #b0011)
-    ((vector base-char) #b0111)
-    ((vector character) #b0111)
-    ((vector (unsigned-byte 8)) #b0111)
-    ((vector (unsigned-byte 16)) #b0111)
-    ((vector (unsigned-byte 32)) #b0111)
-    ((vector (unsigned-byte 64)) #b0111)
-    ((vector t) #b0111)
-    (integer #b0111)
-    (genesis-closure #b1100)
-    (genesis-function #b1100)
-    (genesis-stack-group #b0111)))
+    (symbol (symbol-value (genesis-intern "+TAG-SYMBOL+")))
+    (genesis-struct (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    (cons (symbol-value (genesis-intern "+TAG-CONS+")))
+    (genesis-std-instance (symbol-value (genesis-intern "+TAG-STD-INSTANCE+")))
+    (array-header (symbol-value (genesis-intern "+TAG-ARRAY-HEADER+")))
+    ((vector base-char) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector character) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector (unsigned-byte 8)) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector (unsigned-byte 16)) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector (unsigned-byte 32)) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector (unsigned-byte 64)) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    ((vector t) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    (integer (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    (genesis-closure (symbol-value (genesis-intern "+TAG-FUNCTION+")))
+    (genesis-function (symbol-value (genesis-intern "+TAG-FUNCTION+")))
+    (genesis-stack-group (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
 
 ;;; Initial memory layout:
 ;;; 0-2MB         Not mapped, catching bad accesses to zero.
@@ -352,7 +352,8 @@
             *lap-symbols*)
       (push (cons (genesis-intern "T") (logior (+ (* (+ (gethash (genesis-intern "T") static-objects) 2) 8) *static-area-base*) 2))
             *lap-symbols*)
-      (push (cons (genesis-intern "UNDEFINED-FUNCTION") (logior (+ (* (+ (gethash undefined-function-thunk static-objects) 2) 8) *static-area-base*) #b1100))
+      (push (cons (genesis-intern "UNDEFINED-FUNCTION") (logior (+ (* (+ (gethash undefined-function-thunk static-objects) 2) 8) *static-area-base*)
+                                                                (symbol-value (genesis-intern "+TAG-FUNCTION+"))))
             *lap-symbols*)
       ;; Visit all visible objects, including extra objects.
       (dolist (r roots)
@@ -548,9 +549,9 @@
 	    (sys.lap-x86:movseg :ss :eax)
             ;; Load up values from the initial stack group.
             (sys.lap-x86:mov64 :r8 (:constant ,initial-stack-group))
-            (sys.lap-x86:mov64 :csp (:r8 ,(- (* 3 8) #b0111)))
-            (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) #b0111)))
-            (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) #b0111)))
+            (sys.lap-x86:mov64 :csp (:r8 ,(- (* 3 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
             ;; Initialize GS.
             (sys.lap-x86:mov64 :rax :r8)
             (sys.lap-x86:mov64 :rdx :r8)
@@ -612,7 +613,7 @@
 (defun value-of (object value-table)
   (typecase object
     ((signed-byte 61) (ldb (byte 64 0) (ash object 3)))
-    (character (logior (ash (char-int object) 4) #b1010))
+    (character (logior (ash (char-int object) 4) (symbol-value (genesis-intern "+TAG-CHARACTER+"))))
     (t (or (gethash object value-table)
 	   (error "Unknown value ~S." object)))))
 
@@ -635,7 +636,7 @@
                                                    (cond (x (value-of (cdr x) value-table))
                                                          ((boundp object)
                                                           (value-of (symbol-value object) value-table))
-                                                         (t #b1110))))
+                                                         (t (symbol-value (genesis-intern "+TAG-UNBOUND-VALUE+"))))))
   ;; +24 Function.
   ;; Some functions may not be dumpable. They must be replaced with the
   ;; undefined function value.
@@ -673,50 +674,52 @@
   (setf (nibbles:ub64ref/le image (+ offset 24)) (value-of (array-header-storage object) value-table)))
 
 (defun make-sa-header-word (length tag)
+  (when (stringp tag)
+    (setf tag (symbol-value (genesis-intern tag))))
   (logior (ash length 8) (ash tag 1)))
 
 (defmethod dump-object ((object vector) value-table image offset)
   (let ((type (array-element-type object)))
     (cond ((eql type 't)
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 0))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-T+"))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8))) (value-of (aref object i) value-table))))
 	  ((eql type 'base-char)
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 1))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-BASE-CHAR+"))
 	   (dotimes (i (length object))
 	     (setf (aref image (+ offset 8 i)) (char-int (char object i)))))
 	  ((eql type 'character)
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 2))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-CHARACTER+"))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub32ref/le image (+ offset 8 (* i 4))) (char-int (char object i)))))
 	  ((and (subtypep type '(unsigned-byte 8)) (subtypep '(unsigned-byte 8) type))
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 6))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-UNSIGNED-BYTE-8+"))
 	   (dotimes (i (length object))
 	     (setf (aref image (+ offset 8 i)) (aref object i))))
 	  ((and (subtypep type '(unsigned-byte 16)) (subtypep '(unsigned-byte 16) type))
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 7))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-UNSIGNED-BYTE-16+"))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub16ref/le image (+ offset 8 (* i 2))) (aref object i))))
 	  ((and (subtypep type '(unsigned-byte 32)) (subtypep '(unsigned-byte 32) type))
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 8))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-UNSIGNED-BYTE-32+"))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub32ref/le image (+ offset 8 (* i 4))) (aref object i))))
 	  ((and (subtypep type '(unsigned-byte 64)) (subtypep '(unsigned-byte 64) type))
 	   ;; +0 Header word.
-	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) 9))
+	   (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length object) "+ARRAY-TYPE-UNSIGNED-BYTE-64+"))
 	   (dotimes (i (length object))
 	     (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8))) (aref object i))))
 	  (t (error "Invalid array type. ~S ~S." type object)))))
 
 (defmethod dump-object ((object genesis-struct) value-table image offset)
   ;; +0 Header word.
-  (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length (genesis-struct-slots object)) 31))
+  (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (length (genesis-struct-slots object)) "+ARRAY-TYPE-STRUCT+"))
   ;; Slots.
   (dotimes (i (length (genesis-struct-slots object)))
     (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8))) (value-of (aref (genesis-struct-slots object) i) value-table)))
@@ -733,7 +736,7 @@
     (let* ((mc (genesis-function-assembled-code object))
 	   (constants (genesis-function-constants object)))
       ;; +0 Function tag. (TODO: closures, generic functions, etc)
-      (setf (aref image (+ offset 0)) 0)
+      (setf (aref image (+ offset 0)) (symbol-value (genesis-intern "+FUNCTION-TYPE-FUNCTION+")))
       ;; +1 Flags.
       (setf (aref image (+ offset 1)) 0)
       ;; +2 Size of the machine-code section & header word.
@@ -752,7 +755,7 @@
 
 (defmethod dump-object ((object genesis-closure) value-table image offset)
   ;; +0 Function tag.
-  (setf (aref image (+ offset 0)) 1)
+  (setf (aref image (+ offset 0)) (symbol-value (genesis-intern "+FUNCTION-TYPE-CLOSURE+")))
   ;; +1 Flags.
   (setf (aref image (+ offset 1)) 0)
   ;; +2 Size of the machine-code section & header word.
@@ -781,7 +784,7 @@
 
 (defmethod dump-object ((object genesis-stack-group) value-table image offset)
   ;; +0 Array tag.
-  (setf (nibbles:ub64ref/le image (+ offset 0)) (make-sa-header-word 511 30))
+  (setf (nibbles:ub64ref/le image (+ offset 0)) (make-sa-header-word 511 "+ARRAY-TYPE-STACK-GROUP+"))
   ;; +8 Binding stack pointer.
   (setf (nibbles:ub64ref/le image (+ offset 8)) (* (+ (genesis-stack-group-binding-stack-base object)
                                                       (genesis-stack-group-binding-stack-size object))

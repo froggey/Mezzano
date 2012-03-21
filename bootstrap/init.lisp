@@ -334,6 +334,7 @@
 (load "setf.lisp")
 (load "defmacro.lisp")
 (load "basic-macros.lisp")
+(load "data-types.lisp")
 
 (defun typep (object type-specifier)
   (ecase type-specifier
