@@ -193,3 +193,21 @@
 (defun oddp (integer)
   (check-type integer integer)
   (eql (logand integer 1) 1))
+
+(define-setf-expander ldb (bytespec int &environment env)
+  (multiple-value-bind (temps vals stores
+                              store-form access-form)
+      (get-setf-expansion int env);Get setf expansion for int.
+    (let ((btemp (gensym))     ;Temp var for byte specifier.
+          (store (gensym))     ;Temp var for byte to store.
+          (stemp (first stores))) ;Temp var for int to store.
+      (if (cdr stores) (error "Can't expand this."))
+;;; Return the setf expansion for LDB as five values.
+      (values (cons btemp temps)       ;Temporary variables.
+              (cons bytespec vals)     ;Value forms.
+              (list store)             ;Store variables.
+              `(let ((,stemp (dpb ,store ,btemp ,access-form)))
+                 ,store-form
+                 ,store)               ;Storing form.
+              `(ldb ,btemp ,access-form) ;Accessing form.
+              ))))
