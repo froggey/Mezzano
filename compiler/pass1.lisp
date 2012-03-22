@@ -88,7 +88,6 @@
 					   ((declared-as-p 'ignorable name declares) :maybe))
 			     :dynamic-extent (declared-as-p 'dynamic-extent name declares))))
 
-;;; FIXME: Lowering &key args must be done much later.
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, simple constant folding/propagation, canonicalization and inlining on LAMBDA."
   (multiple-value-bind (body lambda-list declares name docstring)
@@ -457,11 +456,16 @@
   "Turn a MACROLET function definition into a name and expansion function."
   (destructuring-bind (name lambda-list &body forms) def
     ;; FIXME: docstring permitted here.
-    (multiple-value-bind (body declares)
-	(parse-declares forms)
-      (cons name (eval `(lambda ,lambda-list
-			  (declare (system:lambda-name ,name) ,@declares)
-			  (block ,name ,@body)))))))
+    (let ((whole (gensym "WHOLE"))
+          (env (gensym "ENV")))
+      (multiple-value-bind (body declares)
+          (parse-declares forms)
+        (cons name (eval `(lambda (,whole ,env)
+                            (declare (ignorable ,whole ,env)
+                                     (system:lambda-name ,name))
+                            (destructuring-bind ,lambda-list (cdr ,whole)
+                              (declare ,@declares)
+                              (block ,name ,@body)))))))))
 
 (defun pass1-macrolet (form env)
   (destructuring-bind (definitions &body body) (cdr form)

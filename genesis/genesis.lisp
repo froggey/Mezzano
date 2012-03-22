@@ -61,6 +61,10 @@ GENESIS-INTERN.")
     (when (eql (first e) :macros)
       (let ((x (assoc symbol (rest e))))
         (when x
+          (return-from genesis-macro-function (cdr x)))))
+    (when (eql (first e) (genesis-intern "MACROS" t))
+      (let ((x (assoc symbol (rest e))))
+        (when x
           (return-from genesis-macro-function (cdr x))))))
   (getf (genesis-symbol-plist symbol) (genesis-intern "%MACRO-FUNCTION")))
 
