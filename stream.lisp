@@ -168,6 +168,55 @@
        (close ,var))
      (get-output-stream-string ,var)))
 
+(defclass broadcast-stream (stream-object)
+  ((streams :initarg :streams :reader broadcast-stream-streams)))
+
+(defun make-broadcast-stream (&rest streams)
+  (make-instance 'broadcast-stream :streams streams))
+
+(defun %broadcast-stream-write-char (character stream)
+  (dolist (s (broadcast-stream-streams stream))
+    (write-char character s)))
+
+(defmethod stream-write-char (character (stream broadcast-stream))
+  (%broadcast-stream-write-char character stream))
+
+(defclass echo-stream (stream-object)
+  ((input-stream :initarg :input-stream
+                 :reader echo-stream-input-stream)
+   (output-stream :initarg :output-stream
+                  :reader echo-stream-output-stream)))
+
+(defun make-echo-stream (input-stream output-stream)
+  (make-instance 'echo-stream
+                 :input-stream input-stream
+                 :output-stream output-stream))
+
+(defmethod stream-write-char (character (stream echo-stream))
+  (write-char character (echo-stream-output-stream stream)))
+
+(defmethod stream-read-char ((stream echo-stream))
+  (let ((c (read-char (echo-stream-input-stream stream) nil)))
+    (when c
+      (write-char c (echo-stream-output-stream stream)))))
+
+(defclass two-way-stream (stream-object)
+  ((input-stream :initarg :input-stream
+                 :reader two-way-stream-input-stream)
+   (output-stream :initarg :output-stream
+                  :reader two-way-stream-output-stream)))
+
+(defun make-two-way-stream (input-stream output-stream)
+  (make-instance 'two-way-stream
+                 :input-stream input-stream
+                 :output-stream output-stream))
+
+(defmethod stream-write-char (character (stream two-way-stream))
+  (write-char character (two-way-stream-output-stream stream)))
+
+(defmethod stream-read-char ((stream two-way-stream))
+  (read-char (two-way-stream-input-stream stream) nil))
+
 (defclass case-correcting-stream (stream-object)
   ((stream :initarg :stream)
    (case :initarg :case)
