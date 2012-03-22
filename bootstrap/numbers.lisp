@@ -201,13 +201,28 @@
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
           (stemp (first stores))) ;Temp var for int to store.
-      (if (cdr stores) (error "Can't expand this."))
-;;; Return the setf expansion for LDB as five values.
-      (values (cons btemp temps)       ;Temporary variables.
-              (cons bytespec vals)     ;Value forms.
-              (list store)             ;Store variables.
-              `(let ((,stemp (dpb ,store ,btemp ,access-form)))
-                 ,store-form
-                 ,store)               ;Storing form.
-              `(ldb ,btemp ,access-form) ;Accessing form.
-              ))))
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Generate (dpb ... (byte x y) ...) when the bytespec is
+      ;; well-known.
+      (if (and (listp bytespec)
+               (eql (length bytespec) 3)
+               (eql (first bytespec) 'byte)
+               (integerp (second bytespec))
+               (integerp (third bytespec)))
+          (values temps       ;Temporary variables.
+                  vals     ;Value forms.
+                  (list store)             ;Store variables.
+                  `(let ((,stemp (dpb ,store ,bytespec ,access-form)))
+                     ,store-form
+                     ,store)               ;Storing form.
+                  `(ldb ,bytespec ,access-form) ;Accessing form.
+                  )
+          ;; Return the setf expansion for LDB as five values.
+          (values (cons btemp temps)       ;Temporary variables.
+                  (cons bytespec vals)     ;Value forms.
+                  (list store)             ;Store variables.
+                  `(let ((,stemp (dpb ,store ,btemp ,access-form)))
+                     ,store-form
+                     ,store)               ;Storing form.
+                  `(ldb ,btemp ,access-form) ;Accessing form.
+                  )))))
