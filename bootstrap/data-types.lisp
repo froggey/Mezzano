@@ -48,3 +48,8 @@
 
 (defconstant +function-type-function+ 0)
 (defconstant +function-type-closure+ 1)
+
+(defconstant +symbol-mode-nil+ 0)
+(defconstant +symbol-mode-special+ 1)
+(defconstant +symbol-mode-constant+ 2)
+(defconstant +symbol-mode-symbol-macro+ 3)

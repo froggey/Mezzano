@@ -12,10 +12,10 @@
 (defun (setf system:symbol-mode) (value symbol)
   (setf (ldb (byte 2 0) (%symbol-flags symbol))
         (ecase value
-          ((nil) 0)
-          ((:special) 1)
-          ((:constant) 2)
-          ((:symbol-macro) 3)))
+          ((nil) +symbol-mode-nil+)
+          ((:special) +symbol-mode-special+)
+          ((:constant) +symbol-mode-constant+)
+          ((:symbol-macro) +symbol-mode-symbol-macro+)))
   value)
 
 ;;; The compiler can only handle (apply function arg-list).
