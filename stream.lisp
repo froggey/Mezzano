@@ -8,6 +8,7 @@
 (defstruct (synonym-stream
              (:constructor make-synonym-stream (symbol)))
   symbol)
+(defclass synonym-stream (stream) ()) ; ick
 
 (defvar *terminal-io* :terminal-io-is-uninitialized
   "A bi-directional stream connected to the user's console.")
@@ -131,6 +132,10 @@
 
 (defmethod stream-listen ((stream stream-object))
   t)
+
+(defmethod print-object ((object synonym-stream) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "for ~S" (synonym-stream-symbol object))))
 
 (defclass string-output-stream (stream-object)
   ((element-type :initarg :element-type)

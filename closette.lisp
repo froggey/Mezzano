@@ -288,6 +288,7 @@
     (package                                       (find-class 'package))
     ;;(pathname                                      (find-class 'pathname))
     ;;(readtable                                     (find-class 'readtable))
+    (synonym-stream                                (find-class 'synonym-stream))
     (stream                                        (find-class 'stream))
     ;;((and number (not (or integer complex float))) (find-class 'number))
     ;;((string *)                                    (find-class 'string))
