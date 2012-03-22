@@ -35,8 +35,8 @@
               (not (minusp (second bytespec)))
               (integerp (third bytespec))
               (not (minusp (third bytespec))))
-         `(logand (ash ,integer ,(- (second bytespec)))
-                  ,(1- (ash 1 (third bytespec)))))
+         `(logand (ash ,integer ,(- (third bytespec)))
+                  ,(1- (ash 1 (second bytespec)))))
         (t whole)))
 
 (define-compiler-macro dpb (&whole whole newbyte bytespec integer)
