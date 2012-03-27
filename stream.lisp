@@ -69,6 +69,17 @@
                    (error 'end-of-file :stream s))
                  eof-value)))))
 
+(defun read-line (&optional (input-stream *standard-input*) (eof-error-p t) eof-value recursive-p)
+  (do ((result (make-array 16 :element-type 'character :adjustable t :fill-pointer 0))
+       (c (read-char input-stream eof-error-p nil recursive-p)
+          (read-char input-stream eof-error-p nil recursive-p)))
+      ((or (null c)
+           (eql c #\Newline))
+       (if (and (null c) (eql (length result) 0))
+           (values eof-value t)
+           (values result (null c))))
+    (vector-push-extend c result)))
+
 (defun unread-char (character &optional (stream *standard-input*))
   (let ((s (frob-input-stream stream)))
     (check-type character character)
@@ -265,3 +276,35 @@ CASE may be one of:
 
 (defmethod stream-write-char (character (stream case-correcting-stream))
   (case-correcting-write character stream))
+
+(defun y-or-n-p (&optional control &rest arguments)
+  (declare (dynamic-extent arguments))
+  (when control
+    (fresh-line *query-io*)
+    (apply 'format *query-io* control arguments)
+    (write-char #\Space *query-io*))
+  (format *query-io* "(Y or N) ")
+  (loop
+     (let ((c (read-char *query-io*)))
+       (when (char-equal c #\Y)
+         (return t))
+       (when (char-equal c #\N)
+         (return nil)))
+     (fresh-line *query-io*)
+     (format *query-io* "Please respond with \"y\" or \"n\". ")))
+
+(defun yes-or-no-p (&optional control &rest arguments)
+  (declare (dynamic-extent arguments))
+  (when control
+    (fresh-line *query-io*)
+    (apply 'format *query-io* control arguments)
+    (write-char #\Space *query-io*))
+  (format *query-io* "(Yes or No) ")
+  (loop
+     (let ((line (read-line *query-io*)))
+       (when (string-equal line "yes")
+         (return t))
+       (when (string-equal line "no")
+         (return nil)))
+     (fresh-line *query-io*)
+     (format *query-io* "Please respond with \"yes\" or \"no\". ")))

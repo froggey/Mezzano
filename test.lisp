@@ -24,6 +24,8 @@
 
 
 (defun dump-image ()
+  (when (not (yes-or-no-p "Danger! This will overwrite the primary master hard disk. Continue?"))
+    (return-from dump-image))
   (format t "Saving image... ")
   ;; Rebind *INITIAL-FUNCTION* using unwind-protect/symbol-value
   ;; to avoid the TLS mechanism.
@@ -63,7 +65,8 @@
                (setf (io-port/16 #x1F0) (memref-unsigned-byte-16 (+ #x8000000000 start
                                                                     (* sector 512))
                                                                  i))))
-           (format t "Wrote ~S sectors (~DMiB) to disk.~%" count (truncate (truncate (* count 512) 1024) 1024)))
+           (format t "Wrote ~S sectors (~DMiB) to disk.~%" count (truncate (truncate (* count 512) 1024) 1024))
+           count)
       (setf (symbol-value '*initial-function*) old-initial
             (aref *multiboot-header* 5) old-data-end
             (aref *multiboot-header* 6) old-bss-size))))
