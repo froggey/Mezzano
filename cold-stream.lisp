@@ -5,6 +5,11 @@
 
 (setf *terminal-io* (make-cold-stream))
 
+(add-hook '*initialize-hook*
+          #'(lambda ()
+              (setf *screen-offset* 0)
+              (setf *keyboard-shifted* nil)))
+
 (defun cold-write-char (c stream)
   (setf (system:io-port/8 #xE9) (logand (char-code c) #xFF))
   (cond ((eql c #\Newline)

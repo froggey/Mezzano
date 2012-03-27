@@ -82,3 +82,10 @@
 	(when (not (eql (logand data #xFFF1) 0))
 	  (return nil))
 	(return (logand data #xFFFF0000))))))
+
+(add-hook '*initialize-hook*
+          #'(lambda ()
+              (when (probe-bochs-vbe)
+                (setf *framebuffer* (make-array '(600 800)
+                                                :element-type '(unsigned-byte 32)
+                                                :memory (+ #x8000000000 *bochs-vbe-framebuffer-address*))))))

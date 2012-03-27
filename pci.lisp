@@ -132,5 +132,3 @@
       (when (and (eql (pci-vendorid dev) (first id))
 		 (eql (pci-deviceid dev) (second id)))
 	(funcall fn dev)))))
-
-(pci-init)

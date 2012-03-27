@@ -22,11 +22,6 @@
                                     'character)
                   :initial-contents string)))
 
-(when (probe-bochs-vbe)
-  (setf *framebuffer* (make-array '(600 800)
-                                  :element-type '(unsigned-byte 32)
-                                  :memory (+ #x8000000000 *bochs-vbe-framebuffer-address*))))
-(write-string "Hello, World!")
 
 (defun dump-image ()
   (format t "Saving image... ")
@@ -43,7 +38,7 @@
                              (lognot #xFFF)))
                 (count (truncate (- end start) 512)))
            ;; Boot directly to the REPL.
-           (setf (symbol-value '*initial-function*) #'repl)
+           (setf (symbol-value '*initial-function*) #'initialize-lisp)
            ;; Adjust the sizes in the multiboot header.
            (setf (aref *multiboot-header* 5) end
                  (aref *multiboot-header* 6) 0)
@@ -73,7 +68,6 @@
             (aref *multiboot-header* 5) old-data-end
             (aref *multiboot-header* 6) old-bss-size))))
 
-(setf *package* (find-package "CL-USER"))
 (defun repl ()
   (loop
      (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
@@ -90,4 +84,19 @@
                  (fresh-line)
                  (write-string "; No values."))))))))
 
-(repl)
+(defvar *initialize-hooks* '())
+
+(defun add-hook (hook function)
+  (unless (boundp hook)
+    (setf (symbol-value hook) '()))
+  (pushnew function (symbol-value hook)))
+
+(defun initialize-lisp ()
+  (setf *package* (find-package "CL-USER"))
+  (pci-init)
+  (dolist (i *initialize-hooks*)
+    (funcall i))
+  (write-string "Hello, World!")
+  (repl))
+
+(initialize-lisp)
