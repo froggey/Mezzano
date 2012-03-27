@@ -572,7 +572,7 @@
 	    (sys.lap-x86:mov64 :r13 (:constant ,entry-function))
 	    (sys.lap-x86:xor32 :ecx :ecx)
 	    ;; Call the entry function.
-	    (sys.lap-x86:call :r13)
+	    (sys.lap-x86:call (:symbol-value :r13))
 	    ;; Crash if it returns.
 	    here
 	    (sys.lap-x86:ud2)
@@ -922,15 +922,17 @@
                                                  "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
-	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) entry-function initial-stack-group))
+	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) (genesis-intern "*INITIAL-FUNCTION*") initial-stack-group))
 	 (undefined-function-thunk (make-undefined-function-thunk))
          (unifont-data (with-open-file (s "../unifontfull-5.1.20080820.hex")
                          (build-unicode:generate-unifont-table s))))
     (push (cons (genesis-intern "*MULTIBOOT-HEADER*") multiboot-header) *symbol-preloads*)
     (push (cons (genesis-intern "*GDT*") gdt) *symbol-preloads*)
     (push (cons (genesis-intern "*IDT*") idt) *symbol-preloads*)
+    (push (cons (genesis-intern "*SETUP-CODE*") setup-code) *symbol-preloads*)
     (push (cons (genesis-intern "*UNDEFINED-FUNCTION-THUNK*") undefined-function-thunk) *symbol-preloads*)
     (push (cons (genesis-intern "*UNIFONT-BMP*") unifont-data) *symbol-preloads*)
+    (push (cons (genesis-intern "*INITIAL-FUNCTION*") entry-function) *symbol-preloads*)
     (multiple-value-bind (unicode-info name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
       (push (cons (genesis-intern "*UNICODE-INFO*") unicode-info) *symbol-preloads*)
