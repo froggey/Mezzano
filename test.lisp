@@ -22,6 +22,9 @@
                                     'character)
                   :initial-contents string)))
 
+(defconstant +ata-status-err+ #b00000001)
+(defconstant +ata-status-drq+ #b00001000)
+(defconstant +ata-status-bsy+ #b10000000)
 
 (defun dump-image ()
   (when (not (yes-or-no-p "Danger! This will overwrite the primary master hard disk. Continue?"))
@@ -53,12 +56,13 @@
                    (io-port/8 #x1F5) (ldb (byte 8 16) sector)
                    (io-port/8 #x1F7) #x30) ;command write sectors
              ;; Wait for BSY to clear and DRQ or ERR to set.
+             ;; Assumes that BSY will clear and DRQ will set at the same time.
              (tagbody
               top (let ((status (io-port/8 #x1F7)))
-                    (when (not (zerop (logand status #x80)))
+                    (when (logtest status +ata-status-bsy+)
                       (go top))
-                    (when (or (not (zerop (logand status 1)))
-                              (zerop (logand status #x8)))
+                    (when (or (logtest status +ata-status-err+) ;ERR set.
+                              (not (logtest status +ata-status-drq+))) ;DRQ not set.
                       (error "Failed write command for sector ~S. Status: ~X." sector status))))
              ;; HERE WE GO! HERE WE GO!
              (dotimes (i 256)

@@ -194,6 +194,10 @@
   (check-type integer integer)
   (eql (logand integer 1) 1))
 
+(declaim (inline logtest))
+(defun logtest (integer-1 integer-2)
+  (not (zerop (logand integer-1 integer-2))))
+
 (define-setf-expander ldb (bytespec int &environment env)
   (multiple-value-bind (temps vals stores
                               store-form access-form)
