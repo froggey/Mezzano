@@ -114,6 +114,14 @@
     (function
      (print-unreadable-object (object stream :type t :identity t)
        (write (function-name object) :stream stream)))
+    (vector
+     (write-char #\# stream)
+     (write-char #\( stream)
+     (dotimes (i (length object))
+       (unless (zerop i)
+         (write-char #\Space stream))
+       (write (aref object i) :stream stream))
+     (write-char #\) stream))
     (t (if *print-safe*
            (print-unreadable-object (object stream :type t :identity t))
            (print-object object stream))))
