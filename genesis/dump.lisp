@@ -547,11 +547,29 @@
 	    (sys.lap-x86:movseg :fs :eax)
 	    (sys.lap-x86:movseg :gs :eax)
 	    (sys.lap-x86:movseg :ss :eax)
-            ;; Load up values from the initial stack group.
+            ;; Preset the initial stack group.
             (sys.lap-x86:mov64 :r8 (:constant ,initial-stack-group))
-            (sys.lap-x86:mov64 :csp (:r8 ,(- (* 3 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
             (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
             (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            ;; Clear binding stack.
+            (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 9 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 10 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:sar64 :rcx 3)
+            (sys.lap-x86:xor32 :eax :eax)
+            (sys.lap-x86:rep)
+            (sys.lap-x86:stos64)
+            ;; Set the binding stack pointer.
+            (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))) :rdi)
+            ;; Clear TLS binding slots.
+            (sys.lap-x86:lea64 :rdi (:r8 ,(- (* 12 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
+            (sys.lap-x86:mov64 :rax -2)
+            (sys.lap-x86:mov32 :ecx 500)
+            (sys.lap-x86:rep)
+            (sys.lap-x86:stos64)
+            ;; Mark the SG as running/unsafe.
+            (sys.lap-x86:mov64 (:r8 ,(- (* 2 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))) 0)
             ;; Initialize GS.
             (sys.lap-x86:mov64 :rax :r8)
             (sys.lap-x86:mov64 :rdx :r8)

@@ -28,6 +28,51 @@
                                   :memory (+ #x8000000000 *bochs-vbe-framebuffer-address*))))
 (write-string "Hello, World!")
 
+(defun dump-image ()
+  (format t "Saving image... ")
+  ;; Rebind *INITIAL-FUNCTION* using unwind-protect/symbol-value
+  ;; to avoid the TLS mechanism.
+  (let ((old-initial *initial-function*)
+        (old-data-end (aref *multiboot-header* 5))
+        (old-bss-size (aref *multiboot-header* 6)))
+    (unwind-protect
+         ;; Write all memory from #x1FF000 up to *BUMP-POINTER* to
+         ;; the primary master.
+         (let* ((start #x1FF000)
+                (end (logand (+ (- *bump-pointer* #x8000000000) #x1000)
+                             (lognot #xFFF)))
+                (count (truncate (- end start) 512)))
+           ;; Boot directly to the REPL.
+           (setf (symbol-value '*initial-function*) #'repl)
+           ;; Adjust the sizes in the multiboot header.
+           (setf (aref *multiboot-header* 5) end
+                 (aref *multiboot-header* 6) 0)
+           (dotimes (sector count)
+             (setf (io-port/8 #x1F6) (logior #xE0 (ldb (byte 4 24) sector));drive and high bits of the lba
+                   (io-port/8 #x1F1) 0 ; ???
+                   (io-port/8 #x1F2) 1 ; sector count
+                   (io-port/8 #x1F3) (ldb (byte 8 0) sector)
+                   (io-port/8 #x1F4) (ldb (byte 8 8) sector)
+                   (io-port/8 #x1F5) (ldb (byte 8 16) sector)
+                   (io-port/8 #x1F7) #x30) ;command write sectors
+             ;; Wait for BSY to clear and DRQ or ERR to set.
+             (tagbody
+              top (let ((status (io-port/8 #x1F7)))
+                    (when (not (zerop (logand status #x80)))
+                      (go top))
+                    (when (or (not (zerop (logand status 1)))
+                              (zerop (logand status #x8)))
+                      (error "Failed write command for sector ~S. Status: ~X." sector status))))
+             ;; HERE WE GO! HERE WE GO!
+             (dotimes (i 256)
+               (setf (io-port/16 #x1F0) (memref-unsigned-byte-16 (+ #x8000000000 start
+                                                                    (* sector 512))
+                                                                 i))))
+           (format t "Wrote ~S sectors (~DMiB) to disk.~%" count (truncate (truncate (* count 512) 1024) 1024)))
+      (setf (symbol-value '*initial-function*) old-initial
+            (aref *multiboot-header* 5) old-data-end
+            (aref *multiboot-header* 6) old-bss-size))))
+
 (setf *package* (find-package "CL-USER"))
 (defun repl ()
   (loop
