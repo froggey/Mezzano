@@ -1632,3 +1632,26 @@
                `(sys.lap-x86:jne ,type-error-label)
                out)
          (setf *r8-value* (list (gensym)))))))
+
+(defbuiltin sys.int::%stihlt () ()
+  (emit `(sys.lap-x86:sti)
+        `(sys.lap-x86:hlt))
+  ''nil)
+
+(defbuiltin sys.int::%sti () ()
+  (emit `(sys.lap-x86:sti))
+  ''nil)
+
+(defbuiltin sys.int::%cli () ()
+  (emit `(sys.lap-x86:cli))
+  ''nil)
+
+(defbuiltin sys.int::%hlt () ()
+  (emit `(sys.lap-x86:hlt))
+  ''nil)
+
+(defbuiltin sys.int::%interrupt-state () ()
+  (emit `(sys.lap-x86:pushf)
+        `(sys.lap-x86:pop :rax)
+        `(sys.lap-x86:test32 :eax #x200))
+  (predicate-result :nz))
