@@ -431,9 +431,17 @@
 (defun generate-physical-dump-layout (static-size dynamic-size)
   (let* ((load-offset #x200000) ; Physical base address.
 	 (static-base load-offset)
-	 (dynamic-base (+ static-base (* (ceiling (* static-size 8) #x200000) #x200000)))
-	 (support-base (+ dynamic-base (* (ceiling (* dynamic-size 8) #x200000) #x200000)))
-	 (end-address support-base))
+         (static-area-full-size (* 32 1024 1024))
+         (static-area-size (* (ceiling (* static-size 8) #x200000) #x200000))
+	 (dynamic-base (+ static-base static-area-size))
+         (dynamic-area-full-size (* 32 1024 1024))
+         (dynamic-area-size (* (ceiling (* dynamic-size 8) #x200000) #x200000))
+	 (support-base (+ dynamic-base dynamic-area-size))
+	 (end-address support-base)
+         (zero-fill-start)
+         (zero-fill-end))
+    (assert (<= static-area-size static-area-full-size))
+    (assert (<= dynamic-area-size dynamic-area-full-size))
     ;; This is just to stop things getting silly.
     (when (>= end-address (* 2 1024 1024 1024))
       (error "End address too large, giving up."))
@@ -454,6 +462,9 @@
 	   ;; Four PML2s to map the first 4GB of the linear region.
 	   (pml2-linear (incf end-address (* 4 #x1000))))
       (incf end-address (* 4 #x1000))
+      ;; Align to 2MB.
+      (setf zero-fill-start (* (ceiling end-address #x200000) #x200000)
+            zero-fill-end zero-fill-start)
       ;; Create the PML4.
       (setf (aref page-tables 0 0) (logior pml3-normal
 					   +page-table-present+
@@ -462,26 +473,37 @@
 					   +page-table-present+
 					   +page-table-writable+))
       ;; Create the normal PML3.
+      ;; Fourth entry is initially marked not-present.
       (dotimes (i 4)
 	(setf (aref page-tables 1 i) (logior (+ pml2-normal (* i #x1000))
-					     +page-table-present+
+					     (if (= i 3) 0 +page-table-present+)
 					     +page-table-writable+)))
-      (flet ((map-large-page (virt phys)
+      (flet ((map-large-page (virt &optional phys)
 	       (multiple-value-bind (dir x)
 		   (truncate virt (* 1024 1024 1024))
+                 (unless phys
+                   (setf phys zero-fill-end)
+                   (incf zero-fill-end #x200000))
 		 (let ((ofs (truncate x #x200000)))
 		   (setf (aref page-tables (+ 3 dir) ofs) (logior phys
 								  +page-table-present+
 								  +page-table-writable+
 								  +page-table-large+))))))
 	;; Map static space.
-	(dotimes (i (/ (- dynamic-base static-base) #x200000))
+	(dotimes (i (/ static-area-size #x200000))
 	  (map-large-page (+ *static-area-base* (* i #x200000))
 			  (+ static-base (* i #x200000))))
-	;; Map dynamic space.
-	(dotimes (i (/ (- support-base dynamic-base) #x200000))
+        (dotimes (i (/ (- static-area-full-size static-area-size) #x200000))
+	  (map-large-page (+ *static-area-base* static-area-size (* i #x200000))))
+	;; Map dynamic space A.
+	(dotimes (i (/ dynamic-area-size #x200000))
 	  (map-large-page (+ *dynamic-area-base* (* i #x200000))
-			  (+ dynamic-base (* i #x200000)))))
+			  (+ dynamic-base (* i #x200000))))
+        (dotimes (i (/ (- dynamic-area-full-size dynamic-area-size) #x200000))
+	  (map-large-page (+ *dynamic-area-base* dynamic-area-size (* i #x200000))))
+        ;; Map dynamic space B.
+        (dotimes (i (/ dynamic-area-size #x200000))
+          (map-large-page (+ *dynamic-area-base* (* i #x200000) (/ *dynamic-area-size* 2)))))
       ;; Create the linear map PML3 and PML2s.
       (dotimes (i 4)
 	(setf (aref page-tables 2 i) (logior (+ pml2-linear (* i #x1000))
@@ -492,9 +514,9 @@
 						     +page-table-present+
 						     +page-table-writable+
 						     +page-table-large+))))
-      (format t "Static-base: ~X  Dynamic-base: ~X  Support-base: ~X  End: ~X~%"
-	      static-base dynamic-base support-base end-address)
-      (values load-offset static-base dynamic-base support-base end-address
+      (format t "Static-base: ~X  Dynamic-base: ~X  Support-base: ~X  End: ~X (~X)~%"
+	      static-base dynamic-base support-base end-address zero-fill-end)
+      (values load-offset static-base dynamic-base support-base end-address zero-fill-end
 	      pml4 page-tables))))
 
 (defun make-setup-function (gdt idt initial-page-table entry-function initial-stack-group)
@@ -965,7 +987,7 @@
                                                               initial-stack-group entry-function
                                                               (mapcar 'cdr *function-preloads*)
                                                               (mapcar 'cdr *symbol-preloads*)))
-      (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end image-end initial-cr3 page-tables)
+      (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end support-end image-end initial-cr3 page-tables)
 	  (generate-physical-dump-layout static-size dynamic-size)
 	(let* ((control-stack-size 4096)
                (data-stack-size 4096)
@@ -973,7 +995,7 @@
                (bss-size (+ (* control-stack-size 8)
                             (* data-stack-size 8)
                             (* binding-stack-size 8)))
-               (image-size (- image-end load-base))
+               (image-size (- support-end load-base))
                (image (make-array (+ image-size #x1000) :element-type '(unsigned-byte 8)))
                (object-values (make-hash-table)))
           (format t "Entry function MC size: ~D bytes~%" (length (genesis-function-assembled-code entry-function)))
@@ -1033,7 +1055,7 @@
 		;; Strip away the tag bits and advance past the header word.
 		(aref multiboot-header 3) (+ (logand (gethash multiboot-header object-values) #xFFFFFFF0) 8)
 		(aref multiboot-header 4) (- load-base #x1000)
-		(aref multiboot-header 5) image-end
+		(aref multiboot-header 5) support-end
 		(aref multiboot-header 6) (+ image-end bss-size)
 		(aref multiboot-header 7) (gethash setup-code object-values))
 	  ;; And the GDT.
