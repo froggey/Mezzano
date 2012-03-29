@@ -1273,6 +1273,12 @@
         (lambda-list (method-lambda-list method)))
     (compile-in-lexical-environment (method-environment method)
       `(lambda (args next-emfun)
+         ;; Ugh. make-instance-standard-method doesn't know what
+         ;; generic-function the method is for so there is no name
+         ;; available!
+         (declare (system:lambda-name (defmethod nil
+                                          ,@(method-qualifiers method)
+                                          ,(method-specializers method))))
          (flet ((call-next-method (&rest cnm-args)
                   (if (null next-emfun)
                       (error "No next method for the~@
