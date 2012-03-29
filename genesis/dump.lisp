@@ -1044,9 +1044,15 @@
 	  (format t "NIL at ~X.~%" (gethash 'nil object-values))
 	  (format t "UFT at ~X.~%" (gethash undefined-function-thunk object-values))
           (format t "Initial stack group at ~X.~%" (gethash initial-stack-group object-values))
-          (format t "GC pointer at ~X.~%" (+ *linear-map* image-end bss-size))
-          ;; Set the  GC pointer.
-          (push (cons (genesis-intern "*BUMP-POINTER*") (+ *linear-map* image-end bss-size))
+          (format t "GC pointer at ~X.~%" dynamic-size)
+          ;; Set the  GC pointers
+          (push (cons (genesis-intern "*OLDSPACE*") (+ *dynamic-area-base* (/ *dynamic-area-size* 2))) ; bytes
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*NEWSPACE*") *dynamic-area-base*) ; bytes
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*NEWSPACE-OFFSET*") dynamic-size) ; words
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*SEMISPACE-SIZE*") (/ (* 32 1024 1024) 8)) ; words
                 *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002

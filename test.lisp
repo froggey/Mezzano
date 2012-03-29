@@ -78,6 +78,15 @@
             (aref *multiboot-header* 5) old-data-end
             (aref *multiboot-header* 6) old-bss-size))))
 
+(defun emergency-halt (message)
+  (%cli)
+  (dotimes (i (%simple-array-length message 0))
+    (let ((code (logand (char-code (schar message i)) #xFF)))
+      (setf (io-port/8 #xE9) code)
+      (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
+            (logior code #x7000))))
+  (loop (%hlt)))
+
 (defun repl ()
   (loop
      (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
