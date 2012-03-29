@@ -1,17 +1,20 @@
 (in-package #:sys.int)
 
+(defun init-isa-pic ()
 ;;; Initialize the ISA PIC.
-(setf (io-port/8 #x20) #x11
-      (io-port/8 #xA0) #x11
-      (io-port/8 #x21) #x30
-      (io-port/8 #xA1) #x38
-      (io-port/8 #x21) #x04
-      (io-port/8 #xA1) #x02
-      (io-port/8 #x21) #x01
-      (io-port/8 #xA1) #x01
-      ;; Mask all IRQs except for the cascade IRQ (2).
-      (io-port/8 #x21) #b11111011
-      (io-port/8 #xA1) #b11111111)
+  (setf (io-port/8 #x20) #x11
+        (io-port/8 #xA0) #x11
+        (io-port/8 #x21) #x30
+        (io-port/8 #xA1) #x38
+        (io-port/8 #x21) #x04
+        (io-port/8 #xA1) #x02
+        (io-port/8 #x21) #x01
+        (io-port/8 #xA1) #x01
+        ;; Mask all IRQs except for the cascade IRQ (2).
+        (io-port/8 #x21) #b11111011
+        (io-port/8 #xA1) #b11111111))
+
+(add-hook '*early-initialize-hook* 'init-isa-pic)
 
 (defun sys.int::simplify-string (string)
   (if (simple-string-p string)
@@ -91,7 +94,8 @@
                  (fresh-line)
                  (write-string "; No values."))))))))
 
-(defvar *initialize-hooks* '())
+(defvar *early-initialize-hook* '())
+(defvar *initialize-hook* '())
 
 (defun add-hook (hook function)
   (unless (boundp hook)
@@ -100,9 +104,9 @@
 
 (defun initialize-lisp ()
   (setf *package* (find-package "CL-USER"))
+  (mapc 'funcall *early-initialize-hook*)
   (pci-init)
-  (dolist (i *initialize-hooks*)
-    (funcall i))
+  (mapc 'funcall *initialize-hook*)
   (write-string "Hello, World!")
   (repl))
 

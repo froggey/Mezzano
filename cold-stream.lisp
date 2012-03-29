@@ -5,7 +5,7 @@
 
 (setf *terminal-io* (make-cold-stream))
 
-(add-hook '*initialize-hook*
+(add-hook '*early-initialize-hook*
           #'(lambda ()
               (setf *screen-offset* 0)
               (setf *keyboard-shifted* nil)))
