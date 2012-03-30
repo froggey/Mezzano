@@ -40,3 +40,7 @@
 
 (define-modify-macro incf (&optional (delta 1)) +)
 (define-modify-macro decf (&optional (delta 1)) -)
+
+;; FIXME...
+(defmacro psetf (&rest args)
+  `(psetq ,@args))

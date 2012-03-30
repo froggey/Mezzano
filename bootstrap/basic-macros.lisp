@@ -49,6 +49,15 @@
 	       (cond ,@(rest clauses)))))))
 
 ;;; TODO: Complete psetq. Has to work with setf & symbol-macros.
+(defmacro psetq (&rest pairs)
+  (when pairs
+    (when (null (cdr pairs))
+      (error "Odd number of arguments to PSETQ"))
+    (let ((value (gensym)))
+      `(let ((,value ,(cadr pairs)))
+	 (psetq ,@(cddr pairs))
+	 (setq ,(car pairs) ,value)
+	 nil))))
 
 ;;; TODO: DO/DO* with declare support.
 
