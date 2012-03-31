@@ -1655,3 +1655,22 @@
         `(sys.lap-x86:pop :rax)
         `(sys.lap-x86:test32 :eax #x200))
   (predicate-result :nz))
+
+(defbuiltin sys.int::%cr3 () ()
+  (emit `(sys.lap-x86:movcr :rax :cr3)
+        `(sys.lap-x86:shl64 :rax 3)
+        `(sys.lap-x86:mov64 :r8 :rax))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin (setf sys.int::%cr3) (value) ()
+  (load-in-r8 value t)
+  (fixnum-check :r8)
+  (emit `(sys.lap-x86:mov64 :rax :r8)
+        `(sys.lap-x86:shr64 :rax 3)
+        `(sys.lap-x86:movcr :cr3 :rax))
+  value)
+
+(defbuiltin sys.int::%%get-data-stack-pointer () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 :lsp))
+  (setf *r8-value* (list (gensym))))
