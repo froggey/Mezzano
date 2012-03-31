@@ -366,9 +366,9 @@
          (smash-r8)
 	 ;; Small integers can be encoded directly into the instruction.
 	 (if (typep (second x) '(signed-byte 28))
-	     (emit `(sys.lap-x86:or64 :r8 ,(fixnum-to-raw (second x))))
+	     (emit `(sys.lap-x86:xor64 :r8 ,(fixnum-to-raw (second x))))
 	     (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
-		   `(sys.lap-x86:or64 :r8 :rax)))
+		   `(sys.lap-x86:xor64 :r8 :rax)))
 	 (setf *r8-value* (list (gensym))))
 	(t (load-in-reg :r9 y t)
            (fixnum-check :r9)
