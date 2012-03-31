@@ -52,3 +52,16 @@
            `(logior (ash (logand ,newbyte ,mask) ,(third bytespec))
                     (logand ,integer ,(lognot (ash mask (third bytespec)))))))
         (t whole)))
+
+;;; From SBCL 1.0.55
+(defun ceiling (number divisor)
+  ;; If the numbers do not divide exactly and the result of
+  ;; (/ NUMBER DIVISOR) would be positive then increment the quotient
+  ;; and decrement the remainder by the divisor.
+  (multiple-value-bind (tru rem) (truncate number divisor)
+    (if (and (not (zerop rem))
+             (if (minusp divisor)
+                 (minusp number)
+                 (plusp number)))
+        (values (+ tru 1) (- rem divisor))
+        (values tru rem))))
