@@ -131,9 +131,8 @@
      ;; TODO: bignum
      2)
     (genesis-function
-     (+ 1
-	(length (genesis-function-constants x))
-	(ceiling (length (genesis-function-assembled-code x)) 8)))
+     (+ (length (genesis-function-constants x))
+	(* (ceiling (+ (length (genesis-function-assembled-code x)) 12) 16) 2)))
     (genesis-stack-group 512)))
 
 (defun object-tag (x)
@@ -439,7 +438,9 @@
 	 (support-base (+ dynamic-base dynamic-area-size))
 	 (end-address support-base)
          (zero-fill-start)
-         (zero-fill-end))
+         (zero-fill-end)
+         (oldspace-pml2-entry)
+         (newspace-pml2-entry))
     (assert (<= static-area-size static-area-full-size))
     (assert (<= dynamic-area-size dynamic-area-full-size))
     ;; This is just to stop things getting silly.
@@ -462,6 +463,9 @@
 	   ;; Four PML2s to map the first 4GB of the linear region.
 	   (pml2-linear (incf end-address (* 4 #x1000))))
       (incf end-address (* 4 #x1000))
+      ;; Ugh.
+      (setf oldspace-pml2-entry (+ pml3-normal 24))
+      (setf newspace-pml2-entry (+ pml3-normal 16))
       ;; Align to 2MB.
       (setf zero-fill-start (* (ceiling end-address #x200000) #x200000)
             zero-fill-end zero-fill-start)
@@ -502,7 +506,7 @@
         (dotimes (i (/ (- dynamic-area-full-size dynamic-area-size) #x200000))
 	  (map-large-page (+ *dynamic-area-base* dynamic-area-size (* i #x200000))))
         ;; Map dynamic space B.
-        (dotimes (i (/ dynamic-area-size #x200000))
+        (dotimes (i (/ dynamic-area-full-size #x200000))
           (map-large-page (+ *dynamic-area-base* (* i #x200000) (/ *dynamic-area-size* 2)))))
       ;; Create the linear map PML3 and PML2s.
       (dotimes (i 4)
@@ -517,7 +521,7 @@
       (format t "Static-base: ~X  Dynamic-base: ~X  Support-base: ~X  End: ~X (~X)~%"
 	      static-base dynamic-base support-base end-address zero-fill-end)
       (values load-offset static-base dynamic-base support-base end-address zero-fill-end
-	      pml4 page-tables))))
+	      pml4 page-tables oldspace-pml2-entry newspace-pml2-entry))))
 
 (defun make-setup-function (gdt idt initial-page-table entry-function initial-stack-group)
   (multiple-value-bind (mc constants)
@@ -983,14 +987,23 @@
       (push (cons (genesis-intern "*UNICODE-ENCODING-TABLE*") encoding-table) *symbol-preloads*)
       (push (cons (genesis-intern "*UNICODE-NAME-TRIE*") name-trie) *symbol-preloads*))
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
-	(generate-dump-layout undefined-function-thunk (list* multiboot-header setup-code gdt idt
-                                                              initial-stack-group entry-function
-                                                              (mapcar 'cdr *function-preloads*)
-                                                              (mapcar 'cdr *symbol-preloads*)))
-      (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end support-end image-end initial-cr3 page-tables)
+	(generate-dump-layout undefined-function-thunk (append (list multiboot-header setup-code gdt idt
+                                                                     initial-stack-group entry-function)
+                                                               ;; GC-related symbols must be stored in static space.
+                                                               (mapcar 'genesis-intern
+                                                                       '("*OLDSPACE*" "*NEWSPACE*"
+                                                                         "*NEWSPACE-OFFSET*" "*SEMISPACE-SIZE*"
+                                                                         "*OLDSPACE-PAGING-BITS*"
+                                                                         "*NEWSPACE-PAGING-BITS*"
+                                                                         "*STATIC-BUMP-POINTER*"
+                                                                         "*VERBOSE-GC*"))
+                                                               (mapcar 'cdr *function-preloads*)
+                                                               (mapcar 'cdr *symbol-preloads*)))
+      (multiple-value-bind (load-base phys-static-base phys-dynamic-base dynamic-end support-end image-end initial-cr3 page-tables
+                            oldspace-pml2-entry newspace-pml2-entry)
 	  (generate-physical-dump-layout static-size dynamic-size)
-	(let* ((control-stack-size 4096)
-               (data-stack-size 4096)
+	(let* ((control-stack-size (* 4096 8))
+               (data-stack-size (* 4096 8))
                (binding-stack-size 1024)
                (bss-size (+ (* control-stack-size 8)
                             (* data-stack-size 8)
@@ -1005,8 +1018,8 @@
 		   (setf (gethash obj object-values) (logior base-address
 							     (object-tag obj)))))
 	    (maphash (lambda (obj addr)
-		       ;; Static objects have a two word header.
-		       (add-object obj (+ (* (+ addr 2) 8) *static-area-base*)))
+                       ;; Static objects have a two word header.
+                       (add-object obj (+ (* (+ addr 2) 8) *static-area-base*)))
 		     static-objects)
 	    (maphash (lambda (obj addr)
 		       (add-object obj (+ (* addr 8) *dynamic-area-base*)))
@@ -1053,6 +1066,12 @@
           (push (cons (genesis-intern "*NEWSPACE-OFFSET*") dynamic-size) ; words
                 *symbol-preloads*)
           (push (cons (genesis-intern "*SEMISPACE-SIZE*") (/ (* 32 1024 1024) 8)) ; words
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*OLDSPACE-PAGING-BITS*") (+ *linear-map* oldspace-pml2-entry))
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*NEWSPACE-PAGING-BITS*") (+ *linear-map* newspace-pml2-entry))
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*STATIC-BUMP-POINTER*") (+ *static-area-base* (* static-size 8)))
                 *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002

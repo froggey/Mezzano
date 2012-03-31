@@ -80,12 +80,36 @@
 
 (defun emergency-halt (message)
   (%cli)
-  (dotimes (i (%simple-array-length message 0))
+  (dotimes (i (%simple-array-length message))
     (let ((code (logand (char-code (schar message i)) #xFF)))
       (setf (io-port/8 #xE9) code)
       (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
             (logior code #x7000))))
   (loop (%hlt)))
+
+(defun mumble (message)
+  (dotimes (i (%simple-array-length message))
+    (let ((code (logand (char-code (schar message i)) #xFF)))
+      (setf (io-port/8 #xE9) code)
+      (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
+            (logior code #x7000))))
+  (setf (io-port/8 #xE9) #x0A))
+
+;;; Used while the GC is copying, so no lookup tables.
+(defun hexify (nibble)
+  (cond ((<= 0 nibble 9)
+         (+ nibble (char-code #\0)))
+        (t (+ (- nibble 10) (char-code #\A)))))
+
+(defun gc-trace (object direction prefix)
+  (setf (io-port/8 #xE9) (char-code direction))
+  (setf (io-port/8 #xE9) (logand (char-code prefix) #xFF))
+  (let ((pointer (%pointer-field object))
+        (tag (%tag-field object)))
+    (dotimes (i 15)
+      (setf (io-port/8 #xE9) (hexify (logand (ash pointer (* -4 (- 14 i))) #b1111))))
+    (setf (io-port/8 #xE9) (hexify tag))
+    (setf (io-port/8 #xE9) #x0A)))
 
 (defun repl ()
   (loop
