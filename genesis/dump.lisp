@@ -131,9 +131,8 @@
      ;; TODO: bignum
      2)
     (genesis-function
-     (+ 1
-	(length (genesis-function-constants x))
-	(ceiling (length (genesis-function-assembled-code x)) 8)))
+     (+ (length (genesis-function-constants x))
+	(* (ceiling (+ (length (genesis-function-assembled-code x)) 12) 16) 2)))
     (genesis-stack-group 512)))
 
 (defun object-tag (x)
