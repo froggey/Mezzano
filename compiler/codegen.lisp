@@ -1122,6 +1122,8 @@ only R8 will be preserved."
            ;; Just like a regular call.
            (cg-function-form `(funcall ,function)))
           ((null (cdr value-forms))
+           #+nil(when (eql *for-value* :multiple)
+             (error "TODO: Multiple-value return from M-V-CALL>"))
            ;; Single value form.
            (let ((fn-tag (let ((*for-value* t)) (cg-form function)))
                  (stack-pointer-save-area (allocate-control-stack-slots 1)))
@@ -1319,11 +1321,11 @@ only R8 will be preserved."
               ;; Ensure that the info does not get invalidated by a GO to
               ;; this tagbody.
               `(sys.lap-x86:sub64 :rax 16)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rax)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :csp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :cfp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 4)) :lsp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 5)) :lfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 1)) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 2)) :csp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 3)) :cfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 4)) :lsp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 5)) :lfp)
               ;; Save in the environment.
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea control-info))
               `(sys.lap-x86:mov64 (:r8 9) :rax))
