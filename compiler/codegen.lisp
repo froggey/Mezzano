@@ -18,6 +18,7 @@ be generated instead.")
 (defvar *environment-chain* nil)
 (defvar *special-bindings* nil)
 (defvar *current-lambda-name* nil)
+(defvar *control-stack-depth* nil)
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
@@ -39,6 +40,20 @@ be generated instead.")
   (check-type character character)
   (logior (ash (char-int character) 4) 10))
 
+(defun control-stack-frame-offset (slot)
+  "Convert a control stack slot number to an offset."
+  (- (* (+ slot 4) 8)))
+
+(defun control-stack-slot-ea (slot)
+  "Return an effective address for a control stack slot."
+  `(:cfp ,(control-stack-frame-offset slot)))
+
+;;; TODO: This should work on a stack-like system so that slots can be
+;;; reused when the allocation is no longer needed.
+(defun allocate-control-stack-slots (count)
+  (when (oddp count) (incf count))
+  (incf *control-stack-depth* count))
+
 (defun codegen-lambda (lambda)
   (let* ((*current-lambda* lambda)
          (*current-lambda-name* (or (lambda-information-name lambda)
@@ -54,7 +69,8 @@ be generated instead.")
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
          (*environment-chain* '())
          (*environment* *environment*)
-         (*special-bindings* '()))
+         (*special-bindings* '())
+         (*control-stack-depth* 0))
     (when (or (lambda-information-enable-keys lambda)
               (lambda-information-key-args lambda))
       (error "&KEY arguments did not get lowered!"))
@@ -302,8 +318,8 @@ be generated instead.")
 	   `(sys.lap-x86:push :rax)
 	   ;; Saved argument count.
 	   `(sys.lap-x86:push :rcx)
-	   ;; Stack alignment/spare (used by the rest code).
-	   `(sys.lap-x86:push 0))
+	   ;; Adjust CSP. 1+ for alignment (also used by the rest code).
+           `(sys.lap-x86:sub64 :csp ,(* (1+ *control-stack-depth*) 8)))
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
 	    ;; If there are no required parameters, then don't generate a lower-bound check.
@@ -1291,23 +1307,24 @@ only R8 will be preserved."
         ;; Set back-link.
         (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
               `(sys.lap-x86:mov64 (:r8 1) :r9)))
-      ;; Construct jump info.
-      (emit `(sys.lap-x86:sub64 :csp 48)
-            `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
-            `(sys.lap-x86:mov64 (:csp 0) :rax)
-            `(sys.lap-x86:gs)
-            `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-            ;; Ensure that the info does not get invalidated by a GO to
-            ;; this tagbody.
-            `(sys.lap-x86:sub64 :rax 16)
-            `(sys.lap-x86:mov64 (:csp 8) :rax)
-            `(sys.lap-x86:mov64 (:csp 16) :csp)
-            `(sys.lap-x86:mov64 (:csp 24) :cfp)
-            `(sys.lap-x86:mov64 (:csp 32) :lsp)
-            `(sys.lap-x86:mov64 (:csp 40) :lfp)
-            ;; Save in the environment.
-            `(sys.lap-x86:mov64 (:r8 9) :csp))
-      (let ((slot (find-stack-slot)))
+      (let ((slot (find-stack-slot))
+            (control-info (allocate-control-stack-slots 6)))
+        ;; Construct jump info.
+        (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-info) :rax)
+              `(sys.lap-x86:gs)
+              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              ;; Ensure that the info does not get invalidated by a GO to
+              ;; this tagbody.
+              `(sys.lap-x86:sub64 :rax 16)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :csp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :cfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 4)) :lsp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 5)) :lfp)
+              ;; Save in the environment.
+              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea control-info))
+              `(sys.lap-x86:mov64 (:r8 9) :rax))
         (setf (aref *stack-values* slot) (cons :environment :home))
         (push slot *environment-chain*)
         (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))
@@ -1333,9 +1350,7 @@ only R8 will be preserved."
     (when escapes
       ;; Disable the tagbody.
       (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
-            `(sys.lap-x86:mov64 (:r9 9) nil)
-            ;; Drop the info.
-            `(sys.lap-x86:add64 :csp 48)))
+            `(sys.lap-x86:mov64 (:r9 9) nil)))
     (if last-value
 	''nil
 	'nil)))
