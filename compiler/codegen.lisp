@@ -1123,7 +1123,8 @@ only R8 will be preserved."
            (cg-function-form `(funcall ,function)))
           ((null (cdr value-forms))
            ;; Single value form.
-           (let ((fn-tag (let ((*for-value* t)) (cg-form function))))
+           (let ((fn-tag (let ((*for-value* t)) (cg-form function)))
+                 (stack-pointer-save-area (allocate-control-stack-slots 1)))
              (when (not fn-tag)
                (return-from cg-multiple-value-call nil))
              (let ((value-tag (let ((*for-value* :multiple))
@@ -1131,6 +1132,7 @@ only R8 will be preserved."
                (when (not value-tag)
                  (return-from cg-multiple-value-call nil))
                (load-multiple-values value-tag)
+               (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rbx))
                (load-in-reg :r13 fn-tag t)
                (let ((type-error-label (gensym))
                      (function-label (gensym)))
@@ -1145,7 +1147,7 @@ only R8 will be preserved."
                        `(sys.lap-x86:mov64 :r13 (:symbol-function :r13))
                        function-label
                        `(sys.lap-x86:call :r13)
-                       `(sys.lap-x86:mov64 :lsp :rbx)))
+                       `(sys.lap-x86:mov64 :lsp ,(control-stack-slot-ea stack-pointer-save-area))))
                (setf *r8-value* (list (gensym))))))
           (t (cg-function-form `(error '"TODO multiple-value-call with >1 arguments."))))))
 
