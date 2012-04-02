@@ -294,7 +294,11 @@
            ;; Object is in the static area, mark and scan.
            (mark-static-object object)
            object)
-          (t (emergency-halt "bad pointer?!")))))
+          (t
+           ;; Assume the pointer is on the stack.
+           ;; TODO: Track scanned stack objects. Allocate a cons with dynamic-extent
+           ;; and push on some symbol.
+           (scan-object object nil)))))
 
 ;;; Arguments and MV return are to force the data registers on to the stack.
 ;;; This does not work for RBX or R13, but RBX is smashed by the function
