@@ -2,12 +2,11 @@
 
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
-(declaim (special *static-bump-pointer*))
+(declaim (special *static-bump-pointer* *static-mark-bit*))
 (declaim (special *verbose-gc*))
 (setf *verbose-gc* nil)
 
 (defvar *gc-in-progress* nil)
-(defvar *static-mark-bit* 0)
 
 ;;; FIXME: Should use unwind-protect but that conses!!!
 ;;; TODO: Require that this can never nest (ie interrupts are on "all" the time).
@@ -347,7 +346,8 @@
 ;;; *newspace-offset* without clearing memory, so must be called
 ;;; with the GC defered (currently by using WITH-INTERRUPTS-DISABLED)
 ;;; and the caller must clear the returned memory before reenabling the GC.
-;;; Additionally, the number of words to allocate must be even.
+;;; Additionally, the number of words to allocate must be even to ensure
+;;; correct alignment.
 (defun %raw-allocate (words)
   (when (> (+ *newspace-offset* words) *semispace-size*)
     (%gc)
@@ -399,6 +399,8 @@ the header word. LENGTH is the number of elements in the array."
   (with-interrupts-disabled ()
     (let ((address (+ *static-bump-pointer* 16)))
       (incf *static-bump-pointer* (+ (* 6 8) 16))
+      ;; Initialize the static header word.
+      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) #x00020001

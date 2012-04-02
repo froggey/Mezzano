@@ -995,7 +995,7 @@
                                                                          "*NEWSPACE-OFFSET*" "*SEMISPACE-SIZE*"
                                                                          "*OLDSPACE-PAGING-BITS*"
                                                                          "*NEWSPACE-PAGING-BITS*"
-                                                                         "*STATIC-BUMP-POINTER*"
+                                                                         "*STATIC-BUMP-POINTER*" "*STATIC-MARK-BIT*"
                                                                          "*VERBOSE-GC*"))
                                                                (mapcar 'cdr *function-preloads*)
                                                                (mapcar 'cdr *symbol-preloads*)))
@@ -1072,6 +1072,8 @@
           (push (cons (genesis-intern "*NEWSPACE-PAGING-BITS*") (+ *linear-map* newspace-pml2-entry))
                 *symbol-preloads*)
           (push (cons (genesis-intern "*STATIC-BUMP-POINTER*") (+ *static-area-base* (* static-size 8)))
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*STATIC-MARK-BIT*") 0)
                 *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002
