@@ -19,9 +19,14 @@
 ;;; Suppress preemption (SBCL pseudo-atomic-like operation).
 
 (defun room (&optional (verbosity :default))
-  (format t "~&~D/~D words allocated (~D%).~%"
+  (fresh-line)
+  (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
           *newspace-offset* *semispace-size*
           (truncate (* *newspace-offset* 100) *semispace-size*))
+  ;; FIXME: The static area is only the same size as a semispace through coincience.
+  (format t "Static space: ~:D/~:D words allocated (~D%).~%"
+          (ceiling (- *static-bump-pointer* #x200000) 8) *semispace-size*
+          (truncate (* (ceiling (- *static-bump-pointer* #x200000) 8) 100) *semispace-size*))
   (values))
 
 (defun gc ()

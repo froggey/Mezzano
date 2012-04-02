@@ -56,7 +56,8 @@
 		(write-char #\+ s)))
 	  (if colon
 	      (dotimes (i (length buffer))
-		(when (= 0 (rem (- (length buffer) i) comma-interval))
+		(when (and (not (zerop i))
+                           (zerop (rem (- (length buffer) i) comma-interval)))
 		  (write-char commachar s))
 		(write-char (char buffer (- (length buffer) i 1)) s))
 	      (dotimes (i (length buffer))
