@@ -2,7 +2,6 @@
 
 (declaim (special *unifont-bmp*))
 
-(defvar *framebuffer* nil)
 (defparameter *unifont-glyph-cache* (make-array 256 :initial-element nil))
 
 (defun map-unifont (c)
@@ -74,30 +73,47 @@
 	(%bitblt 16 8 glyph 0 0
 		 framebuffer y x))))
 
-(defvar *framebuffer-x* 0)
-(defvar *framebuffer-y* 0)
+(defclass framebuffer-stream (stream-object)
+  ((framebuffer :initarg :framebuffer)
+   (x :initarg :x :initform 0)
+   (y :initarg :y :initform 0))
+  ;; why does this not work?!
+  (:default-initargs :x 0 :y 0))
 
-(defun framebuffer-write (character)
-  (cond
-    ((eql character #\Newline)
-     ;; Clear the next line.
-     (setf *framebuffer-x* 0
-           *framebuffer-y* (if (>= (+ y 16) (array-dimension *framebuffer* 0))
-                               0
-                               (+ y 16)))
-     (%bitset 16 (array-dimension *framebuffer* 1) #xFF000000 *framebuffer* *framebuffer-y* 0))
-    (t (let ((width (if (eql character #\Space) 8 (unifont-glyph-width character))))
-         (when (> (+ *framebuffer-x* width) (array-dimension *framebuffer* 1))
-           ;; Advance to the next line.
-           ;; Maybe should clear the end of the current line?
-           (setf *framebuffer-x* 0
-                 *framebuffer-y* (if (>= (+ *framebuffer-y* 16) (array-dimension *framebuffer* 0))
-                                     0
-                                     (+ *framebuffer-y* 16)))
-           (%bitset 16 (array-dimension *framebuffer* 1) #xFF000000 *framebuffer* *framebuffer-y* 0))
-         (if (eql character #\Space)
-             (%bitset 16 8 #xFF000000 *framebuffer* *framebuffer-y* *framebuffer-x*)
-             (render-char-at character *framebuffer* *framebuffer-x* *framebuffer-y*))
-         (incf *framebuffer-x* width)))))
+(defun framebuffer-write-char (character stream)
+  (let ((fb (slot-value stream 'framebuffer))
+        (x (slot-value stream 'x))
+        (y (slot-value stream 'y)))
+    (cond
+      ((eql character #\Newline)
+       ;; Clear the next line.
+       (setf (slot-value stream 'x) 0
+             y (if (> (+ y 16 16) (array-dimension fb 0))
+                   0
+                   (+ y 16))
+             (slot-value stream 'y) y)
+       (%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
+      (t (let ((width (if (eql character #\Space) 8 (unifont-glyph-width character))))
+           (when (> (+ x width) (array-dimension fb 1))
+             ;; Advance to the next line.
+             ;; Maybe should clear the end of the current line?
+             (setf x 0
+                   y (if (> (+ y 16 16) (array-dimension fb 0))
+                         0
+                         (+ y 16))
+                   (slot-value stream 'y) y)
+             (%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
+           (if (eql character #\Space)
+               (%bitset 16 8 #xFF000000 fb y x)
+               (render-char-at character fb x y))
+           (incf x width)
+           (setf (slot-value stream 'x) x))))))
 
+(defmethod stream-write-char (character (stream framebuffer-stream))
+  (framebuffer-write-char character stream))
 
+(defmethod stream-read-char ((stream framebuffer-stream))
+  (cold-read-char nil))
+
+(defmethod stream-start-line-p ((stream framebuffer-stream))
+  (zerop (slot-value stream 'x)))
