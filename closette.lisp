@@ -747,7 +747,8 @@
        (discriminating-function)  ; :accessor generic-function-
                                   ;    -discriminating-function
        (classes-to-emf-table      ; :accessor classes-to-emf-table
-          :initform (make-hash-table :test #'equal)))))
+          :initform (make-hash-table :test #'equal))
+       (relevant-arguments))))    ; :accessor generic-function-relevant-arguments
 
 (defvar the-class-standard-gf) ;standard-generic-function's class metaobject
 
@@ -775,6 +776,11 @@
   (slot-value gf 'method-class))
 (defun (setf generic-function-method-class) (new-value gf)
   (setf (slot-value gf 'method-class) new-value))
+
+(defun generic-function-relevant-arguments (gf)
+  (slot-value gf 'relevant-arguments))
+(defun (setf generic-function-relevant-arguments) (new-value gf)
+  (setf (slot-value gf 'relevant-arguments) new-value))
 
 ;;; Internal accessor for effective method function table
 
@@ -889,6 +895,20 @@
          (setf (find-generic-function function-name) gf)
          gf)))
 
+(defun generic-function-single-dispatch-p (gf)
+  "Returns true when the generic function only one non-t specialized argument."
+  (when (eq (class-of gf) the-class-standard-gf)
+    (let ((specializers (generic-function-relevant-arguments gf))
+          (count 0)
+          (offset 0))
+      (dotimes (i (length specializers))
+        (unless (zerop (aref specializers i))
+          (setf offset i)
+          (incf count)))
+      (if (eql count 1)
+          (values t offset)
+          nil))))
+
 ;;; finalize-generic-function
 
 ;;; N.B. Same basic idea as finalize-inheritance.  Takes care of recomputing
@@ -896,6 +916,19 @@
 ;;; function table.
 
 (defun finalize-generic-function (gf)
+  ;; Examine all methods and compute the relevant argument bit-vector.
+  (let* ((required-args (gf-required-arglist gf))
+         (relevant-args (make-array (length required-args)
+                                    ;:element-type 'bit
+                                    :initial-element 0))
+         (class-t (find-class 't)))
+    (dolist (m (generic-function-methods gf))
+      (do ((i 0 (1+ i))
+           (spec (method-specializers m) (rest spec)))
+          ((null spec))
+        (unless (eql (first spec) class-t)
+          (setf (aref relevant-args i) 1))))
+    (setf (generic-function-relevant-arguments gf) relevant-args))
   (setf (generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) the-class-standard-gf)
                      #'std-compute-discriminating-function
@@ -903,7 +936,9 @@
                  gf))
   (setf (fdefinition (generic-function-name gf))
         (generic-function-discriminating-function gf))
-  (clrhash (classes-to-emf-table gf))
+  (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
+                                                             #'eq
+                                                             #'equal)))
   (values))
 
 ;;; make-instance-standard-generic-function creates and initializes an
@@ -918,7 +953,6 @@
     (setf (generic-function-lambda-list gf) lambda-list)
     (setf (generic-function-methods gf) ())
     (setf (generic-function-method-class gf) method-class)
-    (setf (classes-to-emf-table gf) (make-hash-table :test #'equal))
     (finalize-generic-function gf)
     gf))
 
@@ -1165,17 +1199,26 @@
 ;;; compute-discriminating-function
 
 (defun std-compute-discriminating-function (gf)
-  #'(lambda (&rest args)
-      (let* ((classes (mapcar #'class-of
-                              (required-portion gf args)))
-             (emfun (gethash classes (classes-to-emf-table gf) nil)))
-        (if emfun
-            (funcall emfun args)
-            (slow-method-lookup gf args classes)))))
+  (multiple-value-bind (single-dispatch-p argument-offset)
+      (generic-function-single-dispatch-p gf)
+    (if single-dispatch-p
+        #'(lambda (&rest args)
+            (let* ((class (class-of (nth argument-offset args)))
+                   (emfun (gethash class (classes-to-emf-table gf) nil)))
+              (if emfun
+                  (funcall emfun args)
+                  (slow-single-dispatch-method-lookup gf args class))))
+        #'(lambda (&rest args)
+            (let* ((classes (mapcar #'class-of
+                                    (required-portion gf args)))
+                   (emfun (gethash classes (classes-to-emf-table gf) nil)))
+              (if emfun
+                  (funcall emfun args)
+                  (slow-method-lookup gf args classes)))))))
 
 (defun slow-method-lookup (gf args classes)
   (let* ((applicable-methods
-           (compute-applicable-methods-using-classes gf classes))
+          (compute-applicable-methods-using-classes gf classes))
          (emfun
            (funcall
              (if (eq (class-of gf) the-class-standard-gf)
@@ -1183,6 +1226,15 @@
                  #'compute-effective-method-function)
              gf applicable-methods)))
     (setf (gethash classes (classes-to-emf-table gf)) emfun)
+    (funcall emfun args)))
+
+(defun slow-single-dispatch-method-lookup (gf args class)
+  (let* ((classes (mapcar #'class-of
+                          (required-portion gf args)))
+         (applicable-methods
+          (compute-applicable-methods-using-classes gf classes))
+         (emfun (std-compute-effective-method-function gf applicable-methods)))
+    (setf (gethash class (classes-to-emf-table gf)) emfun)
     (funcall emfun args)))
 
 ;;; compute-applicable-methods-using-classes
