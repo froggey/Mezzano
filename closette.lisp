@@ -325,7 +325,8 @@
        (class-precedence-list)            ; :accessor class-precedence-list
        (effective-slots)                  ; :accessor class-slots
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
-       (direct-methods :initform ()))))   ; :accessor class-direct-methods
+       (direct-methods :initform ())      ; :accessor class-direct-methods
+       (direct-default-initargs :initform ())))) ; :accessor class-direct-default-initargs
 
 ;;; Defining the metaobject slot accessor function as regular functions
 ;;; greatly simplifies the implementation without removing functionality.
@@ -363,6 +364,11 @@
   (slot-value class 'direct-methods))
 (defun (setf class-direct-methods) (new-value class)
   (setf (slot-value class 'direct-methods) new-value))
+
+(defun class-direct-default-initargs (class)
+  (slot-value class 'direct-default-initargs))
+(defun (setf class-direct-default-initargs) (new-value class)
+  (setf (slot-value class 'direct-default-initargs) new-value))
 
 ;;; defclass
 
@@ -480,7 +486,8 @@
 
 (defun make-instance-standard-class
        (metaclass &key name direct-superclasses direct-slots
-                  &allow-other-keys)
+        direct-default-initargs
+        &allow-other-keys)
   (declare (ignore metaclass))
   (let ((class (std-allocate-instance the-class-standard-class)))
     (setf (class-name class) name)
@@ -488,11 +495,12 @@
     (setf (class-direct-methods class) ())
     (std-after-initialization-for-classes class
        :direct-slots direct-slots
-       :direct-superclasses direct-superclasses)
+       :direct-superclasses direct-superclasses
+       :direct-default-initargs direct-default-initargs)
     class))
 
 (defun std-after-initialization-for-classes
-       (class &key direct-superclasses direct-slots &allow-other-keys)
+       (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
   (let ((supers
           (or direct-superclasses
               (list (find-class 'standard-object)))))
@@ -512,6 +520,7 @@
       (dolist (writer (slot-definition-writers direct-slot))
         (add-writer-method
           class writer (slot-definition-name direct-slot)))))
+  (setf (class-direct-default-initargs class) direct-default-initargs)
   (funcall (if (eq (class-of class) the-class-standard-class)
               #'std-finalize-inheritance
               #'finalize-inheritance)
@@ -1456,7 +1465,7 @@
 (defgeneric make-instance (class &key))
 (defmethod make-instance ((class standard-class) &rest initargs)
   (let ((instance (allocate-instance class)))
-    (apply #'initialize-instance instance initargs)
+    (apply #'initialize-instance instance (append initargs (class-direct-default-initargs class)))
     instance))
 (defmethod make-instance ((class symbol) &rest initargs)
   (apply #'make-instance (find-class class) initargs))

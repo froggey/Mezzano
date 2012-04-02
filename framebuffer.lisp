@@ -75,9 +75,8 @@
 
 (defclass framebuffer-stream (stream-object)
   ((framebuffer :initarg :framebuffer)
-   (x :initarg :x :initform 0)
-   (y :initarg :y :initform 0))
-  ;; why does this not work?!
+   (x :initarg :x)
+   (y :initarg :y))
   (:default-initargs :x 0 :y 0))
 
 (defun framebuffer-write-char (character stream)
