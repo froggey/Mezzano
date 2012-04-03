@@ -164,12 +164,13 @@
 
 (defvar the-slots-of-standard-class) ;standard-class's class-slots
 (defvar the-class-standard-class)    ;standard-class's class metaobject
+(defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
+(defvar *standard-class-slot-cache-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
            (eq class the-class-standard-class))
-      (position 'effective-slots the-slots-of-standard-class
-               :key #'slot-definition-name)
+      *standard-class-effective-slots-position*
       (let ((slot (find slot-name
                         (class-slots class)
                         :key #'slot-definition-name)))
@@ -191,14 +192,25 @@
 (defun (setf slot-contents) (new-value slots location)
   (setf (svref slots location) new-value))
 
+(defun fast-sv-position (value simple-vector)
+  (dotimes (i (array-dimension simple-vector 0))
+    (when (eq value (svref simple-vector i))
+      (return i))))
+
 (defun std-slot-value (instance slot-name)
-  (let* ((location (slot-location (class-of instance) slot-name))
-         (slots (std-instance-slots instance))
-         (val (slot-contents slots location)))
-    (if (eq secret-unbound-value val)
-        (error "The slot ~S is unbound in the object ~S."
-               slot-name instance)
-        val)))
+  (flet ((cached-location ()
+           (let ((cache (slot-contents (std-instance-slots (class-of instance))
+                                       *standard-class-slot-cache-position*)))
+             (when (simple-vector-p cache)
+               (fast-sv-position slot-name cache)))))
+    (let* ((location (or (cached-location)
+                         (slot-location (class-of instance) slot-name)))
+           (slots (std-instance-slots instance))
+           (val (slot-contents slots location)))
+      (if (eq secret-unbound-value val)
+          (error "The slot ~S is unbound in the object ~S."
+                 slot-name instance)
+          val))))
 (defun slot-value (object slot-name)
   (if (eq (class-of (class-of object)) the-class-standard-class)
       (std-slot-value object slot-name)
@@ -324,6 +336,7 @@
        (direct-slots)                     ; :accessor class-direct-slots
        (class-precedence-list)            ; :accessor class-precedence-list
        (effective-slots)                  ; :accessor class-slots
+       (slot-position-cache :initform ()) ; :accessor class-slot-cache
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
        (direct-default-initargs :initform ())))) ; :accessor class-direct-default-initargs
@@ -354,6 +367,11 @@
   (slot-value class 'effective-slots))
 (defun (setf class-slots) (new-value class)
   (setf (slot-value class 'effective-slots) new-value))
+
+(defun class-slot-cache (class)
+  (slot-value class 'slot-position-cache))
+(defun (setf class-slot-cache) (new-value class)
+  (setf (slot-value class 'slot-position-cache) new-value))
 
 (defun class-direct-subclasses (class)
   (slot-value class 'direct-subclasses))
@@ -608,6 +626,11 @@
                      #'std-compute-slots
                      #'compute-slots)
                  class))
+  (let ((instance-slots (remove-if-not 'instance-slot-p
+                                       (class-slots class))))
+    (setf (class-slot-cache class)
+          (make-array (length instance-slots)
+                      :initial-contents (mapcar 'slot-definition-name instance-slots))))
   (values))
 
 ;;; Class precedence lists
@@ -1401,6 +1424,12 @@
                         (if a #'(lambda () (eval a)) nil))
                     :allocation ':instance))
               (nth 3 the-defclass-standard-class)))
+(setf *standard-class-effective-slots-position*
+      (position 'effective-slots the-slots-of-standard-class
+                :key #'slot-definition-name))
+(setf *standard-class-slot-cache-position*
+      (position 'slot-position-cache the-slots-of-standard-class
+                :key #'slot-definition-name))
 ;; 2. Create the standard-class metaobject by hand.
 (setq the-class-standard-class
       (allocate-std-instance
@@ -1424,6 +1453,7 @@
     (setf (class-direct-slots class) ())
     (setf (class-direct-default-initargs class) ())
     (setf (class-precedence-list class) (list class))
+    (setf (class-slot-cache class) (make-array 0))
     (setf (class-slots class) ())
     class))
 ;; (It's now okay to define subclasses of t.)
