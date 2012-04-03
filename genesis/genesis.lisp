@@ -437,6 +437,7 @@ GENESIS-INTERN.")
   (aref array index))
 (defbuiltin (setf %simple-array-aref) (value array index)
   (setf (aref array index) value))
+(define-forwarding-builtin simple-vector-p)
 (define-forwarding-builtin svref)
 (define-forwarding-builtin (setf svref))
 

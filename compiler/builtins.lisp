@@ -1209,6 +1209,21 @@
                      `(sys.lap-x86:out32 :dx)))))
     value))
 
+(defbuiltin simple-vector-p (object) ()
+  (let ((out (gensym)))
+    (load-in-r8 object t)
+    (emit `(sys.lap-x86:mov8 :al :r8l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:jne ,out)
+          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+          `(sys.lap-x86:test8 :al :al)
+          ;; Subtle. OUT can be reached through either the tag check
+          ;; or through the array type check. Both checks clear ZF when
+          ;; they fail.
+          out)
+    (predicate-result :z)))
+
 (defbuiltin svref (simple-vector index) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
