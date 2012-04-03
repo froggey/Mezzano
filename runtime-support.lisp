@@ -109,7 +109,10 @@
       (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
       (#.+function-type-closure+ ;; Closure.
-       (function-name (memref-t address 4))))))
+       (function-name (memref-t address 4)))
+      (#.+function-type-interpreted-function+
+       ;; Interpreted function. Second entry in the constant pool.
+       (memref-t address 7)))))
 
 (defvar *gensym-counter* 0)
 (defun gensym (&optional (thing "G"))
