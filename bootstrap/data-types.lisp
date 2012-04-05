@@ -1,5 +1,7 @@
 (in-package #:sys.int)
 
+(defconstant +fixnum-tag-mask+ #b111)
+
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
 (defconstant +tag-symbol+        #b0010)

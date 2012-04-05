@@ -488,6 +488,18 @@ the header word. LENGTH is the number of elements in the array."
             (%symbol-flags symbol) 0)
       symbol)))
 
+(define-lap-function %%make-bignum-128-rdx-rax ()
+  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r8 (:constant "TODO 128 bignum rdx:rax"))
+  (sys.lap-x86:mov64 :r13 (:constant error))
+  (sys.lap-x86:jmp (:symbol-function :r13)))
+
+(define-lap-function %%make-bignum-64-rax ()
+  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r8 (:constant "TODO 64 bignum rax"))
+  (sys.lap-x86:mov64 :r13 (:constant error))
+  (sys.lap-x86:jmp (:symbol-function :r13)))
+
 (defun %allocate-stack (length)
   (when (oddp length)
     (incf length))

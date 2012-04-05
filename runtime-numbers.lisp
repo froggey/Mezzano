@@ -65,3 +65,36 @@
                  (plusp number)))
         (values (+ tru 1) (- rem divisor))
         (values tru rem))))
+
+(defun generic-< (x y)
+  (error "TODO"))
+
+(defun generic->= (x y)
+  (generic-< y x))
+
+(defun generic-> (x y)
+  (error "TODO"))
+
+(defun generic-<= (x y)
+  (generic-> y x))
+
+(defun generic-= (x y)
+  (error "TODO"))
+
+(defun generic-truncate (number divisor)
+  (error "TODO"))
+
+(defun generic-rem (number divisor)
+  (multiple-value-bind (quot rem)
+      (generic-truncate number divisor)
+    (declare (ignore quot))
+    rem))
+
+(defun generic-+ (x y)
+  (error "TODO"))
+
+(defun generic-- (x y)
+  (error "TODO"))
+
+(defun generic-* (x y)
+  (error "TODO"))
