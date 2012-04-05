@@ -445,9 +445,9 @@ the header word. LENGTH is the number of elements in the array."
       (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) #x00040002
+      (setf (memref-unsigned-byte-32 address 0) #x00020002
             ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000002
+            (memref-unsigned-byte-32 address 1) #x00000004
             (memref-unsigned-byte-32 address 2) #x00000000
             ;; The code.
             ;; mov64 :rbx (:rip 21)/pool[1]
