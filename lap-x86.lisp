@@ -468,6 +468,18 @@
      (return-from instruction
        (generate-modrm ,class ,r/m ,opc-minor ,opc))))
 
+(defmacro modrm-imm8 (class r/m reg imm8 opc)
+  `(when (and (eql ,class (reg-class ,reg))
+	      (or (eql (reg-class ,r/m) ,class)
+		  (consp ,r/m))
+	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
+              (immediatep ,imm8))
+     (let ((value (resolve-immediate ,imm8)))
+       (when value
+         (generate-modrm ,class ,r/m ,reg ,opc)
+         (emit-imm 1 value))
+       (return-from instruction t))))
+
 (defun generate-imm (class r/m imm opc opc-minor)
   (let ((imm-value (resolve-immediate imm)))
     (when imm-value
@@ -963,25 +975,17 @@
   (modrm-single :gpr-64 rhs #xF7 7))
 
 (define-instruction imul8 (rhs)
-  (modrm-single :gpr-8 rhs #xF7 5))
-(define-instruction imul16 (rhs)
-  (modrm-single :gpr-16 rhs #xF7 5))
-(define-instruction imul32 (rhs)
-  (modrm-single :gpr-32 rhs #xF7 5))
-(define-instruction imul64 (rhs)
-  (modrm-single :gpr-64 rhs #xF7 5))
+  (modrm-single :gpr-8 rhs #xF6 5))
 
-(defmacro modrm-imm8 (class r/m reg imm8 opc)
-  `(when (and (eql ,class (reg-class ,reg))
-	      (or (eql (reg-class ,r/m) ,class)
-		  (consp ,r/m))
-	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
-              (immediatep ,imm8))
-     (let ((value (resolve-immediate ,imm8)))
-       (when value
-         (generate-modrm ,class ,r/m ,reg ,opc)
-         (emit-imm 1 value))
-       (return-from instruction t))))
+(defmacro define-imul (name class)
+  `(define-instruction ,name (operand-one &optional operand-two)
+     (cond (operand-two
+            (modrm-imm8 ,class operand-one operand-one operand-two #x6B)
+            (modrm ,class operand-two operand-one '(#x0F #xAF)))
+           (t (modrm-single ,class operand-one #xF7 5)))))
+(define-imul imul16 :gpr-16)
+(define-imul imul32 :gpr-32)
+(define-imul imul64 :gpr-64)
 
 (define-instruction shrd16 (low high count)
   (when (eql count :cl)
