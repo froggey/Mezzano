@@ -129,7 +129,10 @@
     (genesis-closure 6)
     (integer
      ;; TODO: bignum
-     2)
+     (let ((word-count (1+ (ceiling (1+ (integer-length x)) 64))))
+       (when (oddp word-count)
+         (incf word-count))
+       word-count))
     (genesis-function
      (+ (length (genesis-function-constants x))
 	(* (ceiling (+ (length (genesis-function-assembled-code x)) 12) 16) 2)))
@@ -380,7 +383,7 @@
 		 ((signed-byte 61)
 		  (values 'fixnum 0))
 		 (integer
-		  (values 'bignum 2))
+		  (values 'bignum (object-size k)))
 		 (single-float
 		  (values 'single-float 0))
 		 (symbol
@@ -773,7 +776,11 @@
 
 (defmethod dump-object ((object integer) value-table image offset)
   ;; +0 Header word.
-  (setf (nibbles:ub64ref/le image offset) (make-sa-header-word 1 25)))
+  (setf (nibbles:ub64ref/le image offset) (make-sa-header-word (ceiling (1+ (integer-length object)) 64)
+                                                               "+ARRAY-TYPE-BIGNUM+"))
+  (dotimes (i (ceiling (1+ (integer-length object)) 64))
+    (setf (nibbles:ub64ref/le image (+ offset 8 (* i 8)))
+          (ldb (byte 64 (* i 64)) object))))
 
 (defmethod dump-object ((object genesis-function) value-table image offset)
   (when (genesis-function-assembled-code object)
