@@ -202,7 +202,7 @@
       (22 (scan-array-128 object transportp)) ; complex double-float
       (23 (scan-array-256 object transportp)) ; complex long-float
       (24 (scan-error object transportp)) ; unused (24)
-      (25 (scan-array-1 object transportp)) ; bignum
+      (25 (scan-array-64 object transportp)) ; bignum
       (26 (scan-error object transportp)) ; unused (26)
       (27 (scan-error object transportp)) ; unused (27)
       (28 (scan-error object transportp)) ; unused (28)
@@ -489,16 +489,68 @@ the header word. LENGTH is the number of elements in the array."
       symbol)))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
+  (sys.lap-x86:pushf)
+  (sys.lap-x86:cli)
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rdx)
+  ;; Allocate a 2 word bignum.
   (sys.lap-x86:mov64 :rcx 8)
-  (sys.lap-x86:mov64 :r8 (:constant "TODO 128 bignum rdx:rax"))
-  (sys.lap-x86:mov64 :r13 (:constant error))
-  (sys.lap-x86:jmp (:symbol-function :r13)))
+  (sys.lap-x86:mov64 :r8 32) ; fixnum 4 (ugh)
+  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; fixnum to pointer.
+  (sys.lap-x86:sar64 :r8 3)
+  ;; Set the header.
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 2 8) (ash +array-type-bignum+ 1)))
+  ;; Set values.
+  (sys.lap-x86:pop (:r8 16))
+  (sys.lap-x86:pop (:r8 8))
+  ;; pointer to value.
+  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
+  ;; GC back on.
+  (sys.lap-x86:popf)
+  ;; Single value return
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:ret))
 
 (define-lap-function %%make-bignum-64-rax ()
+  (sys.lap-x86:pushf)
+  (sys.lap-x86:cli)
+  (sys.lap-x86:push 0) ; alignment
+  (sys.lap-x86:push :rax)
+  ;; Allocate a 1 word bignum.
   (sys.lap-x86:mov64 :rcx 8)
-  (sys.lap-x86:mov64 :r8 (:constant "TODO 64 bignum rax"))
-  (sys.lap-x86:mov64 :r13 (:constant error))
-  (sys.lap-x86:jmp (:symbol-function :r13)))
+  (sys.lap-x86:mov64 :r8 16) ; fixnum 2 (ugh)
+  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; fixnum to pointer.
+  (sys.lap-x86:sar64 :r8 3)
+  ;; Set the header.
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 1 8) (ash +array-type-bignum+ 1)))
+  ;; Set values.
+  (sys.lap-x86:pop (:r8 8))
+  ;; realign stack.
+  (sys.lap-x86:pop :rax)
+  ;; pointer to value.
+  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
+  ;; GC back on.
+  (sys.lap-x86:popf)
+  ;; Single value return
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:ret))
+
+;;; This is used by the bignum code so that bignums and fixnums don't have
+;;; to be directly compared.
+(defun %make-bignum-from-fixnum (n)
+  (with-interrupts-disabled ()
+    (let* ((address (%raw-allocate 2)))
+      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 8) (ash +array-type-bignum+ 1))
+            (memref-unsigned-byte-64 address 1) n)
+      (%%assemble-value address +tag-array-like+))))
 
 (defun %allocate-stack (length)
   (when (oddp length)
