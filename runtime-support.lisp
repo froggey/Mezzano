@@ -145,3 +145,34 @@
 (defvar *gensym-counter* 0)
 (defun gensym (&optional (thing "G"))
   (make-symbol (format nil "~A~D" thing (prog1 *gensym-counter* (incf *gensym-counter*)))))
+
+(defun assemble-lap (code &optional name)
+  (multiple-value-bind (mc constants)
+      (sys.lap-x86:assemble code
+        :base-address 12
+        :initial-symbols (list (cons nil (lisp-object-address 'nil))
+                               (cons t (lisp-object-address 't))
+                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
+        :info (list name))
+    (make-function mc constants)))
+
+(defun compile (name &optional definition)
+  (unless definition
+    (setf definition (or (when (symbolp name) (macro-function name))
+                         (fdefinition name))))
+  (when (functionp definition)
+    (multiple-value-bind (lambda-expression env)
+        (function-lambda-expression definition)
+      (when (null lambda-expression)
+        (error "No source information available for ~S." definition))
+      (when env
+        (error "TODO: cannot compile functions defined outside the null lexical environment."))
+      (setf definition lambda-expression)))
+  (multiple-value-bind (fn warnings-p errors-p)
+      (sys.c::compile-lambda definition)
+    (cond (name
+           (if (and (symbolp name) (macro-function name))
+               (setf (macro-function name) fn)
+               (setf (fdefinition name) fn))
+           (values name warnings-p errors-p))
+          (t (values fn warnings-p errors-p)))))

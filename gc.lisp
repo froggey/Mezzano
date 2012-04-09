@@ -465,6 +465,30 @@ the header word. LENGTH is the number of elements in the array."
               (memref-t address 7) name)
         value))))
 
+(defun make-function (machine-code constants)
+  "Allocate a new regular function."
+  (with-interrupts-disabled ()
+    (let* ((address (+ *static-bump-pointer* 16))
+           (mc-size (ceiling (+ (length machine-code) 12) 16))
+           (pool-size (length constants))
+           (total (+ (* mc-size 2) pool-size)))
+      (when (oddp total)
+        (incf total))
+      (incf *static-bump-pointer* (+ (* total 8) 16)) ; what was the +16 for?
+      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+      ;; Initialize header.
+      (setf (memref-unsigned-byte-64 address 0) 0
+            (memref-unsigned-byte-16 address 0) +function-type-function+
+            (memref-unsigned-byte-16 address 1) mc-size
+            (memref-unsigned-byte-16 address 2) pool-size)
+      ;; Initialize code.
+      (dotimes (i (length machine-code))
+        (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
+      ;; Initialize constant pool.
+      (dotimes (i (length constants))
+        (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+      (%%assemble-value address +tag-function+))))
+
 (defun %make-array-header (dimensions fill-pointer info storage)
   (with-interrupts-disabled ()
     (let ((value (%%assemble-value (%raw-allocate 4) +tag-array-header+)))
