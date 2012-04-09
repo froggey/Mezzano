@@ -1,5 +1,6 @@
 (in-package #:sys.int)
 
+(declaim (inline integerp))
 (defun integerp (object)
   (or (system:fixnump object)
       (bignump object)))
