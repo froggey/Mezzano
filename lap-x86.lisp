@@ -987,6 +987,15 @@
 (define-imul imul32 :gpr-32)
 (define-imul imul64 :gpr-64)
 
+(define-instruction mul8 (rhs)
+  (modrm-single :gpr-8 rhs #xF6 4))
+(define-instruction mul16 (rhs)
+  (modrm-single :gpr-16 rhs #xF7 4))
+(define-instruction mul32 (rhs)
+  (modrm-single :gpr-32 rhs #xF7 4))
+(define-instruction mul64 (rhs)
+  (modrm-single :gpr-64 rhs #xF7 4))
+
 (define-instruction shrd16 (low high count)
   (when (eql count :cl)
     (modrm :gpr-16 low high '(#x0F #xAD)))
