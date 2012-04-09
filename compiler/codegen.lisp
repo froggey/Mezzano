@@ -285,7 +285,7 @@ be generated instead.")
       (when code-tag
         (unless (eql code-tag :multiple)
           (load-in-r8 code-tag t)
-          (emit `(sys.lap-x86:mov32 :ecx 1)))
+          (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
         (cond ((and (plusp stack-arg-count)
                     (zerop opt-count)
                     (not (lambda-information-rest-arg lambda)))
