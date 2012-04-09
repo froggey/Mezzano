@@ -77,7 +77,7 @@
   ;; Pick the longest length.
   (sys.lap-x86:mov64 :rcx :rax)
   (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64g :rcx :rdx)
+  (sys.lap-x86:cmov64ng :rcx :rdx)
   (sys.lap-x86:xor64 :rbx :rbx) ; offset
   (sys.lap-x86:xor64 :r10 :r10) ; CF save register.
   (sys.lap-x86:shl64 :rax 3)
@@ -198,15 +198,18 @@
   (sys.lap-x86:shr64 :rax 8)
   (sys.lap-x86:shr64 :rdx 8)
   ;; TODO: Full division...
-  (sys.lap-x86:cmp64 :rax 1)
-  (sys.lap-x86:jne not-implemented)
   (sys.lap-x86:cmp64 :rdx 1)
+  (sys.lap-x86:jne not-implemented)
+  (sys.lap-x86:cmp64 :rax 2)
+  (sys.lap-x86:je 128-bit-number)
+  (sys.lap-x86:cmp64 :rax 1)
   (sys.lap-x86:jne not-implemented)
   ;; 64-bit divide.
   (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
   (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
   (sys.lap-x86:cqo)
   ;; Quotient in RAX, remainder in RDX.
+  do-divide
   (sys.lap-x86:idiv64 :rcx)
   (sys.lap-x86:push :rdx)
   ;; Attempt to convert quotient to a fixnum.
@@ -245,6 +248,12 @@
   (sys.lap-x86:mov64 :lsp :rbx)
   (sys.lap-x86:mov64 :r9 :r8)
   (sys.lap-x86:jmp done-remainder)
+  128-bit-number
+  ;; 128 bit number, 64 bit quotient.
+  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:mov64 :rdx (:r8 #.(+ (- +tag-array-like+) 16)))
+  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:jmp do-divide)
   not-implemented
   (sys.lap-x86:mov64 :r8 (:constant "Full bignum TRUNCATE not implemented."))
   (sys.lap-x86:mov64 :r13 (:constant error))
@@ -324,8 +333,8 @@
   (sys.lap-x86:shl64 :rax 8)
   (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
   (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:popf)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
+  (sys.lap-x86:popf)
   ;; Reread lengths.
   (sys.lap-x86:mov64 :r8 (:lsp))
   (sys.lap-x86:mov64 :r9 (:lsp 8))
@@ -338,7 +347,7 @@
   ;; Pick the longest length.
   (sys.lap-x86:mov64 :rcx :rax)
   (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64g :rcx :rdx)
+  (sys.lap-x86:cmov64ng :rcx :rdx)
   (sys.lap-x86:xor64 :rbx :rbx) ; offset
   (sys.lap-x86:xor64 :r11 :r11) ; CF save register.
   (sys.lap-x86:shl64 :rax 3)
@@ -416,5 +425,75 @@
          (%%bignum-- x y))
         (t (error "Argument combination not supported."))))
 
+;; Cheating here as well... Only deals with 1 word bignums.
+(define-lap-function %%bignum-* ()
+  ;; Read headers.
+  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
+  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
+  (sys.lap-x86:shr64 :rax 8)
+  (sys.lap-x86:shr64 :rdx 8)
+  ;; TODO: Full multiplication...
+  (sys.lap-x86:cmp64 :rax 1)
+  (sys.lap-x86:jne not-simple)
+  (sys.lap-x86:cmp64 :rdx 1)
+  (sys.lap-x86:jne not-implemented)
+  ;; 64-bit multiply.
+  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:imul64 :rcx)
+  (sys.lap-x86:jo 128-bit-result)
+  ;; One-word result. Attempt to convert it to a fixnum.
+  (sys.lap-x86:mov64 :rcx :rax)
+  (sys.lap-x86:imul64 :rcx 8)
+  (sys.lap-x86:jo 64-bit-result)
+  ;; Fixnum result
+  (sys.lap-x86:mov64 :r8 :rcx)
+  done
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret)
+  64-bit-result
+  ;; Value in RAX.
+  (sys.lap-x86:mov64 :r13 (:constant %%make-bignum-64-rax))
+  (sys.lap-x86:jmp (:symbol-function :r13))
+  128-bit-result
+  ;; Value in RDX:RAX.
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
+  (sys.lap-x86:jmp (:symbol-function :r13))
+  ;; Special hack.
+  not-simple
+  (sys.lap-x86:cmp64 :rax 2)
+  (sys.lap-x86:jne not-implemented)
+  (sys.lap-x86:cmp64 (:r8 #.(+ (- +tag-array-like+) 16)) 0)
+  (sys.lap-x86:jne not-implemented)
+  (sys.lap-x86:mov64 :rax (:r9 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:cqo)
+  (sys.lap-x86:test64 :rdx :rdx)
+  (sys.lap-x86:jnz not-implemented)
+  ;; Unsigned multiply.
+  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:mov64 :rdx (:r9 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:mul64 :rdx)
+  ;; FIXME: Can this set the sign bit?
+  (sys.lap-x86:jmp 128-bit-result)
+  not-implemented
+  (sys.lap-x86:mov64 :r8 (:constant "Full bignum * not implemented."))
+  (sys.lap-x86:mov64 :r13 (:constant error))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:push 0)
+  (sys.lap-x86:call (:symbol-function :r13)))
+
 (defun generic-* (x y)
-  (error "TODO"))
+  (cond ((and (fixnump x)
+              (fixnump y))
+         (error "FIXNUM/FIXNUM case hit GENERIC-*"))
+        ((and (fixnump x)
+              (bignump y))
+         (%%bignum-* (%make-bignum-from-fixnum x) y))
+        ((and (bignump x)
+              (fixnump y))
+         (%%bignum-* x (%make-bignum-from-fixnum y)))
+        ((and (bignump x)
+              (bignump y))
+         (%%bignum-* x y))
+        (t (error "Argument combination not supported."))))
