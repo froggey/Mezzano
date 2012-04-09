@@ -304,6 +304,15 @@
             (return-from compile-typep-expression
               `(let ((,sym ,object))
                  ,code)))))))
+  ;; Bake standard structure types in.
+  (when (and (symbolp type-specifier)
+             (eql (symbol-package type-specifier) (find-package "CL"))
+             (get type-specifier 'structure-type))
+    (return-from compile-typep-expression
+      (let ((sym (gensym)))
+        `(let ((,sym ,object))
+           (and (structure-object-p ,sym)
+                (eq (%struct-slot ,sym 0) ',(get type-specifier 'structure-type)))))))
   (multiple-value-bind (expansion expanded-p)
       (typeexpand-1 type-specifier)
     (when expanded-p
