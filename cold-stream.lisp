@@ -66,7 +66,6 @@
               (cond ((eql key :shift)
                      (setf *keyboard-shifted* t))
                     ((characterp key)
-                     (write-char key)
                      (return key))
                     ((null key)
                      (write-string "Unknown keycode #x")
@@ -83,7 +82,9 @@
   (cond (*unread-char*
          (prog1 *unread-char*
            (setf *unread-char* nil)))
-        (t (read-keyboard-char))))
+        (t (let ((c (read-keyboard-char)))
+             (cold-write-char c nil)
+             c))))
 
 (defun cold-unread-char (character stream)
   (when *unread-char*
