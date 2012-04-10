@@ -181,6 +181,12 @@
              (eval-locally-body declares body new-env))
       (eval-locally-body declares body new-env))))
 
+(defspecial multiple-value-call (&environment env function-form &rest forms)
+  (apply (eval-in-lexenv function-form env)
+         (apply 'nconc (mapcar (lambda (f)
+                                 (multiple-value-list (eval-in-lexenv f env)))
+                               forms))))
+
 (defspecial progn (&environment env &body forms)
   (eval-progn-body forms env))
 
