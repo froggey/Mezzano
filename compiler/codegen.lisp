@@ -1128,8 +1128,6 @@ only R8 will be preserved."
            ;; Just like a regular call.
            (cg-function-form `(funcall ,function)))
           ((null (cdr value-forms))
-           #+nil(when (eql *for-value* :multiple)
-             (error "TODO: Multiple-value return from M-V-CALL>"))
            ;; Single value form.
            (let ((fn-tag (let ((*for-value* t)) (cg-form function)))
                  (stack-pointer-save-area (allocate-control-stack-slots 1)))
@@ -1141,6 +1139,7 @@ only R8 will be preserved."
                  (return-from cg-multiple-value-call nil))
                (load-multiple-values value-tag)
                (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rbx))
+               (smash-r8)
                (load-in-reg :r13 fn-tag t)
                (let ((type-error-label (gensym))
                      (function-label (gensym)))
@@ -1154,9 +1153,12 @@ only R8 will be preserved."
                        `(sys.lap-x86:jne ,type-error-label)
                        `(sys.lap-x86:mov64 :r13 (:symbol-function :r13))
                        function-label
-                       `(sys.lap-x86:call :r13)
-                       `(sys.lap-x86:mov64 :lsp ,(control-stack-slot-ea stack-pointer-save-area))))
-               (setf *r8-value* (list (gensym))))))
+                       `(sys.lap-x86:call :r13))
+                 (cond ((eql *for-value* :multiple)
+                        (emit `(sys.lap-x86:mov64 :rbx ,(control-stack-slot-ea stack-pointer-save-area)))
+                        :multiple)
+                       (t (emit `(sys.lap-x86:mov64 :lsp ,(control-stack-slot-ea stack-pointer-save-area)))
+                          (setf *r8-value* (list (gensym)))))))))
           (t (cg-function-form `(error '"TODO multiple-value-call with >1 arguments."))))))
 
 (defun cg-multiple-value-prog1 (form)
@@ -1651,8 +1653,7 @@ only R8 will be preserved."
 	     (apply fn (nreverse args))))
 	  ((and (eql (first form) 'funcall)
 		(rest form))
-	   (let* ((*for-value* t)
-		  (fn-tag (cg-form (second form)))
+	   (let* ((fn-tag (let ((*for-value* t)) (cg-form (second form))))
 		  (type-error-label (gensym))
 		  (function-label (gensym))
                   (out-label (gensym)))
