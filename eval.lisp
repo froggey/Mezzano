@@ -132,7 +132,12 @@
 (defspecial function (&environment env name)
   (if (sys.int::lambda-expression-p name)
       (eval-lambda name env)
-      (fdefinition name)))
+      (find-function name env)))
+
+(defspecial if (&environment env test then &optional else)
+  (if (eval-in-lexenv test env)
+      (eval-in-lexenv then env)
+      (eval-in-lexenv else env)))
 
 (defspecial labels (&environment env definitions &body forms)
   (let* ((env (cons (list :functions) env))
@@ -190,6 +195,10 @@
 
 (defspecial setq (&environment env symbol value)
   (setf (symbol-value symbol) (eval-in-lexenv value env)))
+
+(defspecial the (&environment env type form)
+  (declare (ignore type))
+  (eval-in-lexenv form env))
 
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
