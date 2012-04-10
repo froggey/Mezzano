@@ -87,6 +87,9 @@
           compute-effective-method-function compute-method-function
           apply-methods apply-method
           find-generic-function  ; Necessary artifact of this implementation
+
+          ;; Compile all the methods in a generic function.
+          compile-methods
           ))
 
 (export exports)
@@ -1406,6 +1409,15 @@
   (if compile-methods
       (compile nil lambda-expr)
       (eval `(function ,lambda-expr))))
+
+(defun compile-methods (generic-function)
+  (let ((gf (find-generic-function generic-function)))
+    (format t "Compiling methods in ~S...~%" gf)
+    (dolist (method (generic-function-methods gf))
+      (format t "Compiling ~S...~%" method)
+      (unless (compiled-function-p (method-function method))
+        (setf (method-function method) (compile nil (method-function method))))))
+  generic-function)
 
 ;;;
 ;;; Bootstrap
