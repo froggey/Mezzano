@@ -1288,7 +1288,7 @@ only R8 will be preserved."
 
 (defun cg-tagbody (form)
   (let ((*for-value* nil)
-	(stack-slots (set-up-for-branch))
+	(stack-slots nil)
 	(*rename-list* *rename-list*)
 	(last-value t)
         (escapes (not (tagbody-localp (second form))))
@@ -1346,6 +1346,7 @@ only R8 will be preserved."
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
               `(sys.lap-x86:mov64 (:rax 8) 8)
               `(sys.lap-x86:mov64 (:rax 0) :r8))))
+    (setf stack-slots (set-up-for-branch))
     (mapcar (lambda (tag label)
               (push (list tag label *special-bindings*) *rename-list*))
             (tagbody-information-go-tags (second form)) tag-labels)
