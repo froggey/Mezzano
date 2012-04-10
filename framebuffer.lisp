@@ -73,7 +73,7 @@
 	(%bitblt 16 8 glyph 0 0
 		 framebuffer y x))))
 
-(defclass framebuffer-stream (stream-object)
+(defclass framebuffer-stream (edit-stream stream-object)
   ((framebuffer :initarg :framebuffer)
    (x :initarg :x)
    (y :initarg :y))
@@ -112,7 +112,60 @@
   (framebuffer-write-char character stream))
 
 (defmethod stream-read-char ((stream framebuffer-stream))
-  (cold-read-char nil))
+  (read-keyboard-char))
 
 (defmethod stream-start-line-p ((stream framebuffer-stream))
   (zerop (slot-value stream 'x)))
+
+(defmethod stream-cursor-pos ((stream framebuffer-stream))
+  (values (slot-value stream 'x) (slot-value stream 'y)))
+
+(defmethod stream-move-to ((stream framebuffer-stream) x y)
+  #+nil(check-type x integer)
+  #+nil(check-type y integer)
+  (setf (slot-value stream 'x) x
+        (slot-value stream 'y) y))
+
+(defmethod stream-character-width ((stream framebuffer-stream) character)
+  (if (eql character #\Space)
+      8
+      (unifont-glyph-width character)))
+
+(defun framebuffer-compute-motion (stream string start end initial-x initial-y)
+  (unless end (setf end (length string)))
+  (unless initial-x (setf initial-x (slot-value stream 'x)))
+  (unless initial-y (setf initial-y (slot-value stream 'y)))
+  (do ((framebuffer (slot-value stream 'framebuffer))
+       (i start (1+ i)))
+      ((>= i end)
+       (values initial-x initial-y))
+    (let* ((ch (char string i))
+	   (width (stream-character-width stream ch)))
+      (when (or (eql ch #\Newline)
+                (> (+ initial-x width) (array-dimension framebuffer 1)))
+        (setf initial-x 0
+              initial-y (if (>= (+ initial-y 16) (array-dimension framebuffer 0))
+                            0
+                            (+ initial-y 16))))
+      (unless (eql ch #\Newline)
+        (incf initial-x width)))))
+
+(defmethod stream-compute-motion ((stream framebuffer-stream) string &optional (start 0) end initial-x initial-y)
+  (framebuffer-compute-motion stream string start end initial-x initial-y))
+
+(defmethod stream-clear-between ((stream framebuffer-stream) start-x start-y end-x end-y)
+  (let ((framebuffer (slot-value stream 'framebuffer)))
+    (cond ((eql start-y end-y)
+           ;; Clearing one line.
+           (%bitset 16 (- end-x start-x) #xFF000000 framebuffer start-y start-x))
+          (t ;; Clearing many lines.
+           ;; Clear top line.
+           (%bitset 16 (- (array-dimension framebuffer 1) start-x) #xFF000000
+                    framebuffer start-y start-x)
+           ;; Clear in-between.
+           (when (> (- end-y start-y) 16)
+             (%bitset (- end-y start-y 16) (array-dimension framebuffer 1) #xFF000000
+                      framebuffer (+ start-y 16) 0))
+           ;; Clear bottom line.
+           (%bitset 16 end-x #xFF000000
+                    framebuffer end-y 0)))))
