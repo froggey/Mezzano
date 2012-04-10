@@ -32,9 +32,16 @@
 
 (defgeneric stream-read-char (stream))
 (defgeneric stream-write-char (character stream))
-(defgeneric stream-start-line-p (stream))
 (defgeneric stream-close (stream abort))
 (defgeneric stream-listen (stream))
+(defgeneric stream-clear-input (stream))
+(defgeneric stream-start-line-p (stream))
+(defgeneric stream-with-edit (stream fn))
+(defgeneric stream-cursor-pos (stream))
+(defgeneric stream-character-width (stream character))
+(defgeneric stream-compute-motion (stream string &optional start end initial-x initial-y))
+(defgeneric stream-clear-between (stream start-x start-y end-x end-y))
+(defgeneric stream-move-to (stream x y))
 
 (defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
@@ -53,6 +60,20 @@
 (defun frob-output-stream (stream)
   (frob-stream stream *standard-output*))
 
+(defmacro with-stream-editor ((stream recursive-p) &body body)
+  "Activate the stream editor functionality for STREAM."
+  `(%with-stream-editor ,stream ,recursive-p (lambda () (progn ,@body))))
+
+(defun %with-stream-editor (stream recursive-p fn)
+  (cond ((synonym-stream-p stream)
+         (%with-stream-editor (symbol-value (synonym-stream-symbol stream)) recursive-p fn))
+        ((or (cold-stream-p stream) recursive-p)
+         (funcall fn))
+        (t (stream-with-edit stream fn))))
+
+(defmethod stream-with-edit ((stream stream-object) fn)
+  (funcall fn))
+
 (defun read-char (&optional (stream *standard-input*) (eof-error-p t) eof-value recursive-p)
   (declare (ignore recursive-p))
   (let ((s (frob-input-stream stream)))
@@ -70,15 +91,16 @@
                  eof-value)))))
 
 (defun read-line (&optional (input-stream *standard-input*) (eof-error-p t) eof-value recursive-p)
-  (do ((result (make-array 16 :element-type 'character :adjustable t :fill-pointer 0))
-       (c (read-char input-stream eof-error-p nil recursive-p)
-          (read-char input-stream eof-error-p nil recursive-p)))
-      ((or (null c)
-           (eql c #\Newline))
-       (if (and (null c) (eql (length result) 0))
-           (values eof-value t)
-           (values result (null c))))
-    (vector-push-extend c result)))
+  (with-stream-editor (input-stream recursive-p)
+    (do ((result (make-array 16 :element-type 'character :adjustable t :fill-pointer 0))
+         (c (read-char input-stream eof-error-p nil recursive-p)
+            (read-char input-stream eof-error-p nil recursive-p)))
+        ((or (null c)
+             (eql c #\Newline))
+         (if (and (null c) (eql (length result) 0))
+             (values eof-value t)
+             (values result (null c))))
+      (vector-push-extend c result))))
 
 (defun unread-char (character &optional (stream *standard-input*))
   (let ((s (frob-input-stream stream)))
@@ -105,6 +127,16 @@
           ((characterp peek-type)
            (error "TODO: character peek."))
           (t (error "Bad peek type ~S." peek-type)))))
+
+(defun clear-input (&optional (stream *standard-input*))
+  (let ((s (frob-input-stream stream)))
+    (cond ((cold-stream-p s)
+           (cold-clear-input s))
+          (t (setf (slot-value s 'unread-char) nil)
+             (stream-clear-input s))))
+  nil)
+
+(defmethod stream-clear-input ((stream stream-object)))
 
 (defun write-char (character &optional (stream *standard-output*))
   (let ((s (frob-output-stream stream)))
@@ -277,6 +309,72 @@ CASE may be one of:
 (defmethod stream-write-char (character (stream case-correcting-stream))
   (case-correcting-write character stream))
 
+(defclass edit-stream (stream-object)
+  ((edit-buffer :initform nil)
+   (edit-offset :initform nil)
+   (edit-handler :initform nil)))
+
+(defun edit-stream-read (stream reader-function-kludge)
+  (let ((buffer (slot-value stream 'edit-buffer))
+	(offset (slot-value stream 'edit-offset)))
+    (if (and buffer (< offset (fill-pointer buffer)))
+	(prog1 (aref buffer offset)
+	  (incf (slot-value stream 'edit-offset)))
+	(do () (nil)
+	  (let ((ch (funcall reader-function-kludge)))
+	    (when ch
+	      (cond ((or (graphic-char-p ch) (eql #\Newline ch))
+		     (when buffer
+		       (vector-push-extend ch buffer)
+		       (incf (slot-value stream 'edit-offset)))
+		     (return (write-char ch stream)))
+		    ((eql #\Backspace ch)
+		     (funcall (slot-value stream 'edit-handler) ch)))))))))
+
+(defmethod stream-read-char :around ((stream edit-stream))
+  (edit-stream-read stream #'call-next-method))
+
+(defmethod stream-clear-input :before ((stream edit-stream))
+  (when (slot-value stream 'buffer)
+    (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
+	  (slot-value stream 'edit-offset) 0)))
+
+(defun edit-stream-edit (stream fn)
+  (let ((old-buffer (slot-value stream 'edit-buffer))
+	(old-offset (slot-value stream 'edit-offset))
+	(old-handler (slot-value stream 'edit-handler))
+	(buffer (make-array 100
+			    :element-type 'character
+			    :adjustable t
+			    :fill-pointer 0)))
+    (unwind-protect
+         (multiple-value-bind (start-x start-y)
+             (stream-cursor-pos stream)
+           (setf (slot-value stream 'edit-buffer) buffer)
+           (do () (nil)
+            again
+             (flet ((handler (ch)
+                      (when (> (fill-pointer buffer) 0)
+                        (decf (fill-pointer buffer))
+                        (multiple-value-bind (x y)
+                            (stream-compute-motion stream
+                                                   buffer
+                                                   0 nil
+                                                   start-x start-y)
+                          (multiple-value-bind (cx cy) (stream-cursor-pos stream)
+                            (stream-clear-between stream x y cx cy))
+                          (stream-move-to stream x y)))
+                      (go again)))
+               (setf (slot-value stream 'edit-offset) 0
+                     (slot-value stream 'edit-handler) #'handler)
+               (return (funcall fn)))))
+      (setf (slot-value stream 'edit-buffer) old-buffer
+            (slot-value stream 'edit-offset) old-offset
+            (slot-value stream 'edit-handler) old-handler))))
+
+(defmethod stream-with-edit ((stream edit-stream) fn)
+  (edit-stream-edit stream fn))
+
 (defun y-or-n-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
   (when control
@@ -285,6 +383,7 @@ CASE may be one of:
     (write-char #\Space *query-io*))
   (format *query-io* "(Y or N) ")
   (loop
+     (clear-input *query-io*)
      (let ((c (read-char *query-io*)))
        (when (char-equal c #\Y)
          (return t))
@@ -301,6 +400,7 @@ CASE may be one of:
     (write-char #\Space *query-io*))
   (format *query-io* "(Yes or No) ")
   (loop
+     (clear-input *query-io*)
      (let ((line (read-line *query-io*)))
        (when (string-equal line "yes")
          (return t))

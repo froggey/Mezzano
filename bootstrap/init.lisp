@@ -442,6 +442,14 @@
   (let ((*package* *package*))
     (%load pathname)))
 
+;;; Used by read, duplicated from stream.lisp
+(defmacro with-stream-editor ((stream recursive-p) &body body)
+  "Activate the stream editor functionality for STREAM."
+  `(%with-stream-editor ,stream ,recursive-p (lambda () (progn ,@body))))
+
+(defun %with-stream-editor (stream recursive-p function)
+  (funcall function))
+
 (load "string.lisp")
 (load "reader.lisp")
 

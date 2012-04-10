@@ -659,10 +659,19 @@ it as a symbol."
 		(return (first value))))))))
 
 (defun read (&optional input-stream (eof-error-p t) eof-value recursive-p)
-  (read-common (follow-stream-designator input-stream *standard-input*)
-	       eof-error-p
-	       eof-value
-	       recursive-p))
+  "READ parses the printed representation of an object from STREAM and builds such an object."
+  (let ((stream (follow-stream-designator input-stream *standard-input*)))
+    (with-stream-editor (stream recursive-p)
+      (let ((result (read-common stream
+                                 eof-error-p
+                                 eof-value
+                                 recursive-p)))
+        (unless (or (eql result eof-value) recursive-p)
+          ;; Munch trailing whitespace iff not at EOF and not in a recursive call.
+          (let ((ch (read-char stream nil nil)))
+            (when (and ch (not (whitespace[2]p ch)))
+              (unread-char ch stream))))
+        result))))
 
 (defun read-preserving-whitespace (&optional input-stream (eof-error-p t) eof-value recursive-p)
   (read-common (follow-stream-designator input-stream *standard-input*)
