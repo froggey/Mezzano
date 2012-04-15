@@ -154,10 +154,7 @@
   (let ((info (assoc (second form) *known-variables*)))
     (if info
         (cond ((or (lambda-information-p (third form))
-                   (and (consp (third form)) (eq (first (third form)) 'quote))
-                   (and (lexical-variable-p (third form))
-                        (localp (third form))
-                        (eql (lexical-variable-write-count (third form)) 0)))
+                   (and (consp (third form)) (eq (first (third form)) 'quote)))
                ;; The value is constant. Attempt to push it back to the
                ;; original binding.
                (cond ((zerop (third info))
