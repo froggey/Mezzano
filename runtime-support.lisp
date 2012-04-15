@@ -3,7 +3,9 @@
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special (dolist (var (rest declaration-specifier))
-               (setf (system:symbol-mode var) :special)))))
+               (setf (system:symbol-mode var) :special)))
+    (constant (dolist (var (rest declaration-specifier))
+                (setf (system:symbol-mode var) :constant)))))
 
 (defun system:symbol-mode (symbol)
   (svref #(nil :special :constant :symbol-macro)
@@ -176,3 +178,11 @@
                (setf (fdefinition name) fn))
            (values name warnings-p errors-p))
           (t (values fn warnings-p errors-p)))))
+
+;;; TODO: Expand this so it knows about the compiler's constant folders.
+(defun constantp (form &optional environment)
+  (declare (ignore environment))
+  (typecase form
+    (symbol (eql (symbol-mode form) :constant))
+    (cons (eql (first form) 'quote))
+    (t t)))
