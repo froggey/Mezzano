@@ -150,7 +150,8 @@
 				       :format-arguments (list test-form)))))
     (cerror "Retry assertion." condition)))
 
-(defun assert-prompt (place)
+(defun assert-prompt (place value)
+  (format *debug-io* "~&Current value of ~S is ~S~%" place value)
   (format *debug-io* "~&Enter a new value for ~S.~%> " place)
   (eval (read *debug-io*)))
 
@@ -158,7 +159,7 @@
   `(do () (,test-form)
      (assert-error ',test-form ,datum-form ,@argument-forms)
      ,@(mapcar (lambda (place)
-		 `(setf ,place (assert-prompt ',place)))
+		 `(setf ,place (assert-prompt ',place ,place)))
 	       places)))
 
 (defun break (&optional (format-control "Break") &rest format-arguments)
