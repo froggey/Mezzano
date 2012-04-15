@@ -399,3 +399,7 @@
 	(setf (cdr tail) (cons (car i) nil)
 	      tail (cdr tail)))
       object))
+
+(defun make-list (size &key initial-element)
+  (unless (zerop size)
+    (cons initial-element (make-list (1- size)))))
