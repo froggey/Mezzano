@@ -283,7 +283,9 @@
         ((and (bignump number)
               (bignump divisor))
          (%%bignum-truncate number divisor))
-        (t (error "Argument combination not supported."))))
+        (t (check-type number number)
+           (check-type divisor number)
+           (error "Argument combination not supported."))))
 
 (defun generic-rem (number divisor)
   (multiple-value-bind (quot rem)
@@ -292,7 +294,21 @@
     rem))
 
 (defun generic-+ (x y)
-  (error "TODO"))
+  (cond ((and (fixnump x)
+              (fixnump y))
+         (error "FIXNUM/FIXNUM case hit GENERIC-+"))
+        ((and (fixnump x)
+              (bignump y))
+         (%%bignum-+ (%make-bignum-from-fixnum x) y))
+        ((and (bignump x)
+              (fixnump y))
+         (%%bignum-+ x (%make-bignum-from-fixnum y)))
+        ((and (bignump x)
+              (bignump y))
+         (%%bignum-+ x y))
+        (t (check-type x number)
+           (check-type y number)
+           (error "Argument combination not supported."))))
 
 (define-lap-function %%bignum-- ()
   ;; Save on the lisp stack.
@@ -424,7 +440,9 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-- x y))
-        (t (error "Argument combination not supported."))))
+        (t (check-type x number)
+           (check-type y number)
+           (error "Argument combination not supported."))))
 
 ;; Cheating here as well... Only deals with 1 word bignums.
 (define-lap-function %%bignum-* ()
@@ -497,4 +515,6 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-* x y))
-        (t (error "Argument combination not supported."))))
+        (t (check-type x number)
+           (check-type y number)
+           (error "Argument combination not supported."))))
