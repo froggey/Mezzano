@@ -112,7 +112,9 @@
   (sys.lap-x86:add64 :csp 8)
   (sys.lap-x86:ret)
   sx-left
-  ;; Sign extend the left argument (previous value in RSI).
+  ;; Sign extend the left argument.
+  ;; Previous value is not in RSI. Pull from the last word in the bignum.
+  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
   (sys.lap-x86:sar64 :rsi 63)
   (sys.lap-x86:jmp sx-left-resume)
   sx-right
@@ -413,7 +415,9 @@
   (sys.lap-x86:mov64 :r8 :rax)
   (sys.lap-x86:jmp finish)
   sx-left
-  ;; Sign extend the left argument (previous value in RSI).
+  ;; Sign extend the left argument.
+  ;; Previous value is not in RSI. Pull from the last word in the bignum.
+  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
   (sys.lap-x86:sar64 :rsi 63)
   (sys.lap-x86:jmp sx-left-resume)
   sx-right
