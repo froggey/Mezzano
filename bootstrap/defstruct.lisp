@@ -127,8 +127,9 @@
 (defun parse-defstruct-slot (conc-name slot)
   (if (symbolp slot)
       (list slot (concat-symbols conc-name slot) nil t nil)
-      ;; TODO: read-only and type when destructuring-bind exists.
-      (list (first slot) (concat-symbols conc-name (first slot)) (second slot) t nil)))
+      (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only)
+          slot
+        (list slot-name (concat-symbols conc-name slot-name) slot-initform type read-only))))
 
 (defun generate-simple-defstruct-constructor (struct-type name)
   (let ((tmp (gensym)))

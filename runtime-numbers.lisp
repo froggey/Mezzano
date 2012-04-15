@@ -17,8 +17,8 @@
       (setf accum (* accum base)))))
 
 (defstruct (byte (:constructor byte (size position)))
-  (size 0 :type (integer 0) :read-only-p t)
-  (position 0 :type (integer 0) :read-only-p t))
+  (size 0 :type (integer 0) :read-only t)
+  (position 0 :type (integer 0) :read-only t))
 
 (defun ldb (bytespec integer)
   (logand (ash integer (- (byte-position bytespec)))
