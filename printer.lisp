@@ -127,11 +127,13 @@
            (print-object object stream))))
   object)
 
-(defun write (object &key (stream t) (base *print-base*) (escape *print-escape*) (readably *print-readably*) &allow-other-keys)
+(defun write (object &key stream (base *print-base*) (escape *print-escape*) (readably *print-readably*) &allow-other-keys)
   (let ((*print-base* base)
         (*print-escape* escape)
         (*print-readably* readably))
-    (write-object object stream)))
+    (write-object object (cond ((eql stream 'nil) *standard-output*)
+                               ((eql stream 't) *terminal-io*)
+                               (stream)))))
 
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
@@ -148,5 +150,6 @@
   (when identity
     (when (or type fn)
       (write-char #\Space stream))
-    (write-integer (sys.int::lisp-object-address object) 16))
-  (write-char #\>))
+    (write-integer (sys.int::lisp-object-address object) 16 stream))
+  (write-char #\> stream)
+  nil)
