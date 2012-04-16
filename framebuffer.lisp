@@ -73,7 +73,7 @@
 	(%bitblt 16 8 glyph 0 0
 		 framebuffer y x))))
 
-(defclass framebuffer-stream (edit-stream stream-object)
+(defclass framebuffer-stream (edit-stream ps/2-keyboard-stream stream-object)
   ((framebuffer :initarg :framebuffer)
    (x :initarg :x)
    (y :initarg :y))
@@ -110,9 +110,6 @@
 
 (defmethod stream-write-char (character (stream framebuffer-stream))
   (framebuffer-write-char character stream))
-
-(defmethod stream-read-char ((stream framebuffer-stream))
-  (read-keyboard-char))
 
 (defmethod stream-start-line-p ((stream framebuffer-stream))
   (zerop (slot-value stream 'x)))

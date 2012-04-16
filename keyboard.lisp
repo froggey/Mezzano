@@ -38,12 +38,45 @@
           (%sti))
      (%hlt)))
 
+(defclass ps/2-keyboard-stream (stream-object) ())
+
+(defvar *ps/2-keyboard-shifted* nil)
+(defun ps/2-read-char (fifo)
+  (loop
+     (let* ((scancode (ps/2-read-fifo fifo))
+            (key (svref (if *ps/2-keyboard-shifted*
+                           *gb-keymap-high*
+                           *gb-keymap-low*)
+                       (logand scancode #x7F))))
+       (cond ((= (logand scancode #x80) 0)
+              ;; Key press.
+              (cond ((eql key :shift)
+                     (setf *ps/2-keyboard-shifted* t))
+                    ((characterp key)
+                     (return key))
+                    ((null key)
+                     (write-string "Unknown keycode #x")
+                     (sys.int::write-integer scancode 16)
+                     (write-char #\/)
+                     (sys.int::write-integer scancode))))
+             (t ;; Key release.
+              (case key
+                (:shift (setf *ps/2-keyboard-shifted* nil))))))))
+
+(defmethod stream-read-char ((stream ps/2-keyboard-stream))
+  (ps/2-read-char *ps/2-key-fifo*))
+
+(defmethod stream-listen ((stream ps/2-keyboard-stream))
+  (not (eql (ps/2-fifo-head *ps/2-key-fifo*)
+            (ps/2-fifo-tail *ps/2-key-fifo*))))
+
 (defun init-ps/2 ()
   (setf *ps/2-key-fifo* (make-ps/2-fifo)
         (isa-pic-interrupt-handler +ps/2-key-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
         (isa-pic-irq-mask +ps/2-key-irq+) nil
         *ps/2-aux-fifo* (make-ps/2-fifo)
         (isa-pic-interrupt-handler +ps/2-aux-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*)
-        (isa-pic-irq-mask +ps/2-aux-irq+) nil))
+        (isa-pic-irq-mask +ps/2-aux-irq+) nil
+        *ps/2-keyboard-shifted* nil))
 
 (add-hook '*initialize-hook* 'init-ps/2)
