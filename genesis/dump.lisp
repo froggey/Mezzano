@@ -964,7 +964,7 @@
 (defun generate-dump ()
   (let* ((multiboot-header (make-array 8 :element-type '(unsigned-byte 32)))
 	 (gdt (make-array 256 :element-type '(unsigned-byte 64)))
-	 (idt (make-array 256 :element-type '(unsigned-byte 64)))
+	 (idt (make-array (* 256 2) :element-type '(unsigned-byte 64)))
          (*function-preloads* '())
          (*symbol-preloads* '())
 	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
@@ -972,6 +972,7 @@
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
                                                  "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
                                                  "../stream.lisp" "../format.lisp" "../stack-group.lisp"
+                                                 "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
                                                  "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
