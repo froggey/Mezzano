@@ -370,6 +370,11 @@ GENESIS-INTERN.")
 (defbuiltin simplify-string (string)
   (crunch-string string))
 
+(defbuiltin intern (name &optional package)
+  (assert *use-bootstrap-package-system*)
+  (assert (or (null package) (string= package "KEYWORD")))
+  (genesis-intern name (string= package "KEYWORD")))
+
 ;;; The big function for switching over to the full package system.
 (defbuiltin jettison-bootstrap-package-system ()
   ;; Ensure that the CL and SYS symbols exist.
