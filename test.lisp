@@ -1,6 +1,6 @@
 (in-package #:sys.int)
 
-(defvar *isa-pic-shadow-mask*)
+(defvar *isa-pic-shadow-mask* #xFFFF)
 
 (defun isa-pic-irq-mask (irq)
   (check-type irq (integer 0 16))
