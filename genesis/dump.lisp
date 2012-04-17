@@ -972,6 +972,7 @@
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
                                                  "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
                                                  "../stream.lisp" "../format.lisp" "../stack-group.lisp"
+                                                 "../process.lisp"
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
                                                  "../test.lisp"))

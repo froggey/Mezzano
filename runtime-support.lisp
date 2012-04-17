@@ -60,6 +60,11 @@
   (declare (dynamic-extent values))
   (values-list values))
 
+(defun constantly (value)
+  (lambda (&rest arguments)
+    (declare (ignore arguments))
+    value))
+
 (defun fboundp (name)
   (%fboundp (function-symbol name)))
 
