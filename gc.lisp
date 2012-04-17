@@ -119,7 +119,20 @@
           (setf (memref-t address (1+ i)) (gc-object x)))))
     ;; Scan the data/binding stacks only when the sg is not active.
     (when (not (eql (logand (memref-t address 2) +stack-group-state-mask+) +stack-group-active+))
-      (emergency-halt "todo: scan-stack-group for inactive stack-groups"))
+      ;; FIXME: Need to scan the control stack as well, along with the saved RIP and stuff.
+      (let* ((ds-base (memref-unsigned-byte-64 address 7))
+             (ds-size (memref-unsigned-byte-64 address 8))
+             (bs-base (memref-unsigned-byte-64 address 9))
+             (bs-size (memref-unsigned-byte-64 address 10))
+             (binding-stack-pointer (memref-unsigned-byte-64 address 1))
+             (control-stack-pointer (memref-unsigned-byte-64 address 3))
+             (data-stack-pointer (memref-unsigned-byte-64 control-stack-pointer 2)))
+        (dotimes (i (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
+          (setf (memref-t data-stack-pointer i)
+                (gc-object (memref-t data-stack-pointer i))))
+        (dotimes (i (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
+          (setf (memref-t binding-stack-pointer i)
+                (gc-object (memref-t binding-stack-pointer i))))))
     object))
 
 (defun scan-numeric-array (object transportp width)
@@ -305,13 +318,19 @@
 ;;; return and R13 will be holding a newspace pointer by the time this
 ;;; function is called.
 (defun transport-registers-and-stack (a1 a2 a3 a4 a5)
-  (let* ((sg-pointer (ash (%pointer-field (%%current-stack-group)) 4))
+  (let* ((sg-pointer (ash (%pointer-field (current-stack-group)) 4))
 	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
 	 (ds-size (memref-unsigned-byte-64 sg-pointer 8))
 	 (bs-base (memref-unsigned-byte-64 sg-pointer 9))
 	 (bs-size (memref-unsigned-byte-64 sg-pointer 10))
          (binding-stack-pointer (memref-unsigned-byte-64 sg-pointer 1))
          (data-stack-pointer (ash (%%get-data-stack-pointer) 3)))
+    (mumble "Scanning control stack")
+    (do ((fp (read-frame-pointer)
+             (memref-unsigned-byte-64 fp 0)))
+        ((= fp 0))
+      (setf (memref-t fp -2)
+            (gc-object (memref-t fp -2))))
     (mumble "Scanning data stack")
     (dotimes (i (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
       (setf (memref-t data-stack-pointer i)
@@ -582,7 +601,13 @@ the header word. LENGTH is the number of elements in the array."
       (%%assemble-value address +tag-array-like+))))
 
 (defun %allocate-stack (length)
-  (when (oddp length)
-    (incf length))
-  (prog1 *bump-pointer*
-    (incf *bump-pointer* (* length 8))))
+  (with-interrupts-disabled ()
+    (let* ((address (+ *static-bump-pointer* 16)))
+      (when (oddp length)
+        (incf length))
+      (incf *static-bump-pointer* (+ (* length 8) 16)) ; what was the +16 for?
+      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+      ;; Initialize header.
+      (setf (memref-unsigned-byte-64 address 0) (logior (ash length 8) +array-type-unsigned-byte-64+))
+      ;; Ensures 16 byte alignment.
+      (+ address 16))))

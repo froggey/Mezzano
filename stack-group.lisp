@@ -25,7 +25,7 @@
   (when (oddp binding-stack-size)
     (decf binding-stack-size))
   ;; Allocate stack and the stack-group object.
-  (let* ((sg (%allocate-array-like 30 511 511))
+  (let* ((sg (%allocate-array-like +array-type-stack-group+ 511 511 :static))
          (sg-pointer (ash (%pointer-field sg) 4))
 	 (cs-pointer (%allocate-stack control-stack-size))
 	 (ds-pointer (%allocate-stack data-stack-size))
@@ -123,7 +123,7 @@
   ;; Done!
   stack-group)
 
-(define-lap-function %%current-stack-group ()
+(define-lap-function current-stack-group ()
   (sys.lap-x86:mov32 :ecx #xC0000101) ; IA32_GS_BASE
   (sys.lap-x86:rdmsr)
   (sys.lap-x86:shl64 :rdx 32)
@@ -222,7 +222,7 @@
 
 (defun stack-group-return (&optional value)
   "Return to the invoking stack group."
-  (let ((resumer (stack-group-resumer (%%current-stack-group))))
+  (let ((resumer (stack-group-resumer (current-stack-group))))
     (unless resumer
       (error "No invoking stack group!"))
     (stack-group-resume resumer value)))
@@ -230,5 +230,5 @@
 ;;; TODO: Enforce SAFE.
 (defun stack-group-invoke (sg &optional value)
   (check-type sg (satisfies stack-group-p) "a stack-group")
-  (setf (stack-group-resumer sg) (%%current-stack-group))
+  (setf (stack-group-resumer sg) (current-stack-group))
   (%%stack-group-resume sg value))
