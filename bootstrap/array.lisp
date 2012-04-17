@@ -66,7 +66,7 @@ This must be sorted from most-specific to least-specific.")
        (eql (array-element-type object) 'bit)))
 (setf (get 'bit-vector 'type-symbol) 'bit-vector-p)
 
-(defun make-simple-array (length &optional (element-type 't) (initial-element nil initial-element-p))
+(defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
   (let ((real-element-type (upgraded-array-element-type element-type)))
     (when (and (eql real-element-type 'character)
                (not initial-element-p))
@@ -78,8 +78,8 @@ This must be sorted from most-specific to least-specific.")
     (cond (initial-element-p
 	   (unless (typep initial-element element-type)
 	     (error 'type-error :expected-type element-type :datum initial-element))
-	   (%allocate-and-fill-array length real-element-type initial-element))
-	  (t (%allocate-and-clear-array length real-element-type)))))
+	   (%allocate-and-fill-array length real-element-type initial-element area))
+	  (t (%allocate-and-clear-array length real-element-type area)))))
 
 (defun initialize-from-sequence (array sequence)
   "Fill an array using a sequence."
@@ -104,7 +104,8 @@ This must be sorted from most-specific to least-specific.")
 		   adjustable
 		   fill-pointer
 		   displaced-to displaced-index-offset
-                   memory)
+                   memory
+                   area)
   ;; (n) => n
   (when (and (consp dimensions)
 	     (null (rest dimensions)))
@@ -133,8 +134,8 @@ This must be sorted from most-specific to least-specific.")
               (not memory))
 	 ;; Create a simple 1D array.
 	 (let ((array (if initial-element-p
-			  (make-simple-array dimensions element-type initial-element)
-			  (make-simple-array dimensions element-type))))
+			  (make-simple-array dimensions element-type area initial-element)
+			  (make-simple-array dimensions element-type area))))
 	   (when initial-contents
 	     (initialize-from-sequence array initial-contents))
 	   array))
@@ -149,7 +150,7 @@ This must be sorted from most-specific to least-specific.")
                             :test (lambda (x y) (and (subtypep x y) (subtypep y x)))))
            (error "Element type ~S is not supported for memory arrays." element-type))
          (check-type memory fixnum)
-         (let ((array (%make-array-header dimensions fill-pointer element-type memory)))
+         (let ((array (%make-array-header dimensions fill-pointer element-type memory area)))
            (when (or initial-element-p initial-contents-p)
              (error "TODO: Initialization of memory arrays."))
            array))
@@ -157,9 +158,9 @@ This must be sorted from most-specific to least-specific.")
 				  dimensions
 				  (apply #'* dimensions)))
 		  (backing-array (if initial-element-p
-				     (make-simple-array total-size element-type initial-element)
-				     (make-simple-array total-size element-type)))
-		  (array (%make-array-header dimensions fill-pointer nil backing-array)))
+				     (make-simple-array total-size element-type area initial-element)
+				     (make-simple-array total-size element-type area)))
+		  (array (%make-array-header dimensions fill-pointer nil backing-array area)))
 	     (when initial-contents
 	       (initialize-from-sequence array initial-contents))
 	     array))))
@@ -195,8 +196,8 @@ This must be sorted from most-specific to least-specific.")
       (cond ((null (%array-header-info array))
 	     (let ((old-array (%array-header-storage array))
 		   (new-array (if initial-element-p
-				  (make-simple-array new-dimensions element-type initial-element)
-				  (make-simple-array new-dimensions element-type))))
+				  (make-simple-array new-dimensions element-type nil initial-element)
+				  (make-simple-array new-dimensions element-type nil))))
 	       (dotimes (i (min new-dimensions (array-dimension old-array 0)))
 		 (setf (aref new-array i) (aref old-array i)))
 	       (setf (%array-header-dimensions array) new-dimensions
@@ -204,8 +205,8 @@ This must be sorted from most-specific to least-specific.")
 	     array)
 	    (t (error "TODO: Adjusting unusual array ~S." array)))
       (let ((new-array (if initial-element-p
-			   (make-simple-array new-dimensions element-type initial-element)
-			   (make-simple-array new-dimensions element-type))))
+			   (make-simple-array new-dimensions element-type nil initial-element)
+			   (make-simple-array new-dimensions element-type nil))))
 	(dotimes (i (min new-dimensions (array-dimension old-array 0)))
 	  (setf (aref new-array i) (aref old-array i)))
 	new-array)))

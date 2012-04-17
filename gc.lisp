@@ -357,14 +357,19 @@
 ;;; and the caller must clear the returned memory before reenabling the GC.
 ;;; Additionally, the number of words to allocate must be even to ensure
 ;;; correct alignment.
-(defun %raw-allocate (words)
-  (when (> (+ *newspace-offset* words) *semispace-size*)
-    (%gc)
-    (when (> (+ *newspace-offset* words) *semispace-size*)
-      ;; Oh dear. No memory.
-      (emergency-halt "Out of memory.")))
-  (prog1 (+ *newspace* (ash *newspace-offset* 3))
-    (incf *newspace-offset* words)))
+(defun %raw-allocate (words &optional area)
+  (ecase area
+    ((nil :dynamic)
+     (when (> (+ *newspace-offset* words) *semispace-size*)
+       (%gc)
+       (when (> (+ *newspace-offset* words) *semispace-size*)
+         ;; Oh dear. No memory.
+         (emergency-halt "Out of memory.")))
+     (prog1 (+ *newspace* (ash *newspace-offset* 3))
+       (incf *newspace-offset* words)))
+    (:static
+     (prog1 (+ *static-bump-pointer* 16)
+       (incf *static-bump-pointer* (+ (* words 8) 16))))))
 
 (defun cons (car cdr)
   (with-interrupts-disabled ()
@@ -380,7 +385,7 @@
             (std-instance-slots value) slots)
       value)))
 
-(defun %allocate-array-like (tag word-count length)
+(defun %allocate-array-like (tag word-count length &optional area)
   "Allocate a array-like object. All storage is initialized to zero.
 WORD-COUNT must be the number of words used to store the data, not including
 the header word. LENGTH is the number of elements in the array."
@@ -389,7 +394,7 @@ the header word. LENGTH is the number of elements in the array."
     (if (oddp word-count)
         (incf word-count 1)
         (incf word-count 2))
-    (let ((address (%raw-allocate word-count)))
+    (let ((address (%raw-allocate word-count area)))
       ;; Clear memory.
       (dotimes (i word-count)
         (setf (memref-unsigned-byte-64 address i) 0))
@@ -399,8 +404,8 @@ the header word. LENGTH is the number of elements in the array."
       ;; Return value.
       (%%assemble-value address +tag-array-like+))))
 
-(defun %make-struct (length)
-  (%allocate-array-like 31 length length))
+(defun %make-struct (length &optional area)
+  (%allocate-array-like +array-type-struct+ length length area))
 
 (defun make-closure (function environment)
   "Allocate a closure object."
@@ -489,19 +494,19 @@ the header word. LENGTH is the number of elements in the array."
         (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
       (%%assemble-value address +tag-function+))))
 
-(defun %make-array-header (dimensions fill-pointer info storage)
+(defun %make-array-header (dimensions fill-pointer info storage &optional area)
   (with-interrupts-disabled ()
-    (let ((value (%%assemble-value (%raw-allocate 4) +tag-array-header+)))
+    (let ((value (%%assemble-value (%raw-allocate 4 area) +tag-array-header+)))
       (setf (%array-header-dimensions value) dimensions
             (%array-header-fill-pointer value) fill-pointer
             (%array-header-info value) info
             (%array-header-storage value) storage)
       value)))
 
-(defun make-symbol (name)
+(defun make-symbol (name &optional area)
   (check-type name string)
   (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate 6))
+    (let* ((address (%raw-allocate 6 area))
            (symbol (%%assemble-value address +tag-symbol+)))
       ;; symbol-name.
       (setf (memref-t address 0) (sys.int::simplify-string name))

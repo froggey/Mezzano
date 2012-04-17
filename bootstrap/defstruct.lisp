@@ -35,7 +35,8 @@
   (let ((name nil)
 	(suppress-constructors nil)
 	(constructors '())
-	(predicate-name t))
+	(predicate-name t)
+        (area nil))
     (if (symbolp name-and-options)
 	(setf name name-and-options)
 	(progn
@@ -98,6 +99,12 @@
 	       ;; TODO: disable copier when supported
 	       (cond ((eq (second option) 'nil))
 		     (t (error "TODO: copier option."))))
+              ;; (:area name)
+              ((and (consp option)
+		    (eq :area (first option))
+		    (cdr option)
+		    (null (cddr option)))
+               (setf area (second option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
 	    ;; TODO: conc-name.
@@ -120,7 +127,8 @@
 	      ((eq predicate-name 't)
 	       (concat-symbols name '-p))
 	      ;; Explicit predicate.
-	      (t predicate-name)))))
+	      (t predicate-name))
+            area)))
 
 ;; Parses slot-description and produces:
 ;; (slot-name accessor-name initform type read-only)
@@ -131,12 +139,12 @@
           slot
         (list slot-name (concat-symbols conc-name slot-name) slot-initform type read-only))))
 
-(defun generate-simple-defstruct-constructor (struct-type name)
+(defun generate-simple-defstruct-constructor (struct-type name area)
   (let ((tmp (gensym)))
     `(defun ,name (&key ,@(mapcar (lambda (slot)
 				    (list (first slot) (third slot)))
 				  (structure-slots struct-type)))
-       (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))))))
+       (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
 	 (setf (%struct-slot ,tmp 0) ',struct-type)
 	 ,@(let ((n 0))
 	     (mapcar (lambda (slot)
@@ -145,7 +153,7 @@
 		     (structure-slots struct-type)))
 	 ,tmp))))
 
-(defun generate-defstruct-constructor (struct-type name lambda-list)
+(defun generate-defstruct-constructor (struct-type name lambda-list area)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
       (parse-ordinary-lambda-list lambda-list)
     (declare (ignore enable-keys allow-other-keys))
@@ -160,7 +168,7 @@
 	   (default-slots (set-difference (mapcar #'first (structure-slots struct-type)) assigned-slots))
 	   (tmp (gensym)))
       `(defun ,name ,lambda-list
-	 (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))))))
+	 (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
 	   (setf (%struct-slot ,tmp 0) ',struct-type)
 	   ,@(let ((n 0))
 	       (mapcar (lambda (s)
@@ -172,7 +180,7 @@
 	   ,tmp)))))
 
 (defmacro defstruct (name-and-options &rest slot-descriptions)
-  (multiple-value-bind (name conc-name constructors predicate)
+  (multiple-value-bind (name conc-name constructors predicate area)
       (parse-defstruct-options name-and-options)
     (let* ((slots (mapcar (lambda (s) (parse-defstruct-slot conc-name s)) slot-descriptions))
 	   (struct-type (make-struct-type name slots)))
@@ -198,7 +206,7 @@
 		     slots))
 	 ,@(mapcar (lambda (x)
 		     (if (symbolp x)
-			 (generate-simple-defstruct-constructor struct-type x)
-			 (generate-defstruct-constructor struct-type (first x) (second x))))
+			 (generate-simple-defstruct-constructor struct-type x area)
+			 (generate-defstruct-constructor struct-type (first x) (second x) area)))
 		   constructors)
 	 ',name))))

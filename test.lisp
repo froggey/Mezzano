@@ -17,8 +17,7 @@
       (setf (io-port/8 #xA1) (ldb (byte 8 8) *isa-pic-shadow-mask*)))
   value)
 
-;; TODO: allocate in static area.
-(defvar *isa-pic-handlers* (make-array 16 :initial-element nil))
+(defvar *isa-pic-handlers* (make-array 16 :initial-element nil :area :static))
 (defvar *isa-pic-base-handlers* (make-array 16 :initial-element nil))
 
 (dotimes (i 16)

@@ -313,7 +313,9 @@ GENESIS-INTERN.")
 (defstruct genesis-struct
   slots)
 
-(defbuiltin %make-struct (size)
+(defbuiltin %make-struct (size &optional area)
+  (unless (null area)
+    (error "Genesis cannot allocate in a specific area."))
   (make-genesis-struct :slots (make-array size)))
 (define-forwarding-builtin structure-object-p genesis-struct-p)
 (defbuiltin %struct-slot (struct slot)
@@ -416,7 +418,9 @@ GENESIS-INTERN.")
   storage)
 
 (define-forwarding-builtin %array-header-p array-header-p)
-(defbuiltin %make-array-header (dimensions fill-pointer info storage)
+(defbuiltin %make-array-header (dimensions fill-pointer info storage &optional area)
+  (unless (null area)
+    (error "Genesis cannot allocate in a specific area."))
   (make-array-header :dimensions dimensions
                      :fill-pointer fill-pointer
                      :info info
@@ -489,9 +493,13 @@ GENESIS-INTERN.")
 	 (list 'signed-byte (second element-type)))
 	(t (error "Unknown element type ~S." element-type))))
 
-(defbuiltin %allocate-and-fill-array (length element-type initial-element)
+(defbuiltin %allocate-and-fill-array (length element-type initial-element &optional area)
+  (unless (null area)
+    (error "Genesis cannot allocate in a specific area."))
   (make-array length :element-type (convert-element-type element-type) :initial-element initial-element))
-(defbuiltin %allocate-and-clear-array (length element-type)
+(defbuiltin %allocate-and-clear-array (length element-type &optional area)
+  (unless (null area)
+    (error "Genesis cannot allocate in a specific area."))
   (make-array length :element-type (convert-element-type element-type)))
 
 (defbuiltin open (pathspec)

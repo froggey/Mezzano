@@ -1,9 +1,9 @@
 (in-package #:sys.int)
 
-(defstruct ps/2-fifo
+(defstruct (ps/2-fifo (:area :static))
   (head 0 :type fixnum)
   (tail 0 :type fixnum)
-  (buffer (make-array 500 :element-type '(unsigned-byte 8))
+  (buffer (make-array 500 :element-type '(unsigned-byte 8) :area :static)
           :type (simple-array (unsigned-byte 8) (*))))
 
 (defconstant +ps/2-data-port+ #x60)

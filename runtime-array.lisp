@@ -27,26 +27,26 @@
     ((complex long-float) #.+array-type-complex-long-float+ 256 t)
     (t #.+array-type-t+ 64 nil)))
 
-(defun %allocate-and-clear-array (length real-element-type)
+(defun %allocate-and-clear-array (length real-element-type &optional area)
   (let* ((info (assoc real-element-type *array-info* :test 'equal))
          (total-size (+ (if (fourth info) 64 0) ; padding for alignment.
                         (* length (third info)))))
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))
       (incf total-size (- 64 (rem total-size 64))))
-    (%allocate-array-like (second info) (truncate total-size 64) length)))
+    (%allocate-array-like (second info) (truncate total-size 64) length area)))
 
-(defun %allocate-and-fill-array (length real-element-type initial-element)
-  (let ((array (%allocate-and-clear-array length real-element-type)))
+(defun %allocate-and-fill-array (length real-element-type initial-element &optional area)
+  (let ((array (%allocate-and-clear-array length real-element-type area)))
     (dotimes (i length)
       (setf (aref array i) initial-element))
     array))
 
-(defun make-simple-vector (length)
+(defun make-simple-vector (length &optional area)
   "Allocate a SIMPLE-VECTOR with LENGTH elements.
 Equivalent to (make-array length). Used by the compiler to
 allocate environment frames."
-  (%allocate-array-like +array-type-t+ length length))
+  (%allocate-array-like +array-type-t+ length length area))
 
 ;;; FIXME: some parts must run with the GC off.
 (defun %simple-array-aref (array index)
