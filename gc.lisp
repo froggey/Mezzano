@@ -528,12 +528,14 @@ the header word. LENGTH is the number of elements in the array."
     (let* ((address (%raw-allocate 6 area))
            (symbol (%%assemble-value address +tag-symbol+)))
       ;; symbol-name.
-      (setf (memref-t address 0) (sys.int::simplify-string name))
+      (setf (memref-t address 0) (sys.int::simplify-string name)
+            ;; Must be done before makunbound to prevent random
+            ;; TLS slots from being smashed.
+            (%symbol-flags symbol) 0)
       (makunbound symbol)
       (%fmakunbound symbol)
       (setf (symbol-plist symbol) nil
-            (symbol-package symbol) nil
-            (%symbol-flags symbol) 0)
+            (symbol-package symbol) nil)
       symbol)))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
