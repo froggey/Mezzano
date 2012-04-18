@@ -891,21 +891,26 @@
 ;;; artifact of the fact that our generic function metaobjects can't legally
 ;;; be stored a symbol's function value.
 
-(let ((generic-function-table (make-hash-table :test #'equal)))
+(defvar *generic-function-table* (make-hash-table :test #'equal))
 
-  (defun find-generic-function (symbol &optional (errorp t))
-    (let ((gf (gethash symbol generic-function-table nil)))
-       (if (and (null gf) errorp)
-           (error "No generic function named ~S." symbol)
-           gf)))
+(defun find-generic-function (symbol &optional (errorp t))
+  (let ((gf (gethash symbol *generic-function-table* nil)))
+    (if (and (null gf) errorp)
+        (error "No generic function named ~S." symbol)
+        gf)))
 
-  (defun (setf find-generic-function) (new-value symbol)
-    (setf (gethash symbol generic-function-table) new-value))
+(defun (setf find-generic-function) (new-value symbol)
+  (setf (gethash symbol *generic-function-table*) new-value))
 
-  (defun forget-all-generic-functions ()
-    (clrhash generic-function-table)
-    (values))
- ) ;end let generic-function-table
+(defun forget-all-generic-functions ()
+  (clrhash *generic-function-table*)
+  (values))
+
+(defun compile-all-generic-functions ()
+  (maphash (lambda (name gf)
+             (declare (ignore gf))
+             (compile-methods name))
+           *generic-function-table*))
 
 ;;; ensure-generic-function
 
