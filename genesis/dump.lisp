@@ -433,7 +433,7 @@
 (defun generate-physical-dump-layout (static-size dynamic-size)
   (let* ((load-offset #x200000) ; Physical base address.
 	 (static-base load-offset)
-         (static-area-full-size (* 32 1024 1024))
+         (static-area-full-size (* 64 1024 1024))
          (static-area-size (* (ceiling (* static-size 8) #x200000) #x200000))
 	 (dynamic-base (+ static-base static-area-size))
          (dynamic-area-full-size (* 32 1024 1024))
@@ -1005,6 +1005,8 @@
                                                                          "*OLDSPACE-PAGING-BITS*"
                                                                          "*NEWSPACE-PAGING-BITS*"
                                                                          "*STATIC-BUMP-POINTER*" "*STATIC-MARK-BIT*"
+                                                                         "*STATIC-AREA-SIZE*"
+                                                                         "*BUMP-POINTER*"
                                                                          "*VERBOSE-GC*"))
                                                                (mapcar 'cdr *function-preloads*)
                                                                (mapcar 'cdr *symbol-preloads*)))
@@ -1067,7 +1069,7 @@
 	  (format t "UFT at ~X.~%" (gethash undefined-function-thunk object-values))
           (format t "Initial stack group at ~X.~%" (gethash initial-stack-group object-values))
           (format t "GC pointer at ~X.~%" dynamic-size)
-          ;; Set the  GC pointers
+          ;; Set the GC pointers
           (push (cons (genesis-intern "*OLDSPACE*") (+ *dynamic-area-base* (/ *dynamic-area-size* 2))) ; bytes
                 *symbol-preloads*)
           (push (cons (genesis-intern "*NEWSPACE*") *dynamic-area-base*) ; bytes
@@ -1083,6 +1085,10 @@
           (push (cons (genesis-intern "*STATIC-BUMP-POINTER*") (+ *static-area-base* (* static-size 8)))
                 *symbol-preloads*)
           (push (cons (genesis-intern "*STATIC-MARK-BIT*") 0)
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*STATIC-AREA-SIZE*") (/ (* 64 1024 1024) 8)) ; words
+                *symbol-preloads*)
+          (push (cons (genesis-intern "*BUMP-POINTER*") (+ *linear-map* (+ image-end bss-size)))
                 *symbol-preloads*)
 	  ;; Fill in the multiboot struct.
 	  (setf (aref multiboot-header 0) #x1BADB002

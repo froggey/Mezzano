@@ -2,11 +2,17 @@
 
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
-(declaim (special *static-bump-pointer* *static-mark-bit*))
+(declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
+(declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
 (setf *verbose-gc* nil)
 
 (defvar *gc-in-progress* nil)
+
+(defvar *gc-stack-group* (make-stack-group "GC"
+                                           :control-stack-size 32766
+                                           :data-stack-size 32766))
+(stack-group-preset *gc-stack-group* #'gc-task)
 
 ;;; FIXME: Should use unwind-protect but that conses!!!
 ;;; TODO: Require that this can never nest (ie interrupts are on "all" the time).
@@ -23,10 +29,9 @@
   (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
           *newspace-offset* *semispace-size*
           (truncate (* *newspace-offset* 100) *semispace-size*))
-  ;; FIXME: The static area is only the same size as a semispace through coincidence.
   (format t "Static space: ~:D/~:D words allocated (~D%).~%"
-          (ceiling (- *static-bump-pointer* #x200000) 8) *semispace-size*
-          (truncate (* (ceiling (- *static-bump-pointer* #x200000) 8) 100) *semispace-size*))
+          (ceiling *static-bump-pointer* 8) *static-area-size*
+          (truncate (* (ceiling *static-bump-pointer* 8) 100) *static-area-size*))
   (values))
 
 (defun gc ()
@@ -341,31 +346,37 @@
             (gc-object (memref-t binding-stack-pointer i)))))
   (values a1 a2 a3 a4 a5))
 
+(defun gc-task ()
+  (loop
+     (let ((old-offset *newspace-offset*))
+       (mumble "GC in progress...")
+       ;; Allow access to the soon-to-be-newspace.
+       (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
+       ;; Flip.
+       (psetf *oldspace* *newspace*
+              *newspace* *oldspace*
+              *oldspace-paging-bits* *newspace-paging-bits*
+              *newspace-paging-bits* *oldspace-paging-bits*
+              *newspace-offset* 0
+              *static-mark-bit* (logxor *static-mark-bit* 1))
+       ;; Transport the major root, NIL.
+       (gc-object 'nil)
+       ;; Transport registers, the data stack and the binding stack.
+       (transport-registers-and-stack 1 2 3 4 5)
+       ;; Make oldspace inaccessible.
+       (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
+       ;; Flush TLB.
+       (setf (%cr3) (%cr3))
+       (mumble "complete")
+       (stack-group-return t))))
+
 (defun %gc ()
   (when *gc-in-progress*
     (error "Nested GC?!"))
-  (let ((*gc-in-progress* t)
-        (old-offset *newspace-offset*))
-    (mumble "GC in progress...")
-    ;; Allow access to the soon-to-be-newspace.
-    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
-    ;; Flip.
-    (psetf *oldspace* *newspace*
-           *newspace* *oldspace*
-           *oldspace-paging-bits* *newspace-paging-bits*
-           *newspace-paging-bits* *oldspace-paging-bits*
-           *newspace-offset* 0
-           *static-mark-bit* (logxor *static-mark-bit* 1))
-    ;; Transport the major root, NIL.
-    (gc-object 'nil)
-    ;; Transport registers, the data stack and the binding stack.
-    (transport-registers-and-stack 1 2 3 4 5)
-    ;; Make oldspace inaccessible.
-    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
-    ;; Flush TLB.
-    (setf (%cr3) (%cr3))
-    (mumble "complete")
-    t))
+  (unwind-protect
+       (progn (setf *gc-in-progress* t)
+              (stack-group-invoke *gc-stack-group*))
+    (setf *gc-in-progress* nil)))
 
 ;;; This is the fundamental dynamic allocation function.
 ;;; It ensures there is enough space on the dynamic heap to
@@ -387,8 +398,13 @@
      (prog1 (+ *newspace* (ash *newspace-offset* 3))
        (incf *newspace-offset* words)))
     (:static
-     (prog1 (+ *static-bump-pointer* 16)
-       (incf *static-bump-pointer* (+ (* words 8) 16))))))
+     (let ((address (+ *static-bump-pointer* 16)))
+       (incf *static-bump-pointer* (+ (* words 8) 16))
+       (when (> *static-bump-pointer* (* *static-area-size* 8))
+         (emergency-halt "Static space exhausted"))
+       ;; Initialize the static header word.
+       (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+       address))))
 
 (defun cons (car cdr)
   (with-interrupts-disabled ()
@@ -430,10 +446,7 @@ the header word. LENGTH is the number of elements in the array."
   "Allocate a closure object."
   (check-type function function)
   (with-interrupts-disabled ()
-    (let ((address (+ *static-bump-pointer* 16)))
-      (incf *static-bump-pointer* (+ (* 6 8) 16))
-      ;; Initialize the static header word.
-      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+    (let ((address (%raw-allocate 6 :static)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) #x00020001
@@ -463,10 +476,7 @@ the header word. LENGTH is the number of elements in the array."
   "Allocate a closure object."
   (check-type interpreter function)
   (with-interrupts-disabled ()
-    (let ((address (+ *static-bump-pointer* 16)))
-      (incf *static-bump-pointer* (+ (* 8 8) 16))
-      ;; Initialize the static header word.
-      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+    (let ((address (%raw-allocate 8 :static)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) #x00020002
@@ -492,26 +502,24 @@ the header word. LENGTH is the number of elements in the array."
 (defun make-function (machine-code constants)
   "Allocate a new regular function."
   (with-interrupts-disabled ()
-    (let* ((address (+ *static-bump-pointer* 16))
-           (mc-size (ceiling (+ (length machine-code) 12) 16))
+    (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
            (pool-size (length constants))
            (total (+ (* mc-size 2) pool-size)))
       (when (oddp total)
         (incf total))
-      (incf *static-bump-pointer* (+ (* total 8) 16)) ; what was the +16 for?
-      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
-      ;; Initialize header.
-      (setf (memref-unsigned-byte-64 address 0) 0
-            (memref-unsigned-byte-16 address 0) +function-type-function+
-            (memref-unsigned-byte-16 address 1) mc-size
-            (memref-unsigned-byte-16 address 2) pool-size)
-      ;; Initialize code.
-      (dotimes (i (length machine-code))
-        (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
-      ;; Initialize constant pool.
-      (dotimes (i (length constants))
-        (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
-      (%%assemble-value address +tag-function+))))
+      (let ((address (%raw-allocate total :static)))
+        ;; Initialize header.
+        (setf (memref-unsigned-byte-64 address 0) 0
+              (memref-unsigned-byte-16 address 0) +function-type-function+
+              (memref-unsigned-byte-16 address 1) mc-size
+              (memref-unsigned-byte-16 address 2) pool-size)
+        ;; Initialize code.
+        (dotimes (i (length machine-code))
+          (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
+        ;; Initialize constant pool.
+        (dotimes (i (length constants))
+          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+        (%%assemble-value address +tag-function+)))))
 
 (defun %make-array-header (dimensions fill-pointer info storage &optional area)
   (with-interrupts-disabled ()
@@ -604,12 +612,7 @@ the header word. LENGTH is the number of elements in the array."
 
 (defun %allocate-stack (length)
   (with-interrupts-disabled ()
-    (let* ((address (+ *static-bump-pointer* 16)))
-      (when (oddp length)
-        (incf length))
-      (incf *static-bump-pointer* (+ (* length 8) 16)) ; what was the +16 for?
-      (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
-      ;; Initialize header.
-      (setf (memref-unsigned-byte-64 address 0) (logior (ash length 8) +array-type-unsigned-byte-64+))
-      ;; Ensures 16 byte alignment.
-      (+ address 16))))
+    (when (oddp length)
+      (incf length))
+    (prog1 *bump-pointer*
+      (incf *bump-pointer* (* length 8)))))
