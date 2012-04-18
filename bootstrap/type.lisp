@@ -311,7 +311,7 @@
       :interactive (lambda ()
 		     (format t "Enter a new value (evaluated): ")
 		     (list (eval (read))))
-      :report (lambda (s) (format s "Input a new value for ~S." 'some-place))
+      :report (lambda (s) (format s "Input a new value for ~S." place))
       v)))
 
 (defmacro check-type (place typespec &optional string)
