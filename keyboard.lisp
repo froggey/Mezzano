@@ -26,17 +26,16 @@
 (defvar *ps/2-aux-fifo*)
 
 (defun ps/2-read-fifo (fifo)
-  (loop (unwind-protect
-             (progn
-               (%cli)
-               (when (not (eql (ps/2-fifo-head fifo)
-                               (ps/2-fifo-tail fifo)))
-                 (return (prog1 (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo))
-                           (incf (ps/2-fifo-head fifo))
-                           (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
-                             (setf (ps/2-fifo-head fifo) 0))))))
-          (%sti))
-     (%hlt)))
+  (loop
+     (when (not (eql (ps/2-fifo-head fifo)
+                     (ps/2-fifo-tail fifo)))
+       (return (prog1 (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo))
+                 (incf (ps/2-fifo-head fifo))
+                 (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
+                   (setf (ps/2-fifo-head fifo) 0)))))
+     (process-wait "Keyboard input"
+                   (lambda ()
+                     (not (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo)))))))
 
 (defclass ps/2-keyboard-stream (stream-object) ())
 
