@@ -270,21 +270,27 @@
     (setf (io-port/8 #xE9) (hexify tag))
     (setf (io-port/8 #xE9) #x0A)))
 
+(declaim (special * ** ***))
+
 (defun repl ()
-  (loop
-     (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
-       (fresh-line)
-       (write-char #\>)
-       (let ((form (read)))
+  (let ((* nil) (** nil) (*** nil))
+    (loop
+       (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
          (fresh-line)
-         (let ((result (multiple-value-list (eval form))))
-           (if result
-               (dolist (v result)
-                 (fresh-line)
-                 (write v))
-               (progn
-                 (fresh-line)
-                 (write-string "; No values."))))))))
+         (write-char #\>)
+         (let ((form (read)))
+           (fresh-line)
+           (let ((result (multiple-value-list (eval form))))
+             (setf *** **
+                   ** *
+                   * (first result))
+             (if result
+                 (dolist (v result)
+                   (fresh-line)
+                   (write v))
+                 (progn
+                   (fresh-line)
+                   (write-string "; No values.")))))))))
 
 (defvar *early-initialize-hook* '())
 (defvar *initialize-hook* '())
