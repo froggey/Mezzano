@@ -250,6 +250,25 @@
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
     *r8-value*))
 
+(defbuiltin (setf sys.int::memref-signed-byte-64) (new-value base offset) ()
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r8 '(signed-byte 64)))
+    (load-in-reg :rax base t)
+    (fixnum-check :rax)
+    (load-in-reg :rcx offset t)
+    (fixnum-check :rcx)
+    (load-in-r8 new-value t)
+    (emit `(sys.lap-x86:mov64 :rdx :r8)
+	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:jnz ,type-error-label)
+	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
+	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Write.
+	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
+    *r8-value*))
+
 (defbuiltin sys.int::memref-t (base offset) ()
   (let ((type-error-label (gensym)))
     (load-in-reg :rax base t)
