@@ -74,17 +74,6 @@ be generated instead.")
     (when (or (lambda-information-enable-keys lambda)
               (lambda-information-key-args lambda))
       (error "&KEY arguments did not get lowered!"))
-    (when (and (> (+ (length (lambda-information-required-args lambda))
-                     (length (lambda-information-optional-args lambda)))
-                  5)
-               (not (zerop (length (lambda-information-optional-args lambda)))))
-      (format t "TODO: more than 5 required & optional arguments.~%")
-      (return-from codegen-lambda (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
-							   (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
-							   (sys.lap-x86:mov64 :r8 (:constant "TODO: more than 5 required & optional arguments."))
-							   (sys.lap-x86:call (:symbol-function :r13))
-							   (sys.lap-x86:ud2))
-                                                         *current-lambda-name*)))
     ;; Save environment pointer.
     (when *environment*
       (let ((slot (find-stack-slot)))
@@ -152,6 +141,31 @@ be generated instead.")
           (setf (aref *stack-values* slot) (cons :environment :home))
           (push slot *environment-chain*)
           (emit `(sys.lap-x86:mov64 (:stack ,slot) :rbx))))
+      ;; Store &REST arg before doing &OPTIONAL arguments to free up R13.
+      ;; R13 will have to be spilled and reloaded when &REST is special.
+      (let ((rest-arg (lambda-information-rest-arg lambda)))
+        (when (and rest-arg
+                   ;; Avoid generating code &REST code when the variable isn't used.
+                   (not (and (lexical-variable-p rest-arg)
+                             (zerop (lexical-variable-use-count rest-arg)))))
+          (unless (lexical-variable-p rest-arg)
+            (return-from codegen-lambda
+              (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
+                                       (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                                       (sys.lap-x86:mov64 :r8 (:constant "TODO: special variables. &REST"))
+                                       (sys.lap-x86:call (:symbol-function :r13))
+                                       (sys.lap-x86:ud2)))))
+          (cond ((localp rest-arg)
+                 (let ((ofs (find-stack-slot)))
+                   (setf (aref *stack-values* ofs) (cons rest-arg :home))
+                   (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13))))
+                ((lexical-variable-p rest-arg)
+                 ;; Non-local variable.
+                 ;; +1 to align on the data. Backlink is skipped by magic.
+                 (emit `(sys.lap-x86:mov64 :rbx (:stack ,(first *environment-chain*)))
+                       `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size (length (first *environment*))) 8)))
+                                           :r13))
+                 (push rest-arg (first *environment*))))))
       ;; Compile argument setup code.
       (let ((current-arg-index 0))
         ;; Environemnt vector is in :RBX for required arguments.
@@ -210,12 +224,19 @@ be generated instead.")
             ;; Argument supplied, stash wherever.
             (cond (var-ofs
                    ;; Local var.
-                   (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers))))
+                   (if arg-registers
+                       (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers)))
+                       (emit `(sys.lap-x86:mov64 :r8 (:lfp ,(* (- current-arg-index 5) 8)))
+                             `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8))))
                   (t ;; Non-local var. RBX will still be valid.
                    ;; +1 to align on the data. Backlink is skipped by magic.
                    (setf var-ofs (length (first *environment*)))
-                   (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size var-ofs) 8)))
-                                             ,(pop arg-registers)))
+                   (if arg-registers
+                       (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size var-ofs) 8)))
+                                                 ,(pop arg-registers)))
+                       (emit `(sys.lap-x86:mov64 :r8 (:lfp ,(* (- current-arg-index 5) 8)))
+                             `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size var-ofs) 8)))
+                                                 :r8)))
                    (push (first arg) (first *environment*))))
             (when (third arg)
               (cond (sup-ofs
@@ -252,30 +273,7 @@ be generated instead.")
                        (emit `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size sup-ofs) 8)))
                                                ,t))))))
             (emit end-label)
-            (incf current-arg-index))))
-      (let ((rest-arg (lambda-information-rest-arg lambda)))
-        (when (and rest-arg
-                   ;; Avoid generating code &REST code when the variable isn't used.
-                   (not (and (lexical-variable-p rest-arg)
-                             (zerop (lexical-variable-use-count rest-arg)))))
-          (unless (lexical-variable-p rest-arg)
-            (return-from codegen-lambda
-              (sys.int::assemble-lap `((sys.lap-x86:mov64 :r13 (:constant error))
-                                       (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
-                                       (sys.lap-x86:mov64 :r8 (:constant "TODO: special variables. &REST"))
-                                       (sys.lap-x86:call (:symbol-function :r13))
-                                       (sys.lap-x86:ud2)))))
-          (cond ((localp rest-arg)
-                 (let ((ofs (find-stack-slot)))
-                   (setf (aref *stack-values* ofs) (cons rest-arg :home))
-                   (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13))))
-                ((lexical-variable-p rest-arg)
-                 ;; Non-local variable.
-                 ;; +1 to align on the data. Backlink is skipped by magic.
-                 (emit `(sys.lap-x86:mov64 :rbx (:stack ,(first *environment-chain*)))
-                       `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size (length (first *environment*))) 8)))
-                                           :r13))
-                 (push rest-arg (first *environment*)))))))
+            (incf current-arg-index)))))
     (let* ((code-tag (let ((*for-value* :multiple))
                        (cg-form `(progn ,@(lambda-information-body lambda)))))
            (req-count (length (lambda-information-required-args lambda)))
