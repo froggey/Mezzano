@@ -907,10 +907,15 @@
   (values))
 
 (defun compile-all-generic-functions ()
-  (maphash (lambda (name gf)
-             (declare (ignore gf))
-             (compile-methods name))
-           *generic-function-table*))
+  ;; Take a copy of the GF table before compiling to prevent
+  ;; a rehash confusing maphash.
+  (let ((all-generic-functions '()))
+    (maphash (lambda (name gf)
+               (declare (ignore gf))
+               (push name all-generic-functions))
+             *generic-function-table*)
+    (mapc 'compile-methods all-generic-functions)
+    (values)))
 
 ;;; ensure-generic-function
 
