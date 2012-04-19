@@ -76,8 +76,8 @@
 
 (defun pci-get-lfb-addr (vendor-id device-id)
   (dolist (dev *pci-devices*)
-    (when (and (eql (pci-vendorid dev) vendor-id)
-	       (eql (pci-deviceid dev) device-id))
+    (when (and (eql (pci-device-vendor-id dev) vendor-id)
+	       (eql (pci-device-device-id dev) device-id))
       (let ((data (pci-bar dev 0)))
 	(when (not (eql (logand data #xFFF1) 0))
 	  (return nil))

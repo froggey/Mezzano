@@ -43,6 +43,13 @@
 (defvar *pci-devices* '()
   "A list of all detected PCI devices. (bus device function vendor-id device-id)")
 
+(defstruct pci-device
+  bus
+  device
+  function
+  vendor-id
+  device-id)
+
 (defun make-pci-config-address (bus device function register)
   (declare (type (integer 0 255) bus register)
 	   (type (integer 0 31) device)
@@ -58,7 +65,7 @@
   (logand (ash (io-port/32 +pci-config-data+) (- (* (logand register 3) 8))) #xFF))
 
 (defun pci-config/8 (pci-device register)
-  (%pci-config/8 (first pci-device) (second pci-device) (third pci-device) register))
+  (%pci-config/8 (pci-device-bus pci-device) (pci-device-device pci-device) (pci-device-function pci-device) register))
 
 (defun %pci-config/16 (bus device function register)
   (unless (eql (logand register 1) 0)
@@ -67,7 +74,7 @@
   (logand (ash (io-port/32 +pci-config-data+) (- (* (logand register 2) 8))) #xFFFF))
 
 (defun pci-config/16 (pci-device register)
-  (%pci-config/16 (first pci-device) (second pci-device) (third pci-device) register))
+  (%pci-config/16 (pci-device-bus pci-device) (pci-device-device pci-device) (pci-device-function pci-device) register))
 
 (defun %pci-config/32 (bus device function register)
   (unless (eql (logand register 3) 0)
@@ -76,13 +83,7 @@
   (io-port/32 +pci-config-data+))
 
 (defun pci-config/32 (pci-device register)
-  (%pci-config/32 (first pci-device) (second pci-device) (third pci-device) register))
-
-(defun pci-vendorid (pci-device)
-  (fourth pci-device))
-
-(defun pci-deviceid (pci-device)
-  (fifth pci-device))
+  (%pci-config/32 (pci-device-bus pci-device) (pci-device-device pci-device) (pci-device-function pci-device) register))
 
 (defun pci-hdr-type (pci-device)
   (logand (pci-config/8 pci-device +pci-config-hdr-type+) #x7F))
@@ -111,7 +112,11 @@
 	(let ((vendor (%pci-config/16 bus device function +pci-config-vendorid+)))
 	  (unless (or (eql vendor #xFFFF) (eql vendor 0))
 	    (let* ((device-id (%pci-config/16 bus device function +pci-config-deviceid+))
-		   (info (list bus device function vendor device-id)))
+		   (info (make-pci-device :bus bus
+                                          :device device
+                                          :function function
+                                          :vendor-id vendor
+                                          :device-id device-id)))
 	      (push info *pci-devices*)
 	      (format t "~2,'0X:~X:~X: ~4,'0X ~4,'0X~%"
 		      bus device function
@@ -129,6 +134,6 @@
 (defun pci-probe (device-ids fn)
   (dolist (dev *pci-devices*)
     (dolist (id device-ids)
-      (when (and (eql (pci-vendorid dev) (first id))
-		 (eql (pci-deviceid dev) (second id)))
+      (when (and (eql (pci-device-vendor-id dev) (first id))
+		 (eql (pci-device-device-id dev) (second id)))
 	(funcall fn dev)))))
