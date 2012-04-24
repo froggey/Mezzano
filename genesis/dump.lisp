@@ -7,7 +7,8 @@
   (suppress-builtins :default)
   lap-code
   assembled-code
-  constants)
+  constants
+  fixups)
 
 (defstruct genesis-closure
   function
@@ -182,8 +183,6 @@
 (defconstant +page-table-global+   #b0000100000000)
 (defconstant +page-table-pat+      #b1000000000000)
 
-(defvar *lap-symbols* nil)
-
 (defun convert-environment (env)
   "Convert a Genesis eval environment to a compiler environment."
   ;; Compiler environments are currently annoyingly complicated and actually
@@ -241,22 +240,26 @@
 	(t vector)))
 
 (defun assemble-lap (code &optional name)
-  (multiple-value-bind (mc constants)
+  (multiple-value-bind (mc constants fixups)
       (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "ASSEMBLE" "SYS.LAP-X86"))
                           (list (genesis-intern "QUOTE") code)
                           (genesis-intern "BASE-ADDRESS" t) 12
-                          (genesis-intern "INITIAL-SYMBOLS" t) (list (genesis-intern "QUOTE") *lap-symbols*)
+                          (genesis-intern "INITIAL-SYMBOLS" t) (list (genesis-intern "QUOTE")
+                                                                     (list (cons 'nil (genesis-intern "FIXUP" t))
+                                                                           (cons (genesis-intern "T") (genesis-intern "FIXUP" t))
+                                                                           (cons (genesis-intern "UNDEFINED-FUNCTION") (genesis-intern "FIXUP" t))))
                           (genesis-intern "INFO" t) (list (genesis-intern "QUOTE") (list name))))
-    (values (strip-array-header mc) (strip-array-header constants))))
+    (values (strip-array-header mc) (strip-array-header constants) fixups)))
 
 (defun compile-genesis-function (object)
   (cond ((genesis-function-lap-function object)
-         (multiple-value-bind (assembled-code constants)
+         (multiple-value-bind (assembled-code constants fixups)
              (assemble-lap (cddr (genesis-function-source object))
                            (first (second (genesis-function-source object))))
            (setf (genesis-function-lap-code object) (cddr (genesis-function-source object))
                  (genesis-function-assembled-code object) (strip-array-header assembled-code)
-                 (genesis-function-constants object) (strip-array-header constants))))
+                 (genesis-function-constants object) (strip-array-header constants)
+                 (genesis-function-fixups object) fixups)))
         (t (progv (list (genesis-eval (list (genesis-intern "INTERN") "*SUPPRESS-BUILTINS*" "SYS.C")))
                (list (cond ((eql (genesis-function-suppress-builtins object) :default)
                             (symbol-value (genesis-eval (list (genesis-intern "INTERN") "*SUPPRESS-BUILTINS*" "SYS.C"))))
@@ -268,15 +271,17 @@
                       (format t "Asm: ~S~%" (genesis-function-lap-code fn)))
                (setf (genesis-function-lap-code object) (genesis-function-lap-code fn)
                      (genesis-function-assembled-code object) (genesis-function-assembled-code fn)
-                     (genesis-function-constants object) (genesis-function-constants fn))))))
+                     (genesis-function-constants object) (genesis-function-constants fn)
+                     (genesis-function-fixups object) (genesis-function-fixups fn))))))
   object)
 
 (defbuiltin #:assemble-lap (code &optional name)
-  (multiple-value-bind (mc constants)
+  (multiple-value-bind (mc constants fixups)
       (assemble-lap code name)
     (make-genesis-function :lap-code code
 			   :assembled-code (strip-array-header mc)
-			   :constants (strip-array-header constants))))
+			   :constants (strip-array-header constants)
+                           :fixups fixups)))
 
 (defun generate-dump-layout (undefined-function-thunk &optional extra-static-objects)
   "Scan the entire Genesis environment, creating a final memory layout for a dump image."
@@ -287,8 +292,7 @@
 	(compiled-functions (make-hash-table))
 	(visited-objects (make-hash-table))
         ;; Scan from NIL.
-	(roots (append extra-static-objects (list undefined-function-thunk nil)))
-	(*lap-symbols* '()))
+	(roots (append extra-static-objects (list undefined-function-thunk nil))))
     (labels ((add-static-object (x)
                (unless (gethash x static-objects)
                  (setf (gethash x static-objects) static-offset)
@@ -350,13 +354,6 @@
       (add-static-object 'nil)
       (add-static-object (genesis-intern "T"))
       (add-static-object undefined-function-thunk)
-      (push (cons 'nil (logior (+ (* (+ (gethash 'nil static-objects) 2) 8) *static-area-base*) 2))
-            *lap-symbols*)
-      (push (cons (genesis-intern "T") (logior (+ (* (+ (gethash (genesis-intern "T") static-objects) 2) 8) *static-area-base*) 2))
-            *lap-symbols*)
-      (push (cons (genesis-intern "UNDEFINED-FUNCTION") (logior (+ (* (+ (gethash undefined-function-thunk static-objects) 2) 8) *static-area-base*)
-                                                                (symbol-value (genesis-intern "+TAG-FUNCTION+"))))
-            *lap-symbols*)
       ;; Visit all visible objects, including extra objects.
       (dolist (r roots)
 	(visit r))
@@ -799,6 +796,9 @@
       ;; +12 The code.
       (dotimes (i (length (genesis-function-assembled-code object)))
 	(setf (aref image (+ offset 12 i)) (aref mc i)))
+      ;; Apply fixups.
+      (dolist (fixup (genesis-function-fixups object))
+        (setf (nibbles:ub32ref/le image (+ offset (cdr fixup))) (value-of (car fixup) value-table)))
       ;; Constant pool (aligned).
       (dotimes (i (length (genesis-function-constants object)))
 	(setf (nibbles:ub64ref/le image (+ offset (* (ceiling (+ (length mc) 12) 16) 16) (* i 8)))

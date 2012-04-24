@@ -1,7 +1,8 @@
 (defpackage #:sys.lap
   (:documentation "The system assembler.")
   (:use #:cl)
-  (:export #:perform-assembly #:emit #:immediatep #:resolve-immediate #:*current-address*))
+  (:export #:perform-assembly #:emit #:immediatep #:resolve-immediate #:*current-address*
+           #:note-fixup))
 
 (in-package #:sys.lap)
 
@@ -17,6 +18,7 @@
 (defvar *mc-end* nil)
 (defvar *missing-symbols* nil)
 (defvar *bytes-emitted* nil)
+(defvar *fixups* nil)
 
 (defun emit (&rest bytes)
   "Emit bytes to the output stream."
@@ -44,6 +46,7 @@ a vector of constants and an alist of symbols & addresses."
        (*current-address* base-address base-address)
        (*symbol-table* nil)
        (*prev-symbol-table* (make-hash-table) *symbol-table*)
+       (*fixups* '())
        (attempt 0 (1+ attempt)))
       ((and (eql prev-bytes-emitted *bytes-emitted*)
             (equalp prev-mc *machine-code*))
@@ -51,6 +54,7 @@ a vector of constants and an alist of symbols & addresses."
 	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
        (values *machine-code*
 	       *constant-pool*
+               *fixups*
 	       (let ((alist '()))
 		 (maphash (lambda (k v)
 			    (push (cons k v) alist))
@@ -69,7 +73,8 @@ a vector of constants and an alist of symbols & addresses."
 			   (dolist (x initial-symbols)
 			     (setf (gethash (first x) hash-table) (rest x)))
 			   hash-table)
-	  *missing-symbols* '())
+	  *missing-symbols* '()
+          *fixups* '())
     (dolist (i code-list)
       (etypecase i
 	(symbol (when (gethash i *symbol-table*)
@@ -145,3 +150,6 @@ a vector of constants and an alist of symbols & addresses."
 		    (t (pushnew value *missing-symbols*)
 		       nil))))
     (integer value)))
+
+(defun note-fixup (name)
+  (push (cons name *current-address*) *fixups*))

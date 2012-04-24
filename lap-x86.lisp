@@ -7,6 +7,7 @@
 
 (defparameter *instruction-assemblers* (make-hash-table))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")
+(defvar *fixup-target*)
 
 (defconstant +operand-size-override+ #x66
   "The operand size override prefix.")
@@ -70,12 +71,13 @@
 (defun is-sp (reg) (find reg '(:spl :sp :esp :rsp :csp)))
 
 (defun short-form-valid (class value)
-  (multiple-value-bind (umin umax)
-      (ecase class
-	(:gpr-64 (values #xffffffffffffff80 #xffffffffffffffff))
-	(:gpr-32 (values #xffffff80 #xffffffff))
-	(:gpr-16 (values #xff80 #xffff)))
-    (or (> 128 value -128) (>= umax value umin))))
+  (and (not (eql value :fixup))
+       (multiple-value-bind (umin umax)
+           (ecase class
+             (:gpr-64 (values #xffffffffffffff80 #xffffffffffffffff))
+             (:gpr-32 (values #xffffff80 #xffffffff))
+             (:gpr-16 (values #xff80 #xffff)))
+         (or (> 128 value -128) (>= umax value umin)))))
 
 (defun maybe-emit-operand-size-override (class)
   (ecase class
@@ -439,6 +441,10 @@
 		  ((:gpr-64 :gpr-32) 4)
 		  (:gpr-16 2)
 		  (:gpr-8 1))))
+  (when (and (= width 4) signedp (eql imm :fixup))
+    (note-fixup *fixup-target*)
+    (emit #xFF #xFF #xFF #xFF)
+    (return-from emit-imm))
   (unless (<= (- (expt 2 (* width 8))) imm (1- (expt 2 (* width 8))))
     (error "Value out of bounds."))
   (dotimes (i width)
@@ -502,7 +508,8 @@
 	      (eql ,class (or (reg-class ,dst) ,class))
 	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
      (return-from instruction
-       (generate-imm ,class ,dst ,src ,opc ,opc-minor))))
+       (let ((*fixup-target* src))
+         (generate-imm ,class ,dst ,src ,opc ,opc-minor)))))
 
 (defun generate-imm-short (class r/m imm opc opc-minor)
   (let ((imm-value (resolve-immediate imm)))
@@ -784,14 +791,15 @@
 	       (= *cpu-mode* 64)
 	       (eql (reg-class dst) :gpr-64))
       (let ((value (resolve-immediate src)))
-	(return-from instruction
-	  (when value
-	    (multiple-value-bind (nr rex-b)
-		(encode-register dst)
-	      (emit-rex :w t :b rex-b)
-	      (emit (+ #xB8 nr))
-	      (emit-imm 8 value))
-	    t))))
+        (unless (eql value :fixup)
+          (return-from instruction
+            (when value
+              (multiple-value-bind (nr rex-b)
+                  (encode-register dst)
+                (emit-rex :w t :b rex-b)
+                (emit (+ #xB8 nr))
+                (emit-imm 8 value))
+              t)))))
     (modrm class dst src (logior #x88 width-bit))
     (modrm class src dst (logior #x8A width-bit))
     (unless (eql class :gpr-64)
