@@ -384,6 +384,7 @@
 	 (let ((sym (get (second name) 'setf-symbol)))
 	   (unless sym
 	     (setf sym (make-symbol (symbol-name (second name)))
+                   (get sym 'setf-symbol-backlink) (second name)
 		   (get (second name) 'setf-symbol) sym))
 	   sym))
 	(t (error "Invalid function name ~S." name))))

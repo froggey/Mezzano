@@ -83,8 +83,9 @@ GENESIS-INTERN.")
 (defun symbol-setf-function (name)
   "Return the symbol coresponding to NAME's SETF function."
   (or (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL"))
-      (setf (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL"))
-            (make-symbol (format nil "(SETF ~A)" name)))))
+      (let ((new-sym (make-symbol (format nil "(SETF ~A)" name))))
+        (setf (getf (genesis-symbol-plist new-sym) (genesis-intern "SETF-SYMBOL-BACKLINK")) name)
+        (setf (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL")) new-sym))))
 
 (defun resolve-function-name (name)
   (cond ((symbolp name)
