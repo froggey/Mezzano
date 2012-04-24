@@ -36,6 +36,12 @@
 	(setq result (cons e result))))
     result))
 
+(defun intersection (list-1 list-2)
+  (when list-1
+    (if (member (first list-1) list-2)
+        (cons (first list-1) (intersection (rest list-1) list-2))
+        (intersection (rest list-1) list-2))))
+
 (defun find (item list &key key test test-not)
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))

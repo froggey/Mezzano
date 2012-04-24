@@ -178,6 +178,7 @@
 (setf (get 'character 'type-symbol) 'characterp)
 (setf (get 'string 'type-symbol) 'stringp)
 (setf (get 'function 'type-symbol) 'functionp)
+(setf (get 'structure-object 'type-symbol) 'structure-object-p)
 (setf (get 't 'type-symbol) #'(lambda (x) (declare (ignore x)) t))
 
 (defun or-type (object type)
