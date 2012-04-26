@@ -33,6 +33,27 @@ A list of any declaration-specifiers."
   (let ((*environment* (cdr env)))
     (codegen-lambda (detect-uses (run-optimizers (pass1-lambda lambda (car env)))))))
 
+(defun compile (name &optional definition)
+  (unless definition
+    (setf definition (or (when (symbolp name) (macro-function name))
+                         (fdefinition name))))
+  (when (functionp definition)
+    (multiple-value-bind (lambda-expression env)
+        (function-lambda-expression definition)
+      (when (null lambda-expression)
+        (error "No source information available for ~S." definition))
+      (when env
+        (error "TODO: cannot compile functions defined outside the null lexical environment."))
+      (setf definition lambda-expression)))
+  (multiple-value-bind (fn warnings-p errors-p)
+      (compile-lambda definition)
+    (cond (name
+           (if (and (symbolp name) (macro-function name))
+               (setf (macro-function name) fn)
+               (setf (fdefinition name) fn))
+           (values name warnings-p errors-p))
+          (t (values fn warnings-p errors-p)))))
+
 (defvar *current-lambda* nil
   "A lambda-information struct for the lambda currently being translated.")
 (defvar *change-count* nil

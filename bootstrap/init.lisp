@@ -443,7 +443,18 @@
   (let ((*package* *package*))
     (%load pathname)))
 
-;;; Used by read, duplicated from stream.lisp
+
+;;; Used by various stuff, duplicated from stream.lisp.
+(defmacro with-open-stream ((var stream) &body body)
+  `(let ((,var ,stream))
+     (unwind-protect (progn ,@body)
+       (close ,var))))
+
+(defmacro with-open-file ((stream filespec &rest options) &body body)
+  `(with-open-stream (,stream (open ,filespec ,@options))
+     ,@body))
+
+;;; Used by read, duplicated from stream.lisp.
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
   `(%with-stream-editor ,stream ,recursive-p (lambda () (progn ,@body))))

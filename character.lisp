@@ -38,7 +38,7 @@
   "If CHAR is a lowercase character, the corresponding uppercase character. Otherwise, CHAR is returned unchanged."
   (let ((code (if (<= (char-code char) #x7F)
 		  (if (char<= #\a char #\z)
-		      (logand #xffffdf (char-code char))
+		      (logand #xFFFFDF (char-code char))
 		      (char-code char))
 		  (let ((info (unicode-char-info char)))
 		    (when (and info (eql (logand info #x1800000000000) #x1000000000000))

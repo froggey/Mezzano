@@ -91,8 +91,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                ;; Evaluate.
                ((or (and compile (not load))
                     (and (not compile) (not load) eval (eql mode :compile-time-too)))
-                (dolist (form body)
-                  (funcall eval-fn `(progn ,@body) env)))
+                (funcall eval-fn `(progn ,@body) env))
                ;; Discard.
                ((or (and (not compile) (not load) eval (eql mode :not-compile-time))
                     (and (not compile) (not load) (not eval)))

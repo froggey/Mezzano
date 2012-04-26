@@ -43,6 +43,15 @@
 (defgeneric stream-clear-between (stream start-x start-y end-x end-y))
 (defgeneric stream-move-to (stream x y))
 
+(defmacro with-open-stream ((var stream) &body body)
+  `(let ((,var ,stream))
+     (unwind-protect (progn ,@body)
+       (close ,var))))
+
+(defmacro with-open-file ((stream filespec &rest options) &body body)
+  `(with-open-stream (,stream (open ,filespec ,@options))
+     ,@body))
+
 (defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
          (frob-stream (symbol-value (synonym-stream-symbol stream)) default))
