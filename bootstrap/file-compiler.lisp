@@ -138,12 +138,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                (eql (read-byte stream) #x00))))
 
 (defun save-integer (integer stream)
-  (do ()
-      ((zerop (logand integer (lognot #x7F)))
-       (write-byte integer stream))
-    (write-byte (logior #x80 (logand integer #x7F))
-                stream)
-    (setf integer (ash integer -7))))
+  (let ((negativep (minusp integer)))
+    (when negativep (setf integer (- integer)))
+    (do ()
+        ((zerop (logand integer (lognot #x3F)))
+         (write-byte (logior integer (if negativep #x40 0)) stream))
+      (write-byte (logior #x80 (logand integer #x7F))
+                  stream)
+      (setf integer (ash integer -7)))))
 
 ;;; FIXME: This should allow saving of all attributes and arbitrary codes.
 (defun save-character (character stream)
@@ -287,12 +289,16 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         (write-byte +llf-end-of-load+ output-stream)))))
 
 (defun load-integer (stream)
-  (do* ((b (read-byte stream) (read-byte stream))
-        (shift 0 (+ shift 7))
-        (value (logand b #x7F)
-               (logior value (ash (logand b #x7F) shift))))
-       ((not (logtest b #x80))
-        value)))
+  (let ((value 0) (shift 0))
+    (loop
+         (let ((b (read-byte stream)))
+           (when (not (logtest b #x80))
+             (setf value (logior value (ash (logand b #x3F) shift)))
+             (if (logtest b #x40)
+                 (return (- value))
+                 (return value)))
+           (setf value (logior value (ash (logand b #x7F) shift)))
+           (incf shift 7)))))
 
 (defun load-character (stream)
   (let ((lead-byte (read-byte stream)))
