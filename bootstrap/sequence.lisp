@@ -46,6 +46,24 @@
 	(when (funcall test item (funcall key (elt sequence i)))
 	  (return i)))))
 
+;;; SBCL's compiler has trouble inlining position optimally.
+;;; Give it a little help to speed Genesis up.
+(define-compiler-macro position (&whole whole item sequence &key test key)
+  (when (or test key)
+    (return-from position whole))
+  `(%position-eq ,item ,sequence))
+
+(defun %position-eq (item sequence)
+  (if (listp sequence)
+      (do ((p 0 (1+ p))
+	   (i sequence (cdr i)))
+	  ((null i) nil)
+	(when (eql item (car i))
+	  (return p)))
+      (dotimes (i (length sequence) nil)
+	(when (eql item (elt sequence i))
+	  (return i)))))
+
 (defun count-if (predicate sequence &key key);from-end start end
   (unless key (setf key 'identity))
   (let ((n 0))
