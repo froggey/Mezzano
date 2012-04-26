@@ -324,6 +324,7 @@
     ;;((and sequence (not (or vector list)))         (find-class 'sequence))
     (function                                      (find-class 'function))
     (restart                                       (find-class 'restart))
+    (sys.int::structure-definition                 (find-class 'sys.int::structure-definition))
     (structure-object                              (find-class 'structure-object))
     (t                                             (find-class 't))))
 
@@ -1510,6 +1511,7 @@
 (defclass function (t) ())
 (defclass hash-table (structure-object) ())
 (defclass package (structure-object) ())
+(defclass sys.int::structure-definition (structure-object) ())
 (defclass pathname (t) ())
 (defclass readtable (t) ())
 (defclass stream (t) ())

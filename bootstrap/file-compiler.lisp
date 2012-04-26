@@ -126,6 +126,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defconstant +llf-setf-fdefinition+ #x0B)
 (defconstant +llf-simple-vector+ #x0C)
 (defconstant +llf-character+ #x0D)
+(defconstant +llf-structure-definition+ #x0E)
 
 (defun write-llf-header (output-stream input-file)
   ;; TODO: write the source file name out as well.
@@ -156,6 +157,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (character))
     (cond ((<= code #x7F)
            (write-byte code stream))
+          ((<= #x80 code #x7FF)
+           (write-byte (logior (ash (logand code #x7C0) -6) #xC0) stream)
+           (write-byte (logior (logand code #x3F) #x80) stream))
           (t (error "TODO character ~S." character)))))
 
 (defgeneric save-one-object (object object-map stream))
@@ -220,6 +224,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmethod save-one-object ((object character) omap stream)
   (write-byte +llf-character+ stream)
   (save-character object stream))
+
+(defmethod save-one-object ((object structure-definition) omap stream)
+  (write-byte +llf-structure-definition+ stream)
+  (save-object (structure-name object) omap stream)
+  (save-object (structure-slots object) omap stream))
 
 (defun save-object (object omap stream)
   (let ((id (gethash object omap)))
@@ -311,11 +320,28 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (setf value (logior value (ash (logand b #x7F) shift)))
            (incf shift 7)))))
 
+(defun utf8-sequence-length (byte)
+  (cond
+    ((eql (logand byte #x80) #x00)
+     (values 1 byte))
+    ((eql (logand byte #xE0) #xC0)
+     (values 2 (logand byte #x1F)))
+    ((eql (logand byte #xF0) #xE0)
+     (values 3 (logand byte #x0F)))
+    ((eql (logand byte #xF8) #xF0)
+     (values 4 (logand byte #x07)))
+    (t (error "Invalid UTF-8 lead byte ~S." byte))))
+
 (defun load-character (stream)
-  (let ((lead-byte (read-byte stream)))
-    (when (logtest lead-byte #x80)
-      (error "TODO: non-ascii utf-8 sequence"))
-    (code-char lead-byte)))
+  (multiple-value-bind (length value)
+      (utf8-sequence-length (read-byte stream))
+    ;; Read remaining bytes. They must all be continuation bytes.
+    (dotimes (i (1- length))
+      (let ((byte (read-byte stream)))
+        (unless (eql (logand byte #xC0) #x80)
+          (error "Invalid UTF-8 continuation byte ~S." byte))
+        (setf value (logior (ash value 6) (logand byte #x3F)))))
+    (code-char value)))
 
 (defun load-ub8-vector (stream)
   (let* ((len (load-integer stream))
@@ -375,7 +401,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
        (function-symbol `(setf ,symbol))))
     (#.+llf-integer+ (load-integer stream))
     (#.+llf-simple-vector+ (load-vector stream omap))
-    (#.+llf-character+ (load-character stream))))
+    (#.+llf-character+ (load-character stream))
+    (#.+llf-structure-definition+
+     (make-struct-type (load-object stream omap)
+                       (load-object stream omap)))))
 
 (defun load-object (stream omap)
   (let ((command (read-byte stream)))
