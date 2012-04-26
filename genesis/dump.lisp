@@ -1017,14 +1017,13 @@
          (*function-preloads* '())
          (*symbol-preloads* '())
 	 (entry-function (make-toplevel-function '("../runtime-support.lisp") '("../gc.lisp")
-                                                 '("../runtime-array.lisp") "../runtime-numbers.lisp"
+                                                 '("../runtime-array.lisp") '("../runtime-numbers.lisp")
                                                  '("../character.lisp") '("../printer.lisp") '("../debug.lisp")
-                                                 '("../type.lisp") '("../eval.lisp") "../cold-stream.lisp"
-                                                 "../stream.lisp" '("../format.lisp") '("../stack-group.lisp")
+                                                 '("../type.lisp") '("../eval.lisp") '("../cold-stream.lisp")
+                                                 '("../stream.lisp") '("../format.lisp") '("../stack-group.lisp")
                                                  '("../process.lisp") '("../interrupt.lisp")
-                                                 "../interrupt-compiler.lisp" "../keyboard.lisp"
-                                                 "../pci.lisp" '("../framebuffer.lisp") '("../bochs-vbe.lisp")
-                                                 #+nil"../ethernet.lisp" '("../rtl8139.lisp")
+                                                 '("../interrupt-compiler.lisp") '("../keyboard.lisp")
+                                                 '("../pci.lisp") '("../framebuffer.lisp") '("../bochs-vbe.lisp")
                                                  '("../test.lisp")))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
