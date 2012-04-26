@@ -926,6 +926,40 @@
                  *function-preloads*)
            t))))
 
+(defun load-llf (stream fn)
+  ;; Validate the header.
+  (genesis-eval (list (genesis-intern "CHECK-LLF-HEADER") stream))
+  (let ((omap (genesis-eval (list (genesis-intern "MAKE-HASH-TABLE")))))
+    (flet ((load-object ()
+             (genesis-eval (list (genesis-intern "LOAD-OBJECT") stream omap))))
+      (loop (let ((rewind (file-position stream))
+                  (command (read-byte stream)))
+              (cond ((eql (symbol-value (genesis-intern "+LLF-END-OF-LOAD+")) command)
+                     (return))
+                    ((eql (symbol-value (genesis-intern "+LLF-INVOKE+")) command)
+                     (let ((obj (load-object)))
+                       (funcall fn (list (genesis-intern "FUNCALL")
+                                         (list (genesis-intern "QUOTE")
+                                               obj)))))
+                    ((eql (symbol-value (genesis-intern "+LLF-SETF-FDEFINITION+")) command)
+                     (let* ((fn-value (load-object))
+                            (base-name (load-object))
+                            (name (resolve-function-name base-name)))
+                       (if (and (not (assoc name *function-preloads*))
+                                (not (and (fboundp name)
+                                          (gethash (symbol-function name) *function-info*))))
+                           (push (cons name fn-value) *function-preloads*)
+                           (funcall fn (list (genesis-intern "FUNCALL")
+                                             (list (genesis-intern "FUNCTION")
+                                                   (list (genesis-intern "SETF")
+                                                         (genesis-intern "FDEFINITION")))
+                                             (list (genesis-intern "QUOTE")
+                                                   fn-value)
+                                             (list (genesis-intern "QUOTE")
+                                                   name))))))
+                    (t (file-position stream rewind)
+                       (load-object))))))))
+
 (defun make-toplevel-function (&rest files)
   (let ((toplevel-forms '()))
     (flet ((frob (form)
@@ -950,12 +984,22 @@
                             (list (genesis-intern "QUOTE") (first x)))))
               (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
       (dolist (file files)
-        (with-open-file (s file)
-          (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
-            (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
-                        (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
-                 ((eql form s))
-              (frob form))))))
+        (cond ((consp file)
+               (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults (first file)))))
+                 (when (or (not (probe-file llf-path))
+                           (<= (file-write-date llf-path) (file-write-date (first file))))
+                   ;; Compiled file does not exist or is older.
+                   (format t "; Compiling toplevel file ~S~%" (first file))
+                   (genesis-eval (list (genesis-intern "COMPILE-FILE") (first file))))
+                 (format t "; Loading compiled toplevel file ~S~%" llf-path)
+                 (with-open-file (s llf-path :element-type '(unsigned-byte 8))
+                   (load-llf s (lambda (f) (push f toplevel-forms))))))
+              (t (with-open-file (s file)
+                   (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
+                     (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
+                                 (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
+                          ((eql form s))
+                       (frob form))))))))
     (format t "Toplevel:~%~{~S~%~}" (reverse toplevel-forms))
     (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
                                          (list (genesis-intern "DECLARE")
@@ -972,15 +1016,15 @@
 	 (idt (make-array (* 256 2) :element-type '(unsigned-byte 64)))
          (*function-preloads* '())
          (*symbol-preloads* '())
-	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
+	 (entry-function (make-toplevel-function '("../runtime-support.lisp") "../gc.lisp"
                                                  "../runtime-array.lisp" "../runtime-numbers.lisp"
-                                                 "../character.lisp" "../printer.lisp" "../debug.lisp"
-                                                 "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
-                                                 "../stream.lisp" "../format.lisp" "../stack-group.lisp"
-                                                 "../process.lisp" "../interrupt.lisp"
+                                                 '("../character.lisp") '("../printer.lisp") '("../debug.lisp")
+                                                 '("../type.lisp") '("../eval.lisp") "../cold-stream.lisp"
+                                                 "../stream.lisp" '("../format.lisp") "../stack-group.lisp"
+                                                 '("../process.lisp") "../interrupt.lisp"
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
-                                                 "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
-                                                 "../test.lisp"))
+                                                 "../pci.lisp" '("../framebuffer.lisp") '("../bochs-vbe.lisp")
+                                                 '("../test.lisp")))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) (genesis-intern "*INITIAL-FUNCTION*") initial-stack-group))
