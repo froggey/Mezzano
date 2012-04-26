@@ -32,6 +32,7 @@
       (setf (nth index sequence) value)
       (setf (aref sequence index) value)))
 
+(declaim (inline position))
 (defun position (item sequence &key test key); test-not start end from-end
   (unless test (setf test 'eql))
   (unless key (setf key 'identity))
@@ -60,6 +61,7 @@
 (defun count-if-not (predicate sequence &key key);from-end start end
   (count-if (complement predicate) sequence :key key))
 
+(declaim (inline find-if find find-if-not))
 (defun find-if (predicate sequence &key key); (start 0) end from-end
   (unless key (setf key 'identity))
   (if (listp sequence)
@@ -80,6 +82,7 @@
 (defun find-if-not (predicate sequence &key key); (start 0) end from-end
   (find-if (complement predicate) sequence :key key))
 
+(declaim (inline remove-if remove remove-if-not))
 (defun remove-if (test sequence &key key); from-end (start 0) end count
   (unless key (setf key 'identity))
   (let* ((list (cons nil nil))

@@ -4,7 +4,9 @@
 
 (in-package "SYSTEM.INTERNALS")
 
-(declaim (inline caar cadr cdar cddr))
+(declaim (inline caar cadr cdar cddr
+		 (setf caar) (setf cadr)
+		 (setf cdar) (setf cddr)))
 (defun caar (x)
   (car (car x)))
 (defun cadr (x)
@@ -120,6 +122,9 @@
 (defun (setf cddddr) (value x)
   (funcall #'(setf cdr) value (cdr (cdr (cdr x)))))
 
+(declaim (inline first second
+		 (setf first)
+		 (setf second)))
 (defun first (x)
   (car x))
 (defun second (x)
@@ -161,11 +166,13 @@
 (defun (setf tenth) (value x)
   (funcall #'(setf car) value (cdr (cdr (cdr (cdr (cdr (cdr (cdr (cdr (cdr x)))))))))))
 
+(declaim (inline rest (setf rest)))
 (defun rest (list)
   (cdr list))
 (defun (setf rest) (value list)
   (funcall #'(setf cdr) value list))
 
+(declaim (inline rplaca rplacd))
 (defun rplaca (cons object)
   "Replace the car of CONS with OBJECT, returning CONS."
   (funcall #'(setf car) object cons)
@@ -175,10 +182,12 @@
   (funcall #'(setf cdr) object cons)
   cons)
 
+(declaim (inline atom))
 (defun atom (object)
   "Returns true if OBJECT is of type atom; otherwise, returns false."
   (not (consp object)))
 
+(declaim (inline listp))
 (defun listp (object)
   "Returns true if OBJECT is of type (OR NULL CONS); otherwise, returns false."
   (or (null object) (consp object)))
