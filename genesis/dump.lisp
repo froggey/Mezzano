@@ -994,13 +994,13 @@
                  (format t "; Loading compiled toplevel file ~S~%" llf-path)
                  (with-open-file (s llf-path :element-type '(unsigned-byte 8))
                    (load-llf s (lambda (f) (push f toplevel-forms))))))
-              (t (with-open-file (s file)
+              (t (format t "; Loading toplevel file ~S~%" file)
+                 (with-open-file (s file)
                    (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
                      (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
                                  (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
                           ((eql form s))
                        (frob form))))))))
-    (format t "Toplevel:~%~{~S~%~}" (reverse toplevel-forms))
     (make-genesis-function :source (list (genesis-intern "LAMBDA") '()
                                          (list (genesis-intern "DECLARE")
                                                (list (genesis-intern "LAMBDA-NAME")
@@ -1016,14 +1016,15 @@
 	 (idt (make-array (* 256 2) :element-type '(unsigned-byte 64)))
          (*function-preloads* '())
          (*symbol-preloads* '())
-	 (entry-function (make-toplevel-function '("../runtime-support.lisp") "../gc.lisp"
-                                                 "../runtime-array.lisp" "../runtime-numbers.lisp"
+	 (entry-function (make-toplevel-function '("../runtime-support.lisp") '("../gc.lisp")
+                                                 '("../runtime-array.lisp") "../runtime-numbers.lisp"
                                                  '("../character.lisp") '("../printer.lisp") '("../debug.lisp")
                                                  '("../type.lisp") '("../eval.lisp") "../cold-stream.lisp"
-                                                 "../stream.lisp" '("../format.lisp") "../stack-group.lisp"
-                                                 '("../process.lisp") "../interrupt.lisp"
+                                                 "../stream.lisp" '("../format.lisp") '("../stack-group.lisp")
+                                                 '("../process.lisp") '("../interrupt.lisp")
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" '("../framebuffer.lisp") '("../bochs-vbe.lisp")
+                                                 #+nil"../ethernet.lisp" '("../rtl8139.lisp")
                                                  '("../test.lisp")))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
