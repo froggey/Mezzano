@@ -283,6 +283,11 @@
 			   :constants (strip-array-header constants)
                            :fixups fixups)))
 
+(defbuiltin make-function-with-fixups (tag mc fixups constants)
+  (make-genesis-function :assembled-code mc
+                         :fixups fixups
+                         :constants constants))
+
 (defun generate-dump-layout (undefined-function-thunk &optional extra-static-objects)
   "Scan the entire Genesis environment, creating a final memory layout for a dump image."
   (let ((static-objects (make-hash-table))

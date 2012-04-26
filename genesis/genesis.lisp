@@ -206,7 +206,36 @@ GENESIS-INTERN.")
 (define-forwarding-builtin values-list)
 (define-forwarding-builtin eval genesis-eval nil)
 (define-forwarding-builtin error error nil)
-(define-forwarding-builtin functionp)
+(defbuiltin functionp (object)
+  (or (functionp object)
+      (genesis-function-p object)
+      (genesis-closure-p object)))
+
+(defbuiltin function-tag (function)
+  (etypecase function
+    (genesis-function
+     (symbol-value (genesis-intern "+FUNCTION-TYPE-FUNCTION+")))
+    (genesis-closure
+     (symbol-value (genesis-intern "+FUNCTION-TYPE-CLOSURE+")))))
+
+(defbuiltin function-code-size (function)
+  (etypecase function
+    (genesis-function
+     (length (genesis-function-assembled-code function)))))
+
+(defbuiltin function-pool-size (function)
+  (etypecase function
+    (genesis-function
+     (length (genesis-function-constants function)))))
+
+(defbuiltin function-code-byte (function index)
+  (aref (genesis-function-assembled-code function) index))
+
+(defbuiltin function-pool-object (function index)
+  (aref (genesis-function-constants function) index))
+
+(defbuiltin function-fixups (function)
+  (genesis-function-fixups function))
 
 (define-forwarding-builtin car)
 (define-forwarding-builtin (setf car))
@@ -508,10 +537,114 @@ GENESIS-INTERN.")
     (error "Genesis cannot allocate in a specific area."))
   (make-array length :element-type (convert-element-type element-type)))
 
-(defbuiltin open (pathspec)
-  (open pathspec))
+(defun convert-keyword (x &rest translations)
+  (dolist (key translations
+           (error "Unknown keyword ~S." x))
+    (when (eql (genesis-intern key t) x)
+      (return (intern key "KEYWORD")))))
+
+(defbuiltin open (pathspec &rest keys)
+  (let ((direction :input)
+        (element-type 'character)
+        (if-exists 'not-supplied)
+        (if-does-not-exist 'not-supplied)
+        (external-format :default))
+    (let ((x (getf keys (genesis-intern "DIRECTION" t) 'not-supplied)))
+      (unless (eql x 'not-supplied)
+        (if (eql x 'nil)
+            (setf direction 'nil)
+            (setf direction (convert-keyword x "INPUT" "OUTPUT" "IO" "PROBE")))))
+    (let ((x (getf keys (genesis-intern "ELEMENT-TYPE" t) 'not-supplied)))
+      (unless (eql x 'not-supplied)
+        (cond ((eql x (genesis-intern "CHARACTER"))
+               (setf element-type 'character))
+              ((eql x (genesis-intern "BASE-CHAR"))
+               (setf element-type 'base-char))
+              ((and (consp x)
+                    (= (length x) 2)
+                    (eql (first x) (genesis-intern "UNSIGNED-BYTE"))
+                    (eql (second x) 8))
+               (setf element-type '(unsigned-byte 8)))
+              (t (error "Unsupported element-type ~S." element-type)))))
+    (let ((x (getf keys (genesis-intern "IF-EXISTS" t) 'not-supplied)))
+      (unless (eql x 'not-supplied)
+        (if (eql x 'nil)
+            (setf if-exists 'nil)
+            (setf if-exists (convert-keyword x
+                                             "ERROR" "NEW-VERSION" "RENAME" "RENAME-AND-DELETE"
+                                             "OVERWRITE" "APPEND" "SUPERSEDE")))))
+    (let ((x (getf keys (genesis-intern "IF-DOES-NOT-EXIST" t) 'not-supplied)))
+      (unless (eql x 'not-supplied)
+        (if (eql x 'nil)
+            (setf if-does-not-exist 'nil)
+            (setf if-does-not-exist (convert-keyword x "ERROR" "CREATE")))))
+    (let ((x (getf keys (genesis-intern "EXTERNAL-FORMAT" t) 'not-supplied)))
+      (unless (eql x 'not-supplied)
+        (if (eql x (genesis-intern "DEFAULT" t))
+            (setf external-format :default)
+            (error "Unsupported external-format ~S." x))))
+    (cond ((and (eql if-exists 'not-supplied)
+                (eql if-does-not-exist 'not-supplied))
+           (open pathspec
+                 :direction direction
+                 :element-type element-type
+                 :external-format external-format))
+          ((eql if-exists 'not-supplied)
+           (open pathspec
+                 :direction direction
+                 :element-type element-type
+                 :if-does-not-exist if-does-not-exist
+                 :external-format external-format))
+          ((eql if-does-not-exist 'not-supplied)
+           (open pathspec
+                 :direction direction
+                 :element-type element-type
+                 :if-exists if-exists
+                 :external-format external-format))
+          (t
+           (open pathspec
+                 :direction direction
+                 :element-type element-type
+                 :if-exists if-exists
+                 :if-does-not-exist if-does-not-exist
+                 :external-format external-format)))))
 (defbuiltin close (stream)
   (close stream))
+(defbuiltin write-sequence (seq stream)
+  (write-sequence seq stream))
+(defbuiltin write-byte (integer stream)
+  (write-byte integer stream))
+(defbuiltin read-sequence (seq stream)
+  (read-sequence seq stream))
+(defbuiltin read-byte (stream &optional (eof-error-p t) eof-value)
+  (read-byte stream eof-error-p eof-value))
+(define-forwarding-builtin file-position)
+
+(defbuiltin make-pathname (&rest keys)
+  (let ((args '()))
+    (macrolet ((frob-arg (name)
+                 `(let ((x (getf keys (genesis-intern ,name t) 'not-supplied)))
+                    (unless (eql x 'not-supplied)
+                      (push x args)
+                      (push (intern ,name "KEYWORD") args)))))
+      (frob-arg "HOST")
+      (frob-arg "DEVICE")
+      (frob-arg "DIRECTORY")
+      (frob-arg "NAME")
+      (frob-arg "TYPE")
+      (frob-arg "VERSION")
+      (frob-arg "DEFAULTS")
+      (let ((x (getf keys (genesis-intern "CASE" t) 'not-supplied)))
+        (unless (eql x 'not-supplied)
+          (cond ((eql x (genesis-intern "COMMON" t))
+                 (push :common args)
+                 (push :case args))
+                ((eql x (genesis-intern "COMMON" t))
+                 (push :common args)
+                 (push :case args))
+                (t (error "Invalid case argument ~S." x)))))
+      (apply 'make-pathname args))))
+
 (define-forwarding-builtin streamp streamp nil)
 (define-forwarding-builtin read-char read-char nil)
 (defbuiltin peek-char (&optional peek-type (stream *standard-input*) (eof-error-p t) eof-value recursive-p)
