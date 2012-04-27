@@ -166,3 +166,6 @@
            ;; Clear bottom line.
            (%bitset 16 end-x #xFF000000
                     framebuffer end-y 0)))))
+
+(defmethod stream-element-type* ((stream framebuffer-stream))
+  'character)

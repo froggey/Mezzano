@@ -4,6 +4,7 @@
 ;;; inherit from this to get basic functionallity.
 (defclass stream-object (stream standard-object)
   ((unread-char :initform nil)))
+(defclass file-stream (stream) ())
 
 (defstruct (synonym-stream
              (:constructor make-synonym-stream (symbol)))
@@ -42,6 +43,11 @@
 (defgeneric stream-compute-motion (stream string &optional start end initial-x initial-y))
 (defgeneric stream-clear-between (stream start-x start-y end-x end-y))
 (defgeneric stream-move-to (stream x y))
+(defgeneric stream-read-byte (stream))
+(defgeneric stream-read-sequence (sequence stream start end))
+(defgeneric stream-file-position (stream))
+(defgeneric stream-set-file-position (new-stream position))
+(defgeneric stream-element-type* (stream))
 
 (defmacro with-open-stream ((var stream) &body body)
   `(let ((,var ,stream))
@@ -68,6 +74,45 @@
 
 (defun frob-output-stream (stream)
   (frob-stream stream *standard-output*))
+
+(defun follow-synonym-stream (stream)
+  (do () ((not (synonym-stream-p stream)) stream)
+    (setf stream (symbol-value (synonym-stream-symbol stream)))))
+
+(defun stream-element-type (stream)
+  (cond ((cold-stream-p stream) 'character)
+        (t (stream-element-type* (follow-synonym-stream stream)))))
+
+(defun read-byte (stream &optional (eof-error-p t) eof-value)
+  (let ((b (stream-read-byte (follow-synonym-stream stream))))
+    (if (null b)
+        (if eof-error-p
+            (error 'end-of-file :stream stream)
+            eof-value)
+        b)))
+
+(defun read-sequence (sequence stream &key (start 0) end)
+  (stream-read-sequence sequence (follow-synonym-stream stream)
+                        start (or end (length sequence))))
+
+(defun generic-read-sequence (sequence stream start end)
+  (let ((n (- end start)))
+    (if (subtypep (stream-element-type stream) 'character)
+        (dotimes (i n)
+          (setf (aref sequence (+ start i)) (read-char stream)))
+        (dotimes (i n)
+          (setf (aref sequence (+ start i)) (read-byte stream))))))
+
+(defmethod stream-read-sequence (sequence (stream stream) start end)
+  (generic-read-sequence sequence stream start end))
+
+(defun file-position (stream &optional (position-spec nil position-spec-p))
+  (cond (position-spec-p
+         (check-type position-spec (or (integer 0) (member :start :end)))
+         (when (eql position-spec :start)
+           (setf position-spec 0))
+         (stream-set-file-position stream position-spec))
+        (t (stream-file-position stream))))
 
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
