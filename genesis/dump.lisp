@@ -980,6 +980,15 @@
                                    (when env
                                      (error "TODO: Eval in env."))
                                    (format t "; Eval ~S~%" form)
+                                   (genesis-eval form)))))
+           (frob-compile-only (form)
+             (genesis-eval (list (genesis-intern "HANDLE-TOP-LEVEL-FORM")
+                                 (list (genesis-intern "QUOTE") form)
+                                 (lambda (form env) (declare (ignore form env)))
+                                 (lambda (form env)
+                                   (when env
+                                     (error "TODO: Eval in env."))
+                                   (format t "; Eval ~S~%" form)
                                    (genesis-eval form))))))
       ;; Built-ins must not be suppressed when compiling their wrapper functions.
       (let ((*builtin-suppression-mode* nil))
@@ -990,18 +999,25 @@
                             (list (genesis-intern "QUOTE") (first x)))))
               (genesis-eval (list (genesis-eval (list (genesis-intern "INTERN") "GENERATE-BUILTIN-FUNCTIONS" "SYS.C"))))))
       (dolist (file files)
-        (cond ((consp file)
-               (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults (first file)))))
+        (cond ((not (consp file))
+               (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
                  (when (or (not (probe-file llf-path))
-                           (<= (file-write-date llf-path) (file-write-date (first file))))
+                           (<= (file-write-date llf-path) (file-write-date file)))
                    ;; Compiled file does not exist or is older.
-                   (format t "; Compiling toplevel file ~S~%" (first file))
-                   (genesis-eval (list (genesis-intern "COMPILE-FILE") (first file))))
-                 (format t "; Loading compiled toplevel file ~S~%" llf-path)
+                   (format t "; Compiling toplevel file ~S.~%" file)
+                   (genesis-eval (list (genesis-intern "COMPILE-FILE") file)))
+                 (format t "; Loading compiled toplevel file ~S.~%" llf-path)
+                 ;; Load the source file as well to pull in any compile-time stuff.
+                 (with-open-file (s file)
+                   (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
+                     (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
+                                 (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
+                          ((eql form s))
+                       (frob-compile-only form))))
                  (with-open-file (s llf-path :element-type '(unsigned-byte 8))
                    (load-llf s (lambda (f) (push f toplevel-forms))))))
-              (t (format t "; Loading toplevel file ~S~%" file)
-                 (with-open-file (s file)
+              (t (format t "; Loading toplevel file ~S.~%" (first file))
+                 (with-open-file (s (first file))
                    (progv (list (genesis-intern "*PACKAGE*")) (list (genesis-eval-string "(find-package '#:cl-user)"))
                      (do* ((form (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))
                                  (genesis-eval (list (genesis-intern "READ") s nil (list (genesis-intern "QUOTE") s)))))
@@ -1022,15 +1038,16 @@
 	 (idt (make-array (* 256 2) :element-type '(unsigned-byte 64)))
          (*function-preloads* '())
          (*symbol-preloads* '())
-	 (entry-function (make-toplevel-function '("../runtime-support.lisp") '("../gc.lisp")
-                                                 '("../runtime-array.lisp") '("../runtime-numbers.lisp")
-                                                 '("../character.lisp") '("../printer.lisp") '("../debug.lisp")
-                                                 '("../type.lisp") '("../eval.lisp") '("../cold-stream.lisp")
-                                                 '("../stream.lisp") '("../format.lisp") '("../stack-group.lisp")
-                                                 '("../process.lisp") '("../interrupt.lisp")
-                                                 '("../interrupt-compiler.lisp") '("../keyboard.lisp")
-                                                 '("../pci.lisp") '("../framebuffer.lisp") '("../bochs-vbe.lisp")
-                                                 '("../test.lisp")))
+	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
+                                                 "../runtime-array.lisp" "../runtime-numbers.lisp"
+                                                 "../character.lisp" "../printer.lisp" "../debug.lisp"
+                                                 "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
+                                                 "../stream.lisp" "../format.lisp" "../stack-group.lisp"
+                                                 "../process.lisp" "../interrupt.lisp"
+                                                 "../interrupt-compiler.lisp" "../keyboard.lisp"
+                                                 "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
+                                                 #+nil"../ethernet.lisp" "../rtl8139.lisp"
+                                                 "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) (genesis-intern "*INITIAL-FUNCTION*") initial-stack-group))
