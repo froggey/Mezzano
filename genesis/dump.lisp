@@ -803,7 +803,13 @@
 	(setf (aref image (+ offset 12 i)) (aref mc i)))
       ;; Apply fixups.
       (dolist (fixup (genesis-function-fixups object))
-        (setf (nibbles:ub32ref/le image (+ offset (cdr fixup))) (value-of (car fixup) value-table)))
+        (let ((value (cond ((or (eql (car fixup) 'nil)
+                                (eql (car fixup) (genesis-intern "T")))
+                            (value-of (car fixup) value-table))
+                           ((eql (car fixup) (genesis-intern "UNDEFINED-FUNCTION"))
+                            (value-of :undefined-function value-table))
+                           (t (error "Unsupported fixup ~S." (car fixup))))))
+          (setf (nibbles:ub32ref/le image (+ offset (cdr fixup))) value)))
       ;; Constant pool (aligned).
       (dotimes (i (length (genesis-function-constants object)))
 	(setf (nibbles:ub64ref/le image (+ offset (* (ceiling (+ (length mc) 12) 16) 16) (* i 8)))
