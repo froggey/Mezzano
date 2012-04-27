@@ -1217,7 +1217,8 @@ only R8 will be preserved."
 	    (return-from cg-progn 'nil))))
       (cg-form ''nil)))
 
-;;;(defun cg-progv (form))
+(defun cg-progv (form)
+  (cg-form `(error '"Cannot codegen progv yet.")))
 
 (defun cg-quote (form)
   form)
