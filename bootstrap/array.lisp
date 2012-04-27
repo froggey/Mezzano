@@ -97,6 +97,16 @@ This must be sorted from most-specific to least-specific.")
 		  (setf (aref array i) (aref sequence i))))))
     (t (error "TODO: :INITIAL-CONTENTS for multidimensional arrays."))))
 
+(define-compiler-macro aref (&whole whole array &rest subscripts)
+  (case (length subscripts)
+    (1 `(aref-1 ,array ,(first subscripts)))
+    (t whole)))
+
+(define-compiler-macro (setf aref) (&whole whole value array &rest subscripts)
+  (case (length subscripts)
+    (1 `(funcall #'(setf aref-1) ,value ,array ,(first subscripts)))
+    (t whole)))
+
 (defun make-array (dimensions &key
 		   (element-type t)
 		   (initial-element nil initial-element-p)
@@ -398,16 +408,6 @@ This must be sorted from most-specific to least-specific.")
     (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
            index (array-dimension array 0)))
   (setf (%row-major-aref array index) value))
-
-(define-compiler-macro aref (&whole whole array &rest subscripts)
-  (case (length subscripts)
-    (1 `(aref-1 ,array ,(first subscripts)))
-    (t whole)))
-
-(define-compiler-macro (setf aref) (&whole whole value array &rest subscripts)
-  (case (length subscripts)
-    (1 `(funcall #'(setf aref-1) ,value ,array ,(first subscripts)))
-    (t whole)))
 
 (defun bit (bit-array &rest subscripts)
   (declare (dynamic-extent subscripts))
