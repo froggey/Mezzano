@@ -181,6 +181,32 @@
              (eval-locally-body declares body new-env))
       (eval-locally-body declares body new-env))))
 
+(defspecial let* (&environment env bindings &body forms)
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares forms)
+    (let ((special-declares (apply 'append
+                                   (mapcar #'rest
+                                           (remove-if-not (lambda (dec) (eql (first dec) 'special))
+                                                          declares)))))
+      (labels ((bind-one (bindings)
+                 (if bindings
+                     (multiple-value-bind (name init-form)
+                         (sys.int::parse-let-binding (first bindings))
+                       (let ((value (eval-in-lexenv init-form env)))
+                         (ecase (sys.int::symbol-mode name)
+                           ((nil :symbol-macro)
+                            (cond ((member name special-declares)
+                                   (progv (list name) (list value)
+                                     (bind-one (rest bindings))))
+                                  (t (push (list :binding name value) env)
+                                     (bind-one (rest bindings)))))
+                           (:special
+                            (progv (list name) (list value)
+                              (bind-one (rest bindings))))
+                           (:constant (error "Cannot bind over constant ~S." name)))))
+                     (eval-locally-body declares body env))))
+        (bind-one bindings)))))
+
 (defspecial multiple-value-call (&environment env function-form &rest forms)
   (apply (eval-in-lexenv function-form env)
          (apply 'nconc (mapcar (lambda (f)
