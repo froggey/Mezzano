@@ -5,9 +5,29 @@
 (declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
+(declaim (special *multiboot-info*))
 (setf *verbose-gc* nil)
 
 (defvar *gc-in-progress* nil)
+
+(defconstant +multiboot-flag-mem-info+     #b00000001)
+(defconstant +multiboot-flag-boot-device+  #b00000010)
+(defconstant +multiboot-flag-command-line+ #b00000100)
+(defconstant +multiboot-flag-modules+      #b00001000)
+(defconstant +multiboot-flag-aout-symbols+ #b00010000)
+(defconstant +multiboot-flag-elf-symbols+  #b00100000)
+(defconstant +multiboot-flag-memory-map+   #b01000000)
+;;; Compute the true end of the image by examining the multiboot header.
+;;; FIXME: This must be done as part of the initialization process.
+;;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
+(when (logtest (memref-unsigned-byte-32 *multiboot-info* 0) +multiboot-flag-modules+)
+  (let ((module-count (memref-unsigned-byte-32 *multiboot-info* 5))
+        (module-base (+ #x8000000000 (memref-unsigned-byte-32 *multiboot-info* 6))))
+    (unless (zerop module-count)
+      (setf *bump-pointer* (+ #x8000000000
+                              (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1))))
+      (when (logtest *bump-pointer* #xFFF)
+        (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000))))))
 
 (defvar *gc-stack-group* (make-stack-group "GC"
                                            :control-stack-size 32766

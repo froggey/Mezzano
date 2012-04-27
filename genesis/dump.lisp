@@ -578,6 +578,13 @@
 	    (sys.lap-x86:movseg :fs :eax)
 	    (sys.lap-x86:movseg :gs :eax)
 	    (sys.lap-x86:movseg :ss :eax)
+            ;; Save the multiboot pointer.
+            (sys.lap-x86:mov32 :ebx :ebx)
+            (sys.lap-x86:mov64 :rax ,*linear-map*)
+            (sys.lap-x86:add64 :rbx :rax)
+            (sys.lap-x86:shl64 :rbx 3)
+            (sys.lap-x86:mov64 :r8 (:constant ,(genesis-intern "*MULTIBOOT-INFO*")))
+            (sys.lap-x86:mov64 (:symbol-value :r8) :rbx)
             ;; Preset the initial stack group.
             (sys.lap-x86:mov64 :r8 (:constant ,initial-stack-group))
             (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
