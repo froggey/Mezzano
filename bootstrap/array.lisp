@@ -100,11 +100,13 @@ This must be sorted from most-specific to least-specific.")
 (define-compiler-macro aref (&whole whole array &rest subscripts)
   (case (length subscripts)
     (1 `(aref-1 ,array ,(first subscripts)))
+    (2 `(aref-2 ,array ,(first subscripts) ,(second subscripts)))
     (t whole)))
 
 (define-compiler-macro (setf aref) (&whole whole value array &rest subscripts)
   (case (length subscripts)
     (1 `(funcall #'(setf aref-1) ,value ,array ,(first subscripts)))
+    (2 `(funcall #'(setf aref-2) ,value ,array ,(first subscripts) ,(second subscripts)))
     (t whole)))
 
 (defun make-array (dimensions &key
@@ -408,6 +410,30 @@ This must be sorted from most-specific to least-specific.")
     (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
            index (array-dimension array 0)))
   (setf (%row-major-aref array index) value))
+
+(defun aref-2 (array index1 index2)
+  (unless (= (array-rank array) 2)
+    (error "Invalid number of indices to array ~S." array))
+  (when (>= index1 (array-dimension array 0))
+    (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
+           index1 (array-dimension array 0)))
+  (when (>= index2 (array-dimension array 1))
+    (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
+           index2 (array-dimension array 1)))
+  (let ((ofs (+ (* index1 (array-dimension array 1)) index2)))
+    (%row-major-aref array ofs)))
+
+(defun (setf aref-2) (value array index1 index2)
+  (unless (= (array-rank array) 2)
+    (error "Invalid number of indices to array ~S." array))
+  (when (>= index1 (array-dimension array 0))
+    (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
+           index1 (array-dimension array 0)))
+  (when (>= index2 (array-dimension array 1))
+    (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
+           index2 (array-dimension array 1)))
+  (let ((ofs (+ (* index1 (array-dimension array 1)) index2)))
+    (setf (%row-major-aref array ofs) value)))
 
 (defun bit (bit-array &rest subscripts)
   (declare (dynamic-extent subscripts))
