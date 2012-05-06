@@ -1066,7 +1066,6 @@
                                                  "../process.lisp" "../interrupt.lisp"
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
-                                                 #+nil"../ethernet.lisp" "../rtl8139.lisp"
                                                  "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
