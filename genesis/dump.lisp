@@ -652,13 +652,26 @@
 (defun make-undefined-function-thunk ()
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble
-	  `((sys.lap-x86:mov64 :r8 :r13)
-	    (sys.lap-x86:mov32 :ecx ,(* 1 8))
+          ;; Prepend the symbol to the arguments, then
+          ;; pass them all through to raise-undefined-function.
+	  `((sys.lap-x86:cmp64 :rcx ,(* 5 8))
+            (sys.lap-x86:jl register-args-only)
+            (sys.lap-x86:mov64 (:lsp -8) nil)
+            (sys.lap-x86:sub64 :lsp 8)
+            (sys.lap-x86:mov64 (:lsp) :r12)
+            register-args-only
+            (sys.lap-x86:mov64 :r12 :r11)
+            (sys.lap-x86:mov64 :r11 :r10)
+            (sys.lap-x86:mov64 :r10 :r8)
+            (sys.lap-x86:mov64 :r9 :r8)
+            (sys.lap-x86:mov64 :r8 :r13)
+	    (sys.lap-x86:add64 :rcx ,(* 1 8))
 	    (sys.lap-x86:mov64 :r13 (:constant ,(genesis-eval (list (genesis-intern "INTERN")
                                                                     "RAISE-UNDEFINED-FUNCTION"
                                                                     "SYSTEM.INTERNALS"))))
 	    (sys.lap-x86:jmp (:symbol-function :r13)))
-	:base-address 12)
+	:base-address 12
+        :initial-symbols '((nil . :fixup)))
     (make-genesis-function :source nil
 			   :lap-code nil
 			   :assembled-code mc
