@@ -728,12 +728,14 @@
 
 (defmacro define-simple-instruction-with-operand-size (name opc &optional (valid-classes '(:gpr-8 :gpr-16 :gpr-32 :gpr-64)))
   (list* 'progn (mapcar (lambda (class)
-			  `(define-instruction ,(intern (format nil "~A~D" (symbol-name name)
-								(ecase class
-								  (:gpr-8 8)
-								  (:gpr-16 16)
-								  (:gpr-32 32)
-								  (:gpr-64 64))))
+			  `(define-instruction ,(if (= (length valid-classes) 1)
+                                                    name
+                                                    (intern (format nil "~A~D" (symbol-name name)
+                                                                    (ecase class
+                                                                      (:gpr-8 8)
+                                                                      (:gpr-16 16)
+                                                                      (:gpr-32 32)
+                                                                      (:gpr-64 64)))))
 			       ()
 			     ,@(ecase class
 				      (:gpr-8 nil)
@@ -753,20 +755,9 @@
 (define-simple-instruction-with-operand-size lods #xAC)
 (define-simple-instruction-with-operand-size scas #xAE)
 
-(define-instruction cwd ()
-  (maybe-emit-operand-size-override :gpr-16)
-  (emit #x99)
-  (return-from instruction t))
-
-(define-instruction cwq ()
-  (maybe-emit-operand-size-override :gpr-32)
-  (emit #x99)
-  (return-from instruction t))
-
-(define-instruction cqo ()
-  (emit-rex :w t)
-  (emit #x99)
-  (return-from instruction t))
+(define-simple-instruction-with-operand-size cwd #x99 (:gpr-16))
+(define-simple-instruction-with-operand-size cwq #x99 (:gpr-32))
+(define-simple-instruction-with-operand-size cqo #x99 (:gpr-64))
 
 (defmacro define-integer-instruction (name lambda-list (class) &body body)
   (list* 'progn
