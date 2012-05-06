@@ -585,10 +585,11 @@ the header word. LENGTH is the number of elements in the array."
 (defun make-symbol (name &optional area)
   (check-type name string)
   (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate 6 area))
+    (let* ((simp-name (sys.int::simplify-string name))
+           (address (%raw-allocate 6 area))
            (symbol (%%assemble-value address +tag-symbol+)))
       ;; symbol-name.
-      (setf (memref-t address 0) (sys.int::simplify-string name)
+      (setf (memref-t address 0) simp-name
             ;; Must be done before makunbound to prevent random
             ;; TLS slots from being smashed.
             (%symbol-flags symbol) 0)
