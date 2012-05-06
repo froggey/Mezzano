@@ -115,13 +115,10 @@
              (setf *** **
                    ** *
                    * (first result))
-             (if result
-                 (dolist (v result)
-                   (fresh-line)
-                   (write v))
-                 (progn
-                   (fresh-line)
-                   (write-string "; No values.")))))))))
+             (when result
+               (dolist (v result)
+                 (fresh-line)
+                 (write v)))))))))
 
 (defvar *early-initialize-hook* '())
 (defvar *initialize-hook* '())
@@ -131,13 +128,92 @@
     (setf (symbol-value hook) '()))
   (pushnew function (symbol-value hook)))
 
+(defun multiboot-module-count ()
+  (if (logtest (memref-unsigned-byte-32 *multiboot-info* 0) +multiboot-flag-modules+)
+      (memref-unsigned-byte-32 *multiboot-info* 5)
+      0))
+
+(defun multiboot-module-info ()
+  (if (logtest (memref-unsigned-byte-32 *multiboot-info* 0) +multiboot-flag-modules+)
+      (make-array (* (multiboot-module-count) 4)
+                  :element-type '(unsigned-byte 32)
+                  :memory (+ #x8000000000 (memref-unsigned-byte-32 *multiboot-info* 6)))
+      (make-array 0 :element-type '(unsigned-byte 32))))
+
+(defparameter *maximum-multiboot-command-line-length* 100)
+
+(defun multiboot-module (id)
+  (assert (< id (multiboot-module-count)))
+  (let* ((info (multiboot-module-info))
+         (base (aref info (+ (* id 4) 0)))
+         (end (aref info (+ (* id 4) 1)))
+         (size (- end base))
+         (command-line (+ #x8000000000 (aref info (+ (* id 4) 2))))
+         (cmdl-len (dotimes (i *maximum-multiboot-command-line-length*
+                             *maximum-multiboot-command-line-length*)
+                     (when (eql (memref-unsigned-byte-8 command-line i) 0)
+                       (return i)))))
+    (values (make-array size
+                        :element-type '(unsigned-byte 8)
+                        :memory (+ #x8000000000 base))
+            (make-array cmdl-len
+                        :element-type 'base-char
+                        :memory command-line))))
+
+(defun multiboot-module-data (id)
+  (multiple-value-bind (data command-line)
+      (multiboot-module id)
+    (declare (ignore command-line))
+    data))
+
+(defun multiboot-module-command-line (id)
+  (multiple-value-bind (data command-line)
+      (multiboot-module id)
+    (declare (ignore data))
+    command-line))
+
+(defclass multiboot-module-stream (stream-object file-stream)
+  ((backing-array :initarg :backing-array)
+   (command-line :initarg :command-line)
+   (position :initarg :position))
+  (:default-initargs :position 0))
+
+(defmethod stream-read-byte ((stream multiboot-module-stream))
+  (when (< (slot-value stream 'position) (length (slot-value stream 'backing-array)))
+    (prog1 (aref (slot-value stream 'backing-array) (slot-value stream 'position))
+      (incf (slot-value stream 'position)))))
+
+(defmethod stream-file-position ((stream multiboot-module-stream))
+  (slot-value stream 'position))
+
+(defmethod stream-set-file-position ((stream multiboot-module-stream) new-position)
+  (cond ((eql new-position :end)
+         (setf (slot-value stream 'position) (length (slot-value stream 'backing-array))))
+        (t (setf (slot-value stream 'position) new-position)))
+  new-position)
+
+(defmethod stream-element-type* ((stream multiboot-module-stream))
+  '(unsigned-byte 8))
+
+(defun make-multiboot-module-stream (id)
+  (multiple-value-bind (data command-line)
+      (multiboot-module id)
+    (make-instance 'multiboot-module-stream
+                   :backing-array data
+                   :command-line command-line)))
+
 (defun initialize-lisp ()
   (setf *package* (find-package "CL-USER"))
   (mapc 'funcall *early-initialize-hook*)
   (%sti)
   (pci-init)
   (mapc 'funcall *initialize-hook*)
-  (write-string "Hello, World!")
+  (format t "Hello, World!~%")
+  (with-simple-restart (abort "Stop loading modules.")
+    (dotimes (i (multiboot-module-count))
+      (with-simple-restart (continue "Skip loading this module.")
+        (format t "Loading module ~S.~%" (multiboot-module-command-line i))
+        (load (make-multiboot-module-stream i)))))
   (repl))
 
 (initialize-lisp)
