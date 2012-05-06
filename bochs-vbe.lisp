@@ -85,6 +85,18 @@
 
 (defvar *bochs-framebuffer* nil)
 
+(defun set-gc-light ()
+  (when (and (boundp '*bochs-framebuffer*)
+             *bochs-framebuffer*)
+    (dotimes (i 8)
+      (setf (aref *bochs-framebuffer* 0 i) (ldb (byte 24 0) (lognot (aref *bochs-framebuffer* 0 i)))))))
+
+(defun clear-gc-light ()
+  (when (and (boundp '*bochs-framebuffer*)
+             *bochs-framebuffer*)
+    (dotimes (i 8)
+      (setf (aref *bochs-framebuffer* 0 i) (ldb (byte 24 0) (lognot (aref *bochs-framebuffer* 0 i)))))))
+
 (add-hook '*initialize-hook*
           #'(lambda ()
               (when (probe-bochs-vbe)

@@ -369,6 +369,7 @@
 (defun gc-task ()
   (loop
      (let ((old-offset *newspace-offset*))
+       (set-gc-light)
        (mumble "GC in progress...")
        ;; Allow access to the soon-to-be-newspace.
        (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
@@ -388,6 +389,7 @@
        ;; Flush TLB.
        (setf (%cr3) (%cr3))
        (mumble "complete")
+       (clear-gc-light)
        (stack-group-return t))))
 
 (defun %gc ()
