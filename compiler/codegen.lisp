@@ -1360,9 +1360,15 @@ only R8 will be preserved."
 	    (emit (second (assoc stmt *rename-list*))))
 	  (setf last-value (cg-form stmt))))
     (when escapes
-      ;; Disable the tagbody.
+      ;; Disable the tagbody and pops the binding stack.
       (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
-            `(sys.lap-x86:mov64 (:r9 9) nil)))
+            `(sys.lap-x86:mov64 (:r9 9) nil)
+            `(sys.lap-x86:gs)
+            `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+            `(sys.lap-x86:mov64 (:rax 0) 0)
+            `(sys.lap-x86:mov64 (:rax 8) 0)
+            `(sys.lap-x86:gs)
+            `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))
     (if last-value
 	''nil
 	'nil)))
