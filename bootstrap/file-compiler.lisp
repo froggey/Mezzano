@@ -436,3 +436,25 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (declare (ignore object))
             (when stop
               (return))))))
+
+(defvar *load-verbose* t)
+(defvar *load-print* nil)
+
+(defun load-from-stream (stream)
+  (if (subtypep (stream-element-type stream) 'character)
+      (load-lisp-source stream)
+      (load-llf stream)))
+
+(defun load (filespec &key
+             (verbose *load-verbose*)
+             (print *load-print*)
+             (if-does-not-exist t)
+             (external-format :default))
+  (let ((*load-verbose* verbose)
+        (*load-print* print))
+    (cond ((streamp filespec)
+           (load-from-stream filespec))
+          (t (with-open-file (stream filespec
+                                     :if-does-not-exist if-does-not-exist
+                                     :external-format external-format)
+               (load-from-stream stream))))))
