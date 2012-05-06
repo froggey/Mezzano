@@ -541,6 +541,36 @@ the header word. LENGTH is the number of elements in the array."
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
         (%%assemble-value address +tag-function+)))))
 
+(defun make-function-with-fixups (tag machine-code fixups constants)
+  (with-interrupts-disabled ()
+    (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
+           (pool-size (length constants))
+           (total (+ (* mc-size 2) pool-size)))
+      (when (oddp total)
+        (incf total))
+      (let ((address (%raw-allocate total :static)))
+        ;; Initialize header.
+        (setf (memref-unsigned-byte-64 address 0) 0
+              (memref-unsigned-byte-16 address 0) tag
+              (memref-unsigned-byte-16 address 1) mc-size
+              (memref-unsigned-byte-16 address 2) pool-size)
+        ;; Initialize code.
+        (dotimes (i (length machine-code))
+          (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
+        ;; Apply fixups.
+        (dolist (fixup fixups)
+          (let ((value (cond ((member (car fixup) '(nil t))
+                              (lisp-object-address (car fixup)))
+                             ((eql (car fixup) 'undefined-function)
+                              (lisp-object-address *undefined-function-thunk*))
+                             (t (error "Unsupported fixup ~S." (car fixup))))))
+            (dotimes (i 4)
+              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i)) (ldb (byte 8 (* i 8)) value)))))
+        ;; Initialize constant pool.
+        (dotimes (i (length constants))
+          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+        (%%assemble-value address +tag-function+)))))
+
 (defun %make-array-header (dimensions fill-pointer info storage &optional area)
   (with-interrupts-disabled ()
     (let ((value (%%assemble-value (%raw-allocate 4 area) +tag-array-header+)))
@@ -636,3 +666,16 @@ the header word. LENGTH is the number of elements in the array."
       (incf length))
     (prog1 *bump-pointer*
       (incf *bump-pointer* (* length 8)))))
+
+(defun allocate-dma-buffer (length)
+  (with-interrupts-disabled ()
+    (unless (zerop (logand *bump-pointer* #xFFF))
+      (incf *bump-pointer* (logand *bump-pointer* #xFFF)))
+    (let ((address *bump-pointer*))
+      (incf *bump-pointer* length)
+      (unless (zerop (logand *bump-pointer* #xFFF))
+        (incf *bump-pointer* (logand *bump-pointer* #xFFF)))
+      (values (make-array length
+                          :element-type '(unsigned-byte 8)
+                          :memory address)
+              address))))
