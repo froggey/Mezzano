@@ -111,8 +111,8 @@
          (check-type position-spec (or (integer 0) (member :start :end)))
          (when (eql position-spec :start)
            (setf position-spec 0))
-         (stream-set-file-position stream position-spec))
-        (t (stream-file-position stream))))
+         (stream-set-file-position (follow-synonym-stream stream) position-spec))
+        (t (stream-file-position (follow-synonym-stream stream)))))
 
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
