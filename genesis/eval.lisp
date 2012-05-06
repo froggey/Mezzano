@@ -1077,8 +1077,6 @@ otherwise the matching variable definition."
             `(lambda ,@lambda-fragment))))))
 
 ;;; Support functions & macros.
-(declaim (inline genesis-close-environment))
-
 (defun genesis-close-environment (lambda env source source-env)
   (cond (env (let ((fn (lambda (&rest args)
 			 (let ((*env* env))
@@ -1089,6 +1087,68 @@ otherwise the matching variable definition."
 	(t (setf (gethash lambda *function-info*) (list source source-env nil))
 	   lambda)))
 
+(defun full-eval (form)
+  (funcall (eval (translate-lambda (pass1-lambda (list (genesis-intern "LAMBDA") '()
+                                                       (list (genesis-intern "PROGN") form))
+                                                 nil)
+                                   nil))))
+
+(defun eval-progn-body (forms)
+  (do ((i forms (cdr i)))
+      ((null (cdr i))
+       (eval-form (car i)))
+    (eval-form (car i))))
+
+(defun eval-cons (form)
+  ;; Special case a few forms to avoid going
+  ;; through the full translate/eval path.
+  (cond
+    ((member (first form) '("BLOCK" "CATCH" "FLET" "GO" "LABELS" "LET" "LET*"
+                            "LOAD-TIME-VALUE" "LOCALLY" "MACROLET"
+                            "MULTIPLE-VALUE-CALL" "PROGV" "RETURN-FROM" "SETQ"
+                            "SYMBOL-MACROLET" "TAGBODY" "THE" "THROW")
+             :key 'genesis-intern)
+     (full-eval form))
+     ((eql (first form) (genesis-intern "EVAL-WHEN"))
+      (destructuring-bind (situations &body body) (rest form)
+        (dolist (situation situations)
+          (when (or (eql situation (genesis-intern "EXECUTE" t))
+                    (eql situation (genesis-intern "EVAL" nil)))
+            (eval-progn-body body)))))
+     ((eql (first form) (genesis-intern "FUNCTION"))
+      (if (and (listp (second form))
+               (eql (first (second form)) (genesis-intern "LAMBDA")))
+          (full-eval form)
+          (genesis-fdefinition (second form))))
+     ((eql (first form) (genesis-intern "IF"))
+      (destructuring-bind (test then &optional else) (rest form)
+        (if (eval-form test)
+            (eval-form then)
+            (eval-form else))))
+     ((eql (first form) (genesis-intern "MULTIPLE-VALUE-PROG1"))
+      (destructuring-bind (first-form &body other-forms) (rest form)
+        (multiple-value-prog1 (eval-form first-form)
+          (eval-progn-body other-forms))))
+     ((eql (first form) (genesis-intern "PROGN"))
+      (eval-progn-body (rest form)))
+     ((eql (first form) (genesis-intern "QUOTE"))
+      (destructuring-bind (object) (rest form)
+        object))
+     ((eql (first form) (genesis-intern "UNWIND-PROTECT"))
+      (destructuring-bind (protected &rest cleanup) (rest form)
+        (unwind-protect (eval-form protected)
+          (eval-progn-body cleanup))))
+     ((genesis-macro-function (first form))
+      (eval-form (funcall (genesis-macro-function (first form)) form nil)))
+     (t (apply (genesis-fdefinition (first form))
+               (mapcar 'eval-form (rest form))))))
+
+(defun eval-form (form)
+  (typecase form
+    (symbol (symbol-value form))
+    (cons (eval-cons form))
+    (t form)))
+
 (defun genesis-eval (form)
   ;; Bind over *STANDARD-INPUT* and *STANDARD-OUTPUT* before calling.
   ;; They are bound instead of set so that the host streams don't get
@@ -1098,10 +1158,7 @@ otherwise the matching variable definition."
             (genesis-intern "*STANDARD-OUTPUT*")
             (genesis-intern "*ERROR-OUTPUT*"))
       (list *standard-input* *standard-output* *error-output*)
-    (funcall (eval (translate-lambda (pass1-lambda (list (genesis-intern "LAMBDA") '()
-							  (list (genesis-intern "PROGN") form))
-						   nil)
-				     nil)))))
+    (eval-form form)))
 
 (defbuiltin function-lambda-expression (function)
   (check-type function function)

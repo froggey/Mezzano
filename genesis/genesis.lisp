@@ -23,6 +23,8 @@ GENESIS-INTERN.")
 
 (defparameter *use-bootstrap-package-system* t)
 
+(declaim (ftype (function (string &optional t) symbol) genesis-intern))
+
 (defun genesis-intern (name &optional keywordp)
   (cond (keywordp
          (or (gethash name *interned-keywords*)
@@ -82,20 +84,24 @@ GENESIS-INTERN.")
 
 (defun symbol-setf-function (name)
   "Return the symbol coresponding to NAME's SETF function."
+  (declare (optimize speed))
   (or (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL"))
       (let ((new-sym (make-symbol (format nil "(SETF ~A)" name))))
         (setf (getf (genesis-symbol-plist new-sym) (genesis-intern "SETF-SYMBOL-BACKLINK")) name)
         (setf (getf (genesis-symbol-plist name) (genesis-intern "SETF-SYMBOL")) new-sym))))
 
 (defun resolve-function-name (name)
+  (declare (optimize speed))
   (cond ((symbolp name)
          name)
-        ((and (= (length name) 2)
+        ((and (listp name)
+              (= (length name) 2)
               (eql (first name) (genesis-intern "SETF"))
               (symbolp (second name)))
          (symbol-setf-function (second name)))
         (t (error "Invalid function name ~S." name))))
 
+(declaim (ftype (function (t) function) genesis-fdefinition))
 (defun genesis-fdefinition (name)
   (symbol-function (resolve-function-name name)))
 
