@@ -103,7 +103,7 @@ A list of any declaration-specifiers."
       ;; Key arg conversion must be performed after lambda-lifting, so as not to
       ;; complicate the lift code.
       (setf form (lower-keyword-arguments form))
-      (setf form (cp-form (detect-uses form)))
+      (setf form (constprop (detect-uses form)))
       (setf form (simp-form (detect-uses form)))
       (detect-uses form)
       (when (eql *change-count* 0)

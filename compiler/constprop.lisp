@@ -5,6 +5,10 @@
 (defvar *known-variables* nil
   "An alist mapping lexical-variables to their values, if known.")
 
+(defun constprop (form)
+  (let ((*known-variables* '()))
+    (cp-form form)))
+
 (defun cp-form (form)
   (etypecase form
     (cons (case (first form)
@@ -83,7 +87,8 @@
 	   (cp-form use-this-one)))
     (setf (second form) (cp-form (second form)))
     (let ((value (form-value (second form))))
-      (if value
+      (if (and value
+               (not (lexical-variable-p value)))
 	  (progn
 	    (incf *change-count*)
 	    (if (eql (or (not (consp value)) (second value)) 'nil)
