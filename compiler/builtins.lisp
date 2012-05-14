@@ -1282,7 +1282,7 @@
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
-      (raise-type-error :r8 '(unsigned-byte 8)))
+      (raise-type-error :r8 '(unsigned-byte 32)))
     (emit `(sys.lap-x86:test64 :r8 #b111)
           `(sys.lap-x86:jnz ,value-type-error-label)
           `(sys.lap-x86:mov64 :rax :r8)
