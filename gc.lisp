@@ -39,7 +39,7 @@
 (defmacro with-interrupts-disabled (options &body code)
   `(let ((istate (%interrupt-state)))
      (%cli)
-     (prog1 (progn ,@code) (when istate (%sti)))))
+     (multiple-value-prog1 (progn ,@code) (when istate (%sti)))))
 
 ;;; FIXME: Don't use with-interrupts-disabled.
 ;;; Suppress preemption (SBCL pseudo-atomic-like operation).
