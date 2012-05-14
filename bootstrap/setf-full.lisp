@@ -44,3 +44,30 @@
 ;; FIXME...
 (defmacro psetf (&rest args)
   `(psetq ,@args))
+
+(defun %putf (plist indicator value)
+  (do ((i plist (cddr i)))
+      ((null i)
+       (list* indicator value plist))
+    (when (eql (car i) indicator)
+      (setf (cadr i) value)
+      (return plist))))
+
+(define-setf-expander getf (place indicator &optional default &environment env)
+  (multiple-value-bind (temps vals stores
+                              store-form access-form)
+      (get-setf-expansion place env);Get setf expansion for place.
+    (let ((indicator-temp (gensym))
+          (store (gensym))     ;Temp var for byte to store.
+          (stemp (first stores))) ;Temp var for int to store.
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Return the setf expansion for LDB as five values.
+      (values (list* indicator-temp temps)       ;Temporary variables.
+              (list* indicator vals)     ;Value forms.
+              (list store)             ;Store variables.
+              `(let ((,stemp (%putf ,access-form ,indicator-temp ,store)))
+                 ,default
+                 ,store-form
+                 ,store)               ;Storing form.
+              `(getf ,access-form ,indicator-temp ,default) ;Accessing form.
+              ))))
