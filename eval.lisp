@@ -225,8 +225,12 @@
                (eql (second e) name))
       (funcall (third e) (multiple-value-list (eval-in-lexenv value env))))))
 
+;;; TODO: Expand symbol macros.
 (defspecial setq (&environment env symbol value)
-  (setf (symbol-value symbol) (eval-in-lexenv value env)))
+  (let ((var (find-variable symbol env)))
+    (if (symbolp var)
+        (setf (symbol-value var) (eval-in-lexenv value env))
+        (setf (third var) (eval-in-lexenv value env)))))
 
 (defspecial the (&environment env type form)
   (declare (ignore type))
