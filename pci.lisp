@@ -43,6 +43,8 @@
 (defvar *pci-devices* '()
   "A list of all detected PCI devices. (bus device function vendor-id device-id)")
 
+(defvar *pci-drivers* '())
+
 (defstruct pci-device
   bus
   device
@@ -129,7 +131,9 @@
   (setf (io-port/32 +pci-config-address+) #x80000000)
   (when (eql (io-port/32 +pci-config-address+) #x80000000)
     (format t "Scanning PCI bus...~%")
-    (pci-scan 0)))
+    (pci-scan 0)
+    (dolist (driver *pci-drivers*)
+      (pci-probe (second driver) (first driver)))))
 
 (defun pci-probe (device-ids fn)
   (dolist (dev *pci-devices*)
@@ -137,3 +141,8 @@
       (when (and (eql (pci-device-vendor-id dev) (first id))
 		 (eql (pci-device-device-id dev) (second id)))
 	(funcall fn dev)))))
+
+(defun pci-register-driver (ids function)
+  (push (list function ids) *pci-drivers*)
+  (when *pci-devices*
+    (pci-probe ids function)))
