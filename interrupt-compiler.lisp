@@ -194,6 +194,56 @@
 (define-form system:io-port/8 (port) (for-value-p)
   (compile-port-read 'in8 8 port))
 
+(define-form system:io-port/16 (port) (for-value-p)
+  (compile-port-read 'in16 16 port))
+
+(define-form system:io-port/32 (port) (for-value-p)
+  (compile-port-read 'in32 32 port))
+
+(defun compile-port-write (instruction length value port)
+  (multiple-value-bind (value-location value-type)
+      (compile-form value t)
+    (multiple-value-bind (port-location port-type)
+        (compile-form port t)
+      ;; TODO: It would be nice to put a stronger guarantee on this.
+      ;; Like (unsigned-byte 16).
+      (assert (subtypep port-type 'fixnum))
+      (assert (subtypep value-type 'fixnum))
+      (cond ((value-constant-p value-location)
+             (%emit `(mov64 :rax ,(second value-location))))
+            ((eql value-location :rax)
+             (%emit `(sar64 :rax 3)))
+            ((keywordp value-location)
+             (%emit `(mov64 :rax ,value-location)
+                    `(sar64 :rax 3)))
+            (t (error "Unknown location ~S." value-location)))
+      (cond ((and (value-constant-p port-location)
+                  (<= 0 (second port-location) #xFF))
+             (%emit `(,instruction ,(second port-location))))
+            ((value-constant-p port-location)
+             (assert (<= 0 (second port-location) #xFFFF) ((second port-location))
+                     "Port ~S out of range." (second port-location))
+             (%emit `(mov16 :dx ,(second port-location))
+                    `(,instruction :dx)))
+            ((eql port-location :rdx)
+             (%emit `(,instruction :dx)))
+            ((keywordp port-location)
+             (%emit `(mov64 :rdx ,port-location)
+                    `(shr32 :edx 3)
+                    `(,instruction :dx)))
+            (t (error "Unknown location ~S." port-location)))
+      (%emit `(shl64 :rax 3))
+      (values :rax `(unsigned-byte ,length)))))
+
+(define-form (setf system:io-port/8) (value port) (for-value-p)
+  (compile-port-write 'out8 8 value port))
+
+(define-form (setf system:io-port/16) (value port) (for-value-p)
+  (compile-port-write 'out16 16 value port))
+
+(define-form (setf system:io-port/32) (value port) (for-value-p)
+  (compile-port-write 'out32 32 value port))
+
 (define-form quote (object) (for-value-p)
   (values (list 'quote object) (list 'eql object)))
 
@@ -248,6 +298,21 @@
                  `(add64 :rax 8))
            (values :rax 'fixnum))
           (t (error "Unknown location ~S." location)))))
+
+(define-form + (lhs rhs) (for-value-p)
+  (multiple-value-bind (lhs-location lhs-type)
+      (compile-form lhs t 'fixnum)
+    (multiple-value-bind (rhs-location rhs-type)
+        (compile-form rhs t 'fixnum)
+      (when (value-constant-p rhs-location)
+        (psetf rhs-location lhs-location
+               rhs-type lhs-type
+               lhs-location rhs-location
+               lhs-type rhs-type))
+      (cond ((and (value-constant-p lhs-location)
+                  (value-constant-p rhs-location))
+             (values (list 'quote (+ (second lhs-location) (second rhs-location))) 'fixnum))
+            (t (error "barf ~S ~S  ~S/~S ~/~S" lhs rhs lhs-location lhs-type rhs-location rhs-type))))))
 
 (defun compile-struct-slot (object slot-number struct-type slot-type)
   (let ((location (compile-form object t struct-type)))
@@ -341,6 +406,17 @@
                (%emit `(shl64 :rax 3))))
             (t (error "Unsupported array type ~S." array-type)))
       (values :rax (second array-type)))))
+
+(define-form (setf car) (value cons) (for-value-p)
+  (with-stack-slots (c)
+    (let ((loc (compile-form cons t 'cons)))
+      (save-in-slot c loc)
+      (multiple-value-bind (vloc vtype)
+          (compile-form value t)
+        (move :rax vloc)
+        (%emit `(mov64 :rcx (:rsp ,(* c 8)))
+               `(mov64 (:car :rcx) :rax))
+        (values :rax vtype)))))
 
 (defun compile-forms (forms for-value-p)
   (do ((i forms (rest i)))
