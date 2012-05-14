@@ -681,4 +681,4 @@ the header word. LENGTH is the number of elements in the array."
       (values (make-array length
                           :element-type '(unsigned-byte 8)
                           :memory address)
-              address))))
+              (- address #x8000000000)))))
