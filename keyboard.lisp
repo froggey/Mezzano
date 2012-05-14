@@ -7,7 +7,7 @@
           :type (simple-array (unsigned-byte 8) (*))))
 
 (defconstant +ps/2-data-port+ #x60)
-(defconstant +ps/2-control-port+ #x61)
+(defconstant +ps/2-control-port+ #x64)
 (defconstant +ps/2-key-irq+ 1)
 (defconstant +ps/2-aux-irq+ 12)
 
