@@ -435,6 +435,13 @@
             (cdr cons) cdr)
       cons)))
 
+(defun cons-in-area (car cdr area)
+  (with-interrupts-disabled ()
+    (let ((cons (%%assemble-value (%raw-allocate 2 area) +tag-cons+)))
+      (setf (car cons) car
+            (cdr cons) cdr)
+      cons)))
+
 (defun allocate-std-instance (class slots)
   (with-interrupts-disabled ()
     (let ((value (%%assemble-value (%raw-allocate 2) +tag-std-instance+)))
