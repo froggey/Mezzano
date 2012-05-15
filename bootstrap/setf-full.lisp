@@ -69,5 +69,4 @@
                  ,default
                  ,store-form
                  ,store)               ;Storing form.
-              `(getf ,access-form ,indicator-temp ,default) ;Accessing form.
-              ))))
+              `(getf ,access-form ,indicator-temp ,default))))) ;Accessing form.
