@@ -65,9 +65,29 @@
 (defmethod stream-read-char ((stream ps/2-keyboard-stream))
   (ps/2-read-char *ps/2-key-fifo*))
 
+(defun keyboard-listen (fifo)
+  (loop (when (eql (ps/2-fifo-head fifo)
+                   (ps/2-fifo-tail fifo))
+          (return nil))
+     (let* ((scancode (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo)))
+            (key (svref (if *ps/2-keyboard-shifted*
+                            *gb-keymap-high*
+                            *gb-keymap-low*)
+                        (logand scancode #x7F))))
+       (cond ((logtest scancode #x80)
+              ;; Key release.
+              (when (eql key :shift)
+                (setf *ps/2-keyboard-shifted* nil)))
+             (t ;; Key press.
+              (cond ((eql key :shift)
+                     (setf *ps/2-keyboard-shifted* t))
+                    ((characterp key)
+                     (return t)))))
+       (incf (ps/2-fifo-head fifo))
+       (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
+         (setf (ps/2-fifo-head fifo) 0)))))
 (defmethod stream-listen ((stream ps/2-keyboard-stream))
-  (not (eql (ps/2-fifo-head *ps/2-key-fifo*)
-            (ps/2-fifo-tail *ps/2-key-fifo*))))
+  (keyboard-listen *ps/2-key-fifo*))
 
 (defun init-ps/2 ()
   (setf *ps/2-key-fifo* (make-ps/2-fifo)
