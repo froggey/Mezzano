@@ -45,6 +45,10 @@
   (dotimes (i (length string))
     (write-char (char string i) stream)))
 
+(defun write-line (string &optional stream)
+  (write-string string stream)
+  (terpri stream))
+
 (defun write-object (object stream)
   (typecase object
     (integer
