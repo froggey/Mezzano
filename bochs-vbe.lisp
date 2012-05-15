@@ -100,8 +100,8 @@
 (add-hook '*initialize-hook*
           #'(lambda ()
               (when (probe-bochs-vbe)
-                (set-bochs-vbe-mode 800 600 32)
-                (setf *bochs-framebuffer* (make-array '(600 800)
+                (set-bochs-vbe-mode 1024 768 32)
+                (setf *bochs-framebuffer* (make-array '(768 1024)
                                                 :element-type '(unsigned-byte 32)
                                                 :memory (+ #x8000000000 *bochs-vbe-framebuffer-address*))
                       *terminal-io* (make-instance 'framebuffer-stream
