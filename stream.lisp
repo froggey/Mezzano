@@ -44,7 +44,9 @@
 (defgeneric stream-clear-between (stream start-x start-y end-x end-y))
 (defgeneric stream-move-to (stream x y))
 (defgeneric stream-read-byte (stream))
+(defgeneric stream-write-byte (byte stream))
 (defgeneric stream-read-sequence (sequence stream start end))
+(defgeneric stream-write-sequence (sequence stream start end))
 (defgeneric stream-file-position (stream))
 (defgeneric stream-set-file-position (new-stream position))
 (defgeneric stream-element-type* (stream))
@@ -90,6 +92,9 @@
             (error 'end-of-file :stream stream)
             eof-value)
         b)))
+
+(defun write-byte (byte stream)
+  (stream-write-byte byte (follow-synonym-stream stream)))
 
 (defun read-sequence (sequence stream &key (start 0) end)
   (stream-read-sequence sequence (follow-synonym-stream stream)
@@ -383,7 +388,8 @@ CASE may be one of:
 		       (incf (slot-value stream 'edit-offset)))
 		     (return (write-char ch stream)))
 		    ((eql #\Backspace ch)
-		     (funcall (slot-value stream 'edit-handler) ch)))))))))
+                     (when (slot-value stream 'edit-handler)
+                       (funcall (slot-value stream 'edit-handler) ch))))))))))
 
 (defmethod stream-read-char :around ((stream edit-stream))
   (edit-stream-read stream #'call-next-method))
