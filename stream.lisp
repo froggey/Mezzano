@@ -429,6 +429,84 @@ CASE may be one of:
 (defmethod stream-with-edit ((stream edit-stream) fn)
   (edit-stream-edit stream fn))
 
+(defclass shadow-stream (stream-object)
+  ((primary-stream
+    :initarg :primary
+    :reader shadow-stream-primary)
+   (shadow-streams
+    :initarg :shadows
+    :initform '()
+    :reader shadow-stream-shadows)))
+
+(defun shadow-read-char (stream)
+  (let ((c (read-char (shadow-stream-primary stream) nil)))
+    (when c
+      (dolist (s (shadow-stream-shadows stream))
+        (write-char c s)))
+    c))
+
+(defmethod stream-read-char ((stream shadow-stream))
+  (shadow-read-char stream))
+
+(defun shadow-write-char (character stream)
+  (write-char character (shadow-stream-primary stream))
+  (dolist (s (shadow-stream-shadows stream))
+    (write-char character s)))
+
+(defmethod stream-write-char (character (stream shadow-stream))
+  (shadow-write-char character stream))
+
+(defmethod stream-close ((stream shadow-stream) abort)
+  (close (shadow-stream-primary stream) :abort abort))
+
+(defmethod stream-listen ((stream shadow-stream))
+  (listen (shadow-stream-primary stream)))
+
+(defmethod stream-clear-input ((stream shadow-stream))
+  (clear-input (shadow-stream-primary stream)))
+
+(defmethod stream-start-line-p ((stream shadow-stream))
+  (stream-start-line-p (shadow-stream-primary stream)))
+
+(defmethod stream-with-edit ((stream shadow-stream) fn)
+  (stream-with-edit (shadow-stream-primary stream) fn))
+
+(defmethod stream-cursor-pos ((stream shadow-stream))
+  (stream-cursor-pos (shadow-stream-primary stream)))
+
+(defmethod stream-character-width ((stream shadow-stream) character)
+  (stream-character-width (shadow-stream-primary stream) character))
+
+(defmethod stream-compute-motion ((stream shadow-stream) string &optional start end initial-x initial-y)
+  (stream-compute-motion (shadow-stream-primary stream) string start end initial-x initial-y))
+
+(defmethod stream-clear-between ((stream shadow-stream) start-x start-y end-x end-y)
+  (stream-clear-between (shadow-stream-primary stream) start-x start-y end-x end-y))
+
+(defmethod stream-move-to ((stream shadow-stream) x y)
+  (stream-move-to (shadow-stream-primary stream) x y))
+
+(defmethod stream-read-byte ((stream shadow-stream))
+  (stream-read-byte (shadow-stream-primary stream)))
+
+(defmethod stream-write-byte (byte (stream shadow-stream))
+  (stream-write-byte byte (shadow-stream-primary stream)))
+
+(defmethod stream-read-sequence (sequence (stream shadow-stream) start end)
+  (stream-read-sequence sequence (shadow-stream-primary stream) start end))
+
+(defmethod stream-write-sequence (sequence (stream shadow-stream) start end)
+  (stream-write-sequence sequence (shadow-stream-primary stream) start end))
+
+(defmethod stream-file-position ((stream shadow-stream))
+  (stream-file-position (shadow-stream-primary stream)))
+
+(defmethod stream-set-file-position ((stream shadow-stream) position)
+  (stream-set-file-position (shadow-stream-primary stream) position))
+
+(defmethod stream-element-type* ((stream shadow-stream))
+  (stream-element-type* (shadow-stream-primary stream)))
+
 (defun y-or-n-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
   (when control
