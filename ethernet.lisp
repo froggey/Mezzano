@@ -703,12 +703,12 @@
     (tcp-send (slot-value stream 'connection) ary)))
 
 (defmethod sys.int::stream-write-sequence (sequence (stream tcp-stream) start end)
-  (when (stringp sequence)
-    (setf sequence (encode-utf8-string sequence start end)
-          start 0
-          end (length sequence)))
-  (let ((buf (subseq sequence start end)))
-    (tcp-send (slot-value stream 'connection) buf)))
+  (cond ((stringp sequence)
+         (setf sequence (encode-utf8-string sequence start end)))
+        ((not (and (zerop start)
+                   (eql end (length sequence))))
+         (setf sequence (subseq sequence start end))))
+  (tcp-send (slot-value stream 'connection) sequence))
 
 (defmethod sys.int::stream-write-char (character (stream tcp-stream))
   (when (eql character #\Newline)

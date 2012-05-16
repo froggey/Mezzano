@@ -111,6 +111,21 @@
 (defmethod stream-read-sequence (sequence (stream stream) start end)
   (generic-read-sequence sequence stream start end))
 
+(defun write-sequence (sequence stream &key (start 0) end)
+  (stream-write-sequence sequence (follow-synonym-stream stream)
+                         start (or end (length sequence))))
+
+(defun generic-write-sequence (sequence stream start end)
+  (let ((n (- end start)))
+    (if (subtypep (stream-element-type stream) 'character)
+        (dotimes (i n)
+          (write-char (aref sequence (+ start i)) stream))
+        (dotimes (i n)
+          (write-byte (aref sequence (+ start i)) stream)))))
+
+(defmethod stream-write-sequence (sequence (stream stream) start end)
+  (generic-write-sequence sequence stream start end))
+
 (defun file-position (stream &optional (position-spec nil position-spec-p))
   (cond (position-spec-p
          (check-type position-spec (or (integer 0) (member :start :end)))
