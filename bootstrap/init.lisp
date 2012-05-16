@@ -454,6 +454,10 @@
   `(with-open-stream (,stream (open ,filespec ,@options))
      ,@body))
 
+(defmacro with-input-from-string ((var string &key (start 0) end) &body body)
+  `(with-open-stream (,var (make-string-input-stream ,string ,start ,end))
+     ,@body))
+
 ;;; Used by read, duplicated from stream.lisp.
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
