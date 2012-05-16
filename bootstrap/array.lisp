@@ -152,7 +152,9 @@ This must be sorted from most-specific to least-specific.")
 	     (initialize-from-sequence array initial-contents))
 	   array))
 	(displaced-to
-	 (error "TODO: Displaced arrays."))
+         (unless displaced-index-offset
+           (setf displaced-index-offset 0))
+         (%make-array-header dimensions fill-pointer displaced-index-offset displaced-to area))
 	((and (not (integerp dimensions))
 	      (endp dimensions))
 	 (error "TODO: 0D arrays."))
@@ -346,7 +348,7 @@ This must be sorted from most-specific to least-specific.")
 	     (%simple-array-aref (%array-header-storage array) index))
 	    ((integerp (%array-header-info array))
 	     ;; Displaced array.
-	     (row-major-aref (%array-header-storage array) (+ index (integerp (%array-header-info array)))))
+	     (row-major-aref (%array-header-storage array) (+ index (%array-header-info array))))
 	    (t ;; Direct memory access array.
 	     (%memory-aref (%array-header-info array) (%array-header-storage array) index)))
       (%simple-array-aref array index)))
@@ -366,7 +368,7 @@ This must be sorted from most-specific to least-specific.")
 	     (setf (%simple-array-aref (%array-header-storage array) index) value))
 	    ((integerp (%array-header-info array))
 	     ;; Displaced array.
-	     (setf (row-major-aref (%array-header-storage array) (+ index (integerp (%array-header-info array)))) value))
+	     (setf (row-major-aref (%array-header-storage array) (+ index (%array-header-info array))) value))
 	    (t ;; Direct memory access array.
 	     (setf (%memory-aref (%array-header-info array) (%array-header-storage array) index) value)))
       (setf (%simple-array-aref array index) value)))
