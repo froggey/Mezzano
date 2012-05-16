@@ -70,8 +70,12 @@
 
 (defmethod process-reset ((process process))
   (setf (process-stack-group process) (process-initial-stack-group process))
-  (apply #'stack-group-preset (process-initial-stack-group process)
-	 (process-initial-form process)))
+  (stack-group-preset (process-initial-stack-group process)
+                      (lambda ()
+                        (apply (first (process-initial-form process))
+                               (rest (process-initial-form process)))
+                        (process-disable process)
+                        (stack-group-invoke *scheduler-stack-group*))))
 
 (defmethod process-run-reason ((process base-process) object)
   (pushnew object (process-run-reasons process))
