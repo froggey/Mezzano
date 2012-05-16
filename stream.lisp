@@ -513,6 +513,26 @@ CASE may be one of:
 (defmethod stream-element-type* ((stream shadow-stream))
   (stream-element-type* (shadow-stream-primary stream)))
 
+(defclass string-input-stream (stream-object)
+  ((string :initarg :string)
+   (start :initarg :start)
+   (end :initarg :end)))
+
+(defun make-string-input-stream (string &optional (start 0) end)
+  (make-instance 'string-input-stream
+                 :string string
+                 :start start
+                 :end (or end (length string))))
+
+(defmethod stream-element-type* ((stream string-input-stream))
+  'character)
+
+(defmethod stream-read-char ((stream string-input-stream))
+  (when (< (slot-value stream 'start) (slot-value stream 'end))
+    (prog1 (char (slot-value stream 'string)
+                 (slot-value stream 'start))
+      (incf (slot-value stream 'start)))))
+
 (defun y-or-n-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
   (when control
