@@ -65,8 +65,8 @@
           generic-function-name generic-function-lambda-list
           generic-function-methods generic-function-discriminating-function
           generic-function-method-class
-          method-lambda-list method-qualifiers method-specializers method-body
-          method-environment method-generic-function method-function
+          method-lambda-list method-qualifiers method-specializers
+          method-generic-function method-function
           slot-definition-name slot-definition-initfunction
           slot-definition-initform slot-definition-initargs
           slot-definition-readers slot-definition-writers
@@ -87,9 +87,6 @@
           compute-effective-method-function compute-method-function
           apply-methods apply-method
           find-generic-function  ; Necessary artifact of this implementation
-
-          ;; Compile all the methods in a generic function.
-          compile-methods
           ))
 
 (export exports)
@@ -834,8 +831,6 @@
    ((lambda-list :initarg :lambda-list)     ; :accessor method-lambda-list
     (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
     (specializers :initarg :specializers)   ; :accessor method-specializers
-    (body :initarg :body)                   ; :accessor method-body
-    (environment :initarg :environment)     ; :accessor method-environment
     (generic-function :initform nil)        ; :accessor method-generic-function
     (function))))                           ; :accessor method-function
 
@@ -852,14 +847,6 @@
 (defun method-specializers (method) (slot-value method 'specializers))
 (defun (setf method-specializers) (new-value method)
   (setf (slot-value method 'specializers) new-value))
-
-(defun method-body (method) (slot-value method 'body))
-(defun (setf method-body) (new-value method)
-  (setf (slot-value method 'body) new-value))
-
-(defun method-environment (method) (slot-value method 'environment))
-(defun (setf method-environment) (new-value method)
-  (setf (slot-value method 'environment) new-value))
 
 (defun method-generic-function (method)
   (slot-value method 'generic-function))
@@ -909,17 +896,6 @@
 (defun forget-all-generic-functions ()
   (clrhash *generic-function-table*)
   (values))
-
-(defun compile-all-generic-functions ()
-  ;; Take a copy of the GF table before compiling to prevent
-  ;; a rehash confusing maphash.
-  (let ((all-generic-functions '()))
-    (maphash (lambda (name gf)
-               (declare (ignore gf))
-               (push name all-generic-functions))
-             *generic-function-table*)
-    (mapc 'compile-methods all-generic-functions)
-    (values)))
 
 ;;; ensure-generic-function
 
@@ -1006,14 +982,13 @@
 
 (defmacro defmethod (&rest args)
   (multiple-value-bind (function-name qualifiers
-                        lambda-list specializers body)
+                        lambda-list specializers function)
         (parse-defmethod args)
     `(ensure-method (find-generic-function ',function-name)
        :lambda-list ',lambda-list
        :qualifiers ',qualifiers
        :specializers ,(canonicalize-specializers specializers)
-       :body ',body
-       :environment (top-level-environment))))
+       :function #',function)))
 
 (defun canonicalize-specializers (specializers)
   `(list ,@(mapcar #'canonicalize-specializer specializers)))
@@ -1035,15 +1010,33 @@
                (progn (setq specialized-lambda-list arg)
                       (setq parse-state :body))))
          (:body (push-on-end arg body))))
-    (values fn-spec
-            qualifiers
-            (extract-lambda-list specialized-lambda-list)
-            (extract-specializers specialized-lambda-list)
-            (list* 'block
-                   (if (consp fn-spec)
-                       (cadr fn-spec)
-                       fn-spec)
-                   body))))
+    (let ((lambda-list (extract-lambda-list specialized-lambda-list)))
+      (values fn-spec
+              qualifiers
+              lambda-list
+              (extract-specializers specialized-lambda-list)
+              (compute-method-lambda lambda-list body fn-spec)))))
+
+(defun compute-method-lambda (lambda-list body fn-spec)
+  (multiple-value-bind (forms declares docstring)
+      (sys.int::parse-declares body)
+    (let ((form (list* 'block
+                       (if (consp fn-spec)
+                           (cadr fn-spec)
+                           fn-spec)
+                       forms)))
+      `(lambda (args next-emfun)
+         (declare (system:lambda-name (defmethod ,fn-spec)))
+         (flet ((call-next-method (&rest cnm-args)
+                  (if (null next-emfun)
+                      (error "No next method.")
+                      (funcall next-emfun (or cnm-args args))))
+                (next-method-p ()
+                  (not (null next-emfun))))
+           (apply #'(lambda ,(kludge-arglist lambda-list)
+                      (declare ,@declares)
+                      ,form)
+                  args))))))
 
 ;;; Several tedious functions for analyzing lambda lists
 
@@ -1155,17 +1148,14 @@
 
 (defun make-instance-standard-method (method-class
                                       &key lambda-list qualifiers
-                                           specializers body environment)
+                                           specializers function)
   (declare (ignore method-class))
   (let ((method (std-allocate-instance the-class-standard-method)))
     (setf (method-lambda-list method) lambda-list)
     (setf (method-qualifiers method) qualifiers)
     (setf (method-specializers method) specializers)
-    (setf (method-body method) body)
-    (setf (method-environment method) environment)
     (setf (method-generic-function method) nil)
-    (setf (method-function method)
-          (std-compute-method-function method))
+    (setf (method-function method) function)
     method))
 
 ;;; add-method
@@ -1217,8 +1207,11 @@
     :lambda-list '(object)
     :qualifiers ()
     :specializers (list class)
-    :body `(slot-value object ',slot-name)
-    :environment (top-level-environment))
+    :function (lambda (args next-emfun)
+                (declare (ignore next-emfun))
+                (apply (lambda (object)
+                         (slot-value object slot-name))
+                       args)))
   (values))
 
 (defun add-writer-method (class fn-name slot-name)
@@ -1228,9 +1221,11 @@
     :lambda-list '(new-value object)
     :qualifiers ()
     :specializers (list (find-class 't) class)
-    :body `(setf (slot-value object ',slot-name)
-                 new-value)
-    :environment (top-level-environment))
+    :function (lambda (args next-emfun)
+                (declare (ignore next-emfun))
+                (apply (lambda (new-value object)
+                         (setf (slot-value object slot-name) new-value))
+                       args)))
   (values))
 
 ;;;
@@ -1375,29 +1370,6 @@
                (compute-effective-method-function
                  (method-generic-function method) next-methods))))
 
-(defun std-compute-method-function (method)
-  (let ((form (method-body method))
-        (lambda-list (method-lambda-list method)))
-    (compile-in-lexical-environment (method-environment method)
-      `(lambda (args next-emfun)
-         ;; Ugh. make-instance-standard-method doesn't know what
-         ;; generic-function the method is for so there is no name
-         ;; available!
-         (declare (system:lambda-name (defmethod nil
-                                          ,@(method-qualifiers method)
-                                          ,(method-specializers method))))
-         (flet ((call-next-method (&rest cnm-args)
-                  (if (null next-emfun)
-                      (error "No next method for the~@
-                              generic function ~S."
-                             (method-generic-function ',method))
-                      (funcall next-emfun (or cnm-args args))))
-                (next-method-p ()
-                  (not (null next-emfun))))
-            (apply #'(lambda ,(kludge-arglist lambda-list)
-                       ,form)
-                   args))))))
-
 ;;; N.B. The function kludge-arglist is used to pave over the differences
 ;;; between argument keyword compatibility for regular functions versus
 ;;; generic functions.
@@ -1410,28 +1382,6 @@
                (not (member '&key lambda-list)))
           (append lambda-list '(&key &allow-other-keys))
           lambda-list)))
-
-;;; Run-time environment hacking (Common Lisp ain't got 'em).
-
-(defun top-level-environment ()
-  nil) ; Bogus top level lexical environment
-
-(defvar compile-methods nil)      ; by default, run everything interpreted
-
-(defun compile-in-lexical-environment (env lambda-expr)
-  (declare (ignore env))
-  (if compile-methods
-      (compile nil lambda-expr)
-      (eval `(function ,lambda-expr))))
-
-(defun compile-methods (generic-function)
-  (let ((gf (find-generic-function generic-function)))
-    (format t "Compiling methods in ~S...~%" gf)
-    (dolist (method (generic-function-methods gf))
-      (format t "Compiling ~S...~%" method)
-      (unless (compiled-function-p (method-function method))
-        (setf (method-function method) (compile nil (method-function method))))))
-  generic-function)
 
 ;;;
 ;;; Bootstrap
@@ -1750,10 +1700,6 @@
 (defmethod compute-effective-method-function
            ((gf standard-generic-function) methods)
   (std-compute-effective-method-function gf methods))
-
-(defgeneric compute-method-function (method))
-(defmethod compute-method-function ((method standard-method))
-  (std-compute-method-function method))
 
 ;;; describe-object is a handy tool for enquiring minds:
 
