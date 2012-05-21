@@ -1136,7 +1136,7 @@
 	    ;; Special objects.
 	    (setf (gethash :undefined-function object-values) (gethash undefined-function-thunk object-values)))
           ;; Additionally, produce a map file for use with bochs.
-          (with-open-file (s "../crap.map" :direction :output :if-exists :supersede :if-does-not-exist :create)
+          (with-open-file (s "../lispos.map" :direction :output :if-exists :supersede :if-does-not-exist :create)
             (flet ((frob (object)
                      (when (symbolp object)
                        (let ((fn (or (cdr (assoc object *function-preloads*))
@@ -1224,7 +1224,7 @@
 	  ;; Copy the pages tables (including a redundant copy of the PML4) to the support area.
 	  (dotimes (i (array-total-size page-tables))
 	    (setf (nibbles:ub64ref/le image (+ 4096 (- dynamic-end load-base) (* i 8))) (row-major-aref page-tables i)))
-	  (with-open-file (s "../crap.image" :direction :output :element-type '(unsigned-byte 8)
+	  (with-open-file (s "../lispos.image" :direction :output :element-type '(unsigned-byte 8)
 			     :if-exists :supersede :if-does-not-exist :create)
 	    (write-sequence image s))))))
   t)

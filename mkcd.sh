@@ -30,9 +30,21 @@ mkdir -p "iso_stage/grub/"
 
 # Copy important stuff
 cp stage2_eltorito "iso_stage/grub/"
-cp crap.image "iso_stage/"
+cp lispos.image "iso_stage/"
+cp ethernet.llf "iso_stage/"
+cp rtl8139.llf "iso_stage/"
+cp irc.llf "iso_stage/"
+
+echo "default 0" >> "iso_stage/grub/menu.lst"
+echo "timeout 1" >> "iso_stage/grub/menu.lst"
 
 echo "title LispOS" >> "iso_stage/grub/menu.lst"
-echo "kernel /crap.image" >> "iso_stage/grub/menu.lst"
+echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
+echo "module /ethernet.llf" >> "iso_stage/grub/menu.lst"
+echo "module /rtl8139.llf" >> "iso_stage/grub/menu.lst"
+echo "module /irc.llf" >> "iso_stage/grub/menu.lst"
+
+echo "title LispOS (no networking)" >> "iso_stage/grub/menu.lst"
+echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
 
 mkisofs -R -b grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table -o "cdrom.iso" "iso_stage/"
