@@ -116,8 +116,15 @@
                   (t (write-string (char-name object)))))
            (t (write-char object stream))))
     (function
-     (print-unreadable-object (object stream :type t :identity t)
-       (write (function-name object) :stream stream)))
+     (cond ((and (not *print-safe*)
+                 (typep object 'sys.clos::funcallable-standard-object))
+            (print-object object stream))
+           (t (let ((name (function-name object)))
+                ;; So that only one space is printed if there is no name.
+                (if name
+                    (print-unreadable-object (object stream :type t :identity t)
+                      (write name :stream stream))
+                    (print-unreadable-object (object stream :type t :identity t)))))))
     (vector
      (write-char #\# stream)
      (write-char #\( stream)

@@ -281,7 +281,8 @@
       (when struct-type
 	(return-from typep (and (structure-object-p object)
 				(eq (%struct-slot object 0) struct-type)))))
-    (when (std-instance-p object)
+    (when (or (std-instance-p object)
+              (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
         (when (and class (member class (clos::class-precedence-list (class-of object))))
           (return-from typep t)))))

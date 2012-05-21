@@ -59,6 +59,7 @@
           initialize-instance reinitialize-instance shared-initialize
           update-instance-for-different-class
           print-object
+          set-funcallable-instance-function
 
           standard-object funcallable-standard-object
           standard-class funcallable-standard-class
@@ -166,6 +167,9 @@
     (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
                            secret-unbound-value)))
 
+(defun set-funcallable-instance-function (funcallable-instance function)
+  (setf (funcallable-std-instance-function funcallable-instance) function))
+
 ;;; Simple vectors are used for slot storage.
 
 (defun allocate-slot-storage (size initial-value)
@@ -221,7 +225,7 @@
                (fast-sv-position slot-name cache)))))
     (let* ((location (or (cached-location)
                          (slot-location (class-of instance) slot-name)))
-           (slots (if (eq (class-of (class-of instance)) the-class-funcallable-standard-class)
+           (slots (if (funcallable-std-instance-p instance)
                       (funcallable-std-instance-slots instance)
                       (std-instance-slots instance)))
            (val (slot-contents slots location)))
@@ -244,7 +248,7 @@
                (fast-sv-position slot-name cache)))))
     (let* ((location (or (cached-location)
                          (slot-location (class-of instance) slot-name)))
-           (slots (if (eq (class-of (class-of instance)) the-class-funcallable-standard-class)
+           (slots (if (funcallable-std-instance-p instance)
                       (funcallable-std-instance-slots instance)
                       (std-instance-slots instance))))
       (setf (slot-contents slots location) new-value))))
@@ -855,7 +859,8 @@
                                   ;    -discriminating-function
        (classes-to-emf-table      ; :accessor classes-to-emf-table
           :initform (make-hash-table :test #'equal))
-       (relevant-arguments))))    ; :accessor generic-function-relevant-arguments
+       (relevant-arguments))      ; :accessor generic-function-relevant-arguments
+      (:metaclass funcallable-standard-class)))
 
 (defvar the-class-standard-gf) ;standard-generic-function's class metaobject
 
@@ -1030,8 +1035,8 @@
                      #'std-compute-discriminating-function
                      #'compute-discriminating-function)
                  gf))
-  (setf (fdefinition (generic-function-name gf))
-        (generic-function-discriminating-function gf))
+  (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+  (setf (fdefinition (generic-function-name gf)) gf)
   (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
                                                              #'eq
                                                              #'equal)))
@@ -1044,7 +1049,7 @@
 (defun make-instance-standard-generic-function
        (generic-function-class &key name lambda-list method-class documentation)
   (declare (ignore generic-function-class))
-  (let ((gf (std-allocate-instance the-class-standard-gf)))
+  (let ((gf (fc-std-allocate-instance the-class-standard-gf)))
     (setf (generic-function-name gf) name)
     (setf (generic-function-lambda-list gf) lambda-list)
     (setf (generic-function-methods gf) ())
@@ -1726,6 +1731,13 @@
             (class-name class)))
   class)
 
+(defmethod print-object ((class funcallable-standard-class) stream)
+  (print-unreadable-object (class stream :identity t)
+    (format stream "~:(~S~) ~S"
+            (class-name (class-of class))
+            (class-name class)))
+  class)
+
 (defmethod initialize-instance :after ((class standard-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
@@ -1826,11 +1838,11 @@
           (class-of object))
   (dolist (sn (mapcar #'slot-definition-name
                       (class-slots (class-of object))))
-    (format t "~%    ~S <- ~:[not bound~;~S~]"
-            sn
-            (slot-boundp object sn)
-            (and (slot-boundp object sn)
-                 (slot-value object sn))))
+    (if (slot-boundp object sn)
+        (format t "~%    ~S <- ~S"
+                sn
+                (slot-value object sn))
+        (format t "~%    ~S <- not bound" sn)))
   (values))
 (defmethod describe-object ((object t) stream)
   (common-lisp:describe object)
