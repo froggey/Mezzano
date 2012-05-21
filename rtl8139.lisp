@@ -290,12 +290,17 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
              (setf (rtl8139-reg/16 card +rtl8139-capr+) #xFFF0)
              (return))
            (let ((packet (make-array length :element-type '(unsigned-byte 8))))
-             (do ((i 0 (1+ i))
-                  (j (+ rx-offset 4) (1+ j)))
-                 ((= i length))
-               (when (>= j (- +rtl8139-rx-buffer-size+ 16))
-                 (setf j 0))
-               (setf (aref packet i) (aref rx-buffer j)))
+             (cond ((>= (+ rx-offset 4 length) (- +rtl8139-rx-buffer-size+ 16))
+                    ;; Packet wraps, fall back on the slow code.
+                    (do ((i 0 (1+ i))
+                         (j (+ rx-offset 4) (1+ j)))
+                        ((= i length))
+                      (when (>= j (- +rtl8139-rx-buffer-size+ 16))
+                        (setf j 0))
+                      (setf (aref packet i) (aref rx-buffer j))))
+                   (t (sys.int::%fast-copy (1+ (sys.int::lisp-object-address packet))
+                                           (+ (slot-value card 'rx-address) (+ rx-offset 4) #x8000000000)
+                                           length)))
              ;; Update the RX buffer offset, must be aligned to 4 bytes.
              (setf rx-offset (+ rx-offset
                                 (if (logtest total-length 3)
