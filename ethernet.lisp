@@ -336,6 +336,14 @@
 			      (tcp-connection-r-next connection)
 			      nil)))))
       (:closing
+       (cond ((logtest flags +tcp4-flag-ack+))
+             ((logtest flags +tcp4-flag-fin+)
+              (tcp4-send-packet connection
+                                (tcp-connection-s-next connection)
+                                (tcp-connection-r-next connection)
+                                nil
+                                :ack-p t
+                                :fin-p t)))
        (detach-tcp-connection connection)
        (setf (tcp-connection-state connection) :closed))
       (:closed
@@ -714,6 +722,17 @@
   (when (eql character #\Newline)
     (write-byte #x0D stream))
   (write-byte (char-code character) stream))
+
+(defmethod sys.int::stream-close ((stream tcp-stream) abort)
+  (let* ((connection (slot-value stream 'connection)))
+    (setf (tcp-connection-state connection) :closing)
+    (tcp4-send-packet connection
+                      (tcp-connection-s-next connection)
+                      (tcp-connection-r-next connection)
+                      nil
+                      :fin-p t
+                      ;; Shouldn't actually rst here...
+                      :rst-p t)))
 
 (defun ethernet-init ()
   (setf *cards* '()
