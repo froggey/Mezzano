@@ -685,6 +685,47 @@ GENESIS-INTERN.")
 (define-forwarding-builtin std-instance-slots genesis-std-instance-slots)
 (define-forwarding-builtin (setf std-instance-slots) (setf genesis-std-instance-slots))
 
+(defclass genesis-funcallable-std-instance ()
+  ((function :initarg :function)
+   (class :initarg :class)
+   (slots :initarg :slots))
+  (:metaclass sb-mop:funcallable-standard-class))
+
+(defbuiltin allocate-funcallable-std-instance (function class slots)
+  (check-type function function)
+  (let ((fin (make-instance 'genesis-funcallable-std-instance
+                            :function function
+                            :class class
+                            :slots slots)))
+    (sb-mop:set-funcallable-instance-function fin function)
+    fin))
+
+(defbuiltin funcallable-std-instance-p (x)
+  (typep x 'genesis-funcallable-std-instance))
+
+(defbuiltin funcallable-std-instance-function (x)
+  (check-type x genesis-funcallable-std-instance)
+  (slot-value x 'function))
+(defbuiltin (setf funcallable-std-instance-function) (value x)
+  (check-type x genesis-funcallable-std-instance)
+  (check-type value function)
+  (sb-mop:set-funcallable-instance-function x value)
+  (setf (slot-value x 'function) value))
+
+(defbuiltin funcallable-std-instance-class (x)
+  (check-type x genesis-funcallable-std-instance)
+  (slot-value x 'class))
+(defbuiltin (setf funcallable-std-instance-class) (value x)
+  (check-type x genesis-funcallable-std-instance)
+  (setf (slot-value x 'class) value))
+
+(defbuiltin funcallable-std-instance-slots (x)
+  (check-type x genesis-funcallable-std-instance)
+  (slot-value x 'slots))
+(defbuiltin (setf funcallable-std-instance-slots) (value x)
+  (check-type x genesis-funcallable-std-instance)
+  (setf (slot-value x 'slots) value))
+
 (defparameter *object-genesis-addresses* (make-hash-table :weakness :key))
 (defparameter *next-object-address* 0)
 (declaim (type fixnum *next-object-address*))

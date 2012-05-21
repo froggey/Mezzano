@@ -41,7 +41,12 @@
 		#:allocate-std-instance
 		#:std-instance-p
 		#:std-instance-class
-		#:std-instance-slots))
+		#:std-instance-slots
+                #:allocate-funcallable-std-instance
+                #:funcallable-std-instance-p
+                #:funcallable-std-instance-function
+                #:funcallable-std-instance-class
+                #:funcallable-std-instance-slots))
 
 (in-package #:system.closette)
 
@@ -55,8 +60,9 @@
           update-instance-for-different-class
           print-object
 
-          standard-object
-          standard-class standard-generic-function standard-method
+          standard-object funcallable-standard-object
+          standard-class funcallable-standard-class
+          standard-generic-function standard-method
           class-name
 
           class-direct-superclasses class-direct-slots
@@ -151,6 +157,15 @@
     (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
                            secret-unbound-value)))
 
+(defun fc-std-allocate-instance (class)
+  (allocate-funcallable-std-instance
+   (lambda (&rest x)
+     (declare (ignore x))
+     (error "The function of this funcallable instance has not been set."))
+    class
+    (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
+                           secret-unbound-value)))
+
 ;;; Simple vectors are used for slot storage.
 
 (defun allocate-slot-storage (size initial-value)
@@ -164,6 +179,7 @@
 
 (defvar the-slots-of-standard-class) ;standard-class's class-slots
 (defvar the-class-standard-class)    ;standard-class's class metaobject
+(defvar the-class-funcallable-standard-class)
 (defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (defvar *standard-class-slot-cache-position*)
 
@@ -205,16 +221,20 @@
                (fast-sv-position slot-name cache)))))
     (let* ((location (or (cached-location)
                          (slot-location (class-of instance) slot-name)))
-           (slots (std-instance-slots instance))
+           (slots (if (eq (class-of (class-of instance)) the-class-funcallable-standard-class)
+                      (funcallable-std-instance-slots instance)
+                      (std-instance-slots instance)))
            (val (slot-contents slots location)))
       (if (eq secret-unbound-value val)
           (error "The slot ~S is unbound in the object ~S."
                  slot-name instance)
           val))))
+
 (defun slot-value (object slot-name)
-  (if (eq (class-of (class-of object)) the-class-standard-class)
-      (std-slot-value object slot-name)
-      (slot-value-using-class (class-of object) object slot-name)))
+  (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
+             (eq (class-of (class-of object)) the-class-funcallable-standard-class))
+         (std-slot-value object slot-name))
+        (t (slot-value-using-class (class-of object) object slot-name))))
 
 (defun (setf std-slot-value) (new-value instance slot-name)
   (flet ((cached-location ()
@@ -224,47 +244,67 @@
                (fast-sv-position slot-name cache)))))
     (let* ((location (or (cached-location)
                          (slot-location (class-of instance) slot-name)))
-           (slots (std-instance-slots instance)))
+           (slots (if (eq (class-of (class-of instance)) the-class-funcallable-standard-class)
+                      (funcallable-std-instance-slots instance)
+                      (std-instance-slots instance))))
       (setf (slot-contents slots location) new-value))))
+
 (defun (setf slot-value) (new-value object slot-name)
-  (if (eq (class-of (class-of object)) the-class-standard-class)
-      (setf (std-slot-value object slot-name) new-value)
-      (setf-slot-value-using-class
-        new-value (class-of object) object slot-name)))
+  (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
+             (eq (class-of (class-of object)) the-class-funcallable-standard-class))
+         (setf (std-slot-value object slot-name) new-value))
+        (t (setf-slot-value-using-class
+            new-value (class-of object) object slot-name))))
 
 (defun std-slot-boundp (instance slot-name)
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (std-instance-slots instance)))
     (not (eq secret-unbound-value (slot-contents slots location)))))
+(defun fc-std-slot-boundp (instance slot-name)
+  (let ((location (slot-location (class-of instance) slot-name))
+        (slots (funcallable-std-instance-slots instance)))
+    (not (eq secret-unbound-value (slot-contents slots location)))))
 (defun slot-boundp (object slot-name)
-  (if (eq (class-of (class-of object)) the-class-standard-class)
-      (std-slot-boundp object slot-name)
-      (slot-boundp-using-class (class-of object) object slot-name)))
+  (cond ((eq (class-of (class-of object)) the-class-standard-class)
+         (std-slot-boundp object slot-name))
+        ((eq (class-of (class-of object)) the-class-funcallable-standard-class)
+         (fc-std-slot-boundp object slot-name))
+        (t (slot-boundp-using-class (class-of object) object slot-name))))
 
 (defun std-slot-makunbound (instance slot-name)
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (std-instance-slots instance)))
     (setf (slot-contents slots location) secret-unbound-value))
   instance)
+(defun fc-std-slot-makunbound (instance slot-name)
+  (let ((location (slot-location (class-of instance) slot-name))
+        (slots (funcallable-std-instance-slots instance)))
+    (setf (slot-contents slots location) secret-unbound-value))
+  instance)
 (defun slot-makunbound (object slot-name)
-  (if (eq (class-of (class-of object)) the-class-standard-class)
-      (std-slot-makunbound object slot-name)
-      (slot-makunbound-using-class (class-of object) object slot-name)))
+  (cond ((eq (class-of (class-of object)) the-class-standard-class)
+         (std-slot-makunbound object slot-name))
+        ((eq (class-of (class-of object)) the-class-funcallable-standard-class)
+         (fc-std-slot-makunbound object slot-name))
+        (t (slot-makunbound-using-class (class-of object) object slot-name))))
 
 (defun std-slot-exists-p (instance slot-name)
   (not (null (find slot-name (class-slots (class-of instance))
                    :key #'slot-definition-name))))
 (defun slot-exists-p (object slot-name)
-  (if (eq (class-of (class-of object)) the-class-standard-class)
+  (if (or (eq (class-of (class-of object)) the-class-standard-class)
+          (eq (class-of (class-of object)) the-class-funcallable-standard-class))
       (std-slot-exists-p object slot-name)
       (slot-exists-p-using-class (class-of object) object slot-name)))
 
 ;;; class-of
 
 (defun class-of (x)
-  (if (std-instance-p x)
-      (std-instance-class x)
-      (built-in-class-of x)))
+  (cond ((std-instance-p x)
+         (std-instance-class x))
+        ((funcallable-std-instance-p x)
+         (funcallable-std-instance-class x))
+        (t (built-in-class-of x))))
 
 ;;; N.B. This version of built-in-class-of is straightforward but very slow.
 #+nil
@@ -340,6 +380,19 @@
 
 (defparameter the-defclass-standard-class  ;standard-class's defclass form
  '(defclass standard-class ()
+      ((name :initarg :name)              ; :accessor class-name
+       (direct-superclasses               ; :accessor class-direct-superclasses
+        :initarg :direct-superclasses)
+       (direct-slots)                     ; :accessor class-direct-slots
+       (class-precedence-list)            ; :accessor class-precedence-list
+       (effective-slots)                  ; :accessor class-slots
+       (slot-position-cache :initform ()) ; :accessor class-slot-cache
+       (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
+       (direct-methods :initform ())      ; :accessor class-direct-methods
+       (direct-default-initargs :initform ())))) ; :accessor class-direct-default-initargs
+
+(defparameter the-defclass-funcallable-standard-class
+  '(defclass funcallable-standard-class ()
       ((name :initarg :name)              ; :accessor class-name
        (direct-superclasses               ; :accessor class-direct-superclasses
         :initarg :direct-superclasses)
@@ -501,9 +554,11 @@
                           &allow-other-keys)
   (if (find-class name nil)
       (error "Can't redefine the class named ~S." name)
-      (let ((class (apply (if (eq metaclass the-class-standard-class)
-                              #'make-instance-standard-class
-                              #'make-instance)
+      (let ((class (apply (cond ((eq metaclass the-class-standard-class)
+                                 #'make-instance-standard-class)
+                                ((eq metaclass the-class-funcallable-standard-class)
+                                 #'make-instance-funcallable-standard-class)
+                                (t #'make-instance))
                           metaclass :name name all-keys)))
         (setf (find-class name) class)
         class)))
@@ -523,15 +578,30 @@
     (setf (class-direct-methods class) ())
     (std-after-initialization-for-classes class
        :direct-slots direct-slots
-       :direct-superclasses direct-superclasses
+       :direct-superclasses (or direct-superclasses
+                                (list (find-class 'standard-object)))
+       :direct-default-initargs direct-default-initargs)
+    class))
+
+(defun make-instance-funcallable-standard-class
+       (metaclass &key name direct-superclasses direct-slots
+        direct-default-initargs
+        &allow-other-keys)
+  (declare (ignore metaclass))
+  (let ((class (std-allocate-instance the-class-funcallable-standard-class)))
+    (setf (class-name class) name)
+    (setf (class-direct-subclasses class) ())
+    (setf (class-direct-methods class) ())
+    (std-after-initialization-for-classes class
+       :direct-slots direct-slots
+       :direct-superclasses (or direct-superclasses
+                                (list (find-class 'funcallable-standard-object)))
        :direct-default-initargs direct-default-initargs)
     class))
 
 (defun std-after-initialization-for-classes
        (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
-  (let ((supers
-          (or direct-superclasses
-              (list (find-class 'standard-object)))))
+  (let ((supers direct-superclasses))
     (setf (class-direct-superclasses class) supers)
     (dolist (superclass supers)
       (push class (class-direct-subclasses superclass))))
@@ -549,9 +619,10 @@
         (add-writer-method
           class writer (slot-definition-name direct-slot)))))
   (setf (class-direct-default-initargs class) direct-default-initargs)
-  (funcall (if (eq (class-of class) the-class-standard-class)
-              #'std-finalize-inheritance
-              #'finalize-inheritance)
+  (funcall (if (or (eq (class-of class) the-class-standard-class)
+                   (eq (class-of class) the-class-funcallable-standard-class))
+               #'std-finalize-inheritance
+               #'finalize-inheritance)
            class)
   (values))
 
@@ -627,12 +698,14 @@
 
 (defun std-finalize-inheritance (class)
   (setf (class-precedence-list class)
-        (funcall (if (eq (class-of class) the-class-standard-class)
+        (funcall (if (or (eq (class-of class) the-class-standard-class)
+                         (eq (class-of class) the-class-funcallable-standard-class))
                      #'std-compute-class-precedence-list
                      #'compute-class-precedence-list)
                  class))
   (setf (class-slots class)
-        (funcall (if (eq (class-of class) the-class-standard-class)
+        (funcall (if (or (eq (class-of class) the-class-standard-class)
+                         (eq (class-of class) the-class-funcallable-standard-class))
                      #'std-compute-slots
                      #'compute-slots)
                  class))
@@ -739,7 +812,8 @@
                       (mapcar #'slot-definition-name all-slots))))
     (mapcar #'(lambda (name)
                 (funcall
-                  (if (eq (class-of class) the-class-standard-class)
+                  (if (or (eq (class-of class) the-class-standard-class)
+                          (eq (class-of class) the-class-funcallable-standard-class))
                       #'std-compute-effective-slot-definition
                       #'compute-effective-slot-definition)
                   class
@@ -1480,6 +1554,10 @@
 (defclass integer (number) ())
 (defclass float (number) ())
 ;; 10. Define the other standard metaobject classes.
+(setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
+(defclass funcallable-standard-object (standard-object function)
+  ()
+  (:metaclass funcallable-standard-class))
 (setq the-class-standard-gf (eval the-defclass-standard-generic-function))
 (setq the-class-standard-method (eval the-defclass-standard-method))
 ;; Voila! The class hierarchy is in place.
@@ -1503,10 +1581,16 @@
 (defmethod slot-value-using-class
            ((class standard-class) instance slot-name)
   (std-slot-value instance slot-name))
+(defmethod slot-value-using-class
+           ((class funcallable-standard-class) instance slot-name)
+  (std-slot-value instance slot-name))
 
 (defgeneric (setf slot-value-using-class) (new-value class instance slot-name))
 (defmethod (setf slot-value-using-class)
            (new-value (class standard-class) instance slot-name)
+  (setf (std-slot-value instance slot-name) new-value))
+(defmethod (setf slot-value-using-class)
+           (new-value (class funcallable-standard-class) instance slot-name)
   (setf (std-slot-value instance slot-name) new-value))
 ;;; N.B. To avoid making a forward reference to a (setf xxx) generic function:
 (defun setf-slot-value-using-class (new-value class object slot-name)
@@ -1516,15 +1600,24 @@
 (defmethod slot-exists-p-using-class
            ((class standard-class) instance slot-name)
   (std-slot-exists-p instance slot-name))
+(defmethod slot-exists-p-using-class
+           ((class funcallable-standard-class) instance slot-name)
+  (std-slot-exists-p instance slot-name))
 
 (defgeneric slot-boundp-using-class (class instance slot-name))
 (defmethod slot-boundp-using-class
            ((class standard-class) instance slot-name)
   (std-slot-boundp instance slot-name))
+(defmethod slot-boundp-using-class
+           ((class funcallable-standard-class) instance slot-name)
+  (std-slot-boundp instance slot-name))
 
 (defgeneric slot-makunbound-using-class (class instance slot-name))
 (defmethod slot-makunbound-using-class
            ((class standard-class) instance slot-name)
+  (std-slot-makunbound instance slot-name))
+(defmethod slot-makunbound-using-class
+           ((class funcallable-standard-class) instance slot-name)
   (std-slot-makunbound instance slot-name))
 
 ;;; Instance creation and initialization
@@ -1532,6 +1625,8 @@
 (defgeneric allocate-instance (class))
 (defmethod allocate-instance ((class standard-class))
   (std-allocate-instance class))
+(defmethod allocate-instance ((class funcallable-standard-class))
+  (fc-std-allocate-instance class))
 
 (defun std-compute-initargs (class initargs)
   (let ((default-initargs '()))
@@ -1546,6 +1641,10 @@
 
 (defgeneric make-instance (class &key))
 (defmethod make-instance ((class standard-class) &rest initargs)
+  (let ((instance (allocate-instance class)))
+    (apply #'initialize-instance instance (std-compute-initargs class initargs))
+    instance))
+(defmethod make-instance ((class funcallable-standard-class) &rest initargs)
   (let ((instance (allocate-instance class)))
     (apply #'initialize-instance instance (std-compute-initargs class initargs))
     instance))
@@ -1630,10 +1729,16 @@
 (defmethod initialize-instance :after ((class standard-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
+(defmethod initialize-instance :after ((class funcallable-standard-class) &rest args)
+  (apply #'std-after-initialization-for-classes class args))
+
 ;;; Finalize inheritance
 
 (defgeneric finalize-inheritance (class))
 (defmethod finalize-inheritance ((class standard-class))
+  (std-finalize-inheritance class)
+  (values))
+(defmethod finalize-inheritance ((class funcallable-standard-class))
   (std-finalize-inheritance class)
   (values))
 
@@ -1642,16 +1747,23 @@
 (defgeneric compute-class-precedence-list (class))
 (defmethod compute-class-precedence-list ((class standard-class))
   (std-compute-class-precedence-list class))
+(defmethod compute-class-precedence-list ((class funcallable-standard-class))
+  (std-compute-class-precedence-list class))
 
 ;;; Slot inheritance
 
 (defgeneric compute-slots (class))
 (defmethod compute-slots ((class standard-class))
   (std-compute-slots class))
+(defmethod compute-slots ((class funcallable-standard-class))
+  (std-compute-slots class))
 
 (defgeneric compute-effective-slot-definition (class direct-slots))
 (defmethod compute-effective-slot-definition
            ((class standard-class) direct-slots)
+  (std-compute-effective-slot-definition class direct-slots))
+(defmethod compute-effective-slot-definition
+           ((class funcallable-standard-class) direct-slots)
   (std-compute-effective-slot-definition class direct-slots))
 
 ;;;
