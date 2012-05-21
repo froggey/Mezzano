@@ -1,3 +1,6 @@
 *~
 *.fasl
 *.llf
+/lispos.image
+/lispos.map
+/cdrom.iso
