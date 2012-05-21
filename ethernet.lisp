@@ -740,3 +740,28 @@
   (dolist (x *tcp-connections*)
     (detach-tcp-connection x)))
 (sys.int::add-hook 'sys.int::*early-initialize-hook* 'ethernet-init)
+
+(defun net-setup (&key
+                  (local-ip (make-ipv4-address 10 0 2 15))
+                  (netmask (make-ipv4-address 255 255 255 0))
+                  (gateway (make-ipv4-address 10 0 2 2))
+                  (interface (first *cards*)))
+  (ifup interface local-ip)
+  ;; Default route.
+  (push (list nil gateway netmask interface)
+        *routing-table*)
+  ;; Local network.
+  (push (list (logand local-ip netmask)
+              nil
+              netmask
+              interface)
+        *routing-table*)
+  t)
+
+(defun resolve-address (address)
+  (cond ((listp address)
+         (apply 'sys.net::make-ipv4-address address))
+        (t address)))
+
+(defun tcp-stream-connect (address port)
+  (make-instance 'tcp-stream :connection (tcp-connect (resolve-address address) port)))
