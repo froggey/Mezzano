@@ -1010,14 +1010,15 @@
                (progn (setq specialized-lambda-list arg)
                       (setq parse-state :body))))
          (:body (push-on-end arg body))))
-    (let ((lambda-list (extract-lambda-list specialized-lambda-list)))
+    (let ((lambda-list (extract-lambda-list specialized-lambda-list))
+          (specializers (extract-specializers specialized-lambda-list)))
       (values fn-spec
               qualifiers
               lambda-list
-              (extract-specializers specialized-lambda-list)
-              (compute-method-lambda lambda-list body fn-spec)))))
+              specializers
+              (compute-method-lambda lambda-list qualifiers specializers body fn-spec)))))
 
-(defun compute-method-lambda (lambda-list body fn-spec)
+(defun compute-method-lambda (lambda-list qualifiers specializers body fn-spec)
   (multiple-value-bind (forms declares docstring)
       (sys.int::parse-declares body)
     (let ((form (list* 'block
@@ -1026,7 +1027,7 @@
                            fn-spec)
                        forms)))
       `(lambda (args next-emfun)
-         (declare (system:lambda-name (defmethod ,fn-spec)))
+         (declare (system:lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers)))
          (flet ((call-next-method (&rest cnm-args)
                   (if (null next-emfun)
                       (error "No next method.")
