@@ -14,6 +14,11 @@
   function
   environment)
 
+(defstruct genesis-funcallable-instance*
+  function
+  class
+  slots)
+
 (defstruct genesis-stack-group
   name
   control-stack-base
@@ -81,6 +86,11 @@
   (funcall fn (genesis-std-instance-class value))
   (funcall fn (genesis-std-instance-slots value)))
 
+(defmethod map-slots (fn (value genesis-funcallable-instance*))
+  (funcall fn (genesis-funcallable-instance*-function value))
+  (funcall fn (genesis-funcallable-instance*-class value))
+  (funcall fn (genesis-funcallable-instance*-slots value)))
+
 (defmethod map-slots (fn (value array-header))
   (funcall fn (array-header-dimensions value))
   (funcall fn (array-header-fill-pointer value))
@@ -128,6 +138,7 @@
      ;; One word per element, plus 1 word header.
      (+ 1 (ceiling (* (array-dimension x 0) 8) 8)))
     (genesis-closure 6)
+    (genesis-funcallable-instance* 8)
     (integer
      ;; TODO: bignum
      (let ((word-count (1+ (ceiling (1+ (integer-length x)) 64))))
@@ -155,6 +166,7 @@
     ((vector (unsigned-byte 64)) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
     ((vector t) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
     (integer (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))
+    (genesis-funcallable-instance* (symbol-value (genesis-intern "+TAG-FUNCTION+")))
     (genesis-closure (symbol-value (genesis-intern "+TAG-FUNCTION+")))
     (genesis-function (symbol-value (genesis-intern "+TAG-FUNCTION+")))
     (genesis-stack-group (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
@@ -311,7 +323,8 @@
 			  (gethash x dynamic-objects)))
 		     ;; All functions go in the static region.
 		     ((or (genesis-function-p x)
-			  (genesis-closure-p x))
+			  (genesis-closure-p x)
+                          (genesis-funcallable-instance*-p x))
 		      (add-static-object x))
 		     ;; NIL and T are done above.
 		     ((or (eql x nil)
@@ -325,6 +338,15 @@
 			(when (oddp dynamic-offset)
 			  (incf dynamic-offset)))))
 	     (visit (object)
+               (when (typep object 'genesis-funcallable-std-instance)
+                 (let ((x (gethash object compiled-functions)))
+                   (unless x
+                     (setf x (make-genesis-funcallable-instance*
+                              :function (slot-value object 'function)
+                              :class (slot-value object 'class)
+                              :slots (slot-value object 'slots))
+                           (gethash object compiled-functions) x))
+                   (setf object x)))
 	       (when (functionp object)
 		 (let ((fn (gethash object compiled-functions)))
 		   (unless fn
@@ -412,6 +434,8 @@
 		  (values '(simple-array (unsigned-byte 64) (*)) (1+ (length k))))
 		 ((vector t)
 		  (values 'simple-vector (1+ (length k))))
+		 (genesis-funcallable-instance*
+		  (values 'funcallable-std-instance 8))
 		 (genesis-closure
 		  (values 'closure 6))
 		 (genesis-function
@@ -863,6 +887,30 @@
   ;; +32 Constant pool.
   (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-closure-function object) value-table)
 	(nibbles:ub64ref/le image (+ offset 40)) (value-of (genesis-closure-environment object) value-table)))
+
+(defmethod dump-object ((object genesis-funcallable-instance*) value-table image offset)
+  ;; +0 Function tag.
+  (setf (aref image (+ offset 0)) (symbol-value (genesis-intern "+FUNCTION-TYPE-FUNCALLABLE-INSTANCE+")))
+  ;; +1 Flags.
+  (setf (aref image (+ offset 1)) 0)
+  ;; +2 Size of the machine-code section & header word.
+  (setf (nibbles:ub16ref/le image (+ offset 2)) 2)
+  ;; +4 Constant pool size.
+  (setf (nibbles:ub16ref/le image (+ offset 4)) 3)
+  ;; +6 Number of slots.
+  (setf (nibbles:ub16ref/le image (+ offset 6)) 0)
+  ;; +12 The code.
+  (setf (aref image (+ offset 12)) #x48 ;; jmp (:rip 13)/pool[0]
+        (aref image (+ offset 13)) #xFF
+	(aref image (+ offset 14)) #x25
+	(aref image (+ offset 15)) #x0D
+	(aref image (+ offset 16)) #x00
+	(aref image (+ offset 17)) #x00
+	(aref image (+ offset 18)) #x00)
+  ;; +32 Constant pool.
+  (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-funcallable-instance*-function object) value-table)
+        (nibbles:ub64ref/le image (+ offset 40)) (value-of (genesis-funcallable-instance*-class object) value-table)
+	(nibbles:ub64ref/le image (+ offset 48)) (value-of (genesis-funcallable-instance*-slots object) value-table)))
 
 (defmethod dump-object ((object genesis-stack-group) value-table image offset)
   ;; +0 Array tag.

@@ -130,7 +130,9 @@
        (function-name (memref-t address 4)))
       (#.+function-type-interpreted-function+
        ;; Interpreted function. Second entry in the constant pool.
-       (memref-t address 7)))))
+       (memref-t address 7))
+      (#.+function-type-funcallable-instance+
+       nil))))
 
 (defun function-lambda-expression (function)
   (check-type function function)
@@ -142,7 +144,43 @@
       (#.+function-type-closure+ ;; Closure.
        (values nil t (function-name (memref-t address 4))))
       (#.+function-type-interpreted-function+
-       (values (memref-t address 5) (memref-t address 6) (memref-t address 7))))))
+       (values (memref-t address 5) (memref-t address 6) (memref-t address 7)))
+      (#.+function-type-funcallable-instance+
+       (values nil t nil)))))
+
+(defun funcallable-std-instance-p (object)
+  (when (functionp object)
+    (let* ((address (logand (lisp-object-address object) -16))
+           (info (memref-unsigned-byte-64 address 0)))
+      (eql (ldb (byte 8 0) info) +function-type-funcallable-instance+))))
+
+(defun funcallable-std-instance-function (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 4)))
+(defun (setf funcallable-std-instance-function) (value funcallable-instance)
+  (check-type value function)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 4) value)))
+
+(defun funcallable-std-instance-class (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 5)))
+(defun (setf funcallable-std-instance-class) (value funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 5) value)))
+
+(defun funcallable-std-instance-slots (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 6)))
+(defun (setf funcallable-std-instance-slots) (value funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 6) value)))
 
 (defun compiled-function-p (object)
   (when (functionp object)

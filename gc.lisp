@@ -580,6 +580,36 @@ the header word. LENGTH is the number of elements in the array."
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
         (%%assemble-value address +tag-function+)))))
 
+(defun allocate-funcallable-std-instance (function class slots)
+  "Allocate a funcallable instance."
+  (check-type function function)
+  (with-interrupts-disabled ()
+    (let ((address (%raw-allocate 8 :static)))
+      ;; Initialize and clear constant slots.
+      ;; Function tag, flags and MC size.
+      (setf (memref-unsigned-byte-32 address 0) #x00020003
+            ;; Constant pool size and slot count.
+            (memref-unsigned-byte-32 address 1) #x00000002
+            (memref-unsigned-byte-32 address 2) #x00000000
+            ;; The code.
+            ;; jmp (:rip 13)/pool[0]
+            (memref-unsigned-byte-32 address 3) #x0D25FF48
+            (memref-unsigned-byte-32 address 4) #xCC000000
+            (memref-unsigned-byte-32 address 5) #xCCCCCCCC
+            (memref-unsigned-byte-32 address 6) #xCCCCCCCC
+            (memref-unsigned-byte-32 address 7) #xCCCCCCCC
+            ;; Constant pool.
+            (memref-unsigned-byte-32 address 8) 0
+            (memref-unsigned-byte-32 address 9) 0
+            (memref-unsigned-byte-32 address 10) 0
+            (memref-unsigned-byte-32 address 11) 0)
+      (let ((value (%%assemble-value address +tag-function+)))
+        ;; Initialize constant pool
+        (setf (memref-t address 4) function
+              (memref-t address 5) class
+              (memref-t address 6) slots)
+        value))))
+
 (defun %make-array-header (dimensions fill-pointer info storage &optional area)
   (with-interrupts-disabled ()
     (let ((value (%%assemble-value (%raw-allocate 4 area) +tag-array-header+)))
