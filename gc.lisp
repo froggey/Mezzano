@@ -589,7 +589,7 @@ the header word. LENGTH is the number of elements in the array."
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) #x00020003
             ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000002
+            (memref-unsigned-byte-32 address 1) #x00000003
             (memref-unsigned-byte-32 address 2) #x00000000
             ;; The code.
             ;; jmp (:rip 13)/pool[0]
