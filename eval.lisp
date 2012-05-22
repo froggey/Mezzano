@@ -37,6 +37,23 @@
 	(when fn
 	  (return (cdr fn)))))))
 
+(defclass interpreted-function ()
+  ((name :initarg :name :reader interpreted-function-name)
+   (lambda :initarg :lambda :reader interpreted-function-lambda)
+   (env :initarg :env :reader interpreted-function-environment))
+  (:metaclass clos:funcallable-standard-class)
+  (:default-initargs :name nil))
+
+(defmethod sys.int::funcallable-instance-lambda-expression ((function interpreted-function))
+  (values (interpreted-function-lambda function)
+          (interpreted-function-environment function)
+          (interpreted-function-name function)))
+
+(defmethod print-object ((object interpreted-function) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (when (interpreted-function-name object)
+      (write (interpreted-function-name object) :stream stream))))
+
 (defun eval-lambda (lambda outer-env)
   (let ((lambda-list (second lambda))
         (forms (cddr lambda))
@@ -89,7 +106,12 @@
                    (dolist (arg aux)
                      (push (list :binding (first arg) (eval-in-lexenv (second arg) env)) env))
                    (eval-locally-body declares body env))))
-          (sys.int::make-interpreted-function #'interpret-function lambda outer-env name))))))
+          (let ((x (make-instance 'interpreted-function
+                                  :name name
+                                  :lambda lambda
+                                  :env outer-env)))
+            (clos:set-funcallable-instance-function x #'interpret-function)
+            x))))))
 
 (defun eval-progn-body (forms env)
   (do ((itr forms (cdr itr)))
