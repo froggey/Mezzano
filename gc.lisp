@@ -429,13 +429,9 @@
        address))))
 
 (defun cons (car cdr)
-  (with-interrupts-disabled ()
-    (let ((cons (%%assemble-value (%raw-allocate 2) +tag-cons+)))
-      (setf (car cons) car
-            (cdr cons) cdr)
-      cons)))
+  (cons-in-area car cdr))
 
-(defun cons-in-area (car cdr area)
+(defun cons-in-area (car cdr &optional area)
   (with-interrupts-disabled ()
     (let ((cons (%%assemble-value (%raw-allocate 2 area) +tag-cons+)))
       (setf (car cons) car
