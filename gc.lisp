@@ -497,33 +497,6 @@ the header word. LENGTH is the number of elements in the array."
               (memref-t address 5) environment)
         value))))
 
-(defun make-interpreted-function (interpreter lambda env &optional name)
-  "Allocate a closure object."
-  (check-type interpreter function)
-  (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 8 :static)))
-      ;; Initialize and clear constant slots.
-      ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) #x00020002
-            ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000004
-            (memref-unsigned-byte-32 address 2) #x00000000
-            ;; The code.
-            ;; mov64 :rbx (:rip 21)/pool[1]
-            (memref-unsigned-byte-32 address 3) #x151D8B48
-            ;; jmp (:rip 7)/pool[0]
-            (memref-unsigned-byte-32 address 4) #xFF000000
-            (memref-unsigned-byte-32 address 5) #x00000725
-            (memref-unsigned-byte-32 address 6) #xCCCCCC00
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
-      (let ((value (%%assemble-value address +tag-function+)))
-        ;; Initialize constant pool
-        (setf (memref-t address 4) interpreter
-              (memref-t address 5) lambda
-              (memref-t address 6) env
-              (memref-t address 7) name)
-        value))))
-
 (defun make-function (machine-code constants)
   "Allocate a new regular function."
   (with-interrupts-disabled ()

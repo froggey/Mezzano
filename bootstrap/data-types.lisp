@@ -50,7 +50,6 @@
 
 (defconstant +function-type-function+ 0)
 (defconstant +function-type-closure+ 1)
-(defconstant +function-type-interpreted-function+ 2)
 (defconstant +function-type-funcallable-instance+ 3)
 
 (defconstant +symbol-mode-nil+ 0)

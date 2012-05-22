@@ -132,9 +132,6 @@
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
       (#.+function-type-closure+ ;; Closure.
        (function-name (memref-t address 4)))
-      (#.+function-type-interpreted-function+
-       ;; Interpreted function. Second entry in the constant pool.
-       (memref-t address 7))
       (#.+function-type-funcallable-instance+
        (multiple-value-bind (lambda closurep name)
            (funcallable-instance-lambda-expression function)
@@ -150,8 +147,6 @@
        (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
       (#.+function-type-closure+ ;; Closure.
        (values nil t (function-name (memref-t address 4))))
-      (#.+function-type-interpreted-function+
-       (values (memref-t address 5) (memref-t address 6) (memref-t address 7)))
       (#.+function-type-funcallable-instance+
        (funcallable-instance-lambda-expression function)))))
 
