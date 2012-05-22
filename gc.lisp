@@ -467,58 +467,6 @@ the header word. LENGTH is the number of elements in the array."
 (defun %make-struct (length &optional area)
   (%allocate-array-like +array-type-struct+ length length area))
 
-(defun make-closure (function environment)
-  "Allocate a closure object."
-  (check-type function function)
-  (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 6 :static)))
-      ;; Initialize and clear constant slots.
-      ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) #x00020001
-            ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000002
-            (memref-unsigned-byte-32 address 2) #x00000000
-            ;; The code.
-            ;; mov64 :rbx (:rip 21)/pool[1]
-            (memref-unsigned-byte-32 address 3) #x151D8B48
-            ;; jmp (:rip 7)/pool[0]
-            (memref-unsigned-byte-32 address 4) #xFF000000
-            (memref-unsigned-byte-32 address 5) #x00000725
-            (memref-unsigned-byte-32 address 6) #xCCCCCC00
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC
-            ;; Constant pool.
-            (memref-unsigned-byte-32 address 8) 0
-            (memref-unsigned-byte-32 address 9) 0
-            (memref-unsigned-byte-32 address 10) 0
-            (memref-unsigned-byte-32 address 11) 0)
-      (let ((value (%%assemble-value address +tag-function+)))
-        ;; Initialize constant pool
-        (setf (memref-t address 4) function
-              (memref-t address 5) environment)
-        value))))
-
-(defun make-function (machine-code constants)
-  "Allocate a new regular function."
-  (with-interrupts-disabled ()
-    (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
-           (pool-size (length constants))
-           (total (+ (* mc-size 2) pool-size)))
-      (when (oddp total)
-        (incf total))
-      (let ((address (%raw-allocate total :static)))
-        ;; Initialize header.
-        (setf (memref-unsigned-byte-64 address 0) 0
-              (memref-unsigned-byte-16 address 0) +function-type-function+
-              (memref-unsigned-byte-16 address 1) mc-size
-              (memref-unsigned-byte-16 address 2) pool-size)
-        ;; Initialize code.
-        (dotimes (i (length machine-code))
-          (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
-        ;; Initialize constant pool.
-        (dotimes (i (length constants))
-          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
-        (%%assemble-value address +tag-function+)))))
-
 (defun make-function-with-fixups (tag machine-code fixups constants)
   (with-interrupts-disabled ()
     (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
@@ -549,6 +497,34 @@ the header word. LENGTH is the number of elements in the array."
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
         (%%assemble-value address +tag-function+)))))
 
+(defun make-function (machine-code constants)
+  (make-function-with-fixups +function-type-function+ machine-code '() constants))
+
+(defun make-closure (function environment)
+  "Allocate a closure object."
+  (check-type function function)
+  (with-interrupts-disabled ()
+    (let ((address (%raw-allocate 6 :static)))
+      ;; Initialize and clear constant slots.
+      ;; Function tag, flags and MC size.
+      (setf (memref-unsigned-byte-32 address 0) #x00020001
+            ;; Constant pool size and slot count.
+            (memref-unsigned-byte-32 address 1) #x00000002
+            (memref-unsigned-byte-32 address 2) #x00000000
+            ;; The code.
+            ;; mov64 :rbx (:rip 21)/pool[1]
+            (memref-unsigned-byte-32 address 3) #x151D8B48
+            ;; jmp (:rip 7)/pool[0]
+            (memref-unsigned-byte-32 address 4) #xFF000000
+            (memref-unsigned-byte-32 address 5) #x00000725
+            (memref-unsigned-byte-32 address 6) #xCCCCCC00
+            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
+      (let ((value (%%assemble-value address +tag-function+)))
+        ;; Initialize constant pool
+        (setf (memref-t address 4) function
+              (memref-t address 5) environment)
+        value))))
+
 (defun allocate-funcallable-std-instance (function class slots)
   "Allocate a funcallable instance."
   (check-type function function)
@@ -562,16 +538,11 @@ the header word. LENGTH is the number of elements in the array."
             (memref-unsigned-byte-32 address 2) #x00000000
             ;; The code.
             ;; jmp (:rip 13)/pool[0]
-            (memref-unsigned-byte-32 address 3) #x0D25FF48
-            (memref-unsigned-byte-32 address 4) #xCC000000
+            (memref-unsigned-byte-32 address 3) #x000E25FF
+            (memref-unsigned-byte-32 address 4) #xCCCC0000
             (memref-unsigned-byte-32 address 5) #xCCCCCCCC
             (memref-unsigned-byte-32 address 6) #xCCCCCCCC
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC
-            ;; Constant pool.
-            (memref-unsigned-byte-32 address 8) 0
-            (memref-unsigned-byte-32 address 9) 0
-            (memref-unsigned-byte-32 address 10) 0
-            (memref-unsigned-byte-32 address 11) 0)
+            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
       (let ((value (%%assemble-value address +tag-function+)))
         ;; Initialize constant pool
         (setf (memref-t address 4) function

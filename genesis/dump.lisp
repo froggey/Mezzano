@@ -900,13 +900,12 @@
   ;; +6 Number of slots.
   (setf (nibbles:ub16ref/le image (+ offset 6)) 0)
   ;; +12 The code.
-  (setf (aref image (+ offset 12)) #x48 ;; jmp (:rip 13)/pool[0]
-        (aref image (+ offset 13)) #xFF
-	(aref image (+ offset 14)) #x25
-	(aref image (+ offset 15)) #x0D
+  (setf (aref image (+ offset 12)) #xFF ;; jmp (:rip 13)/pool[0]
+	(aref image (+ offset 13)) #x25
+	(aref image (+ offset 14)) #x0E
+	(aref image (+ offset 15)) #x00
 	(aref image (+ offset 16)) #x00
-	(aref image (+ offset 17)) #x00
-	(aref image (+ offset 18)) #x00)
+	(aref image (+ offset 17)) #x00)
   ;; +32 Constant pool.
   (setf (nibbles:ub64ref/le image (+ offset 32)) (value-of (genesis-funcallable-instance*-function object) value-table)
         (nibbles:ub64ref/le image (+ offset 40)) (value-of (genesis-funcallable-instance*-class object) value-table)
