@@ -1112,9 +1112,9 @@
 	 (entry-function (make-toplevel-function "../runtime-support.lisp" "../gc.lisp"
                                                  "../runtime-array.lisp" "../runtime-numbers.lisp"
                                                  "../character.lisp" "../printer.lisp" "../debug.lisp"
-                                                 "../type.lisp" "../eval.lisp" "../cold-stream.lisp"
-                                                 "../stream.lisp" "../format.lisp" "../stack-group.lisp"
-                                                 "../process.lisp" "../interrupt.lisp"
+                                                 "../type.lisp" "../runtime-misc.lisp" "../eval.lisp"
+                                                 "../cold-stream.lisp" "../stream.lisp" "../format.lisp"
+                                                 "../stack-group.lisp" "../process.lisp" "../interrupt.lisp"
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
                                                  "../test.lisp"))

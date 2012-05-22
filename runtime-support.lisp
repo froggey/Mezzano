@@ -119,6 +119,10 @@
   (when list
     (cons (car list) (copy-list (cdr list)))))
 
+;;; Will be overriden later in the init process.
+(defun funcallable-instance-lambda-expression (function)
+  (values nil t nil))
+
 (defun function-name (function)
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
@@ -132,7 +136,10 @@
        ;; Interpreted function. Second entry in the constant pool.
        (memref-t address 7))
       (#.+function-type-funcallable-instance+
-       nil))))
+       (multiple-value-bind (lambda closurep name)
+           (funcallable-instance-lambda-expression function)
+         (declare (ignore lambda closurep))
+         name)))))
 
 (defun function-lambda-expression (function)
   (check-type function function)
@@ -140,13 +147,13 @@
          (info (memref-unsigned-byte-64 address 0)))
     (ecase (logand info #xFF)
       (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
-       (values nil nil (* (logand (ash info -16) #xFFFF) 2)))
+       (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
       (#.+function-type-closure+ ;; Closure.
        (values nil t (function-name (memref-t address 4))))
       (#.+function-type-interpreted-function+
        (values (memref-t address 5) (memref-t address 6) (memref-t address 7)))
       (#.+function-type-funcallable-instance+
-       (values nil t nil)))))
+       (funcallable-instance-lambda-expression function)))))
 
 (defun funcallable-std-instance-p (object)
   (when (functionp object)
