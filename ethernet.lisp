@@ -122,9 +122,10 @@
 (defun ifdown (nic)
   (setf (getf *ipv4-interfaces* nic) nil))
 
-(defun ipv4-interface-address (nic)
+(defun ipv4-interface-address (nic &optional (errorp t))
   (or (getf *ipv4-interfaces* nic)
-      (error "No IPv4 address for interface ~S." nic)))
+      (and errorp
+           (error "No IPv4 address for interface ~S." nic))))
 
 ;;; The ARP table is a list of lists. Each list holds:
 ;;; (protocol-type protocol-address network-address age)
@@ -141,7 +142,8 @@
 	 (tha-start (+ spa-start plen))
 	 (tpa-start (+ tha-start hlen))
 	 (packet-end (+ tpa-start plen))
-	 (merge-flag nil))
+	 (merge-flag nil)
+         (address (ipv4-interface-address interface nil)))
     ;; Ethernet hardware type and IPv4.
     (when (and (eql htype +arp-hrd-ethernet+) (eql hlen 6)
 	       (eql ptype +ethertype-ipv4+) (eql plen 4))
@@ -157,7 +159,7 @@
 	    (setf (third e) (subseq packet sha-start spa-start)
 		  merge-flag t)
 	    (return)))
-	(when (eql tpa (ipv4-interface-address interface))
+	(when (and address (eql tpa address))
 	  (unless merge-flag
 	    (push (list ptype spa (subseq packet sha-start spa-start) 0) *arp-table*))
 	  (when (eql oper +arp-op-request+)
@@ -173,7 +175,7 @@
 	      (dotimes (i 6)
 		(setf (aref packet (+ 6 i)) (aref mac i)
 		      (aref packet (+ sha-start i)) (aref mac i))))
-	    (setf (ub32ref/be packet spa-start) (ipv4-interface-address interface)
+	    (setf (ub32ref/be packet spa-start) address
 		  (ub16ref/be packet 20) +arp-op-reply+)
 	    (transmit-packet interface (list packet))))))))
 
