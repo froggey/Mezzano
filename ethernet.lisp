@@ -520,7 +520,9 @@
         ((>= start end))
         ((> (- end start) mss)
          ;; Send multiple packets.
-         (error "Packet too large..."))
+         (do ((offset start (+ offset mss)))
+             ((>= offset end))
+           (tcp-send connection data offset (min (+ offset mss) end))))
         (t ;; Send one packet.
          (let ((s-next (tcp-connection-s-next connection)))
            (setf (tcp-connection-s-next connection)
