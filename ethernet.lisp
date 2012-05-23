@@ -706,6 +706,8 @@
                            :fill-pointer 0)))
     (dotimes (i (- end start))
       (let ((c (char sequence (+ start i))))
+        (when (eql c #\Newline)
+          (vector-push-extend #x0D bytes))
         (vector-push-extend (char-code c) bytes)))
     bytes))
 
