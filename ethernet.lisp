@@ -879,6 +879,37 @@
     (sys.int::process-preset process #'http-server (make-instance 'tcp-stream :connection connection))
     (sys.int::process-enable process)))
 
+(define-condition close-eval-server () ())
+
+(defclass eval-server-stream (sys.int::stream-object)
+  ((remote-stream :initarg :remote-stream :reader remote-stream)))
+
+(defmethod sys.int::stream-write-char (char (stream eval-server-stream))
+  (write-char char (remote-stream stream)))
+
+(defmethod sys.int::stream-read-char ((stream eval-server-stream))
+  (let ((c (read-char (remote-stream stream) nil)))
+    (or c
+        (signal (make-condition 'close-eval-server)))))
+
+(defun eval-server (stream)
+  (with-open-stream (stream stream)
+    (with-simple-restart (abort "Give up")
+      (handler-case
+          (let ((*terminal-io* (make-instance 'eval-server-stream :remote-stream stream))
+                (*standard-output* (make-synonym-stream '*terminal-io*))
+                (*standard-input* (make-synonym-stream '*terminal-io*))
+                (*debug-io* (make-synonym-stream '*terminal-io*))
+                (*query-io* (make-synonym-stream '*terminal-io*))
+                (*error-output* (make-synonym-stream '*terminal-io*)))
+            (sys.int::repl))
+        (close-eval-server ())))))
+
+(defun open-eval-server (connection)
+  (let ((process (make-instance 'sys.int::process :name "Remote Lisp server")))
+    (sys.int::process-preset process #'eval-server (make-instance 'tcp-stream :connection connection))
+    (sys.int::process-enable process)))
+
 (defun net-setup (&key
                   (local-ip (make-ipv4-address 10 0 2 15))
                   (netmask (make-ipv4-address 255 255 255 0))
@@ -895,6 +926,7 @@
               interface)
         *routing-table*)
   (push '(80 open-http-server) *server-alist*)
+  (push '(1138 open-eval-server) *server-alist*)
   t)
 
 (defun resolve-address (address)
