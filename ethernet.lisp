@@ -240,6 +240,43 @@
 (defvar *raw-packet-hooks* nil)
 (defvar *tcp-connections* nil)
 (defvar *allocated-tcp-ports* nil)
+(defvar *server-alist* '())
+
+(defun get-tcp-connection (remote-ip remote-port local-port)
+  (dolist (connection *tcp-connections*)
+    (when (and (eql (tcp-connection-remote-ip connection) remote-ip)
+               (eql (tcp-connection-remote-port connection) remote-port)
+               (eql (tcp-connection-local-port connection) local-port))
+      (return connection))))
+
+(defun %tcp4-receive (packet remote-ip start end)
+  (let* ((remote-port (ub16ref/be packet start))
+         (local-port (ub16ref/be packet (+ start 2)))
+         (flags (aref packet (+ start 13)))
+         (connection (get-tcp-connection remote-ip remote-port local-port)))
+    (cond
+      (connection
+       (tcp4-receive connection packet start end))
+      ((eql flags +tcp4-flag-syn+)
+       (format t "Establishing TCP connection. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip)
+       (let* ((seq (ub32ref/be packet (+ start 4)))
+              (blah (random #x100000000))
+              (connection (make-tcp-connection :state :syn-received
+                                               :local-port local-port
+                                               :remote-port remote-port
+                                               :remote-ip remote-ip
+                                               :s-next (logand #xFFFFFFFF (1+ blah))
+                                               :r-next (logand #xFFFFFFFF (1+ seq))
+                                               :window-size 8192)))
+         (let ((server (assoc local-port *server-alist*)))
+           (cond (server
+                  (push connection *tcp-connections*)
+                  (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
+                                    :ack-p t :syn-p t)
+                  (funcall (second server) connection))
+                 (t (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
+                                      :ack-p t :rst-p t))))))
+      (t (format t "No connection for TCP ~D ~D.~%" remote-port local-port)))))
 
 (defun %receive-packet (interface packet)
   (dolist (hook *raw-packet-hooks*)
@@ -255,14 +292,7 @@
              (protocol (aref packet (+ 14 9))))
          (cond
            ((eql protocol +ip-protocol-tcp+)
-            (let ((remote-port (ub16ref/be packet (+ 14 header-length)))
-                  (local-port (ub16ref/be packet (+ 14 header-length 2))))
-              (dolist (connection *tcp-connections*
-                       (format t "No connection for TCP ~S ~S.~%" remote-port local-port))
-                (when (and (eql (tcp-connection-remote-port connection) remote-port)
-                           (eql (tcp-connection-local-port connection) local-port))
-                  (tcp4-receive connection packet (+ 14 header-length) (+ 14 total-length))
-                  (return)))))
+            (%tcp4-receive packet (ub32ref/be packet (+ 14 12)) (+ 14 header-length) (+ 14 total-length)))
            (t (format t "Unknown IPv4 protocol ~S ~S.~%" protocol packet)))))
       (t (format t "Unknown ethertype ~S ~S.~%" ethertype packet)))))
 
@@ -309,6 +339,18 @@
 	     (detach-tcp-connection connection)
 	     (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
 	     (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags))))
+      (:syn-received
+       (cond ((and (eql flags +tcp4-flag-ack+)
+                   (eql seq (tcp-connection-r-next connection))
+                   (eql ack (tcp-connection-s-next connection)))
+              (setf (tcp-connection-state connection) :established))
+             (t (setf (tcp-connection-state connection) :closed)
+                (detach-tcp-connection connection)
+                (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
+                (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
+                        ack (tcp-connection-s-next connection)
+                        seq (tcp-connection-r-next connection)
+                        flags))))
       (:established
        ;; Ignore out-of-order packets.
        (when (eql seq (tcp-connection-r-next connection))
@@ -677,7 +719,8 @@
   (let ((connection (slot-value stream 'connection)))
     (refill-tcp-stream-buffer stream)
     (and (null (slot-value stream 'current-packet))
-         (not (eql (tcp-connection-state connection) :established)))))
+         (not (eql (tcp-connection-state connection) :established))
+         (not (eql (tcp-connection-state connection) :syn-received)))))
 
 (defmethod sys.int::stream-listen ((stream tcp-stream))
   (refill-tcp-stream-buffer stream)
@@ -689,9 +732,11 @@
     (when (null (slot-value stream 'current-packet))
       (sys.int::process-wait "TCP read" (lambda ()
                                           (or (tcp-connection-rx-data connection)
-                                              (not (eql (tcp-connection-state connection) :established)))))
+                                              (not (member (tcp-connection-state connection)
+                                                           '(:established :syn-received))))))
       (when (and (null (tcp-connection-rx-data connection))
-		 (not (eql (tcp-connection-state connection) :established)))
+		 (not (eql (tcp-connection-state connection) :established))
+                 (not (eql (tcp-connection-state connection) :syn-received)))
 	(return-from sys.int::stream-read-byte nil))
       (setf (slot-value stream 'current-packet) (first (tcp-connection-rx-data connection))
 	    (tcp-connection-rx-data connection) (cdr (tcp-connection-rx-data connection))))
