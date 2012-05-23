@@ -282,7 +282,7 @@
 (sys.int::process-enable *ethernet-process*)
 
 (defun receive-packet (interface packet)
-  (push (list interface packet) *pending-packets*))
+  (setf *pending-packets* (nconc *pending-packets* (list (list interface packet)))))
 
 (defun detach-tcp-connection (connection)
   (setf *tcp-connections* (remove connection *tcp-connections*))
