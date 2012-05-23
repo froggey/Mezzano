@@ -264,7 +264,7 @@
 (defun get-output-stream-string (string-output-stream)
   (check-type string-output-stream string-output-stream)
   (prog1 (or (slot-value string-output-stream 'string)
-             (make-array 0 :element-type (slot-value stream 'element-type)))
+             (make-array 0 :element-type (slot-value string-output-stream 'element-type)))
     (setf (slot-value string-output-stream 'string) nil)))
 
 (defun string-output-stream-write-char (character stream)
