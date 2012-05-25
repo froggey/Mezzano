@@ -276,7 +276,16 @@
                   (funcall (second server) connection))
                  (t (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                       :ack-p t :rst-p t))))))
-      (t (format t "No connection for TCP ~D ~D.~%" remote-port local-port)))))
+      (t (unless (logtest flags +tcp4-flag-rst+)
+           (let ((connection (make-tcp-connection :state :syn-received
+                                                  :local-port local-port
+                                                  :remote-port remote-port
+                                                  :remote-ip remote-ip
+                                                  :s-next 0
+                                                  :r-next 0
+                                                  :window-size 8192)))
+             (tcp4-send-packet connection 0 0 nil
+                               :ack-p nil :rst-p t)))))))
 
 (defun %receive-packet (interface packet)
   (dolist (hook *raw-packet-hooks*)
@@ -534,8 +543,9 @@
 	(push port *allocated-tcp-ports*)
 	(return port)))))
 
+(defvar *random-state* (list 0))
 (defun random (limit &optional random-state)
-  0)
+  (rem (incf (first (or random-state *random-state*))) limit))
 
 (defun tcp-connect (ip port)
   (let* ((source-port (allocate-local-tcp-port))
@@ -781,9 +791,10 @@
                       (tcp-connection-s-next connection)
                       (tcp-connection-r-next connection)
                       nil
-                      :fin-p t
-                      ;; Shouldn't actually rst here...
-                      :rst-p t)))
+                      :fin-p t)))
+
+(defmethod sys.int::stream-element-type* ((stream tcp-stream))
+  'character)
 
 (defun ethernet-init ()
   (setf *cards* '()
@@ -938,3 +949,7 @@
 
 (defun tcp-stream-connect (address port)
   (make-instance 'tcp-stream :connection (tcp-connect (resolve-address address) port)))
+
+(defmacro with-open-network-stream ((var address port) &body body)
+  `(with-open-stream (,var (tcp-stream-connect ,address ,port))
+     ,@body))
