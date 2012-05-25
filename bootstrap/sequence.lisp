@@ -225,9 +225,7 @@
 		   (vector-push elt result))
 		 (dotimes (i (length seq))
 		   (vector-push (aref seq i) result))))
-	   ;; Grab the storage vector out of the array
-	   ;; forcing it to a simple-array type.
-	   (array-storage result))))))
+	   result)))))
 
 ;;; FIXME: must work on sequences, not lists.
 (defun every (predicate first-seq &rest sequences)
