@@ -348,7 +348,7 @@
     (character                                     (find-class 'character))
     (hash-table                                    (find-class 'hash-table))
     (package                                       (find-class 'package))
-    ;;(pathname                                      (find-class 'pathname))
+    (pathname                                      (find-class 'pathname))
     ;;(readtable                                     (find-class 'readtable))
     (synonym-stream                                (find-class 'synonym-stream))
     (stream                                        (find-class 'stream))
@@ -1353,10 +1353,13 @@
   (let* ((classes (mapcar #'class-of
                           (required-portion gf args)))
          (applicable-methods
-          (compute-applicable-methods-using-classes gf classes))
-         (emfun (std-compute-effective-method-function gf applicable-methods)))
-    (setf (gethash class (classes-to-emf-table gf)) emfun)
-    (funcall emfun args)))
+          (compute-applicable-methods-using-classes gf classes)))
+    (when (null applicable-methods)
+      (error "No applicable methods to generic function ~S.
+Dispatching on class ~S." gf class))
+    (let ((emfun (std-compute-effective-method-function gf applicable-methods)))
+      (setf (gethash class (classes-to-emf-table gf)) emfun)
+      (funcall emfun args))))
 
 ;;; compute-applicable-methods-using-classes
 
@@ -1408,8 +1411,7 @@
   (let ((primaries (remove-if-not #'primary-method-p methods))
         (around (find-if #'around-method-p methods)))
     (when (null primaries)
-      (error "No primary methods for the~@
-             generic function ~S." gf))
+      (error "No primary methods for the generic function ~S. Called with " gf))
     (if around
         (let ((next-emfun
                 (funcall
