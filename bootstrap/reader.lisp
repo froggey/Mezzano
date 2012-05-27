@@ -578,7 +578,7 @@ it as a symbol."
   (cond (*read-suppress*
 	 (read stream t nil t)
 	 nil)
-	(t (parse-namestring (read stream t nil t)))))
+	(t `(parse-namestring ',(read stream t nil t)))))
 
 (defun eval-feature-test (test)
   "Evaluate the feature expression TEST."
