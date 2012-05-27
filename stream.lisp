@@ -102,7 +102,9 @@
 
 (defun generic-read-sequence (sequence stream start end)
   (let ((n (- end start)))
-    (if (subtypep (stream-element-type stream) 'character)
+    (if (and (subtypep (stream-element-type stream) 'character)
+             (or (listp sequence)
+                 (not (subtypep (array-element-type sequence) 'unsigned-byte))))
         (dotimes (i n)
           (setf (aref sequence (+ start i)) (read-char stream)))
         (dotimes (i n)
