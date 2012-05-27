@@ -1,5 +1,4 @@
-;; (defhost :host :simple-file "192.168.1.13") -> :HOST
-;; (open "host:/Users/henry/.lispos.lisp") -> #<simple-file-stream "host:/Users/henry/.lispos.lisp" 1234>
+;;; Simple remote file protocol client.
 
 (defpackage #:simple-file-client
   (:use #:cl))
@@ -21,7 +20,7 @@
             (host-address object)
             (host-port object))))
 
-(defclass simple-file-stream (sys.int::stream-object)
+(defclass simple-file-stream (sys.int::stream-object file-stream)
   ((path :initarg :path :reader path)
    (host :initarg :host :reader host)
    (position :initarg :position :accessor sf-position)
@@ -33,6 +32,14 @@
    ;; Current offset into the buffer.
    (read-buffer-offset :accessor read-buffer-offset))
   (:default-initargs :position 0))
+
+(defclass character-stream-input-mixin () ())
+(defclass character-stream-output-mixin () ())
+
+(defclass simple-file-character-stream (character-stream-input-mixin
+                                        character-stream-output-mixin
+                                        simple-file-stream)
+  ())
 
 (defmethod print-object ((object simple-file-stream) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -144,16 +151,28 @@
                      (pathname-type object) (pathname-version object))))))
 
 (defun pathname (pathname)
-  (check-type pathname pathname)
-  pathname)
+  (cond ((pathnamep pathname)
+         pathname)
+        (t (parse-simple-file-path (pathname-host *default-pathname-defaults*) pathname))))
 
-(defun open-simple-file (pathspec direction)
-  (let* ((p (pathname pathspec)))
-    ;; Should do a test open here...
-    (make-instance 'simple-file-stream
-                   :path (unparse-simple-file-path p)
-                   :host (pathname-host p)
-                   :direction direction)))
+(defgeneric open-file (host pathname &key direction element-type if-exists if-does-not-exist external-format))
+
+(defmethod open-file ((host simple-file-host) pathname
+                      &key direction element-type if-exists if-does-not-exist external-format)
+  (cond ((subtypep element-type 'character)
+         (assert (eql external-format :default) (external-format))
+         (make-instance 'simple-file-character-stream
+                        :path (unparse-simple-file-path pathname)
+                        :host host
+                        :direction direction))
+        ((and (subtypep element-type '(unsigned-byte 8))
+              (subtypep '(unsigned-byte 8) element-type))
+         (assert (eql external-format :default) (external-format))
+         (make-instance 'simple-file-stream
+                        :path (unparse-simple-file-path pathname)
+                        :host host
+                        :direction direction))
+        (t (error "Unsupported element-type ~S." element-type))))
 
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
@@ -170,6 +189,7 @@
       (prog1 (aref (read-buffer stream) (read-buffer-offset stream))
         (incf (read-buffer-offset stream))
         (incf (sf-position stream)))))
+  ;; Refill buffer.
   (with-connection (con (host stream))
     (format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
     (let ((id (read-preserving-whitespace con)))
@@ -179,6 +199,9 @@
       (let ((count (read-preserving-whitespace con)))
         (unless (integerp count)
           (error "Read error! ~S" count))
+        (when (eql count 0)
+          ;; Nothing to read, end of file.
+          (return-from sys.int::stream-read-byte nil))
         (let ((buffer (make-array count :element-type '(unsigned-byte 8))))
           (read-line con)
           (read-sequence buffer con)
@@ -191,12 +214,80 @@
 (defmethod sys.int::stream-element-type* ((stream simple-file-stream))
   '(unsigned-byte 8))
 
-(add-simple-file-host :host '(192 168 1 13))
+(defmethod sys.int::stream-read-char ((stream simple-file-character-stream))
+  (let ((x (sys.int::stream-read-byte stream)))
+    (when x
+      (code-char x))))
 
-(defun test* ()
-  (open-simple-file
-   (make-pathname :host (second (first *host-alist*))
-                  :directory '(:absolute "Users" "henry" "Documents" "LispOS")
-                  :name "file"
-                  :type "lisp")
-   :input))
+(defmethod sys.int::stream-element-type* ((stream simple-file-character-stream))
+  'character)
+
+;; This should really have a host associated with it...
+(defvar *default-pathname-defaults* (make-pathname))
+
+(defun merge-pathnames (pathname &optional
+                        (default-pathname *default-pathname-defaults*)
+                        (default-version :newest))
+  (let* ((pathname (let ((*default-pathname-defaults* default-pathname))
+                     (pathname pathname)))
+         (host (or (pathname-host pathname) (pathname-host default-pathname)))
+         (device (pathname-device pathname))
+         (directory (pathname-directory pathname))
+         (name (or (pathname-name pathname) (pathname-name default-pathname)))
+         (type (or (pathname-type pathname) (pathname-type default-pathname)))
+         (version (or (pathname-version pathname)
+                      (if (pathname-name pathname)
+                          default-version
+                          (pathname-version default-pathname)))))
+    (when (and (not device)
+               (pathname-host pathname)
+               (not (pathname-device pathname)))
+      (if (and (eql (pathname-host pathname) (pathname-host default-pathname)))
+          (setf device (pathname-device default-pathname))
+          (setf device (host-default-device host))))
+    (when (and (pathname-directory default-pathname)
+               (eql (first directory) :relative))
+      (setf directory (append (pathname-directory default-pathname)
+                              (rest directory))))
+    (make-pathname :host host
+                   :device device
+                   :directory directory
+                   :name name
+                   :type type
+                   :version version)))
+
+(defun open (filespec &key
+             (direction :input)
+             (element-type 'character)
+             (if-exists nil if-exists-p)
+             (if-does-not-exist nil if-does-not-exist-p)
+             (external-format :default))
+  (check-type direction (member :input :output :io :probe))
+  (check-type if-exists (member :error :new-version :rename :rename-and-delete :overwrite :append :supersede nil))
+  (check-type if-does-not-exist (member :error :create nil))
+  (let* ((path (merge-pathnames filespec))
+         (host (pathname-host path)))
+    (unless if-exists-p
+      (setf if-exists (if (eql (pathname-version path) :newest)
+                          :new-version
+                          :error)))
+    (unless if-does-not-exist-p
+      (cond ((or (eql direction :input)
+                 (eql if-exists :overwrite)
+                 (eql if-exists :append))
+             (setf if-does-not-exist :error))
+            ((or (eql direction :output)
+                 (eql direction :io))
+             (setf if-does-not-exist :create))
+            ((eql direction :probe)
+             (setf if-does-not-exist nil))))
+    (open-file host path
+               :direction direction
+               :element-type element-type
+               :if-exists if-exists
+               :if-does-not-exist if-does-not-exist
+               :external-format external-format)))
+
+(add-simple-file-host :that-mac-thing '(192 168 1 13))
+(setf *default-pathname-defaults* (make-pathname :host (second (first *host-alist*))
+                                                 :directory '(:absolute "Users" "henry" "Documents" "LispOS")))
