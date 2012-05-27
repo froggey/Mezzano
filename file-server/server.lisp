@@ -53,9 +53,10 @@
   (let ((stream (get-stream fid))
         (seq (make-array count :element-type '(unsigned-byte 8))))
     (file-position stream offset)
-    (format *client* "~D~%" (read-sequence seq stream))
-    (write-sequence seq *client*)
-    (finish-output *client*)))
+    (let ((count (read-sequence seq stream)))
+      (format *client* "~D~%" count)
+      (write-sequence seq *client* :end count)
+      (finish-output *client*))))
 
 (defcommand :write (fid offset count)
   (assert (< count 1000000)) ; 1MB limit.
