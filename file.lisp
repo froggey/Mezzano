@@ -49,13 +49,67 @@
                                   :port port))
         *host-alist*))
 
-(defstruct pathname
+(defstruct (pathname (:predicate pathnamep))
   host device directory name type version)
+
+(defun explode (character string &optional (start 0) end)
+  (setf end (or end (length string)))
+  (do ((elements '())
+       (i start (1+ i))
+       (elt-start start))
+      ((>= i end)
+       (push (subseq string elt-start i) elements)
+       (nreverse elements))
+    (when (eql (char string i) character)
+      (push (subseq string elt-start i) elements)
+      (setf elt-start (1+ i)))))
+
+(defun parse-simple-file-path (host namestring &optional (start 0) end)
+  (setf end (or end (length namestring)))
+  (when (eql start end)
+    (return-from parse-simple-file-path (make-pathname :host host)))
+  (let ((directory '())
+        (name nil)
+        (type nil)
+        (version nil))
+    (cond ((eql (char namestring start) #\/)
+           (push :absolute directory)
+           (incf start))
+          (t (push :relative directory)))
+    ;; Last element is the name.
+    (do* ((x (explode #\/ namestring start end) (cdr x)))
+         ((null (cdr x))
+          (let* ((name-element (car x))
+                 (end (length name-element)))
+            (unless (zerop (length name-element))
+              ;; Check for a trailing ~ indicating a backup.
+              (when (and (eql (char name-element (1- end)) #\~)
+                         (not (eql (length name-element) 1)))
+                (decf end)
+                (setf version :backup))
+              ;; Find the last dot.
+              (let ((dot-position (position #\. name-element :from-end t)))
+                (cond ((and dot-position (not (zerop dot-position)))
+                       (setf type (subseq name-element (1+ dot-position) end))
+                       (setf name (subseq name-element 0 dot-position)))
+                      (t (setf name (subseq name-element 0 end))))))))
+      (let ((dir (car x)))
+        (cond ((or (string= "" dir)
+                   (string= "." dir)))
+              ((string= ".." dir)
+               (push :up directory))
+              (t (push dir directory)))))
+    (make-pathname :host host
+                   :directory (nreverse directory)
+                   :name name
+                   :type type
+                   :version version)))
 
 (defun unparse-simple-file-path (pathname)
   (let ((dir (pathname-directory pathname))
         (name (pathname-name pathname))
-        (type (pathname-type pathname)))
+        (type (pathname-type pathname))
+        (version (pathname-version pathname)))
     (with-output-to-string (s)
       (when (eql (first dir) :absolute)
         (write-char #\/ s))
@@ -68,7 +122,9 @@
       (write-string name s)
       (when type
         (write-char #\. s)
-        (write-string type s)))))
+        (write-string type s))
+      (when (eql version :backup)
+        (write-char #\~ s)))))
 
 (defgeneric unparse-pathname (path host))
 
