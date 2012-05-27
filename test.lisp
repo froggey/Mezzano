@@ -216,4 +216,26 @@
         (load (make-multiboot-module-stream i)))))
   (repl))
 
+(defun load (filespec &key
+             (verbose *load-verbose*)
+             (print *load-print*)
+             (if-does-not-exist t)
+             (external-format :default))
+  (let ((*load-verbose* verbose)
+        (*load-print* print))
+    (cond ((streamp filespec)
+           (load-from-stream filespec))
+          (t (let ((path (merge-pathnames filespec)))
+               (with-open-file (stream filespec
+                                       :if-does-not-exist (if if-does-not-exist
+                                                              :error
+                                                              nil)
+                                       :element-type (if (string-equal (pathname-type path) "LLF")
+                                                         '(unsigned-byte 8)
+                                                         'character)
+                                       :external-format (if (string-equal (pathname-type path) "LLF")
+                                                            :default
+                                                            external-format))
+                 (load-from-stream stream)))))))
+
 (initialize-lisp)
