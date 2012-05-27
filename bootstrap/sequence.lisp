@@ -33,23 +33,30 @@
       (setf (aref sequence index) value)))
 
 (declaim (inline position))
-(defun position (item sequence &key test key); test-not start end from-end
+(defun position (item sequence &key test key from-end); test-not start end
   (unless test (setf test 'eql))
   (unless key (setf key 'identity))
-  (if (listp sequence)
-      (do ((p 0 (1+ p))
-	   (i sequence (cdr i)))
-	  ((null i) nil)
-	(when (funcall test item (funcall key (car i)))
-	  (return p)))
-      (dotimes (i (length sequence) nil)
-	(when (funcall test item (funcall key (elt sequence i)))
-	  (return i)))))
+  (cond ((listp sequence)
+         (when from-end
+           (setf sequence (reverse sequence)))
+         (do ((p 0 (1+ p))
+              (i sequence (cdr i)))
+             ((null i) nil)
+           (when (funcall test item (funcall key (car i)))
+             (return p))))
+        (t (if from-end
+               (let ((len (length sequence)))
+                 (dotimes (i len nil)
+                   (when (funcall test item (funcall key (elt sequence (- len i 1))))
+                     (return (- len i 1)))))
+               (dotimes (i (length sequence) nil)
+                 (when (funcall test item (funcall key (elt sequence i)))
+                   (return i)))))))
 
 ;;; SBCL's compiler has trouble inlining position optimally.
 ;;; Give it a little help to speed Genesis up.
-(define-compiler-macro position (&whole whole item sequence &key test key)
-  (when (or test key)
+(define-compiler-macro position (&whole whole item sequence &key test key from-end)
+  (when (or test key from-end)
     (return-from position whole))
   `(%position-eq ,item ,sequence))
 
