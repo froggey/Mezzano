@@ -48,7 +48,7 @@
 (defgeneric stream-read-sequence (sequence stream start end))
 (defgeneric stream-write-sequence (sequence stream start end))
 (defgeneric stream-file-position (stream))
-(defgeneric stream-set-file-position (new-stream position))
+(defgeneric stream-set-file-position (stream new-position))
 (defgeneric stream-element-type* (stream))
 
 (defmacro with-open-stream ((var stream) &body body)

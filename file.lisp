@@ -219,6 +219,23 @@
     (when x
       (code-char x))))
 
+(defmethod sys.int::stream-file-position ((stream simple-file-stream))
+  (sf-position stream))
+
+(defmethod sys.int::stream-set-file-position ((stream simple-file-stream) new-position)
+  (when (eql new-position :end)
+    (with-connection (con (host stream))
+      (format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
+      (let ((id (read-preserving-whitespace con)))
+        (unless (integerp id)
+          (error "Read error! ~S" id))
+        (format con "(:SIZE ~D)~%" id)
+        (let ((file-size (read-preserving-whitespace con)))
+          (unless (integerp file-size)
+            (error "Read error! ~S" file-size))
+          (setf new-position file-size)))))
+  (setf (sf-position stream) new-position))
+
 (defmethod sys.int::stream-element-type* ((stream simple-file-character-stream))
   'character)
 
