@@ -430,7 +430,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defun load-llf (stream)
   (check-llf-header stream)
-  (let ((object-map (make-hash-table)))
+  (let ((object-map (make-hash-table))
+        (*package* *package*))
     (loop (multiple-value-bind (object stop)
               (load-object stream object-map)
             (declare (ignore object))
