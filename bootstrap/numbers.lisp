@@ -230,3 +230,29 @@
                      ,store)               ;Storing form.
                   `(ldb ,btemp ,access-form) ;Accessing form.
                   )))))
+
+(define-compiler-macro ldb (&whole whole bytespec integer)
+  (cond ((and (listp bytespec)
+              (= (length bytespec) 3)
+              (eql (first bytespec) 'byte)
+              (integerp (second bytespec))
+              (not (minusp (second bytespec)))
+              (integerp (third bytespec))
+              (not (minusp (third bytespec))))
+         `(logand (ash ,integer ,(- (third bytespec)))
+                  ,(1- (ash 1 (second bytespec)))))
+        (t whole)))
+
+(define-compiler-macro dpb (&whole whole newbyte bytespec integer)
+  (cond ((and (listp bytespec)
+              (= (length bytespec) 3)
+              (eql (first bytespec) 'byte)
+              (integerp (second bytespec))
+              (not (minusp (second bytespec)))
+              (integerp (third bytespec))
+              (not (minusp (third bytespec))))
+         ;; Maintain correct order of evaluation for NEWBYTE and INTEGER.
+         (let ((mask (1- (ash 1 (second bytespec)))))
+           `(logior (ash (logand ,newbyte ,mask) ,(third bytespec))
+                    (logand ,integer ,(lognot (ash mask (third bytespec)))))))
+        (t whole)))
