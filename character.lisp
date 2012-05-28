@@ -13,11 +13,16 @@
       nil
       (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010)))
 
+(defconstant +char-control-bit+ #b0001)
+(defconstant +char-meta-bit+    #b0010)
+(defconstant +char-super-bit+   #b0100)
+(defconstant +char-hyper-bit+   #b1000)
+
 (defun make-character (code &key control meta super hyper)
-  (%make-character code (logior (if control #b0001 0)
-                                (if meta    #b0010 0)
-                                (if super   #b0100 0)
-                                (if hyper   #b1000 0))))
+  (%make-character code (logior (if control +char-control-bit+ 0)
+                                (if meta +char-meta-bit+ 0)
+                                (if super +char-super-bit+ 0)
+                                (if hyper +char-hyper-bit+ 0))))
 
 (defun char-code (character)
   (check-type character character)
@@ -33,6 +38,45 @@
 (defun system:char-bits (character)
   (check-type character character)
   (logand (ash (ash (lisp-object-address character) -4) -21) 15))
+
+(defun char-bit (character bit)
+  (let ((bits (char-bits character)))
+    (logtest bits
+             (ecase bit
+               (:control +char-control-bit+)
+               (:meta +char-meta-bit+)
+               (:super +char-super-bit+)
+               (:hyper +char-hyper-bit+)))))
+
+(defun set-char-bit (character bit set-it)
+  (let ((bit (ecase bit
+               (:control +char-control-bit+)
+               (:meta +char-meta-bit+)
+               (:super +char-super-bit+)
+               (:hyper +char-hyper-bit+)))
+        (bits (char-bits character)))
+    (if set-it
+        (setf bits (logior bits bit))
+        (setf bits (logand bits (lognot bit))))
+    (%make-character (char-code character) bits)))
+
+(define-setf-expander char-bit (character bit &environment env)
+  (multiple-value-bind (temps vals stores
+                              store-form access-form)
+      (get-setf-expansion character env)
+    (let ((btemp (gensym))     ;Temp var for bit name.
+          (store (gensym))     ;Temp var for bit value to store.
+          (stemp (first stores))) ;Temp var for character to store.
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Return the setf expansion for LDB as five values.
+      (values (append temps (list btemp))       ;Temporary variables.
+              (append temps (list bit))          ;Value forms.
+              (list store)             ;Store variables.
+              `(let ((,stemp (set-char-bit ,access-form ,btemp ,store)))
+                 ,store-form
+                 ,store)               ;Storing form.
+              `(char-bit ,access-form ,btemp) ;Accessing form.
+              ))))
 
 (defun char-upcase (char)
   "If CHAR is a lowercase character, the corresponding uppercase character. Otherwise, CHAR is returned unchanged."
@@ -167,13 +211,13 @@
 		   (if (> code #xFFFF)
 		       (format nil "U~8,'0X" code)
 		       (format nil "U~4,'0X" code)))))
-    #+nil(when (char-bit character :hyper)
+    (when (char-bit character :hyper)
       (setf name (concatenate 'string "H-" name)))
-    #+nil(when (char-bit character :super)
+    (when (char-bit character :super)
       (setf name (concatenate 'string "S-" name)))
-    #+nil(when (char-bit character :meta)
+    (when (char-bit character :meta)
       (setf name (concatenate 'string "M-" name)))
-    #+nil(when (char-bit character :control)
+    (when (char-bit character :control)
       (setf name (concatenate 'string "C-" name)))
     name))
 
