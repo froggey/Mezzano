@@ -40,6 +40,8 @@
 (defclass ps/2-keyboard-stream (stream-object) ())
 
 (defvar *ps/2-keyboard-shifted* nil)
+(defvar *ps/2-keyboard-ctrled* nil)
+(defvar *ps/2-keyboard-metaed* nil)
 (defun ps/2-read-char (fifo)
   (loop
      (let* ((scancode (ps/2-read-fifo fifo))
@@ -51,7 +53,15 @@
               ;; Key press.
               (cond ((eql key :shift)
                      (setf *ps/2-keyboard-shifted* t))
+                    ((eql key :control)
+                     (setf *ps/2-keyboard-ctrled* t))
+                    ((eql key :meta)
+                     (setf *ps/2-keyboard-metaed* t))
                     ((characterp key)
+                     (when *ps/2-keyboard-ctrled*
+                       (setf (char-bit key :control) t))
+                     (when *ps/2-keyboard-metaed*
+                       (setf (char-bit key :meta) t))
                      (return key))
                     ((null key)
                      (write-string "Unknown keycode #x")
@@ -60,7 +70,9 @@
                      (sys.int::write-integer scancode))))
              (t ;; Key release.
               (case key
-                (:shift (setf *ps/2-keyboard-shifted* nil))))))))
+                (:shift (setf *ps/2-keyboard-shifted* nil))
+                (:control (setf *ps/2-keyboard-ctrled* nil))
+                (:meta (setf *ps/2-keyboard-metaed* nil))))))))
 
 (defmethod stream-read-char ((stream ps/2-keyboard-stream))
   (ps/2-read-char *ps/2-key-fifo*))
@@ -77,10 +89,18 @@
        (cond ((logtest scancode #x80)
               ;; Key release.
               (when (eql key :shift)
-                (setf *ps/2-keyboard-shifted* nil)))
+                (setf *ps/2-keyboard-shifted* nil))
+              (when (eql key :control)
+                (setf *ps/2-keyboard-ctrled* nil))
+              (when (eql key :meta)
+                (setf *ps/2-keyboard-metaed* nil)))
              (t ;; Key press.
               (cond ((eql key :shift)
                      (setf *ps/2-keyboard-shifted* t))
+                    ((eql key :control)
+                     (setf *ps/2-keyboard-ctrled* t))
+                    ((eql key :meta)
+                     (setf *ps/2-keyboard-metaed* t))
                     ((characterp key)
                      (return t)))))
        (incf (ps/2-fifo-head fifo))
