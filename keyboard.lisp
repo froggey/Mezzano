@@ -39,9 +39,35 @@
 
 (defclass ps/2-keyboard-stream (stream-object) ())
 
+(defconstant +extended-scan-code+ #xE0)
+
+;; (extended-scancode normal-key [shifted-key])
+(defvar *extended-key-alist*
+  '((#x5B :super) ; left
+    (#x1D :control) ; right
+    (#x5C :super) ; right
+    (#x38 :meta) ; right
+    (#x5D #\u0010401B) ; menu
+    (#x52 #\u00104010) ; insert
+    (#x47 #\u00104012) ; home
+    (#x49 #\u00104014) ; page up
+    (#x53 #\u00104011) ; delete
+    (#x4F #\u00104013) ; end
+    (#x51 #\u00104015) ; page down
+    (#x48 #\u00104018) ; up arrow
+    (#x4B #\u00104016) ; left arrow
+    (#x50 #\u00104019) ; down arrow
+    (#x4D #\u00104017) ; right arrow
+    (#x35 #\u001040FB) ; KP divide
+    (#x1C #\u001040FF) ; KP enter
+    ))
+
+(defvar *ps/2-keyboard-extended-key* nil)
 (defvar *ps/2-keyboard-shifted* nil)
 (defvar *ps/2-keyboard-ctrled* nil)
 (defvar *ps/2-keyboard-metaed* nil)
+(defvar *ps/2-keyboard-supered* nil)
+(defvar *ps/2-keyboard-hypered* nil)
 (defun ps/2-read-char (fifo)
   (loop
      (let* ((scancode (ps/2-read-fifo fifo))
@@ -49,7 +75,17 @@
                            *gb-keymap-high*
                            *gb-keymap-low*)
                        (logand scancode #x7F))))
-       (cond ((= (logand scancode #x80) 0)
+       (when *ps/2-keyboard-extended-key*
+         (setf *ps/2-keyboard-extended-key* nil)
+         (let ((extended-key (assoc (logand scancode #x7F) *extended-key-alist*)))
+           (cond ((null extended-key)
+                  (setf key nil))
+                 ((and *ps/2-keyboard-shifted* (third extended-key))
+                  (setf key (third extended-key)))
+                 (t (setf key (second extended-key))))))
+       (cond ((= scancode +extended-scan-code+)
+              (setf *ps/2-keyboard-extended-key* t))
+             ((= (logand scancode #x80) 0)
               ;; Key press.
               (cond ((eql key :shift)
                      (setf *ps/2-keyboard-shifted* t))
@@ -57,11 +93,19 @@
                      (setf *ps/2-keyboard-ctrled* t))
                     ((eql key :meta)
                      (setf *ps/2-keyboard-metaed* t))
+                    ((eql key :super)
+                     (setf *ps/2-keyboard-supered* t))
+                    ((eql key :hyper)
+                     (setf *ps/2-keyboard-hypered* t))
                     ((characterp key)
                      (when *ps/2-keyboard-ctrled*
                        (setf (char-bit key :control) t))
                      (when *ps/2-keyboard-metaed*
                        (setf (char-bit key :meta) t))
+                     (when *ps/2-keyboard-supered*
+                       (setf (char-bit key :super) t))
+                     (when *ps/2-keyboard-hypered*
+                       (setf (char-bit key :hyper) t))
                      (return key))
                     ((null key)
                      (write-string "Unknown keycode #x")
@@ -72,7 +116,9 @@
               (case key
                 (:shift (setf *ps/2-keyboard-shifted* nil))
                 (:control (setf *ps/2-keyboard-ctrled* nil))
-                (:meta (setf *ps/2-keyboard-metaed* nil))))))))
+                (:meta (setf *ps/2-keyboard-metaed* nil))
+                (:super (setf *ps/2-keyboard-supered* nil))
+                (:hyper (setf *ps/2-keyboard-hypered* nil))))))))
 
 (defmethod stream-read-char ((stream ps/2-keyboard-stream))
   (ps/2-read-char *ps/2-key-fifo*))
@@ -86,14 +132,24 @@
                             *gb-keymap-high*
                             *gb-keymap-low*)
                         (logand scancode #x7F))))
-       (cond ((logtest scancode #x80)
+       (when *ps/2-keyboard-extended-key*
+         (setf *ps/2-keyboard-extended-key* nil)
+         (let ((extended-key (assoc (logand scancode #x7F) *extended-key-alist*)))
+           (cond ((null extended-key)
+                  (setf key nil))
+                 ((and *ps/2-keyboard-shifted* (third extended-key))
+                  (setf key (third extended-key)))
+                 (t (setf key (second extended-key))))))
+       (cond ((= scancode +extended-scan-code+)
+              (setf *ps/2-keyboard-extended-key* t))
+             ((logtest scancode #x80)
               ;; Key release.
-              (when (eql key :shift)
-                (setf *ps/2-keyboard-shifted* nil))
-              (when (eql key :control)
-                (setf *ps/2-keyboard-ctrled* nil))
-              (when (eql key :meta)
-                (setf *ps/2-keyboard-metaed* nil)))
+              (case key
+                (:shift (setf *ps/2-keyboard-shifted* nil))
+                (:control (setf *ps/2-keyboard-ctrled* nil))
+                (:meta (setf *ps/2-keyboard-metaed* nil))
+                (:super (setf *ps/2-keyboard-supered* nil))
+                (:hyper (setf *ps/2-keyboard-hypered* nil))))
              (t ;; Key press.
               (cond ((eql key :shift)
                      (setf *ps/2-keyboard-shifted* t))
@@ -101,6 +157,10 @@
                      (setf *ps/2-keyboard-ctrled* t))
                     ((eql key :meta)
                      (setf *ps/2-keyboard-metaed* t))
+                    ((eql key :super)
+                     (setf *ps/2-keyboard-supered* t))
+                    ((eql key :hyper)
+                     (setf *ps/2-keyboard-hypered* t))
                     ((characterp key)
                      (return t)))))
        (incf (ps/2-fifo-head fifo))

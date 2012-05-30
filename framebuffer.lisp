@@ -7,51 +7,67 @@
 (defun map-unifont (c)
   (let ((code (char-code c)))
     ;; Unifont only covers plane 0
-    (when (<= code #xffff)
+    (when (and (<= code #xffff)
+               (zerop (char-bits c)))
       (let ((row (aref *unifont-bmp* (ash code -8))))
 	(when row
 	  (aref row (logand code #xff)))))))
 
 (defun unifont-glyph-width (character)
   (let ((glyph (map-unifont character)))
-    (if (and glyph (eql (array-dimension glyph 0) 32))
-	16
-	8)))
+    (cond ((null glyph)
+           (* (length (char-name character)) 8))
+          ((eql (array-dimension glyph 0) 32)
+           16)
+          (t 8))))
 
 (defun render-unifont-glyph (c)
   "Produce an array containing the glyph for C that can be blitted directly to the screen."
-  (let* ((uniglyph (or (map-unifont c)
-		       ;; Fall back on the non-printing glyph for characters that
-		       ;; Unifont does not cover.
-		       #(#x00 #x54 #x2A #x54 #x2A #x54 #x2A #x54
-			 #x2A #x54 #x2A #x54 #x2A #x54 #x2A #x00)))
-	 (is-fullwidth (= (length uniglyph) 32))
-	 (screen-glyph (make-array (list 16 (if is-fullwidth 16 8))
-				   :element-type '(unsigned-byte 32))))
-    (if is-fullwidth
-	;; Fullwidth.
-	(dotimes (i 16)
-	  (dotimes (j 8)
-	    (setf (aref screen-glyph i j)
-		  (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (* i 2))))
-		      #xFF000000
-		      #xFFB2B2B2)
-		  (aref screen-glyph i (+ j 8))
-		  (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (1+ (* i 2)))))
-		      #xFF000000
-		      #xFFB2B2B2))))
-	;; Halfwidth.
-	(dotimes (i 16)
-	  (dotimes (j 8)
-	    (setf (aref screen-glyph i j)
-		  (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph i)))
-		      #xFF000000
-		      #xFFB2B2B2)))))
-    screen-glyph))
+  (let ((uniglyph (map-unifont c)))
+    (cond (uniglyph
+           (let* ((is-fullwidth (= (length uniglyph) 32))
+                  (screen-glyph (make-array (list 16 (if is-fullwidth 16 8))
+                                            :element-type '(unsigned-byte 32))))
+             (if is-fullwidth
+                 ;; Fullwidth.
+                 (dotimes (i 16)
+                   (dotimes (j 8)
+                     (setf (aref screen-glyph i j)
+                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (* i 2))))
+                               #xFF000000
+                               #xFFB2B2B2)
+                           (aref screen-glyph i (+ j 8))
+                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (1+ (* i 2)))))
+                               #xFF000000
+                               #xFFB2B2B2))))
+                 ;; Halfwidth.
+                 (dotimes (i 16)
+                   (dotimes (j 8)
+                     (setf (aref screen-glyph i j)
+                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph i)))
+                               #xFF000000
+                               #xFFB2B2B2)))))
+             screen-glyph))
+          (t ;; Render the character name surounded by a box.
+           (let* ((name (char-name c))
+                  (screen-glyph (make-array (list 16 (* (length name) 8))
+                                            :element-type '(unsigned-byte 32))))
+             (dotimes (i (length name))
+               (let ((foo (get-unifont-glyph (char name i))))
+                 (%bitblt 16 8 foo 0 0
+                          screen-glyph 0 (* i 8))))
+             ;; Draw box.
+             (%bitset 1 (* (length name) 8) #xFFB2B2B2 screen-glyph 0 0)
+             (%bitset 1 (* (length name) 8) #xFFB2B2B2 screen-glyph 15 0)
+             (dotimes (i 16)
+               (setf (aref screen-glyph i 0) #xFFB2B2B2
+                     (aref screen-glyph i (1- (* (length name) 8))) #xFFB2B2B2))
+             screen-glyph)))))
 
 (defun get-unifont-glyph (c)
   ;; Only use the cache for characters in the BMP.
-  (if (<= (char-code c) #xFFFF)
+  (if (and (<= (char-code c) #xFFFF)
+           (zerop (char-bits c)))
       (let* ((row (ash (char-code c) -8))
 	     (cell (logand (char-code c) #xFF))
 	     (cache-row (svref *unifont-glyph-cache* row)))
@@ -67,11 +83,8 @@
 
 (defun render-char-at (c framebuffer x y)
   (let ((glyph (get-unifont-glyph c)))
-    (if (eql (array-dimension glyph 1) 16)
-	(%bitblt 16 16 glyph 0 0
-		 framebuffer y x)
-	(%bitblt 16 8 glyph 0 0
-		 framebuffer y x))))
+    (%bitblt 16 (array-dimension glyph 1) glyph 0 0
+             framebuffer y x)))
 
 (defclass framebuffer-stream (edit-stream ps/2-keyboard-stream stream-object)
   ((framebuffer :initarg :framebuffer)
