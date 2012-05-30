@@ -448,7 +448,7 @@
 (defmacro with-open-stream ((var stream) &body body)
   `(let ((,var ,stream))
      (unwind-protect (progn ,@body)
-       (close ,var))))
+       (when ,var (close ,var)))))
 
 (defmacro with-open-file ((stream filespec &rest options) &body body)
   `(with-open-stream (,stream (open ,filespec ,@options))
