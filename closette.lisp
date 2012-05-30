@@ -529,7 +529,7 @@
                   #'(lambda (x) x)
                   (mapplist
                     #'(lambda (key value)
-                        `(',key ,value))
+                        `(',key (lambda () ,value)))
                     (cdr option))))))
     (t (list `',(car option) `',(cadr option)))))
 
@@ -1643,7 +1643,7 @@ Dispatching on class ~S." gf class))
         (when (and (not (member (first i) initargs))
                    (not (member (first i) default-initargs)))
           (push (first i) default-initargs)
-          (push (eval (second i)) default-initargs))))
+          (push (funcall (second i)) default-initargs))))
     (append initargs (nreverse default-initargs))))
 
 (defgeneric make-instance (class &key))
