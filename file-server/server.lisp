@@ -82,6 +82,22 @@
                     (list (namestring path)))
                   (cl-fad:list-directory path))))
 
+(defcommand :probe (path)
+  (if (open path :direction :probe)
+      (format *client* ":ok~%")
+      (format *client* "(:not-found \"File not found\")~%")))
+
+(defcommand :create (path)
+  (if (open path :direction :probe :if-exists nil :if-does-not-exist :create)
+      (format *client* ":ok~%")
+      (format *client* "(:error \"???\")~%")))
+
+(defcommand :backup (path)
+  (when (open path :direction :probe)
+    (cl-fad:copy-file path (format nil "~A~~" path)
+                      :overwrite t))
+  (format *client* ":ok~%"))
+
 (defun handle-client (*client*)
   (let ((*file-table* (make-array 8 :initial-element nil)))
     (unwind-protect

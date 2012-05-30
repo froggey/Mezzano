@@ -138,6 +138,24 @@
 (defmethod unparse-pathname (path (host simple-file-host))
   (unparse-simple-file-path path))
 
+(defgeneric unparse-pathname-file (pathname host))
+
+(defmethod unparse-pathname-file (pathname (host simple-file-host))
+  (let ((name (pathname-name pathname))
+        (type (pathname-type pathname))
+        (version (pathname-version pathname)))
+    (when name
+      (with-output-to-string (s)
+        (write-string name s)
+        (when type
+          (write-char #\. s)
+          (write-string type s))
+        (when (eql version :backup)
+          (write-char #\~ s))))))
+
+(defun file-namestring (pathname)
+  (unparse-pathname-file pathname (pathname-host pathname)))
+
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
          (format stream "#P~S" (concatenate 'string
@@ -155,30 +173,97 @@
          pathname)
         (t (parse-simple-file-path (pathname-host *default-pathname-defaults*) pathname))))
 
-(defgeneric open-file (host pathname &key direction element-type if-exists if-does-not-exist external-format))
-
-(defmethod open-file ((host simple-file-host) pathname
-                      &key direction element-type if-exists if-does-not-exist external-format)
-  (cond ((subtypep element-type 'character)
-         (assert (eql external-format :default) (external-format))
-         (make-instance 'simple-file-character-stream
-                        :path (unparse-simple-file-path pathname)
-                        :host host
-                        :direction direction))
-        ((and (subtypep element-type '(unsigned-byte 8))
-              (subtypep '(unsigned-byte 8) element-type))
-         (assert (eql external-format :default) (external-format))
-         (make-instance 'simple-file-stream
-                        :path (unparse-simple-file-path pathname)
-                        :host host
-                        :direction direction))
-        (t (error "Unsupported element-type ~S." element-type))))
-
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
      ,@body))
 
+(defgeneric open-file (host pathname &key direction element-type if-exists if-does-not-exist external-format))
+
+(define-condition simple-file-error (file-error simple-error) ())
+
+(defmethod open-file ((host simple-file-host) pathname
+                      &key direction element-type if-exists if-does-not-exist external-format)
+  (let ((path (unparse-simple-file-path pathname))
+        (x nil)
+        (created-file nil))
+    (with-connection (con host)
+      (format con "(:PROBE ~S)~%" path)
+      (setf x (read-preserving-whitespace con))
+      (when (listp x)
+        (ecase if-does-not-exist
+          (:error (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "File ~A does not exist. ~S"
+                         :format-arguments (list pathname x)))
+          (:create
+           (setf created-file t)
+           (format con "(:CREATE ~S)~%" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error "Cannot create ~A. ~S" pathname x)))
+          ((nil) (return-from open-file nil))))
+      (when (and (not created-file) (member direction '(:output :io)))
+        (ecase if-exists
+          (:error (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "File ~A exists."
+                         :format-arguments (list pathname)))
+          ((:new-version
+            :rename
+            :rename-and-delete)
+           (format con "(:BACKUP ~S)" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error 'simple-file-error
+                    :pathname pathname
+                    :format-control "Could not rename ~S."
+                    :format-arguments (list pathname))))
+          (:supersede
+           (format con "(:DELETE ~S)" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error 'simple-file-error
+                    :pathname pathname
+                    :format-control "Could not supersede ~S."
+                    :format-arguments (list pathname))))
+          ((:overwrite :append))
+          ((nil) (return-from open-file nil))))
+      (let ((stream (cond ((subtypep element-type 'character)
+                           (assert (eql external-format :default) (external-format))
+                           (make-instance 'simple-file-character-stream
+                                          :path path
+                                          :host host
+                                          :direction direction))
+                          ((and (subtypep element-type '(unsigned-byte 8))
+                                (subtypep '(unsigned-byte 8) element-type))
+                           (assert (eql external-format :default) (external-format))
+                           (make-instance 'simple-file-stream
+                                          :path path
+                                          :host host
+                                          :direction direction))
+                          (t (error "Unsupported element-type ~S." element-type)))))
+        (when (and (member direction '(:output :io))
+                   (eql if-exists :append))
+          (file-position stream :end))
+        stream))))
+
+(defmethod sys.int::stream-write-byte (byte (stream simple-file-stream))
+  (assert (member (direction stream) '(:io :output)))
+  (with-connection (con (host stream))
+    (format con "(:OPEN ~S :DIRECTION :OUTPUT :IF-DOES-NOT-EXIST :ERROR :IF-EXISTS :OVERWRITE)~%" (path stream))
+    (let ((id (read-preserving-whitespace con)))
+      (unless (integerp id)
+        (error "Write error! ~S" id))
+      (format con "(:WRITE ~D ~D ~D)~%" id (sf-position stream) 1)
+      (write-byte byte con)
+      (let ((x (read-preserving-whitespace con)))
+        (when (listp x)
+          (error "Write error! ~S" x))
+        (setf (read-buffer stream) nil)
+        (incf (sf-position stream))))))
+
 (defmethod sys.int::stream-read-byte ((stream simple-file-stream))
+  (assert (member (direction stream) '(:input :io)))
   (when (and (read-buffer stream)
              (<= (read-buffer-position stream)
                  (sf-position stream)
@@ -213,6 +298,9 @@
 
 (defmethod sys.int::stream-element-type* ((stream simple-file-stream))
   '(unsigned-byte 8))
+
+(defmethod sys.int::stream-write-char (char (stream simple-file-character-stream))
+  (sys.int::stream-write-byte (char-code char) stream))
 
 (defmethod sys.int::stream-read-char ((stream simple-file-character-stream))
   (let ((x (sys.int::stream-read-byte stream)))
