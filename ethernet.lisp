@@ -435,9 +435,10 @@
 	     (return-from ipv4-route
 	       (values (arp-lookup (fourth route) +ethertype-ipv4+ destination)
 		       (fourth route))))))
-    (when default-route
-      (values (arp-lookup (fourth default-route) +ethertype-ipv4+ (second default-route))
-	      (fourth default-route)))))
+    (if default-route
+        (values (arp-lookup (fourth default-route) +ethertype-ipv4+ (second default-route))
+                (fourth default-route))
+        (error "No route to host."))))
 
 (defun make-ipv4-address (a b c d)
   (logior (ash a 24)
