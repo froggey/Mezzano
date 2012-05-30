@@ -204,6 +204,9 @@ party to perform, the indicated option.")
      (case (code-char byte)
        (#\[ (setf (terminal-state stream) :saw-bracket))
        (#\( (setf (terminal-state stream) :saw-paren))
+       (#\> (finish-parsing-escape stream))
+       (#\= (finish-parsing-escape stream))
+       (#\M (finish-parsing-escape stream)) ; Reverse index?
        (t (give-up-parsing-escape stream))))
     (:saw-bracket ;; Saw "\e[" and maybe some digits and semicolons.
      (push byte (slot-value stream 'escape-sequence))
@@ -260,13 +263,63 @@ party to perform, the indicated option.")
                 (#\d
                  (setf (y-pos stream) (1- (or (first (slot-value stream 'parameters)) 1)))
                  (finish-parsing-escape stream))
-                (#\m (finish-parsing-escape stream)) ; set resource values. **
+                (#\m (finish-parsing-escape stream)) ; character attributes **
                 (#\r (finish-parsing-escape stream)) ; set scroll region. **
+                (#\h (finish-parsing-escape stream)) ; set mode **
+                (#\l (finish-parsing-escape stream)) ; clear mode **
+                (#\?
+                 (if (or (slot-value stream 'parameters)
+                         (slot-value stream 'current-number))
+                     (give-up-parsing-escape stream)
+                     (setf (terminal-state stream) :saw-bracket-question)))
+                (t (give-up-parsing-escape stream))))))
+    (:saw-bracket-question
+     ;; Saw "\e[?"
+     (push byte (slot-value stream 'escape-sequence))
+     (cond ((eql (code-char byte) #\;)
+            (cond ((slot-value stream 'current-number)
+                   (push (slot-value stream 'current-number) (slot-value stream 'parameters))
+                   (setf (slot-value stream 'current-number) nil))
+                  (t (push 0 (slot-value stream 'parameters)))))
+           ((digit-char-p (code-char byte))
+            (unless (slot-value stream 'current-number)
+              (setf (slot-value stream 'current-number) 0))
+            (setf (slot-value stream 'current-number) (+ (* (slot-value stream 'current-number) 10)
+                                                         (- byte (char-code #\0)))))
+           (t (when (slot-value stream 'current-number)
+                (push (slot-value stream 'current-number) (slot-value stream 'parameters))
+                (setf (slot-value stream 'current-number) nil))
+              (case (code-char byte)
+                (#\h (finish-parsing-escape stream)) ; DEC private mode set **
+                (#\l (finish-parsing-escape stream)) ; DEC private mode clear **
                 (t (give-up-parsing-escape stream))))))
     (:saw-paren
      ;; Saw "\e(", expecting a character set identifier. **
      (push byte (slot-value stream 'escape-sequence))
      (finish-parsing-escape stream))))
+
+(defvar *xterm-translations*
+  (list (list (name-char "Up-Arrow")    '(#\Esc #\[ #\A))
+        (list (name-char "Down-Arrow")  '(#\Esc #\[ #\B))
+        (list (name-char "Right-Arrow") '(#\Esc #\[ #\C))
+        (list (name-char "Left-Arrow")  '(#\Esc #\[ #\D))
+        (list (name-char "Home")        '(#\Esc #\[ #\H))
+        (list (name-char "End")         '(#\Esc #\[ #\F))
+        (list (name-char "KP-Multiply") '(#\*))
+        (list (name-char "KP-Divide")   '(#\/))
+        (list (name-char "KP-Plus")     '(#\+))
+        (list (name-char "KP-Minus")    '(#\-))
+        (list (name-char "KP-Period")   '(#\.))
+        (list (name-char "KP-0")        '(#\0))
+        (list (name-char "KP-1")        '(#\1))
+        (list (name-char "KP-2")        '(#\2))
+        (list (name-char "KP-3")        '(#\3))
+        (list (name-char "KP-4")        '(#\4))
+        (list (name-char "KP-5")        '(#\5))
+        (list (name-char "KP-6")        '(#\6))
+        (list (name-char "KP-7")        '(#\7))
+        (list (name-char "KP-8")        '(#\8))
+        (list (name-char "KP-9")        '(#\9))))
 
 (defmethod sys.int::stream-read-byte ((stream xterm-terminal))
   (cond ((slot-value stream 'queued-bytes)
@@ -274,7 +327,24 @@ party to perform, the indicated option.")
         (t (let ((ch (read-char (slot-value stream 'input))))
              (when (eql ch (interrupt-character stream))
                (signal 'terminal-interrupt))
-             (logand (char-code ch) #xFF)))))
+             (cond ((logtest (system:char-bits ch)
+                             (logior sys.int::+char-meta-bit+
+                                     sys.int::+char-super-bit+
+                                     sys.int::+char-hyper-bit+))
+                    ;; Ignore weird characters.
+                    (stream-read-byte stream))
+                   ((logtest (system:char-bits ch) sys.int::+char-control-bit+)
+                    ;; Control character. Translate to ASCII.
+                    (if (<= #x40 (char-code ch) #x7E)
+                        (logxor (logand (char-code ch) #b01011111) #b00100000)
+                        (stream-read-byte stream)))
+                   (t ;; TODO: UTF-8 translation, etc.
+                    (let ((translated (assoc ch *xterm-translations*)))
+                      (cond (translated
+                             (dolist (c (rest (second translated)))
+                               (push (char-code c) (slot-value stream 'queued-bytes)))
+                             (char-code (first (second translated))))
+                            (t (logand (char-code ch) #xFF))))))))))
 
 (defun read-subnegotiation (connection)
   (let ((bytes (make-array 8 :element-type '(unsigned-byte 8)
