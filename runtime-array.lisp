@@ -163,7 +163,36 @@ allocate environment frames."
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:movs8)
+  (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+;; (to-storage from-storage bytes-per-col to-stride from-stride nrows)
+(define-lap-function %%bitblt ()
+  (sys.lap-x86:mov64 :rdi :r8) ; to-storage
+  (sys.lap-x86:mov64 :rsi :r9) ; from-storage
+  (sys.lap-x86:sar64 :rsi 3)
+  (sys.lap-x86:sar64 :rdi 3)
+  (sys.lap-x86:mov64 :r8 (:lsp)) ; nrows
+  (sys.lap-x86:sub64 :r11 :r10)
+  (sys.lap-x86:sub64 :r12 :r10)
+  (sys.lap-x86:jmp loop-test)
+  loop-head
+  (sys.lap-x86:mov64 :rcx :r10) ; bytes-per-col
+  (sys.lap-x86:sar64 :rcx 3)
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs8)
+  (sys.lap-x86:mov64 :rax :r11) ; to-stride
+  (sys.lap-x86:sar64 :rax 3)
+  (sys.lap-x86:add64 :rdi :rax)
+  (sys.lap-x86:mov64 :rax :r12) ; from-stride
+  (sys.lap-x86:sar64 :rax 3)
+  (sys.lap-x86:add64 :rsi :rax)
+  loop-test
+  (sys.lap-x86:sub64 :r8 8)
+  (sys.lap-x86:jge loop-head)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:lea64 :rbx (:lsp 8))
   (sys.lap-x86:ret))
 
 (defun %bitblt (nrows ncols from-array from-row from-col to-array to-row to-col)
@@ -196,10 +225,7 @@ allocate environment frames."
         (setf from-storage (+ (lisp-object-address from-storage) 1)))
       (incf to-storage (* (+ (* to-row to-width) to-col to-offset) stride))
       (incf from-storage (* (+ (* from-row from-width) from-col from-offset) stride))
-      (dotimes (i nrows)
-        (%fast-copy to-storage from-storage bytes-per-col)
-        (incf to-storage to-stride)
-        (incf from-storage from-stride)))))
+      (%%bitblt to-storage from-storage bytes-per-col to-stride from-stride nrows))))
 
 ;;; (value destination count)
 (define-lap-function %fast-set-8 ()
@@ -239,16 +265,22 @@ allocate environment frames."
   (sys.lap-x86:ret))
 
 (define-lap-function %fast-set-64 ()
+  (sys.lap-x86:test64 :r8 7)
+  (sys.lap-x86:jnz load-bignum)
   (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax 3)
+  blah
   (sys.lap-x86:mov64 :rdi :r9)
   (sys.lap-x86:mov64 :rcx :r10)
-  (sys.lap-x86:sar64 :rax 3)
   (sys.lap-x86:sar64 :rdi 3)
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)
   (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret))
+  (sys.lap-x86:ret)
+  load-bignum
+  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:jmp blah))
 
 (defun %bitset (nrows ncols val to-array to-row to-col)
   (let ((to-displacement 0))
@@ -284,6 +316,5 @@ allocate environment frames."
         ((equal type '(unsigned-byte 64))
          (incf to-storage (* to-offset 8))
          (dotimes (i nrows)
-           (dotimes (j ncols)
-             (setf (memref-unsigned-byte-64 to-storage j) val))
+           (%fast-set-64 val to-storage ncols)
            (incf to-storage (* to-width 8))))))))
