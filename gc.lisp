@@ -178,33 +178,6 @@
     (%fast-copy (+ new-address 8) (+ old-address 8) (ash (1- word-count) 3))
     (%%assemble-value new-address +tag-array-like+)))
 
-(defun scan-array-1 (object transportp)
-  (scan-numeric-array object transportp 1))
-
-(defun scan-array-2 (object transportp)
-  (scan-numeric-array object transportp 2))
-
-(defun scan-array-4 (object transportp)
-  (scan-numeric-array object transportp 4))
-
-(defun scan-array-8 (object transportp)
-  (scan-numeric-array object transportp 8))
-
-(defun scan-array-16 (object transportp)
-  (scan-numeric-array object transportp 16))
-
-(defun scan-array-32 (object transportp)
-  (scan-numeric-array object transportp 32))
-
-(defun scan-array-64 (object transportp)
-  (scan-numeric-array object transportp 64))
-
-(defun scan-array-128 (object transportp)
-  (scan-numeric-array object transportp 128))
-
-(defun scan-array-256 (object transportp)
-  (scan-numeric-array object transportp 256))
-
 (defun scan-array-like (object transportp)
   (let* ((address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 address 0)))
@@ -216,31 +189,31 @@
     ;; Dispatch again based on the type.
     (case (ldb (byte 5 1) header)
       (0  (scan-array-t object transportp)) ; simple-vector
-      (1  (scan-array-8 object transportp)) ; base-char
-      (2  (scan-array-32 object transportp)) ; character
-      (3  (scan-array-1 object transportp)) ; bit
-      (4  (scan-array-2 object transportp)) ; unsigned-byte 2
-      (5  (scan-array-4 object transportp)) ; unsigned-byte 4
-      (6  (scan-array-8 object transportp)) ; unsigned-byte 8
-      (7  (scan-array-16 object transportp)) ; unsigned-byte 16
-      (8  (scan-array-32 object transportp)) ; unsigned-byte 32
-      (9  (scan-array-64 object transportp)) ; unsigned-byte 64
-      (10 (scan-array-1 object transportp)) ; signed-byte 1
-      (11 (scan-array-2 object transportp)) ; signed-byte 2
-      (12 (scan-array-4 object transportp)) ; signed-byte 4
-      (13 (scan-array-8 object transportp)) ; signed-byte 8
-      (14 (scan-array-16 object transportp)) ; signed-byte 16
-      (15 (scan-array-32 object transportp)) ; signed-byte 32
-      (16 (scan-array-64 object transportp)) ; signed-byte 64
-      (17 (scan-array-32 object transportp)) ; single-float
-      (18 (scan-array-64 object transportp)) ; double-float
-      (19 (scan-array-128 object transportp)) ; long-float
-      (20 (scan-array-128 object transportp)) ; xmm-vector
-      (21 (scan-array-64 object transportp)) ; complex single-float
-      (22 (scan-array-128 object transportp)) ; complex double-float
-      (23 (scan-array-256 object transportp)) ; complex long-float
+      (1  (scan-numeric-array object transportp 8)) ; base-char
+      (2  (scan-numeric-array object transportp 32)) ; character
+      (3  (scan-numeric-array object transportp 1)) ; bit
+      (4  (scan-numeric-array object transportp 2)) ; unsigned-byte 2
+      (5  (scan-numeric-array object transportp 4)) ; unsigned-byte 4
+      (6  (scan-numeric-array object transportp 8)) ; unsigned-byte 8
+      (7  (scan-numeric-array object transportp 16)) ; unsigned-byte 16
+      (8  (scan-numeric-array object transportp 32)) ; unsigned-byte 32
+      (9  (scan-numeric-array object transportp 64)) ; unsigned-byte 64
+      (10 (scan-numeric-array object transportp 1)) ; signed-byte 1
+      (11 (scan-numeric-array object transportp 2)) ; signed-byte 2
+      (12 (scan-numeric-array object transportp 4)) ; signed-byte 4
+      (13 (scan-numeric-array object transportp 8)) ; signed-byte 8
+      (14 (scan-numeric-array object transportp 16)) ; signed-byte 16
+      (15 (scan-numeric-array object transportp 32)) ; signed-byte 32
+      (16 (scan-numeric-array object transportp 64)) ; signed-byte 64
+      (17 (scan-numeric-array object transportp 32)) ; single-float
+      (18 (scan-numeric-array object transportp 64)) ; double-float
+      (19 (scan-numeric-array object transportp 128)) ; long-float
+      (20 (scan-numeric-array object transportp 128)) ; xmm-vector
+      (21 (scan-numeric-array object transportp 64)) ; complex single-float
+      (22 (scan-numeric-array object transportp 128)) ; complex double-float
+      (23 (scan-numeric-array object transportp 256)) ; complex long-float
       (24 (scan-error object transportp)) ; unused (24)
-      (25 (scan-array-64 object transportp)) ; bignum
+      (25 (scan-numeric-array object transportp 64)) ; bignum
       (26 (scan-error object transportp)) ; unused (26)
       (27 (scan-error object transportp)) ; unused (27)
       (28 (scan-error object transportp)) ; unused (28)
