@@ -5,34 +5,6 @@
 
 (declaim (special *buffer* *all-buffers*))
 
-(defmacro with-saved-screen ((&optional framebuffer &rest options) &body body)
-  (let ((fb-sym (or framebuffer (gensym))))
-    `(%with-saved-screen (lambda (,fb-sym) (declare (ignorable ,fb-sym)) ,@body) ,@options)))
-
-(defun framebuffer-from-stream (stream)
-  (when (typep stream 'sys.int::shadow-stream)
-    (setf stream (sys.int::shadow-stream-primary stream)))
-  (when (typep stream 'sys.int::framebuffer-stream)
-    (slot-value stream 'sys.int::framebuffer)))
-
-(defun %with-saved-screen (fn)
-  (let ((fb (framebuffer-from-stream *terminal-io*)))
-    (if fb
-        (let* ((dims (array-dimensions fb))
-               (position (multiple-value-list (sys.int::stream-cursor-pos *terminal-io*)))
-               (back-buffer (make-array (array-dimensions fb)
-                                        :element-type (array-element-type fb))))
-          (sys.int::%bitblt (first dims) (second dims)
-                            fb 0 0
-                            back-buffer 0 0)
-          (unwind-protect
-               (funcall fn fb)
-            (apply 'sys.int::stream-move-to *terminal-io* position)
-            (sys.int::%bitblt (first dims) (second dims)
-                              back-buffer 0 0
-                              fb 0 0)))
-        (funcall fn nil))))
-
 (define-condition exit-editor () ())
 (define-condition simple-editor-error (simple-error) ())
 (define-condition minibuffer-complete () ())
@@ -269,7 +241,7 @@
           (buffer-key *minibuffer* #\Newline) 'exit-minibuffer))
   ;; Avoid the echo behaviour of framebuffer streams.
   (let ((*input-stream* (make-instance 'sys.int::ps/2-keyboard-stream)))
-    (with-saved-screen (fb) ; binding special variables using lambda seems to be astonishingly broken.
+    (sys.int::with-saved-screen (fb) ; binding special variables using lambda seems to be astonishingly broken.
       (let ((*main-screen* fb))
         (handler-case
             (editor-loop)

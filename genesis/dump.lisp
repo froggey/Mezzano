@@ -1116,7 +1116,7 @@
                                                  "../stack-group.lisp" "../process.lisp" "../interrupt.lisp"
                                                  "../interrupt-compiler.lisp" "../keyboard.lisp"
                                                  "../pci.lisp" "../framebuffer.lisp" "../bochs-vbe.lisp"
-                                                 "../test.lisp"))
+                                                 "../graphics.lisp" "../test.lisp"))
          (initial-stack-group (make-genesis-stack-group :name "Initial stack group"))
 	 ;; FIXME: Unhardcode this, the physical address of the PML4.
 	 (setup-code (make-setup-function gdt idt (- #x200000 #x1000) (genesis-intern "*INITIAL-FUNCTION*") initial-stack-group))

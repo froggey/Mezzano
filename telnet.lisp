@@ -3,68 +3,6 @@
 
 (in-package #:telnet)
 
-(defmacro with-process ((name function &rest arguments) &body body)
-  (let ((x (gensym)))
-    `(let ((,x (make-instance 'sys.int::process :name ,name)))
-       (unwind-protect (progn
-                         (sys.int::process-preset ,x ,function ,@arguments)
-                         (sys.int::process-enable ,x)
-                         ,@body)
-         (sys.int::process-disable ,x)))))
-
-(defmacro with-saved-screen (options &body body)
-  `(%with-saved-screen (lambda () ,@body) ,@options))
-
-(defun framebuffer-from-stream (stream)
-  (when (typep stream 'sys.int::shadow-stream)
-    (setf stream (sys.int::shadow-stream-primary stream)))
-  (when (typep stream 'sys.int::framebuffer-stream)
-    (slot-value stream 'sys.int::framebuffer)))
-
-(defun %with-saved-screen (fn)
-  (let ((fb (framebuffer-from-stream *terminal-io*)))
-    (if fb
-        (let* ((dims (array-dimensions fb))
-               (position (multiple-value-list (sys.int::stream-cursor-pos *terminal-io*)))
-               (back-buffer (make-array (array-dimensions fb)
-                                        :element-type (array-element-type fb))))
-          (sys.int::%bitblt (first dims) (second dims)
-                            fb 0 0
-                            back-buffer 0 0)
-          (unwind-protect
-               (funcall fn)
-            (apply 'sys.int::stream-move-to *terminal-io* position)
-            (sys.int::%bitblt (first dims) (second dims)
-                              back-buffer 0 0
-                              fb 0 0)))
-        (funcall fn))))
-
-(defun parse-integer (string &key (start 0) end (radix 10))
-  (setf end (or end (length string)))
-  (let ((negativep nil)
-        (n 0))
-    ;; Eat leading/trailing whitespace.
-    (do () ((or (>= start end)
-                (and (not (member (char string start) '(#\Space #\Newline #\Tab))))))
-      (incf start))
-    (when (>= start end)
-      (error "No non-whitespace characters in ~S." string))
-    (cond ((eql (char string start) #\+)
-           (incf start))
-          ((eql (char string start) #\-)
-           (setf negativep t)
-           (incf start)))
-    (do ((offset start (1+ offset)))
-        ((or (>= offset end)
-             (member (char string offset) '(#\Space #\Newline #\Tab))))
-      (let ((weight (digit-char-p (char string offset) radix)))
-        (when (not weight)
-          (error "Not a parseable integer ~S." string))
-        (setf n (+ (* n radix) weight))))
-    (when negativep
-      (setf n (- n)))
-    (values n end)))
-
 (defconstant +command-se+ 240
   "End of subnegotiation parameters.")
 (defconstant +command-nop+ 241
@@ -421,9 +359,8 @@ party to perform, the indicated option.")
           (write-byte (char-code (char msg i)) terminal))))))
 
 (defun telnet (&optional (server '(204 236 130 210)) (port 23))
-  (with-saved-screen ()
-    (let* ((fb (framebuffer-from-stream *terminal-io*))
-           (dims (array-dimensions fb))
+  (sys.int::with-saved-screen (fb)
+    (let* ((dims (array-dimensions fb))
            (terminal (make-instance 'xterm-terminal
                                     :framebuffer fb
                                     ;; Avoid the edit & echo behaviour of the framebuffer stream.
@@ -431,7 +368,7 @@ party to perform, the indicated option.")
                                     :interrupt-character (name-char "C-["))))
       (sys.int::%bitset (first dims) (second dims) 0 fb 0 0)
       (with-open-stream (connection (sys.net::tcp-stream-connect server port))
-        (with-process ("TELNET receiver" #'telnet-rx connection terminal)
+        (sys.int::with-process ("TELNET receiver" #'telnet-rx connection terminal)
           (handler-case
               (loop (let ((byte (read-byte terminal)))
                       (when (eql byte +command-iac+)

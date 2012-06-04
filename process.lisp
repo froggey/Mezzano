@@ -178,6 +178,15 @@
                     (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))))
              (t (%stihlt))))))
 
+(defmacro with-process ((name function &rest arguments) &body body)
+  (let ((x (gensym)))
+    `(let ((,x (make-instance 'sys.int::process :name ,name)))
+       (unwind-protect (progn
+                         (sys.int::process-preset ,x ,function ,@arguments)
+                         (sys.int::process-enable ,x)
+                         ,@body)
+         (sys.int::process-disable ,x)))))
+
 (setf *scheduler-stack-group* (make-stack-group "scheduler" :safe nil))
 (stack-group-preset *scheduler-stack-group* #'process-scheduler)
 (setf *current-process* (make-instance 'process

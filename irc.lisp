@@ -4,68 +4,6 @@
 
 (in-package #:lrssl)
 
-(defmacro with-process ((name function &rest arguments) &body body)
-  (let ((x (gensym)))
-    `(let ((,x (make-instance 'sys.int::process :name ,name)))
-       (unwind-protect (progn
-                         (sys.int::process-preset ,x ,function ,@arguments)
-                         (sys.int::process-enable ,x)
-                         ,@body)
-         (sys.int::process-disable ,x)))))
-
-(defmacro with-saved-screen (options &body body)
-  `(%with-saved-screen (lambda () ,@body) ,@options))
-
-(defun framebuffer-from-stream (stream)
-  (when (typep stream 'sys.int::shadow-stream)
-    (setf stream (sys.int::shadow-stream-primary stream)))
-  (when (typep stream 'sys.int::framebuffer-stream)
-    (slot-value stream 'sys.int::framebuffer)))
-
-(defun %with-saved-screen (fn)
-  (let ((fb (framebuffer-from-stream *terminal-io*)))
-    (if fb
-        (let* ((dims (array-dimensions fb))
-               (position (multiple-value-list (sys.int::stream-cursor-pos *terminal-io*)))
-               (back-buffer (make-array (array-dimensions fb)
-                                        :element-type (array-element-type fb))))
-          (sys.int::%bitblt (first dims) (second dims)
-                            fb 0 0
-                            back-buffer 0 0)
-          (unwind-protect
-               (funcall fn)
-            (apply 'sys.int::stream-move-to *terminal-io* position)
-            (sys.int::%bitblt (first dims) (second dims)
-                              back-buffer 0 0
-                              fb 0 0)))
-        (funcall fn))))
-
-(defun parse-integer (string &key (start 0) end (radix 10))
-  (setf end (or end (length string)))
-  (let ((negativep nil)
-        (n 0))
-    ;; Eat leading/trailing whitespace.
-    (do () ((or (>= start end)
-                (and (not (member (char string start) '(#\Space #\Newline #\Tab))))))
-      (incf start))
-    (when (>= start end)
-      (error "No non-whitespace characters in ~S." string))
-    (cond ((eql (char string start) #\+)
-           (incf start))
-          ((eql (char string start) #\-)
-           (setf negativep t)
-           (incf start)))
-    (do ((offset start (1+ offset)))
-        ((or (>= offset end)
-             (member (char string offset) '(#\Space #\Newline #\Tab))))
-      (let ((weight (digit-char-p (char string offset) radix)))
-        (when (not weight)
-          (error "Not a parseable integer ~S." string))
-        (setf n (+ (* n radix) weight))))
-    (when negativep
-      (setf n (- n)))
-    (values n end)))
-
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)
     (402 :err-no-such-server)
@@ -290,9 +228,8 @@
                       (t (write-line line display)))))))))
 
 (defun lrssl (nick &optional (server '(213 92 8 4)) (port 6667))
-  (with-saved-screen ()
-    (let* ((main-fb (framebuffer-from-stream *terminal-io*))
-           (dims (array-dimensions main-fb))
+  (sys.int::with-saved-screen (main-fb)
+    (let* ((dims (array-dimensions main-fb))
            (display-fb (make-array (list (- (first dims) 20) (second dims))
                                    :displaced-to main-fb
                                    :displaced-index-offset 0))
@@ -306,7 +243,7 @@
       (sys.int::%bitset (first dims) (second dims) 0 main-fb 0 0)
       (sys.int::%bitset 2 (second dims) #xFFD8D8D8 main-fb (- (first dims) 20) 0)
       (with-open-stream (connection (sys.net::tcp-stream-connect server port))
-        (with-process ("LRSSL receiver" #'lrssl-rx connection display)
+        (sys.int::with-process ("LRSSL receiver" #'lrssl-rx connection display)
           (let ((current-channel nil)
                 (joined-channels '()))
             (send connection "USER ~A hostname servername :~A~%" nick nick)
