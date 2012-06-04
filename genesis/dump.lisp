@@ -1123,7 +1123,9 @@
 	 (undefined-function-thunk (make-undefined-function-thunk))
          (unifont-data (with-open-file (s "../unifontfull-5.1.20080820.hex")
                          (build-unicode:generate-unifont-table s)))
-         (logo (make-array 12583 :element-type '(unsigned-byte 8))))
+         (logo (make-array 12583 :element-type '(unsigned-byte 8)))
+         ;; Required for GC.
+         (hash-table-structure (getf (genesis-symbol-plist (genesis-intern "HASH-TABLE")) (genesis-intern "STRUCTURE-TYPE"))))
     (with-open-file (s "../logo300x100.jpg" :element-type '(unsigned-byte 8))
       (read-sequence logo s))
     (push (cons (genesis-intern "*MULTIBOOT-HEADER*") multiboot-header) *symbol-preloads*)
@@ -1142,7 +1144,8 @@
     (push (cons (genesis-intern "*LOGO300X100.JPG*") logo) *symbol-preloads*)
     (multiple-value-bind (static-objects static-size dynamic-objects dynamic-size function-map)
 	(generate-dump-layout undefined-function-thunk (append (list multiboot-header setup-code gdt idt
-                                                                     initial-stack-group entry-function)
+                                                                     initial-stack-group entry-function
+                                                                     hash-table-structure)
                                                                ;; GC-related symbols must be stored in static space.
                                                                (mapcar 'genesis-intern
                                                                        '("*OLDSPACE*" "*NEWSPACE*"
