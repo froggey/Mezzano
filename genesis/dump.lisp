@@ -1155,6 +1155,7 @@
                                                                          "*STATIC-BUMP-POINTER*" "*STATIC-MARK-BIT*"
                                                                          "*STATIC-AREA-SIZE*"
                                                                          "*BUMP-POINTER*"
+                                                                         "*OBJECTS-COPIED*" "*WORDS-COPIED*"
                                                                          "*VERBOSE-GC*"))
                                                                (mapcar 'cdr *function-preloads*)
                                                                (mapcar 'cdr *symbol-preloads*)))

@@ -5,8 +5,12 @@
 (declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
+;;; GC Meters.
+(declaim (special *objects-copied* *words-copied*))
 (declaim (special *multiboot-info*))
 (setf *verbose-gc* nil)
+(setf *objects-copied* 0
+      *words-copied* 0)
 
 (defvar *gc-in-progress* nil)
 
@@ -88,6 +92,8 @@
       (return-from scan-generic
         (%%assemble-value (ash (%pointer-field first-value) 4) (%tag-field object))))
     (when transportp
+      (incf *objects-copied*)
+      (incf *words-copied* size)
       ;; Leave a forwarding pointer.
       (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
       ;; Copy fields without updating them.
@@ -124,6 +130,8 @@
       (setf (hash-table-rehash-required object) 't))
     (when (oddp word-count) (incf word-count))
     (when transportp
+      (incf *objects-copied*)
+      (incf *words-copied* word-count)
       (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
       (incf *newspace-offset* word-count)
       ;; Set the GC flag and leave a forwarding pointer.
@@ -170,6 +178,8 @@
          (word-count (1+ (ceiling (* length width) 64)))
          (new-address (+ *newspace* (ash *newspace-offset* 3))))
     (when (oddp word-count) (incf word-count))
+    (incf *objects-copied*)
+    (incf *words-copied* word-count)
     (incf *newspace-offset* word-count)
     ;; Set the GC flag and leave a forwarding pointer.
     (setf (memref-unsigned-byte-64 old-address 0) (logior new-address 1))
@@ -346,6 +356,9 @@
        (mumble "GC in progress...")
        ;; Allow access to the soon-to-be-newspace.
        (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
+       ;; Clear per-cycle meters
+       (setf *objects-copied* 0
+             *words-copied* 0)
        ;; Flip.
        (psetf *oldspace* *newspace*
               *newspace* *oldspace*
