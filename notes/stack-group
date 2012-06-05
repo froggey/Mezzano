@@ -1,0 +1,20 @@
+The stack group object is the funadmental representation of machine state.
+It contains the state of all GPRs, x87 and SSE registers, along with references
+to the control stack, lisp stack and special stack. Per-thread symbol bindings
+are stored directly in the stack group, currently limited to a fixed number of symbols.
+
+Stack group object layout:
++0   Array header, stack-group tag.
++1   Binding stack pointer.
++2   State.
++3   Saved ESP.
++4   Name.
++5   Control stack base.
++6   Control stack size.
++7   Data stack base.
++8   Data stack size.
++9   Binding stack base.
++10  Binding stack size.
++11  Resumer.
++12  Start of TLS slots.
++512 End of stack group.

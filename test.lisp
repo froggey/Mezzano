@@ -19,21 +19,15 @@
   (format t "Saving image... ")
   ;; Rebind *INITIAL-FUNCTION* using unwind-protect/symbol-value
   ;; to avoid the TLS mechanism.
-  (let ((old-initial *initial-function*)
-        (old-data-end (aref *multiboot-header* 5))
-        (old-bss-size (aref *multiboot-header* 6)))
+  (let ((old-initial *initial-function*))
     (unwind-protect
-         ;; Write all memory from #x1FF000 up to *BUMP-POINTER* to
+         ;; Write all memory from #x1FF000 up to the end of the image (specified in the multiboot header)
          ;; the primary master.
          (let* ((start #x1FF000)
-                (end (logand (+ (- *bump-pointer* #x8000000000) #x1000)
-                             (lognot #xFFF)))
+                (end (aref *multiboot-header* 6))
                 (count (truncate (- end start) 512)))
            ;; Boot directly to the REPL.
            (setf (symbol-value '*initial-function*) #'initialize-lisp)
-           ;; Adjust the sizes in the multiboot header.
-           (setf (aref *multiboot-header* 5) end
-                 (aref *multiboot-header* 6) 0)
            (dotimes (sector count)
              (setf (io-port/8 #x1F6) (logior #xE0 (ldb (byte 4 24) sector));drive and high bits of the lba
                    (io-port/8 #x1F1) 0 ; ???
@@ -58,9 +52,7 @@
                                                                  i))))
            (format t "Wrote ~S sectors (~DMiB) to disk.~%" count (truncate (truncate (* count 512) 1024) 1024))
            count)
-      (setf (symbol-value '*initial-function*) old-initial
-            (aref *multiboot-header* 5) old-data-end
-            (aref *multiboot-header* 6) old-bss-size))))
+      (setf (symbol-value '*initial-function*) old-initial))))
 
 (defun emergency-halt (message)
   (%cli)
