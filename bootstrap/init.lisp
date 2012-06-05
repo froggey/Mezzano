@@ -515,6 +515,45 @@
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
 
+(define-compiler-macro equal (&whole whole x y)
+  (when (or (not (or (symbolp x) (listp x)))
+            (and (listp x)
+                 (= (list-length x) 2)
+                 (eql (first x) 'quote)))
+    (psetf x y
+           y x))
+  (cond
+    ((or (not (or (symbolp y) (listp y)))
+         (and (listp y)
+              (= (list-length y) 2)
+              (eql (first y) 'quote)))
+     (let ((constant (if (not (or (symbolp y) (listp y)))
+                         ;; Self-evaluating form.
+                         y
+                         ;; Quoted form.
+                         (second y))))
+       (typecase constant
+         (symbol `(eq ,x ',constant))
+         ((or number character)
+          `(eql ,x ',constant))
+         (cons
+          (when (null (list-length constant))
+            ;; Give up when faced with a circular list.
+            (return-from equal whole))
+          (let ((sym (gensym)))
+            `(let ((,sym ,x))
+               (and (consp ,sym)
+                    (equal (car ,sym) ',(car constant))
+                    (equal (cdr ,sym) ',(cdr constant))))))
+         (string
+          (let ((sym (gensym)))
+            `(let ((,sym ,x))
+               (and (stringp ,sym)
+                    (string= ,sym ',constant)))))
+         ;; TODO: Bit-vectors and pathnames.
+         (t `(eq ,x ',constant)))))
+    (t whole)))
+
 ;; Object system.
 (load "../closette.lisp")
 
