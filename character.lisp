@@ -175,8 +175,9 @@
 (defun graphic-char-p (char)
   "Returns true if CHAR is a graphic character."
   ;; Treat everything but the Latin1 control characters as graphic characters.
-  (not (or (<= #x00 (char-code char) #x1F)
-	   (<= #x7F (char-code char) #x9F))))
+  (and (zerop (system:char-bits char))
+       (not (or (<= #x00 (char-code char) #x1F)
+                (<= #x7F (char-code char) #x9F)))))
 
 (defun alpha-char-p (char)
   "Returns true if CHAR is an alphabetic character."
