@@ -156,6 +156,7 @@ The docstring, if permitted and present; otherwise NIL."
     (symbol (values binding nil))
     (cons (destructuring-bind (name &optional init-form)
 	      binding
+            (check-type name symbol)
 	    (values name init-form)))))
 
 (defun parse-flet-binding (binding)
