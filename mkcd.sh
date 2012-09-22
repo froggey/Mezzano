@@ -31,6 +31,7 @@ mkdir -p "iso_stage/grub/"
 # Copy important stuff
 cp stage2_eltorito "iso_stage/grub/"
 cp lispos.image "iso_stage/"
+cp profiler.llf "iso_stage/"
 cp ethernet.llf "iso_stage/"
 cp rtl8139.llf "iso_stage/"
 cp irc.llf "iso_stage/"
@@ -43,6 +44,7 @@ echo "timeout 1" >> "iso_stage/grub/menu.lst"
 
 echo "title LispOS (Bells & Whistles)" >> "iso_stage/grub/menu.lst"
 echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
+echo "module /profiler.llf" >> "iso_stage/grub/menu.lst"
 echo "module /ethernet.llf" >> "iso_stage/grub/menu.lst"
 echo "module /rtl8139.llf" >> "iso_stage/grub/menu.lst"
 echo "module /file.llf" >> "iso_stage/grub/menu.lst"
@@ -53,6 +55,10 @@ echo "module /buffer.llf" >> "iso_stage/grub/menu.lst"
 
 echo "title LispOS (Nothing)" >> "iso_stage/grub/menu.lst"
 echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
+
+echo "title LispOS (Profiler only)" >> "iso_stage/grub/menu.lst"
+echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
+echo "module /profiler.llf" >> "iso_stage/grub/menu.lst"
 
 echo "title LispOS (network and editor)" >> "iso_stage/grub/menu.lst"
 echo "kernel /lispos.image" >> "iso_stage/grub/menu.lst"
