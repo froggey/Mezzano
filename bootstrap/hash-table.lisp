@@ -14,7 +14,7 @@
   (storage (error "No storage provided.") :type simple-vector))
 
 (defun hash-table-size (hash-table)
-  (ash (length (hash-table-storage hash-table)) -1))
+  (ash (%simple-array-length (hash-table-storage hash-table)) -1))
 
 (defun hash-table-key-at (hash-table index)
   (svref (hash-table-storage hash-table) (* index 2)))
@@ -27,6 +27,11 @@
 
 (defun (setf hash-table-value-at) (value hash-table index)
   (setf (svref (hash-table-storage hash-table) (1+ (* index 2))) value))
+
+;; Hmmm. Improves the check-type forms, but shouldn't this be
+;; done automatically by defstruct?
+(deftype hash-table ()
+  `(satisfies hash-table-p))
 
 (defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 50) (rehash-threshold 1))
   ;; Canonicalize and check the test function
@@ -112,20 +117,24 @@ Requires at least one completely unbound slot to terminate."
   (when (hash-table-rehash-required hash-table)
     (hash-table-rehash hash-table 1))
   (do* ((free-slot nil)
+        (size (hash-table-size hash-table))
+        (test (hash-table-test hash-table))
+        (storage (hash-table-storage hash-table))
 	;; This hash implementation is inspired by the Python dict implementation.
 	;; FIXME: Check if this really does hit all the entries in the table.
 	(slot (logand hash #xffffffff) (logand #xffffffff (+ (* slot 5) perturb 1)))
 	(perturb hash (ash perturb -5)))
        (nil)
-    (let ((slot-key (hash-table-key-at hash-table (rem slot (hash-table-size hash-table)))))
+    (let* ((offset (rem slot size))
+           (slot-key (svref storage (ash offset 1)))) ; hash-table-key-at
       (when (and (null free-slot) (or (eql slot-key *hash-table-unbound-value*)
 				      (eql slot-key *hash-table-tombstone*)))
-	(setf free-slot (rem slot (hash-table-size hash-table))))
+	(setf free-slot offset))
       (when (eq slot-key *hash-table-unbound-value*)
 	;; Unbound value marks the end of this run.
 	(return (values nil free-slot)))
-      (when (funcall (hash-table-test hash-table) key slot-key)
-	(return (values (rem slot (hash-table-size hash-table)) free-slot))))))
+      (when (funcall test key slot-key)
+	(return (values offset free-slot))))))
 
 (defun hash-table-rehash (hash-table &optional (size-multiplier 3))
   "Resize and rehash HASH-TABLE so that there are no tombstones the usage
