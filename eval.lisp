@@ -141,6 +141,12 @@
                    env)))
     (eval-progn-body body env)))
 
+(defspecial eval-when (&environment env situation &body body)
+  (multiple-value-bind (compile load eval)
+      (sys.int::parse-eval-when-situation situation)
+    (when eval
+      (eval-progn-body body env))))
+
 (defspecial flet (&environment env definitions &body forms)
   (let ((functions (mapcar (lambda (def)
                              (multiple-value-bind (name fn)
