@@ -43,10 +43,10 @@
 
 ;; (extended-scancode normal-key [shifted-key])
 (defvar *extended-key-alist*
-  '((#x5B :super) ; left
-    (#x1D :control) ; right
-    (#x5C :super) ; right
-    (#x38 :meta) ; right
+  '((#x5B :left-super)
+    (#x1D :right-control)
+    (#x5C :right-super)
+    (#x38 :right-meta)
     (#x5D #\u0010401B) ; menu
     (#x52 #\u00104010) ; insert
     (#x47 #\u00104012) ; home
@@ -87,15 +87,15 @@
               (setf *ps/2-keyboard-extended-key* t))
              ((= (logand scancode #x80) 0)
               ;; Key press.
-              (cond ((eql key :shift)
+              (cond ((member key '(:shift :left-shift :right-shift))
                      (setf *ps/2-keyboard-shifted* t))
-                    ((eql key :control)
+                    ((member key '(:control :left-control :right-control))
                      (setf *ps/2-keyboard-ctrled* t))
-                    ((eql key :meta)
+                    ((member key '(:meta :left-meta :right-meta))
                      (setf *ps/2-keyboard-metaed* t))
-                    ((eql key :super)
+                    ((member key '(:super :left-super :right-super))
                      (setf *ps/2-keyboard-supered* t))
-                    ((eql key :hyper)
+                    ((member key '(:hyper :left-hyper :right-hyper))
                      (setf *ps/2-keyboard-hypered* t))
                     ((characterp key)
                      (when *ps/2-keyboard-ctrled*
@@ -114,11 +114,11 @@
                      (sys.int::write-integer scancode))))
              (t ;; Key release.
               (case key
-                (:shift (setf *ps/2-keyboard-shifted* nil))
-                (:control (setf *ps/2-keyboard-ctrled* nil))
-                (:meta (setf *ps/2-keyboard-metaed* nil))
-                (:super (setf *ps/2-keyboard-supered* nil))
-                (:hyper (setf *ps/2-keyboard-hypered* nil))))))))
+                ((:shift :left-shift :right-shift) (setf *ps/2-keyboard-shifted* nil))
+                ((:control :left-control :right-control) (setf *ps/2-keyboard-ctrled* nil))
+                ((:meta :left-meta :right-meta) (setf *ps/2-keyboard-metaed* nil))
+                ((:super :left-super :right-super) (setf *ps/2-keyboard-supered* nil))
+                ((:hyper :left-hyper :right-hyper) (setf *ps/2-keyboard-hypered* nil))))))))
 
 (defmethod stream-read-char ((stream ps/2-keyboard-stream))
   (ps/2-read-char *ps/2-key-fifo*))
@@ -145,21 +145,21 @@
              ((logtest scancode #x80)
               ;; Key release.
               (case key
-                (:shift (setf *ps/2-keyboard-shifted* nil))
-                (:control (setf *ps/2-keyboard-ctrled* nil))
-                (:meta (setf *ps/2-keyboard-metaed* nil))
-                (:super (setf *ps/2-keyboard-supered* nil))
-                (:hyper (setf *ps/2-keyboard-hypered* nil))))
+                ((:shift :left-shift :right-shift) (setf *ps/2-keyboard-shifted* nil))
+                ((:control :left-control :right-control) (setf *ps/2-keyboard-ctrled* nil))
+                ((:meta :left-meta :right-meta) (setf *ps/2-keyboard-metaed* nil))
+                ((:super :left-super :right-super) (setf *ps/2-keyboard-supered* nil))
+                ((:hyper :left-hyper :right-hyper) (setf *ps/2-keyboard-hypered* nil))))
              (t ;; Key press.
-              (cond ((eql key :shift)
+              (cond ((member key '(:shift :left-shift :right-shift))
                      (setf *ps/2-keyboard-shifted* t))
-                    ((eql key :control)
+                    ((member key '(:control :left-control :right-control))
                      (setf *ps/2-keyboard-ctrled* t))
-                    ((eql key :meta)
+                    ((member key '(:meta :left-meta :right-meta))
                      (setf *ps/2-keyboard-metaed* t))
-                    ((eql key :super)
+                    ((member key '(:super :left-super :right-super))
                      (setf *ps/2-keyboard-supered* t))
-                    ((eql key :hyper)
+                    ((member key '(:hyper :left-hyper :right-hyper))
                      (setf *ps/2-keyboard-hypered* t))
                     ((characterp key)
                      (return t)))))

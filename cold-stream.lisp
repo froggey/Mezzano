@@ -29,10 +29,10 @@
 (defvar *gb-keymap-low*
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace
     #\Tab #\q #\w #\e #\r #\t #\y #\u #\i #\o #\p #\[ #\] #\Newline
-    :control #\a #\s #\d #\f #\g #\h #\j #\k #\l #\; #\' #\`
-    :shift #\# #\z #\x #\c #\v #\b #\n #\m #\, #\. #\/ :shift #\u001040FC ; KP-Multiply
+    :left-control #\a #\s #\d #\f #\g #\h #\j #\k #\l #\; #\' #\`
+    :left-shift #\# #\z #\x #\c #\v #\b #\n #\m #\, #\. #\/ :right-shift #\u001040FC ; KP-Multiply
     ;; - - - F1 F2 F3 F4 F5
-    :meta #\Space :capslock #\u00104001 #\u00104002 #\u00104003 #\u00104004 #\u00104005
+    :left-meta #\Space :capslock #\u00104001 #\u00104002 #\u00104003 #\u00104004 #\u00104005
     ;; F6 F7 F8 F9 F10 - -
     #\u00104006 #\u00104007 #\u00104008 #\u00104009 #\u0010400A nil nil
     ;; KP-7 KP-8 KP-9 KP-Minus
@@ -46,9 +46,9 @@
 (defvar *gb-keymap-high*
   #(nil #\Esc #\! #\" #\£ #\$ #\% #\^ #\& #\* #\( #\) #\_ #\+ #\Backspace
     #\Tab #\Q #\W #\E #\R #\T #\Y #\U #\I #\O #\P #\{ #\} #\Newline
-    :control #\A #\S #\D #\F #\G #\H #\J #\K #\L #\: #\@ #\¬
-    :shift #\~ #\Z #\X #\C #\V #\B #\N #\M #\< #\> #\? :shift #\u001040FC
-    :meta #\Space :capslock #\u00104001 #\u00104002 #\u00104003 #\u00104004 #\u00104005
+    :left-control #\A #\S #\D #\F #\G #\H #\J #\K #\L #\: #\@ #\¬
+    :left-shift #\~ #\Z #\X #\C #\V #\B #\N #\M #\< #\> #\? :right-shift #\u001040FC
+    :left-meta #\Space :capslock #\u00104001 #\u00104002 #\u00104003 #\u00104004 #\u00104005
     #\u00104006 #\u00104007 #\u00104008 #\u00104009 #\u0010400A nil nil
     ;; KP-7 KP-8 KP-9 KP-Minus
     #\u001040F7 #\u001040F8 #\u001040F9 #\u001040FD
@@ -79,7 +79,7 @@
                        (logand scancode #x7F))))
        (cond ((= (logand scancode #x80) 0)
               ;; Key press.
-              (cond ((eql key :shift)
+              (cond ((member key '(:shift :left-shift :right-shift))
                      (setf *keyboard-shifted* t))
                     ((characterp key)
                      (return key))
@@ -90,7 +90,7 @@
                      (sys.int::write-integer scancode))))
              (t ;; Key release.
               (case key
-                (:shift (setf *keyboard-shifted* nil))))))))
+                ((:shift :left-shift :right-shift) (setf *keyboard-shifted* nil))))))))
 
 (defvar *unread-char* nil)
 
