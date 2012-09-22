@@ -89,6 +89,13 @@
 
 (setf (get 'satisfies 'compound-type) 'satisfies-type-p)
 
+(defun compile-satisfies-type (object type)
+  "Convert a type specifier with interval designators like INTEGER, REAL and RATIONAL."
+  (destructuring-bind (predicate-name) (rest type)
+    `(,predicate-name ,object)))
+
+(setf (get 'satisfies 'compound-type-optimizer) 'compile-satisfies-type)
+
 (defun integer-type-p (object type)
   (multiple-value-bind (min max)
       (canonicalize-integer-type type)
