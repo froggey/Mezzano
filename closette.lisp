@@ -217,6 +217,22 @@
     (when (eq value (svref simple-vector i))
       (return i))))
 
+(defun fast-slot-read (instance location)
+  (let* ((slots (if (funcallable-std-instance-p instance)
+                    (funcallable-std-instance-slots instance)
+                    (std-instance-slots instance)))
+         (val (slot-contents slots location)))
+    (if (eq secret-unbound-value val)
+        (error "The slot ~S is unbound in the object ~S."
+               slot-name instance)
+        val)))
+
+(defun fast-slot-write (new-value instance location)
+  (let* ((slots (if (funcallable-std-instance-p instance)
+                    (funcallable-std-instance-slots instance)
+                    (std-instance-slots instance))))
+    (setf (slot-contents slots location) new-value)))
+
 (defun std-slot-value (instance slot-name)
   (flet ((cached-location ()
            (let ((cache (slot-contents (std-instance-slots (class-of instance))
@@ -411,7 +427,8 @@
 ;;; Defining the metaobject slot accessor function as regular functions
 ;;; greatly simplifies the implementation without removing functionality.
 
-(defun class-name (class) (std-slot-value class 'name))
+(defun class-name (class)
+  (std-slot-value class 'name))
 (defun (setf class-name) (new-value class)
   (setf (slot-value class 'name) new-value))
 
@@ -911,9 +928,11 @@
     (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
     (specializers :initarg :specializers)   ; :accessor method-specializers
     (generic-function :initform nil)        ; :accessor method-generic-function
-    (function))))                           ; :accessor method-function
+    (function :initarg :function))))        ; :accessor method-function
 
 (defvar the-class-standard-method)    ;standard-method's class metaobject
+(defvar the-class-standard-reader-method)    ;standard-reader-method's class metaobject
+(defvar the-class-standard-writer-method)    ;standard-writer-method's class metaobject
 
 (defun method-lambda-list (method) (slot-value method 'lambda-list))
 (defun (setf method-lambda-list) (new-value method)
@@ -1030,6 +1049,9 @@
         (unless (eql (first spec) class-t)
           (setf (aref relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
+  (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
+                                                             #'eq
+                                                             #'equal)))
   (setf (generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) the-class-standard-gf)
                      #'std-compute-discriminating-function
@@ -1037,9 +1059,6 @@
                  gf))
   (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
   (setf (fdefinition (generic-function-name gf)) gf)
-  (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
-                                                             #'eq
-                                                             #'equal)))
   (values))
 
 ;;; make-instance-standard-generic-function creates and initializes an
@@ -1113,9 +1132,9 @@
                       (funcall next-emfun (or cnm-args args))))
                 (next-method-p ()
                   (not (null next-emfun))))
-           (apply #'(lambda ,(kludge-arglist lambda-list)
-                      (declare ,@declares)
-                      ,form)
+           (apply (lambda ,(kludge-arglist lambda-list)
+                    (declare ,@declares)
+                    ,form)
                   args))))))
 
 ;;; Several tedious functions for analyzing lambda lists
@@ -1282,30 +1301,31 @@
 ;;; Reader and write methods
 
 (defun add-reader-method (class fn-name slot-name)
-  (ensure-method
-    (ensure-generic-function fn-name :lambda-list '(object))
-    :lambda-list '(object)
-    :qualifiers ()
-    :specializers (list class)
-    :function (lambda (args next-emfun)
-                (declare (ignore next-emfun))
-                (apply (lambda (object)
-                         (slot-value object slot-name))
-                       args)))
+  (add-method (ensure-generic-function fn-name :lambda-list '(object))
+              (make-instance (reader-method-class class slot-name :slot-definition slot-name)
+                             :lambda-list '(object)
+                             :qualifiers ()
+                             :specializers (list class)
+                             :function (lambda (args next-emfun)
+                                         (declare (ignore next-emfun))
+                                         (apply (lambda (object)
+                                                  (slot-value object slot-name))
+                                                args))
+                             :slot-definition slot-name))
   (values))
 
 (defun add-writer-method (class fn-name slot-name)
-  (ensure-method
-    (ensure-generic-function
-      fn-name :lambda-list '(new-value object))
-    :lambda-list '(new-value object)
-    :qualifiers ()
-    :specializers (list (find-class 't) class)
-    :function (lambda (args next-emfun)
-                (declare (ignore next-emfun))
-                (apply (lambda (new-value object)
-                         (setf (slot-value object slot-name) new-value))
-                       args)))
+  (add-method (ensure-generic-function fn-name :lambda-list '(new-value object))
+              (make-instance (writer-method-class class slot-name :slot-definition slot-name)
+                             :lambda-list '(new-value object)
+                             :qualifiers ()
+                             :specializers (list (find-class 't) class)
+                             :function (lambda (args next-emfun)
+                                         (declare (ignore next-emfun))
+                                         (apply (lambda (new-value object)
+                                                  (setf (slot-value object slot-name) new-value))
+                                                args))
+                             :slot-definition slot-name))
   (values))
 
 ;;;
@@ -1319,23 +1339,105 @@
 
 ;;; compute-discriminating-function
 
+(defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
+  (let ((emf-table (classes-to-emf-table gf)))
+    (ecase state
+      (:reader
+       (let* ((classes (mapcar #'class-of (required-portion gf args)))
+              (class (nth argument-offset classes))
+              (applicable-methods
+               (compute-applicable-methods-using-classes gf classes)))
+         (when (null applicable-methods)
+           (error "No applicable methods to generic function ~S.
+Dispatching on class ~S." gf (nth argument-offset args)))
+         (cond ((and (every 'primary-method-p applicable-methods)
+                     (typep (first applicable-methods) 'standard-reader-method)
+                     (or (eql (class-of class) the-class-standard-class)
+                         (eql (class-of class) the-class-funcallable-standard-class)))
+                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                  (setf (gethash class emf-table) location)
+                  (fast-slot-read (first args) location)))
+               (t ;; Give up and use the full path.
+                (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
+      (:writer
+       (let* ((classes (mapcar #'class-of (required-portion gf args)))
+              (class (nth argument-offset classes))
+              (applicable-methods
+               (compute-applicable-methods-using-classes gf classes)))
+         (when (null applicable-methods)
+           (error "No applicable methods to generic function ~S.
+Dispatching on class ~S." gf (nth argument-offset args)))
+         (cond ((and (every 'primary-method-p applicable-methods)
+                     (typep (first applicable-methods) 'standard-writer-method)
+                     (or (eql (class-of class) the-class-standard-class)
+                         (eql (class-of class) the-class-funcallable-standard-class)))
+                (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
+                  (setf (gethash class emf-table) location)
+                  (fast-slot-write (first args) (second args) location)))
+               (t ;; Give up and use the full path.
+                (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
+      (:never-called
+       (let* ((classes (mapcar #'class-of (required-portion gf args)))
+              (class (nth argument-offset classes))
+              (applicable-methods
+               (compute-applicable-methods-using-classes gf classes)))
+         (when (null applicable-methods)
+           (error "No applicable methods to generic function ~S.
+Dispatching on class ~S." gf (nth argument-offset args)))
+         (cond ((and (every 'primary-method-p applicable-methods)
+                     (typep (first applicable-methods) 'standard-reader-method)
+                     (or (eql (class-of class) the-class-standard-class)
+                         (eql (class-of class) the-class-funcallable-standard-class)))
+                ;; Switch to reader-method.
+                (setf (generic-function-discriminating-function gf)
+                      (lambda (object) ;ehhh...
+                        (let* ((class (class-of object))
+                               (location (gethash class emf-table nil)))
+                          (if location
+                              (fast-slot-read object location)
+                              (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
+                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (apply gf args))
+               ((and (every 'primary-method-p applicable-methods)
+                     (typep (first applicable-methods) 'standard-writer-method)
+                     (or (eql (class-of class) the-class-standard-class)
+                         (eql (class-of class) the-class-funcallable-standard-class)))
+                ;; Switch to writer-method.
+                (setf (generic-function-discriminating-function gf)
+                      (lambda (new-value object) ;ehhh...
+                        (let* ((class (class-of object))
+                               (location (gethash class emf-table nil)))
+                          (if location
+                              (fast-slot-write new-value object location)
+                              (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
+                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (apply gf args))
+               (t ;; Switch to 1-effective.
+                (setf (generic-function-discriminating-function gf)
+                      (lambda (&rest args)
+                        (let* ((class (class-of (nth argument-offset args)))
+                               (emfun (gethash class emf-table nil)))
+                          (if emfun
+                              (funcall emfun args)
+                              (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args)))))))
+                (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+                (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args))))))))))
+
 (defun std-compute-discriminating-function (gf)
-  (multiple-value-bind (single-dispatch-p argument-offset)
-      (generic-function-single-dispatch-p gf)
-    (if single-dispatch-p
-        #'(lambda (&rest args)
-            (let* ((class (class-of (nth argument-offset args)))
-                   (emfun (gethash class (classes-to-emf-table gf) nil)))
-              (if emfun
-                  (funcall emfun args)
-                  (slow-single-dispatch-method-lookup gf args class))))
-        #'(lambda (&rest args)
-            (let* ((classes (mapcar #'class-of
-                                    (required-portion gf args)))
-                   (emfun (gethash classes (classes-to-emf-table gf) nil)))
-              (if emfun
-                  (funcall emfun args)
-                  (slow-method-lookup gf args classes)))))))
+  (lambda (&rest args)
+    (multiple-value-bind (single-dispatch-p argument-offset)
+        (generic-function-single-dispatch-p gf)
+      (if single-dispatch-p
+          (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)
+          ;; N effective methods.
+          (let ((emf-table (classes-to-emf-table gf)))
+            #'(lambda (&rest args)
+                (let* ((classes (mapcar #'class-of
+                                        (required-portion gf args)))
+                       (emfun (gethash classes emf-table nil)))
+                  (if emfun
+                      (funcall emfun args)
+                      (slow-method-lookup gf args classes)))))))))
 
 (defun slow-method-lookup (gf args classes)
   (let* ((applicable-methods
@@ -1418,29 +1520,46 @@ Dispatching on class ~S." gf class))
                    (if (eq (class-of gf) the-class-standard-gf)
                        #'std-compute-effective-method-function
                        #'compute-effective-method-function)
-                   gf (remove around methods))))
+                   gf (remove around methods)))
+              (around-fn (method-function around)))
           #'(lambda (args)
-              (funcall (method-function around) args next-emfun)))
+              (funcall around-fn args next-emfun)))
         (let ((next-emfun (compute-primary-emfun (cdr primaries)))
-              (befores (remove-if-not #'before-method-p methods))
+              (primary (method-function (car primaries)))
+              (befores (mapcar 'method-function (remove-if-not #'before-method-p methods)))
               (reverse-afters
-                (reverse (remove-if-not #'after-method-p methods))))
-          #'(lambda (args)
-              (dolist (before befores)
-                (funcall (method-function before) args nil))
-              (multiple-value-prog1
-                (funcall (method-function (car primaries)) args next-emfun)
-                (dolist (after reverse-afters)
-                  (funcall (method-function after) args nil))))))))
+                (mapcar 'method-function (reverse (remove-if-not #'after-method-p methods)))))
+          (cond ((and befores reverse-afters)
+                 (lambda (args)
+                   (dolist (before befores)
+                     (funcall before args nil))
+                   (multiple-value-prog1
+                       (funcall primary args next-emfun)
+                     (dolist (after reverse-afters)
+                       (funcall after args nil)))))
+                (befores
+                 (lambda (args)
+                   (dolist (before befores)
+                     (funcall before args nil))
+                   (funcall primary args next-emfun)))
+                (reverse-afters
+                 (lambda (args)
+                   (multiple-value-prog1
+                       (funcall primary args next-emfun)
+                     (dolist (after reverse-afters)
+                       (funcall after args nil)))))
+                (t (lambda (args)
+                     (funcall primary args next-emfun))))))))
 
 ;;; compute an effective method function from a list of primary methods:
 
 (defun compute-primary-emfun (methods)
   (if (null methods)
       nil
-      (let ((next-emfun (compute-primary-emfun (cdr methods))))
+      (let ((next-emfun (compute-primary-emfun (cdr methods)))
+            (fn (method-function (car methods))))
         #'(lambda (args)
-            (funcall (method-function (car methods)) args next-emfun)))))
+            (funcall fn args next-emfun)))))
 
 ;;; apply-method and compute-method-function
 
@@ -1567,6 +1686,10 @@ Dispatching on class ~S." gf class))
   (:metaclass funcallable-standard-class))
 (setq the-class-standard-gf (eval the-defclass-standard-generic-function))
 (setq the-class-standard-method (eval the-defclass-standard-method))
+(defclass standard-accessor-method (standard-method)
+  ((slot-definition :initarg :slot-definition)))
+(setq the-class-standard-reader-method (defclass standard-reader-method (standard-accessor-method) ()))
+(setq the-class-standard-writer-method (defclass standard-writer-method (standard-accessor-method) ()))
 ;; Voila! The class hierarchy is in place.
 (format t "Class hierarchy created.")
 ;; (It's now okay to define generic functions and methods.)
@@ -1746,6 +1869,20 @@ Dispatching on class ~S." gf class))
 (defmethod initialize-instance :after ((class funcallable-standard-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
+(defgeneric reader-method-class (class direct-slot &rest initargs))
+;; ### slot objects.
+(defmethod reader-method-class ((class standard-class) direct-slot &rest initargs)
+  (find-class 'standard-reader-method))
+(defmethod reader-method-class ((class funcallable-standard-class) direct-slot &rest initargs)
+  (find-class 'standard-reader-method))
+
+(defgeneric writer-method-class (class direct-slot &rest initargs))
+;; ### slot objects.
+(defmethod writer-method-class ((class standard-class) direct-slot &rest initargs)
+  (find-class 'standard-writer-method))
+(defmethod writer-method-class ((class funcallable-standard-class) direct-slot &rest initargs)
+  (find-class 'standard-writer-method))
+
 ;;; Finalize inheritance
 
 (defgeneric finalize-inheritance (class))
@@ -1806,9 +1943,6 @@ Dispatching on class ~S." gf class))
 	    (method-qualifiers method)
 	    (mapcar #'class-name (method-specializers method))))
   method)
-
-(defmethod initialize-instance :after ((method standard-method) &key)
-  (setf (method-function method) (compute-method-function method)))
 
 ;;;
 ;;; Methods having to do with generic function invocation.
