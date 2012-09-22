@@ -35,7 +35,7 @@
 
 (defvar *gc-stack-group* (make-stack-group "GC"
                                            :control-stack-size 32766
-                                           :data-stack-size 40000))
+                                           :data-stack-size 50000))
 (stack-group-preset *gc-stack-group* #'gc-task)
 
 ;;; FIXME: Should use unwind-protect but that conses!!!
