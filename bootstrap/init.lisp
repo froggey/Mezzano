@@ -84,6 +84,9 @@
 		(list 'quote name))
 	  (list 'quote name))))
 
+(defun %defmacro (name function)
+  (funcall #'(setf macro-function) function name))
+
 (funcall #'(setf macro-function) #'bootstrap-defmacro 'defmacro)
 
 ;;; A bunch of handy CL macros.

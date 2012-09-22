@@ -1,4 +1,6 @@
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun expand-destructuring-lambda-list (lambda-list name body whole current-value initial-bindings &optional default-value)
   (let ((bindings '())
@@ -210,6 +212,7 @@ the environment variable (or a gensym if it was not specified)."
 	;; Not an &ENVIRONMENT keyword, just push it on the new list.
 	(setf (cdr tail) (cons (car i) nil)
 	      tail (cdr tail)))))
+)
 
 (defmacro defmacro (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
@@ -217,16 +220,14 @@ the environment variable (or a gensym if it was not specified)."
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
-	 (funcall #'(setf macro-function)
-		  #'(lambda (,whole ,env)
-		      (declare (lambda-name (macro-function ,name))
-			       (ignorable ,whole ,env))
-		      ,(expand-destructuring-lambda-list new-lambda-list name body
-							 whole `(cdr ,whole)
-							 (when env-binding
-							   (list `(,env-binding ,env)))))
-		  ',name)
-	 ',name))))
+         (%defmacro ',name
+                    #'(lambda (,whole ,env)
+                        (declare (lambda-name (macro-function ,name))
+                                 (ignorable ,whole ,env))
+                        ,(expand-destructuring-lambda-list new-lambda-list name body
+                                                           whole `(cdr ,whole)
+                                                           (when env-binding
+                                                             (list `(,env-binding ,env))))))))))
 
 (defmacro define-compiler-macro (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
