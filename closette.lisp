@@ -1340,6 +1340,40 @@
 
 ;;; compute-discriminating-function
 
+(defun compute-reader-discriminator (gf emf-table argument-offset)
+  (lambda (object) ;ehhh...
+    (let* ((class (class-of object))
+           (location (gethash class emf-table nil)))
+      (if location
+          (fast-slot-read object location)
+          (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
+
+(defun compute-writer-discriminator (gf emf-table argument-offset)
+  (lambda (new-value object) ;ehhh...
+    (let* ((class (class-of object))
+           (location (gethash class emf-table nil)))
+      (if location
+          (fast-slot-write new-value object location)
+          (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
+
+(defun compute-1-effective-discriminator (gf emf-table argument-offset)
+  (lambda (&rest args)
+    (let* ((class (class-of (nth argument-offset args)))
+           (emfun (gethash class emf-table nil)))
+      (if emfun
+          (funcall emfun args)
+          (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args)))))))
+
+(defun compute-n-effective-discriminator (gf emf-table n-required-args)
+  (lambda (&rest args)
+    (when (< (length args) n-required-args)
+      (error "Too few arguments to generic function ~S." gf))
+    (let* ((classes (mapcar #'class-of (subseq args 0 n-required-args)))
+           (emfun (gethash classes emf-table nil)))
+      (if emfun
+          (funcall emfun args)
+          (slow-method-lookup gf args classes)))))
+
 (defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
   (let ((emf-table (classes-to-emf-table gf)))
     (ecase state
@@ -1391,12 +1425,7 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                          (eql (class-of class) the-class-funcallable-standard-class)))
                 ;; Switch to reader-method.
                 (setf (generic-function-discriminating-function gf)
-                      (lambda (object) ;ehhh...
-                        (let* ((class (class-of object))
-                               (location (gethash class emf-table nil)))
-                          (if location
-                              (fast-slot-read object location)
-                              (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
+                      (compute-reader-discriminator gf emf-table argument-offset))
                 (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
                 (apply gf args))
                ((and (every 'primary-method-p applicable-methods)
@@ -1405,22 +1434,12 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                          (eql (class-of class) the-class-funcallable-standard-class)))
                 ;; Switch to writer-method.
                 (setf (generic-function-discriminating-function gf)
-                      (lambda (new-value object) ;ehhh...
-                        (let* ((class (class-of object))
-                               (location (gethash class emf-table nil)))
-                          (if location
-                              (fast-slot-write new-value object location)
-                              (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
+                      (compute-writer-discriminator gf emf-table argument-offset))
                 (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
                 (apply gf args))
                (t ;; Switch to 1-effective.
                 (setf (generic-function-discriminating-function gf)
-                      (lambda (&rest args)
-                        (let* ((class (class-of (nth argument-offset args)))
-                               (emfun (gethash class emf-table nil)))
-                          (if emfun
-                              (funcall emfun args)
-                              (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args)))))))
+                      (compute-1-effective-discriminator gf emf-table argument-offset))
                 (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
                 (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args))))))))))
 
@@ -1430,15 +1449,7 @@ Dispatching on class ~S." gf (nth argument-offset args)))
         (generic-function-single-dispatch-p gf)
       (if single-dispatch-p
           (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)
-          ;; N effective methods.
-          (let ((emf-table (classes-to-emf-table gf)))
-            #'(lambda (&rest args)
-                (let* ((classes (mapcar #'class-of
-                                        (required-portion gf args)))
-                       (emfun (gethash classes emf-table nil)))
-                  (if emfun
-                      (funcall emfun args)
-                      (slow-method-lookup gf args classes)))))))))
+          (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf)))))))
 
 (defun slow-method-lookup (gf args classes)
   (let* ((applicable-methods
