@@ -600,7 +600,7 @@
     (setf *r8-value* (list (gensym)))))
 
 ;; FIXME: default divisor to 1
-(defbuiltin truncate (number divisor) ()
+(defbuiltin sys.int::%truncate (number divisor) ()
   (let ((full-truncate (gensym "full-truncate"))
         (resume (gensym "resume-truncate")))
     (emit-trailer (full-truncate)
@@ -1803,3 +1803,5 @@
           `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-bignum+ 1))
           out)
     (predicate-result :e)))
+
+(define-tag-type-predicate floatp sys.int::+tag-single-float+)

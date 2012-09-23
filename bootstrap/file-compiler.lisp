@@ -127,6 +127,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defconstant +llf-simple-vector+ #x0C)
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
+(defconstant +llf-single-float+ #x10)
 
 (defun write-llf-header (output-stream input-file)
   ;; TODO: write the source file name out as well.
@@ -239,6 +240,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (write-byte +llf-structure-definition+ stream)
   (save-object (structure-name object) omap stream)
   (save-object (structure-slots object) omap stream))
+
+(defmethod save-one-object ((object float) omap stream)
+  (write-byte +llf-single-float+ stream)
+  (save-integer (%single-float-as-integer object) stream))
 
 (defun save-object (object omap stream)
   (let ((id (gethash object omap)))
@@ -414,7 +419,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (#.+llf-character+ (load-character stream))
     (#.+llf-structure-definition+
      (make-struct-type (load-object stream omap)
-                       (load-object stream omap)))))
+                       (load-object stream omap)))
+    (#.+llf-single-float+
+     (%integer-as-single-float (load-integer stream)))))
 
 (defun load-object (stream omap)
   (let ((command (read-byte stream)))

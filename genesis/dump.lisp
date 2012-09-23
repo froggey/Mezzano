@@ -62,6 +62,8 @@
 ;;; Neither bignums nor fixnums have any slots.
 (defmethod map-slots (fn (value integer)))
 
+(defmethod map-slots (fn (value float)))
+
 (defmethod map-slots (fn (value genesis-struct))
   (let ((slots (genesis-struct-slots value)))
     (dotimes (i (array-dimension slots 0))
@@ -609,6 +611,18 @@
             (sys.lap-x86:shl64 :rbx 3)
             (sys.lap-x86:mov64 :r8 (:constant ,(genesis-intern "*MULTIBOOT-INFO*")))
             (sys.lap-x86:mov64 (:symbol-value :r8) :rbx)
+            ;; SSE init.
+            ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
+            (sys.lap-x86:movcr :rax :cr4)
+            (sys.lap-x86:or64 :rax #x00000600)
+            (sys.lap-x86:movcr :cr4 :rax)
+            ;; Clear CR0.EM and set CR0.MP.
+            (sys.lap-x86:movcr :rax :cr0)
+            (sys.lap-x86:and64 :rax -5)
+            (sys.lap-x86:or64 :rax #x00000002)
+            (sys.lap-x86:movcr :cr0 :rax)
+            ;; Clear FPU state.
+            (sys.lap-x86:fninit)
             ;; Preset the initial stack group.
             (sys.lap-x86:mov64 :r8 (:constant ,initial-stack-group))
             (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) (symbol-value (genesis-intern "+TAG-ARRAY-LIKE+")))))
@@ -707,6 +721,9 @@
   (typecase object
     ((signed-byte 61) (ldb (byte 64 0) (ash object 3)))
     (character (logior (ash (char-int object) 4) (symbol-value (genesis-intern "+TAG-CHARACTER+"))))
+    (single-float #+sbcl (logior (ash (ldb (byte 32 0) (sb-kernel:single-float-bits object)) 32)
+                                 (symbol-value (genesis-intern "+TAG-SINGLE-FLOAT+")))
+                  #-(or sbcl) (error "Not implemented on this platform!"))
     (t (or (gethash object value-table)
 	   (error "Unknown value ~S." object)))))
 

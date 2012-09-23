@@ -34,6 +34,39 @@
          (write-unsigned-integer (- 0 x) base stream))
         (t (write-unsigned-integer x base stream))))
 
+(defun write-float (float stream &optional (trailing-digits 6))
+  (when (< float 0.0)
+    (write-char #\- stream)
+    (setf float (- float)))
+  (multiple-value-bind (integer-part decimal-part)
+      (truncate float)
+    (write integer-part :stream stream :base 10)
+    (write-char #\. stream)
+    ;; Print the decimal part number-by-number to ensure
+    ;; proper leading zeros.
+    (let ((adjusted-decimal (truncate (* decimal-part
+                                         (expt 10 trailing-digits))))
+          (trailing-zeros 0))
+      (cond ((zerop adjusted-decimal)
+             (write-char #\0))
+            (t (let ((x adjusted-decimal))
+                 (loop
+                    (multiple-value-bind (quot rem)
+                        (truncate x 10)
+                      (when (zerop x) (return))
+                      (setf x quot)
+                      (if (zerop rem)
+                          (incf trailing-zeros)
+                          (return)))))
+               (labels ((frob (val digit-position)
+                          (when (< digit-position trailing-digits)
+                            (multiple-value-bind (quot rem)
+                                (truncate val 10)
+                              (frob quot (1+ digit-position))
+                              (when (>= digit-position trailing-zeros)
+                                (write rem :stream stream :base 10))))))
+                 (frob adjusted-decimal 0)))))))
+
 (defun terpri (&optional stream)
   (write-char #\Newline stream))
 
@@ -64,6 +97,7 @@
      (write-integer object *print-base* stream)
      (when (and *print-radix* (eql *print-base* 10))
        (write-char #\. stream)))
+    (float (write-float object stream))
     (cons
      (write-char #\( stream)
      (write (car object) :stream stream)

@@ -146,7 +146,7 @@
   (when transportp
     (emergency-halt "Attempting to transport a stack-group!"))
   (let ((address (ash (%pointer-field object) 4)))
-    (dotimes (i 511)
+    (dotimes (i (- 511 64)) ; skip the fxsave area at the end.
       (let ((x (memref-t address (1+ i))))
         (when (not (eql (%tag-field x) +tag-unbound-value+))
           (setf (memref-t address (1+ i)) (gc-object x)))))

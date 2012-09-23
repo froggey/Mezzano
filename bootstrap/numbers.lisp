@@ -61,6 +61,14 @@
                (setf result `(binary-/ ,result ,n)))
              result))))
 
+(defun truncate (number &optional (divisor 1))
+  (%truncate number divisor))
+
+(define-compiler-macro truncate (&whole whole number &optional (divisor nil divisor-supplied-p))
+  (if divisor-supplied-p
+      whole
+      `(truncate ,number 1)))
+
 (defmacro define-comparison-operator (name base)
   `(progn (defun ,name (number &rest more-numbers)
             (declare (dynamic-extent more-numbers))

@@ -13,7 +13,7 @@
 (defconstant +tag-odd-fixnum+    #b1000)
 ;;(defconstant +tag-+  #b1001)
 (defconstant +tag-character+     #b1010)
-;;(defconstant +tag-+  #b1011)
+(defconstant +tag-single-float+  #b1011)
 (defconstant +tag-function+      #b1100)
 ;;(defconstant +tag-+  #b1101)
 (defconstant +tag-unbound-value+ #b1110)

@@ -297,13 +297,45 @@
       (seen-escape
        (intern token))
       ;; Attempt to parse a number.
-      (t (maybe-parse-number token)))))
+      (t (or (maybe-parse-number token)
+             (intern token))))))
+
+(defun parse-float (string)
+  (let ((integer-part 0)
+        (decimal-part 0.0)
+        (negativep nil)
+        (start 0))
+    ;; Check for a leading sign.
+    (case (char string 0)
+      (#\- (incf start)
+           (setf negativep t))
+      (#\+ (incf start)))
+    ;; Parse the integer portion.
+    (loop
+       (when (or (>= start (length string))
+                 (eql (char string start) #\.))
+         (return))
+       (setf integer-part (+ (* integer-part 10)
+                             (digit-char-p (char string start))))
+       (incf start))
+    ;; Parse the decimal portion.
+    (when (eql (char string start) #\.)
+      (let ((end (length string)))
+        (loop
+           (decf end)
+           (when (<= end start) (return))
+           (incf decimal-part (digit-char-p (char string end)))
+           (setf decimal-part (/ decimal-part 10)))))
+    ;; Mash together and apply the sign.
+    (* (+ integer-part decimal-part)
+       (if negativep -1 1))))
 
 (defun maybe-parse-number (token)
-  "Attempt to parse TOKEN as a number, if it can't be parsed as a number, then return
-it as a symbol."
+  "Attempt to parse TOKEN as a number, if it can't be parsed as a number,
+then return NIL."
   ;; integer = sign? decimal-digit+ decimal-point
   ;;         = sign? digit+
+  ;; float   = sign? decimal-digit+ decimal-point decimal-digit+
   (let ((read-base *read-base*)
 	(negative nil)
 	(saw-sign nil)
@@ -324,15 +356,28 @@ it as a symbol."
 	    start (1+ start)))
     ;; If the token contains no digits then it isn't a number.
     (when (= 0 (- end start))
-      (return-from maybe-parse-number (intern token)))
-    ;; Main digit-reading loop.
+      (return-from maybe-parse-number nil))
+    ;; Scan ahead to detect floats.
+    (unless saw-point
+      (do ((i start (1+ i))
+           (saw-point nil))
+          ((>= i end)
+           (when saw-point
+             ;; It's a float.
+             (return-from maybe-parse-number
+               (parse-float token))))
+        (unless (digit-char-p (char token i) 10)
+          (if (or saw-point
+                  (not (eql (char token i) #\.)))
+              (return)
+              (setf saw-point t)))))
+    ;; Main digit-reading loop for integers.
     (do ((offset start (1+ offset)))
 	((>= offset end))
       (let ((weight (digit-char-p (char token offset) read-base)))
 	(when (not weight)
 	  ;; This character is not a digit in the current base.
-	  ;; Treat the token as a symbol.
-	  (return-from maybe-parse-number (intern token)))
+	  (return-from maybe-parse-number nil))
 	(setf number (+ (* number read-base) weight))))
     ;; Successfully parsed an integer!
     (if negative

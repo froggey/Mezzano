@@ -91,8 +91,11 @@
     (dotimes (i bs-size)
       (setf (memref-t bs-base i) 0))
     ;; Clear the TLS slots.
-    (dotimes (i (- 512 12))
+    (dotimes (i (- 512 12 64))
       (setf (memref-unsigned-byte-64 sg-pointer (+ 12 i)) -2))
+    ;; Initialize the FXSAVE save area.
+    (dotimes (i 64)
+      (setf (memref-unsigned-byte-64 sg-pointer (+ 448 i)) 0))
     ;; Copy arguments to the data stack.
     (dolist (arg (nreverse arguments))
       (setf (memref-t (decf ds-pointer 8) 0) arg))
@@ -134,6 +137,8 @@
   (sys.lap-x86:ret))
 
 (define-lap-function %%initial-stack-group-function ()
+  ;; Initialize the FPU.
+  (sys.lap-x86:fninit)
   ;; The control and binding stacks are empty.
   ;; The data stack contains the argument count, the function and the arguments.
   (sys.lap-x86:mov64 :rcx (:lsp))
@@ -186,6 +191,8 @@
   (sys.lap-x86:push :lsp)
   (sys.lap-x86:push :lfp)
   (sys.lap-x86:push :cfp)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxsave (#.(- 4096 512 +tag-array-like+)))
   ;; Mark this stack group as :resumable.
   ;; FIXME: This probably shouldn't change the stack-group state.
   ;; %%i-s-g-f has to change it to exhausted, but this overwrites it.
@@ -207,6 +214,8 @@
   (sys.lap-x86:gs)
   (sys.lap-x86:and64 ((- (* 2 8) #b0111)) -121) ; (lognot #b1111000)
   ;; Restore state.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxrstor (#.(- 4096 512 +tag-array-like+)))
   (sys.lap-x86:pop :cfp)
   (sys.lap-x86:pop :lfp)
   (sys.lap-x86:pop :lsp)

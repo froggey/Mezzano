@@ -360,6 +360,7 @@
     ;;((integer * *)                                 (find-class 'integer))
     (integer                                       (find-class 'integer))
     ;;((float * *)                                   (find-class 'float))
+    (float                                         (find-class 'float))
     (cons                                          (find-class 'cons))
     (character                                     (find-class 'character))
     (hash-table                                    (find-class 'hash-table))

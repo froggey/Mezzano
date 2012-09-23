@@ -6,7 +6,8 @@
       (bignump object)))
 
 (defun realp (object)
-  (integerp object))
+  (or (integerp object)
+      (floatp object)))
 
 (defun numberp (object)
   (realp object))
@@ -41,6 +42,23 @@
                  (plusp number)))
         (values (+ tru 1) (- rem divisor))
         (values tru rem))))
+
+(define-lap-function %%coerce-fixnum-to-float ()
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax 3)
+  (sys.lap-x86:cvtsi2ss64 :xmm0 :rax)
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(defun float (number &optional prototype)
+  (declare (ignore prototype))
+  (etypecase number
+    (float number)
+    (fixnum (%%coerce-fixnum-to-float number))))
 
 (define-lap-function %%bignum-< ()
   (sys.lap-x86:push 0) ; align
@@ -96,6 +114,24 @@
   (sys.lap-x86:sar64 :rdi 63)
   (sys.lap-x86:jmp sx-right-resume))
 
+(define-lap-function %%float-< ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Compare.
+  (sys.lap-x86:ucomiss :xmm0 :xmm1)
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:mov64 :r9 t)
+  (sys.lap-x86:cmov64b :r8 :r9)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun generic-< (x y)
   (check-type x number)
   (check-type y number)
@@ -113,6 +149,16 @@
     ((and (bignump x)
           (bignump y))
      (%%bignum-< x y))
+    ((or (floatp x)
+         (floatp y))
+     ;; Convert both arguments to the same kind of float.
+     (let ((x* (if (floatp y)
+                   (float x y)
+                   x))
+           (y* (if (floatp x)
+                   (float y x)
+                   y)))
+       (%%float-< x* y*)))
     (t (error "TODO... Argument combination not supported."))))
 
 ;; Implement these in terms of <.
@@ -152,20 +198,47 @@
   (sys.lap-x86:mov64 :r8 nil)
   (sys.lap-x86:jmp done))
 
+(define-lap-function %%float-= ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Compare.
+  (sys.lap-x86:ucomiss :xmm0 :xmm1)
+  (sys.lap-x86:mov64 :r8 t)
+  (sys.lap-x86:mov64 :r9 nil)
+  ;; If the P bit is set then the values are unorderable.
+  (sys.lap-x86:cmov64p :r8 :r9)
+  (sys.lap-x86:cmov64ne :r8 :r9)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun generic-= (x y)
   (check-type x number)
   (check-type y number)
-  (when (eq x y)
-    (return-from generic-= t))
+  ;; Must not use EQ when the arguments are floats.
   (cond
+    ((or (floatp x)
+         (floatp y))
+     ;; Convert both arguments to the same kind of float.
+     (let ((x* (if (floatp y)
+                   (float x y)
+                   x))
+           (y* (if (floatp x)
+                   (float y x)
+                   y)))
+       (%%float-= x* y*)))
     ((or (fixnump x)
          (fixnump y))
-     ;; Would have been caught by the EQ.
-     ;; TODO: comparing against floats.
-     nil)
+     (eq x y))
     ((and (bignump x)
           (bignump y))
-     (%%bignum-= x y))
+     (or (eq x y) (%%bignum-= x y)))
     (t (error "TODO... Argument combination not supported."))))
 
 (define-lap-function %%bignum-truncate ()
@@ -238,9 +311,24 @@
   (sys.lap-x86:push 0)
   (sys.lap-x86:call (:symbol-function :r13)))
 
+(define-lap-function %%truncate-float ()
+  ;; Unbox the float.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  ;; Convert to unboxed integer.
+  (sys.lap-x86:cvttss2si64 :rax :xmm0)
+  ;; Box fixnum.
+  (sys.lap-x86:lea64 :r8 ((:rax 8)))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun generic-truncate (number divisor)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
   ;; Avoid overflow when doing fixnum arithmetic.
+  ;; ????
   (when (and (eq divisor -1)
              (integerp number))
     (return-from generic-truncate
@@ -259,6 +347,19 @@
         ((and (bignump number)
               (bignump divisor))
          (%%bignum-truncate number divisor))
+        ((or (floatp number)
+             (floatp divisor))
+         (let* ((val (/ number divisor))
+                (integer-part (if (< most-negative-fixnum
+                                     val
+                                     most-positive-fixnum)
+                                  ;; Fits in a fixnum, convert quickly.
+                                  (%%truncate-float val)
+                                  ;; Grovel inside the float
+                                  (multiple-value-bind (significand exponent)
+                                      (integer-decode-float val)
+                                    (ash significand exponent)))))
+           (values integer-part (- val integer-part))))
         (t (check-type number number)
            (check-type divisor number)
            (error "Argument combination not supported."))))
@@ -268,6 +369,47 @@
       (generic-truncate number divisor)
     (declare (ignore quot))
     rem))
+
+(define-lap-function %%float-/ ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Divide.
+  (sys.lap-x86:divss :xmm0 :xmm1)
+  ;; Box.
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(defun binary-/ (x y)
+  (%%float-/ (float x) (float y)))
+
+(define-lap-function %%float-+ ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Add.
+  (sys.lap-x86:addss :xmm0 :xmm1)
+  ;; Box.
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
 
 (defun generic-+ (x y)
   (cond ((and (fixnump x)
@@ -282,6 +424,16 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-+ x y))
+        ((or (floatp x)
+             (floatp y))
+         ;; Convert both arguments to the same kind of float.
+         (let ((x* (if (floatp y)
+                       (float x y)
+                       x))
+               (y* (if (floatp x)
+                       (float y x)
+                       y)))
+           (%%float-+ x* y*)))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination not supported."))))
@@ -405,6 +557,25 @@
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:call (:symbol-function :r13)))
 
+(define-lap-function %%float-- ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Subtract.
+  (sys.lap-x86:subss :xmm0 :xmm1)
+  ;; Box.
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun generic-- (x y)
   (cond ((and (fixnump x)
               (fixnump y))
@@ -418,6 +589,16 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-- x y))
+        ((or (floatp x)
+             (floatp y))
+         ;; Convert both arguments to the same kind of float.
+         (let ((x* (if (floatp y)
+                       (float x y)
+                       x))
+               (y* (if (floatp x)
+                       (float y x)
+                       y)))
+           (%%float-- x* y*)))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination not supported."))))
@@ -457,7 +638,7 @@
   ;; Value in RDX:RAX.
   (sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
   (sys.lap-x86:jmp (:symbol-function :r13))
-  ;; Special hack.
+  ;; Special hack for unsigned 64-bit values.
   not-simple
   (sys.lap-x86:cmp64 :rax 2)
   (sys.lap-x86:jne not-implemented)
@@ -480,6 +661,25 @@
   (sys.lap-x86:push 0)
   (sys.lap-x86:call (:symbol-function :r13)))
 
+(define-lap-function %%float-* ()
+  ;; Unbox the floats.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  (sys.lap-x86:movd :xmm1 :edx)
+  ;; Multiply.
+  (sys.lap-x86:mulss :xmm0 :xmm1)
+  ;; Box.
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun generic-* (x y)
   (cond ((and (fixnump x)
               (fixnump y))
@@ -493,6 +693,16 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-* x y))
+        ((or (floatp x)
+             (floatp y))
+         ;; Convert both arguments to the same kind of float.
+         (let ((x* (if (floatp y)
+                       (float x y)
+                       x))
+               (y* (if (floatp x)
+                       (float y x)
+                       y)))
+           (%%float-* x* y*)))
         (t (check-type x number)
            (check-type y number)
            (error "Argument combination not supported."))))

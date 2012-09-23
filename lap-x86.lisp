@@ -151,6 +151,7 @@
 	(multiple-value-bind (index-nr rex-x)
 	    (when index (encode-register index))
 	  (ecase class
+            (:xmm)
 	    (:gpr-64 (assert (= *cpu-mode* 64) (*cpu-mode*)
 			"64-bit operand-size only supported in 64-bit mode.")
 		     (setf rex-w t))
@@ -268,6 +269,7 @@
       (multiple-value-bind (r/m-nr rex-b)
 	  (encode-register r/m-reg)
 	(ecase class
+          (:xmm)
 	  (:gpr-64 (setf rex-w t))
 	  (:gpr-32 (when (= *cpu-mode* 16)
 		     (setf operand-size-override t)))
@@ -299,6 +301,7 @@
     (multiple-value-bind (reg-nr rex-r)
 	(encode-register reg)
       (ecase class
+        (:xmm)
 	(:gpr-64 (setf rex-w t))
 	(:gpr-32 nil)
 	(:gpr-16 (setf operand-size-override t))
@@ -637,6 +640,8 @@
 (define-simple-instruction emms (#x0F #x77))
 (define-simple-instruction cpuid (#x0F #xA2))
 (define-simple-instruction rsm (#x0F #xAA))
+
+(define-simple-instruction fninit (#xDB #xE3))
 
 (defmacro define-integer-define-instruction (name lambda-list (bitness class) &body body)
   `(defmacro ,name ,lambda-list
@@ -1007,3 +1012,69 @@
   (when (eql count :cl)
     (modrm :gpr-64 low high '(#x0F #xAD)))
   (modrm-imm8 :gpr-64 low high count '(#x0F #xAC)))
+
+(define-instruction movd (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :gpr-32)
+                 (consp src)))
+    (return-from instruction
+      (generate-modrm (if (= *cpu-mode* 16) :gpr-32 :gpr-16) src dst '(#x0F #x6E))))
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-32)
+                 (consp dst)))
+    (return-from instruction
+      (generate-modrm (if (= *cpu-mode* 16) :gpr-32 :gpr-16) dst src '(#x0F #x7E)))))
+
+(define-instruction ucomiss (lhs rhs)
+  (modrm :xmm rhs lhs '(#x0F #x2E)))
+
+(defmacro define-sse-float-op (name opcode)
+  (list 'progn
+        `(define-instruction ,(intern (format nil "~ASS" name)) (lhs rhs)
+           (emit #xF3)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))
+        `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
+           (emit #xF2)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))
+        `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))
+        `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
+           (emit #x66)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))))
+
+(define-sse-float-op add #x58)
+(define-sse-float-op div #x5E)
+(define-sse-float-op mul #x59)
+(define-sse-float-op sub #x5C)
+
+(define-instruction cvtss2si64 (dst src)
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-64)
+                 (consp dst)))
+    (emit #xF3)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x2D)))))
+
+(define-instruction cvttss2si64 (dst src)
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-64)
+                 (consp dst)))
+    (emit #xF3)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x2C)))))
+
+(define-instruction cvtsi2ss64 (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :gpr-64)
+                 (consp src)))
+    (emit #xF3)
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
+
+(define-instruction fxrstor (area)
+  (when (consp area)
+    (modrm-single :gpr-32 area '(#x0F #xAE) 1)))
+
+(define-instruction fxsave (area)
+  (when (consp area)
+    (modrm-single :gpr-32 area '(#x0F #xAE) 0)))

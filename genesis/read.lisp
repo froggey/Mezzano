@@ -2,6 +2,25 @@
 
 (in-package #:genesis)
 
+(defun looks-like-a-float (token)
+  "An optional leading sign, followed by an integer part, then a
+decimal point, then a decimal part."
+  (let ((start 0)
+        (saw-decimal-point nil))
+    (when (and (not (zerop (length token)))
+               (member (char token 0) '(#\- #\+)))
+      (incf start))
+    (when (zerop (- (length token) start))
+      (return-from looks-like-a-float nil))
+    (iter (for i from start below (length token))
+          (unless (digit-char-p (char token i))
+            (cond ((or saw-decimal-point
+                       (not (eql (char token i) #\.)))
+                   (return-from looks-like-a-float nil))
+                  (t (setf saw-decimal-point t)))))
+    (and saw-decimal-point
+         (not (eql (char token (1- (length token))) #\.)))))
+
 (defun primitive-read-token (stream first-char &optional (intern-it t))
   (do ((token (make-array 16 :element-type 'character :adjustable t :fill-pointer 0))
        (x (if (or (not intern-it)
@@ -23,6 +42,9 @@
 	     ((eql (length token) (if leading-sign 1 0))
 	      ;; Tokens with no digits can't be numbers.
               (genesis-intern token))
+             ((looks-like-a-float token)
+              ;; Pass it off to the host's reader, but ensure it's a single-float.
+              (coerce (read-from-string token) 'single-float))
 	     ;; Attempt to parse an integer.
 	     ;; The trailing dot for decimal integers is not supported.
 	     (t (do ((offset (if leading-sign 1 0) (1+ offset)))
