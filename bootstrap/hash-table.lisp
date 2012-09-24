@@ -33,7 +33,7 @@
 (deftype hash-table ()
   `(satisfies hash-table-p))
 
-(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 50) (rehash-threshold 1))
+(defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5))
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
 	((eql test #'eql) (setf test 'eql))
@@ -67,10 +67,12 @@
 	 ;; Replacing an existing entry
 	 (setf (hash-table-value-at hash-table slot) value))
 	;; Adding a new entry.
-	((and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
-	      (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
+	((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
+                  (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
+             (>= (/ (hash-table-count hash-table) (hash-table-size hash-table))
+                 (hash-table-rehash-threshold hash-table)))
 	 ;; There must always be at least one unbound slot in the hash table.
-	 (hash-table-rehash hash-table)
+	 (hash-table-rehash hash-table t)
 	 (multiple-value-bind (slot free-slot)
 	     (find-hash-table-slot key hash-table hash)
 	   (declare (ignore slot))
@@ -115,7 +117,7 @@
 The second return value is the first available/empty slot in the hash-table for KEY.
 Requires at least one completely unbound slot to terminate."
   (when (hash-table-rehash-required hash-table)
-    (hash-table-rehash hash-table 1))
+    (hash-table-rehash hash-table nil))
   (do* ((free-slot nil)
         (size (hash-table-size hash-table))
         (test (hash-table-test hash-table))
@@ -136,10 +138,14 @@ Requires at least one completely unbound slot to terminate."
       (when (funcall test key slot-key)
 	(return (values offset free-slot))))))
 
-(defun hash-table-rehash (hash-table &optional (size-multiplier 3))
+(defun hash-table-rehash (hash-table resize-p)
   "Resize and rehash HASH-TABLE so that there are no tombstones the usage
 is below the rehash-threshold."
-  (let ((new-size (* (hash-table-size hash-table) size-multiplier))
+  (let ((new-size (if resize-p
+                      (if (floatp (hash-table-rehash-size hash-table))
+                          (ceiling (* (hash-table-size hash-table) (hash-table-rehash-size hash-table)))
+                          (+ (hash-table-size hash-table) (hash-table-rehash-size hash-table)))
+                      (hash-table-size hash-table)))
 	(old-size (hash-table-size hash-table))
 	(old-storage (hash-table-storage hash-table)))
     (setf (hash-table-storage hash-table) (make-array (* new-size 2)
