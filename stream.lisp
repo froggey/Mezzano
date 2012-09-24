@@ -24,9 +24,14 @@
 (defparameter *standard-output* (make-synonym-stream '*terminal-io*)
   "Default output stream.")
 
+(defparameter *stream-object-class* (find-class 'stream-object))
+
 (defun streamp (object)
   (or (synonym-stream-p object)
       (cold-stream-p object)
+      (and (boundp '*stream-object-class*)
+           (std-instance-p object)
+           (member *stream-object-class* (clos::class-precedence-list (std-instance-class object))))
       (typep object 'stream-object)))
 
 (setf (get 'stream 'type-symbol) 'streamp)
