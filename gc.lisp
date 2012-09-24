@@ -295,6 +295,7 @@
 
 (defun gc-object (object)
   (when (or (fixnump object)
+            (floatp object)
             (eql (%tag-field object) +tag-unbound-value+))
     ;; Attempting to shift the pointer-field of negative fixnums
     ;; about will cause a fixnum overflow.
