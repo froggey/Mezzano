@@ -31,7 +31,7 @@
             (logand integer (lognot (ash mask (byte-position bytespec)))))))
 
 ;;; From SBCL 1.0.55
-(defun ceiling (number divisor)
+(defun ceiling (number &optional (divisor 1))
   ;; If the numbers do not divide exactly and the result of
   ;; (/ NUMBER DIVISOR) would be positive then increment the quotient
   ;; and decrement the remainder by the divisor.
