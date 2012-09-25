@@ -553,21 +553,20 @@
 
 ;;; find-class
 
-(let ((class-table (make-hash-table :test #'eq)))
+(defvar *class-table* (make-hash-table :test #'eq))
 
-  (defun find-class (symbol &optional (errorp t))
-    (let ((class (gethash symbol class-table nil)))
-      (if (and (null class) errorp)
-          (error "No class named ~S." symbol)
-          class)))
+(defun find-class (symbol &optional (errorp t))
+  (let ((class (gethash symbol *class-table* nil)))
+    (if (and (null class) errorp)
+        (error "No class named ~S." symbol)
+        class)))
 
-  (defun (setf find-class) (new-value symbol)
-    (setf (gethash symbol class-table) new-value))
+(defun (setf find-class) (new-value symbol)
+  (setf (gethash symbol *class-table*) new-value))
 
-  (defun forget-all-classes ()
-    (clrhash class-table)
-    (values))
- ) ;end let class-table
+(defun forget-all-classes ()
+  (clrhash *class-table*)
+  (values))
 
 ;;; Ensure class
 
