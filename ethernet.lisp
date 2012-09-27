@@ -707,8 +707,8 @@
 (defgeneric transmit-packet (nic packet-descriptor))
 
 (defclass tcp-stream (sys.int::stream-object)
-  ((connection :initarg :connection)
-   (current-packet :initform nil)))
+  ((connection :initarg :connection :reader tcp-stream-connection)
+   (current-packet :initform nil :accessor tcp-stream-packet)))
 
 (defun encode-utf8-string (sequence start end)
   (let ((bytes (make-array (- end start)
@@ -723,26 +723,26 @@
     bytes))
 
 (defun refill-tcp-stream-buffer (stream)
-  (let ((connection (slot-value stream 'connection)))
-    (when (and (null (slot-value stream 'current-packet))
+  (let ((connection (tcp-stream-connection stream)))
+    (when (and (null (tcp-stream-packet stream))
                (tcp-connection-rx-data connection))
-      (setf (slot-value stream 'current-packet) (pop (tcp-connection-rx-data connection))))))
+      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
 (defun tcp-connection-closed-p (stream)
-  (let ((connection (slot-value stream 'connection)))
+  (let ((connection (tcp-stream-connection stream)))
     (refill-tcp-stream-buffer stream)
-    (and (null (slot-value stream 'current-packet))
+    (and (null (tcp-stream-packet stream))
          (not (eql (tcp-connection-state connection) :established))
          (not (eql (tcp-connection-state connection) :syn-received)))))
 
 (defmethod sys.int::stream-listen ((stream tcp-stream))
   (refill-tcp-stream-buffer stream)
-  (not (null (slot-value stream 'current-packet))))
+  (not (null (tcp-stream-packet stream))))
 
 (defmethod sys.int::stream-read-byte ((stream tcp-stream))
-  (let ((connection (slot-value stream 'connection)))
+  (let ((connection (tcp-stream-connection stream)))
     ;; Refill the packet buffer.
-    (when (null (slot-value stream 'current-packet))
+    (when (null (tcp-stream-packet stream))
       (sys.int::process-wait "TCP read" (lambda ()
                                           (or (tcp-connection-rx-data connection)
                                               (not (member (tcp-connection-state connection)
@@ -751,12 +751,12 @@
 		 (not (eql (tcp-connection-state connection) :established))
                  (not (eql (tcp-connection-state connection) :syn-received)))
 	(return-from sys.int::stream-read-byte nil))
-      (setf (slot-value stream 'current-packet) (first (tcp-connection-rx-data connection))
+      (setf (tcp-stream-packet stream) (first (tcp-connection-rx-data connection))
 	    (tcp-connection-rx-data connection) (cdr (tcp-connection-rx-data connection))))
-    (let* ((packet (slot-value stream 'current-packet))
+    (let* ((packet (tcp-stream-packet stream))
 	   (byte (aref (first packet) (second packet))))
       (when (>= (incf (second packet)) (third packet))
-	(setf (slot-value stream 'current-packet) nil))
+	(setf (tcp-stream-packet stream) nil))
       byte)))
 
 (defmethod sys.int::stream-read-char ((stream tcp-stream))
@@ -770,7 +770,7 @@
 (defmethod sys.int::stream-write-byte (byte (stream tcp-stream))
   (let ((ary (make-array 1 :element-type '(unsigned-byte 8)
                          :initial-element byte)))
-    (tcp-send (slot-value stream 'connection) ary)))
+    (tcp-send (tcp-stream-connection stream) ary)))
 
 (defmethod sys.int::stream-write-sequence (sequence (stream tcp-stream) start end)
   (cond ((stringp sequence)
@@ -778,7 +778,7 @@
         ((not (and (zerop start)
                    (eql end (length sequence))))
          (setf sequence (subseq sequence start end))))
-  (tcp-send (slot-value stream 'connection) sequence))
+  (tcp-send (tcp-stream-connection stream) sequence))
 
 (defmethod sys.int::stream-write-char (character (stream tcp-stream))
   (when (eql character #\Newline)
@@ -786,7 +786,7 @@
   (write-byte (char-code character) stream))
 
 (defmethod sys.int::stream-close ((stream tcp-stream) abort)
-  (let* ((connection (slot-value stream 'connection)))
+  (let* ((connection (tcp-stream-connection stream)))
     (setf (tcp-connection-state connection) :closing)
     (tcp4-send-packet connection
                       (tcp-connection-s-next connection)

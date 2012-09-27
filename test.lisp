@@ -165,23 +165,20 @@
     command-line))
 
 (defclass multiboot-module-stream (stream-object file-stream)
-  ((backing-array :initarg :backing-array)
-   (command-line :initarg :command-line)
-   (position :initarg :position))
+  ((backing-array :initarg :backing-array :reader mbm-data)
+   (command-line :initarg :command-line :reader mbm-command-line)
+   (position :initarg :position :accessor mbm-position :reader stream-file-position))
   (:default-initargs :position 0))
 
 (defmethod stream-read-byte ((stream multiboot-module-stream))
-  (when (< (slot-value stream 'position) (length (slot-value stream 'backing-array)))
-    (prog1 (aref (slot-value stream 'backing-array) (slot-value stream 'position))
-      (incf (slot-value stream 'position)))))
-
-(defmethod stream-file-position ((stream multiboot-module-stream))
-  (slot-value stream 'position))
+  (when (< (mbm-position stream) (length (mbm-data stream)))
+    (prog1 (aref (mbm-data stream) (mbm-position stream))
+      (incf (mbm-position stream)))))
 
 (defmethod stream-set-file-position ((stream multiboot-module-stream) new-position)
   (cond ((eql new-position :end)
-         (setf (slot-value stream 'position) (length (slot-value stream 'backing-array))))
-        (t (setf (slot-value stream 'position) new-position)))
+         (setf (mbm-position stream) (length (mbm-data stream))))
+        (t (setf (mbm-position stream) new-position)))
   new-position)
 
 (defmethod stream-element-type* ((stream multiboot-module-stream))
