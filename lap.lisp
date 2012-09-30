@@ -52,6 +52,9 @@ a vector of constants and an alist of symbols & addresses."
             (equalp prev-mc *machine-code*))
        (when *missing-symbols*
 	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
+       ;; Round the fill pointer up to nearest 16.
+       (setf (fill-pointer *machine-code*)
+             (* (ceiling (fill-pointer *machine-code*) 16) 16))
        (values *machine-code*
 	       *constant-pool*
                *fixups*
@@ -99,12 +102,14 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun emit-d16/le (&rest args)
   (dolist (a args)
+    (setf a (or (resolve-immediate a) 0))
     (check-type a (unsigned-byte 16))
     (emit (ldb (byte 8 0) a)
 	  (ldb (byte 8 8) a))))
 
 (defun emit-d32/le (&rest args)
   (dolist (a args)
+    (setf a (or (resolve-immediate a) 0))
     (check-type a (unsigned-byte 32))
     (emit (ldb (byte 8 0) a)
 	  (ldb (byte 8 8) a)
