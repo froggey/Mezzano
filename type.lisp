@@ -38,7 +38,7 @@
                   ((base-char-p object)
                    'base-char)
                   (t 'extended-char)))
-    (#b1011 'tag-11)
+    (#b1011 'single-float)
     (#b1100 (if (funcallable-std-instance-p object)
                 (class-name (class-of object))
                 'function))

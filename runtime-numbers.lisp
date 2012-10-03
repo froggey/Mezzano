@@ -30,6 +30,9 @@
     (logior (ash (logand newbyte mask) (byte-position bytespec))
             (logand integer (lognot (ash mask (byte-position bytespec)))))))
 
+(defun ldb-test (bytespec integer)
+  (not (zerop (ldb bytespec integer))))
+
 ;;; From SBCL 1.0.55
 (defun ceiling (number &optional (divisor 1))
   ;; If the numbers do not divide exactly and the result of
@@ -59,6 +62,46 @@
   (etypecase number
     (float number)
     (fixnum (%%coerce-fixnum-to-float number))))
+
+(define-lap-function %single-float-as-integer ()
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  (sys.lap-x86:shl64 :rax 3)
+  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(define-lap-function %integer-as-single-float ()
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 3)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(defun float-nan-p (float)
+  (let* ((bits (%single-float-as-integer float))
+         (exp (ldb (byte 8 23) bits))
+         (sig (ldb (byte 23 0) bits)))
+    (and (eql exp #xFF)
+         (not (zerop sig)))))
+
+(defun float-trapping-nan-p (float)
+  (let* ((bits (%single-float-as-integer float))
+         (exp (ldb (byte 8 23) bits))
+         (sig (ldb (byte 23 0) bits)))
+    (and (eql exp #xFF)
+         (not (zerop sig))
+         (not (ldb-test (byte 1 22) sig)))))
+
+(defun float-infinity-p (float)
+  (let* ((bits (%single-float-as-integer float))
+         (exp (ldb (byte 8 23) bits))
+         (sig (ldb (byte 23 0) bits)))
+    (and (eql exp #xFF)
+         (zerop sig))))
 
 (define-lap-function %%bignum-< ()
   (sys.lap-x86:push 0) ; align
