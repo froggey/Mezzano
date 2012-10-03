@@ -52,9 +52,8 @@ a vector of constants and an alist of symbols & addresses."
             (equalp prev-mc *machine-code*))
        (when *missing-symbols*
 	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
-       ;; Round the fill pointer up to nearest 16.
-       (setf (fill-pointer *machine-code*)
-             (* (ceiling (fill-pointer *machine-code*) 16) 16))
+       ;; Round the array size up to nearest 16.
+       (adjust-array *machine-code* (* (ceiling (length *machine-code*) 16) 16) :fill-pointer t)
        (values *machine-code*
 	       *constant-pool*
                *fixups*
