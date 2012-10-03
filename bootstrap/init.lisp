@@ -583,3 +583,10 @@
 ;; Misc stuff.
 (load "numbers.lisp")
 (load "file-compiler.lisp")
+
+(define-compiler-macro char= (&whole whole character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (cond ((null more-characters) (progn (check-type ,character character) 't))
+        ((null (rest more-characters))
+         `(eql ,character ,(first more-characters)))
+        (t whole)))
