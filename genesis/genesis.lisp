@@ -110,6 +110,9 @@ GENESIS-INTERN.")
     (setf (getf (genesis-symbol-plist sym) (genesis-intern "%MACRO-FUNCTION")) nil
           (symbol-function sym) value)))
 
+(defun genesis-fboundp (name)
+  (fboundp (resolve-function-name name)))
+
 (defun early-load (pathspec)
   (format t "; Loading file ~S:~%" pathspec)
   (with-open-file (s pathspec)
@@ -263,7 +266,7 @@ GENESIS-INTERN.")
   (make-symbol (crunch-string name)))
 (define-forwarding-builtin symbolp)
 (define-forwarding-builtin boundp)
-(define-forwarding-builtin fboundp)
+(define-forwarding-builtin fboundp genesis-fboundp nil)
 (define-forwarding-builtin makunbound)
 (define-forwarding-builtin fmakunbound)
 
