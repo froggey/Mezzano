@@ -24,9 +24,9 @@
 ;;; Compute the true end of the image by examining the multiboot header.
 ;;; FIXME: This must be done as part of the initialization process.
 ;;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
-(when (logtest (memref-unsigned-byte-32 *multiboot-info* 0) +multiboot-flag-modules+)
-  (let ((module-count (memref-unsigned-byte-32 *multiboot-info* 5))
-        (module-base (+ #x8000000000 (memref-unsigned-byte-32 *multiboot-info* 6))))
+(when (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+  (let ((module-count (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5))
+        (module-base (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6))))
     (unless (zerop module-count)
       (setf *bump-pointer* (+ #x8000000000
                               (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1))))
