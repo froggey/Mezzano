@@ -168,6 +168,8 @@
 (defvar *area-info*)
 (defvar *symbol-table*)
 (defvar *keyword-table*)
+(defvar *setf-table*)
+(defvar *struct-table*)
 (defvar *undefined-function-address*)
 (defvar *load-time-evals*)
 
@@ -328,7 +330,7 @@
                name))
       (let ((address (allocate 6)))
         (setf (word address) (make-value (store-string name)
-                                           +tag-array-like+)
+                                         +tag-array-like+)
               (word (+ address 1)) (make-value (gethash "T" *symbol-table*) +tag-symbol+)
               (word (+ address 2)) (if keywordp
                                        (make-value address +tag-symbol+)
@@ -339,6 +341,19 @@
               (word (+ address 5)) (make-fixnum 0))
         (setf (gethash name (if keywordp *keyword-table* *symbol-table*)) address))))
 
+(defun resolve-setf-symbol (symbol)
+  (or (gethash (symbol-name symbol) *setf-table*)
+      (let ((name (symbol-name symbol))
+            (address (allocate 6)))
+        (setf (word address) (make-value (store-string name)
+                                         +tag-array-like+)
+              (word (+ address 1)) (make-value (gethash "NIL" *symbol-table*) +tag-symbol+)
+              (word (+ address 2)) (make-value 0 +tag-unbound-value+)
+              (word (+ address 3)) (make-value *undefined-function-address* +tag-function+)
+              (word (+ address 4)) (make-value (gethash "NIL" *symbol-table*) +tag-symbol+)
+              (word (+ address 5)) (make-fixnum 0))
+        (setf (gethash name *setf-table*) address))))
+
 ;; fixme, nil and t should be constant.
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
@@ -348,14 +363,14 @@
     (setf (word nil-value) (make-value (store-string "NIL")
                                          +tag-array-like+)
           (word (+ nil-value 1)) (make-value t-value +tag-symbol+)
-          (word (+ nil-value 2)) (make-value 0 +tag-unbound-value+)
+          (word (+ nil-value 2)) (make-value nil-value +tag-symbol+)
           (word (+ nil-value 3)) (make-value undef-fn +tag-function+)
           (word (+ nil-value 4)) (make-value nil-value +tag-symbol+)
           (word (+ nil-value 5)) (make-fixnum 0))
     (setf (word t-value) (make-value (store-string "T")
                                        +tag-array-like+)
           (word (+ t-value 1)) (make-value t-value +tag-symbol+)
-          (word (+ t-value 2)) (make-value 0 +tag-unbound-value+)
+          (word (+ t-value 2)) (make-value t-value +tag-symbol+)
           (word (+ t-value 3)) (make-value undef-fn +tag-function+)
           (word (+ t-value 4)) (make-value nil-value +tag-symbol+)
           (word (+ t-value 5)) (make-fixnum 0))
@@ -504,6 +519,14 @@
           (setf (word (+ obarray 1 i)) (make-value address +tag-symbol+)))
     (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
 
+(defun generate-struct-obarray (symtab target-symbol)
+  (let ((obarray (allocate (1+ (hash-table-count symtab)))))
+    (setf (word obarray) (array-header +array-type-t+ (hash-table-count symtab)))
+    (iter (for (nil address) in-hashtable symtab)
+          (for i from 0)
+          (setf (word (+ obarray 1 i)) (make-value (first address) +tag-array-like+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
+
 (defun write-map-file (image-name map)
   (with-open-file (s (format nil "~A.map" image-name)
                      :direction :output
@@ -516,6 +539,8 @@
         (*pending-fixups* '())
         (*symbol-table* (make-hash-table :test 'equal))
         (*keyword-table* (make-hash-table :test 'equal))
+        (*setf-table* (make-hash-table :test 'equal))
+        (*struct-table* (make-hash-table))
         (*undefined-function-address* nil)
         (*load-time-evals* '())
         (*function-map* '())
@@ -534,9 +559,12 @@
     (mapc (lambda (sym) (symbol-address (string sym) nil))
           '(*gdt* *idt* *%setup-stack* *%setup-function*
             *multiboot-header* *multiboot-info*
-            *initial-obarray* *initial-keyword-obarray*))
+            *initial-obarray* *initial-keyword-obarray*
+            *initial-setf-obarray* *initial-structure-obarray*))
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
+    (generate-obarray *setf-table* '*initial-setf-obarray*)
+    (generate-struct-obarray *struct-table* '*initial-structure-obarray*)
     ;; Create GDT.
     (setf gdt (allocate 3 'support-area)
           (word gdt) (array-header +array-type-unsigned-byte-64+ 2)
@@ -646,7 +674,7 @@
     ;; Header word.
     (setf (word address) (logior (ash len 8) (ash +array-type-t+ 1)))
     (dotimes (i len)
-      (setf (word (+ address i)) (load-object stream omap)))
+      (setf (word (+ address 1 i)) (load-object stream omap)))
     (make-value address +tag-array-like+)))
 
 (defun load-string (stream)
@@ -670,6 +698,23 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
+(defun load-structure-definition (stream omap)
+  (let* ((name* (load-object stream omap))
+         (name (extract-object name*))
+         (slots* (load-object stream omap))
+         (slots (extract-object slots*))
+         (definition (gethash name *struct-table*)))
+    (cond (definition
+           (ensure-structure-layout-compatible definition slots)
+           (make-value (first definition) +tag-array-like+))
+          (t (let ((address (allocate 4)))
+               (setf (word address) (array-header +array-type-struct+ 3))
+               (setf (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
+               (setf (word (+ address 2)) name*)
+               (setf (word (+ address 3)) slots*)
+               (setf (gethash name *struct-table*) (list address name slots))
+               (make-value address +tag-array-like+))))))
+
 (defun llf-next-is-unbound-p (stream)
   (let ((current-position (file-position stream)))
     (cond ((eql (read-byte stream) +llf-unbound+)
@@ -691,6 +736,13 @@
 (defun extract-object (value)
   (let ((address (pointer-part value)))
     (ecase (tag-part value)
+      ;; FIXME: Negative numbers...
+      ((#.+tag-even-fixnum+
+        #.+tag-odd-fixnum+)
+       (ash value -3))
+      (#.+tag-cons+
+       (cons (extract-object (word address))
+             (extract-object (word (1+ address)))))
       (#.+tag-symbol+
        (let ((name (extract-object (word address)))
              (package (word (+ address 1))))
@@ -772,17 +824,16 @@
              (word (+ address 4)) (load-object stream omap)
              (word (+ address 5)) (make-fixnum 0))
        (make-value address +tag-symbol+)))
-    #+nil(#.+llf-string+ (load-string stream))
-    #+nil(#.+llf-setf-symbol+
-     (let ((symbol (load-object stream omap)))
-       (function-symbol `(setf ,symbol))))
+    (#.+llf-string+ (load-string stream))
+    (#.+llf-setf-symbol+
+     (make-value (resolve-setf-symbol (load-object-in-host stream omap))
+                 +tag-symbol+))
     (#.+llf-integer+ (make-fixnum (load-integer stream)))
-    #+nil(#.+llf-simple-vector+ (load-vector stream omap))
+    (#.+llf-simple-vector+ (load-vector stream omap))
     (#.+llf-character+ (make-value (load-character stream)
                                    +tag-character+))
-    #+nil(#.+llf-structure-definition+
-     (make-struct-type (load-object stream omap)
-                       (load-object stream omap)))
+    (#.+llf-structure-definition+
+     (load-structure-definition stream omap))
     (#.+llf-single-float+
      (logior (ash (load-integer stream) 32)
              +tag-single-float+))))
@@ -804,7 +855,6 @@
        (let* ((fn-value (load-object stream omap))
               (base-name (load-object stream omap))
               (name (resolve-function-name base-name)))
-         (format t "Setting (fdefinition ~X) to ~X~%" name fn-value)
          (setf (word (+ (pointer-part name) 3)) fn-value)))
       (#.+llf-unbound+ (error "Should not seen UNBOUND here."))
       (t (let ((id (hash-table-count omap)))
@@ -817,7 +867,11 @@
   (let ((name (extract-object value)))
     (cond ((symbolp name)
            value)
-          (t (error "TODO: setf symbols.")))))
+          ((and (= (list-length name) 2)
+                (eql (first name) 'setf)
+                (symbolp (second name)))
+           (make-value (resolve-setf-symbol (second name)) +tag-symbol+))
+          (t (error "Unknown function name ~S." name)))))
 
 (defun load-source-file (file)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
@@ -850,8 +904,8 @@
                       (ecase what
                         ((nil t) (make-value (symbol-address (symbol-name what) nil)
                                                +tag-symbol+))
-                        (:undefined-function (make-value *undefined-function-address*
-                                                           +tag-function+)))))
+                        ((:undefined-function undefined-function)
+                         (make-value *undefined-function-address* +tag-function+)))))
            (length (ecase type
                      (:signed32 (check-type value (signed-byte 32))
                                 4)
