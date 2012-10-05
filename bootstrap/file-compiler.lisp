@@ -309,7 +309,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         (do ((form (read input-stream nil eof-marker)
                    (read input-stream nil eof-marker)))
             ((eql form eof-marker))
-          (format t ";; Compiling form ~S.~%" form)
+          (let ((*print-length* 3)
+                (*print-level* 3))
+            (declare (special *print-length* *print-level*))
+            (format t ";; Compiling form ~S.~%" form))
           ;; TODO: Deal with lexical environments.
           (handle-top-level-form form
                                  (lambda (f env)

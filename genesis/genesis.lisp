@@ -669,12 +669,18 @@ GENESIS-INTERN.")
              recursive-p))
 (define-forwarding-builtin unread-char unread-char nil)
 (defbuiltin format (stream control &rest arguments)
-  (apply 'format
-         (if (eql stream (genesis-intern "T"))
-             't
-             stream)
-         control
-         arguments))
+  (let ((*print-length* (or (and (boundp (genesis-intern "*PRINT-LENGTH*"))
+                                 (symbol-value (genesis-intern "*PRINT-LENGTH*")))
+                            *print-length*))
+        (*print-level* (or (and (boundp (genesis-intern "*PRINT-LEVEL*"))
+                                (symbol-value (genesis-intern "*PRINT-LEVEL*")))
+                           *print-level*)))
+    (apply 'format
+           (if (eql stream (genesis-intern "T"))
+               't
+               stream)
+           control
+           arguments)))
 
 (defstruct (genesis-std-instance
              (:constructor make-genesis-std-instance (class slots)))
