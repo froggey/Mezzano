@@ -2,7 +2,7 @@
 
 ;;; This needs to be redone with CLOS in mind.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defvar *structure-type-type* nil)
 
@@ -24,12 +24,16 @@
   (%struct-slot object 2))
 
 ;;; Bootstrap the defstruct system.
-(unless *structure-type-type*
-  (setf *structure-type-type* (make-struct-type 'structure-definition
+(defun bootstrap-defstruct ()
+  (setf *structure-type-type* nil
+        *structure-type-type* (make-struct-type 'structure-definition
 						'((name structure-name nil t t)
 						  (slots structure-slots nil t t))))
   (setf (%struct-slot *structure-type-type* 0) *structure-type-type*)
   (setf (get 'structure-definition 'structure-type) *structure-type-type*))
+
+(unless *structure-type-type*
+  (bootstrap-defstruct))
 
 (defun parse-defstruct-options (name-and-options)
   (let ((name nil)

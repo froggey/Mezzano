@@ -2,7 +2,7 @@
 ;;;; This file is loaded at bootstrap time and once more after the compiler
 ;;;; is loaded, so it should only contain final versions of the functions.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (declaim (inline caar cadr cdar cddr
 		 (setf caar) (setf cadr)
