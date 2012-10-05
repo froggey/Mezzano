@@ -171,6 +171,7 @@
 (defvar *undefined-function-address*)
 (defvar *load-time-evals*)
 
+(defvar *function-map*)
 (defvar *pending-fixups*)
 
 (defun allocate (word-count &optional (area 'runtime-allocation-area))
@@ -503,6 +504,13 @@
           (setf (word (+ obarray 1 i)) (make-value address +tag-symbol+)))
     (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
 
+(defun write-map-file (image-name map)
+  (with-open-file (s (format nil "~A.map" image-name)
+                     :direction :output
+                     :if-exists :supersede)
+    (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
+          (format s "~X ~A~%" (make-value addr +tag-function+) name))))
+
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*area-info* (create-area-info *initial-areas*))
         (*pending-fixups* '())
@@ -510,6 +518,7 @@
         (*keyword-table* (make-hash-table :test 'equal))
         (*undefined-function-address* nil)
         (*load-time-evals* '())
+        (*function-map* '())
         (setup-fn nil)
         (gdt nil)
         (idt nil)
@@ -566,6 +575,7 @@
     (setf (cold-symbol-value '*multiboot-header*) multiboot)
     (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     (apply-fixups *pending-fixups*)
+    (write-map-file image-name *function-map*)
     (write-image image-name description)))
 
 (defun load-source-files (files)
@@ -728,6 +738,9 @@
        (file-position stream constants-position)
        (dotimes (i constants-length)
          (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i)) (load-object stream omap)))
+       ;; Add to the function map.
+       (push (list address (extract-object (word (+ address (* (ceiling (+ mc-length 12) 16) 2)))))
+             *function-map*)
        ;; Add fixups to the list.
        (dolist (fixup fixups)
          (push (list (car fixup) address (cdr fixup) :signed32)
