@@ -482,6 +482,27 @@
     (setf (word (+ (symbol-address "*INITIAL-STACK-GROUP*" nil) 2))
           (make-value address +tag-array-like+))))
 
+(defun (setf cold-symbol-value) (value symbol)
+  (setf (word (+ (symbol-address (symbol-name symbol) (keywordp symbol)) 2)) value))
+
+(defun generate-toplevel-form-array (functions symbol)
+  ;; Generate array of toplevel forms to eval.
+  (let* ((n (length functions))
+         (toplevel-forms (allocate (1+ n))))
+    (setf (word toplevel-forms) (array-header +array-type-t+ n))
+    (iter (for i from 0)
+          (for fn in functions)
+          (setf (word (+ toplevel-forms 1 i)) fn))
+    (setf (cold-symbol-value symbol) (make-value toplevel-forms +tag-array-like+))))
+
+(defun generate-obarray (symtab target-symbol)
+  (let ((obarray (allocate (1+ (hash-table-count symtab)))))
+    (setf (word obarray) (array-header +array-type-t+ (hash-table-count symtab)))
+    (iter (for (nil address) in-hashtable symtab)
+          (for i from 0)
+          (setf (word (+ obarray 1 i)) (make-value address +tag-symbol+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
+
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*area-info* (create-area-info *initial-areas*))
         (*pending-fixups* '())
@@ -499,19 +520,30 @@
     (create-initial-stack-group)
     (load-source-files *source-files*)
     (load-source-files extra-source-files)
+    (generate-toplevel-form-array (reverse *load-time-evals*) '*cold-toplevel-forms*)
+    ;; Poke a few symbols to ensure they exist.
+    (mapc (lambda (sym) (symbol-address (string sym) nil))
+          '(*gdt* *idt* *%setup-stack* *%setup-function*
+            *multiboot-header* *multiboot-info*
+            *initial-obarray* *initial-keyword-obarray*))
+    (generate-obarray *symbol-table* '*initial-obarray*)
+    (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     ;; Create GDT.
     (setf gdt (allocate 3 'support-area)
           (word gdt) (array-header +array-type-unsigned-byte-64+ 2)
           (word (+ gdt 1)) 0
           (word (+ gdt 2)) #x00209A0000000000)
+    (setf (cold-symbol-value '*gdt*) gdt)
     ;; Create IDT.
     (setf idt (allocate 257 'support-area)
           (word idt) (array-header +array-type-unsigned-byte-64+ 256))
     (dotimes (i 256)
       (setf (word (1+ idt)) 0))
+    (setf (cold-symbol-value '*idt*) idt)
     ;; Create the setup stack.
     (setf initial-stack (allocate 8 'support-area)
           (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
+    (setf (cold-symbol-value '*%setup-stack*) initial-stack)
     ;; Generate page tables.
     (setf initial-pml4 (create-page-tables))
     ;; Create setup function.
@@ -522,6 +554,7 @@
                                                (cons 'idt-length (1- (* 256 8)))
                                                (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                (cons 'initial-page-table initial-pml4))))
+    (setf (cold-symbol-value '*%setup-function*) setup-fn)
     ;; Create multiboot header.
     (setf multiboot (allocate 5 'support-area)
           (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
@@ -530,6 +563,7 @@
                                                  (* (1+ multiboot) 8))
           (word (+ multiboot 3)) (pack-halfwords #x200000 0)
           (word (+ multiboot 4)) (pack-halfwords 0 (make-value setup-fn +tag-function+)))
+    (setf (cold-symbol-value '*multiboot-header*) multiboot)
     (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     (apply-fixups *pending-fixups*)
     (write-image image-name description)))
