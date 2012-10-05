@@ -6,6 +6,23 @@
 (defparameter *source-files*
   '("../cold/test.lisp"))
 
+(defconstant +tag-even-fixnum+   #b0000)
+(defconstant +tag-cons+          #b0001)
+(defconstant +tag-symbol+        #b0010)
+(defconstant +tag-array-header+  #b0011)
+(defconstant +tag-std-instance+  #b0100)
+;;(defconstant +tag-+  #b0101)
+;;(defconstant +tag-+  #b0110)
+(defconstant +tag-array-like+    #b0111)
+(defconstant +tag-odd-fixnum+    #b1000)
+;;(defconstant +tag-+  #b1001)
+(defconstant +tag-character+     #b1010)
+(defconstant +tag-single-float+  #b1011)
+(defconstant +tag-function+      #b1100)
+;;(defconstant +tag-+  #b1101)
+(defconstant +tag-unbound-value+ #b1110)
+(defconstant +tag-gc-forward+    #b1111)
+
 ;; name, allocation mode, initial size (2MB pages), <2gb addresses only.
 (defparameter *initial-areas*
   '((support-area :static 1 t)
@@ -194,6 +211,7 @@
         :initial-symbols (list* '(nil . :fixup)
                                 '(t . :fixup)
                                 extra-symbols))
+    (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
     (let ((total-size (+ (* (truncate (length mc) 16) 2)
                          (length constants))))
       (when (oddp total-size) (incf total-size))
@@ -201,6 +219,9 @@
         ;; Copy machine code into the area.
         (dotimes (i (truncate (length mc) 8))
           (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
+        ;; Set header word.
+        (setf (word address) (logior (ash (truncate (length mc) 16) 16)
+                                     (ash (length constants) 32)))
         ;; Write constant pool.
         (dotimes (i (length constants))
           (cond ((assoc (aref constants i) constant-values)
@@ -255,23 +276,6 @@
 (defun make-fixnum (value)
   (check-type value (signed-byte 61))
   (ldb (byte 64 0) (ash value 3)))
-
-(defconstant +tag-even-fixnum+   #b0000)
-(defconstant +tag-cons+          #b0001)
-(defconstant +tag-symbol+        #b0010)
-(defconstant +tag-array-header+  #b0011)
-(defconstant +tag-std-instance+  #b0100)
-;;(defconstant +tag-+  #b0101)
-;;(defconstant +tag-+  #b0110)
-(defconstant +tag-array-like+    #b0111)
-(defconstant +tag-odd-fixnum+    #b1000)
-;;(defconstant +tag-+  #b1001)
-(defconstant +tag-character+     #b1010)
-(defconstant +tag-single-float+  #b1011)
-(defconstant +tag-function+      #b1100)
-;;(defconstant +tag-+  #b1101)
-(defconstant +tag-unbound-value+ #b1110)
-(defconstant +tag-gc-forward+    #b1111)
 
 (defconstant +array-type-t+ 0)
 (defconstant +array-type-base-char+ 1)
@@ -765,7 +769,6 @@
 (defun resolve-function-name (value)
   (let ((name (extract-object value)))
     (cond ((symbolp name)
-           (format t "Resolved function ~S to ~S~%" name value)
            value)
           (t (error "TODO: setf symbols.")))))
 
