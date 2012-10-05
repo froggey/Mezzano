@@ -560,7 +560,9 @@
           '(*gdt* *idt* *%setup-stack* *%setup-function*
             *multiboot-header* *multiboot-info*
             *initial-obarray* *initial-keyword-obarray*
-            *initial-setf-obarray* *initial-structure-obarray*))
+            *initial-setf-obarray* *initial-structure-obarray*
+            *newspace-offset* *semispace-size* *newspace*
+            *static-bump-pointer* *static-area-size* *static-mark-bit*))
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
@@ -592,6 +594,7 @@
                                                (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                (cons 'initial-page-table initial-pml4))))
     (setf (cold-symbol-value '*%setup-function*) setup-fn)
+    (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     ;; Create multiboot header.
     (setf multiboot (allocate 5 'support-area)
           (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
@@ -601,7 +604,20 @@
           (word (+ multiboot 3)) (pack-halfwords #x200000 0)
           (word (+ multiboot 4)) (pack-halfwords 0 (make-value setup-fn +tag-function+)))
     (setf (cold-symbol-value '*multiboot-header*) multiboot)
-    (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
+    ;; Initialize GC twiddly bits.
+    (flet ((set-value (symbol value)
+             (format t "~A is ~X~%" symbol value)
+             (setf (cold-symbol-value symbol) (make-fixnum value))))
+      (set-value '*newspace-offset* (first (nth (position 'runtime-allocation-area *initial-areas* :key 'first) *area-info*)))
+      (set-value '*semispace-size* (* (third (assoc 'runtime-allocation-area *initial-areas*)) #x40000))
+      (set-value '*newspace* (* (second (nth (position 'runtime-allocation-area *initial-areas* :key 'first) *area-info*)) #x200000))
+      (set-value '*static-bump-pointer* (+ (* (second (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) #x200000)
+                                           (* (first (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) 8)))
+      (set-value '*static-area-size* (+ (* (second (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) #x40000)
+                                        (* (third (assoc 'function-area *initial-areas*)) #x40000)))
+      (set-value '*static-mark-bit* 0)
+      (set-value '*bump-pointer* (+ (* (second (nth (position 'stack-area *initial-areas* :key 'first) *area-info*)) #x200000)
+                                    (* (first (nth (position 'stack-area *initial-areas* :key 'first) *area-info*)) 8))))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name description)))
