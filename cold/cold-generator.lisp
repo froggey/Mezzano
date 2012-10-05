@@ -4,7 +4,14 @@
 (in-package #:cold-generator)
 
 (defparameter *source-files*
-  '("../cold/test.lisp"))
+  '("../cold/test.lisp"
+    "../gc.lisp"
+    "../runtime-array.lisp"
+    "../runtime-numbers.lisp"
+    "../stack-group.lisp"
+    "../bootstrap/defstruct.lisp"
+    "../bootstrap/early-cons.lisp"
+    "../printer.lisp"))
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
