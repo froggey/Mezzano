@@ -1,4 +1,4 @@
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defvar *read-base* 10 "The current input base.")
 (defvar *read-eval* t "Controls the #. reader macro.")

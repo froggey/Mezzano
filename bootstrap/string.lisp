@@ -1,6 +1,6 @@
 ;;;; String functions. These replace most of the genesis string functions.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defun string (x)
   (etypecase x

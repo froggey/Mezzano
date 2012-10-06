@@ -1,6 +1,6 @@
 ;;;; Full versions of the sequence functions.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 ;;; FIXME: Should be a class.
 (deftype sequence ()
