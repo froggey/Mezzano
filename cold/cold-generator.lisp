@@ -541,6 +541,11 @@
     (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
           (format s "~X ~A~%" (make-value addr +tag-function+) name))))
 
+;; Ugh.
+(defun load-compiler-builtins ()
+  (genesis::genesis-eval (list (genesis::genesis-intern "SAVE-COMPILER-BUILTINS") "%%compiler-builtins.llf"))
+  (load-source-file "%%compiler-builtins.llf"))
+
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*area-info* (create-area-info *initial-areas*))
         (*pending-fixups* '())
@@ -559,6 +564,7 @@
         (initial-pml4))
     (create-support-objects)
     (create-initial-stack-group)
+    (load-compiler-builtins)
     (load-source-files *source-files*)
     (load-source-files extra-source-files)
     (generate-toplevel-form-array (reverse *load-time-evals*) '*cold-toplevel-forms*)
@@ -899,8 +905,9 @@
 (defun load-source-file (file)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
         (omap (make-hash-table)))
-    (when (or (not (probe-file llf-path))
-              (<= (file-write-date llf-path) (file-write-date file)))
+    (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
+               (or (not (probe-file llf-path))
+                   (<= (file-write-date llf-path) (file-write-date file))))
       (format t "~A is out of date will be recompiled.~%" llf-path)
       (genesis::genesis-eval (list (genesis::genesis-intern "COMPILE-FILE") file)))
     (format t ";; Loading ~S.~%" llf-path)
