@@ -9,9 +9,19 @@
     "../runtime-array.lisp"
     "../runtime-numbers.lisp"
     "../stack-group.lisp"
+    "../bootstrap/string.lisp"
+    "../bootstrap/type.lisp"
+    "../bootstrap/sequence.lisp"
+    "../bootstrap/array.lisp"
+    "../bootstrap/numbers.lisp"
     "../bootstrap/defstruct.lisp"
+    "../bootstrap/hash-table.lisp"
     "../bootstrap/early-cons.lisp"
-    "../printer.lisp"))
+    "../bootstrap/reader.lisp"
+    "../character.lisp"
+    "../printer.lisp"
+    "../cold-stream.lisp"
+    "../cold/eval.lisp"))
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)

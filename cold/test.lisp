@@ -7,10 +7,36 @@
                   *initial-structure-obarray*)
          (special *terminal-io*
                   *standard-output*
-                  *standard-input*))
+                  *standard-input*
+                  *screen-offset*
+                  *keyboard-shifted*))
 
 (defun write-char (character &optional stream)
-  (setf (io-port/8 #xE9) (logand (char-code character) #xFF)))
+  (cold-write-char character stream))
+
+(defun start-line-p (stream)
+  (cold-start-line-p stream))
+
+(defun read-char (&optional stream (eof-error-p t) eof-value recursive-p)
+  (cold-read-char stream))
+
+(defun unread-char (character &optional stream)
+  (cold-unread-char character stream))
+
+(defun peek-char (&optional peek-type s (eof-error-p t) eof-value recursive-p)
+  (cond ((eql peek-type nil)
+         (let ((ch (cold-read-char s)))
+           (cold-unread-char ch s)
+           ch))
+        ((eql peek-type t)
+         (do ((ch (cold-read-char s)
+                  (cold-read-char s)))
+             ((not (whitespace[2]p ch))
+              (cold-unread-char ch s)
+              ch)))
+        ((characterp peek-type)
+         (error "TODO: character peek."))
+        (t (error "Bad peek type ~S." peek-type))))
 
 (defun raise-undefined-function (invoked-through &rest args)
   (declare (ignore args))
@@ -34,17 +60,49 @@
   (write datum)
   (loop (%hlt)))
 
-(defun length (sequence)
-  (etypecase sequence
-    (list (or (list-length sequence)
-	      (error 'simple-type-error
-		     :expected-type 'sequence
-		     :datum sequence
-		     :format-control "List ~S is circular."
-		     :format-arguments (list sequence))))
-    (vector (if (array-has-fill-pointer-p sequence)
-		(fill-pointer sequence)
-		(array-dimension sequence 0)))))
+(defun error (datum &rest arguments)
+  (write-char #\!)
+  (write datum)
+  (write-char #\Space)
+  (write arguments)
+  (loop (%hlt)))
+
+;; NOTE: incomplete.
+(defun equal (x y)
+  (cond
+    ((eql x y))
+    ((stringp x)
+     (and (stringp y)
+          (string= x y)))
+    ((consp x)
+     (and (consp y)
+	  (equal (car x) (car y))
+	  (equal (cdr x) (cdr y))))))
+
+(defun equalp (x y)
+  (typecase x
+    (character (and (characterp y)
+                    (char-equal x y)))
+    (number (and (numberp y)
+                 (= x y)))
+    (cons (and (consp y)
+               (equalp (car x) (car y))
+               (equalp (cdr x) (cdr y))))
+    (vector (and (vectorp y)
+                 (eql (length x) (length y))
+                 (dotimes (i (length x) t)
+                   (when (not (equalp (aref x i) (aref y i)))
+                     (return nil)))))
+    (array (and (arrayp y)
+                (equalp (array-dimensions x) (array-dimensions y))
+                (dotimes (i (array-total-size x) t)
+                  (when (not (equalp (row-major-aref x i) (row-major-aref y i)))
+                    (return nil)))))
+    ;; TODO: structures and hash-tables.
+    (t (eq x y))))
+
+(defun %with-stream-editor (stream recursive-p function)
+  (funcall function))
 
 (defun endp (list)
   (cond ((null list) t)
@@ -53,154 +111,30 @@
                   :datum list
                   :expected-type 'list))))
 
-(defun char (string index)
-  (schar string index))
-
-(defun vectorp (object)
-  (or (and (%array-header-p object)
-	   (fixnump (%array-header-dimensions object)))
-      (%simple-array-p object)))
-
-(defun array-has-fill-pointer-p (array)
-  (check-type array array)
-  (when (%array-header-p array)
-    (%array-header-fill-pointer array)))
-
-(defun fill-pointer (vector)
-  (check-vector-has-fill-pointer vector)
-  (%array-header-fill-pointer vector))
-
-(defun (setf fill-pointer) (new-value vector)
-  (check-type new-value (integer 0))
-  ;; Not sure if this should allow adding a fill-pointer to a vector
-  ;; that doesn't already have one.
-  (check-vector-has-fill-pointer vector)
-  (unless (<= 0 new-value (%array-header-dimensions vector))
-    (error "New fill-pointer ~S exceeds vector bounds. Should be non-negative and <=~S."
-	   new-value (%array-header-dimensions vector)))
-  (setf (%array-header-fill-pointer vector) new-value))
-
-(defun arrayp (object)
-  (or (%array-header-p object)
-      (%simple-array-p object)))
-
-(defun array-element-type (array)
-  (check-type array array)
-  (if (%array-header-p array)
-      (cond ((or (null (%array-header-dimensions array))
-		 (integerp (%array-header-storage array)))
-	     ;; 0D and memory arrays store the type in the info slot.
-	     (%array-header-info array))
-	    ((%array-header-info array)
-	     ;; Displaced arrays inherit the type of the array they displace on.
-	     (array-element-type (%array-header-storage array)))
-	    (t ;; Normal arrays use the type of their storage simple array.
-	     (%simple-array-element-type (%array-header-storage array))))
-      (%simple-array-element-type array)))
-
-(defun array-rank (array)
-  (check-type array array)
-  (cond ((%array-header-p array)
-	 (if (fixnump (%array-header-dimensions array))
-	     1
-	     (list-length (%array-header-dimensions array))))
-	(t 1)))
-
-(defun array-dimensions (array)
-  (check-type array array)
-  (cond ((%array-header-p array)
-	 (if (fixnump (%array-header-dimensions array))
-	     (list (%array-header-dimensions array))
-	     (%array-header-dimensions array)))
-	(t (list (array-dimension array 0)))))
-
-(defun array-dimension (array axis-number)
-  (check-type array array)
-  (check-type axis-number (integer 0) "a non-negative integer")
-  (cond ((%array-header-p array)
-	 (let* ((dims (%array-header-dimensions array))
-		(rank (if (fixnump dims)
-			  1
-			  (list-length dims))))
-	   (when (>= axis-number rank)
-	     (error "Axis ~S exceeds array rank ~S." axis-number rank))
-	   (if (fixnump dims)
-	       dims
-	       (nth axis-number dims))))
-	(t (unless (zerop axis-number)
-	     (error "Axis ~S exceeds array rank 1." axis-number))
-	   (%simple-array-length array))))
-
-(defun %row-major-aref (array index)
-  "ROW-MAJOR-AREF with no bounds check."
-  (if (%array-header-p array)
-      (cond ((null (%array-header-dimensions array))
-	     ;; 0D array, value is stored in the storage slot.
-	     (%array-header-storage array))
-	    ((null (%array-header-info array))
-	     ;; Normal array, must be backed by a simple array.
-	     (%simple-array-aref (%array-header-storage array) index))
-	    ((fixnump (%array-header-info array))
-	     ;; Displaced array.
-	     (row-major-aref (%array-header-storage array) (+ index (%array-header-info array))))
-	    (t ;; Direct memory access array.
-	     (%memory-aref (%array-header-info array) (%array-header-storage array) index)))
-      (%simple-array-aref array index)))
-
-(defun aref-1 (array index)
-  (unless (= (array-rank array) 1)
-    (error "Invalid number of indices to array ~S." array))
-  (when (>= index (array-dimension array 0))
-    (error "Index ~S out of bounds. Must be 0 <= n < ~D~%"
-           index (array-dimension array 0)))
-  (%row-major-aref array index))
-
-(defun elt (sequence index)
-  (check-type sequence sequence)
-  (if (listp sequence)
-      ;; TODO: more error checking.
-      (nth index sequence)
-      (aref sequence index)))
-
-(defun stringp (object)
-  (or (simple-string-p object)
-      (and (vectorp object)
-           (let ((element-type (array-element-type object)))
-             (or (eql element-type 'nil)
-                 (eql element-type 'base-char)
-                 (eql element-type 'character))))))
-
-(defun string (x)
-  (etypecase x
-    (string x)
-    (character (make-array 1 :element-type 'character :initial-element x))
-    (symbol (symbol-name x))))
-
-(defun string= (string1 string2 &key (start1 0) end1 (start2 0) end2)
-    "Returns true if STRING1 and STRING2 are the same length and contain the
-same characters in the corresponding positions; otherwise it returns false."
-  (compare-sequence 'char= (string string1) (string string2)
-		    :start1 start1 :end1 end1
-		    :start2 start2 :end2 end2))
-
-(defun char= (c &rest args)
-  (dolist (a args t)
-    (when (not (eql a c))
-      (return nil))))
-
 (defun find-package-or-die (name)
   nil)
 (defun find-package (name)
   nil)
 (defun keywordp (object)
   (find object *initial-keyword-obarray*))
-(defun find-symbol (name package)
+(defun find-symbol (name &optional package)
   (let ((pkg (if (string= package "KEYWORD")
                  *initial-keyword-obarray*
                  *initial-obarray*)))
     (dotimes (i (length pkg) (values nil nil))
-      (when (string= name (symbol-name (svref pkg i)))
-        (return (values (svref pkg i) :internal))))))
+      (when (string= name (symbol-name (aref pkg i)))
+        (return (values (aref pkg i) :internal))))))
+(defun intern (name &optional package)
+  (let ((pkg (if (string= package "KEYWORD")
+                 *initial-keyword-obarray*
+                 *initial-obarray*)))
+    (dotimes (i (length pkg)
+              (let ((sym (make-symbol (string name))))
+                (setf (symbol-package sym) (if (string= package "KEYWORD") :keyword t))
+                (vector-push-extend sym pkg)
+                (values sym nil)))
+      (when (string= name (symbol-name (aref pkg i)))
+        (return (values (aref pkg i) :internal))))))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
@@ -252,8 +186,92 @@ same characters in the corresponding positions; otherwise it returns false."
                                    (error 'undefined-function :name symbol))
         (get symbol '%macro-function) value))
 
+;; TODO: Symbol macros, macroexpand-hook.
+(defun macroexpand-1 (form &optional env)
+  (if (consp form)
+      (let ((mf (macro-function (car form) env)))
+	(if mf
+	    (values (funcall mf form env) t)
+	    (values form nil)))
+      (values form nil)))
+
+(defun macroexpand (form &optional env)
+  (let ((did-expand nil))
+    (do () (nil)
+       (multiple-value-bind (expansion expanded-p)
+           (macroexpand-1 form env)
+         (if expanded-p
+             (setf form expansion
+                   did-expand t)
+             (return (values form did-expand)))))))
+
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
+
+(defun list (&rest args)
+  args)
+
+(defun function-symbol (name)
+  "Convert a function name to a symbol."
+  (cond ((symbolp name) name)
+	((and (consp name)
+	      (= (list-length name) 2)
+	      (eql (first name) 'setf)
+	      (symbolp (second name)))
+	 (let ((sym (get (second name) 'setf-symbol)))
+	   (unless sym
+	     (setf sym (make-symbol (symbol-name (second name)))
+                   (get sym 'setf-symbol-backlink) (second name)
+		   (get (second name) 'setf-symbol) sym))
+	   sym))
+	(t (error "Invalid function name ~S." name))))
+
+(defun fdefinition (name)
+  (symbol-function (function-symbol name)))
+
+(defun (setf fdefinition) (value name)
+  (setf (symbol-function (function-symbol name)) value))
+
+(defun compiler-macro-function (name &optional environment)
+  (get (function-symbol name) 'compiler-macro-function))
+
+(defun (setf compiler-macro-function) (value name &optional environment)
+  (setf (get (function-symbol name) 'compiler-macro-function) value))
+
+(defun simplify-string (string)
+  (if (simple-string-p string)
+      string
+      (make-array (length string)
+                  :element-type (if (every 'sys.int::base-char-p string)
+                                    'base-char
+                                    'character)
+                  :initial-contents string)))
+
+(declaim (special * ** ***))
+
+(defun repl ()
+  (let ((* nil) (** nil) (*** nil))
+    (loop
+       (fresh-line)
+       (write-char #\>)
+       (let ((form (read)))
+         (fresh-line)
+         (let ((result (multiple-value-list (eval form))))
+           (setf *** **
+                 ** *
+                 * (first result))
+           (when result
+             (dolist (v result)
+               (fresh-line)
+               (write v))))))))
+
+(defvar *early-initialize-hook* '())
+(defvar *initialize-hook* '())
+
+(defun add-hook (hook function)
+  (unless (boundp hook)
+    (setf (symbol-value hook) '()))
+  (pushnew function (symbol-value hook)))
 
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
@@ -284,7 +302,11 @@ same characters in the corresponding positions; otherwise it returns false."
         *package* nil
         *terminal-io* nil
         *standard-output* nil
-        *standard-input* nil)
+        *standard-input* nil
+        *screen-offset* 0
+        *keyboard-shifted* nil
+        *early-initialize-hook* '()
+        *initialize-hook* '())
   ;; Initialize defstruct and patch up all the structure types.
   (bootstrap-defstruct)
   (dotimes (i (length *initial-structure-obarray*))
@@ -293,11 +315,24 @@ same characters in the corresponding positions; otherwise it returns false."
   (setf *print-base* 10.
         *print-escape* t
         *print-readably* nil)
+  ;; Hook SETF symbols up.
+  (dotimes (i (length *initial-setf-obarray*))
+    (let* ((sym (svref *initial-setf-obarray* i))
+           (other (find (symbol-name sym) *initial-obarray* :test 'string= :key 'symbol-name)))
+      (assert other)
+      (setf (get sym 'setf-symbol-backlink) other
+            (get other 'setf-symbol) sym)))
   (dotimes (i (length *cold-toplevel-forms*))
     (funcall (svref *cold-toplevel-forms* i)))
-  (write *initial-obarray*)
+  (setf *initial-obarray* (make-array (length *initial-obarray*)
+                                      :fill-pointer t :adjustable t
+                                      :initial-contents *initial-obarray*))
+  (setf *initial-keyword-obarray* (make-array (length *initial-keyword-obarray*)
+                                              :fill-pointer t :adjustable t
+                                              :initial-contents *initial-keyword-obarray*))
   (terpri)
   (write-char #\*)
   (write-char #\O)
   (write-char #\K)
+  (repl)
   (loop (%hlt)))
