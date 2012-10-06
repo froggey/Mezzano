@@ -10,7 +10,8 @@
 		      (lambda ,lambda-list
 			(declare (lambda-name ,name))
 			,@body)
-                      ',emit-function))
+                      ',emit-function
+                      ',name))
 	  ',name))
 
 (defmacro define-reader (name type tag slot)
@@ -56,12 +57,13 @@
 ;; Produce an alist of symbol names and their associated functions.
 (defun generate-builtin-functions ()
   (let ((functions '()))
-    (maphash (lambda (name fn)
-               (when (third fn)
-                 (push (list name
-                             `(lambda ,(first fn)
-                                (declare (system:lambda-name ,name))
-                                (,name ,@(first fn))))
+    (maphash (lambda (symbol info)
+               (declare (ignore symbol))
+               (when (third info)
+                 (push (list (fourth info)
+                             `(lambda ,(first info)
+                                (declare (system:lambda-name ,(fourth info)))
+                                (funcall ',(fourth info) ,@(first info))))
                        functions)))
              *builtins*)
     functions))

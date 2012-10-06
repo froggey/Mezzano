@@ -326,6 +326,25 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                    (eval f))))
         (write-byte +llf-end-of-load+ output-stream)))))
 
+(defun save-compiler-builtins (path)
+  (with-open-file (output-stream path
+                   :element-type '(unsigned-byte 8)
+                   :if-exists :supersede
+                   :direction :output)
+    (format t ";; Writing compiler builtins to ~A.~%" path)
+    (write-llf-header output-stream path)
+    (let ((omap (make-hash-table))
+          (builtins (sys.c::generate-builtin-functions)))
+      (dolist (b builtins)
+        (let ((form `(funcall #'(setf fdefinition) #',(second b) ',(first b))))
+          (let ((*print-length* 3)
+                (*print-level* 3))
+            (declare (special *print-length* *print-level*))
+            (format t ";; Compiling form ~S.~%" form))
+          (or (fastload-form form omap output-stream)
+              (error "Could not fastload builtin."))))
+      (write-byte +llf-end-of-load+ output-stream))))
+
 (defun load-integer (stream)
   (let ((value 0) (shift 0))
     (loop
