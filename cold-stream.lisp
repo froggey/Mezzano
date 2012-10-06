@@ -63,12 +63,12 @@
 
 (defun poll-keyboard ()
   (unwind-protect
-       (progn (setf (isa-pic-irq-mask +ps/2-key-irq+) t)
+       (progn #+nil(setf (isa-pic-irq-mask +ps/2-key-irq+) t)
               (loop (let ((cmd (system:io-port/8 #x64)))
                       (when (= (logand cmd 1) 1)
                         ;; Byte ready.
                         (return (system:io-port/8 #x60))))))
-    (setf (isa-pic-irq-mask +ps/2-key-irq+) nil)))
+    #+nil(setf (isa-pic-irq-mask +ps/2-key-irq+) nil)))
 
 (defun read-keyboard-char ()
   (loop
@@ -109,4 +109,3 @@
 
 (defun cold-listen (stream)
   (or *unread-char* (= (logand (system:io-port/8 #x64) 1) 1)))
-
