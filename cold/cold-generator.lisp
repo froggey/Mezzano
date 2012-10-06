@@ -859,8 +859,9 @@
                  +tag-symbol+))
     (#.+llf-integer+ (make-fixnum (load-integer stream)))
     (#.+llf-simple-vector+ (load-vector stream omap))
-    (#.+llf-character+ (make-value (load-character stream)
-                                   +tag-character+))
+    (#.+llf-character+
+     (logior (ash (load-character stream) 4)
+             +tag-character+))
     (#.+llf-structure-definition+
      (load-structure-definition stream omap))
     (#.+llf-single-float+
