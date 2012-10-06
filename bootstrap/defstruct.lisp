@@ -187,7 +187,8 @@
   (multiple-value-bind (name conc-name constructors predicate area)
       (parse-defstruct-options name-and-options)
     (let* ((slots (mapcar (lambda (s) (parse-defstruct-slot conc-name s)) slot-descriptions))
-	   (struct-type (make-struct-type name slots)))
+	   (struct-type (or (get name 'structure-type)
+                            (make-struct-type name slots))))
       `(progn
 	 (eval-when (:compile-toplevel :load-toplevel :execute)
 	   (%defstruct ',struct-type))
