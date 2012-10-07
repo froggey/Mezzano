@@ -847,7 +847,7 @@
     (#.+llf-symbol+
      (let* ((name (load-string* stream))
             (package (load-string* stream)))
-       (make-value (symbol-address name (string= package "KEYWORDP"))
+       (make-value (symbol-address name (string= package "KEYWORD"))
                    +tag-symbol+)))
     (#.+llf-uninterned-symbol+
      (let* ((name (load-string* stream))
