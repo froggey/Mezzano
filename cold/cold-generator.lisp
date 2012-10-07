@@ -266,6 +266,7 @@
   (let ((32-bit-base 1) ; 2MB
         (64-bit-base 1024)) ; 2GB
     (iter (for (name allocation-mode initial-size 32-bit) in areas)
+          (for area in areas)
           (format t "Area ~S begins at word ~X~%" name (* (if 32-bit 32-bit-base 64-bit-base) #x40000))
           (collect (list 0 ; free pointer.
                          (if 32-bit 32-bit-base 64-bit-base) ; offset.
@@ -279,7 +280,8 @@
                            (:dynamic
                             (if 32-bit
                                 (incf 32-bit-base initial-size)
-                                (incf 64-bit-base initial-size))))))
+                                (incf 64-bit-base initial-size))))
+                         area))
             (if 32-bit
                 (incf 32-bit-base initial-size)
                 (incf 64-bit-base initial-size)))))
@@ -405,11 +407,16 @@
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
     (dolist (area *area-info*)
-      (format t "Writing ~S bytes of area ~S to offset ~D.~%"
-              (* (ceiling (first area) #x40000) #x40000 8)
-              (first (nth (position area *area-info*) *initial-areas*))
-              (file-position s))
-      (write-sequence (third area) s :end (* (ceiling (first area) #x40000) #x40000 8)))))
+      (let ((len (+ (ceiling (first area) #x40000)
+                    (if (or (eql (first (fifth area)) 'runtime-allocation-area)
+                            (eql (first (fifth area)) 'function-area))
+                        1
+                        0))))
+        (format t "Writing ~S bytes of area ~S to offset ~D.~%"
+                (* len #x40000 8)
+                (first (nth (position area *area-info*) *initial-areas*))
+                (file-position s))
+        (write-sequence (third area) s :end (* len #x40000 8))))))
 
 (defun array-header (tag length)
   (logior (ash tag 1)
@@ -467,7 +474,12 @@
     ;; Map each area in. Image is loaded to #x200000.
     (let ((phys #x200000))
       (dolist (area *area-info*)
-        (let ((len (ceiling (first area) #x40000))
+        ;; Guarantee at least 2MB of free space for runtime-allocation-area and function-area.
+        (let ((len (+ (ceiling (first area) #x40000)
+                      (if (or (eql (first (fifth area)) 'runtime-allocation-area)
+                              (eql (first (fifth area)) 'function-area))
+                          1
+                          0)))
               (virtual (second area)))
           (dotimes (i len)
             (setf (word (+ data-pml2 virtual i)) (logior phys
