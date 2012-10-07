@@ -21,7 +21,8 @@
     "../character.lisp"
     "../printer.lisp"
     "../cold-stream.lisp"
-    "../cold/eval.lisp"))
+    "../cold/eval.lisp"
+    "../format.lisp"))
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
