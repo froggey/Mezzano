@@ -38,18 +38,36 @@
          (error "TODO: character peek."))
         (t (error "Bad peek type ~S." peek-type))))
 
+(defun backtrace (&optional limit)
+  (do ((i 0 (1+ i))
+       (fp (read-frame-pointer)
+           (memref-unsigned-byte-64 fp 0)))
+      ((or (and limit (> i limit))
+           (= fp 0)))
+    (write-char #\Newline)
+    (write-integer fp 16)
+    (write-char #\Space)
+    (let* ((fn (memref-t fp -2))
+           (name (when (functionp fn) (function-name fn))))
+      (write-integer (lisp-object-address fn) 16)
+      (when name
+        (write-char #\Space)
+        (write name)))))
+
 (defun raise-undefined-function (invoked-through &rest args)
   (declare (ignore args))
   (write-char #\!)
   (write-char #\#)
   (when (symbolp invoked-through)
     (write-string (symbol-name invoked-through)))
+  (backtrace)
   (loop (%hlt)))
 
 (defun raise-unbound-error (symbol)
   (write-char #\!)
   (write-char #\*)
   (write-string (symbol-name symbol))
+  (backtrace)
   (loop (%hlt)))
 
 (defun raise-type-error (datum expected-type)
@@ -58,6 +76,7 @@
   (write expected-type)
   (write-char #\Space)
   (write datum)
+  (backtrace)
   (loop (%hlt)))
 
 (defun error (datum &rest arguments)
@@ -65,6 +84,7 @@
   (write datum)
   (write-char #\Space)
   (write arguments)
+  (backtrace)
   (loop (%hlt)))
 
 ;; NOTE: incomplete.
@@ -135,6 +155,24 @@
                 (values sym nil)))
       (when (string= name (symbol-name (aref pkg i)))
         (return (values (aref pkg i) :internal))))))
+
+(defun %defpackage (&rest args)
+  (declare (ignore args)))
+
+(defun export (&rest args)
+  (declare (ignore args)))
+
+;;; The compiler can only handle (apply function arg-list).
+(defun apply (function arg &rest more-args)
+  (declare (dynamic-extent more-args))
+  (cond (more-args
+         ;; Convert (... (final-list ...)) to (... final-list...)
+         (do* ((arg-list (cons arg more-args))
+               (i arg-list (cdr i)))
+              ((null (cddr i))
+               (setf (cdr i) (cadr i))
+               (apply function arg-list))))
+        (t (apply function arg))))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
@@ -211,6 +249,81 @@
 (defun list (&rest args)
   args)
 
+(defun copy-list (list)
+  (when list
+    (cons (car list) (copy-list (cdr list)))))
+
+;;; Will be overriden later in the init process.
+(defun funcallable-instance-lambda-expression (function)
+  (values nil t nil))
+
+(defun function-name (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (ecase (logand info #xFF)
+      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
+       (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
+      (#.+function-type-closure+ ;; Closure.
+       (function-name (memref-t address 4)))
+      (#.+function-type-funcallable-instance+
+       (multiple-value-bind (lambda closurep name)
+           (funcallable-instance-lambda-expression function)
+         (declare (ignore lambda closurep))
+         name)))))
+
+(defun function-lambda-expression (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (ecase (logand info #xFF)
+      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
+       (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
+      (#.+function-type-closure+ ;; Closure.
+       (values nil t (function-name (memref-t address 4))))
+      (#.+function-type-funcallable-instance+
+       (funcallable-instance-lambda-expression function)))))
+
+(defun funcallable-std-instance-p (object)
+  (when (functionp object)
+    (let* ((address (logand (lisp-object-address object) -16))
+           (info (memref-unsigned-byte-64 address 0)))
+      (eql (ldb (byte 8 0) info) +function-type-funcallable-instance+))))
+
+(defun funcallable-std-instance-function (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 4)))
+(defun (setf funcallable-std-instance-function) (value funcallable-instance)
+  (check-type value function)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 4) value)))
+
+(defun funcallable-std-instance-class (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 5)))
+(defun (setf funcallable-std-instance-class) (value funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 5) value)))
+
+(defun funcallable-std-instance-slots (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (memref-t address 6)))
+(defun (setf funcallable-std-instance-slots) (value funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
+    (setf (memref-t address 6) value)))
+
+(defun compiled-function-p (object)
+  (when (functionp object)
+    (let* ((address (logand (lisp-object-address object) -16))
+           (info (memref-unsigned-byte-64 address 0)))
+      (not (eql (logand info #xFF) +function-type-interpreted-function+)))))
+
 (defun function-symbol (name)
   "Convert a function name to a symbol."
   (cond ((symbolp name) name)
@@ -246,6 +359,34 @@
                                     'base-char
                                     'character)
                   :initial-contents string)))
+
+(declaim (inline identity))
+(defun identity (thing)
+  thing)
+
+(declaim (inline complement))
+(defun complement (fn)
+  #'(lambda (&rest args) (not (apply fn args))))
+
+(defun set-difference (list-1 list-2)
+  (let ((result '()))
+    (dolist (e list-1)
+      (when (not (member e list-2))
+	(setq result (cons e result))))
+    result))
+
+(defun union (list-1 list-2)
+  (let ((result (copy-list list-1)))
+    (dolist (e list-2)
+      (when (not (member e list-1))
+	(setq result (cons e result))))
+    result))
+
+(defun intersection (list-1 list-2)
+  (when list-1
+    (if (member (first list-1) list-2)
+        (cons (first list-1) (intersection (rest list-1) list-2))
+        (intersection (rest list-1) list-2))))
 
 (declaim (special * ** ***))
 
@@ -314,7 +455,8 @@
   (write-line "Hello, world.")
   (setf *print-base* 10.
         *print-escape* t
-        *print-readably* nil)
+        *print-readably* nil
+        *print-safe* t)
   ;; Hook SETF symbols up.
   (dotimes (i (length *initial-setf-obarray*))
     (let* ((sym (svref *initial-setf-obarray* i))
