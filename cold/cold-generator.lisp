@@ -419,6 +419,15 @@
                 (file-position s))
         (write-sequence (third area) s :end (* len #x40000 8))))))
 
+(defun total-image-size ()
+  (iter (for area in *area-info*)
+        (sum (* (+ (ceiling (first area) #x40000)
+                   (if (or (eql (first (fifth area)) 'runtime-allocation-area)
+                           (eql (first (fifth area)) 'function-area))
+                       1
+                       0))
+                #x40000))))
+
 (defun array-header (tag length)
   (logior (ash tag 1)
           (ash length 8)))
@@ -569,6 +578,34 @@
   (genesis::genesis-eval (list (genesis::genesis-intern "SAVE-COMPILER-BUILTINS") "%%compiler-builtins.llf"))
   (load-source-file "%%compiler-builtins.llf"))
 
+(defun save-area-info ()
+  (let ((area-addresses (mapcar (lambda (area) (allocate 5 'support-area))
+                                *initial-areas*))
+        (region-addresses (mapcar (lambda (area) (allocate 6 'support-area))
+                                  *initial-areas*))
+        (prev-area nil))
+    (iter (for (name allocation-mode initial-size 32-bit) in *initial-areas*)
+          (for (free-pointer offset storage newspace-offset area) in *area-info*)
+          (for area-addr in area-addresses)
+          (for region-addr in region-addresses)
+          (setf (word area-addr) (array-header +array-type-t+ 4)
+                (word (+ area-addr 1)) (make-value (symbol-address (symbol-name name) nil nil) +tag-symbol+)
+                (word (+ area-addr 2)) (make-fixnum 0)
+                (word (+ area-addr 3)) (make-value region-addr +tag-array-like+)
+                (word (+ area-addr 4)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
+          (setf (word region-addr) (array-header +array-type-t+ 5)
+                (word (+ region-addr 1)) (make-fixnum (* offset #x40000))
+                (word (+ region-addr 2)) (make-fixnum (* initial-size #x40000))
+                (word (+ region-addr 3)) (make-fixnum free-pointer)
+                (word (+ region-addr 4)) (make-fixnum 0)
+                (word (+ region-addr 5)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
+          (format t "Area ~S~%" name)
+          (setf (cold-symbol-value name) (make-value area-addr +tag-array-like+))
+          (when prev-area
+            (setf (word (+ prev-area 4)) (make-value area-addr +tag-array-like+)))
+          (setf prev-area area-addr))
+    (setf (cold-symbol-value '*area-info*) (make-value (first area-addresses) +tag-array-like+))))
+
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*area-info* (create-area-info *initial-areas*))
         (*pending-fixups* '())
@@ -598,7 +635,9 @@
             *initial-obarray* *initial-keyword-obarray*
             *initial-setf-obarray* *initial-structure-obarray*
             *newspace-offset* *semispace-size* *newspace*
-            *static-bump-pointer* *static-area-size* *static-mark-bit*))
+            *static-bump-pointer* *static-area-size* *static-mark-bit*
+            *area-info*))
+    (mapc (lambda (area) (symbol-address (string (first area)) nil)) *initial-areas*)
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
@@ -637,9 +676,11 @@
           (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
           (word (+ multiboot 2)) (pack-halfwords (ldb (byte 32 0) (- (+ #x1BADB002 #x00010003)))
                                                  (* (1+ multiboot) 8))
-          (word (+ multiboot 3)) (pack-halfwords #x200000 0)
+          (word (+ multiboot 3)) (pack-halfwords #x200000 (+ #x200000 (* (total-image-size) 8)))
           (word (+ multiboot 4)) (pack-halfwords 0 (make-value setup-fn +tag-function+)))
-    (setf (cold-symbol-value '*multiboot-header*) multiboot)
+    (setf (cold-symbol-value '*multiboot-header*) (make-value multiboot +tag-array-like+))
+    ;; Must be the last thing to allocate.
+    (save-area-info)
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
