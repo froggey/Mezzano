@@ -180,21 +180,34 @@
 ;; Selection sort!
 (defun sort (sequence predicate &key key)
   (unless key (setf key 'identity))
-  (when sequence
-    (do* ((ipos sequence (cdr ipos))
-	  (imin ipos ipos))
-	 ((null ipos)
-	  sequence)
-      (do ((i (cdr ipos) (cdr i)))
-	  ((null i))
-	(when (funcall predicate (car i) (car imin))
-	  (setf imin i)))
-      (when (not (eq imin ipos))
-	;; Swap
-	(let ((old-ipos (car ipos))
-	      (old-imin (car imin)))
-	  (setf (car ipos) old-imin
-		(car imin) old-ipos))))))
+  (etypecase sequence
+    (list
+     (when sequence
+       (do* ((ipos sequence (cdr ipos))
+             (imin ipos ipos))
+            ((null ipos)
+             sequence)
+         (do ((i (cdr ipos) (cdr i)))
+             ((null i))
+           (when (funcall predicate (funcall key (car i)) (funcall key (car imin)))
+             (setf imin i)))
+         (when (not (eq imin ipos))
+           ;; Swap
+           (let ((old-ipos (car ipos))
+                 (old-imin (car imin)))
+             (setf (car ipos) old-imin
+                   (car imin) old-ipos))))))
+    (vector
+     (dotimes (ipos (length sequence) sequence)
+       (let ((imin ipos))
+         (dotimes (i (- (length sequence) ipos 1))
+           (when (funcall predicate (funcall key (aref sequence (+ ipos i 1))) (funcall key (aref sequence imin)))
+             (setf imin (+ ipos i 1))))
+         (when (not (eq imin ipos))
+           (let ((old-ipos (aref sequence ipos))
+                 (old-imin (aref sequence imin)))
+           (setf (aref sequence imin) old-ipos
+                 (aref sequence ipos) old-imin))))))))
 
 (defun concatenate (result-type &rest sequences)
   (declare (dynamic-extent sequences))
