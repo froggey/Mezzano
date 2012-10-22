@@ -8,6 +8,10 @@
               (eval (third form))
               (eval (fourth form))))
     ((quote) (second form))
+    ((progn) (do ((f (rest form) (cdr f)))
+                 ((null (cdr f))
+                  (eval (car f)))
+               (eval (car f))))
     (t (multiple-value-bind (expansion expanded-p)
            (macroexpand form)
          (if expanded-p
