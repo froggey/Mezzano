@@ -719,6 +719,21 @@
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
 
+(defun make-bignum (value)
+  ;; TODO...
+  (etypecase value
+    ((signed-byte 64)
+     (let ((address (allocate 2)))
+       (setf (word address) (array-header +array-type-bignum+ 1))
+       (setf (word (1+ address)) (ldb (byte 64 0) value))
+       (make-value address +tag-array-like+)))
+    ((unsigned-byte 64)
+     (let ((address (allocate 3)))
+       (setf (word address) (array-header +array-type-bignum+ 2))
+       (setf (word (+ address 1)) value
+             (word (+ address 2)) 0)
+       (make-value address +tag-array-like+)))))
+
 ;;; Mostly duplicated from the file compiler...
 (defun load-integer (stream)
   (let ((value 0) (shift 0))
@@ -921,7 +936,11 @@
     (#.+llf-setf-symbol+
      (make-value (resolve-setf-symbol (load-object-in-host stream omap))
                  +tag-symbol+))
-    (#.+llf-integer+ (make-fixnum (load-integer stream)))
+    (#.+llf-integer+
+     (let ((value (load-integer stream)))
+       (typecase value
+         ((signed-byte 61) (make-fixnum value))
+         (t (make-bignum value)))))
     (#.+llf-simple-vector+ (load-vector stream omap))
     (#.+llf-character+
      (logior (ash (load-character stream) 4)
