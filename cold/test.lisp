@@ -193,6 +193,10 @@
     (constant (dolist (var (rest declaration-specifier))
                 (setf (system:symbol-mode var) :constant)))))
 
+(defun symbol-tls-slot (symbol)
+  (let ((slot (ldb (byte 16 8) (%symbol-flags symbol))))
+    (if (zerop slot) nil slot)))
+
 (defun system:symbol-mode (symbol)
   (svref #(nil :special :constant :symbol-macro)
          (ldb (byte 2 0) (%symbol-flags symbol))))
@@ -437,6 +441,93 @@
   (dotimes (i 16)
     (setf (io-port/8 #xE9) (hexify (logand (ash number (* -4 (- 15 i))) #b1111)))))
 
+(defun describe-symbol (object stream)
+  (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
+  (if (symbol-package object)
+      (format stream "  ~A is in the ~A package~%" object (package-name (symbol-package object))))
+  (if (boundp object)
+      (format stream "  ~A has the value ~S~%" object (symbol-value object)))
+  (if (fboundp object)
+      (format stream "  ~A is the function ~S~%" object (symbol-function object)))
+  (if (symbol-plist object)
+      (format stream "  ~A has the plist ~S~%" object (symbol-plist object)))
+  (when (symbol-mode object)
+    (format stream "  ~A is declared ~A~%" object (symbol-mode object)))
+  (when (symbol-tls-slot object)
+    (format stream "  ~A uses the TLS slot ~D~%" (symbol-tls-slot object))))
+
+(defun describe-character (object stream)
+  (format stream "~S is a ~S~%" object (type-of object)))
+
+(defun describe-float (object stream)
+  (format stream "~D is a single-precision floating-point number.~%" object))
+
+(defun describe-function (object stream)
+  (multiple-value-bind (lambda-expression closure-p name)
+      (function-lambda-expression object)
+    (format stream "~S is a ~A" object (if closure-p "closure" "function"))
+    (when name
+      (format stream " named ~S" name))
+    (format stream "~%")))
+
+(defun describe-array (object stream)
+  (format stream "~S is a~A array of ~S, with address ~X~%" object
+          (if (typep object 'simple-array) " simple" "n")
+          (array-element-type object)
+          (lisp-object-address object))
+  (format stream "  It is ~D elements long.~%" (array-total-size object))
+  (if (array-has-fill-pointer-p object)
+      (format stream "  It has a fill-pointer of ~S.~%" (fill-pointer object)))
+  (format stream "  It has dimensions ~S.~%" (array-dimensions object)))
+
+(defun describe-bignum (object stream)
+  (format stream "~S is a bignum, with address ~X~%"
+          object (lisp-object-address object)))
+
+(defun describe-structure (object stream)
+  (format stream "~S is a structure, with address ~X~%"
+          object (lisp-object-address object)))
+
+(defun describe-stack-group (object stream)
+  (format stream "~S is a stack-group, with address ~X~%"
+          object (lisp-object-address object)))
+
+(defun describe (object &optional (stream *standard-output*))
+  (case stream
+    ((nil) (setf stream *standard-output*))
+    ((t) (setf stream *terminal-io*)))
+  (case (logand (lisp-object-address object) 15)
+    (#b0000 (format stream "~D is an even fixnum.~%" object))
+    ;; TODO: Identify proper/dotted/circular lists.
+    (#b0001 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
+    (#b0010 (describe-symbol object stream))
+    (#b0011 (describe-array object stream)) ; simple array.
+    (#b0100 (describe-object object stream)) ; instance object.
+    ;; #b0101
+    ;; #b0110
+    (#b0111 (cond ((structure-object-p object)
+                   (describe-structure object stream))
+                  ((stack-group-p object)
+                   (describe-stack-group object stream))
+                  ((bignump object)
+                   (describe-bignum object))
+                  (t (describe-array object stream))))
+    (#b1000 (format stream "~D is an odd fixnum.~%" object))
+    ;; #b1001
+    (#b1010 (describe-character object stream))
+    (#b1011 (describe-float object stream))
+    (#b1100 (if (funcallable-std-instance-p object)
+                (describe-object object stream)
+                (describe-function object stream)))
+    ;; #b1101
+    (#b1110 (format stream "This is an unbound value marker.~%"))
+    (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)
+                                                                                               (lognot #xF))))
+    (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))
+  (values))
+
+(declaim (special *features* most-positive-fixnum most-negative-fixnum *macroexpand-hook*))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
         *array-types* #(t
@@ -464,9 +555,9 @@
                         (complex double-float)
                         (complex long-float))
         *package* nil
-        *terminal-io* nil
-        *standard-output* nil
-        *standard-input* nil
+        *terminal-io* t
+        *standard-output* t
+        *standard-input* t
         *screen-offset* 0
         *keyboard-shifted* nil
         *early-initialize-hook* '()
@@ -475,6 +566,10 @@
         *print-escape* t
         *print-readably* nil
         *print-safe* t)
+  (setf *features* '(:x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
+        *macroexpand-hook* 'funcall
+        most-positive-fixnum #.(- (expt 2 60) 1)
+        most-negative-fixnum #.(- (expt 2 60)))
   ;; Initialize defstruct and patch up all the structure types.
   (bootstrap-defstruct)
   (dotimes (i (length *initial-structure-obarray*))

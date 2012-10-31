@@ -1991,9 +1991,6 @@ Dispatching on class ~S." gf class))
                 (slot-value object sn))
         (format t "~%    ~S <- not bound" sn)))
   (values))
-(defmethod describe-object ((object t) stream)
-  (common-lisp:describe object)
-  (values))
 
 (format t "~%Closette is a Knights of the Lambda Calculus production.~%")
 
