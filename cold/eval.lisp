@@ -12,6 +12,10 @@
                  ((null (cdr f))
                   (eval (car f)))
                (eval (car f))))
+    ((setq) (do ((f (rest form) (cddr f)))
+                ((null (cddr f))
+                 (setf (symbol-value (car f)) (eval (cadr f))))
+              (setf (symbol-value (car f)) (eval (cadr f)))))
     (t (multiple-value-bind (expansion expanded-p)
            (macroexpand form)
          (if expanded-p
