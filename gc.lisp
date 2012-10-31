@@ -7,11 +7,31 @@
 (declaim (special *verbose-gc*))
 ;;; GC Meters.
 (declaim (special *objects-copied* *words-copied*))
+(declaim (special *multiboot-info*))
 (setf *verbose-gc* nil)
 (setf *objects-copied* 0
       *words-copied* 0)
 
 (defvar *gc-in-progress* nil)
+
+(defconstant +multiboot-flag-mem-info+     #b00000001)
+(defconstant +multiboot-flag-boot-device+  #b00000010)
+(defconstant +multiboot-flag-command-line+ #b00000100)
+(defconstant +multiboot-flag-modules+      #b00001000)
+(defconstant +multiboot-flag-aout-symbols+ #b00010000)
+(defconstant +multiboot-flag-elf-symbols+  #b00100000)
+(defconstant +multiboot-flag-memory-map+   #b01000000)
+;;; Compute the true end of the image by examining the multiboot header.
+;;; FIXME: This must be done as part of the initialization process.
+;;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
+(when (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+  (let ((module-count (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5))
+        (module-base (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6))))
+    (unless (zerop module-count)
+      (setf *bump-pointer* (+ #x8000000000
+                              (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1))))
+      (when (logtest *bump-pointer* #xFFF)
+        (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000))))))
 
 (defvar *gc-stack-group* (make-stack-group "GC"
                                            :control-stack-size 32766
@@ -379,21 +399,17 @@
 (defun %raw-allocate (words &optional area)
   (ecase area
     ((nil :dynamic)
-     (let* ((area runtime-allocation-area)
-            (region (svref area 2)))
-       (when (> (+ (svref region 2) words) (svref region 1))
-         (%gc)
-         (when (> (+ (svref region 2) words) (svref region 1))
-           ;; Oh dear. No memory.
-           (emergency-halt "Out of memory.")))
-       (prog1 (ash (+ (svref region 0) (svref region 2)) 3)
-         (incf (svref region 2) words))))
+     (when (> (+ *newspace-offset* words) *semispace-size*)
+       (%gc)
+       (when (> (+ *newspace-offset* words) *semispace-size*)
+         ;; Oh dear. No memory.
+         (emergency-halt "Out of memory.")))
+     (prog1 (+ *newspace* (ash *newspace-offset* 3))
+       (incf *newspace-offset* words)))
     (:static
-     (let* ((area function-area)
-            (region (svref area 2))
-            (address (ash (+ (svref region 0) (svref region 2) 2) 3)))
-       (incf (svref region 2) (+ words 2))
-       (when (> (svref region 2) (svref region 1))
+     (let ((address (+ *static-bump-pointer* 16)))
+       (incf *static-bump-pointer* (+ (* words 8) 16))
+       (when (> *static-bump-pointer* (* *static-area-size* 8))
          (emergency-halt "Static space exhausted"))
        ;; Initialize the static header word.
        (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
