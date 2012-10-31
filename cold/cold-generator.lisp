@@ -18,6 +18,7 @@
     "../bootstrap/hash-table.lisp"
     "../bootstrap/early-cons.lisp"
     "../bootstrap/reader.lisp"
+    "../bootstrap/backquote.lisp"
     "../character.lisp"
     "../printer.lisp"
     "../cold-stream.lisp"
