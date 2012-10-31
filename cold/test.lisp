@@ -448,15 +448,15 @@
         *keyboard-shifted* nil
         *early-initialize-hook* '()
         *initialize-hook* '())
+  (setf *print-base* 10.
+        *print-escape* t
+        *print-readably* nil
+        *print-safe* t)
   ;; Initialize defstruct and patch up all the structure types.
   (bootstrap-defstruct)
   (dotimes (i (length *initial-structure-obarray*))
     (setf (%struct-slot (svref *initial-structure-obarray* i) 0) *structure-type-type*))
   (write-line "Hello, world.")
-  (setf *print-base* 10.
-        *print-escape* t
-        *print-readably* nil
-        *print-safe* t)
   ;; Hook SETF symbols up.
   (dotimes (i (length *initial-setf-obarray*))
     (let* ((sym (svref *initial-setf-obarray* i))

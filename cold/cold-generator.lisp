@@ -22,7 +22,9 @@
     "../printer.lisp"
     "../cold-stream.lisp"
     "../cold/eval.lisp"
-    "../format.lisp"))
+    "../format.lisp"
+    "../type.lisp"
+    "../memory.lisp"))
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
@@ -40,15 +42,6 @@
 ;;(defconstant +tag-+  #b1101)
 (defconstant +tag-unbound-value+ #b1110)
 (defconstant +tag-gc-forward+    #b1111)
-
-;; name, allocation mode, initial size (2MB pages), <2gb addresses only.
-(defparameter *initial-areas*
-  '((support-area :static 1 t)
-    (page-table-area :raw 4 t)
-    (function-area :static 32 nil)
-    (interrupt-area :static 1 nil)
-    (stack-area :stack 1 nil)
-    (runtime-allocation-area :dynamic 16 nil)))
 
 (defparameter *undefined-function-thunk*
   `((sys.lap-x86:cmp64 :rcx ,(* 5 8))
@@ -183,7 +176,24 @@
     (:d16/le idt-length)
     (:d32/le idt)))
 
-(defvar *area-info*)
+(defparameter *static-area-limit* (* 64 1024 1024))
+(defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
+
+(defparameter *static-area-base*  #x0000200000)
+(defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
+(defparameter *dynamic-area-base* #x0080000000)
+(defparameter *dynamic-area-size* #x0080000000) ; 2GB
+(defparameter *linear-map*        #x8000000000)
+(defparameter *physical-load-address* #x0000200000)
+
+(defvar *support-offset*)
+(defvar *static-offset*)
+(defvar *dynamic-offset*)
+
+(defvar *support-data*)
+(defvar *static-data*)
+(defvar *dynamic-data*)
+
 (defvar *symbol-table*)
 (defvar *keyword-table*)
 (defvar *setf-table*)
@@ -194,37 +204,69 @@
 (defvar *function-map*)
 (defvar *pending-fixups*)
 
-(defun allocate (word-count &optional (area 'runtime-allocation-area))
+(defun allocate (word-count &optional (area :dynamic))
   (when (oddp word-count) (incf word-count))
-  (let* ((info (nth (position area *initial-areas* :key 'first)
-                    *area-info*))
-         (offset (first info)))
-    (assert (<= (+ (first info) word-count)
-                (* (third (find area *initial-areas* :key 'first))
-                   #x40000))
-            (area word-count) "Allocation of ~S words exceeds area size." word-count)
-    (incf (first info) word-count)
-    (+ (* (second info) #x40000) offset)))
+  (ecase area
+    (:dynamic
+     (when (> *dynamic-offset* (truncate (/ *dynamic-area-size* 2) 8))
+       (error "Allocation of ~S words exceeds dynamic area size." word-count))
+     (prog1 (+ (truncate *dynamic-area-base* 8) *dynamic-offset*)
+       (incf *dynamic-offset* word-count)))
+    (:static
+     (when (> *static-offset* (truncate *static-area-size* 8))
+       (error "Allocation of ~S words exceeds static area size." word-count))
+     (prog1 (+ (truncate *static-area-base* 8) *static-offset* 2)
+       (incf *static-offset* (+ word-count 2))))
+    (:support
+     ;; Force alignment.
+     (unless (zerop (logand word-count #x1FF))
+       (incf word-count #x1FF)
+       (decf word-count (logand word-count #x1FF)))
+     (prog1 (+ (truncate (+ *linear-map* *physical-load-address* #x200000) 8)
+               *support-offset*)
+       (incf *support-offset* word-count)))))
 
 (defun allocate-stack (size style)
   (check-type style (member :control :data :binding))
-  (allocate size 'stack-area))
+  (allocate size :support))
+
+(defun storage-info-for-address (address)
+  (let ((byte-address (* address 8)))
+    (cond ((<= *static-area-base* byte-address (+ *static-area-base* *static-area-size* -1))
+           (let ((offset (- address (truncate *static-area-base* 8))))
+             (assert (< offset *static-offset*))
+             (when (>= (* offset 8) (length *static-data*))
+               (adjust-array *static-data* (* (ceiling *static-offset* #x40000) #x200000)))
+             (values offset *static-data*)))
+          ((<= *dynamic-area-base* byte-address (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
+           (let ((offset (- address (truncate *dynamic-area-base* 8))))
+             (assert (< offset *dynamic-offset*))
+             (when (>= (* offset 8) (length *dynamic-data*))
+               (adjust-array *dynamic-data* (* (ceiling *dynamic-offset* #x40000) #x200000)))
+             (values offset *dynamic-data*)))
+          ((<= (+ *linear-map* *physical-load-address* #x200000)
+               byte-address
+               (+ *linear-map* *physical-load-address* #x200000 (* *support-offset* 8)))
+           (let ((offset (- address (truncate (+ *linear-map* *physical-load-address* #x200000) 8))))
+             (when (>= (* offset 8) (length *support-data*))
+               (format t "Resizing support-data to ~S bytes, while accessing address ~X (offset ~X) ~
+                          support-offset is ~X~%"
+                       (* (ceiling *support-offset* #x40000) #x200000) address offset (* *support-offset* 8))
+               (adjust-array *support-data* (* (ceiling *support-offset* #x40000) #x200000)))
+             (values offset *support-data*)))
+          (t (error "Unknown address #x~X.~%" address)))))
 
 (defun (setf word) (new-value address)
-  ;; Find the area holding this word.
-  (dolist (a *area-info* (error "Word ~S not in any area?" address))
-    (when (and (<= (* (second a) #x40000) address)
-               (< (- address (* (second a) #x40000)) (first a)))
-      (return (setf (ub64ref/le (third a) (* (- address (* (second a) #x40000)) 8)) new-value)))))
+  (multiple-value-bind (offset data-vector)
+      (storage-info-for-address address)
+    (setf (ub64ref/le data-vector (* offset 8)) new-value)))
 
 (defun word (address)
-  ;; Find the area holding this word.
-  (dolist (a *area-info* (error "Word ~S not in any area?" address))
-    (when (and (<= (* (second a) #x40000) address)
-               (< (- address (* (second a) #x40000)) (first a)))
-      (return (ub64ref/le (third a) (* (- address (* (second a) #x40000)) 8))))))
+  (multiple-value-bind (offset data-vector)
+      (storage-info-for-address address)
+    (ub64ref/le data-vector (* offset 8))))
 
-(defun compile-lap-function (code &optional (area 'function-area) extra-symbols constant-values)
+(defun compile-lap-function (code &optional (area :static) extra-symbols constant-values)
   "Compile a list of LAP code as a function. Constants must by symbols only."
   (multiple-value-bind (mc constants fixups)
       (sys.lap-x86:assemble (list* (list :d32/le 0 0 0) code) ; 12 byte header.
@@ -262,30 +304,6 @@
           (push (list (car fixup) address (cdr fixup) :signed32)
                 *pending-fixups*))
         address))))
-
-(defun create-area-info (areas)
-  (let ((32-bit-base 1) ; 2MB
-        (64-bit-base 1024)) ; 2GB
-    (iter (for (name allocation-mode initial-size 32-bit) in areas)
-          (for area in areas)
-          (format t "Area ~S begins at word ~X~%" name (* (if 32-bit 32-bit-base 64-bit-base) #x40000))
-          (collect (list 0 ; free pointer.
-                         (if 32-bit 32-bit-base 64-bit-base) ; offset.
-                         ;; Storage.
-                         (make-array (* initial-size #x40000 8)
-                                     :element-type '(unsigned-byte 8)
-                                     :initial-element 0 #+nil #x5555555555555555)
-                         ;; newspace offset.
-                         (ecase allocation-mode
-                           ((:static :stack :raw) nil)
-                           (:dynamic
-                            (if 32-bit
-                                (incf 32-bit-base initial-size)
-                                (incf 64-bit-base initial-size))))
-                         area))
-            (if 32-bit
-                (incf 32-bit-base initial-size)
-                (incf 64-bit-base initial-size)))))
 
 (defun make-value (address tag)
   (logior (* address 8) tag))
@@ -377,9 +395,9 @@
 ;; fixme, nil and t should be constant.
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
-  (let ((nil-value (allocate 6 'support-area))
-        (t-value (allocate 6 'support-area))
-        (undef-fn (compile-lap-function *undefined-function-thunk* 'support-area)))
+  (let ((nil-value (allocate 6 :static))
+        (t-value (allocate 6 :static))
+        (undef-fn (compile-lap-function *undefined-function-thunk* :static)))
     (setf (word nil-value) (make-value (store-string "NIL")
                                          +tag-array-like+)
           (word (+ nil-value 1)) (make-value t-value +tag-symbol+)
@@ -407,32 +425,34 @@
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
-    (dolist (area *area-info*)
-      (let ((len (+ (ceiling (first area) #x40000)
-                    (if (or (eql (first (fifth area)) 'runtime-allocation-area)
-                            (eql (first (fifth area)) 'function-area))
-                        1
-                        0))))
-        (format t "Writing ~S bytes of area ~S to offset ~D.~%"
-                (* len #x40000 8)
-                (first (nth (position area *area-info*) *initial-areas*))
-                (file-position s))
-        (write-sequence (third area) s :end (* len #x40000 8))))))
+    ;; Must match the page-table code!
+    ;; First comes the first 2MB of the static area.
+    (write-sequence *static-data* s :end #x200000)
+    ;; Then the support area.
+    (write-sequence *support-data* s)
+    ;; Then the rest of the static area.
+    (write-sequence *static-data* s :start #x200000)
+    ;; Finally, the dynamic area.
+    (write-sequence *dynamic-data* s))
+  (values))
 
 (defun total-image-size ()
-  (iter (for area in *area-info*)
-        (sum (* (+ (ceiling (first area) #x40000)
-                   (if (or (eql (first (fifth area)) 'runtime-allocation-area)
-                           (eql (first (fifth area)) 'function-area))
-                       1
-                       0))
-                #x40000))))
+  (+ (/ *static-area-limit* 8)
+     (/ (* *dynamic-area-semispace-limit* 2) 8)
+     (* (ceiling *support-offset* #x40000) #x40000)))
+
+(defun image-data-size ()
+  (+ (* (ceiling *static-offset* #x40000) #x40000)
+     (* (ceiling *dynamic-offset* #x40000) #x40000)
+     (* (ceiling *support-offset* #x40000) #x40000)))
 
 (defun array-header (tag length)
   (logior (ash tag 1)
           (ash length 8)))
 
 (defun pack-halfwords (low high)
+  (check-type low (unsigned-byte 32))
+  (check-type high (unsigned-byte 32))
   (dpb high (byte 32 32) low))
 
 (defconstant +page-table-present+  #b0000000000001)
@@ -447,11 +467,12 @@
 (defconstant +page-table-pat+      #b1000000000000)
 
 (defun create-page-tables ()
-  (let ((pml4 (allocate 512 'page-table-area))
-        (data-pml3 (allocate 512 'page-table-area))
-        (phys-pml3 (allocate 512 'page-table-area))
-        (data-pml2 (allocate (* 512 512) 'page-table-area))
-        (phys-pml2 (allocate (* 512 512) 'page-table-area)))
+  (let ((pml4 (allocate 512 :support))
+        (data-pml3 (allocate 512 :support))
+        (phys-pml3 (allocate 512 :support))
+        (data-pml2 (allocate (* 512 512) :support))
+        (phys-pml2 (allocate (* 512 512) :support))
+        (phys-curr *physical-load-address*))
     (format t "PML4 at ~X~%" (* pml4 8))
     (format t "Data PML3 at ~X. PML2s at ~X~%" (* data-pml3 8) (* data-pml2 8))
     (format t "Phys PML3 at ~X. PML2s at ~X~%" (* phys-pml3 8) (* phys-pml2 8))
@@ -459,10 +480,10 @@
       ;; Clear PML4.
       (setf (word (+ pml4 i)) 0)
       ;; Link PML3s to PML2s.
-      (setf (word (+ data-pml3 i)) (logior (* (+ data-pml2 (* i 512)) 8)
+      (setf (word (+ data-pml3 i)) (logior (+ (- (* data-pml2 8) *linear-map*) (* i 4096))
                                            +page-table-present+
                                            +page-table-global+))
-      (setf (word (+ phys-pml3 i)) (logior (* (+ phys-pml2 (* i 512)) 8)
+      (setf (word (+ phys-pml3 i)) (logior (+ (- (* phys-pml2 8) *linear-map*) (* i 4096))
                                            +page-table-present+
                                            +page-table-global+))
       (dotimes (j 512)
@@ -475,32 +496,64 @@
                                                        +page-table-large+))))
     ;; Link the PML4 to the PML3s.
     ;; Data PML3 at 0, physical PML3 at 512GB.
-    (setf (word (+ pml4 0)) (logior (* data-pml3 8)
+    (setf (word (+ pml4 0)) (logior (- (* data-pml3 8) *linear-map*)
                                     +page-table-present+
                                     +page-table-global+))
-    (setf (word (+ pml4 1)) (logior (* phys-pml3 8)
+    (setf (word (+ pml4 1)) (logior (- (* phys-pml3 8) *linear-map*)
                                     +page-table-present+
                                     +page-table-global+))
-    ;; Map each area in. Image is loaded to #x200000.
-    (let ((phys #x200000))
-      (dolist (area *area-info*)
-        ;; Guarantee at least 2MB of free space for runtime-allocation-area and function-area.
-        (let ((len (+ (ceiling (first area) #x40000)
-                      (if (or (eql (first (fifth area)) 'runtime-allocation-area)
-                              (eql (first (fifth area)) 'function-area))
-                          1
-                          0)))
-              (virtual (second area)))
-          (dotimes (i len)
-            (setf (word (+ data-pml2 virtual i)) (logior phys
-                                                         +page-table-present+
-                                                         +page-table-global+
-                                                         +page-table-large+))
-            (incf phys #x200000)))))
-    (* pml4 8)))
+    ;; Identity map the first 2MB of static space.
+    (setf (word (+ data-pml2 (truncate phys-curr #x200000)))
+          (logior phys-curr
+                  +page-table-present+
+                  +page-table-global+
+                  +page-table-large+))
+    (incf phys-curr #x200000)
+    ;; Skip over the support area.
+    (incf phys-curr (* #x200000 (ceiling *support-offset* #x40000)))
+    ;; The rest of the static area.
+    (dotimes (i (1- (ceiling *static-offset* #x40000)))
+      (setf (word (+ data-pml2 1 (truncate *static-area-base* #x200000) i))
+            (logior phys-curr
+                  +page-table-present+
+                  +page-table-global+
+                  +page-table-large+))
+      (incf phys-curr #x200000))
+    ;; The dynamic area.
+    (dotimes (i (ceiling *dynamic-offset* #x40000))
+      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) i))
+            (logior phys-curr
+                  +page-table-present+
+                  +page-table-global+
+                  +page-table-large+))
+      (incf phys-curr #x200000))
+    ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
+    (dotimes (i (truncate (- (/ *static-area-limit* 8) *static-offset*) #x40000))
+      (setf (word (+ data-pml2 (truncate *static-area-base* #x200000) (ceiling *static-offset* #x40000) i))
+            (logior phys-curr
+                  +page-table-present+
+                  +page-table-global+
+                  +page-table-large+))
+      (incf phys-curr #x200000))
+    (dotimes (i (truncate (- (/ *dynamic-area-semispace-limit* 8) *dynamic-offset*) #x40000))
+      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling *dynamic-offset* #x40000) i))
+            (logior phys-curr
+                  +page-table-present+
+                  +page-table-global+
+                  +page-table-large+))
+      (incf phys-curr #x200000))
+    ;; And future-newspace also comes from the BSS.
+    (dotimes (i (ceiling (/ *dynamic-area-semispace-limit* 8) #x40000))
+      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling (/ *dynamic-area-size* 2) #x200000) i))
+            (logior phys-curr
+                    +page-table-present+
+                    +page-table-global+
+                    +page-table-large+))
+      (incf phys-curr #x200000))
+    (- (* pml4 8) *linear-map*)))
 
 (defun create-initial-stack-group ()
-  (let* ((address (allocate 512 'support-area))
+  (let* ((address (allocate 512 :static))
          (control-stack-size 4096)
          (control-stack (allocate-stack control-stack-size :control))
          (data-stack-size 1024)
@@ -578,36 +631,13 @@
   (genesis::genesis-eval (list (genesis::genesis-intern "SAVE-COMPILER-BUILTINS") "%%compiler-builtins.llf"))
   (load-source-file "%%compiler-builtins.llf"))
 
-(defun save-area-info ()
-  (let ((area-addresses (mapcar (lambda (area) (allocate 5 'support-area))
-                                *initial-areas*))
-        (region-addresses (mapcar (lambda (area) (allocate 6 'support-area))
-                                  *initial-areas*))
-        (prev-area nil))
-    (iter (for (name allocation-mode initial-size 32-bit) in *initial-areas*)
-          (for (free-pointer offset storage newspace-offset area) in *area-info*)
-          (for area-addr in area-addresses)
-          (for region-addr in region-addresses)
-          (setf (word area-addr) (array-header +array-type-t+ 4)
-                (word (+ area-addr 1)) (make-value (symbol-address (symbol-name name) nil nil) +tag-symbol+)
-                (word (+ area-addr 2)) (make-fixnum 0)
-                (word (+ area-addr 3)) (make-value region-addr +tag-array-like+)
-                (word (+ area-addr 4)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
-          (setf (word region-addr) (array-header +array-type-t+ 5)
-                (word (+ region-addr 1)) (make-fixnum (* offset #x40000))
-                (word (+ region-addr 2)) (make-fixnum (* initial-size #x40000))
-                (word (+ region-addr 3)) (make-fixnum free-pointer)
-                (word (+ region-addr 4)) (make-fixnum 0)
-                (word (+ region-addr 5)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
-          (format t "Area ~S~%" name)
-          (setf (cold-symbol-value name) (make-value area-addr +tag-array-like+))
-          (when prev-area
-            (setf (word (+ prev-area 4)) (make-value area-addr +tag-array-like+)))
-          (setf prev-area area-addr))
-    (setf (cold-symbol-value '*area-info*) (make-value (first area-addresses) +tag-array-like+))))
-
 (defun make-image (image-name &optional description extra-source-files)
-  (let ((*area-info* (create-area-info *initial-areas*))
+  (let ((*support-offset* 0)
+        (*static-offset* 0)
+        (*dynamic-offset* 0)
+        (*support-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
+        (*static-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
+        (*dynamic-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*pending-fixups* '())
         (*symbol-table* (make-hash-table :test 'equal))
         (*keyword-table* (make-hash-table :test 'equal))
@@ -623,6 +653,10 @@
         (initial-stack nil)
         (initial-pml4))
     (create-support-objects)
+    (setf multiboot (allocate 5 :static)
+          initial-stack (allocate 8 :static)
+          gdt (allocate 3 :static)
+          idt (allocate 257 :static))
     (create-initial-stack-group)
     (load-compiler-builtins)
     (load-source-files *source-files*)
@@ -637,64 +671,58 @@
             *newspace-offset* *semispace-size* *newspace*
             *static-bump-pointer* *static-area-size* *static-mark-bit*
             *area-info*))
-    (mapc (lambda (area) (symbol-address (string (first area)) nil)) *initial-areas*)
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
     (generate-struct-obarray *struct-table* '*initial-structure-obarray*)
     ;; Create GDT.
-    (setf gdt (allocate 3 'support-area)
-          (word gdt) (array-header +array-type-unsigned-byte-64+ 2)
+    (setf (word gdt) (array-header +array-type-unsigned-byte-64+ 2)
           (word (+ gdt 1)) 0
           (word (+ gdt 2)) #x00209A0000000000)
-    (setf (cold-symbol-value '*gdt*) gdt)
+    (setf (cold-symbol-value '*gdt*) (make-value gdt +tag-array-like+))
     ;; Create IDT.
-    (setf idt (allocate 257 'support-area)
-          (word idt) (array-header +array-type-unsigned-byte-64+ 256))
+    (setf (word idt) (array-header +array-type-unsigned-byte-64+ 256))
     (dotimes (i 256)
       (setf (word (1+ idt)) 0))
-    (setf (cold-symbol-value '*idt*) idt)
+    (setf (cold-symbol-value '*idt*) (make-value idt +tag-array-like+))
     ;; Create the setup stack.
-    (setf initial-stack (allocate 8 'support-area)
-          (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
-    (setf (cold-symbol-value '*%setup-stack*) initial-stack)
+    (setf (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
+    (setf (cold-symbol-value '*%setup-stack*) (make-value initial-stack +tag-array-like+))
     ;; Generate page tables.
     (setf initial-pml4 (create-page-tables))
     ;; Create setup function.
-    (setf setup-fn (compile-lap-function *setup-function* 'support-area
+    (setf setup-fn (compile-lap-function *setup-function* :static
                                          (list (cons 'gdt (* (1+ gdt) 8))
                                                (cons 'gdt-length (1- (* 2 8)))
                                                (cons 'idt (* (1+ idt) 8))
                                                (cons 'idt-length (1- (* 256 8)))
                                                (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                (cons 'initial-page-table initial-pml4))))
-    (setf (cold-symbol-value '*%setup-function*) setup-fn)
+    (setf (cold-symbol-value '*%setup-function*) (make-value setup-fn +tag-function+))
     (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     ;; Create multiboot header.
-    (setf multiboot (allocate 5 'support-area)
-          (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
+    (setf (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
           (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
           (word (+ multiboot 2)) (pack-halfwords (ldb (byte 32 0) (- (+ #x1BADB002 #x00010003)))
                                                  (* (1+ multiboot) 8))
-          (word (+ multiboot 3)) (pack-halfwords #x200000 (+ #x200000 (* (total-image-size) 8)))
-          (word (+ multiboot 4)) (pack-halfwords 0 (make-value setup-fn +tag-function+)))
+          (word (+ multiboot 3)) (pack-halfwords *physical-load-address*
+                                                 (+ *physical-load-address* (* (image-data-size) 8)))
+          (word (+ multiboot 4)) (pack-halfwords (+ *physical-load-address*
+                                                    (* (total-image-size) 8))
+                                                 (make-value setup-fn +tag-function+)))
     (setf (cold-symbol-value '*multiboot-header*) (make-value multiboot +tag-array-like+))
-    ;; Must be the last thing to allocate.
-    (save-area-info)
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value '*newspace-offset* (first (nth (position 'runtime-allocation-area *initial-areas* :key 'first) *area-info*)))
-      (set-value '*semispace-size* (* (third (assoc 'runtime-allocation-area *initial-areas*)) #x40000))
-      (set-value '*newspace* (* (second (nth (position 'runtime-allocation-area *initial-areas* :key 'first) *area-info*)) #x200000))
-      (set-value '*static-bump-pointer* (+ (* (second (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) #x200000)
-                                           (* (first (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) 8)))
-      (set-value '*static-area-size* (+ (* (second (nth (position 'function-area *initial-areas* :key 'first) *area-info*)) #x40000)
-                                        (* (third (assoc 'function-area *initial-areas*)) #x40000)))
+      (set-value '*newspace-offset* *dynamic-offset*)
+      (set-value '*semispace-size* (/ *dynamic-area-semispace-limit* 8))
+      (set-value '*newspace* *dynamic-area-base*)
+      (set-value '*static-bump-pointer* (+ (* *static-offset* 8) *static-area-base*))
+      ;; More like static-area-limit...
+      (set-value '*static-area-size* (/ (+ *static-area-base* *static-area-limit*) 8))
       (set-value '*static-mark-bit* 0)
-      (set-value '*bump-pointer* (+ (* (second (nth (position 'stack-area *initial-areas* :key 'first) *area-info*)) #x200000)
-                                    (* (first (nth (position 'stack-area *initial-areas* :key 'first) *area-info*)) 8))))
+      (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8))))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name description)))
@@ -879,7 +907,7 @@
             (constants-position (file-position stream))
             (total-size (+ (* (ceiling (+ mc-length 12) 16) 2)
                            constants-length))
-            (address (allocate total-size 'function-area)))
+            (address (allocate total-size :static)))
        ;; Copy machine code bytes.
        (file-position stream (- mc-position 4))
        (dotimes (i (ceiling (+ mc-length 4) 8))
