@@ -151,6 +151,9 @@
     (dotimes (i (length pkg)
               (let ((sym (make-symbol (string name))))
                 (setf (symbol-package sym) (if (string= package "KEYWORD") :keyword t))
+                (when (string= package "KEYWORD")
+                  (setf (symbol-value sym) sym
+                        (symbol-mode sym) :constant))
                 (vector-push-extend sym pkg)
                 (values sym nil)))
       (when (string= name (symbol-name (aref pkg i)))
@@ -526,7 +529,7 @@
     (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))
   (values))
 
-(declaim (special *features* most-positive-fixnum most-negative-fixnum *macroexpand-hook*))
+(declaim (special *features* *macroexpand-hook*))
 
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
@@ -590,6 +593,11 @@
   (setf *initial-keyword-obarray* (make-array (length *initial-keyword-obarray*)
                                               :fill-pointer t :adjustable t
                                               :initial-contents *initial-keyword-obarray*))
+  (dotimes (i (length *initial-keyword-obarray*))
+    (setf (symbol-package (aref *initial-keyword-obarray* i)) :keyword
+          (symbol-mode (aref *initial-keyword-obarray* i)) :constant))
+  (dolist (sym '(nil t most-positive-fixnum most-negative-fixnum))
+    (setf (symbol-mode sym) :constant))
   (terpri)
   (write-char #\*)
   (write-char #\O)
