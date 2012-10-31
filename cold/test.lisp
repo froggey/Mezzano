@@ -158,6 +158,10 @@
                 (values sym nil)))
       (when (string= name (symbol-name (aref pkg i)))
         (return (values (aref pkg i) :internal))))))
+(defun package-name (package)
+  (ecase package
+    ((t) "SYSTEM")
+    ((:keyword) "KEYWORD")))
 
 (defun %defpackage (&rest args)
   (declare (ignore args)))
@@ -249,6 +253,13 @@
              (setf form expansion
                    did-expand t)
              (return (values form did-expand)))))))
+
+(defun fboundp (name)
+  (%fboundp (function-symbol name)))
+
+(defun fmakunbound (name)
+  (%fmakunbound (function-symbol name))
+  name)
 
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
@@ -443,6 +454,9 @@
 (defun mumble-hex (number)
   (dotimes (i 16)
     (setf (io-port/8 #xE9) (hexify (logand (ash number (* -4 (- 15 i))) #b1111)))))
+
+(defun make-case-correcting-stream (stream case)
+  stream)
 
 (defun describe-symbol (object stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
