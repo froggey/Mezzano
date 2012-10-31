@@ -38,6 +38,10 @@
          (error "TODO: character peek."))
         (t (error "Bad peek type ~S." peek-type))))
 
+(defvar *cold-stream*)
+(defun streamp (object)
+  (eql object *cold-stream*))
+
 (defun backtrace (&optional limit)
   (do ((i 0 (1+ i))
        (fp (read-frame-pointer)
@@ -572,9 +576,10 @@
                         (complex double-float)
                         (complex long-float))
         *package* nil
-        *terminal-io* t
-        *standard-output* t
-        *standard-input* t
+        *cold-stream* (cons "COLD" "STREAM")
+        *terminal-io* *cold-stream*
+        *standard-output* *cold-stream*
+        *standard-input* *cold-stream*
         *screen-offset* 0
         *keyboard-shifted* nil
         *early-initialize-hook* '()
