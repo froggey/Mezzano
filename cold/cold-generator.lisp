@@ -24,6 +24,7 @@
     "../cold/eval.lisp"
     "../format.lisp"
     "../type.lisp"
+    "../interrupt.lisp"
     "../memory.lisp"))
 
 (defconstant +tag-even-fixnum+   #b0000)
@@ -366,7 +367,7 @@
         (error "Symbol ~A~A does not exist."
                (if keywordp #\: "")
                name))
-      (let ((address (allocate 6)))
+      (let ((address (allocate 6 :static)))
         (setf (word address) (make-value (store-string name)
                                          +tag-array-like+)
               (word (+ address 1)) (make-value (gethash "T" *symbol-table*) +tag-symbol+)
@@ -550,7 +551,7 @@
                     +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000))
-    (- (* pml4 8) *linear-map*)))
+    (values (- (* pml4 8) *linear-map*) (* data-pml2 8))))
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
@@ -651,7 +652,8 @@
         (idt nil)
         (multiboot nil)
         (initial-stack nil)
-        (initial-pml4))
+        (initial-pml4)
+        (data-pml2))
     (create-support-objects)
     (setf multiboot (allocate 5 :static)
           initial-stack (allocate 8 :static)
@@ -668,9 +670,9 @@
             *multiboot-header* *multiboot-info*
             *initial-obarray* *initial-keyword-obarray*
             *initial-setf-obarray* *initial-structure-obarray*
-            *newspace-offset* *semispace-size* *newspace*
+            *newspace-offset* *semispace-size* *newspace* *oldspace*
             *static-bump-pointer* *static-area-size* *static-mark-bit*
-            *area-info*))
+            *oldspace-paging-bits* *newspace-paging-bits*))
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
@@ -689,7 +691,7 @@
     (setf (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
     (setf (cold-symbol-value '*%setup-stack*) (make-value initial-stack +tag-array-like+))
     ;; Generate page tables.
-    (setf initial-pml4 (create-page-tables))
+    (setf (values initial-pml4 data-pml2) (create-page-tables))
     ;; Create setup function.
     (setf setup-fn (compile-lap-function *setup-function* :static
                                          (list (cons 'gdt (* (1+ gdt) 8))
@@ -718,11 +720,14 @@
       (set-value '*newspace-offset* *dynamic-offset*)
       (set-value '*semispace-size* (/ *dynamic-area-semispace-limit* 8))
       (set-value '*newspace* *dynamic-area-base*)
+      (set-value '*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
       (set-value '*static-bump-pointer* (+ (* *static-offset* 8) *static-area-base*))
       ;; More like static-area-limit...
       (set-value '*static-area-size* (/ (+ *static-area-base* *static-area-limit*) 8))
       (set-value '*static-mark-bit* 0)
-      (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8))))
+      (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
+      (set-value '*oldspace-paging-bits* (+ data-pml2 (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x200000)))
+      (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000))))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name description)))

@@ -414,6 +414,29 @@
     (setf (symbol-value hook) '()))
   (pushnew function (symbol-value hook)))
 
+(defun set-gc-light ())
+(defun clear-gc-light ())
+
+(defun mumble (message)
+  (mumble-string message)
+  (setf (io-port/8 #xE9) #x0A))
+
+;;; Used while the GC is copying, so no lookup tables.
+(defun hexify (nibble)
+  (cond ((<= 0 nibble 9)
+         (+ nibble (char-code #\0)))
+        (t (+ (- nibble 10) (char-code #\A)))))
+
+(defun mumble-string (message)
+  (dotimes (i (%simple-array-length message))
+    (let ((code (logand (char-code (schar message i)) #xFF)))
+      (setf (io-port/8 #xE9) code)
+      (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
+            (logior code #x7000)))))
+(defun mumble-hex (number)
+  (dotimes (i 16)
+    (setf (io-port/8 #xE9) (hexify (logand (ash number (* -4 (- 15 i))) #b1111)))))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
         *array-types* #(t

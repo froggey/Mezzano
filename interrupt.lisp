@@ -20,7 +20,7 @@
 (defvar *isa-pic-handlers* (make-array 16 :initial-element nil :area :static))
 (defvar *isa-pic-base-handlers* (make-array 16 :initial-element nil))
 
-(dotimes (i 16)
+#+nil(dotimes (i 16)
   (multiple-value-bind (mc pool)
       (sys.lap-x86:assemble `((sys.lap-x86:push :rbp)
                               (sys.lap-x86:mov64 :rbp :rsp)
@@ -101,7 +101,8 @@
         *isa-pic-shadow-mask* #xFFFF
         (isa-pic-irq-mask 2) nil))
 
-(add-hook '*early-initialize-hook* 'init-isa-pic)
+#+nil(add-hook '*early-initialize-hook* 'init-isa-pic)
+(init-isa-pic)
 
 (defun ldb-exception (stack-frame)
   (mumble-string "In LDB.")
@@ -157,7 +158,7 @@
   (sys.lap-x86:add64 :rsp 16)
   (sys.lap-x86:iret))
 
-(dotimes (i 32)
+#+nil(dotimes (i 32)
   (multiple-value-bind (mc pool)
       (sys.lap-x86:assemble `(,@(unless (member i '(8 10 11 12 13 14 17))
                                   `((sys.lap-x86:push 0)))
