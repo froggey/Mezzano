@@ -14,6 +14,56 @@
 (deftype bit-vector (&optional size)
   `(vector bit ,size))
 
+(deftype simple-base-string (&optional size)
+  `(simple-array base-char (,size)))
+
+(deftype base-string (&optional size)
+  `(vector base-char ,size))
+
+(deftype simple-string (&optional size)
+  `(or (simple-array nil (,size))
+       (simple-array base-char (,size))
+       (simple-array character (,size))))
+
+(deftype string (&optional size)
+  `(or (vector nil (,size))
+       (vector base-char (,size))
+       (vector character (,size))))
+
+(defun simple-array-type-p (object type)
+  (and (%simple-array-p object)
+       (array-type-p object type)))
+(setf (get 'simple-array 'compound-type) 'simple-array-type-p)
+(setf (get 'simple-array 'type-symbol) '%simple-array-p)
+
+(defun array-type-p (object type)
+  (destructuring-bind (&optional (element-type '*) (dimension-spec '*))
+      (cdr type)
+    (assert (or (listp dimension-spec)
+                (eql dimension-spec '*))
+            (dimension-spec))
+    (let ((rank (if (listp dimension-spec)
+                    (length dimension-spec)
+                    '*)))
+      (and (arrayp object)
+           (if (eql element-type '*)
+               t
+               ;; Type equality.
+               (and (subtypep element-type (array-element-type object))
+                    (subtypep (array-element-type object) element-type)))
+           (if (eql rank '*)
+               t
+               (eql (array-rank object) rank))
+           (if (eql dimension-spec '*)
+               t
+               (every (lambda (x y)
+                        (if (eql x '*)
+                            t
+                            (eql x y)))
+                      dimension-spec (array-dimensions object)))))))
+(setf (get 'array 'compound-type) 'array-type-p)
+(setf (get 'array 'type-symbol) 'arrayp)
+
 (defparameter *specialized-array-types*
   '(bit
     (unsigned-byte 2)
