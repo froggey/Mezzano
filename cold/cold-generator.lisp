@@ -28,6 +28,9 @@
     "../interrupt.lisp"
     "../memory.lisp"))
 
+(defparameter *special-source-files*
+  '(("../bootstrap/packages.lisp" *package-system*)))
+
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
 (defconstant +tag-symbol+        #b0010)
@@ -631,7 +634,7 @@
 ;; Ugh.
 (defun load-compiler-builtins ()
   (genesis::genesis-eval (list (genesis::genesis-intern "SAVE-COMPILER-BUILTINS") "%%compiler-builtins.llf"))
-  (load-source-file "%%compiler-builtins.llf"))
+  (load-source-file "%%compiler-builtins.llf" t))
 
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*support-offset* 0)
@@ -646,7 +649,6 @@
         (*setf-table* (make-hash-table :test 'equal))
         (*struct-table* (make-hash-table))
         (*undefined-function-address* nil)
-        (*load-time-evals* '())
         (*function-map* '())
         (setup-fn nil)
         (gdt nil)
@@ -661,10 +663,17 @@
           gdt (allocate 3 :static)
           idt (allocate 257 :static))
     (create-initial-stack-group)
-    (load-compiler-builtins)
-    (load-source-files *source-files*)
-    (load-source-files extra-source-files)
-    (generate-toplevel-form-array (reverse *load-time-evals*) '*cold-toplevel-forms*)
+    (let ((*load-time-evals* '()))
+      (load-compiler-builtins)
+      (load-source-files *source-files* t)
+      (generate-toplevel-form-array (reverse *load-time-evals*) '*cold-toplevel-forms*))
+    (iter (for (file symbol) in *special-source-files*)
+          (let ((*load-time-evals* '()))
+            (load-source-file file nil)
+            (generate-toplevel-form-array (reverse *load-time-evals*) symbol)))
+    (let ((*load-time-evals* '()))
+      (load-source-files extra-source-files nil)
+      (generate-toplevel-form-array (reverse *load-time-evals*) '*additional-cold-toplevel-forms*))
     ;; Poke a few symbols to ensure they exist.
     (mapc (lambda (sym) (symbol-address (string sym) nil))
           '(*gdt* *idt* *%setup-stack* *%setup-function*
@@ -733,8 +742,10 @@
     (write-map-file image-name *function-map*)
     (write-image image-name description)))
 
-(defun load-source-files (files)
-  (mapc 'load-source-file files))
+(defun load-source-files (files set-fdefinitions)
+  (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))
+
+(defvar *load-should-set-fdefinitions*)
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
@@ -985,6 +996,20 @@
      (logior (ash (load-integer stream) 32)
              +tag-single-float+))))
 
+(defun vintern (name &optional keywordp)
+  (make-value (symbol-address name keywordp) +tag-symbol+))
+
+(defun vcons (car cdr)
+  (let ((address (allocate 2)))
+    (setf (word address) car
+          (word (1+ address)) cdr)
+    (make-value address +tag-cons+)))
+
+(defun vlist (&rest args)
+  (if args
+      (vcons (first args) (apply 'vlist (rest args)))
+      (vintern "NIL")))
+
 (defun load-object (stream omap)
   (let ((command (read-byte stream)))
     (case command
@@ -995,14 +1020,25 @@
          (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
          (values (gethash id omap) nil)))
       (#.+llf-invoke+
-       (let ((fn (load-object stream omap)))
-         (push fn *load-time-evals*)
+       ;; `(funcall ',fn)
+       (let* ((fn (load-object stream omap))
+              (form (vlist (vintern "FUNCALL")
+                           (vlist (vintern "QUOTE")
+                                  fn))))
+         (push form *load-time-evals*)
          (values fn nil)))
       (#.+llf-setf-fdefinition+
        (let* ((fn-value (load-object stream omap))
               (base-name (load-object stream omap))
               (name (resolve-function-name base-name)))
-         (setf (word (+ (pointer-part name) 3)) fn-value)))
+         (if *load-should-set-fdefinitions*
+             (setf (word (+ (pointer-part name) 3)) fn-value)
+             (push (vlist (vintern "FUNCALL")
+                          (vlist (vintern "FUNCTION") (vlist (vintern "SETF") (vintern "SYMBOL-FUNCTION")))
+                          (vlist (vintern "QUOTE") fn-value)
+                          (vlist (vintern "QUOTE") name))
+                   *load-time-evals*))
+         fn-value))
       (#.+llf-unbound+ (error "Should not seen UNBOUND here."))
       (t (let ((id (hash-table-count omap)))
            (setf (gethash id omap) '"!!!LOAD PLACEHOLDER!!!")
@@ -1020,9 +1056,10 @@
            (make-value (resolve-setf-symbol (second name)) +tag-symbol+))
           (t (error "Unknown function name ~S." name)))))
 
-(defun load-source-file (file)
+(defun load-source-file (file set-fdefinitions)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
-        (omap (make-hash-table)))
+        (omap (make-hash-table))
+        (*load-should-set-fdefinitions* set-fdefinitions))
     (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
                (or (not (probe-file llf-path))
                    (<= (file-write-date llf-path) (file-write-date file))))

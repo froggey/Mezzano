@@ -1,6 +1,8 @@
 (in-package #:sys.int)
 
 (declaim (special *cold-toplevel-forms*
+                  *package-system*
+                  *additional-cold-toplevel-forms*
                   *initial-obarray*
                   *initial-keyword-obarray*
                   *initial-setf-obarray*
@@ -136,9 +138,9 @@
                   :expected-type 'list))))
 
 (defun find-package-or-die (name)
-  nil)
+  t)
 (defun find-package (name)
-  nil)
+  t)
 (defun keywordp (object)
   (find object *initial-keyword-obarray*))
 (defun find-symbol (name &optional package)
@@ -148,7 +150,7 @@
     (dotimes (i (length pkg) (values nil nil))
       (when (string= name (symbol-name (aref pkg i)))
         (return (values (aref pkg i) :internal))))))
-(defun intern (name &optional package)
+(defun cold-intern (name &optional package)
   (let ((pkg (if (string= package "KEYWORD")
                  *initial-keyword-obarray*
                  *initial-obarray*)))
@@ -167,12 +169,6 @@
     ((t) "SYSTEM")
     ((:keyword) "KEYWORD")))
 
-(defun %defpackage (&rest args)
-  (declare (ignore args)))
-
-(defun export (&rest args)
-  (declare (ignore args)))
-
 ;;; The compiler can only handle (apply function arg-list).
 (defun apply (function arg &rest more-args)
   (declare (dynamic-extent more-args))
@@ -184,6 +180,9 @@
                (setf (cdr i) (cadr i))
                (apply function arg-list))))
         (t (apply function arg))))
+
+(defun funcall (function &rest args)
+  (apply function args))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
@@ -592,6 +591,7 @@
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 60) 1)
         most-negative-fixnum #.(- (expt 2 60)))
+  (setf (symbol-function 'intern) #'cold-intern)
   ;; Initialize defstruct and patch up all the structure types.
   (bootstrap-defstruct)
   (dotimes (i (length *initial-structure-obarray*))
@@ -605,7 +605,7 @@
       (setf (get sym 'setf-symbol-backlink) other
             (get other 'setf-symbol) sym)))
   (dotimes (i (length *cold-toplevel-forms*))
-    (funcall (svref *cold-toplevel-forms* i)))
+    (eval (svref *cold-toplevel-forms* i)))
   (setf *initial-obarray* (make-array (length *initial-obarray*)
                                       :fill-pointer t :adjustable t
                                       :initial-contents *initial-obarray*))
@@ -617,6 +617,15 @@
           (symbol-mode (aref *initial-keyword-obarray* i)) :constant))
   (dolist (sym '(nil t most-positive-fixnum most-negative-fixnum))
     (setf (symbol-mode sym) :constant))
+  ;; Pull in the real package system.
+  ;; If anything goes wrong before init-package-sys finishes then things
+  ;; break in terrible ways.
+  (dotimes (i (length *package-system*))
+    (eval (svref *package-system* i)))
+  (initialize-package-system)
+  (let ((*package* *package*))
+    (dotimes (i (length *additional-cold-toplevel-forms*))
+      (eval (svref *additional-cold-toplevel-forms* i))))
   (terpri)
   (write-char #\*)
   (write-char #\O)
