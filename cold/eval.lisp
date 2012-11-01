@@ -7,6 +7,7 @@
     ((if) (if (eval (second form))
               (eval (third form))
               (eval (fourth form))))
+    ((function) (fdefinition (second form)))
     ((quote) (second form))
     ((progn) (do ((f (rest form) (cdr f)))
                  ((null (cdr f))
