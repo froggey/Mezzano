@@ -63,7 +63,7 @@
                  (push (list (fourth info)
                              `(lambda ,(first info)
                                 (declare (system:lambda-name ,(fourth info)))
-                                (funcall ',(fourth info) ,@(first info))))
+                                (funcall #',(fourth info) ,@(first info))))
                        functions)))
              *builtins*)
     functions))
