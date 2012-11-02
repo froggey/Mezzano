@@ -1,6 +1,8 @@
 ;;;; setf.lisp
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun get-setf-expansion (place &optional environment)
   (if (consp place)
@@ -36,6 +38,8 @@
 	      (values '() '() (list store-sym)
 		      `(setq ,place ,store-sym)
 		      place))))))
+
+)
 
 (defmacro setf (&environment env &rest forms)
   (when forms

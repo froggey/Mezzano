@@ -1,6 +1,6 @@
 ;;; Function for parsing various parts of CL.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defun parse-ordinary-lambda-list (lambda-list)
   "Parse LAMBDA-LIST as an ordinary lambda list.
