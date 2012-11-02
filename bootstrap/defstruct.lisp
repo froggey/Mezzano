@@ -35,6 +35,8 @@
 (unless *structure-type-type*
   (bootstrap-defstruct))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun parse-defstruct-options (name-and-options)
   (let ((name nil)
 	(suppress-constructors nil)
@@ -182,6 +184,8 @@
 							    (first s))))
 		       (structure-slots struct-type)))
 	   ,tmp)))))
+
+)
 
 (defmacro defstruct (name-and-options &rest slot-descriptions)
   (multiple-value-bind (name conc-name constructors predicate area)
