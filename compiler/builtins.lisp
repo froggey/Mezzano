@@ -8,7 +8,7 @@
   `(progn (setf (gethash ',(sys.int::function-symbol name) *builtins*)
 		(list ',lambda-list
 		      (lambda ,lambda-list
-			(declare (lambda-name ,name))
+			(declare (system:lambda-name ,name))
 			,@body)
                       ',emit-function
                       ',name))

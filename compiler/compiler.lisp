@@ -1,6 +1,12 @@
 (defpackage #:system.compiler
   (:nicknames #:sys.c)
-  (:use #:cl #:system))
+  (:shadow #:compiler-macro-function
+           #:*macroexpand-hook*
+           #:macroexpand
+           #:macroexpand-1
+           #:macro-function
+           #:constantp)
+  (:use #:cl))
 
 (in-package #:system.compiler)
 
@@ -19,13 +25,6 @@ A list of any declaration-specifiers."
     ;; Dump the bodies of each declare form into a single list.
     (dolist (decl (cdar itr))
       (push decl declares))))
-
-;(defun compile (name &optional definition)
-;  (when name
-;    (error "TODO: Compiling named functions."))
-;  (unless definition
-;    (error "Compiling nothing!"))
-;  (pass1-lambda definition nil))
 
 (declaim (special *environment*))
 

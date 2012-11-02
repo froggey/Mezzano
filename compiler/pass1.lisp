@@ -93,7 +93,7 @@
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-	(parse-ordinary-lambda-list lambda-list)
+	(sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((info (make-lambda-information :name name
 					    :docstring docstring
 					    :lambda-list lambda-list
@@ -190,7 +190,6 @@
 
 (defun compiler-macroexpand-1 (form env)
   "Expand one level of macros and compiler macros."
-  #+sbcl (setf env (sb-c::make-null-lexenv))
   ;; Detect (funcall #'name ..) and call the appropriate compiler macro.
   (let* ((name (if (and (eq (first form) 'funcall)
 			(consp (second form))
