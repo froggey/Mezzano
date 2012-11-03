@@ -80,7 +80,7 @@
 
 (defvar *cross-readtable* (copy-readtable nil))
 
-(defun symbol-macro-function (symbol &optional env)
+(defun sys.int::symbol-macro-function (symbol &optional env)
   (dolist (e env
            (gethash symbol *system-symbol-macros*))
     (when (eql (first e) :symbol-macros)
@@ -172,7 +172,7 @@
       t
       nil))
 
-(defun variable-information (symbol)
+(defun sys.int::variable-information (symbol)
   (cond ((or (member symbol '(nil t))
              (keywordp symbol))
          :constant)

@@ -79,7 +79,7 @@
 	  :format-arguments (list (lexical-variable-name variable)))))
 
 (defun make-variable (name declares)
-  (if (or (variable-information name)
+  (if (or (sys.int::variable-information name)
 	  (declared-as-p 'special name declares))
       name
       (make-lexical-variable :name name
@@ -185,7 +185,7 @@
 
 (defun expand-constant-variable (symbol)
   "Expand a constant variable, returning the quoted value or returning NIL if the variable is not a constant."
-  (when (eql (variable-information symbol) :constant)
+  (when (eql (sys.int::variable-information symbol) :constant)
     (ignore-errors `(quote ,(symbol-value symbol)))))
 
 (defun compiler-macroexpand-1 (form env)
@@ -214,8 +214,8 @@
     ((symbolp form)
      ;; Expand symbol macros.
      ;; FIXME: not right, should examine lexical environment.
-     (if (symbol-macro-function form)
-	 (pass1-form (funcall *macroexpand-hook* (symbol-macro-function form) form env) env)
+     (if (sys.int::symbol-macro-function form)
+	 (pass1-form (funcall *macroexpand-hook* (sys.int::symbol-macro-function form) form env) env)
 	 (let ((var (find-variable form env)))
 	   (if (symbolp var)
 	       ;; Replace constants with their quoted values.

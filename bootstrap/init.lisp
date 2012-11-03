@@ -446,7 +446,6 @@
   (let ((*package* *package*))
     (%load pathname)))
 
-
 ;;; Used by various stuff, duplicated from stream.lisp.
 (defmacro with-open-stream ((var stream) &body body)
   `(let ((,var ,stream))
