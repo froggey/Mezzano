@@ -5,13 +5,11 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "None"
+  :depends-on ("lispos-lap")
   :components ((:file "build-unicode")
-               (:file "lap")
-               (:file "lap-x86" :depends-on ("lap"))
                (:file "genesis/genesis")
                (:file "genesis/read" :depends-on ("genesis/genesis"))
                (:file "genesis/eval" :depends-on ("genesis/genesis"))
                (:file "genesis/dump" :depends-on ("genesis/genesis"
                                                   "genesis/eval"
-                                                  "lap-x86"
                                                   "build-unicode"))))
