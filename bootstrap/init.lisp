@@ -571,6 +571,7 @@
 ;; Compiler.
 (load "../lap.lisp")
 (load "../lap-x86.lisp")
+(load "../compiler/package.lisp")
 (load "../compiler/compiler.lisp")
 (load "../compiler/pass1.lisp")
 (load "../compiler/constprop.lisp")

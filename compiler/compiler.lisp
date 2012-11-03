@@ -1,13 +1,3 @@
-(defpackage #:system.compiler
-  (:nicknames #:sys.c)
-  (:shadow #:compiler-macro-function
-           #:*macroexpand-hook*
-           #:macroexpand
-           #:macroexpand-1
-           #:macro-function
-           #:constantp)
-  (:use #:cl))
-
 (in-package #:system.compiler)
 
 (defun parse-declares (forms)
