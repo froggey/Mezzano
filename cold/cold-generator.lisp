@@ -29,7 +29,7 @@
     "../memory.lisp"))
 
 (defparameter *special-source-files*
-  '(("../bootstrap/packages.lisp" *package-system*)))
+  '(("../packages.lisp" *package-system*)))
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)

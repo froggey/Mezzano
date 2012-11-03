@@ -1,7 +1,7 @@
 ;;;; The CL package system.
 ;;;; This file must be loaded last during system bootstrapping.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (declaim (special *package*))
 
@@ -136,16 +136,6 @@
 	(export-one-symbol symbols p)))
   t)
 
-;;; Create the core packages when the file is first loaded.
-;;; *PACKAGE* is set to system.internals initially.
-(unless *package-list*
-  (setf *keyword-package* (make-package "KEYWORD"))
-  (make-package "COMMON-LISP" :nicknames '("CL"))
-  (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
-  (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS"))
-  (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
-  (setf *package* (find-package-or-die "SYSTEM.INTERNALS")))
-
 ;; Function FIND-ALL-SYMBOLS
 ;; Function RENAME-PACKAGE
 ;; Function SHADOW
@@ -160,29 +150,25 @@
 ;; Condition Type PACKAGE-ERROR
 ;; Function PACKAGE-ERROR-PACKAGE
 
-;;; The definition of intern and the switch over to the full package system
-;;; must be done together.
-(progn
-  (defun intern (name &optional (package *package*))
-    (let ((p (find-package-or-die package)))
-      (multiple-value-bind (symbol status)
-	  (find-symbol name p)
-        (when (string= name "READTABLE-CASE")
-          (format t "Intern RT-CASE ~S ~S~%" symbol status))
-	(when status
-	  (return-from intern (values symbol status))))
-      (let ((symbol (make-symbol name)))
-        (when (string= name "READTABLE-CASE")
-          (format t "Importing into ~S~%" (package-name p)))
-	(import (list symbol) p)
-	(when (eql p *keyword-package*)
-	  ;; TODO: Constantness.
-          (proclaim `(constant ,symbol))
-	  (setf (symbol-value symbol) symbol)
-	  (export (list symbol) p))
-	(values symbol nil))))
-  (jettison-bootstrap-package-system)
-  (defun jettison-bootstrap-package-system ()))
+;;; This is the intern function, different name so it doesn't conflict with cold-intern.
+(defun package-intern (name &optional (package *package*))
+  (let ((p (find-package-or-die package)))
+    (multiple-value-bind (symbol status)
+        (find-symbol name p)
+      (when (string= name "READTABLE-CASE")
+        (format t "Intern RT-CASE ~S ~S~%" symbol status))
+      (when status
+        (return-from package-intern (values symbol status))))
+    (let ((symbol (make-symbol name)))
+      (when (string= name "READTABLE-CASE")
+        (format t "Importing into ~S~%" (package-name p)))
+      (import (list symbol) p)
+      (when (eql p *keyword-package*)
+        ;; TODO: Constantness.
+        (proclaim `(constant ,symbol))
+        (setf (symbol-value symbol) symbol)
+        (export (list symbol) p))
+      (values symbol nil))))
 
 (defun delete-package (package)
   (let ((p (find-package-or-die package)))
@@ -267,3 +253,26 @@
 		    ',import-list
 		    ',export-list
 		    ',intern-list))))
+
+(defun initialize-package-system ()
+  (write-line "Initializing package system.")
+  ;; Create the core packages.
+  (setf *package-list* '())
+  (setf *keyword-package* (make-package "KEYWORD"))
+  (make-package "COMMON-LISP" :nicknames '("CL"))
+  (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
+  (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS"))
+  (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
+  (setf *package* (find-package-or-die "SYSTEM.INTERNALS"))
+  ;; Now import all the symbols.
+  ;; TODO: Intern into the correct package.
+  (dotimes (i (length *initial-obarray*))
+    (let ((sym (aref *initial-obarray* i)))
+      (setf (symbol-package sym) nil)
+      (import-one-symbol sym *package*)))
+  (dotimes (i (length *initial-keyword-obarray*))
+    (let ((sym (aref *initial-keyword-obarray* i)))
+      (setf (symbol-package sym) nil)
+      (import-one-symbol sym *keyword-package*)))
+  (setf (symbol-function 'intern) #'package-intern)
+  (values))
