@@ -28,7 +28,8 @@
     "../format.lisp"
     "../type.lisp"
     "../interrupt.lisp"
-    "../memory.lisp"))
+    "../memory.lisp"
+    "../dump.lisp"))
 
 (defparameter *special-source-files*
   '(("../packages.lisp" *package-system*)))
