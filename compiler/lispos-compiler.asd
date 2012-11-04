@@ -10,6 +10,7 @@
                #+nil(:file "../bootstrap/data-types.lisp")
                (:file "cross-compile" :depends-on ("cross"))
                (:file "cross-boot" :depends-on ("cross" "cross-compile"))
+               (:file "parse" :depends-on ("cross"))
                (:file "compiler" :depends-on ("cross"))
                (:file "pass1" :depends-on ("cross" "compiler"))
                (:file "inline" :depends-on ("cross" "compiler"))
