@@ -5,7 +5,7 @@
 (defparameter *builtins* (make-hash-table))
 
 (defmacro defbuiltin (name lambda-list (&optional (emit-function t)) &body body)
-  `(progn (setf (gethash ',(sys.int::function-symbol name) *builtins*)
+  `(progn (setf (gethash (sys.int::function-symbol ',name) *builtins*)
 		(list ',lambda-list
 		      (lambda ,lambda-list
 			(declare (system:lambda-name ,name))
