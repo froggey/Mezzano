@@ -191,12 +191,15 @@
 (defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
 (defparameter *dynamic-area-base* #x0080000000)
 (defparameter *dynamic-area-size* #x0080000000) ; 2GB
+(defparameter *stack-area-base*   #x0100000000)
+(defparameter *stack-area-size*   #x0040000000) ; 1GB
 (defparameter *linear-map*        #x8000000000)
 (defparameter *physical-load-address* #x0000200000)
 
 (defvar *support-offset*)
 (defvar *static-offset*)
 (defvar *dynamic-offset*)
+(defvar *stack-offset*)
 
 (defvar *support-data*)
 (defvar *static-data*)
@@ -216,15 +219,15 @@
   (when (oddp word-count) (incf word-count))
   (ecase area
     (:dynamic
-     (when (> *dynamic-offset* (truncate (/ *dynamic-area-size* 2) 8))
-       (error "Allocation of ~S words exceeds dynamic area size." word-count))
      (prog1 (+ (truncate *dynamic-area-base* 8) *dynamic-offset*)
-       (incf *dynamic-offset* word-count)))
+       (incf *dynamic-offset* word-count)
+       (when (> *dynamic-offset* (truncate (/ *dynamic-area-size* 2) 8))
+         (error "Allocation of ~S words exceeds dynamic area size." word-count))))
     (:static
-     (when (> *static-offset* (truncate *static-area-size* 8))
-       (error "Allocation of ~S words exceeds static area size." word-count))
      (prog1 (+ (truncate *static-area-base* 8) *static-offset* 2)
-       (incf *static-offset* (+ word-count 2))))
+       (incf *static-offset* (+ word-count 2))
+       (when (> *static-offset* (truncate *static-area-size* 8))
+         (error "Allocation of ~S words exceeds static area size." word-count))))
     (:support
      ;; Force alignment.
      (unless (zerop (logand word-count #x1FF))
@@ -236,7 +239,14 @@
 
 (defun allocate-stack (size style)
   (check-type style (member :control :data :binding))
-  (allocate size :support))
+  ;; Force alignment.
+  (unless (zerop (logand size #x1FF))
+    (incf size #x1FF)
+    (decf size (logand size #x1FF)))
+  (prog1 (+ (truncate *stack-area-base* 8) *stack-offset*)
+    (incf *stack-offset* size)
+    (when (> *stack-offset* (truncate (/ *stack-area-size* 2) 8))
+       (error "Allocation of ~S words exceeds stack area size." size))))
 
 (defun storage-info-for-address (address)
   (let ((byte-address (* address 8)))
@@ -447,7 +457,8 @@
 (defun total-image-size ()
   (+ (/ *static-area-limit* 8)
      (/ (* *dynamic-area-semispace-limit* 2) 8)
-     (* (ceiling *support-offset* #x40000) #x40000)))
+     (* (ceiling *support-offset* #x40000) #x40000)
+     (* (1+ (ceiling *stack-offset* #x40000)) #x40000)))
 
 (defun image-data-size ()
   (+ (* (ceiling *static-offset* #x40000) #x40000)
@@ -558,13 +569,21 @@
                     +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000))
+    ;; As does stack space.
+    (dotimes (i (1+ (ceiling *stack-offset* #x40000)))
+      (setf (word (+ data-pml2 (truncate *stack-area-base* #x200000) i))
+            (logior phys-curr
+                    +page-table-present+
+                    +page-table-global+
+                    +page-table-large+))
+      (incf phys-curr #x200000))
     (values (- (* pml4 8) *linear-map*) (* data-pml2 8))))
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
-         (control-stack-size 4096)
+         (control-stack-size 2048)
          (control-stack (allocate-stack control-stack-size :control))
-         (data-stack-size 1024)
+         (data-stack-size 2048)
          (data-stack (allocate-stack data-stack-size :data))
          (binding-stack-size 1024)
          (binding-stack (allocate-stack binding-stack-size :binding)))
@@ -643,6 +662,7 @@
   (let ((*support-offset* 0)
         (*static-offset* 0)
         (*dynamic-offset* 0)
+        (*stack-offset* 0)
         (*support-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*static-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*dynamic-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
@@ -685,7 +705,8 @@
             *initial-setf-obarray* *initial-structure-obarray*
             *newspace-offset* *semispace-size* *newspace* *oldspace*
             *static-bump-pointer* *static-area-size* *static-mark-bit*
-            *oldspace-paging-bits* *newspace-paging-bits*))
+            *oldspace-paging-bits* *newspace-paging-bits*
+            *stack-bump-pointer*))
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
@@ -740,7 +761,9 @@
       (set-value '*static-mark-bit* 0)
       (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
       (set-value '*oldspace-paging-bits* (+ data-pml2 (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x200000)))
-      (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000))))
+      (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000)))
+      (set-value '*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
+      (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name description)))

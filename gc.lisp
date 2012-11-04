@@ -3,6 +3,7 @@
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
 (declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
+(declaim (special *stack-bump-pointer* *stack-bump-pointer-limit*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
 ;;; GC Meters.
@@ -56,6 +57,11 @@
   (format t "Static space: ~:D/~:D words allocated (~D%).~%"
           (ceiling *static-bump-pointer* 8) *static-area-size*
           (truncate (* (ceiling *static-bump-pointer* 8) 100) *static-area-size*))
+  (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
+          (truncate (- *stack-bump-pointer* #x100000000) 8)
+          (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
+          (truncate (* (- *stack-bump-pointer* #x100000000) 100)
+                    (- *stack-bump-pointer-limit* #x100000000)))
   (values))
 
 (defun gc ()
@@ -628,11 +634,13 @@ the header word. LENGTH is the number of elements in the array."
       (%%assemble-value address +tag-array-like+))))
 
 (defun %allocate-stack (length)
+  (when (oddp length)
+    (incf length))
   (with-interrupts-disabled ()
-    (when (oddp length)
-      (incf length))
-    (prog1 *bump-pointer*
-      (incf *bump-pointer* (* length 8)))))
+    (prog1 *stack-bump-pointer*
+      (incf *stack-bump-pointer* (* length 8))
+      (when (> *stack-bump-pointer* *stack-bump-pointer-limit*)
+        (error "No more space for stacks!")))))
 
 (defun allocate-dma-buffer (length)
   (with-interrupts-disabled ()
