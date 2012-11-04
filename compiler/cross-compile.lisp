@@ -443,8 +443,6 @@
     (save-object o *output-map* *output-fasl*)))
 
 (defun x-compile (form env)
-  (when *compile-print*
-    (format t "Xcomp ~S~%" form))
   ;; Special case (%defun 'name (lambda ...)) forms.
   (cond ((and (consp form)
               (eql (first form) 'sys.int::%defun)
