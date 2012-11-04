@@ -579,3 +579,10 @@ files will be compiled correctly.")
             (format t ";; Compiling form ~S.~%" form))
           (x-compile form nil)))
       (write-byte +llf-end-of-load+ *output-fasl*))))
+
+#+sbcl
+(sb-ext:with-unlocked-packages (#:cl)
+(defun (setf get) (value symbol indicator &optional default)
+  (declare (ignore default))
+  (setf (get symbol indicator) value))
+)
