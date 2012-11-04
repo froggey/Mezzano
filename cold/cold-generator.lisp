@@ -765,19 +765,12 @@
 (defconstant +llf-single-float+ #x10)
 
 (defun make-bignum (value)
-  ;; TODO...
-  (etypecase value
-    ((signed-byte 64)
-     (let ((address (allocate 2)))
-       (setf (word address) (array-header +array-type-bignum+ 1))
-       (setf (word (1+ address)) (ldb (byte 64 0) value))
-       (make-value address +tag-array-like+)))
-    ((unsigned-byte 64)
-     (let ((address (allocate 3)))
-       (setf (word address) (array-header +array-type-bignum+ 2))
-       (setf (word (+ address 1)) value
-             (word (+ address 2)) 0)
-       (make-value address +tag-array-like+)))))
+  (let* ((length (ceiling (1+ (integer-length value)) 64))
+         (address (allocate (1+ length))))
+    (setf (word address) (array-header +array-type-bignum+ length))
+    (dotimes (i length)
+      (setf (word (+ address 1 i)) (ldb (byte 64 (* i 64)) value)))
+    (make-value address +tag-array-like+)))
 
 ;;; Mostly duplicated from the file compiler...
 (defun load-integer (stream)
