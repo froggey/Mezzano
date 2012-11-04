@@ -27,7 +27,7 @@
 	;; for a lambda-name declaration.
 	(dolist (decl (cdar body))
 	  (push decl declares)
-	  (when (and (eq (car decl) 'lambda-name)
+	  (when (and (eq (car decl) 'system:lambda-name)
 		     (cdr decl)
 		     (not name))
 	    (setf name (cadr decl)))))))
@@ -320,7 +320,7 @@
 	   (var (make-lexical-variable :name sym
 				       :definition-point *current-lambda*)))
       (values sym var `(lambda ,(second fn)
-			 (declare (lambda-name ,name)
+			 (declare (system:lambda-name ,name)
 				  ,@declares)
 			 (block ,(if (consp name)
 				     (second name)
