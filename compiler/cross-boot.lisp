@@ -54,6 +54,8 @@
        (setf (gethash sym *system-symbol-declarations*) :constant)))
     (special
      (dolist (sym (rest declaration-specifier))
+       (unless (eql (symbol-package sym) (find-package "CL"))
+         (proclaim `(special ,sym)))
        (setf (gethash sym *system-symbol-declarations*) :special)))
     (inline
      (dolist (name (rest declaration-specifier))
