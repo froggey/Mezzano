@@ -264,15 +264,21 @@
   (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS"))
   (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
   (setf *package* (find-package-or-die "SYSTEM.INTERNALS"))
-  ;; Now import all the symbols.
-  ;; TODO: Intern into the correct package.
-  (dotimes (i (length *initial-obarray*))
-    (let ((sym (aref *initial-obarray* i)))
-      (setf (symbol-package sym) nil)
-      (import-one-symbol sym *package*)))
+  (locally (declare (special *cl-symbols* *system-symbols*))
+    ;; Now import all the symbols.
+    ;; TODO: Intern into the correct package.
+    (dotimes (i (length *initial-obarray*))
+      (let ((sym (aref *initial-obarray* i)))
+        (setf (symbol-package sym) nil)
+        (let ((package (cond ((find (symbol-name sym) *cl-symbols* :test 'string=) (find-package "CL"))
+                             ((find (symbol-name sym) *system-symbols* :test 'string=) (find-package "SYSTEM")))))
+          (cond (package (import-one-symbol sym package)
+                         (export-one-symbol sym package))
+                (t (import-one-symbol sym *package*)))))))
   (dotimes (i (length *initial-keyword-obarray*))
     (let ((sym (aref *initial-keyword-obarray* i)))
       (setf (symbol-package sym) nil)
-      (import-one-symbol sym *keyword-package*)))
+      (import-one-symbol sym *keyword-package*)
+      (export-one-symbol sym *keyword-package*)))
   (setf (symbol-function 'intern) #'package-intern)
   (values))

@@ -646,6 +646,14 @@
           (setf (word (+ obarray 1 i)) (make-value (first address) +tag-array-like+)))
     (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
 
+(defun generate-string-array (sequence target-symbol)
+  (let ((obarray (allocate (1+ (length sequence)))))
+    (setf (word obarray) (array-header +array-type-t+ (length sequence)))
+    (iter (for object in-sequence sequence)
+          (for i from 0)
+          (setf (word (+ obarray 1 i)) (make-value (store-string object) +tag-array-like+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray +tag-array-like+))))
+
 (defun write-map-file (image-name map)
   (with-open-file (s (format nil "~A.map" image-name)
                      :direction :output
@@ -679,7 +687,9 @@
         (multiboot nil)
         (initial-stack nil)
         (initial-pml4)
-        (data-pml2))
+        (data-pml2)
+        (cl-symbol-names (with-open-file (s "../cl-symbols.lisp-expr") (read s)))
+        (system-symbol-names (with-open-file (s "../system-symbols.lisp-expr") (read s))))
     (create-support-objects)
     (setf multiboot (allocate 5 :static)
           initial-stack (allocate 8 :static)
@@ -707,6 +717,8 @@
             *static-bump-pointer* *static-area-size* *static-mark-bit*
             *oldspace-paging-bits* *newspace-paging-bits*
             *stack-bump-pointer*))
+    (generate-string-array cl-symbol-names '*cl-symbols*)
+    (generate-string-array system-symbol-names '*system-symbols*)
     (generate-obarray *symbol-table* '*initial-obarray*)
     (generate-obarray *keyword-table* '*initial-keyword-obarray*)
     (generate-obarray *setf-table* '*initial-setf-obarray*)
