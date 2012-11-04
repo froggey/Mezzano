@@ -635,7 +635,7 @@
 
 ;; Ugh.
 (defun load-compiler-builtins ()
-  (genesis::genesis-eval (list (genesis::genesis-intern "SAVE-COMPILER-BUILTINS") "%%compiler-builtins.llf"))
+  (sys.c::save-compiler-builtins "%%compiler-builtins.llf")
   (load-source-file "%%compiler-builtins.llf" t))
 
 (defun make-image (image-name &optional description extra-source-files)
