@@ -114,16 +114,7 @@
   (setf (compiler-macro-function name env) value))
 
 (defun macro-function (symbol &optional env)
-  (dolist (e env
-           (or (gethash symbol *system-macros*)
-               ;; Fall back on the host.
-               (let ((host (cl:macro-function symbol)))
-                 (when host
-                   (lambda (form env)
-                     (declare (ignore env))
-                     (funcall host form
-                              #+sbcl (sb-c::make-null-lexenv)
-                              #-sbcl nil))))))
+  (dolist (e env (gethash symbol *system-macros*))
     (when (eql (first e) :macros)
       (let ((x (assoc symbol (rest e))))
         (when x (return (cdr x)))))))
@@ -539,3 +530,30 @@
                 (format t ";; X-loading: ~S~%" form)))
             (x-compile-top-level form nil :not-compile-time))))
   t)
+
+(defparameter *cross-source-files*
+  '("../bootstrap/basic-macros.lisp"
+    "../bootstrap/defmacro.lisp"
+    "../bootstrap/backquote.lisp"
+    "../bootstrap/setf.lisp"
+    "../bootstrap/setf-full.lisp"
+    "../bootstrap/defstruct.lisp"
+    "../bootstrap/cons-compiler-macros.lisp"
+    "../bootstrap/condition.lisp"
+    "../bootstrap/restarts.lisp"
+    "../bootstrap/error.lisp"
+    "../bootstrap/type.lisp"
+    "../bootstrap/array.lisp"
+    "../bootstrap/sequence.lisp"
+    "../bootstrap/hash-table.lisp"
+    "../packages.lisp"
+    "../stream.lisp"
+    "../bootstrap/reader.lisp"
+    "../printer.lisp"
+    "../bootstrap/numbers.lisp"
+    "../character.lisp")
+  "These files are loaded into the compiler environment so other source
+files will be compiled correctly.")
+
+(defun set-up-cross-compiler ()
+  (mapc 'load-for-cross-compiler *cross-source-files*))

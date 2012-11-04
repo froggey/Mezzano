@@ -9,6 +9,8 @@
     "../runtime-array.lisp"
     "../runtime-numbers.lisp"
     "../stack-group.lisp"
+    "../bootstrap/setf.lisp"
+    "../bootstrap/setf-full.lisp"
     "../bootstrap/string.lisp"
     "../bootstrap/type.lisp"
     "../bootstrap/sequence.lisp"
@@ -1057,7 +1059,7 @@
                (or (not (probe-file llf-path))
                    (<= (file-write-date llf-path) (file-write-date file))))
       (format t "~A is out of date will be recompiled.~%" llf-path)
-      (genesis::genesis-eval (list (genesis::genesis-intern "COMPILE-FILE") file)))
+      (sys.c::cross-compile-file file))
     (format t ";; Loading ~S.~%" llf-path)
     (with-open-file (s llf-path :element-type '(unsigned-byte 8))
       ;; Check the header.
