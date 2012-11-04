@@ -34,7 +34,10 @@
   (and (%simple-array-p object)
        (array-type-p object type)))
 (setf (get 'simple-array 'compound-type) 'simple-array-type-p)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'simple-array 'type-symbol) '%simple-array-p)
+)
 
 (defun array-type-p (object type)
   (destructuring-bind (&optional (element-type '*) (dimension-spec '*))
@@ -62,7 +65,9 @@
                             (eql x y)))
                       dimension-spec (array-dimensions object)))))))
 (setf (get 'array 'compound-type) 'array-type-p)
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'array 'type-symbol) 'arrayp)
+)
 
 (defparameter *specialized-array-types*
   '(bit
@@ -99,7 +104,9 @@ This must be sorted from most-specific to least-specific.")
 (defun arrayp (object)
   (or (%array-header-p object)
       (%simple-array-p object)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'array 'type-symbol) 'arrayp)
+)
 
 (defun adjustable-array-p (array)
   (check-type array array)
@@ -109,12 +116,16 @@ This must be sorted from most-specific to least-specific.")
   (or (and (%array-header-p object)
 	   (fixnump (%array-header-dimensions object)))
       (%simple-array-p object)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'vector 'type-symbol) 'vectorp)
+)
 
 (defun bit-vector-p (object)
   (and (vectorp object)
        (eql (array-element-type object) 'bit)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'bit-vector 'type-symbol) 'bit-vector-p)
+)
 
 (defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
   (let ((real-element-type (upgraded-array-element-type element-type)))

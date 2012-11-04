@@ -6,7 +6,9 @@
 ;;; The following are unique tokens used during processing.
 ;;; They need not be symbols; they need not even be atoms.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defvar *comma* 'bq-comma)
 (defvar *comma-atsign* 'bq-comma-atsign)
@@ -271,3 +273,5 @@
               (null (cdddr x)))
          (cons 'cons (maptree #'bq-remove-tokens (cdr x))))
         (t (maptree #'bq-remove-tokens x))))
+
+)

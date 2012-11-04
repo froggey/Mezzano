@@ -65,6 +65,8 @@
 				  *active-restarts*)))
      ,@forms))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun handle-restart-case-clause (clause block-name arguments)
   (let ((name (car clause))
 	(lambda-list (cadr clause))
@@ -100,6 +102,8 @@
 	    label
 	    `(return-from ,block-name
 	       (apply #'(lambda ,lambda-list ,@forms) ,arguments)))))
+
+)
 
 (defmacro restart-case (restartable-form &rest clauses)
   (let ((block-name (gensym)) (arguments (gensym))

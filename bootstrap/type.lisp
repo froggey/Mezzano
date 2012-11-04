@@ -1,6 +1,6 @@
 ;;;; type.lisp - Type management.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defmacro deftype (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
@@ -8,16 +8,21 @@
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
-	 (setf (get ',name 'type-expander)
-	       #'(lambda (,whole ,env)
-		   (declare (lambda-name (deftype ,name))
-			    (ignorable ,whole ,env))
-		   ,(expand-destructuring-lambda-list new-lambda-list name body
-						      whole `(cdr ,whole)
-						      (when env-binding
-							(list `(,env-binding ,env)))
-						      ''*)))
+         (%deftype ',name
+                   (lambda (,whole ,env)
+                     (declare (lambda-name (deftype ,name))
+                              (ignorable ,whole ,env))
+                     ,(expand-destructuring-lambda-list new-lambda-list name body
+                                                        whole `(cdr ,whole)
+                                                        (when env-binding
+                                                          (list `(,env-binding ,env)))
+                                                        ''*)))
 	 ',name))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun %deftype (name expander)
+  (setf (get name 'type-expander) expander))
+)
 
 (deftype bit ()
   '(integer 0 1))
@@ -44,6 +49,7 @@
 (deftype fixnum ()
   `(integer ,most-negative-fixnum ,most-positive-fixnum))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun typeexpand-1 (type &optional environment)
   (let ((expander (get (if (symbolp type)
 			   type
@@ -63,6 +69,7 @@
 	(return (values expansion have-expanded)))
       (setf have-expanded t
 	    type expansion))))
+)
 
 (defun canonicalize-real-type (type name)
   (if (consp type)
@@ -89,11 +96,12 @@
 
 (setf (get 'satisfies 'compound-type) 'satisfies-type-p)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-satisfies-type (object type)
   (destructuring-bind (predicate-name) (rest type)
     `(,predicate-name ,object)))
-
 (setf (get 'satisfies 'compound-type-optimizer) 'compile-satisfies-type)
+)
 
 (defun integer-type-p (object type)
   (multiple-value-bind (min max)
@@ -126,6 +134,7 @@
 	     (<= object max)))))
 (setf (get 'float 'compound-type) 'float-type-p)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-rational-type (object type)
   "Convert a type specifier with interval designators like INTEGER, REAL and RATIONAL."
   (cond ((symbolp type)
@@ -162,6 +171,7 @@
 (setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
 (setf (get 'integer 'compound-type-optimizer) 'compile-rational-type)
 (setf (get 'float 'compound-type-optimizer) 'compile-rational-type)
+)
 
 (defun cons-type-p (object type)
   (destructuring-bind (&optional (car-type '*) (cdr-type '*))
@@ -177,6 +187,7 @@
 	     (typep (cdr object) cdr-type)))))
 (setf (get 'cons 'compound-type) 'cons-type-p)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (setf (get 'null 'type-symbol) 'null)
 (setf (get 'list 'type-symbol) 'listp)
 (setf (get 'cons 'type-symbol) 'consp)
@@ -189,6 +200,7 @@
 (setf (get 'string 'type-symbol) 'stringp)
 (setf (get 'function 'type-symbol) 'functionp)
 (setf (get 'structure-object 'type-symbol) 'structure-object-p)
+)
 (setf (get 't 'type-symbol) #'(lambda (x) (declare (ignore x)) t))
 
 (defun or-type (object type)
@@ -197,9 +209,11 @@
       (return elt))))
 (setf (get 'or 'compound-type) 'or-type)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-or-type (object type)
   `(or ,@(mapcar (lambda (x) `(typep ,object ',x)) (rest type))))
 (setf (get 'or 'compound-type-optimizer) 'compile-or-type)
+)
 
 (defun member-type (object type)
   (dolist (o (cdr type))
@@ -294,7 +308,7 @@
     (when (or (std-instance-p object)
               (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
-        (when (and class (member class (clos::class-precedence-list (class-of object))))
+        (when (and class (member class (system.clos::class-precedence-list (class-of object))))
           (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
 				type-specifier
@@ -332,6 +346,8 @@
 	 ((typep ,value ',typespec))
        (setf ,value (check-type-error ',place ,value ',typespec ,string)))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun compile-typep-expression (object type-specifier)
   (let ((type-symbol (cond ((symbolp type-specifier)
                             type-specifier)
@@ -358,6 +374,8 @@
       (typeexpand-1 type-specifier)
     (when expanded-p
       (compile-typep-expression object expansion))))
+
+)
 
 (define-compiler-macro typep (&whole whole object type-specifier &optional environment)
   ;; Simple environments only.

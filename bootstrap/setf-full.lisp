@@ -1,7 +1,7 @@
 ;;;; setf-full.lisp
 ;;;; Contains forms that require the parsing code.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package #:sys.int)
 
 (defmacro define-modify-macro (name lambda-list function &optional documentation)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -28,15 +28,20 @@
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
-         (setf (get ',access-fn 'setf-expander)
-               #'(lambda (,whole ,env)
-                   (declare (lambda-name (setf-expander ,access-fn))
-                            (ignorable ,whole ,env))
-                   ,(expand-destructuring-lambda-list new-lambda-list access-fn body
-                                                      whole `(cdr ,whole)
-                                                      (when env-binding
-                                                        (list `(,env-binding ,env))))))
+         (%define-setf-expander ',access-fn
+                                (lambda (,whole ,env)
+                                  (declare (lambda-name (setf-expander ,access-fn))
+                                           (ignorable ,whole ,env))
+                                  ,(expand-destructuring-lambda-list new-lambda-list access-fn body
+                                                                     whole `(cdr ,whole)
+                                                                     (when env-binding
+                                                                       (list `(,env-binding ,env))))))
 	 ',access-fn))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun %define-setf-expander (access-fn expander)
+  (setf (get access-fn 'setf-expander) expander))
+)
 
 (define-modify-macro incf (&optional (delta 1)) +)
 (define-modify-macro decf (&optional (delta 1)) -)

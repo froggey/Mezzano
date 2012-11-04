@@ -59,7 +59,48 @@
 	 (setq ,(car pairs) ,value)
 	 nil))))
 
-;;; TODO: DO/DO* with declare support.
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defun expand-do (varlist end-test result-forms body let-form set-form)
+  (let ((loop-head (gensym "HEAD")))
+    (labels ((hack-vars (list)
+	       (when list
+		 (cons (let* ((vardef (car list))
+			      (name (if (consp vardef)
+					(car vardef)
+					vardef)))
+			 (unless (symbolp name)
+			   (error "DO step variable is not a symbol: ~S." name))
+			 (list name (if (consp vardef)
+					(car (cdr vardef))
+					'nil)))
+		       (hack-vars (cdr list)))))
+	     (set-vars (list)
+	       (when list
+		 (if (and (consp (car list)) (cdr (cdr (car list))))
+		     (let ((name (car (car list)))
+			   (step-form (car (cdr (cdr (car list))))))
+		       (when (cdr (cdr (cdr (car list))))
+			 (error "Invalid form in DO variable list: ~S." (car list)))
+		       (list* name step-form
+			      (set-vars (cdr list))))
+		     (set-vars (cdr list))))))
+      `(block nil
+         (,let-form ,(hack-vars varlist)
+           (tagbody
+              ,loop-head
+              (if ,end-test (return-from nil (progn ,@result-forms)))
+              (tagbody ,@body)
+              (,set-form ,@(set-vars varlist))
+              (go ,loop-head)))))))
+
+)
+
+(defmacro do (varlist end &body body)
+  (expand-do varlist (car end) (cdr end) body 'let 'psetq))
+
+(defmacro do* (varlist end &body body)
+  (expand-do varlist (car end) (cdr end) body 'let* 'setq))
 
 (defmacro dolist ((var list-form &optional result-form) &body body)
   (let ((itr (gensym "ITERATOR")))
@@ -171,8 +212,63 @@
 (defmacro prog2 (first-form second-form &rest forms)
   "Evaluate FIRST-FORM, SECOND-FORM, then FORMS in order; returning the value of SECOND-FORM."
   (let ((sym (gensym)))
+    `(prog1 (progn ,first-form ,second-form) ,@forms)))
+
+(defmacro declaim (&rest declaration-specifiers)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     ,@(mapcar (lambda (x) `(proclaim ',x)) declaration-specifiers)))
+
+;;; DEFVAR.
+(defmacro defvar (name &optional (initial-value nil initial-valuep) docstring)
+  (if initial-valuep
+      `(progn
+         (declaim (special ,name))
+         (unless (boundp ',name)
+           (setq ,name ,initial-value))
+         ',name)
+      `(progn
+         (declaim (special ,name))
+         ',name)))
+
+;;; DEFPARAMETER.
+(defmacro defparameter (name initial-value &optional docstring)
+  `(progn
+     (declaim (special ,name))
+     (setq ,name ,initial-value)
+     'name))
+
+(defmacro defconstant (name initial-value &optional docstring)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (declaim (special ,name))
+     (setq ,name ,initial-value)
+     (declaim (constant ,name))
+     ',name))
+
+(defmacro defun (name lambda-list &body body)
+  (let ((base-name (if (consp name)
+		       (second name)
+		       name))
+	(declares '()))
+    (do ()
+	((not (and body
+		   (or (and (consp (first body))
+			    (eql (first (first body)) 'declare))
+		       (and (stringp (first body))
+			    (rest body))))))
+      (if (consp (first body))
+	  (push (pop body) declares)
+	  (pop body)))
     `(progn
-       ,first-form
-       (let ((,sym ,second-form))
-	 (progn ,@forms)
-	 ,sym))))
+       (%defun ',name
+               (lambda ,lambda-list
+                 ,@(nreverse declares)
+                 (declare (lambda-name ,name))
+                 (block ,base-name ,@body)))
+       ',name)))
+
+(defmacro loop (&body body)
+  (let ((head (gensym)))
+    `(block nil
+       (tagbody ,head
+	  (progn ,@body)
+	  (go ,head)))))
