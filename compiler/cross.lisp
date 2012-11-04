@@ -17,7 +17,8 @@
            #:io-port/16
            #:io-port/32
            #:fixnump
-           #:char-bits))
+           #:char-bits
+           #:symbol-mode))
 
 (declaim (declaration system:lambda-name))
 
@@ -27,8 +28,18 @@
   (:shadow #:proclaim
            #:get-setf-expansion
            #:macroexpand
-           #:macroexpand-1)
+           #:macroexpand-1
+           #:compiler-macro-function
+           #:macro-function
+           #:most-positive-fixnum
+           #:most-negative-fixnum)
   (:export #:proclaim
            #:get-setf-expansion
            #:macroexpand
-           #:macroexpand-1))
+           #:macroexpand-1
+           #:compiler-macro-function
+           #:macro-function
+           #:most-positive-fixnum
+           #:most-negative-fixnum))
+
+(defpackage #:system.clos)

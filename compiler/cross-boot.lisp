@@ -57,11 +57,11 @@
        (setf (gethash sym *system-symbol-declarations*) :special)))
     (inline
      (dolist (name (rest declaration-specifier))
-       (let ((sym (function-symbol name)))
+       (let ((sym (sys.int::function-symbol name)))
          (setf (get sym 'sys.int::inline-mode) t))))
     (notinline
      (dolist (name (rest declaration-specifier))
-       (let ((sym (function-symbol name)))
+       (let ((sym (sys.int::function-symbol name)))
          (setf (get sym 'sys.int::inline-mode) nil))))))
 
 (defun sys.int::dotted-list-length (list)
@@ -101,3 +101,6 @@
   (def sb-impl::backq-append append)
   (def sb-impl::backq-nconc nconc)
   (def sb-impl::backq-cons cons))
+
+(defconstant sys.int::most-positive-fixnum (- (expt 2 60) 1))
+(defconstant sys.int::most-negative-fixnum (- (expt 2 60)))

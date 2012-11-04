@@ -50,6 +50,15 @@
 (defconstant sys.int::+array-type-stack-group+ 30)
 (defconstant sys.int::+array-type-struct+ 31)
 
+(defconstant sys.int::+function-type-function+ 0)
+(defconstant sys.int::+function-type-closure+ 1)
+(defconstant sys.int::+function-type-funcallable-instance+ 3)
+
+(defconstant sys.int::+symbol-mode-nil+ 0)
+(defconstant sys.int::+symbol-mode-special+ 1)
+(defconstant sys.int::+symbol-mode-constant+ 2)
+(defconstant sys.int::+symbol-mode-symbol-macro+ 3)
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
@@ -94,6 +103,16 @@
       (let ((x (assoc name (rest e) :test 'equal)))
         (when x (return (cdr x)))))))
 
+(defun sys.int::compiler-macro-function (name &optional env)
+  (compiler-macro-function name env))
+
+(defun (setf compiler-macro-function) (value name &optional env)
+  (declare (ignore env))
+  (setf (gethash name *system-compiler-macros*) value))
+
+(defun (setf sys.int::compiler-macro-function) (value name &optional env)
+  (setf (compiler-macro-function name env) value))
+
 (defun macro-function (symbol &optional env)
   (dolist (e env
            (or (gethash symbol *system-macros*)
@@ -120,7 +139,7 @@
 
 (defun macroexpand-1 (form &optional env)
   (cond ((symbolp form)
-         (let ((x (symbol-macro-function form env)))
+         (let ((x (sys.int::symbol-macro-function form env)))
            (if x
                (values (funcall x form env) t)
                (values form nil))))
@@ -174,7 +193,8 @@
 
 (defun sys.int::variable-information (symbol)
   (cond ((or (member symbol '(nil t))
-             (keywordp symbol))
+             (keywordp symbol)
+             #+sbcl (eql (sb-cltl2:variable-information symbol) :constant))
          :constant)
         (t (gethash symbol *system-symbol-declarations*))))
 
@@ -295,6 +315,7 @@
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-defun+ #x0F)
+(defconstant +llf-single-float+ #x10)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -407,6 +428,15 @@
   (save-object (structure-type-name object) omap stream)
   (save-object (structure-type-slots object) omap stream))
 
+(defun %single-float-as-integer (value)
+  (check-type value single-float)
+  #+sbcl (ldb (byte 32 0) (sb-kernel:single-float-bits value))
+  #-(or sbcl) (error "Not implemented on this platform!"))
+
+(defmethod save-one-object ((object float) omap stream)
+  (write-byte +llf-single-float+ stream)
+  (save-integer (%single-float-as-integer object) stream))
+
 (defun save-object (object omap stream)
   (let ((id (gethash object omap)))
     (when id
@@ -438,13 +468,22 @@
                 (fn (compile-lambda lambda env)))
            #+nil(add-to-llf +llf-defun+ name fn)
            (add-to-llf +llf-setf-fdefinition+ fn name)))
+        ;; And (define-lap-function name (options...) code...)
+        ((and (consp form)
+              (eql (first form) 'sys.int::define-lap-function)
+              (>= (length form) 3))
+         (let ((name (second form))
+               (options (third form))
+               (code (cdddr form)))
+           (assert (null options) () "No DEFINE-LAP-FUNCTION options supported yet.")
+           (add-to-llf +llf-setf-fdefinition+ (sys.int::assemble-lap code name) name)))
         ;; Convert other forms to single-argument functions and
         ;; add it to the fasl as an eval node.
         ;; Progn to avoid problems with DECLARE.
         (t (let ((fn (compile-lambda `(lambda () (progn ,form)) env)))
              (add-to-llf +llf-funcall+ fn)))))
 
-(defun cross-compile-file (input-file system-environment &key
+(defun cross-compile-file (input-file &key
                            (output-file (make-pathname :type "llf" :defaults input-file))
                            (verbose *compile-verbose*)
                            (print *compile-print*)
@@ -472,11 +511,11 @@
                 (let ((*print-length* 3)
                       (*print-level* 2))
                   (format t ";; X-compiling: ~S~%" form)))
-              (x-compile-top-level form system-environment))
+              (x-compile-top-level form nil))
         (write-byte +llf-end-of-load+ *output-fasl*))))
   output-file)
 
-(defun load-for-cross-compiler (input-file system-environment &key
+(defun load-for-cross-compiler (input-file &key
                            (verbose *compile-verbose*)
                            (print *compile-print*)
                            (external-format :default))
@@ -498,5 +537,5 @@
               (let ((*print-length* 3)
                     (*print-level* 2))
                 (format t ";; X-loading: ~S~%" form)))
-            (x-compile-top-level form system-environment :not-compile-time))))
+            (x-compile-top-level form nil :not-compile-time))))
   t)
