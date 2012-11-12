@@ -116,6 +116,17 @@
   (backtrace)
   (loop (%hlt)))
 
+(defun raise-overflow (&optional lhs rhs what)
+  (write-char #\!)
+  (write-char #\%)
+  (write what)
+  (write-char #\Space)
+  (write lhs)
+  (write-char #\Space)
+  (write rhs)
+  (backtrace)
+  (loop (%hlt)))
+
 (defun raise-type-error (datum expected-type)
   (write-char #\!)
   (write-char #\$)

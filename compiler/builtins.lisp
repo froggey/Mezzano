@@ -206,7 +206,7 @@
     (emit-trailer (overflow-error-label)
       (load-constant :r10 'sys.int::memref-unsigned-byte-64)
       (load-constant :r13 'sys.int::raise-overflow)
-      (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+      (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 3))
 	    `(sys.lap-x86:call (:symbol-function :r13))
 	    `(sys.lap-x86:ud2)))
     (load-in-reg :r8 base t)
