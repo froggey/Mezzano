@@ -599,6 +599,53 @@
 
 (declaim (special *features* *macroexpand-hook*))
 
+(defun multiboot-module-count ()
+  (if (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+      (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5)
+      0))
+
+(defun multiboot-module-info ()
+  (if (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+      (make-array (* (multiboot-module-count) 4)
+                  :element-type '(unsigned-byte 32)
+                  :memory (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6)))
+      (make-array 0 :element-type '(unsigned-byte 32))))
+
+(defparameter *maximum-multiboot-command-line-length* 100)
+
+(defun multiboot-module (id)
+  (assert (< id (multiboot-module-count)))
+  (let* ((info (multiboot-module-info))
+         (base (aref info (+ (* id 4) 0)))
+         (end (aref info (+ (* id 4) 1)))
+         (size (- end base))
+         (command-line (+ #x8000000000 (aref info (+ (* id 4) 2))))
+         (cmdl-len (dotimes (i *maximum-multiboot-command-line-length*
+                             *maximum-multiboot-command-line-length*)
+                     (when (eql (memref-unsigned-byte-8 command-line i) 0)
+                       (return i)))))
+    (values (make-array size
+                        :element-type '(unsigned-byte 8)
+                        :memory (+ #x8000000000 base))
+            (make-array cmdl-len
+                        :element-type 'base-char
+                        :memory command-line))))
+
+(defun multiboot-module-data (id)
+  (multiple-value-bind (data command-line)
+      (multiboot-module id)
+    (declare (ignore command-line))
+    data))
+
+(defun multiboot-module-command-line (id)
+  (multiple-value-bind (data command-line)
+      (multiboot-module id)
+    (declare (ignore data))
+    command-line))
+
+(defun mini-multiboot-module-stream (id)
+  (cons (multiboot-module id) 0))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
         *array-types* #(t
@@ -683,6 +730,9 @@
 (defun reinitialize-lisp ()
   (init-isa-pic)
   (write-line "Hello, world.")
+  (dotimes (i (multiboot-module-count))
+    (format t "Loading module ~S.~%" (multiboot-module-command-line i))
+    (mini-load-llf (mini-multiboot-module-stream i)))
   (terpri)
   (write-char #\*)
   (write-char #\O)
