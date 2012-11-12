@@ -354,20 +354,20 @@
 (defgeneric save-one-object (object object-map stream))
 
 (defmethod save-one-object ((object cross-function) omap stream)
-  (write-byte +llf-function+ stream)
-  (write-byte 0 stream) ; tag, normal function.
-  (save-integer (length (cross-function-mc object)) stream)
-  (write-sequence (cross-function-mc object) stream)
-  (save-object (cross-function-fixups object) omap stream)
   (let ((constants (cross-function-constants object)))
-    (save-integer (length constants) stream)
     (dotimes (i (length constants))
-      (save-object (aref constants i) omap stream))))
+      (save-object (aref constants i) omap stream))
+    (save-object (cross-function-fixups object) omap stream)
+    (write-byte +llf-function+ stream)
+    (write-byte 0 stream) ; tag, normal function.
+    (save-integer (length (cross-function-mc object)) stream)
+    (save-integer (length constants) stream)
+    (write-sequence (cross-function-mc object) stream)))
 
 (defmethod save-one-object ((object cons) omap stream)
-  (write-byte +llf-cons+ stream)
   (save-object (cdr object) omap stream)
-  (save-object (car object) omap stream))
+  (save-object (car object) omap stream)
+  (write-byte +llf-cons+ stream))
 
 (defmethod save-one-object ((object symbol) omap stream)
   (cond ((symbol-package object)
@@ -379,12 +379,9 @@
          (dotimes (i (length (package-name (symbol-package object))))
            (save-character (char (package-name (symbol-package object)) i) stream)))
         ((gethash object *reverse-setf-symbols*)
-         (write-byte +llf-setf-symbol+ stream)
-         (save-object (gethash object *reverse-setf-symbols*) omap stream))
-        (t (write-byte +llf-uninterned-symbol+ stream)
-           (save-integer (length (symbol-name object)) stream)
-           (dotimes (i (length (symbol-name object)))
-             (save-character (char (symbol-name object) i) stream))
+         (save-object (gethash object *reverse-setf-symbols*) omap stream)
+         (write-byte +llf-setf-symbol+ stream))
+        (t (save-object (symbol-name object) omap stream)
            ;; Should save flags?
            (if (boundp object)
                (save-object (symbol-value object) omap stream)
@@ -392,7 +389,8 @@
            (if (fboundp object)
                (save-object (symbol-function object) omap stream)
                (write-byte +llf-unbound+ stream))
-           (save-object (symbol-plist object) omap stream))))
+           (save-object (symbol-plist object) omap stream)
+           (write-byte +llf-uninterned-symbol+ stream))))
 
 (defmethod save-one-object ((object string) omap stream)
   (write-byte +llf-string+ stream)
@@ -405,19 +403,19 @@
   (save-integer object stream))
 
 (defmethod save-one-object ((object vector) omap stream)
-  (write-byte +llf-simple-vector+ stream)
-  (save-integer (length object) stream)
   (dotimes (i (length object))
-    (save-object (aref object i) omap stream)))
+    (save-object (aref object i) omap stream))
+  (write-byte +llf-simple-vector+ stream)
+  (save-integer (length object) stream))
 
 (defmethod save-one-object ((object character) omap stream)
   (write-byte +llf-character+ stream)
   (save-character object stream))
 
 (defmethod save-one-object ((object structure-type) omap stream)
-  (write-byte +llf-structure-definition+ stream)
   (save-object (structure-type-name object) omap stream)
-  (save-object (structure-type-slots object) omap stream))
+  (save-object (structure-type-slots object) omap stream)
+  (write-byte +llf-structure-definition+ stream))
 
 (defun %single-float-as-integer (value)
   (check-type value single-float)
@@ -429,18 +427,19 @@
   (save-integer (%single-float-as-integer object) stream))
 
 (defun save-object (object omap stream)
-  (let ((id (gethash object omap)))
+  #+nil(let ((id (gethash object omap)))
     (when id
       (write-byte +llf-backlink+ stream)
       (save-integer id stream)
       (return-from save-object))
     (setf (gethash object omap) (hash-table-count omap))
-    (save-one-object object omap stream)))
+    (save-one-object object omap stream))
+  (save-one-object object omap stream))
 
 (defun add-to-llf (action &rest objects)
-  (write-byte action *output-fasl*)
   (dolist (o objects)
-    (save-object o *output-map* *output-fasl*)))
+    (save-object o *output-map* *output-fasl*))
+  (write-byte action *output-fasl*))
 
 (defun x-compile (form env)
   ;; Special case (%defun 'name (lambda ...)) forms.

@@ -54,4 +54,5 @@
            #:funcallable-std-instance-slots))
 
 (defpackage #:system.closette
+  (:nicknames #:sys.clos)
   (:import-from "SYS.INT" #:lambda-list-keywords))

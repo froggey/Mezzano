@@ -884,10 +884,12 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
-(defun load-structure-definition (stream omap)
-  (let* ((name* (load-object stream omap))
-         (name (extract-object name*))
-         (slots* (load-object stream omap))
+(defun ensure-structure-layout-compatible (definition slots)
+  (unless (equal (third definition) slots)
+    (error "Incompatible redefinition of structure. ~S ~S~%" definition slots)))
+
+(defun load-structure-definition (name* slots*)
+  (let* ((name (extract-object name*))
          (slots (extract-object slots*))
          (definition (gethash name *struct-table*)))
     (cond (definition
@@ -900,13 +902,6 @@
                (setf (word (+ address 3)) slots*)
                (setf (gethash name *struct-table*) (list address name slots))
                (make-value address +tag-array-like+))))))
-
-(defun llf-next-is-unbound-p (stream)
-  (let ((current-position (file-position stream)))
-    (cond ((eql (read-byte stream) +llf-unbound+)
-           t)
-          (t (file-position stream current-position)
-             nil))))
 
 (defun extract-array (address element-width)
   (let* ((size (ldb (byte 56 8) (word address)))
@@ -942,93 +937,6 @@
          (#.+array-type-character+
           (map 'simple-string 'code-char (extract-array address 32))))))))
 
-(defun load-object-in-host (stream omap)
-  (extract-object (load-object stream omap)))
-
-(defun load-one-object (command stream omap)
-  (ecase command
-    (#.+llf-function+
-     (let* ((tag (read-byte stream))
-            (mc-length (load-integer stream))
-            (mc-position (file-position stream))
-            (fixups (progn (file-position stream (+ mc-position mc-length))
-                           (load-object-in-host stream omap)))
-            (constants-length (load-integer stream))
-            (constants-position (file-position stream))
-            (total-size (+ (* (ceiling (+ mc-length 12) 16) 2)
-                           constants-length))
-            (address (allocate total-size :static)))
-       ;; Copy machine code bytes.
-       (file-position stream (- mc-position 4))
-       (dotimes (i (ceiling (+ mc-length 4) 8))
-         (let ((value 0))
-           (dotimes (j 8)
-             (when (< (+ (* i 8) j) (+ mc-length 4))
-               (setf (ldb (byte 8 64) value) (read-byte stream)))
-             (setf value (ash value -8)))
-           (setf (word (+ address 1 i)) value)))
-       ;; Set function header.
-       (setf (word address) 0)
-       (setf (ldb (byte 16 0) (word address)) tag
-             (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 12) 16)
-             (ldb (byte 16 32) (word address)) constants-length)
-       ;; Set constant pool.
-       (file-position stream constants-position)
-       (dotimes (i constants-length)
-         (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i)) (load-object stream omap)))
-       ;; Add to the function map.
-       (push (list address (extract-object (word (+ address (* (ceiling (+ mc-length 12) 16) 2)))))
-             *function-map*)
-       ;; Add fixups to the list.
-       (dolist (fixup fixups)
-         (push (list (car fixup) address (cdr fixup) :signed32)
-               *pending-fixups*))
-       (make-value address +tag-function+)))
-    (#.+llf-cons+
-     (let* ((cdr (load-object stream omap))
-            (car (load-object stream omap))
-            (address (allocate 2)))
-       (setf (word address) car
-             (word (1+ address)) cdr)
-       (make-value address +tag-cons+)))
-    (#.+llf-symbol+
-     (let* ((name (load-string* stream))
-            (package (load-string* stream)))
-       (make-value (symbol-address name (string= package "KEYWORD"))
-                   +tag-symbol+)))
-    (#.+llf-uninterned-symbol+
-     (let* ((name (load-string* stream))
-            (address (allocate 6)))
-       (setf (word address) (make-value (store-string name) +tag-array-like+)
-             (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+)
-             (word (+ address 2)) (if (llf-next-is-unbound-p stream)
-                                      (make-value 0 +tag-unbound-value+)
-                                      (load-object stream omap))
-             (word (+ address 3)) (if (llf-next-is-unbound-p stream)
-                                      (make-value *undefined-function-address* +tag-function+)
-                                      (load-object stream omap))
-             (word (+ address 4)) (load-object stream omap)
-             (word (+ address 5)) (make-fixnum 0))
-       (make-value address +tag-symbol+)))
-    (#.+llf-string+ (load-string stream))
-    (#.+llf-setf-symbol+
-     (make-value (resolve-setf-symbol (load-object-in-host stream omap))
-                 +tag-symbol+))
-    (#.+llf-integer+
-     (let ((value (load-integer stream)))
-       (typecase value
-         ((signed-byte 61) (make-fixnum value))
-         (t (make-bignum value)))))
-    (#.+llf-simple-vector+ (load-vector stream omap))
-    (#.+llf-character+
-     (logior (ash (load-character stream) 4)
-             +tag-character+))
-    (#.+llf-structure-definition+
-     (load-structure-definition stream omap))
-    (#.+llf-single-float+
-     (logior (ash (load-integer stream) 32)
-             +tag-single-float+))))
-
 (defun vintern (name &optional keywordp)
   (make-value (symbol-address name keywordp) +tag-symbol+))
 
@@ -1043,41 +951,152 @@
       (vcons (first args) (apply 'vlist (rest args)))
       (vintern "NIL")))
 
-(defun load-object (stream omap)
-  (let ((command (read-byte stream)))
-    (case command
-      (#.+llf-end-of-load+
-       (values nil t))
-      (#.+llf-backlink+
-       (let ((id (load-integer stream)))
-         (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
-         (values (gethash id omap) nil)))
-      (#.+llf-invoke+
-       ;; `(funcall ',fn)
-       (let* ((fn (load-object stream omap))
-              (form (vlist (vintern "FUNCALL")
-                           (vlist (vintern "QUOTE")
-                                  fn))))
-         (push form *load-time-evals*)
-         (values fn nil)))
-      (#.+llf-setf-fdefinition+
-       (let* ((fn-value (load-object stream omap))
-              (base-name (load-object stream omap))
-              (name (resolve-function-name base-name)))
-         (if *load-should-set-fdefinitions*
-             (setf (word (+ (pointer-part name) 3)) fn-value)
-             (push (vlist (vintern "FUNCALL")
-                          (vlist (vintern "FUNCTION") (vlist (vintern "SETF") (vintern "SYMBOL-FUNCTION")))
-                          (vlist (vintern "QUOTE") fn-value)
-                          (vlist (vintern "QUOTE") name))
-                   *load-time-evals*))
-         fn-value))
-      (#.+llf-unbound+ (error "Should not seen UNBOUND here."))
-      (t (let ((id (hash-table-count omap)))
-           (setf (gethash id omap) '"!!!LOAD PLACEHOLDER!!!")
-           (let ((obj (load-one-object command stream omap)))
-             (setf (gethash id omap) obj)
-             (values obj nil)))))))
+(defun load-llf-function (stream stack)
+  ;; n constants on stack.
+  ;; list of fixups on stack.
+  ;; +llf-function+
+  ;; tag. (byte)
+  ;; mc size in bytes. (integer)
+  ;; number of constants. (integer)
+  (let* ((tag (read-byte stream))
+         (mc-length (load-integer stream))
+         ;; mc-length does not include the 12 byte function header.
+         (mc (make-array (* (ceiling (+ mc-length 12) 8) 8)
+                         :element-type '(unsigned-byte 8)
+                         :initial-element 0))
+         (n-constants (load-integer stream))
+         (fixups (vector-pop stack))
+         ;; Pull n constants off the value stack.
+         (constants (subseq stack (- (length stack) n-constants)))
+         (total-size (+ (* (ceiling (+ mc-length 12) 16) 2)
+                        n-constants))
+         (address (allocate total-size :static)))
+    ;; Pop constants off.
+    (decf (fill-pointer stack) n-constants)
+    ;; Read mc bytes.
+    (read-sequence mc stream :start 12 :end (+ 12 mc-length))
+    ;; Copy machine code bytes.
+    (dotimes (i (ceiling (+ mc-length 12) 8))
+      (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
+    ;; Set function header.
+    (setf (word address) 0)
+    (setf (ldb (byte 16 0) (word address)) tag
+          (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 12) 16)
+          (ldb (byte 16 32) (word address)) n-constants)
+    ;; Set constant pool.
+    (dotimes (i (length constants))
+      (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i))
+            (aref constants i)))
+    ;; Add to the function map.
+    (push (list address (extract-object (aref constants 0)))
+          *function-map*)
+    ;; Add fixups to the list.
+    (dolist (fixup (extract-object fixups))
+      (push (list (car fixup) address (cdr fixup) :signed32)
+            *pending-fixups*))
+    ;; Done.
+    (make-value address +tag-function+)))
+
+(defun load-llf-vector (stream stack)
+  (let* ((len (load-integer stream))
+         (address (allocate (1+ len))))
+    ;; Header word.
+    (setf (word address) (logior (ash len 8) (ash +array-type-t+ 1)))
+    ;; Drop vector values and copy them into the image.
+    (decf (fill-pointer stack) len)
+    (dotimes (i len)
+      (setf (word (+ address 1 i)) (aref stack (+ (length stack) i))))
+    (make-value address +tag-array-like+)))
+
+(defun load-one-object (command stream stack)
+  (ecase command
+    (#.+llf-function+
+     (load-llf-function stream stack))
+    (#.+llf-cons+
+     (let* ((car (vector-pop stack))
+            (cdr (vector-pop stack)))
+       (vcons car cdr)))
+    (#.+llf-symbol+
+     (let* ((name (load-string* stream))
+            (package (load-string* stream)))
+       (make-value (symbol-address name (string= package "KEYWORD"))
+                   +tag-symbol+)))
+    (#.+llf-uninterned-symbol+
+     (let ((plist (vector-pop stack))
+           (fn (vector-pop stack))
+           (value (vector-pop stack))
+           (name (vector-pop stack))
+           (address (allocate 6)))
+       ;; FN and VALUE may be the unbound tag.
+       (setf (word address) name
+             (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+)
+             (word (+ address 2)) value
+             (word (+ address 3)) (if (eql fn +tag-unbound-value+)
+                                      (make-value *undefined-function-address* +tag-function+)
+                                      fn)
+             (word (+ address 4)) plist
+             (word (+ address 5)) (make-fixnum 0))
+       (make-value address +tag-symbol+)))
+    (#.+llf-unbound+ +tag-unbound-value+)
+    (#.+llf-string+ (load-string stream))
+    (#.+llf-setf-symbol+
+     (let ((symbol (vector-pop stack)))
+       (make-value (resolve-setf-symbol (extract-object symbol)) +tag-symbol+)))
+    (#.+llf-integer+
+     (let ((value (load-integer stream)))
+       (typecase value
+         ((signed-byte 61) (make-fixnum value))
+         (t (make-bignum value)))))
+    (#.+llf-invoke+
+     ;; `(funcall ',fn)
+     (let* ((fn (vector-pop stack))
+            (form (vlist (vintern "FUNCALL")
+                         (vlist (vintern "QUOTE")
+                                fn))))
+       (push form *load-time-evals*))
+     nil)
+    (#.+llf-setf-fdefinition+
+     (let* ((base-name (vector-pop stack))
+            (fn-value (vector-pop stack))
+            (name (resolve-function-name base-name)))
+       (if *load-should-set-fdefinitions*
+           (setf (word (+ (pointer-part name) 3)) fn-value)
+           ;; `(funcall #'(setf symbol-function) ',fn-value ',name)
+           (push (vlist (vintern "FUNCALL")
+                        (vlist (vintern "FUNCTION") (vlist (vintern "SETF") (vintern "SYMBOL-FUNCTION")))
+                        (vlist (vintern "QUOTE") fn-value)
+                        (vlist (vintern "QUOTE") name))
+                   *load-time-evals*)))
+     nil)
+    (#.+llf-simple-vector+
+     (load-llf-vector stream stack))
+    (#.+llf-character+
+     (logior (ash (load-character stream) 4)
+             +tag-character+))
+    (#.+llf-structure-definition+
+     (let ((slots (vector-pop stack))
+           (name (vector-pop stack)))
+       (load-structure-definition name slots)))
+    (#.+llf-single-float+
+     (logior (ash (load-integer stream) 32)
+             +tag-single-float+))))
+
+(defun load-llf (stream)
+  (let ((omap (make-hash-table))
+        (stack (make-array 64 :adjustable t :fill-pointer 0)))
+    (loop (let ((command (read-byte stream)))
+            (case command
+              (#.+llf-end-of-load+
+               (return))
+              (#.+llf-backlink+
+               (let ((id (load-integer stream)))
+                 (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
+                 (vector-push-extend (gethash id omap) stack)))
+              (t (let ((value (load-one-object command stream stack))
+                       (id (hash-table-count omap)))
+                   (when value
+                     (setf (gethash id omap) value)
+                     (vector-push-extend value stack)))))))))
 
 (defun resolve-function-name (value)
   (let ((name (extract-object value)))
@@ -1091,7 +1110,6 @@
 
 (defun load-source-file (file set-fdefinitions)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
-        (omap (make-hash-table))
         (*load-should-set-fdefinitions* set-fdefinitions))
     (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
                (or (not (probe-file llf-path))
@@ -1106,8 +1124,7 @@
                    (eql (read-byte s) #x46)
                    (eql (read-byte s) #x00)))
       ;; Read forms.
-      (loop (when (nth-value 1 (load-object s omap))
-              (return))))))
+      (load-llf s))))
 
 (defun apply-fixups (fixups)
   (mapc 'apply-fixup fixups))
