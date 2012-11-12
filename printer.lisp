@@ -160,7 +160,7 @@
            (t (write-char object stream))))
     (function
      (cond ((and (not *print-safe*)
-                 (typep object 'system.clos::funcallable-standard-object))
+                 (typep object 'sys.clos::funcallable-standard-object))
             (print-object object stream))
            (t (let ((name (function-name object)))
                 ;; So that only one space is printed if there is no name.

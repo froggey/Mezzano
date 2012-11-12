@@ -32,8 +32,6 @@
 
 ;;; This is the file closette.lisp
 
-;;; N.B. Load this source file directly, rather than trying to compile it.
-
 (defpackage #:system.closette
   (:nicknames #:sys.clos #:clos)
   (:use #:cl)
@@ -49,6 +47,8 @@
                 #:funcallable-std-instance-slots))
 
 (in-package #:system.closette)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defvar exports
         '(defclass defgeneric defmethod
@@ -98,6 +98,8 @@
 
 (export exports)
 
+)
+
 ;;;
 ;;; Utilities
 ;;;
@@ -121,6 +123,7 @@
     (push-on-end new-value plist)
     new-value))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 ;;; mapappend is like mapcar except that the results are appended together:
 
 (defun mapappend (fun &rest args)
@@ -136,6 +139,8 @@
       ()
       (cons (funcall fun (car x) (cadr x))
             (mapplist fun (cddr x)))))
+
+)
 
 ;;;
 ;;; Standard instances
@@ -484,6 +489,8 @@
        ,(canonicalize-direct-slots direct-slots)
      ,@(canonicalize-defclass-options options)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun canonicalize-direct-slots (direct-slots)
    `(list ,@(mapcar #'canonicalize-direct-slot direct-slots)))
 
@@ -550,6 +557,8 @@
                         `(',key (lambda () ,value)))
                     (cdr option))))))
     (t (list `',(car option) `',(cadr option)))))
+
+)
 
 ;;; find-class
 
@@ -963,6 +972,8 @@
      :lambda-list ',lambda-list
      ,@(canonicalize-defgeneric-options options)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun canonicalize-defgeneric-options (options)
   (mapappend #'canonicalize-defgeneric-option options))
 
@@ -975,6 +986,8 @@
       (list ':method-class
             `(find-class ',(cadr option))))
     (t (list `',(car option) `',(cadr option)))))
+
+)
 
 ;;; find-generic-function looks up a generic function by name.  It's an
 ;;; artifact of the fact that our generic function metaobjects can't legally
@@ -1087,6 +1100,8 @@
        :qualifiers ',qualifiers
        :specializers ,(canonicalize-specializers specializers)
        :function #',function)))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun canonicalize-specializers (specializers)
   `(list ,@(mapcar #'canonicalize-specializer specializers)))
@@ -1226,6 +1241,8 @@
              :auxiliary-args auxs
              :optional-args optionals
              :allow-other-keys allow-other-keys))))
+
+)
 
 ;;; ensure method
 
@@ -1586,6 +1603,8 @@ Dispatching on class ~S." gf class))
 ;;; between argument keyword compatibility for regular functions versus
 ;;; generic functions.
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+
 (defun kludge-arglist (lambda-list)
   (if (and (member '&key lambda-list)
            (not (member '&allow-other-keys lambda-list)))
@@ -1594,6 +1613,8 @@ Dispatching on class ~S." gf class))
                (not (member '&key lambda-list)))
           (append lambda-list '(&key &allow-other-keys))
           lambda-list)))
+
+)
 
 ;;;
 ;;; Bootstrap

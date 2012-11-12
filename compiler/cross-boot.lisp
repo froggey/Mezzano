@@ -39,6 +39,8 @@
                                         (block ,name ,@body))))))))
 
 (defun sys.int::%defmacro (name lambda)
+  (unless (cl:macro-function name)
+    (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))
 
 (def-x-macro declaim (&rest declaration-specifiers)
@@ -106,3 +108,16 @@
 
 (defconstant sys.int::most-positive-fixnum (- (expt 2 60) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 60)))
+(defconstant sys.int::lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole))
+
+(defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list)
+  (declare (ignore documentation))
+  (let ((p (or (find-package name)
+	       (make-package name :nicknames nicknames))))
+    (use-package use-list p)
+    (import import-list p)
+    (dolist (s intern-list)
+      (intern s p))
+    (dolist (s export-list)
+      (export (list (intern (string s) p)) p))
+    p))

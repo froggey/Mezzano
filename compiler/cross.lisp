@@ -32,7 +32,8 @@
            #:compiler-macro-function
            #:macro-function
            #:most-positive-fixnum
-           #:most-negative-fixnum)
+           #:most-negative-fixnum
+           #:lambda-list-keywords)
   (:export #:proclaim
            #:get-setf-expansion
            #:macroexpand
@@ -40,6 +41,17 @@
            #:compiler-macro-function
            #:macro-function
            #:most-positive-fixnum
-           #:most-negative-fixnum))
+           #:most-negative-fixnum
+           #:lambda-list-keywords
+           #:allocate-std-instance
+           #:std-instance-p
+           #:std-instance-class
+           #:std-instance-slots
+           #:allocate-funcallable-std-instance
+           #:funcallable-std-instance-p
+           #:funcallable-std-instance-function
+           #:funcallable-std-instance-class
+           #:funcallable-std-instance-slots))
 
-(defpackage #:system.clos)
+(defpackage #:system.closette
+  (:import-from "SYS.INT" #:lambda-list-keywords))

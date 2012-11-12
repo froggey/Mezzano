@@ -308,7 +308,7 @@
     (when (or (std-instance-p object)
               (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
-        (when (and class (member class (system.clos::class-precedence-list (class-of object))))
+        (when (and class (member class (sys.clos::class-precedence-list (class-of object))))
           (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
 				type-specifier

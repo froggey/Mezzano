@@ -22,6 +22,7 @@
 (defconstant +multiboot-flag-aout-symbols+ #b00010000)
 (defconstant +multiboot-flag-elf-symbols+  #b00100000)
 (defconstant +multiboot-flag-memory-map+   #b01000000)
+
 ;;; Compute the true end of the image by examining the multiboot header.
 ;;; FIXME: This must be done as part of the initialization process.
 ;;; FIXME: Makes major assumptions regarding how modules are laid out in memory.

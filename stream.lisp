@@ -31,7 +31,7 @@
       (cold-stream-p object)
       (and (boundp '*stream-object-class*)
            (std-instance-p object)
-           (member *stream-object-class* (system.clos::class-precedence-list (std-instance-class object))))
+           (member *stream-object-class* (sys.clos::class-precedence-list (std-instance-class object))))
       (typep object 'stream-object)))
 
 (setf (get 'stream 'type-symbol) 'streamp)
