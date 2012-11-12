@@ -7,7 +7,7 @@
 (defvar *structure-type-type* nil)
 
 (defun make-struct-type (name slots)
-  (let ((x (%make-struct 3)))
+  (let ((x (%make-struct 3 :static)))
     (setf (%struct-slot x 0) *structure-type-type*
 	  (%struct-slot x 1) name
 	  (%struct-slot x 2) slots)

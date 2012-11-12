@@ -895,7 +895,7 @@
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) +tag-array-like+))
-          (t (let ((address (allocate 4)))
+          (t (let ((address (allocate 4 :static)))
                (setf (word address) (array-header +array-type-struct+ 3))
                (setf (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
                (setf (word (+ address 2)) name*)
