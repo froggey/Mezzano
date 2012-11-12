@@ -60,19 +60,6 @@
         (setf value (logior (ash value 6) (logand byte #x3F)))))
     (code-char value)))
 
-(defun load-ub8-vector (stream)
-  (let* ((len (load-integer stream))
-         (seq (make-array len :element-type '(unsigned-byte 8))))
-    (%read-sequence seq stream)
-    seq))
-
-(defun load-vector (stream omap)
-  (let* ((len (load-integer stream))
-         (seq (make-array len)))
-    (dotimes (i len)
-      (setf (aref seq i) (load-object stream omap)))
-    seq))
-
 (defun load-string (stream)
   (let* ((len (load-integer stream))
          (seq (make-array len :element-type 'character)))
@@ -80,79 +67,101 @@
       (setf (aref seq i) (load-character stream)))
     seq))
 
-(defun llf-next-is-unbound-p (stream)
-  (let ((current-position (%file-position stream)))
-    (cond ((eql (%read-byte stream) +llf-unbound+)
-           t)
-          (t (%file-position stream current-position)
-             nil))))
+(defun load-llf-function (stream stack)
+  ;; n constants on stack.
+  ;; list of fixups on stack.
+  ;; +llf-function+
+  ;; tag. (byte)
+  ;; mc size in bytes. (integer)
+  ;; number of constants. (integer)
+  (let* ((tag (%read-byte stream))
+         (mc-length (load-integer stream))
+         (mc (make-array mc-length
+                         :element-type '(unsigned-byte 8)
+                         :initial-element 0))
+         (n-constants (load-integer stream))
+         (fixups (vector-pop stack))
+         ;; Pull n constants off the value stack.
+         (constants (subseq stack (- (length stack) n-constants))))
+    ;; Pop constants off.
+    (decf (fill-pointer stack) n-constants)
+    ;; Read mc bytes.
+    (%read-sequence mc stream)
+    (make-function-with-fixups tag mc fixups constants)))
 
-(defun load-one-object (command stream omap)
+(defun load-llf-vector (stream stack)
+  (let* ((len (load-integer stream))
+         (vector (subseq stack (- (length stack) len))))
+    ;; Drop vector values.
+    (decf (fill-pointer stack) len)
+    vector))
+
+(defvar *magic-unbound-value* (cons "Magic unbound value" nil))
+
+(defun load-one-object (command stream stack)
   (ecase command
     (#.+llf-function+
-     (let* ((tag (%read-byte stream))
-            (mc (load-ub8-vector stream))
-            (fixups (load-object stream omap))
-            (constants (load-vector stream omap)))
-       (make-function-with-fixups tag mc fixups constants)))
+     (load-llf-function stream stack))
     (#.+llf-cons+
-     (let* ((cdr (load-object stream omap))
-            (car (load-object stream omap)))
+     (let* ((car (vector-pop stack))
+            (cdr (vector-pop stack)))
        (cons car cdr)))
     (#.+llf-symbol+
      (let* ((name (load-string stream))
             (package (load-string stream)))
        (intern name package)))
     (#.+llf-uninterned-symbol+
-     (let* ((name (load-string stream))
-            (sym (make-symbol name)))
-       (unless (llf-next-is-unbound-p stream)
-         (setf (symbol-value sym) (load-object stream omap)))
-       (unless (llf-next-is-unbound-p stream)
-         (setf (symbol-function sym) (load-object stream omap)))
-       (setf (symbol-plist sym) (load-object stream omap))
-       sym))
+     (let* ((plist (vector-pop stack))
+            (fn (vector-pop stack))
+            (value (vector-pop stack))
+            (name (vector-pop stack))
+            (symbol (make-symbol name)))
+       (setf (symbol-plist symbol) plist)
+       (unless (eql fn *magic-unbound-value*)
+         (setf (symbol-function symbol) fn))
+       (unless (eql value *magic-unbound-value*)
+         (setf (symbol-value symbol) value))
+       symbol))
+    (#.+llf-unbound+ *magic-unbound-value*)
     (#.+llf-string+ (load-string stream))
     (#.+llf-setf-symbol+
-     (let ((symbol (load-object stream omap)))
+     (let ((symbol (vector-pop stack)))
        (function-symbol `(setf ,symbol))))
     (#.+llf-integer+ (load-integer stream))
-    (#.+llf-simple-vector+ (load-vector stream omap))
+    (#.+llf-invoke+
+     (let ((fn (vector-pop stack)))
+       (funcall fn))
+     (values))
+    (#.+llf-setf-fdefinition+
+     (let ((name (vector-pop stack))
+           (fn (vector-pop stack)))
+       (setf (fdefinition name) fn))
+     (values))
+    (#.+llf-simple-vector+
+     (load-llf-vector stream stack))
     (#.+llf-character+ (load-character stream))
     (#.+llf-structure-definition+
-     (make-struct-type (load-object stream omap)
-                       (load-object stream omap)))
+     (let ((slots (vector-pop stack))
+           (name (vector-pop stack)))
+       (make-struct-type name slots)))
     (#.+llf-single-float+
      (%integer-as-single-float (load-integer stream)))))
 
-(defun load-object (stream omap)
-  (let ((command (%read-byte stream)))
-    (case command
-      (#.+llf-end-of-load+
-       (values nil t))
-      (#.+llf-backlink+
-       (let ((id (load-integer stream)))
-         (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
-         (values (gethash id omap) nil)))
-      (#.+llf-invoke+
-       (values (funcall (load-object stream omap)) nil))
-      (#.+llf-setf-fdefinition+
-       (let ((fn (load-object stream omap))
-             (name (load-object stream omap)))
-         (funcall #'(setf fdefinition) fn name)))
-      (#.+llf-unbound+ (error "Should not seen UNBOUND here."))
-      (t (let ((id (hash-table-count omap)))
-           (setf (gethash id omap) '"!!!LOAD PLACEHOLDER!!!")
-           (let ((obj (load-one-object command stream omap)))
-             (setf (gethash id omap) obj)
-             (values obj nil)))))))
-
 (defun mini-load-llf (stream)
   (check-llf-header stream)
-  (let ((object-map (make-hash-table))
-        (*package* *package*))
-    (loop (multiple-value-bind (object stop)
-              (load-object stream object-map)
-            (declare (ignore object))
-            (when stop
-              (return))))))
+  (let ((*package* *package*)
+        (omap (make-hash-table))
+        (stack (make-array 64 :adjustable t :fill-pointer 0)))
+    (loop (let ((command (%read-byte stream)))
+            (case command
+              (#.+llf-end-of-load+
+               (return))
+              (#.+llf-backlink+
+               (let ((id (load-integer stream)))
+                 (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
+                 (vector-push-extend (gethash id omap) stack)))
+              (t (let ((value (multiple-value-list (load-one-object command stream stack)))
+                       (id (hash-table-count omap)))
+                   (when value
+                     (setf (gethash id omap) (first value))
+                     (vector-push-extend (first value) stack)))))))))
