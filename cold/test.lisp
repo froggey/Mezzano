@@ -723,6 +723,7 @@
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()
+  (gc-init-system-memory)
   (init-isa-pic)
   (write-line "Hello, world.")
   (dotimes (i (multiboot-module-count))

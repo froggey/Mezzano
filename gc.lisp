@@ -23,17 +23,18 @@
 (defconstant +multiboot-flag-elf-symbols+  #b00100000)
 (defconstant +multiboot-flag-memory-map+   #b01000000)
 
-;;; Compute the true end of the image by examining the multiboot header.
-;;; FIXME: This must be done as part of the initialization process.
-;;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
-(when (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
-  (let ((module-count (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5))
-        (module-base (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6))))
-    (unless (zerop module-count)
-      (setf *bump-pointer* (+ #x8000000000
-                              (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1))))
-      (when (logtest *bump-pointer* #xFFF)
-        (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000))))))
+(defun gc-init-system-memory ()
+  ;; Compute the true end of the image by examining the multiboot header.
+  ;; FIXME: This must be done as part of the initialization process.
+  ;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
+  (when (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+    (let ((module-count (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5))
+          (module-base (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6))))
+      (unless (zerop module-count)
+        (setf *bump-pointer* (+ #x8000000000
+                                (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1))))
+        (when (logtest *bump-pointer* #xFFF)
+          (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000)))))))
 
 (defvar *gc-stack-group* (make-stack-group "GC"
                                            :control-stack-size 32766
