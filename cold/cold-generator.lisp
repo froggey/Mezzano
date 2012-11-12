@@ -25,6 +25,7 @@
     "../printer.lisp"
     "../cold-stream.lisp"
     "../cold/eval.lisp"
+    "../cold/load.lisp"
     "../format.lisp"
     "../type.lisp"
     "../interrupt.lisp"
@@ -717,6 +718,7 @@
             *static-bump-pointer* *static-area-size* *static-mark-bit*
             *oldspace-paging-bits* *newspace-paging-bits*
             *stack-bump-pointer*))
+    (setf (cold-symbol-value '*undefined-function-thunk*) (make-value *undefined-function-address* +tag-function+))
     (generate-string-array cl-symbol-names '*cl-symbols*)
     (generate-string-array system-symbol-names '*system-symbols*)
     (generate-obarray *symbol-table* '*initial-obarray*)

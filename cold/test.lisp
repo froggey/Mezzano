@@ -51,6 +51,19 @@
            (values result (null c))))
     (vector-push-extend c result)))
 
+(defun %read-byte (stream)
+  (prog1 (aref (car stream) (cdr stream))
+    (incf (cdr stream))))
+
+(defun %read-sequence (seq stream)
+  (setf (subseq seq 0) (subseq (car stream) (cdr stream) (+ (cdr stream) (length seq))))
+  (incf (cdr stream) (length seq)))
+
+(defun %file-position (stream &optional (position nil positionp))
+  (cond (positionp
+         (setf (cdr stream) position))
+        (t (cdr stream))))
+
 (defun yes-or-no-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
   (when control
