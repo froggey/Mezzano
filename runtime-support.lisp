@@ -20,8 +20,6 @@
           ((:symbol-macro) +symbol-mode-symbol-macro+)))
   value)
 
-(setf (symbol-mode 'nil) :constant)
-
 (defun variable-information (symbol)
   (symbol-mode symbol))
 
@@ -39,6 +37,7 @@
 
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
+;;; NOTE: Is set by initialize-lisp during cold boot.
 (defparameter *next-symbol-tls-slot* 12)
 (defconstant +maximum-tls-slot+ 512)
 (defun %allocate-tls-slot (symbol)
@@ -51,6 +50,10 @@
 
 (defun %symbol-tls-slot (symbol)
   (ldb (byte 16 8) (%symbol-flags symbol)))
+
+(defun symbol-tls-slot (symbol)
+  (let ((slot (ldb (byte 16 8) (%symbol-flags symbol))))
+    (if (zerop slot) nil slot)))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))

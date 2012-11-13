@@ -8,6 +8,7 @@
     "../gc.lisp"
     "../runtime-array.lisp"
     "../runtime-numbers.lisp"
+    "../runtime-support.lisp"
     "../stack-group.lisp"
     "../bootstrap/setf.lisp"
     "../bootstrap/setf-full.lisp"
@@ -30,7 +31,12 @@
     "../type.lisp"
     "../interrupt.lisp"
     "../memory.lisp"
-    "../dump.lisp"))
+    "../dump.lisp"
+    "../bootstrap/cons-compiler-macros.lisp"
+    "../bootstrap/defmacro.lisp"
+    "../bootstrap/basic-macros.lisp"
+    "../bootstrap/data-types.lisp"
+    "../bootstrap/parse.lisp"))
 
 (defparameter *special-source-files*
   '(("../packages.lisp" *package-system*)))

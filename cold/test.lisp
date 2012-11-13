@@ -95,22 +95,6 @@
         (write-char #\Space)
         (write name)))))
 
-(defun raise-undefined-function (invoked-through &rest args)
-  (declare (ignore args))
-  (write-char #\!)
-  (write-char #\#)
-  (when (symbolp invoked-through)
-    (write-string (symbol-name invoked-through)))
-  (backtrace)
-  (loop (%hlt)))
-
-(defun raise-unbound-error (symbol)
-  (write-char #\!)
-  (write-char #\*)
-  (write-string (symbol-name symbol))
-  (backtrace)
-  (loop (%hlt)))
-
 (defun raise-overflow (&optional lhs rhs what)
   (write-char #\!)
   (write-char #\%)
@@ -119,15 +103,6 @@
   (write lhs)
   (write-char #\Space)
   (write rhs)
-  (backtrace)
-  (loop (%hlt)))
-
-(defun raise-type-error (datum expected-type)
-  (write-char #\!)
-  (write-char #\$)
-  (write expected-type)
-  (write-char #\Space)
-  (write datum)
   (backtrace)
   (loop (%hlt)))
 
@@ -176,13 +151,6 @@
 (defun %with-stream-editor (stream recursive-p function)
   (funcall function))
 
-(defun endp (list)
-  (cond ((null list) t)
-        ((consp list) nil)
-        (t (error 'type-error
-                  :datum list
-                  :expected-type 'list))))
-
 (defun find-package-or-die (name)
   t)
 (defun find-package (name)
@@ -215,74 +183,8 @@
     ((t) "SYSTEM")
     ((:keyword) "KEYWORD")))
 
-;;; The compiler can only handle (apply function arg-list).
-(defun apply (function arg &rest more-args)
-  (declare (dynamic-extent more-args))
-  (cond (more-args
-         ;; Convert (... (final-list ...)) to (... final-list...)
-         (do* ((arg-list (cons arg more-args))
-               (i arg-list (cdr i)))
-              ((null (cddr i))
-               (setf (cdr i) (cadr i))
-               (apply function arg-list))))
-        (t (apply function arg))))
-
-(defun funcall (function &rest args)
-  (apply function args))
-
-;;; TODO: This requires a considerably more flexible mechanism.
-;;; 12 is where the TLS slots in a stack group start.
-(defparameter *next-symbol-tls-slot* 12)
-(defconstant +maximum-tls-slot+ 512)
-(defun %allocate-tls-slot (symbol)
-  (when (>= *next-symbol-tls-slot* +maximum-tls-slot+)
-    (error "Critial error! TLS slots exhausted!"))
-  (let ((slot *next-symbol-tls-slot*))
-    (incf *next-symbol-tls-slot*)
-    (setf (ldb (byte 16 8) (%symbol-flags symbol)) slot)
-    slot))
-
-(defun proclaim (declaration-specifier)
-  (case (first declaration-specifier)
-    (special (dolist (var (rest declaration-specifier))
-               (setf (system:symbol-mode var) :special)))
-    (constant (dolist (var (rest declaration-specifier))
-                (setf (system:symbol-mode var) :constant)))))
-
-(defun symbol-tls-slot (symbol)
-  (let ((slot (ldb (byte 16 8) (%symbol-flags symbol))))
-    (if (zerop slot) nil slot)))
-
-(defun system:symbol-mode (symbol)
-  (svref #(nil :special :constant :symbol-macro)
-         (ldb (byte 2 0) (%symbol-flags symbol))))
-
-(defun (setf system:symbol-mode) (value symbol)
-  (setf (ldb (byte 2 0) (%symbol-flags symbol))
-        (ecase value
-          ((nil) +symbol-mode-nil+)
-          ((:special) +symbol-mode-special+)
-          ((:constant) +symbol-mode-constant+)
-          ((:symbol-macro) +symbol-mode-symbol-macro+)))
-  value)
-
 (defun %defmacro (name function)
   (funcall #'(setf macro-function) function name))
-
-(defun macro-function (symbol &optional env)
-  (dolist (e env
-           (get symbol '%macro-function))
-    (when (eql (first e) :macros)
-      (let ((fn (assoc symbol (rest e))))
-        (when fn (return (cdr fn)))))))
-
-(defun (setf macro-function) (value symbol &optional env)
-  (when env
-    (error "TODO: (Setf Macro-function) in environment."))
-  (setf (symbol-function symbol) (lambda (&rest r)
-                                   (declare (ignore r))
-                                   (error 'undefined-function :name symbol))
-        (get symbol '%macro-function) value))
 
 ;; TODO: Symbol macros, macroexpand-hook.
 (defun macroexpand-1 (form &optional env)
@@ -303,93 +205,8 @@
                    did-expand t)
              (return (values form did-expand)))))))
 
-(defun fboundp (name)
-  (%fboundp (function-symbol name)))
-
-(defun fmakunbound (name)
-  (%fmakunbound (function-symbol name))
-  name)
-
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
-
-(defun list (&rest args)
-  args)
-
-(defun copy-list (list)
-  (when list
-    (cons (car list) (copy-list (cdr list)))))
-
-;;; Will be overriden later in the init process.
-(defun funcallable-instance-lambda-expression (function)
-  (values nil t nil))
-
-(defun function-name (function)
-  (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ecase (logand info #xFF)
-      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
-       (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
-      (#.+function-type-closure+ ;; Closure.
-       (function-name (memref-t address 4)))
-      (#.+function-type-funcallable-instance+
-       (multiple-value-bind (lambda closurep name)
-           (funcallable-instance-lambda-expression function)
-         (declare (ignore lambda closurep))
-         name)))))
-
-(defun function-lambda-expression (function)
-  (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ecase (logand info #xFF)
-      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
-       (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
-      (#.+function-type-closure+ ;; Closure.
-       (values nil t (function-name (memref-t address 4))))
-      (#.+function-type-funcallable-instance+
-       (funcallable-instance-lambda-expression function)))))
-
-(defun funcallable-std-instance-p (object)
-  (when (functionp object)
-    (let* ((address (logand (lisp-object-address object) -16))
-           (info (memref-unsigned-byte-64 address 0)))
-      (eql (ldb (byte 8 0) info) +function-type-funcallable-instance+))))
-
-(defun funcallable-std-instance-function (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 4)))
-(defun (setf funcallable-std-instance-function) (value funcallable-instance)
-  (check-type value function)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (setf (memref-t address 4) value)))
-
-(defun funcallable-std-instance-class (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 5)))
-(defun (setf funcallable-std-instance-class) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (setf (memref-t address 5) value)))
-
-(defun funcallable-std-instance-slots (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 6)))
-(defun (setf funcallable-std-instance-slots) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (setf (memref-t address 6) value)))
-
-(defun compiled-function-p (object)
-  (when (functionp object)
-    (let* ((address (logand (lisp-object-address object) -16))
-           (info (memref-unsigned-byte-64 address 0)))
-      (not (eql (logand info #xFF) +function-type-interpreted-function+)))))
 
 (defun function-symbol (name)
   "Convert a function name to a symbol."
