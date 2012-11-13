@@ -3,6 +3,7 @@
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
 (declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
+(declaim (special *static-area* *static-area-hint*))
 (declaim (special *stack-bump-pointer* *stack-bump-pointer-limit*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
@@ -56,15 +57,32 @@
   (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
           *newspace-offset* *semispace-size*
           (truncate (* *newspace-offset* 100) *semispace-size*))
-  (format t "Static space: ~:D/~:D words allocated (~D%).~%"
-          (ceiling *static-bump-pointer* 8) *static-area-size*
-          (truncate (* (ceiling *static-bump-pointer* 8) 100) *static-area-size*))
+  (multiple-value-bind (allocated-words total-words)
+      (static-area-info)
+    (format t "Static space: ~:D/~:D words allocated (~D%).~%"
+            allocated-words total-words
+            (truncate (* allocated-words 100) total-words)))
   (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
           (truncate (- *stack-bump-pointer* #x100000000) 8)
           (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
           (truncate (* (- *stack-bump-pointer* #x100000000) 100)
                     (- *stack-bump-pointer-limit* #x100000000)))
   (values))
+
+(defun static-area-info ()
+  (let ((allocated-words 0)
+        (total-words 0)
+        (offset 0))
+    (with-interrupts-disabled ()
+      (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
+                  (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+              (incf total-words (+ size 2))
+              (when (logtest info #b010)
+                (incf allocated-words (+ size 2)))
+              (when (logtest info #b100)
+                (return))
+              (incf offset (+ size 2)))))
+    (values allocated-words total-words)))
 
 (defun gc ()
   "Run a garbage-collection cycle."
@@ -294,6 +312,8 @@
 
 (defun mark-static-object (object)
   (let ((address (ash (%pointer-field object) 4)))
+    (when (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 address -1)))
+      (emergency-halt "Marking free static object."))
     (when (eql (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
       ;; Object has already been marked.
       (return-from mark-static-object))
@@ -358,6 +378,19 @@
             (gc-object (memref-t binding-stack-pointer i)))))
   (values a1 a2 a3 a4 a5))
 
+(defun sweep-static-space ()
+  (mumble "Sweeping static space")
+  (let ((offset 0))
+    (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
+                (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+            (when (and (logtest info #b010)
+                       (not (eql (ldb (byte 1 0) info) *static-mark-bit*)))
+              ;; Allocated, but not marked. Must not be reachable.
+              (setf (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ offset 1))) 0))
+            (when (logtest info #b100)
+              (return))
+            (incf offset (+ size 2))))))
+
 (defun gc-task ()
   (loop
      (let ((old-offset *newspace-offset*))
@@ -383,6 +416,8 @@
        (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
        ;; Flush TLB.
        (setf (%cr3) (%cr3))
+       ;; Sweep static space.
+       (sweep-static-space)
        (mumble "complete")
        (clear-gc-light)
        (stack-group-return t))))
@@ -415,13 +450,38 @@
      (prog1 (+ *newspace* (ash *newspace-offset* 3))
        (incf *newspace-offset* words)))
     (:static
-     (let ((address (+ *static-bump-pointer* 16)))
-       (incf *static-bump-pointer* (+ (* words 8) 16))
-       (when (> *static-bump-pointer* (* *static-area-size* 8))
-         (emergency-halt "Static space exhausted"))
-       ;; Initialize the static header word.
-       (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+     (let ((address (or (when (not (zerop *static-area-hint*))
+                          (%attempt-static-allocation words *static-area-hint*))
+                        (%attempt-static-allocation words 0))))
+       (unless address
+         (%gc)
+         (setf address (%attempt-static-allocation words 0))
+         (unless address
+           (emergency-halt "Static space exhausted.")))
        address))))
+
+(defun %attempt-static-allocation (words hint)
+  (loop
+     (let ((size (memref-unsigned-byte-64 *static-area* hint))
+           (info (memref-unsigned-byte-64 *static-area* (+ hint 1))))
+       (when (and (>= size words)
+                  (not (logtest info #b010)))
+         ;; Large enough to satisfy and free.
+         (unless (= size words)
+           ;; Larger than required. Split it.
+           (setf (memref-unsigned-byte-64 *static-area* (+ hint 2 words)) (- size words 2)
+                 (memref-unsigned-byte-64 *static-area* (+ hint 3 words)) (logand info #b100)
+                 (memref-unsigned-byte-64 *static-area* hint) words
+                 (ldb (byte 1 2) (memref-unsigned-byte-64 *static-area* (+ hint 1))) 0))
+         ;; Initialize the static header words.
+         (setf (ldb (byte 1 0) (memref-unsigned-byte-64 *static-area* (+ hint 1))) *static-mark-bit*
+               (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ hint 1))) 1)
+         (setf *static-area-hint* (+ hint 2 words))
+         (return (+ *static-area* (* hint 8) 16)))
+       (when (logtest info #b100)
+         ;; Last tag.
+         (return nil))
+       (incf hint (+ size 2)))))
 
 (defun cons (car cdr)
   (cons-in-area car cdr))

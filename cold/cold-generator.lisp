@@ -231,10 +231,13 @@
        (when (> *dynamic-offset* (truncate (/ *dynamic-area-size* 2) 8))
          (error "Allocation of ~S words exceeds dynamic area size." word-count))))
     (:static
-     (prog1 (+ (truncate *static-area-base* 8) *static-offset* 2)
+     (let ((address (+ (truncate *static-area-base* 8) *static-offset* 2)))
        (incf *static-offset* (+ word-count 2))
        (when (> *static-offset* (truncate *static-area-size* 8))
-         (error "Allocation of ~S words exceeds static area size." word-count))))
+         (error "Allocation of ~S words exceeds static area size." word-count))
+       (setf (ldb (byte 1 1) (word (- address 1))) 1
+             (word (- address 2)) word-count)
+       address))
     (:support
      ;; Force alignment.
      (unless (zerop (logand word-count #x1FF))
@@ -723,7 +726,8 @@
             *newspace-offset* *semispace-size* *newspace* *oldspace*
             *static-bump-pointer* *static-area-size* *static-mark-bit*
             *oldspace-paging-bits* *newspace-paging-bits*
-            *stack-bump-pointer*))
+            *stack-bump-pointer*
+            *static-area* *static-area-hint*))
     (setf (cold-symbol-value '*undefined-function-thunk*) (make-value *undefined-function-address* +tag-function+))
     (generate-string-array cl-symbol-names '*cl-symbols*)
     (generate-string-array system-symbol-names '*system-symbols*)
@@ -783,7 +787,16 @@
       (set-value '*oldspace-paging-bits* (+ data-pml2 (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x200000)))
       (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000)))
       (set-value '*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
-      (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
+      (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
+      (set-value '*static-area* *static-area-base*)
+      (set-value '*static-area-hint* 0))
+    ;; Write the boundary tag for the static area's free part.
+    (let ((*static-offset* (+ *static-offset* 2)))
+      (format t "~:D/~:D words free in static space.~%"
+              (- (truncate *static-area-limit* 8) (- *static-offset* 2))
+              (truncate *static-area-limit* 8))
+      (setf (word (+ (truncate *static-area-base* 8) *static-offset* -2)) (- (truncate *static-area-limit* 8) *static-offset*)
+            (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name description)))
