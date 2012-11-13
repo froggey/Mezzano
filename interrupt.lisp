@@ -20,36 +20,42 @@
 (defvar *isa-pic-handlers* (make-array 16 :initial-element nil :area :static))
 (defvar *isa-pic-base-handlers* (make-array 16 :initial-element nil))
 
-#+nil(dotimes (i 16)
-  (multiple-value-bind (mc pool)
-      (sys.lap-x86:assemble `((sys.lap-x86:push :rbp)
-                              (sys.lap-x86:mov64 :rbp :rsp)
-                              (sys.lap-x86:push :rax)
-                              (sys.lap-x86:push :rcx)
-                              (sys.lap-x86:push :rdx)
-                              (sys.lap-x86:push :rsi)
-                              (sys.lap-x86:push :rdi)
-                              (sys.lap-x86:mov64 :rax (:constant ,*isa-pic-handlers*))
-                              (sys.lap-x86:cmp64 (:rax ,(+ (- +tag-array-like+) 8 (* i 8))) nil)
-                              (sys.lap-x86:je over)
-                              (sys.lap-x86:call (:rax ,(+ (- +tag-array-like+) 8 (* i 8))))
-                              over
-                              (sys.lap-x86:mov8 :al #x20)
-                              (sys.lap-x86:out8 #x20)
-                              ,@(when (>= i 8)
-                                  `((sys.lap-x86:mov8 :al #x20)
-                                    (sys.lap-x86:out8 #xA0)))
-                              (sys.lap-x86:pop :rdi)
-                              (sys.lap-x86:pop :rsi)
-                              (sys.lap-x86:pop :rdx)
-                              (sys.lap-x86:pop :rcx)
-                              (sys.lap-x86:pop :rax)
-                              (sys.lap-x86:pop :rbp)
-                              (sys.lap-x86:iret))
-        :base-address 12
-        :initial-symbols (list (cons nil (lisp-object-address nil)))
-        :info (list (list 'isa-pic-irq-handler i)))
-    (setf (aref *isa-pic-base-handlers* i) (make-function mc pool))))
+(macrolet ((doit ()
+             (let ((forms '(progn)))
+               (dotimes (i 16)
+                 (push `(irq-handler ,i) forms))
+               (nreverse forms)))
+           (irq-handler (n)
+             (let ((sym (intern (format nil "%%IRQ~D-thunk" n))))
+               `(progn
+                  (define-lap-function ,sym ()
+                    (sys.lap-x86:push :rbp)
+                    (sys.lap-x86:mov64 :rbp :rsp)
+                    (sys.lap-x86:push :rax)
+                    (sys.lap-x86:push :rcx)
+                    (sys.lap-x86:push :rdx)
+                    (sys.lap-x86:push :rsi)
+                    (sys.lap-x86:push :rdi)
+                    (sys.lap-x86:mov64 :rax (:constant *isa-pic-handlers*))
+                    (sys.lap-x86:mov64 :rax (:symbol-value :rax))
+                    (sys.lap-x86:cmp64 (:rax ,(+ (- +tag-array-like+) 8 (* n 8))) nil)
+                    (sys.lap-x86:je over)
+                    (sys.lap-x86:call (:rax ,(+ (- +tag-array-like+) 8 (* n 8))))
+                    over
+                    (sys.lap-x86:mov8 :al #x20)
+                    (sys.lap-x86:out8 #x20)
+                    ,@(when (>= n 8)
+                            `((sys.lap-x86:mov8 :al #x20)
+                              (sys.lap-x86:out8 #xA0)))
+                    (sys.lap-x86:pop :rdi)
+                    (sys.lap-x86:pop :rsi)
+                    (sys.lap-x86:pop :rdx)
+                    (sys.lap-x86:pop :rcx)
+                    (sys.lap-x86:pop :rax)
+                    (sys.lap-x86:pop :rbp)
+                    (sys.lap-x86:iret))
+                  (setf (aref *isa-pic-base-handlers* ,n) #',sym)))))
+  (doit))
 
 (defun isa-pic-interrupt-handler (irq)
   (aref *isa-pic-handlers* irq))
@@ -114,7 +120,7 @@
 
 (defvar *exception-base-handlers* (make-array 32 :initial-element nil))
 (define-lap-function %%exception ()
-  (sys.lap-x86:push :rax)
+  ;; RAX already pushed.
   (sys.lap-x86:push :rbx)
   (sys.lap-x86:push :rcx)
   (sys.lap-x86:push :rdx)
@@ -158,15 +164,57 @@
   (sys.lap-x86:add64 :rsp 16)
   (sys.lap-x86:iret))
 
-#+nil(dotimes (i 32)
-  (multiple-value-bind (mc pool)
-      (sys.lap-x86:assemble `(,@(unless (member i '(8 10 11 12 13 14 17))
-                                  `((sys.lap-x86:push 0)))
-                              (sys.lap-x86:push ,i)
-                              (sys.lap-x86:jmp (:constant ,#'%%exception)))
-        :base-address 12
-        :initial-symbols (list (cons nil (lisp-object-address nil)))
-        :info (list (list 'exception-handler i)))
-    (let ((fn (make-function mc pool)))
-      (setf (aref *exception-base-handlers* i) fn)
-      (set-idt-entry i :offset (lisp-object-address fn)))))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *exception-names*
+    #("Divide-Error"
+      "Debug"
+      "NMI"
+      "Breakpoint"
+      "Overflow"
+      "BOUND-Range-Exceeded"
+      "Invalid-Opcode"
+      "Device-Not-Available"
+      "Double-Fault"
+      "Coprocessor-Segment-Overrun"
+      "Invalid-TSS"
+      "Segment-Not-Present"
+      "Stack-Segment-Fault"
+      "General-Protection-Fault"
+      "Page-Fault"
+      "Exception-15"
+      "Math-Fault"
+      "Alignment-Check"
+      "Machine-Check"
+      "SIMD-Floating-Point-Exception"
+      "Exception-20"
+      "Exception-21"
+      "Exception-22"
+      "Exception-23"
+      "Exception-24"
+      "Exception-25"
+      "Exception-26"
+      "Exception-27"
+      "Exception-28"
+      "Exception-29"
+      "Exception-30"
+      "Exception-31")))
+
+(macrolet ((doit ()
+             (let ((forms '(progn)))
+               (dotimes (i 32)
+                 (push `(exception-handler ,i) forms))
+               (nreverse forms)))
+           (exception-handler (n)
+             (let ((sym (intern (format nil "%%~A-thunk" (aref *exception-names* n)))))
+               `(progn
+                  (define-lap-function ,sym ()
+                    ;; Some exceptions do not push an error code.
+                    ,@(unless (member n '(8 10 11 12 13 14 17))
+                              `((sys.lap-x86:push 0)))
+                    (sys.lap-x86:push ,n)
+                    (sys.lap-x86:push :rax)
+                    (sys.lap-x86:mov64 :rax (:constant %%exception))
+                    (sys.lap-x86:jmp (:symbol-function :rax)))
+                  (setf (aref *exception-base-handlers* ,n) #',sym)
+                  (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
+  (doit))
