@@ -1,7 +1,6 @@
-(eval-when (:compile-toplevel)
-  (defpackage #:system.eval
-    (:nicknames #:sys.eval)
-    (:use #:cl)))
+(defpackage #:system.eval
+  (:nicknames #:sys.eval)
+  (:use #:cl))
 
 (in-package #:sys.eval)
 
@@ -41,7 +40,7 @@
   ((name :initarg :name :reader interpreted-function-name)
    (lambda :initarg :lambda :reader interpreted-function-lambda)
    (env :initarg :env :reader interpreted-function-environment))
-  (:metaclass clos:funcallable-standard-class)
+  (:metaclass sys.clos:funcallable-standard-class)
   (:default-initargs :name nil))
 
 (defmethod sys.int::funcallable-instance-lambda-expression ((function interpreted-function))
@@ -109,7 +108,7 @@
                                   :name name
                                   :lambda lambda
                                   :env outer-env)))
-            (clos:set-funcallable-instance-function x #'interpret-function)
+            (sys.clos:set-funcallable-instance-function x #'interpret-function)
             x))))))
 
 (defun eval-progn-body (forms env)
