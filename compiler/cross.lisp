@@ -51,7 +51,9 @@
            #:funcallable-std-instance-p
            #:funcallable-std-instance-function
            #:funcallable-std-instance-class
-           #:funcallable-std-instance-slots))
+           #:funcallable-std-instance-slots
+           #:class-precedence-list
+           #:funcallable-standard-object))
 
 (defpackage #:system.closette
   (:nicknames #:sys.clos)
