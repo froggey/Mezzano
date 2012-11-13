@@ -10,6 +10,7 @@
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
+                  *debug-io*
                   *screen-offset*
                   *keyboard-shifted*))
 
@@ -464,6 +465,12 @@
   (proclaim `(constant ,name))
   name)
 
+(defun enter-debugger (condition)
+  (write-char #\!)
+  (write condition)
+  (backtrace)
+  (loop (%hlt)))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
         *array-types* #(t
@@ -495,6 +502,7 @@
         *terminal-io* *cold-stream*
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
+        *debug-io* *cold-stream*
         *screen-offset* 0
         *keyboard-shifted* nil
         *early-initialize-hook* '()
