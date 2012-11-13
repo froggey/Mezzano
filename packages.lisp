@@ -155,13 +155,9 @@
   (let ((p (find-package-or-die package)))
     (multiple-value-bind (symbol status)
         (find-symbol name p)
-      (when (string= name "READTABLE-CASE")
-        (format t "Intern RT-CASE ~S ~S~%" symbol status))
       (when status
         (return-from package-intern (values symbol status))))
     (let ((symbol (make-symbol name)))
-      (when (string= name "READTABLE-CASE")
-        (format t "Importing into ~S~%" (package-name p)))
       (import (list symbol) p)
       (when (eql p *keyword-package*)
         ;; TODO: Constantness.
@@ -265,16 +261,25 @@
   (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
   (setf *package* (find-package-or-die "SYSTEM.INTERNALS"))
   (locally (declare (special *cl-symbols* *system-symbols*))
-    ;; Now import all the symbols.
-    ;; TODO: Intern into the correct package.
-    (dotimes (i (length *initial-obarray*))
-      (let ((sym (aref *initial-obarray* i)))
-        (setf (symbol-package sym) nil)
-        (let ((package (cond ((find (symbol-name sym) *cl-symbols* :test 'string=) (find-package "CL"))
-                             ((find (symbol-name sym) *system-symbols* :test 'string=) (find-package "SYSTEM")))))
-          (cond (package (import-one-symbol sym package)
-                         (export-one-symbol sym package))
-                (t (import-one-symbol sym *package*)))))))
+    (let ((cl-package (find-package "CL")))
+      ;; Now import all the symbols.
+      ;; TODO: Intern into the correct package.
+      (dotimes (i (length *initial-obarray*))
+        (let ((sym (aref *initial-obarray* i)))
+          (setf (symbol-package sym) nil)
+          (let ((package (cond ((find (symbol-name sym) *cl-symbols* :test 'string=) cl-package)
+                               ((find (symbol-name sym) *system-symbols* :test 'string=) (find-package "SYSTEM")))))
+            (cond (package (import-one-symbol sym package)
+                           (export-one-symbol sym package))
+                  (t (import-one-symbol sym *package*))))))
+      ;; Export all CL symbols.
+      (dotimes (i (length *cl-symbols*))
+        (export (list (package-intern (aref *cl-symbols* i) cl-package))
+                cl-package))
+      ;; And export all the SYSTEM symbols.
+      (dotimes (i (length *system-symbols*))
+        (export (list (package-intern (aref *system-symbols* i) "SYSTEM"))
+                "SYSTEM"))))
   (dotimes (i (length *initial-keyword-obarray*))
     (let ((sym (aref *initial-keyword-obarray* i)))
       (setf (symbol-package sym) nil)
