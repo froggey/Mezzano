@@ -641,6 +641,12 @@
 (defun mini-multiboot-module-stream (id)
   (cons (multiboot-module id) 0))
 
+(defun %defconstant (name value &optional docstring)
+  (proclaim `(special ,name))
+  (setf (symbol-value name) value)
+  (proclaim `(constant ,name))
+  name)
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
         *array-types* #(t

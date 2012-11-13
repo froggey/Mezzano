@@ -239,10 +239,8 @@
 
 (defmacro defconstant (name initial-value &optional docstring)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
-     (declaim (special ,name))
-     (setq ,name ,initial-value)
-     (declaim (constant ,name))
-     ',name))
+     (%defconstant ',name ,initial-value
+                   ,@(when docstring `(',docstring)))))
 
 (defmacro defun (name lambda-list &body body)
   (let ((base-name (if (consp name)

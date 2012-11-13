@@ -43,6 +43,10 @@
     (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))
 
+(defun sys.int::%defconstant (name value &optional docstring)
+  (declare (ignore docstring))
+  (eval `(defconstant ,name ',value)))
+
 (def-x-macro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      ,@(mapcar (lambda (x) `(sys.int::proclaim ',x)) declaration-specifiers)))
