@@ -205,6 +205,9 @@
         (push (list* :special (rest dec)) env)))
     (x-compile-top-level-implicit-progn body env mode)))
 
+(defun make-macrolet-env (definitions env)
+  (list* (list* :macros (mapcar 'hack-macrolet-definition definitions)) env))
+
 (defun x-compile-top-level (form env &optional (mode :not-compile-time))
   "Cross-compile a top-level form.
 3.2.3.1 Processing of Top Level Forms."
@@ -453,7 +456,7 @@
               (eql (first (third form)) 'lambda))
          (let* ((name (second (second form)))
                 (lambda (third form))
-                (fn (compile-lambda lambda env)))
+                (fn (compile-lambda lambda (cons env nil))))
            #+nil(add-to-llf +llf-defun+ name fn)
            (add-to-llf +llf-setf-fdefinition+ fn name)))
         ;; And (define-lap-function name (options...) code...)
@@ -468,7 +471,7 @@
         ;; Convert other forms to single-argument functions and
         ;; add it to the fasl as an eval node.
         ;; Progn to avoid problems with DECLARE.
-        (t (let ((fn (compile-lambda `(lambda () (progn ,form)) env)))
+        (t (let ((fn (compile-lambda `(lambda () (progn ,form)) (cons env nil))))
              (add-to-llf +llf-funcall+ fn)))))
 
 (defun cross-compile-file (input-file &key
