@@ -380,16 +380,31 @@
 ;;; TODO: This needs to coalesce adjacent free areas.
 (defun sweep-static-space ()
   (mumble "Sweeping static space")
-  (let ((offset 0))
+  (let ((offset 0)
+        (last-free-tag nil))
     (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
                 (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
             (when (and (logtest info #b010)
                        (not (eql (ldb (byte 1 0) info) *static-mark-bit*)))
               ;; Allocated, but not marked. Must not be reachable.
               (setf (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ offset 1))) 0))
+            (if (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+                ;; Free tag.
+                (cond (last-free-tag
+                       ;; Merge adjacent free tags.
+                       (incf (memref-unsigned-byte-64 *static-area* last-free-tag) (+ size 2))
+                       (when (logtest info #b100)
+                         ;; Last tag.
+                         (setf (ldb (byte 1 2) (memref-unsigned-byte-64 *static-area* (1+ last-free-tag))) 1)
+                         (return)))
+                      (t ;; Previous free tag.
+                       (setf last-free-tag offset)))
+                ;; Allocated tag.
+                (setf last-free-tag nil))
             (when (logtest info #b100)
               (return))
-            (incf offset (+ size 2))))))
+            (incf offset (+ size 2))))
+    (setf *static-area-hint* 0)))
 
 (defun gc-task ()
   (loop

@@ -550,6 +550,7 @@
   (let ((*package* *package*))
     (dotimes (i (length *additional-cold-toplevel-forms*))
       (eval (svref *additional-cold-toplevel-forms* i))))
+  (gc)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
   (reinitialize-lisp))
 
