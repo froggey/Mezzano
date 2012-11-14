@@ -55,6 +55,12 @@ allocate environment frames."
      (svref array index))
     ((#.+array-type-base-char+ #.+array-type-character+)
      (schar array index))
+    (#.+array-type-bit+
+     (multiple-value-bind (offset bit)
+         (truncate index 8)
+       (ldb (byte 1 bit)
+            (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                    offset))))
     (#.+array-type-unsigned-byte-8+
      (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                              index))
@@ -74,6 +80,13 @@ allocate environment frames."
      (setf (svref array index) value))
     ((#.+array-type-base-char+ #.+array-type-character+)
      (setf (schar array index) value))
+    (#.+array-type-bit+
+     (multiple-value-bind (offset bit)
+         (truncate index 8)
+       (setf (ldb (byte 1 bit)
+                  (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                          offset))
+             value)))
     (#.+array-type-unsigned-byte-8+
      (setf (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                                    index)
