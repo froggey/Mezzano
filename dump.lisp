@@ -47,17 +47,21 @@ Returns number of sectors written."
 (defun round-up (value nearest)
   (* (ceiling value nearest) nearest))
 
-(defun dump-disk-image-size ()
+(defun dump-disk-image-size (static-pages)
   "Calculate the amount of actual data that dump must save."
-  (+ #x600000 ; 6MB for paging structures.
-     (round-up (- *static-bump-pointer* #x200000) #x200000)
-     (round-up (* *newspace-offset* 8) #x200000)
-     (round-up (- *stack-bump-pointer-limit* #x100000000) #x200000)))
+  (let ((total-static-pages 0))
+    (dotimes (i (length static-pages))
+      (when (not (zerop (aref static-pages i)))
+        (incf total-static-pages)))
+    (+ #x600000 ; 6MB for paging structures.
+       (* total-static-pages #x200000)
+       (round-up (* *newspace-offset* 8) #x200000)
+       (round-up (- *stack-bump-pointer-limit* #x100000000) #x200000))))
 
 (defun dump-memory-image-size ()
   "Calculate the amount of actual data that dump must save."
   (+ #x600000 ; 6MB for paging structures.
-     (round-up (* *static-area-size* 8) #x200000)
+     (round-up *static-area-size* #x200000)
      (round-up (* *semispace-size* 8 2) #x200000)
      (round-up (- *stack-bump-pointer-limit* #x100000000) #x200000)))
 
@@ -74,6 +78,7 @@ Returns number of sectors written."
 
 (defparameter *static-area-base*  #x0000200000)
 #+nil(defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
+(defparameter *static-area-size*  (* 64 1024 1024))
 (defparameter *dynamic-area-base* #x0080000000)
 (defparameter *dynamic-area-size* #x0080000000) ; 2GB
 (defparameter *stack-area-base*   #x0100000000)
@@ -81,7 +86,7 @@ Returns number of sectors written."
 (defparameter *linear-map*        #x8000000000)
 (defparameter *physical-load-address* #x0000200000)
 
-(defun dump-generate-page-tables (allocation-start)
+(defun dump-generate-page-tables (allocation-start static-pages)
   "Generate a new set of page tables for a dumped image.
 This must currently replicate the layout of Cold's create-page-tables function.
 The setup code requires the PML4 to be in a fixed position and the GC needs to
@@ -133,13 +138,14 @@ know where the PDEs for new- and old-space are."
       ;; Skip over the page tables.
       (incf phys-curr #x600000)
       ;; The rest of the static area.
-      (dotimes (i (1- (ceiling (- *static-bump-pointer* #x200000) #x200000)))
-        (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area-base* #x200000) 1 i))
-              (logior phys-curr
-                      +page-table-present+
-                      +page-table-global+
-                      +page-table-large+))
-        (incf phys-curr #x200000))
+      (dotimes (i (1- (length static-pages)))
+        (when (not (zerop (aref static-pages (1+ i))))
+          (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area* #x200000) 1 i))
+                (logior phys-curr
+                        +page-table-present+
+                        +page-table-global+
+                        +page-table-large+))
+          (incf phys-curr #x200000)))
       ;; The dynamic area.
       (dotimes (i (ceiling *newspace-offset* #x40000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *newspace* #x200000) i))
@@ -157,14 +163,14 @@ know where the PDEs for new- and old-space are."
                       +page-table-large+))
         (incf phys-curr #x200000))
       ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
-      (dotimes (i (truncate (- (* *static-area-size* 8) (- *static-bump-pointer* #x200000)) #x200000))
-        (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area-base* #x200000)
-                                                    (ceiling (- *static-bump-pointer* #x200000) #x200000) i))
-              (logior phys-curr
-                      +page-table-present+
-                      +page-table-global+
-                      +page-table-large+))
-        (incf phys-curr #x200000))
+      (dotimes (i (length static-pages))
+        (when (zerop (aref static-pages i))
+          (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area* #x200000) i))
+                (logior phys-curr
+                        +page-table-present+
+                        +page-table-global+
+                        +page-table-large+))
+          (incf phys-curr #x200000)))
       (dotimes (i (truncate (- *semispace-size* *newspace-offset*) #x40000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *newspace* #x200000)
                                                     (ceiling *newspace-offset* #x40000) i))
@@ -186,15 +192,32 @@ know where the PDEs for new- and old-space are."
   (when (not (yes-or-no-p "Danger! This will overwrite the primary master hard disk. Continue?"))
     (return-from dump-image))
   (format t "Saving image... ")
-  (let ((total-sectors 0))
+  (let ((total-sectors 0)
+        (static-pages (make-array (ceiling *static-area-size* #x200000)
+                                  :element-type 'bit
+                                  :initial-element 0)))
     (with-interrupts-disabled ()
       (let ((old-bump-pointer *bump-pointer*))
         (unwind-protect
              (progn
+               ;; Scan the static area and figure out which pages need to be dumped.
+               (let ((offset 0))
+                 (loop (let* ((size (memref-unsigned-byte-64 *static-area* offset))
+                              (info (memref-unsigned-byte-64 *static-area* (+ offset 1)))
+                              (start-page (truncate offset #x40000))
+                              (end-page (if (logtest info #b010)
+                                            (truncate (+ offset size 2) #x40000)
+                                            start-page)))
+                         (do ((i start-page (1+ i)))
+                             ((> i end-page))
+                           (setf (aref static-pages i) 1))
+                         (when (logtest info #b100)
+                           (return))
+                         (incf offset (+ size 2)))))
                (setf *bump-pointer* (round-up old-bump-pointer 512))
-               (dump-generate-page-tables *bump-pointer*)
+               (dump-generate-page-tables *bump-pointer* static-pages)
                ;; Reconfigure the multiboot header for the larger image.
-               (setf (aref *multiboot-header* 5) (+ #x200000 (dump-disk-image-size))
+               (setf (aref *multiboot-header* 5) (+ #x200000 (dump-disk-image-size static-pages))
                      (aref *multiboot-header* 6) (+ #x200000 (dump-memory-image-size)))
                ;; Identity mapped static area.
                (incf total-sectors (dump-range #x200000 #x400000 0))
@@ -203,9 +226,11 @@ know where the PDEs for new- and old-space are."
                                                (+ (- *bump-pointer* #x8000000000) #x600000)
                                                total-sectors))
                ;; Rest of static area.
-               (incf total-sectors (dump-virtual-range #x400000
-                                                       (round-up *static-bump-pointer* #x200000)
-                                                       total-sectors))
+               (dotimes (i (1- (length static-pages)))
+                 (when (not (zerop (aref static-pages (1+ i))))
+                   (incf total-sectors (dump-virtual-range (+ *static-area* (* (1+ i) #x200000))
+                                                           (+ *static-area* (* (1+ i) #x200000) #x200000)
+                                                           total-sectors))))
                ;; Dynamic area.
                (incf total-sectors (dump-virtual-range *newspace*
                                                        (round-up (+ *newspace* (* *newspace-offset* 8)) #x200000)

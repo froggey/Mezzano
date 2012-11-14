@@ -2,8 +2,7 @@
 
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
-(declaim (special *static-bump-pointer* *static-mark-bit* *static-area-size*))
-(declaim (special *static-area* *static-area-hint*))
+(declaim (special *static-area* *static-mark-bit* *static-area-hint*))
 (declaim (special *stack-bump-pointer* *stack-bump-pointer-limit*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
@@ -378,6 +377,7 @@
             (gc-object (memref-t binding-stack-pointer i)))))
   (values a1 a2 a3 a4 a5))
 
+;;; TODO: This needs to coalesce adjacent free areas.
 (defun sweep-static-space ()
   (mumble "Sweeping static space")
   (let ((offset 0))

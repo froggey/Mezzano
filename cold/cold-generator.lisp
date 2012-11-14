@@ -779,17 +779,14 @@
       (set-value '*semispace-size* (/ *dynamic-area-semispace-limit* 8))
       (set-value '*newspace* *dynamic-area-base*)
       (set-value '*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
-      (set-value '*static-bump-pointer* (+ (* *static-offset* 8) *static-area-base*))
-      ;; More like static-area-limit...
-      (set-value '*static-area-size* (/ (+ *static-area-base* *static-area-limit*) 8))
+      (set-value '*static-area* *static-area-base*)
       (set-value '*static-mark-bit* 0)
+      (set-value '*static-area-hint* 0)
       (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
       (set-value '*oldspace-paging-bits* (+ data-pml2 (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x200000)))
       (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000)))
       (set-value '*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
-      (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
-      (set-value '*static-area* *static-area-base*)
-      (set-value '*static-area-hint* 0))
+      (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
     ;; Write the boundary tag for the static area's free part.
     (let ((*static-offset* (+ *static-offset* 2)))
       (format t "~:D/~:D words free in static space.~%"
