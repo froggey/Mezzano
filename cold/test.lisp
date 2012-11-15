@@ -498,7 +498,7 @@
                         (complex double-float)
                         (complex long-float))
         *package* nil
-        *cold-stream* (cons "COLD" "STREAM")
+        *cold-stream* (make-cold-stream)
         *terminal-io* *cold-stream*
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*

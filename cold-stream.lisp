@@ -3,8 +3,6 @@
 (defstruct cold-stream)
 (defvar *screen-offset* 0)
 
-(setf *terminal-io* (make-cold-stream))
-
 (add-hook '*early-initialize-hook*
           #'(lambda ()
               (setf *terminal-io* (make-cold-stream))
