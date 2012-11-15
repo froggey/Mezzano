@@ -551,7 +551,10 @@
     "../bootstrap/reader.lisp"
     "../printer.lisp"
     "../bootstrap/numbers.lisp"
-    "../character.lisp")
+    "../character.lisp"
+    "../closette.lisp"
+    "../gc.lisp"
+)
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
 
