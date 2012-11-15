@@ -870,15 +870,6 @@
     (read-sequence seq stream)
     seq))
 
-(defun load-vector (stream omap)
-  (let* ((len (load-integer stream))
-         (address (allocate (1+ len))))
-    ;; Header word.
-    (setf (word address) (logior (ash len 8) (ash +array-type-t+ 1)))
-    (dotimes (i len)
-      (setf (word (+ address 1 i)) (load-object stream omap)))
-    (make-value address +tag-array-like+)))
-
 (defun load-string (stream)
   (let* ((len (load-integer stream))
          (address (allocate (1+ (ceiling len 2)))))
