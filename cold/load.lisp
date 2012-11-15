@@ -96,6 +96,16 @@
     (decf (fill-pointer stack) len)
     vector))
 
+(defun load-llf-structure-definition (stream stack)
+  (let* ((slots (vector-pop stack))
+         (name (vector-pop stack))
+         (definition (get name 'structure-type)))
+    (cond (definition
+           (unless (equal (structure-slots definition) slots)
+             (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))
+           definition)
+          (t (make-struct-type name slots)))))
+
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
 (defun load-one-object (command stream stack)
@@ -141,9 +151,7 @@
      (load-llf-vector stream stack))
     (#.+llf-character+ (load-character stream))
     (#.+llf-structure-definition+
-     (let ((slots (vector-pop stack))
-           (name (vector-pop stack)))
-       (make-struct-type name slots)))
+     (load-llf-structure-definition stream stack))
     (#.+llf-single-float+
      (%integer-as-single-float (load-integer stream)))))
 
