@@ -537,6 +537,12 @@ the header word. LENGTH is the number of elements in the array."
 (defun %make-struct (length &optional area)
   (%allocate-array-like +array-type-struct+ length length area))
 
+(define-lap-function %%add-function-to-bochs-debugger ()
+  (sys.lap-x86:mov32 :eax 1)
+  (sys.lap-x86:xchg16 :cx :cx)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun make-function-with-fixups (tag machine-code fixups constants)
   (with-interrupts-disabled ()
     (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
@@ -545,6 +551,9 @@ the header word. LENGTH is the number of elements in the array."
       (when (oddp total)
         (incf total))
       (let ((address (%raw-allocate total :static)))
+        (%%add-function-to-bochs-debugger address
+                                          (+ (length machine-code) 12)
+                                          (aref constants 0))
         ;; Initialize header.
         (setf (memref-unsigned-byte-64 address 0) 0
               (memref-unsigned-byte-16 address 0) tag

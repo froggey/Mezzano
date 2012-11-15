@@ -779,6 +779,10 @@
     (modrm class dst src (logior #x84 width-bit))
     (imm class dst src (logior #xF6 width-bit) 0)))
 
+(define-integer-instruction xchg (lhs rhs) (class)
+  (let ((width-bit (if (eql class :gpr-8) 0 1)))
+    (modrm class lhs rhs (logior #x86 width-bit))))
+
 (define-integer-instruction mov (dst src) (class)
   (let ((width-bit (if (eql class :gpr-8) 0 1)))
     (when (and (eql class :gpr-64)
