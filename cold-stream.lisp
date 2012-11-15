@@ -107,3 +107,6 @@
 
 (defun cold-listen (stream)
   (or *unread-char* (= (logand (system:io-port/8 #x64) 1) 1)))
+
+(defun cold-clear-input (stream)
+  nil)
