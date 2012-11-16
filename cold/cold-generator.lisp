@@ -36,7 +36,8 @@
     "../bootstrap/defmacro.lisp"
     "../bootstrap/basic-macros.lisp"
     "../bootstrap/data-types.lisp"
-    "../bootstrap/parse.lisp"))
+    "../bootstrap/parse.lisp"
+    "../pci.lisp"))
 
 (defparameter *special-source-files*
   '(("../packages.lisp" *package-system*)))

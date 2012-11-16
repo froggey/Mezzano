@@ -129,11 +129,14 @@
 (defun pci-init ()
   "Detect PCI and scan the buses."
   (setf (io-port/32 +pci-config-address+) #x80000000)
+  (setf *pci-devices* '())
   (when (eql (io-port/32 +pci-config-address+) #x80000000)
     (format t "Scanning PCI bus...~%")
     (pci-scan 0)
     (dolist (driver *pci-drivers*)
       (pci-probe (second driver) (first driver)))))
+
+(add-hook '*early-initialize-hook* 'pci-init)
 
 (defun pci-probe (device-ids fn)
   (dolist (dev *pci-devices*)
