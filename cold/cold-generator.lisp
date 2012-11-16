@@ -677,6 +677,34 @@
   (sys.c::save-compiler-builtins "%%compiler-builtins.llf")
   (load-source-file "%%compiler-builtins.llf" t))
 
+(defun save-unifont-data (path area)
+  (let ((unifont-data (with-open-file (s path)
+                        (build-unicode:generate-unifont-table s))))
+    (labels ((write-simple-vector (vec)
+               (let ((address (allocate (1+ (length vec)) area)))
+                 (setf (word address) (array-header +array-type-t+ (length vec)))
+                 (iter (for x in-sequence vec)
+                       (for i from 1)
+                       (cond
+                         ((null x)
+                          (setf (word (+ address i)) (make-value (gethash "NIL" *symbol-table*) +tag-symbol+)))
+                         ((integerp (aref x 0))
+                          (setf (word (+ address i)) (write-ub8-vector x)))
+                         (t (setf (word (+ address i)) (write-simple-vector x)))))
+                 (make-value address +tag-array-like+)))
+             (write-ub8-vector (vec)
+               (let ((address (allocate (1+ (ceiling (length vec) 8)) area)))
+                 (setf (word address) (array-header +array-type-unsigned-byte-8+ (length vec)))
+                 (dotimes (i (ceiling (length vec) 8))
+                   (let ((value 0))
+                     (dotimes (j 8)
+                       (when (< (+ (* i 8) j) (length vec))
+                         (setf (ldb (byte 8 64) value) (aref vec (+ (* i 8) j))))
+                       (setf value (ash value -8)))
+                     (setf (word (+ address 1 i)) value)))
+                 (make-value address +tag-array-like+))))
+      (write-simple-vector unifont-data))))
+
 (defun make-image (image-name &optional description extra-source-files)
   (let ((*support-offset* 0)
         (*static-offset* 0)
@@ -706,6 +734,16 @@
           initial-stack (allocate 8 :static)
           gdt (allocate 3 :static)
           idt (allocate 257 :static))
+    ;; Create setup function.
+    (setf setup-fn (compile-lap-function *setup-function* :static
+                                         (list (cons 'gdt (* (1+ gdt) 8))
+                                               (cons 'gdt-length (1- (* 2 8)))
+                                               (cons 'idt (* (1+ idt) 8))
+                                               (cons 'idt-length (1- (* 256 8)))
+                                               (cons 'initial-stack (* (+ initial-stack 8) 8))
+                                               ;; PML4 must be at this address
+                                               (cons 'initial-page-table #x400000))))
+    (setf (cold-symbol-value '*%setup-function*) (make-value setup-fn +tag-function+))
     (create-initial-stack-group)
     (let ((*load-time-evals* '()))
       (load-compiler-builtins)
@@ -728,7 +766,8 @@
             *static-bump-pointer* *static-area-size* *static-mark-bit*
             *oldspace-paging-bits* *newspace-paging-bits*
             *stack-bump-pointer*
-            *static-area* *static-area-hint*))
+            *static-area* *static-area-hint*
+            *unifont-bmp*))
     (setf (cold-symbol-value '*undefined-function-thunk*) (make-value *undefined-function-address* +tag-function+))
     (generate-string-array cl-symbol-names '*cl-symbols*)
     (generate-string-array system-symbol-names '*system-symbols*)
@@ -749,18 +788,10 @@
     ;; Create the setup stack.
     (setf (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
     (setf (cold-symbol-value '*%setup-stack*) (make-value initial-stack +tag-array-like+))
+    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifontfull-5.1.20080820.hex" :static))
+    (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     ;; Generate page tables.
     (setf (values initial-pml4 data-pml2) (create-page-tables))
-    ;; Create setup function.
-    (setf setup-fn (compile-lap-function *setup-function* :static
-                                         (list (cons 'gdt (* (1+ gdt) 8))
-                                               (cons 'gdt-length (1- (* 2 8)))
-                                               (cons 'idt (* (1+ idt) 8))
-                                               (cons 'idt-length (1- (* 256 8)))
-                                               (cons 'initial-stack (* (+ initial-stack 8) 8))
-                                               (cons 'initial-page-table initial-pml4))))
-    (setf (cold-symbol-value '*%setup-function*) (make-value setup-fn +tag-function+))
-    (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     ;; Create multiboot header.
     (setf (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
           (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
