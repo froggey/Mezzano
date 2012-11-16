@@ -417,7 +417,7 @@ CASE may be one of:
   (edit-stream-read stream #'call-next-method))
 
 (defmethod stream-clear-input :before ((stream edit-stream))
-  (when (slot-value stream 'buffer)
+  (when (slot-value stream 'edit-buffer)
     (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
 	  (slot-value stream 'edit-offset) 0)))
 
