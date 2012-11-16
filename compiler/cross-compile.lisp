@@ -373,6 +373,14 @@
   (write-byte +llf-cons+ stream))
 
 (defmethod save-one-object ((object symbol) omap stream)
+  #+sbcl
+  (setf object (case object
+                 (sb-impl::backq-list 'list)
+                 (sb-impl::backq-list* 'list*)
+                 (sb-impl::backq-append 'append)
+                 (sb-impl::backq-nconc 'nconc)
+                 (sb-impl::backq-cons 'cons)
+                 (t object)))
   (cond ((symbol-package object)
          (write-byte +llf-symbol+ stream)
          (save-integer (length (symbol-name object)) stream)
