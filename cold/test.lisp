@@ -557,6 +557,7 @@
 (defun reinitialize-lisp ()
   (gc-init-system-memory)
   (init-isa-pic)
+  (%sti)
   (write-line "Hello, world.")
   (dotimes (i (multiboot-module-count))
     (format t "Loading module ~S.~%" (multiboot-module-command-line i))
