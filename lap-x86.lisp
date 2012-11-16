@@ -567,6 +567,22 @@
      (return-from instruction
        (generate-shift-imm ,class ,dst ,amount ,1-opc ,n-opc ,opc-minor))))
 
+(defun generate-big-shift-imm (class r/m reg amount opc)
+  (let ((value (resolve-immediate amount)))
+    (incf *current-address*)
+    (generate-modrm class r/m reg opc)
+    (decf *current-address*)
+    (emit-imm 1 value)
+    t))
+
+(defmacro big-shift-imm (class dst src amount opc)
+  `(when (and (not (reg-class ,amount))
+	      (immediatep ,amount)
+	      (eql ,class (or (reg-class ,dst) ,class))
+	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
+     (return-from instruction
+       (generate-big-shift-imm ,class ,dst ,src ,amount ,opc))))
+
 (defmacro jmp-imm (dst short-opc long-opc)
   `(when (and (not (reg-class ,dst))
 	      (immediatep ,dst))
@@ -782,6 +798,16 @@
 (define-integer-instruction xchg (lhs rhs) (class)
   (let ((width-bit (if (eql class :gpr-8) 0 1)))
     (modrm class lhs rhs (logior #x86 width-bit))))
+
+(define-integer-instruction shld (dst src count) (class)
+  (when (eql count :cl)
+    (modrm class dst src '(#x0F #xA5)))
+  (big-shift-imm class dst src count '(#x0F #xA4)))
+
+(define-integer-instruction shrd (dst src count) (class)
+  (when (eql count :cl)
+    (modrm class dst src '(#x0F #xAD)))
+  (big-shift-imm class dst src count '(#x0F #xAC)))
 
 (define-integer-instruction mov (dst src) (class)
   (let ((width-bit (if (eql class :gpr-8) 0 1)))
