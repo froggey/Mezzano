@@ -86,6 +86,7 @@
      (declare (dynamic-extent *active-handlers*))
      (progn ,@forms)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compute-handler-case-forms (clauses)
   (let ((block-name (gensym))
 	(condition-var (gensym))
@@ -106,6 +107,7 @@
 		tagbody-forms)
 	  (push tag tagbody-forms))))
     (values (nreverse handler-bind-forms) tagbody-forms block-name condition-var)))
+)
 
 (defmacro handler-case (expression &rest clauses)
   (let ((no-error (assoc :no-error clauses)))
