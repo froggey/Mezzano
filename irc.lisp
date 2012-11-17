@@ -279,7 +279,8 @@
                                  (let ((*standard-output* display)
                                        (*query-io* input)
                                        (*standard-input* input))
-                                   (eval (read-from-string rest))
+                                   (with-simple-restart (abort "Abort evaulation and return to LRSSL.")
+                                     (eval (read-from-string rest)))
                                    (fresh-line display)))
                                 ((string-equal command "say")
                                  (when current-channel
