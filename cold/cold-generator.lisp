@@ -588,7 +588,7 @@
                     +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000))
-    (values (- (* pml4 8) *linear-map*) (* data-pml2 8))))
+    (values (- (* pml4 8) *linear-map*) (* data-pml3 8))))
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
@@ -726,7 +726,7 @@
         (multiboot nil)
         (initial-stack nil)
         (initial-pml4)
-        (data-pml2)
+        (data-pml3)
         (cl-symbol-names (with-open-file (s "../cl-symbols.lisp-expr") (read s)))
         (system-symbol-names (with-open-file (s "../system-symbols.lisp-expr") (read s))))
     (create-support-objects)
@@ -791,7 +791,7 @@
     (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifontfull-5.1.20080820.hex" :static))
     (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
     ;; Generate page tables.
-    (setf (values initial-pml4 data-pml2) (create-page-tables))
+    (setf (values initial-pml4 data-pml3) (create-page-tables))
     ;; Create multiboot header.
     (setf (word multiboot) (array-header +array-type-unsigned-byte-32+ 8)
           (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
@@ -815,8 +815,8 @@
       (set-value '*static-mark-bit* 0)
       (set-value '*static-area-hint* 0)
       (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
-      (set-value '*oldspace-paging-bits* (+ data-pml2 (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x200000)))
-      (set-value '*newspace-paging-bits* (+ data-pml2 (/ *dynamic-area-base* #x200000)))
+      (set-value '*oldspace-paging-bits* (+ data-pml3 (* (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x40000000) 8)))
+      (set-value '*newspace-paging-bits* (+ data-pml3 (* (/ *dynamic-area-base* #x40000000) 8)))
       (set-value '*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
       (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
     ;; Write the boundary tag for the static area's free part.
