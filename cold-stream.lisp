@@ -59,6 +59,9 @@
 
 (defvar *keyboard-shifted* nil)
 
+(defconstant +ps/2-key-irq+ 1)
+(defconstant +ps/2-aux-irq+ 12)
+
 (defun poll-keyboard ()
   (unwind-protect
        (progn (setf (isa-pic-irq-mask +ps/2-key-irq+) t)
