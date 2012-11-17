@@ -577,7 +577,8 @@ the header word. LENGTH is the number of elements in the array."
                               (lisp-object-address *undefined-function-thunk*))
                              (t (error "Unsupported fixup ~S." (car fixup))))))
             (dotimes (i 4)
-              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i)) (ldb (byte 8 (* i 8)) value)))))
+              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i))
+                    (logand (ash value (* i -8)) #xFF)))))
         ;; Initialize constant pool.
         (dotimes (i (length constants))
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
