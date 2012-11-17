@@ -3,11 +3,11 @@
 (defstruct cold-stream)
 (defvar *screen-offset* 0)
 
-(add-hook '*early-initialize-hook*
-          #'(lambda ()
-              (setf *terminal-io* (make-cold-stream))
-              (setf *screen-offset* 0)
-              (setf *keyboard-shifted* nil)))
+(defun cold-stream-init ()
+  (setf *terminal-io* (make-cold-stream))
+  (setf *screen-offset* 0)
+  (setf *keyboard-shifted* nil))
+#+nil(add-hook '*early-initialize-hook* 'cold-stream-init)
 
 (defun cold-write-char (c stream)
   (setf (system:io-port/8 #xE9) (logand (char-code c) #xFF))

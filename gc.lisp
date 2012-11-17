@@ -36,7 +36,7 @@
         (when (logtest *bump-pointer* #xFFF)
           (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000)))))))
 
-(add-hook '*early-initialize-hook* 'gc-init-system-memory)
+#+nil(add-hook '*early-initialize-hook* 'gc-init-system-memory)
 
 (defvar *gc-stack-group* (make-stack-group "GC"
                                            :control-stack-size 32766

@@ -109,7 +109,7 @@
 
 ;;; Must be run each boot, but also do it really early here in case
 ;;; anything turns interrupts on during cold initialization.
-(add-hook '*early-initialize-hook* 'init-isa-pic)
+#+nil(add-hook '*early-initialize-hook* 'init-isa-pic)
 (init-isa-pic)
 
 (defun ldb-exception (stack-frame)

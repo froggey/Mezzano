@@ -555,6 +555,9 @@
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()
+  (init-isa-pic)
+  (cold-stream-init)
+  (gc-init-system-memory)
   (mapc 'funcall *early-initialize-hook*)
   (%sti)
   (write-line "Hello, world.")
