@@ -74,7 +74,7 @@
 (defconstant +tsd-tok+     (bit* 15) "Transmit OK.")
 (defconstant +tsd-tun+     (bit* 14) "Transmit FIFO underrun.")
 (defconstant +tsd-own+     (bit* 13) "Set when Tx DMA completes.")
-(defconstant +tsd-size+ (byte 13 0) "Descriptor size (octets).")
+(defparameter +tsd-size+ (byte 13 0) "Descriptor size (octets).")
 
 (defconstant +command-rst+  (bit* 4) "Reset.")
 (defconstant +command-re+   (bit* 3) "Receiver enable.")
