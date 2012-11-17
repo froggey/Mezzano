@@ -65,6 +65,10 @@
   `(with-open-stream (,stream (open ,filespec ,@options))
      ,@body))
 
+(defmacro with-input-from-string ((var string &key (start 0) end) &body body)
+  `(with-open-stream (,var (make-string-input-stream ,string ,start ,end))
+     ,@body))
+
 (defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
          (frob-stream (symbol-value (synonym-stream-symbol stream)) default))
