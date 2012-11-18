@@ -98,15 +98,15 @@
   form)
 
 (defun expand-inline-function (symbol arg-list)
-  (let ((expansion (get symbol 'sys.int::inline-form)))
-    (cond (expansion
-           `(funcall ,(pass1-lambda expansion nil) ,@arg-list))
-          ((and (get symbol 'sys.int::inline-mode)
-                (fboundp symbol))
-           (multiple-value-bind (expansion closurep)
-               (function-lambda-expression (symbol-function symbol))
-             (when (and expansion (not closurep))
-               `(funcall ,(pass1-lambda expansion nil) ,@arg-list)))))))
+  (when (get symbol 'sys.int::inline-mode)
+    (let ((expansion (get symbol 'sys.int::inline-form)))
+      (cond (expansion
+             `(funcall ,(pass1-lambda expansion nil) ,@arg-list))
+            ((fboundp symbol)
+             (multiple-value-bind (expansion closurep)
+                 (function-lambda-expression (symbol-function symbol))
+               (when (and expansion (not closurep))
+                 `(funcall ,(pass1-lambda expansion nil) ,@arg-list))))))))
 
 (defun il-function-form (form)
   (il-implicit-progn (cdr form))

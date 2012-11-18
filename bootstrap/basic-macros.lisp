@@ -256,13 +256,15 @@
       (if (consp (first body))
 	  (push (pop body) declares)
 	  (pop body)))
-    `(progn
-       (%defun ',name
-               (lambda ,lambda-list
-                 ,@(nreverse declares)
-                 (declare (lambda-name ,name))
-                 (block ,base-name ,@body)))
-       ',name)))
+    (let ((the-lambda `(lambda ,lambda-list
+                         ,@(nreverse declares)
+                         (declare (lambda-name ,name))
+                         (block ,base-name ,@body))))
+      `(progn
+         (eval-when (:compile-toplevel :load-toplevel :execute)
+           (%compiler-defun ',name ',the-lambda))
+         (%defun ',name ,the-lambda)
+         ',name))))
 
 (defmacro loop (&body body)
   (let ((head (gensym)))

@@ -187,6 +187,17 @@
 (defun %defmacro (name function)
   (funcall #'(setf macro-function) function name))
 
+(defun %compiler-defun (name source-lambda)
+  (let ((sym (function-symbol name)))
+    (when (or (get sym 'inline-mode)
+              (get sym 'inline-form))
+      (setf (get sym 'inline-form) source-lambda)))
+  nil)
+
+(defun %defun (name lambda)
+  (setf (fdefinition name) lambda)
+  name)
+
 ;; TODO: Symbol macros, macroexpand-hook.
 (defun macroexpand-1 (form &optional env)
   (if (consp form)

@@ -10,12 +10,24 @@
   (or (find-package name) (error "Can't find package ~S." name)))
 
 (def-x-macro defun (name lambda-list &body body)
-  `(sys.int::%defun ',name (lambda ,lambda-list
-                             (declare (system:lambda-name ,name))
-                             ,@body)))
+  (let ((the-lambda `(lambda ,lambda-list
+                       (declare (system:lambda-name ,name))
+                       ,@body)))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (sys.int::%compiler-defun ',name ',the-lambda))
+       (sys.int::%defun ',name ,the-lambda))))
+
+(defun sys.int::%compiler-defun (name source-lambda)
+  (let ((sym (sys.int::function-symbol name)))
+    (when (or (get sym 'sys.int::inline-mode)
+              (get sym 'sys.int::inline-form))
+      (setf (get sym 'sys.int::inline-form) source-lambda)))
+  nil)
 
 (defun sys.int::%defun (name lambda)
-  (setf (fdefinition name) lambda))
+  (setf (fdefinition name) lambda)
+  name)
 
 ;; Enough to load the full DEFMACRO.
 (def-x-macro defmacro (name lambda-list &body body)
