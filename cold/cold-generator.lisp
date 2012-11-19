@@ -42,6 +42,45 @@
 (defparameter *special-source-files*
   '(("../packages.lisp" *package-system*)))
 
+(defparameter *warm-source-files*
+  '("../closette.lisp"
+    "../runtime-misc.lisp"
+    "../bootstrap/condition.lisp"
+    "../bootstrap/restarts.lisp"
+    "../bootstrap/error.lisp"
+    "../debug.lisp"
+    "../eval.lisp"
+    "../stream.lisp"
+    "../process.lisp"
+    "../lap.lisp"
+    "../lap-x86.lisp"
+    "../compiler/package.lisp"
+    "../compiler/compiler.lisp"
+    "../compiler/pass1.lisp"
+    "../compiler/constprop.lisp"
+    "../compiler/simplify.lisp"
+    "../compiler/lift.lisp"
+    "../compiler/inline.lisp"
+    "../compiler/codegen.lisp"
+    "../compiler/builtins.lisp"
+    "../interrupt-compiler.lisp"
+    "../keyboard.lisp"
+    "../pci.lisp"
+    "../framebuffer.lisp"
+    "../bochs-vbe.lisp"
+    "../ethernet.lisp"
+    "../graphics.lisp"
+    "../irc.lisp"))
+
+(defun compile-warm-source (&optional force)
+  (dolist (file *warm-source-files*)
+    (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
+      (when (or (not (probe-file llf-path))
+                (<= (file-write-date llf-path) (file-write-date file))
+                force)
+        (format t "~A is out of date will be recompiled.~%" llf-path)
+        (sys.c::cross-compile-file file)))))
+
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
 (defconstant +tag-symbol+        #b0010)
