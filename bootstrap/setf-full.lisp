@@ -73,7 +73,7 @@
               `(getf ,access-form ,indicator-temp ,default))))) ;Accessing form.
 
 ;; FIXME...
-(defmacro psetq (&rest pairs)
+(defmacro psetf (&rest pairs)
   (when pairs
     (when (null (cdr pairs))
       (error "Odd number of arguments to PSETF"))
