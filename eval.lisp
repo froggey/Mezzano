@@ -274,6 +274,14 @@
   (declare (ignore type))
   (eval-in-lexenv form env))
 
+(defspecial catch (&environment env tag &body body)
+  (catch (eval-in-lexenv tag env)
+    (eval-progn-body body env)))
+
+(defspecial throw (&environment env tag result)
+  (throw (eval-in-lexenv tag env)
+    (eval-in-lexenv result env)))
+
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
   (let ((var (find-variable form env)))

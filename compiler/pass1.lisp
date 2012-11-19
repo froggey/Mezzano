@@ -299,7 +299,9 @@
 				      :definition-point *current-lambda*)))
       `(block ,var ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
 
-;;; (defun pass1-catch (form env))
+(defun pass1-catch (form env)
+  (destructuring-bind (tag &body body) (cdr form)
+    (pass1-form `(sys.int::%catch ,tag #'(lambda () (progn ,@body))) env)))
 
 (defun pass1-eval-when (form env)
   (destructuring-bind (situations &body forms) (cdr form)
@@ -559,7 +561,9 @@
   (destructuring-bind (value-type form) (cdr form)
     `(the ,value-type ,(pass1-form form env))))
 
-;;; (defun pass1-throw (form env))
+(defun pass1-throw (form env)
+  (destructuring-bind (tag result) (cdr form)
+    (pass1-form `(sys.int::%throw ,tag (multiple-value-list ,result)) env)))
 
 ;;; Translate (unwind-protect form . cleanup-forms) to
 ;;; (unwind-protect form (lambda () . cleanup-forms)).

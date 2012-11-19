@@ -214,3 +214,18 @@
     (symbol (eql (symbol-mode form) :constant))
     (cons (eql (first form) 'quote))
     (t t)))
+
+(defvar *active-catch-handlers* '())
+(defun %catch (tag fn)
+  (let ((*active-catch-handlers* (cons (cons tag
+                                             (lambda (values)
+                                               (return-from %catch (values-list values))))
+                                       *active-catch-handlers*)))
+    (funcall fn)))
+
+(defun %throw (tag values)
+  (let ((target (assoc tag *active-catch-handlers* :test 'eq)))
+    (if target
+        (funcall (cdr fn) values)
+        (error 'bad-catch-tag-error
+               :tag tag))))
