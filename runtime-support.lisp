@@ -5,7 +5,15 @@
     (special (dolist (var (rest declaration-specifier))
                (setf (system:symbol-mode var) :special)))
     (constant (dolist (var (rest declaration-specifier))
-                (setf (system:symbol-mode var) :constant)))))
+                (setf (system:symbol-mode var) :constant)))
+    (inline
+     (dolist (name (rest declaration-specifier))
+       (let ((sym (function-symbol name)))
+         (setf (get sym 'inline-mode) t))))
+    (notinline
+     (dolist (name (rest declaration-specifier))
+       (let ((sym (function-symbol name)))
+         (setf (get sym 'inline-mode) nil))))))
 
 (defun system:symbol-mode (symbol)
   (svref #(nil :special :constant :symbol-macro)
