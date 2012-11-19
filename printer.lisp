@@ -77,19 +77,24 @@
                  (frob adjusted-decimal 0)))))))
 
 (defun terpri (&optional stream)
-  (write-char #\Newline stream))
+  (write-char #\Newline stream)
+  nil)
 
 (defun fresh-line (&optional stream)
-  (unless (start-line-p stream)
-    (terpri stream)))
+  (cond ((start-line-p stream)
+         nil)
+        (t (terpri stream)
+           t)))
 
 (defun write-string (string &optional stream)
   (dotimes (i (length string))
-    (write-char (char string i) stream)))
+    (write-char (char string i) stream))
+  string)
 
 (defun write-line (string &optional stream)
   (write-string string stream)
-  (terpri stream))
+  (terpri stream)
+  string)
 
 (defun write-object (object stream)
   (typecase object
