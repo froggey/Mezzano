@@ -132,9 +132,7 @@
   (setf *pci-devices* '())
   (when (eql (io-port/32 +pci-config-address+) #x80000000)
     (format t "Scanning PCI bus...~%")
-    (pci-scan 0)
-    (dolist (driver *pci-drivers*)
-      (pci-probe (second driver) (first driver)))))
+    (pci-scan 0)))
 
 (add-hook '*early-initialize-hook* 'pci-init)
 
@@ -149,3 +147,8 @@
   (push (list function ids) *pci-drivers*)
   (when *pci-devices*
     (pci-probe ids function)))
+
+(defun pci-device-scan ()
+  (format t "Registering drivers...~%")
+  (dolist (driver *pci-drivers*)
+    (pci-probe (second driver) (first driver))))

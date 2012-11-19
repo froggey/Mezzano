@@ -571,6 +571,7 @@
   (gc-init-system-memory)
   (mapc 'funcall *early-initialize-hook*)
   (%sti)
+  (pci-device-scan)
   (write-line "Hello, world.")
   (dotimes (i (multiboot-module-count))
     (format t "Loading module ~S.~%" (multiboot-module-command-line i))
