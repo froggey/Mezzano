@@ -46,10 +46,6 @@
 (define-modify-macro incf (&optional (delta 1)) +)
 (define-modify-macro decf (&optional (delta 1)) -)
 
-;; FIXME...
-(defmacro psetf (&rest args)
-  `(psetq ,@args))
-
 (defun %putf (plist indicator value)
   (do ((i plist (cddr i)))
       ((null i)
@@ -75,3 +71,26 @@
                  ,store-form
                  ,store)               ;Storing form.
               `(getf ,access-form ,indicator-temp ,default))))) ;Accessing form.
+
+;; FIXME...
+(defmacro psetq (&rest pairs)
+  (when pairs
+    (when (null (cdr pairs))
+      (error "Odd number of arguments to PSETF"))
+    (let ((value (gensym)))
+      `(let ((,value ,(cadr pairs)))
+	 (psetf ,@(cddr pairs))
+	 (setf ,(car pairs) ,value)
+	 nil))))
+
+;; FIXME...
+(defmacro rotatef (&rest places)
+  (when places
+    (let ((results '()))
+      (dolist (x places)
+        (push x results)
+        (push x results))
+      (push (first places) results)
+      (setf results (nreverse results))
+      (setf (first results) 'psetf)
+      `(progn ,results 'nil))))
