@@ -32,6 +32,12 @@
 (define-condition control-error (error)
   ())
 
+(define-condition bad-catch-tag-error (control-error)
+  ((tag :initarg :tag
+        :reader bad-catch-tag-error-tag))
+  (:report (lambda (condition stream)
+             (format stream "Throw to unknown catch-tag ~S." (bad-catch-tag-error-tag condition)))))
+
 (define-condition division-by-zero (arithmetic-error)
   ())
 
