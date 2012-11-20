@@ -94,7 +94,7 @@ party to perform, the indicated option.")
     (when (and (<= 0 x (1- (terminal-width term)))
                (<= 0 y (1- (terminal-height term))))
       (if (eql char #\Space)
-          (sys.int::%bitset 16 8 #xFF000000 (terminal-framebuffer term) (* y 16) (* x 8))
+          (sys.graphics::bitset 16 8 #xFF000000 (terminal-framebuffer term) (* y 16) (* x 8))
           (sys.int::render-char-at char (terminal-framebuffer term) (* x 8) (* y 16))))
     (incf (x-pos term))))
 
@@ -107,7 +107,7 @@ party to perform, the indicated option.")
   (setf top (clamp top 0 (terminal-height term)))
   (setf bottom (clamp bottom 0 (terminal-height term)))
   (when (< top bottom)
-    (sys.int::%bitset (* (- bottom top) 16) (* (terminal-width term) 8)
+    (sys.graphics::bitset (* (- bottom top) 16) (* (terminal-width term) 8)
                       #xFF000000 (terminal-framebuffer term)
                       (* top 16) 0)))
 
@@ -116,9 +116,9 @@ party to perform, the indicated option.")
   (setf right (clamp right 0 (terminal-width term)))
   (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
              (< left right))
-    (sys.int::%bitset 16 (* (- right left) 8)
-                      #xFF000000 (terminal-framebuffer term)
-                      (* (y-pos term) 16) (* left 8))))
+    (sys.graphics::bitset 16 (* (- right left) 8)
+                          #xFF000000 (terminal-framebuffer term)
+                          (* (y-pos term) 16) (* left 8))))
 
 (defmethod sys.int::stream-write-byte (byte (stream xterm-terminal))
   (ecase (terminal-state stream)
@@ -352,26 +352,58 @@ party to perform, the indicated option.")
                         ((and last-was-cr (eql byte #x00))
                          (setf last-was-cr nil))
                         (t (setf last-was-cr nil)
-                           (write-byte byte terminal)))))))
+                           (write-byte byte terminal))))
+             (setf sys.graphics::*refresh-required* t))))
     (end-of-file ()
       (let ((msg "Connection closed by remote host. C-[ to exit."))
         (dotimes (i (length msg))
-          (write-byte (char-code (char msg i)) terminal))))))
+          (write-byte (char-code (char msg i)) terminal)))
+      (setf sys.graphics::*refresh-required* t))))
 
-(defun telnet (&optional (server '(204 236 130 210)) (port 23))
-  (sys.int::with-saved-screen (fb)
-    (let* ((dims (array-dimensions fb))
-           (terminal (make-instance 'xterm-terminal
-                                    :framebuffer fb
-                                    ;; Avoid the edit & echo behaviour of the framebuffer stream.
-                                    :input (make-instance 'sys.int::ps/2-keyboard-stream)
-                                    :interrupt-character (name-char "C-["))))
-      (sys.int::%bitset (first dims) (second dims) 0 fb 0 0)
-      (with-open-stream (connection (sys.net::tcp-stream-connect server port))
-        (sys.int::with-process ("TELNET receiver" #'telnet-rx connection terminal)
-          (handler-case
-              (loop (let ((byte (read-byte terminal)))
-                      (when (eql byte +command-iac+)
-                        (write-byte +command-iac+ connection))
-                      (write-byte byte connection)))
-            (terminal-interrupt ())))))))
+(defun telnet-top-level (window)
+  (unwind-protect
+       (let* ((fb (sys.graphics::window-frontbuffer window))
+              (dims (array-dimensions fb))
+              (terminal (make-instance 'xterm-terminal
+                                       :framebuffer fb
+                                       :input window
+                                       :interrupt-character (name-char "C-["))))
+         (sys.graphics::bitset (first dims) (second dims) 0 fb 0 0)
+         ;; Hard-code NAO for now.
+         (with-open-stream (connection (sys.net::tcp-stream-connect '(204 236 130 210) 23))
+           (sys.int::with-process ("TELNET receiver" #'telnet-rx connection terminal)
+             (handler-case
+                 (loop (let ((byte (read-byte terminal)))
+                         (when (eql byte +command-iac+)
+                           (write-byte +command-iac+ connection))
+                         (write-byte byte connection)))
+               (terminal-interrupt ())))))
+    (sys.graphics::close-window window)))
+
+(defclass telnet-client (sys.int::stream-object sys.graphics::window)
+  ((command-process :reader command-process)
+   (buffer :initarg :buffer :reader window-buffer))
+  (:default-initargs :buffer (sys.graphics::make-fifo 500 'character)))
+
+(defmethod sys.int::stream-read-char ((stream telnet-client))
+  (loop
+     (let ((char (sys.graphics::fifo-pop (window-buffer stream))))
+       (when char (return char)))
+     (sys.int::process-wait "User input"
+                            (lambda ()
+                              (not (sys.graphics::fifo-emptyp (window-buffer stream)))))))
+
+(defmethod sys.graphics::key-press-event ((window telnet-client) character)
+  (sys.graphics::fifo-push character (window-buffer window)))
+
+(defmethod initialize-instance :after ((instance telnet-client))
+  (let ((cmd (make-instance 'sys.int::process :name "Telnet command")))
+    (setf (slot-value instance 'command-process) cmd)
+    (sys.int::process-preset cmd 'telnet-top-level instance)
+    (sys.int::process-enable cmd)))
+
+(defun create-telnet-client ()
+  "Open an IRC window."
+  (sys.graphics::window-set-visibility (sys.graphics::make-window "Unconnected Telnet" 640 400 'telnet-client) t))
+
+(setf (gethash (name-char "F3") sys.graphics::*global-keybindings*) 'create-telnet-client)
