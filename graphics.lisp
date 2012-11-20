@@ -475,13 +475,18 @@
   ((process :reader lisp-listener-process))
   (:default-initargs :process (make-instance 'sys.int::process :name "Lisp Listener")))
 
+(defmacro with-window-streams (window &body body)
+  "Rebind all stream variables to WINDOW."
+  `(let* ((*terminal-io* ,window)
+          (*standard-input* (make-synonym-stream '*terminal-io*))
+          (*standard-output* *standard-input*)
+          (*error-output* *standard-input*)
+          (*query-io* *standard-input*)
+          (*debug-io* *standard-input*))
+     ,@body))
+
 (defun lisp-listener-top-level (window)
-  (let ((*terminal-io* window)
-        (*standard-input* (make-synonym-stream '*terminal-io*))
-        (*standard-output* (make-synonym-stream '*terminal-io*))
-        (*debug-io* (make-synonym-stream '*terminal-io*))
-        (*query-io* (make-synonym-stream '*terminal-io*))
-        (*error-output* (make-synonym-stream '*terminal-io*)))
+  (with-window-streams window
     (sys.int::repl)))
 
 (defmethod initialize-instance :after ((instance lisp-listener))
