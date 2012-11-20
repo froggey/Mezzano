@@ -472,8 +472,7 @@
   'character)
 
 (defclass lisp-listener (text-window)
-  ((process :reader lisp-listener-process))
-  (:default-initargs :process (make-instance 'sys.int::process :name "Lisp Listener")))
+  ((process :reader lisp-listener-process)))
 
 (defmacro with-window-streams (window &body body)
   "Rebind all stream variables to WINDOW."
