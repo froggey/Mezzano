@@ -1466,9 +1466,12 @@ Dispatching on class ~S." gf (nth argument-offset args)))
   (lambda (&rest args)
     (multiple-value-bind (single-dispatch-p argument-offset)
         (generic-function-single-dispatch-p gf)
-      (if single-dispatch-p
-          (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)
-          (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf)))))))
+      (cond (single-dispatch-p
+             (slow-single-dispatch-method-lookup* gf argument-offset args :never-called))
+            (t (setf (generic-function-discriminating-function gf)
+                     (compute-n-effective-discriminator gf (classes-to-emf-table gf) (length (gf-required-arglist gf))))
+               (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
+               (apply gf args))))))
 
 (defun slow-method-lookup (gf args classes)
   (let* ((applicable-methods
