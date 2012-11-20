@@ -86,11 +86,14 @@
     (%bitblt 16 (array-dimension glyph 1) glyph 0 0
              framebuffer y x)))
 
-(defclass framebuffer-stream (edit-stream ps/2-keyboard-stream stream-object)
+(defclass framebuffer-output-stream (stream-object)
   ((framebuffer :initarg :framebuffer :accessor fbstream-framebuffer)
    (x :initarg :x :accessor fbstream-x)
    (y :initarg :y :accessor fbstream-y))
   (:default-initargs :x 0 :y 0))
+
+(defclass framebuffer-stream (framebuffer-output-stream edit-stream ps/2-keyboard-stream stream-object)
+  ())
 
 (defun framebuffer-write-char (character stream)
   (let ((fb (fbstream-framebuffer stream))
@@ -121,22 +124,22 @@
            (incf x width)
            (setf (fbstream-x stream) x))))))
 
-(defmethod stream-write-char (character (stream framebuffer-stream))
+(defmethod stream-write-char (character (stream framebuffer-output-stream))
   (framebuffer-write-char character stream))
 
-(defmethod stream-start-line-p ((stream framebuffer-stream))
+(defmethod stream-start-line-p ((stream framebuffer-output-stream))
   (zerop (fbstream-x stream)))
 
-(defmethod stream-cursor-pos ((stream framebuffer-stream))
+(defmethod stream-cursor-pos ((stream framebuffer-output-stream))
   (values (fbstream-x stream) (fbstream-y stream)))
 
-(defmethod stream-move-to ((stream framebuffer-stream) x y)
+(defmethod stream-move-to ((stream framebuffer-output-stream) x y)
   #+nil(check-type x integer)
   #+nil(check-type y integer)
   (setf (fbstream-x stream) x
         (fbstream-y stream) y))
 
-(defmethod stream-character-width ((stream framebuffer-stream) character)
+(defmethod stream-character-width ((stream framebuffer-output-stream) character)
   (if (eql character #\Space)
       8
       (unifont-glyph-width character)))
@@ -160,10 +163,10 @@
       (unless (eql ch #\Newline)
         (incf initial-x width)))))
 
-(defmethod stream-compute-motion ((stream framebuffer-stream) string &optional (start 0) end initial-x initial-y)
+(defmethod stream-compute-motion ((stream framebuffer-output-stream) string &optional (start 0) end initial-x initial-y)
   (framebuffer-compute-motion stream string start end initial-x initial-y))
 
-(defmethod stream-clear-between ((stream framebuffer-stream) start-x start-y end-x end-y)
+(defmethod stream-clear-between ((stream framebuffer-output-stream) start-x start-y end-x end-y)
   (let ((framebuffer (fbstream-framebuffer stream)))
     (cond ((eql start-y end-y)
            ;; Clearing one line.
@@ -180,5 +183,5 @@
            (%bitset 16 end-x #xFF000000
                     framebuffer end-y 0)))))
 
-(defmethod stream-element-type* ((stream framebuffer-stream))
+(defmethod stream-element-type* ((stream framebuffer-output-stream))
   'character)
