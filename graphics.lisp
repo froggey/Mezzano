@@ -37,6 +37,8 @@
 (defstruct screen
   name
   framebuffer
+  backbuffer
+  flip-function
   relative-position)
 
 (defvar *screens* '())
@@ -66,13 +68,17 @@
 (defun suspend-graphics ()
   (setf *read-input* nil))
 
-(defun register-screen (name framebuffer)
+(defun register-screen (name framebuffer backbuffer flip-function)
   (push (cond (*screens*
                (make-screen :name name
                             :framebuffer framebuffer
+                            :backbuffer backbuffer
+                            :flip-function flip-function
                             :relative-position (cons :left-of (first *screens*))))
               (t (make-screen :name name
                               :framebuffer framebuffer
+                              :backbuffer backbuffer
+                              :flip-function flip-function
                               :relative-position :centre)))
         *screens*))
 
@@ -319,7 +325,7 @@
 (defun compose-all-displays ()
   (when *screens*
     (let* ((screen (first *screens*))
-           (fb (screen-framebuffer screen))
+           (fb (screen-backbuffer screen))
            (dims (array-dimensions fb))
            (width (second dims))
            (height (first dims)))
@@ -330,7 +336,9 @@
           (when (window-visiblep window)
             (blit-window fb window)))
         (when (window-visiblep *window-list*)
-          (blit-window fb *window-list*))))))
+          (blit-window fb *window-list*)))
+      (rotatef (screen-backbuffer screen) (screen-framebuffer screen))
+      (funcall (screen-flip-function screen)))))
 
 (defgeneric key-press-event (window character))
 (defmethod key-press-event ((window window) character))
