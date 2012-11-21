@@ -236,6 +236,24 @@
             (#\) (unless (eql end-char #\))
                    (error "Unexpected format control character ~~) in ~S." control-string))
                  (return (values offset args)))
+            (#\/
+             (let ((package-name "COMMON-LISP-USER")
+                   (symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0))
+                   (allow-internal nil))
+               (do ((ch (char control-string (incf offset))
+                        (char control-string (incf offset))))
+                   ((eql ch #\/))
+                 (cond ((and (eql ch #\:)
+                             (zerop (length symbol-name)))
+                        (setf allow-internal t))
+                        ((eql ch #\:)
+                         (setf package-name symbol-name
+                               symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0)))
+                        (t (vector-push-extend (char-upcase ch) symbol-name))))
+               (apply (intern symbol-name package-name)
+                      destination (pop args)
+                      colon-modifier at-sign-modifier
+                      prefix-parameters)))
             (t (let ((fn (cadr (assoc (char control-string offset) *format-functions*
                                       :test #'char-equal))))
                  (if fn
