@@ -72,14 +72,14 @@ the front buffer refers to the second buffer.")
       (cond ((>= id +vbe-dispi-id3+)
              (write-vbe-reg +vbe-dispi-index-enable+ +vbe-dispi-getcaps+)
              (setf *bochs-max-x-res* (read-vbe-reg +vbe-dispi-index-xres+)
-                   *bochs-max-y-res* (read-vbe-reg +vbe-dispi-index-yres+))
-             (format t " Maximum resolution: ~Sx~Sx~S~%"
-                     *bochs-max-x-res*
-                     *bochs-max-y-res*
-                     (read-vbe-reg +vbe-dispi-index-bpp+)))
-            (t ;; Not specified, guess.
-             (setf *bochs-max-x-res* 1024
-                   *bochs-max-y-res* 768)))
+                   *bochs-max-y-res* (read-vbe-reg +vbe-dispi-index-yres+)))
+            (t
+             (setf *bochs-max-x-res* +vbe-dispi-max-xres+
+                   *bochs-max-y-res* +vbe-dispi-max-yres+)))
+      (format t " Maximum resolution: ~Sx~Sx~S~%"
+              *bochs-max-x-res*
+              *bochs-max-y-res*
+              (read-vbe-reg +vbe-dispi-index-bpp+))
       (cond ((>= id +vbe-dispi-id5+)
              (setf *bochs-vram-size* (* (read-vbe-reg +vbe-dispi-index-video-memory+) 64 1024)))
             ((>= id +vbe-dispi-id4+)
