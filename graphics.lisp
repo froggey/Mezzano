@@ -491,9 +491,15 @@
           (*debug-io* *standard-input*))
      ,@body))
 
+(define-condition sys.int::quit-lisp () ())
+(defun sys.int::quit () (signal 'sys.int::quit-lisp))
+
 (defun lisp-listener-top-level (window)
-  (with-window-streams window
-    (sys.int::repl)))
+  (unwind-protect
+       (with-window-streams window
+         (handler-case (sys.int::repl)
+           (sys.int::quit-lisp ())))
+    (close-window window)))
 
 (defmethod initialize-instance :after ((instance lisp-listener))
   (let ((process (make-instance 'sys.int::process :name "Lisp Listener REPL")))
