@@ -428,8 +428,8 @@
   (values (cursor-x stream) (cursor-y stream)))
 
 (defmethod sys.int::stream-move-to ((stream text-window) x y)
-  #+nil(check-type x integer)
-  #+nil(check-type y integer)
+  (check-type x integer)
+  (check-type y integer)
   (setf (cursor-x stream) x
         (cursor-y stream) y))
 
