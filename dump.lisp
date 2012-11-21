@@ -37,7 +37,7 @@ Returns number of sectors written."
     (dotimes (page (truncate (- end start) #x200000))
       (let* ((pte (memref-unsigned-byte-64 #x8000403000 (+ (truncate start #x200000) page)))
              (phys (logand pte (lognot #xFFF))))
-        (format t "Dump virt ~X. phys ~X. pte off ~X~%"
+        #+nil(format t "Dump virt ~X. phys ~X. pte off ~X~%"
                 (+ start (* page #x200000))
                 phys
                 (+ (truncate start #x200000) page))
