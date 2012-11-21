@@ -1018,3 +1018,10 @@
   (sys.int::process-reset *ethernet-process*)
   (sys.int::process-enable *ethernet-process*))
 (sys.int::add-hook 'sys.int::*early-initialize-hook* 'ethernet-early-initialize)
+
+(defun format-tcp4-address (stream argument &optional colon-p at-sign-p)
+  (format stream "~D.~D.~D.~D"
+          (ldb (byte 8 24) argument)
+          (ldb (byte 8 16) argument)
+          (ldb (byte 8 8) argument)
+          (ldb (byte 8 0) argument)))
