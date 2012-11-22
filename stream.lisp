@@ -55,6 +55,10 @@
 (defgeneric stream-file-position (stream))
 (defgeneric stream-set-file-position (stream new-position))
 (defgeneric stream-element-type* (stream))
+;; Must be a generic function for gray streams.
+(defgeneric stream-element-type (stream))
+;; Same.
+(defgeneric close (stream &key abort))
 
 (defmacro with-open-stream ((var stream) &body body)
   `(let ((,var ,stream))
@@ -90,7 +94,7 @@
   (do () ((not (synonym-stream-p stream)) stream)
     (setf stream (symbol-value (synonym-stream-symbol stream)))))
 
-(defun stream-element-type (stream)
+(defmethod stream-element-type ((stream stream))
   (cond ((cold-stream-p stream) 'character)
         (t (stream-element-type* (follow-synonym-stream stream)))))
 
@@ -240,7 +244,7 @@
 (defmethod stream-start-line-p ((stream stream-object))
   nil)
 
-(defun close (stream &key abort)
+(defmethod close ((stream stream) &key abort)
   (let ((s (frob-stream stream)))
     (cond ((cold-stream-p s)
            (cold-close s abort))
