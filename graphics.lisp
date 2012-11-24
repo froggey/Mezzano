@@ -158,20 +158,22 @@
 
 (defvar *next-window-position* 0)
 
-(defun make-window (title width height class)
+(defun make-window (title width height class &rest initargs)
   (when (> (+ *next-window-position* width) 1000)
     (setf *next-window-position* 0))
   (when (> (+ *next-window-position* height) 1000)
     (setf *next-window-position* 0))
-  (let ((window (make-instance class
-                               :title title
-                               :width width
-                               :height height
-                               :frontbuffer (make-array (list height width)
-                                                        :element-type '(unsigned-byte 32))
-                               :backbuffer (make-array (list height width)
-                                                        :element-type '(unsigned-byte 32))
-                               :position (cons *next-window-position* *next-window-position*))))
+  (let ((window (apply 'make-instance
+                       class
+                       :title title
+                       :width width
+                       :height height
+                       :frontbuffer (make-array (list height width)
+                                                :element-type '(unsigned-byte 32))
+                       :backbuffer (make-array (list height width)
+                                               :element-type '(unsigned-byte 32))
+                       :position (cons *next-window-position* *next-window-position*)
+                       initargs)))
     (incf *next-window-position* 50)
     (cond (*window-list*
            (setf (slot-value window 'next) *window-list*
