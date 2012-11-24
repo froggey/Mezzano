@@ -78,20 +78,21 @@
 
 (defun peek-top-level (window)
   (unwind-protect
-       (sys.graphics::with-window-streams window
-         (let ((mode 'peek-help))
-           (loop
-              (clear-window window)
-              (print-header)
-              (fresh-line)
-              (funcall mode)
-              (setf sys.graphics::*refresh-required* t)
-              (let* ((ch (read-char window))
-                     (cmd (assoc ch *peek-commands* :test 'char-equal)))
-                (cond ((char= ch #\Space)) ; refresh current window
-                      ((char-equal ch #\Q)
-                       (return))
-                      (cmd (setf mode (third cmd))))))))
+       (let ((*standard-output* window)
+             (*standard-input* window)
+             (mode 'peek-help))
+         (loop
+            (clear-window window)
+            (print-header)
+            (fresh-line)
+            (funcall mode)
+            (setf sys.graphics::*refresh-required* t)
+            (let* ((ch (read-char window))
+                   (cmd (assoc ch *peek-commands* :test 'char-equal)))
+              (cond ((char= ch #\Space)) ; refresh current window
+                    ((char-equal ch #\Q)
+                     (return))
+                    (cmd (setf mode (third cmd)))))))
     (sys.graphics::close-window window)))
 
 (defun create-peek-window ()
