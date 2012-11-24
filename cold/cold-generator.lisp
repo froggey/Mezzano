@@ -175,7 +175,10 @@
     (sys.lap-x86:and64 :rax -5)
     (sys.lap-x86:or64 :rax #x00000002)
     (sys.lap-x86:movcr :cr0 :rax)
-    ;; Clear FPU state.
+    ;; Clear FPU/SSE state.
+    (sys.lap-x86:push #x1F80)
+    (sys.lap-x86:ldmxcsr (:rsp))
+    (sys.lap-x86:add64 :rsp 8)
     (sys.lap-x86:fninit)
     ;; Preset the initial stack group.
     (sys.lap-x86:mov64 :r8 (:constant *initial-stack-group*))
