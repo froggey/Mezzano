@@ -476,7 +476,11 @@
                (code (cdddr form)))
            (assert (null options) () "No DEFINE-LAP-FUNCTION options supported yet.")
            (add-to-llf +llf-setf-fdefinition+ (sys.int::assemble-lap code name) name)))
-        ;; Convert other forms to single-argument functions and
+        ;; And (quote form)
+        ((and (consp form)
+              (eql (first form) 'quote)
+              (= (length form) 2)))
+        ;; Convert other forms to zero-argument functions and
         ;; add it to the fasl as an eval node.
         ;; Progn to avoid problems with DECLARE.
         (t (let ((fn (compile-lambda `(lambda () (progn ,form)) (cons env nil))))
