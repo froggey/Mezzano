@@ -39,7 +39,7 @@
 #+nil(add-hook '*early-initialize-hook* 'gc-init-system-memory)
 
 (defvar *gc-stack-group* (make-stack-group "GC"
-                                           :control-stack-size 32766
+                                           :control-stack-size 50000
                                            :data-stack-size 50000))
 (stack-group-preset *gc-stack-group* #'gc-task)
 
