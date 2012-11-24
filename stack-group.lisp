@@ -96,6 +96,7 @@
     ;; Initialize the FXSAVE save area.
     (dotimes (i 64)
       (setf (memref-unsigned-byte-64 sg-pointer (+ 448 i)) 0))
+    (setf (ldb (byte 32 0) (memref-unsigned-byte-64 sg-pointer (+ 448 3))) #x1F80)
     ;; Copy arguments to the data stack.
     (dolist (arg (nreverse arguments))
       (setf (memref-t (decf ds-pointer 8) 0) arg))
