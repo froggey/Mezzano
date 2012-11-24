@@ -1108,3 +1108,11 @@
 (define-instruction fxsave (area)
   (when (consp area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 0)))
+
+(define-instruction ldmxcsr (area)
+  (when (consp area)
+    (modrm-single :gpr-32 area '(#x0F #xAE) 2)))
+
+(define-instruction stmxcsr (area)
+  (when (consp area)
+    (modrm-single :gpr-32 area '(#x0F #xAE) 3)))
