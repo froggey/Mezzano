@@ -41,6 +41,9 @@
 (defgeneric stream-close (stream abort))
 (defgeneric stream-listen (stream))
 (defgeneric stream-clear-input (stream))
+(defgeneric stream-finish-output (output-stream))
+(defgeneric stream-force-output (output-stream))
+(defgeneric stream-clear-output (output-stream))
 (defgeneric stream-start-line-p (stream))
 (defgeneric stream-with-edit (stream fn))
 (defgeneric stream-cursor-pos (stream))
@@ -226,6 +229,25 @@
   nil)
 
 (defmethod stream-clear-input ((stream stream-object)))
+
+(defun finish-output (&optional (output-stream *standard-output*))
+  (let ((s (frob-output-stream output-stream)))
+    (cond ((cold-stream-p s) nil)
+          (t (stream-finish-output s)))))
+
+(defun force-output (&optional (output-stream *standard-output*))
+  (let ((s (frob-output-stream output-stream)))
+    (cond ((cold-stream-p s) nil)
+          (t (stream-force-output s)))))
+
+(defun clear-output (&optional (output-stream *standard-output*))
+  (let ((s (frob-output-stream output-stream)))
+    (cond ((cold-stream-p s) nil)
+          (t (stream-clear-output s)))))
+
+(defmethod stream-finish-output ((output-stream stream-object)))
+(defmethod stream-force-output ((output-stream stream-object)))
+(defmethod stream-clear-output ((output-stream stream-object)))
 
 (defun write-char (character &optional (stream *standard-output*))
   (let ((s (frob-output-stream stream)))

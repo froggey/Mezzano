@@ -46,6 +46,9 @@
   ;; Import a few functions that match exactly with gray streams.
   (:import-from #:sys.int
                 #:stream-clear-input
+                #:stream-finish-output
+                #:stream-force-output
+                #:stream-clear-output
                 #:stream-listen
                 #:stream-start-line-p))
 
@@ -126,20 +129,11 @@
 
 ;;; Output stream methods.
 
-;;; ### Never called.
-(defgeneric stream-clear-output (stream))
-
 (defmethod stream-clear-output ((stream fundamental-output-stream))
   nil)
 
-;;; ### Never called.
-(defgeneric stream-finish-output (stream))
-
 (defmethod stream-finish-output ((stream fundamental-output-stream))
   nil)
-
-;;; ### Never called.
-(defgeneric stream-force-output (stream))
 
 (defmethod stream-force-output ((stream fundamental-output-stream))
   nil)
