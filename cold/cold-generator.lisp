@@ -69,7 +69,10 @@
     "../framebuffer.lisp"
     "../bochs-vbe.lisp"
     "../ethernet.lisp"
+    "../rtl8139.lisp"
     "../graphics.lisp"
+    "../peek.lisp"
+    "../telnet.lisp"
     "../irc.lisp"))
 
 (defun compile-warm-source (&optional force)
