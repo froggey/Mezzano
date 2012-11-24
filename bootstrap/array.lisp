@@ -97,9 +97,15 @@
 This must be sorted from most-specific to least-specific.")
 
 (defun upgraded-array-element-type (typespec &optional environment)
-  (dolist (type *specialized-array-types* 't)
-    (when (subtypep typespec type environment)
-      (return type))))
+  ;; Pick off a few obvious cases.
+  (case typespec
+    ((t) 't)
+    ((base-char) 'base-char)
+    ((character) 'character)
+    ((bit) 'bit)
+    (t (dolist (type *specialized-array-types* 't)
+         (when (subtypep typespec type environment)
+           (return type))))))
 
 (defun arrayp (object)
   (or (%array-header-p object)
