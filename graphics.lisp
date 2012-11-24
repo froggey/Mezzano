@@ -63,7 +63,11 @@
 
 (defun invoke-graphics ()
   (setf *read-input* t)
-  (sys.int::process-wait "Graphics" (lambda () (null *read-input*))))
+  (let ((old-terminal-io *terminal-io*))
+    (unwind-protect
+         (progn (setf *terminal-io* *console-window*)
+                (sys.int::process-wait "Graphics" (lambda () (null *read-input*))))
+      (setf *terminal-io* old-terminal-io))))
 
 (defun suspend-graphics ()
   (setf *read-input* nil))
@@ -517,3 +521,6 @@
 
 (defun create-lisp-listener ()
   (window-set-visibility (make-window "Lisp Listener" 640 400 'lisp-listener) t))
+
+(defvar *console-window* (make-window "Console" 640 400 'text-window))
+(window-set-visibility *console-window* t)
