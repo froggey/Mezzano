@@ -1381,7 +1381,7 @@
            (emfun (gethash class emf-table nil)))
       (if emfun
           (funcall emfun args)
-          (slow-single-dispatch-method-lookup gf args (class-of (nth argument-offset args)))))))
+          (slow-single-dispatch-method-lookup gf args class)))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args)
