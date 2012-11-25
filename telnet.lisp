@@ -369,6 +369,7 @@ party to perform, the indicated option.")
                                        :input window
                                        :interrupt-character (name-char "C-["))))
          (sys.graphics::bitset (first dims) (second dims) 0 fb 0 0)
+         (setf sys.graphics::*refresh-required* t)
          ;; Hard-code NAO for now.
          (with-open-stream (connection (sys.net::tcp-stream-connect '(204 236 130 210) 23))
            (sys.int::with-process ("TELNET receiver" #'telnet-rx connection terminal)
@@ -402,8 +403,10 @@ party to perform, the indicated option.")
     (sys.int::process-preset cmd 'telnet-top-level instance)
     (sys.int::process-enable cmd)))
 
+(defmethod sys.graphics::window-redraw ((window telnet-client)))
+
 (defun create-telnet-client ()
   "Open an IRC window."
-  (sys.graphics::window-set-visibility (sys.graphics::make-window "Unconnected Telnet" 640 400 'telnet-client) t))
+  (sys.graphics::window-set-visibility (sys.graphics::make-window "Telnet" 640 400 'telnet-client) t))
 
 (setf (gethash (name-char "F3") sys.graphics::*global-keybindings*) 'create-telnet-client)
