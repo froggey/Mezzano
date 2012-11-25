@@ -129,7 +129,7 @@
 (defclass window ()
   ((title :initarg :title :accessor window-title)
    (width :initarg :width :reader window-width)
-   (height :initarg :height :reader window-width)
+   (height :initarg :height :reader window-height)
    (pos :initarg :position)
    (frontbuffer :initarg :frontbuffer :reader window-frontbuffer)
    (backbuffer :initarg :backbuffer :reader window-backbuffer)
@@ -137,6 +137,12 @@
    (next :accessor window-next)
    (prev :accessor window-prev))
   (:default-initargs :visiblep nil))
+
+(defgeneric compute-window-margins (window)
+  (:documentation "Return the size of the left, right, top and bottom window margins as values."))
+
+(defmethod compute-window-margins ((window window))
+  (values 0 0 0 0))
 
 (defgeneric window-position (window))
 
@@ -158,6 +164,53 @@
 
 (defvar *next-window-position* 0)
 
+(defmethod initialize-instance :after ((instance window) &key width height)
+  (multiple-value-bind (left right top bottom)
+      (compute-window-margins instance)
+    (setf (slot-value instance 'frontbuffer) (make-array (list (+ height top bottom) (+ width left right))
+                                                         :element-type '(unsigned-byte 32))
+          (slot-value instance 'backbuffer) (make-array (list (+ height top bottom) (+ width left right))
+                                                        :element-type '(unsigned-byte 32)))))
+
+(defclass window-with-chrome (window) ())
+
+(defmethod compute-window-margins ((window window-with-chrome))
+  (values 1 1 19 1))
+
+(defgeneric window-redraw (window))
+
+(defmethod window-redraw :before ((window window-with-chrome))
+  (let* ((fb (window-backbuffer window))
+         (dims (array-dimensions fb))
+         (border-colour (make-colour :gray))
+         (titlebar-colour (make-colour :black))
+         #+nil(text-colour (make-colour :white)))
+    ;; Top.
+    (bitset 1 (second dims) border-colour fb 0 0)
+    ;; Top between title and main body.
+    (bitset 1 (second dims) border-colour fb 18 0)
+    ;; Bottom.
+    (bitset 1 (second dims) border-colour fb (1- (first dims)) 0)
+    ;; Left.
+    (bitset (first dims) 1 border-colour fb 0 0)
+    ;; Right
+    (bitset (first dims) 1 border-colour fb 0 (1- (second dims)))
+    ;; Title.
+    (let ((x 5)
+          (title (window-title window)))
+      (bitset 17 (- (second dims) 2) titlebar-colour fb 1 1)
+      (dotimes (i (length title))
+        (let* ((character (char title i))
+               (width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
+          (when (> (+ x width) (second dims))
+            (return))
+          (unless (eql character #\Space)
+            (sys.int::render-char-at character fb x 1))
+          (incf x width))))))
+
+(defmethod window-redraw :after ((window window))
+  (window-swap-buffers window))
+
 (defun make-window (title width height class &rest initargs)
   (when (> (+ *next-window-position* width) 1000)
     (setf *next-window-position* 0))
@@ -168,12 +221,9 @@
                        :title title
                        :width width
                        :height height
-                       :frontbuffer (make-array (list height width)
-                                                :element-type '(unsigned-byte 32))
-                       :backbuffer (make-array (list height width)
-                                               :element-type '(unsigned-byte 32))
                        :position (cons *next-window-position* *next-window-position*)
                        initargs)))
+    (window-redraw window)
     (incf *next-window-position* 50)
     (cond (*window-list*
            (setf (slot-value window 'next) *window-list*
@@ -394,6 +444,13 @@
   (:default-initargs :x 0 :y 0
                      :buffer (make-fifo 500 'character)))
 
+(defclass text-window-with-chrome (text-window window-with-chrome) ())
+
+(defmethod window-redraw ((window text-window))
+  (multiple-value-bind (left right top bottom)
+      (compute-window-margins window)
+    (bitset (window-height window) (window-width window) (make-colour :black) (window-backbuffer window) top left)))
+
 (defmethod key-press-event ((window text-window) character)
   (fifo-push character (text-window-buffer window)))
 
@@ -406,33 +463,37 @@
                               (not (fifo-emptyp (text-window-buffer stream)))))))
 
 (defmethod sys.int::stream-write-char (character (stream text-window))
-  (let ((fb (window-frontbuffer stream))
-        (x (cursor-x stream))
-        (y (cursor-y stream)))
-    (cond
-      ((eql character #\Newline)
-       ;; Clear the next line.
-       (setf (cursor-x stream) 0
-             y (if (> (+ y 16 16) (array-dimension fb 0))
-                   0
-                   (+ y 16))
-             (cursor-y stream) y)
-       (sys.int::%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
-      (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
-           (when (> (+ x width) (array-dimension fb 1))
-             ;; Advance to the next line.
-             ;; Maybe should clear the end of the current line?
-             (setf x 0
-                   y (if (> (+ y 16 16) (array-dimension fb 0))
-                         0
-                         (+ y 16))
-                   (cursor-y stream) y)
-             (sys.int::%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
-           (if (eql character #\Space)
-               (sys.int::%bitset 16 8 #xFF000000 fb y x)
-               (sys.int::render-char-at character fb x y))
-           (incf x width)
-           (setf (cursor-x stream) x)))))
+  (multiple-value-bind (left right top bottom)
+      (compute-window-margins stream)
+    (let ((fb (window-frontbuffer stream))
+          (x (cursor-x stream))
+          (y (cursor-y stream))
+          (win-width (window-width stream))
+          (win-height (window-height stream)))
+      (cond
+        ((eql character #\Newline)
+         ;; Clear the next line.
+         (setf (cursor-x stream) 0
+               y (if (> (+ y 16 16) win-height)
+                     0
+                     (+ y 16))
+               (cursor-y stream) y)
+         (sys.int::%bitset 16 win-width #xFF000000 fb (+ top y) left))
+        (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
+             (when (> (+ x width) win-width)
+               ;; Advance to the next line.
+               ;; Maybe should clear the end of the current line?
+               (setf x 0
+                     y (if (> (+ y 16 16) win-height)
+                           0
+                           (+ y 16))
+                     (cursor-y stream) y)
+               (sys.int::%bitset 16 win-width #xFF000000 fb (+ top y) left))
+             (if (eql character #\Space)
+                 (sys.int::%bitset 16 8 #xFF000000 fb (+ top y) (+ left x))
+                 (sys.int::render-char-at character fb (+ left x) (+ top y)))
+             (incf x width)
+             (setf (cursor-x stream) x))))))
   (setf *refresh-required* t))
 
 (defmethod sys.int::stream-start-line-p ((stream text-window))
@@ -457,42 +518,48 @@
   (unless initial-x (setf initial-x (cursor-x stream)))
   (unless initial-y (setf initial-y (cursor-y stream)))
   (do ((framebuffer (window-frontbuffer stream))
+       (win-width (window-width stream))
+       (win-height (window-height stream))
        (i start (1+ i)))
       ((>= i end)
        (values initial-x initial-y))
     (let* ((ch (char string i))
 	   (width (sys.int::stream-character-width stream ch)))
       (when (or (eql ch #\Newline)
-                (> (+ initial-x width) (array-dimension framebuffer 1)))
+                (> (+ initial-x width) win-width))
         (setf initial-x 0
-              initial-y (if (>= (+ initial-y 16) (array-dimension framebuffer 0))
+              initial-y (if (>= (+ initial-y 16) win-height)
                             0
                             (+ initial-y 16))))
       (unless (eql ch #\Newline)
         (incf initial-x width)))))
 
 (defmethod sys.int::stream-clear-between ((stream text-window) start-x start-y end-x end-y)
-  (let ((framebuffer (window-frontbuffer stream)))
-    (cond ((eql start-y end-y)
-           ;; Clearing one line.
-           (sys.int::%bitset 16 (- end-x start-x) #xFF000000 framebuffer start-y start-x))
-          (t ;; Clearing many lines.
-           ;; Clear top line.
-           (sys.int::%bitset 16 (- (array-dimension framebuffer 1) start-x) #xFF000000
-                             framebuffer start-y start-x)
-           ;; Clear in-between.
-           (when (> (- end-y start-y) 16)
-             (sys.int::%bitset (- end-y start-y 16) (array-dimension framebuffer 1) #xFF000000
-                               framebuffer (+ start-y 16) 0))
-           ;; Clear bottom line.
-           (sys.int::%bitset 16 end-x #xFF000000
-                             framebuffer end-y 0))))
+  (multiple-value-bind (left right top bottom)
+      (compute-window-margins stream)
+    (let ((framebuffer (window-frontbuffer stream))
+          (win-width (window-width stream))
+          (win-height (window-height stream)))
+      (cond ((eql start-y end-y)
+             ;; Clearing one line.
+             (sys.int::%bitset 16 (- end-x start-x) #xFF000000 framebuffer (+ top start-y) (+ left start-x)))
+            (t ;; Clearing many lines.
+             ;; Clear top line.
+             (sys.int::%bitset 16 (- win-width start-x) #xFF000000
+                               framebuffer (+ top start-y) (+ left start-x))
+             ;; Clear in-between.
+             (when (> (- end-y start-y) 16)
+               (sys.int::%bitset (- end-y start-y 16) win-width #xFF000000
+                                 framebuffer (+ top start-y 16) left))
+             ;; Clear bottom line.
+             (sys.int::%bitset 16 end-x #xFF000000
+                               framebuffer (+ top end-y) left)))))
   (setf *refresh-required* t))
 
 (defmethod sys.int::stream-element-type* ((stream text-window))
   'character)
 
-(defclass lisp-listener (text-window)
+(defclass lisp-listener (text-window-with-chrome)
   ((process :reader lisp-listener-process)))
 
 (defmacro with-window-streams (window &body body)
@@ -524,5 +591,5 @@
 (defun create-lisp-listener ()
   (window-set-visibility (make-window "Lisp Listener" 640 400 'lisp-listener) t))
 
-(defvar *console-window* (make-window "Console" 640 400 'text-window))
+(defvar *console-window* (make-window "Console" 640 400 'text-window-with-chrome))
 (window-set-visibility *console-window* t)

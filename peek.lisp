@@ -3,7 +3,7 @@
 
 (in-package #:peek)
 
-(defclass peek-window (sys.graphics::text-window)
+(defclass peek-window (sys.graphics::text-window-with-chrome)
   ((process :reader window-process)))
 
 (defmethod initialize-instance :after ((instance peek-window))
@@ -13,11 +13,14 @@
     (sys.int::process-enable process)))
 
 (defun clear-window (window &optional (colour :black))
-  (let* ((fb (sys.graphics::window-frontbuffer window))
-         (dims (array-dimensions fb)))
-    (sys.graphics::bitset (first dims) (second dims) (sys.graphics::make-colour colour) fb 0 0)
-    (sys.int::stream-move-to window 0 0)
-    (setf sys.graphics::*refresh-required* t)))
+  (multiple-value-bind (left right top bottom)
+      (sys.graphics::compute-window-margins window)
+    (let* ((fb (sys.graphics::window-frontbuffer window))
+           (dims (array-dimensions fb)))
+      (sys.graphics::bitset (- (first dims) top bottom) (- (second dims) left right)
+                            (sys.graphics::make-colour colour) fb top left)
+      (sys.int::stream-move-to window 0 0)
+      (setf sys.graphics::*refresh-required* t))))
 
 (defvar *peek-commands*
   '((#\? "Help" peek-help "Show a help page.")
