@@ -7,6 +7,8 @@
 
 (in-package #:sys.int)
 
+(declaim (special *pci-ids*))
+
 (defconstant +pci-config-address+ #x0CF8)
 (defconstant +pci-config-data+    #x0CFC)
 
@@ -120,9 +122,12 @@
                                           :vendor-id vendor
                                           :device-id device-id)))
 	      (push info *pci-devices*)
-	      (format t "~2,'0X:~X:~X: ~4,'0X ~4,'0X~%"
-		      bus device function
-		      vendor device-id)
+              (multiple-value-bind (vname dname)
+                  (pci-find-device vendor device-id)
+                (format t "~2,'0X:~X:~X: ~4,'0X ~4,'0X ~S ~S~%"
+                        bus device function
+                        vendor device-id
+                        vname dname))
 	      (when (eql (pci-hdr-type info) +pci-bridge-htype+)
 		(pci-scan (pci-config/8 info +pci-bridge-secondary-bus+))))))))))
 
@@ -152,3 +157,39 @@
   (format t "Registering drivers...~%")
   (dolist (driver *pci-drivers*)
     (pci-probe (second driver) (first driver))))
+
+(defun bsearch (item vector &optional (stride 1))
+  "Locate ITEM using a binary search through VECTOR."
+  (do ((imin 0)
+       (imax (length vector)))
+      ((< imax imin) nil)
+    (let* ((imid (* (truncate (truncate (+ imin imax) stride) 2) stride))
+           (elt (aref vector imid)))
+      (cond ((< elt item) (setf imin (1+ imid)))
+            ((> elt item) (setf imax (1- imid)))
+            (t (return imid))))))
+
+(defun pci-find-vendor (id &optional (ids *pci-ids*))
+  (let ((position (bsearch id ids 3)))
+    (when position
+      (values (aref ids (+ position 1))
+              (aref ids (+ position 2))))))
+
+(defun pci-find-device (vid did &optional (ids *pci-ids*))
+  (multiple-value-bind (vname devices)
+      (pci-find-vendor vid ids)
+    (when (and vname devices)
+      (let ((position (bsearch did devices 3)))
+        (when position
+          (values vname
+                  (aref devices (+ position 1))
+                  (aref devices (+ position 2))))))))
+
+(defun pci-find-subsystem (vid did svid sdid &optional (ids *pci-ids*))
+  (multiple-value-bind (vname dname subsystems)
+      (pci-find-device vid did ids)
+    (when (and vname subsystems)
+      (let ((position (bsearch (logior (ash svid 16) sdid) subsystems 2)))
+        (if position
+            (values vname dname (aref subsystems (1+ position)))
+            (values vname dname nil))))))

@@ -71,6 +71,7 @@
     "../ethernet.lisp"
     "../rtl8139.lisp"
     "../graphics.lisp"
+    "../misc.lisp"
     "../peek.lisp"
     "../telnet.lisp"
     "../irc.lisp"))
@@ -837,13 +838,19 @@
     (let ((*load-time-evals* '()))
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) '*additional-cold-toplevel-forms*))
+    (format t "Saving Unifont...~%")
     (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifontfull-5.1.20080820.hex" :static))
+    (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
       (setf (cold-symbol-value '*unicode-info*) (save-object planes :static)
             (cold-symbol-value '*unicode-name-store*) (save-ub8-vector name-store :static)
             (cold-symbol-value '*unicode-encoding-table*) (save-object encoding-table :static)
             (cold-symbol-value '*unicode-name-trie*) (save-object name-trie :static)))
+    (format t "Saving PCI IDs...~%")
+    (let* ((pci-ids (build-pci-ids:build-pci-ids "../pci.ids"))
+           (object (save-object pci-ids :static)))
+      (setf (cold-symbol-value '*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.
     (mapc (lambda (sym) (symbol-address (string sym) nil))
           '(*gdt* *idt* *%setup-stack* *%setup-function*
