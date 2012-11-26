@@ -158,8 +158,7 @@ the front buffer refers to the second buffer.")
   (write-vbe-reg +vbe-dispi-index-y-offset+
                  (if *bochs-flip-mode*
                      (array-dimension *bochs-framebuffer* 0)
-                     0))
-  (write-vbe-reg +vbe-dispi-index-virt-width+ (array-dimension *bochs-framebuffer* 1)))
+                     0)))
 
 (defun bochs-vbe-initialize ()
   (when (probe-bochs-vbe)
