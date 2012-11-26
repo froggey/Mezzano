@@ -33,6 +33,9 @@
 (defun ldb-test (bytespec integer)
   (not (zerop (ldb bytespec integer))))
 
+(defun logbitp (index integer)
+  (ldb-test (byte 1 index) integer))
+
 ;;; From SBCL 1.0.55
 (defun ceiling (number &optional (divisor 1))
   ;; If the numbers do not divide exactly and the result of
