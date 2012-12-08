@@ -27,6 +27,7 @@
     (#\P "Process" peek-process "Show currently active processes.")
     (#\M "Memory" peek-memory "Show memory information.")
     (#\N "Network" peek-network "Show network information.")
+    (#\D "Devices" peek-devices "Show device information.")
     (#\Q "Quit" nil "Quit Peek")))
 
 (defun print-header ()
@@ -78,6 +79,25 @@
             (sys.net::tcp-connection-local-port conn)
             (sys.net::tcp-connection-remote-ip conn) (sys.net::tcp-connection-remote-port conn)
             (sys.net::tcp-connection-state conn))))
+
+(defun peek-devices ()
+  (format t "PCI devices:~%")
+  (dolist (dev sys.int::*pci-devices*)
+    (multiple-value-bind (vname dname)
+        (sys.int::pci-find-device (sys.int::pci-device-vendor-id dev)
+                                  (sys.int::pci-device-device-id dev))
+      (format t " ~2,'0X:~X:~X: ~4,'0X ~4,'0X ~S ~S~%"
+              (sys.int::pci-device-bus dev) (sys.int::pci-device-device dev) (sys.int::pci-device-function dev)
+              (sys.int::pci-device-vendor-id dev)
+              (sys.int::pci-device-device-id dev)
+              vname dname)))
+  (format t "PCI drivers:~%")
+  (dolist (drv sys.int::*pci-drivers*)
+    (format t " ~S:~%" (first drv))
+    (dolist (id (second drv))
+      (multiple-value-bind (vname dname)
+          (sys.int::pci-find-device (first id) (second id))
+        (format t "   ~4,'0X ~4,'0X ~S ~S~%" (first id) (second id) vname dname)))))
 
 (defun peek-top-level (window)
   (unwind-protect

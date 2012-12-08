@@ -43,7 +43,7 @@
 (defconstant +pci-bridge-secondary-status+  #x1E)
 
 (defvar *pci-devices* '()
-  "A list of all detected PCI devices. (bus device function vendor-id device-id)")
+  "A list of all detected PCI devices.")
 
 (defvar *pci-drivers* '())
 

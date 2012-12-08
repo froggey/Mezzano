@@ -10,6 +10,7 @@
 ;;;; vendor-name: string
 ;;;; device-name: string
 ;;;; subsystem-name: string
+;;;; subsystem-id: (unsigned-byte 32)
 ;;;; The subsystem-id is constructed by shifting the subsystem vendor id
 ;;;; left by 16 bits and ORing it with the subsystem device id.
 ;;;; All arrays are sorted by id, allowing fast lookup using a binary search.
