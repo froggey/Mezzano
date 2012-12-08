@@ -232,7 +232,8 @@
          (val (slot-contents slots location)))
     (if (eq secret-unbound-value val)
         (error "The slot ~S is unbound in the object ~S."
-               slot-name instance)
+               (slot-definition-name (elt (class-slots (class-of instance)) location))
+               instance)
         val)))
 
 (defun fast-slot-write (new-value instance location)
