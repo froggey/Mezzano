@@ -46,6 +46,9 @@
 (defvar *window-list* nil)
 (defvar *global-keybindings* (make-hash-table))
 
+(defvar *mouse-x* 0)
+(defvar *mouse-y* 0)
+
 (defun restore-default-keybindings ()
   (clrhash *global-keybindings*)
   (setf (gethash (name-char "M-Tab") *global-keybindings*) 'next-window
@@ -393,6 +396,9 @@
             (blit-window fb window)))
         (when (window-visiblep *window-list*)
           (blit-window fb *window-list*)))
+      (bitset 16 16 (name-colour :white) fb *mouse-y* *mouse-x*)
+      (bitset 14 14 (name-colour :black) fb (1+ *mouse-y*) (1+ *mouse-x*))
+      (bitset 4 4 (name-colour :white) fb *mouse-y* *mouse-x*)
       (rotatef (screen-backbuffer screen) (screen-framebuffer screen))
       (funcall (screen-flip-function screen)))))
 
@@ -407,23 +413,63 @@
   (when *window-list*
     (key-press-event *window-list* key)))
 
+(defun decode-mouse-packet (byte-1 byte-2 byte-3)
+  (values (logtest byte-1 #b001) ; button-1
+          (logtest byte-1 #b010) ; button-2
+          (logtest byte-1 #b100) ; button-3
+          nil ; button-4
+          nil ; button-5
+          (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
+          (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))) ; y-motion
+          0)) ; z-motion
+
+(defun process-mouse-packet (byte-1 byte-2 byte-3)
+  (multiple-value-bind (button-1 button-2 button-3 button-4 button-5 x-motion y-motion z-motion)
+      (decode-mouse-packet byte-1 byte-2 byte-3)
+    (when *screens*
+      (let* ((screen (first *screens*))
+             (fb (screen-backbuffer screen))
+             (dims (array-dimensions fb))
+             (width (second dims))
+             (height (first dims)))
+        (setf *mouse-x* (clamp (+ *mouse-x* x-motion) 0 (1- width)))
+        (setf *mouse-y* (clamp (+ *mouse-y* y-motion) 0 (1- height)))))
+    (when (or (not (zerop x-motion))
+              (not (zerop y-motion)))
+      (setf *refresh-required* t))))
+
 (defun graphics-worker ()
-  (loop (sys.int::process-wait "Input and display update"
-                               (lambda ()
-                                 (or *refresh-required*
-                                     (and *read-input*
-                                          (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*))))))
-     (when *refresh-required*
-       (setf *refresh-required* nil)
-       (with-simple-restart (abort "Cancel screen update.")
-         (compose-all-displays)))
-     (when *read-input*
+  (let ((mouse-state 0)
+        (mouse-1 0)
+        (mouse-2 0))
+    (loop (sys.int::process-wait "Input and display update"
+                                 (lambda ()
+                                   (or *refresh-required*
+                                       (and *read-input*
+                                            (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*)))
+                                       (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-aux-fifo*)))))
+       (when *refresh-required*
+         (setf *refresh-required* nil)
+         (with-simple-restart (abort "Cancel screen update.")
+           (compose-all-displays)))
+       (when *read-input*
+         (loop
+            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
+              (when (not byte) (return))
+              (let ((key (sys.int::ps/2-translate-scancode byte)))
+                (when key
+                  (handle-keypress key))))))
        (loop
-          (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
+          (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
             (when (not byte) (return))
-            (let ((key (sys.int::ps/2-translate-scancode byte)))
-              (when key
-                (handle-keypress key))))))))
+            (ecase mouse-state
+              (0 (when (logtest byte #b00001000)
+                   (setf mouse-1 byte)
+                   (incf mouse-state)))
+              (1 (setf mouse-2 byte)
+                 (incf mouse-state))
+              (2 (process-mouse-packet mouse-1 mouse-2 byte)
+                 (setf mouse-state 0))))))))
 
 (defvar *graphics-process* (make-instance 'sys.int::process :name "Graphics manager"))
 (sys.int::process-preset *graphics-process* #'graphics-worker)
