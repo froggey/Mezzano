@@ -188,6 +188,59 @@
 (defmethod stream-listen ((stream ps/2-keyboard-stream))
   (keyboard-listen *ps/2-key-fifo*))
 
+(defun ps/2-command-wait ()
+  (dotimes (i 100000
+            (warn "PS/2: Timeout waiting for write buffer."))
+    (when (zerop (logand (io-port/8 +ps/2-control-port+) 2))
+      (return t))))
+
+(defun ps/2-data-wait ()
+  (dotimes (i 100000
+            (warn "PS/2: Timeout waiting for data."))
+    (when (not (zerop (logand (io-port/8 +ps/2-control-port+) 1)))
+      (return t))))
+
+(defun ps/2-command-write (byte)
+  "Send a command to the PS/2 controller."
+  (ps/2-command-wait)
+  (setf (io-port/8 +ps/2-data-port+) byte))
+
+(defun ps/2-mouse-command (command)
+  (ps/2-command-wait)
+  (setf (io-port/8 +ps/2-control-port+) #xD4 ; send to aux port.
+        (io-port/8 +ps/2-data-port+) command)
+  (ps/2-data-wait)
+  (let ((result (io-port/8 +ps/2-data-port+)))
+    (unless (eql result #xFA)
+      (warn "PS/2: Error controlling mouse, expected ACK(FA) got ~2,'0X~%" result))))
+
+(defun init-mouse ()
+  ;; Turn PS/2 interrupts off before doing anything.
+  (let ((key-mask (isa-pic-irq-mask +ps/2-key-irq+))
+        (aux-mask (isa-pic-irq-mask +ps/2-aux-irq+)))
+    (unwind-protect
+         (progn (setf (isa-pic-irq-mask +ps/2-key-irq+) t
+                      (isa-pic-irq-mask +ps/2-aux-irq+) t)
+                ;; Drain internal buffer.
+                (do () ((not (logtest (io-port/8 +ps/2-control-port+) 1)))
+                  (io-port/8 +ps/2-data-port+))
+                ;; Enable mouse.
+                (setf (io-port/8 +ps/2-control-port+) #xA8)
+                ;; Enable mouse interrupts
+                (setf (io-port/8 +ps/2-control-port+) #x20) ; Get Command Byte.
+                (ps/2-data-wait)
+                ;; Set mouse interrupt bit.
+                (let ((command (logior (io-port/8 +ps/2-data-port+) 2)))
+                  (setf (io-port/8 +ps/2-control-port+) #x60) ; Set Command Byte.
+                  (ps/2-command-wait)
+                  (setf (io-port/8 +ps/2-data-port+) command))
+                ;; Set mouse defaults.
+                (ps/2-mouse-command #xF6)
+                ;; Enable mouse data reporting.
+                (ps/2-mouse-command #xF4))
+      (setf (isa-pic-irq-mask +ps/2-key-irq+) key-mask
+            (isa-pic-irq-mask +ps/2-aux-irq+) aux-mask))))
+
 (defun init-ps/2 ()
   (setf *ps/2-key-fifo* (make-ps/2-fifo)
         (isa-pic-interrupt-handler +ps/2-key-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
@@ -195,6 +248,10 @@
         *ps/2-aux-fifo* (make-ps/2-fifo)
         (isa-pic-interrupt-handler +ps/2-aux-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*)
         (isa-pic-irq-mask +ps/2-aux-irq+) nil
-        *ps/2-keyboard-shifted* nil))
+        *ps/2-keyboard-shifted* nil)
+  (init-mouse)
+  ;; Flush away anything that might have built up because of the mouse init.
+  (loop (unless (ps/2-pop-fifo *ps/2-key-fifo*) (return)))
+  (loop (unless (ps/2-pop-fifo *ps/2-aux-fifo*) (return))))
 
 (add-hook '*initialize-hook* 'init-ps/2)
