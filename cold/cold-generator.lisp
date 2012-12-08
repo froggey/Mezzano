@@ -65,7 +65,6 @@
     "../compiler/builtins.lisp"
     "../interrupt-compiler.lisp"
     "../keyboard.lisp"
-    "../pci.lisp"
     "../framebuffer.lisp"
     "../bochs-vbe.lisp"
     "../ethernet.lisp"
