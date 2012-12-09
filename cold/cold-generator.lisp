@@ -73,7 +73,8 @@
     "../misc.lisp"
     "../peek.lisp"
     "../telnet.lisp"
-    "../irc.lisp"))
+    "../irc.lisp"
+    "../mandelbrot.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
