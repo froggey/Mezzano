@@ -107,32 +107,32 @@ know where the PDEs for new- and old-space are."
         (setf (memref-unsigned-byte-64 pml4 i) 0)
         ;; Link PML3s to PML2s.
         (setf (memref-unsigned-byte-64 data-pml3 i) (logior (+ (- data-pml2 conversion-factor) (* i 4096))
-                                                            +page-table-present+
-                                                            +page-table-global+))
+                                                            +page-table-writable+
+                                                            +page-table-present+))
         (setf (memref-unsigned-byte-64 phys-pml3 i) (logior (+ (- phys-pml2 conversion-factor) (* i 4096))
-                                                            +page-table-present+
-                                                            +page-table-global+))
+                                                            +page-table-writable+
+                                                            +page-table-present+))
         (dotimes (j 512)
           ;; Clear the data PML2.
           (setf (memref-unsigned-byte-64 data-pml2 (+ (* i 512) j)) 0)
           ;; Map the physical PML2 to the first 512GB of physical memory.
           (setf (memref-unsigned-byte-64 phys-pml2 (+ (* i 512) j)) (logior (* (+ (* i 512) j) #x200000)
+                                                                            +page-table-writable+
                                                                             +page-table-present+
-                                                                            +page-table-global+
                                                                             +page-table-large+))))
       ;; Link the PML4 to the PML3s.
       ;; Data PML3 at 0, physical PML3 at 512GB.
       (setf (memref-unsigned-byte-64 pml4 0) (logior (- data-pml3 conversion-factor)
-                                                     +page-table-present+
-                                                     +page-table-global+))
+                                                     +page-table-writable+
+                                                     +page-table-present+))
       (setf (memref-unsigned-byte-64 pml4 1) (logior (- phys-pml3 conversion-factor)
-                                                     +page-table-present+
-                                                     +page-table-global+))
+                                                     +page-table-writable+
+                                                     +page-table-present+))
       ;; Identity map the first 2MB of static space.
       (setf (memref-unsigned-byte-64 data-pml2 (truncate phys-curr #x200000))
             (logior phys-curr
+                    +page-table-writable+
                     +page-table-present+
-                    +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000)
       ;; Skip over the page tables.
@@ -142,24 +142,24 @@ know where the PDEs for new- and old-space are."
         (when (not (zerop (aref static-pages (1+ i))))
           (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area* #x200000) 1 i))
                 (logior phys-curr
+                        +page-table-writable+
                         +page-table-present+
-                        +page-table-global+
                         +page-table-large+))
           (incf phys-curr #x200000)))
       ;; The dynamic area.
       (dotimes (i (ceiling *newspace-offset* #x40000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *newspace* #x200000) i))
               (logior phys-curr
+                      +page-table-writable+
                       +page-table-present+
-                      +page-table-global+
                       +page-table-large+))
         (incf phys-curr #x200000))
       ;; Stack space.
       (dotimes (i (ceiling (- *stack-bump-pointer-limit* #x100000000) #x200000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *stack-area-base* #x200000) i))
               (logior phys-curr
+                      +page-table-writable+
                       +page-table-present+
-                      +page-table-global+
                       +page-table-large+))
         (incf phys-curr #x200000))
       ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
@@ -167,24 +167,24 @@ know where the PDEs for new- and old-space are."
         (when (zerop (aref static-pages i))
           (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *static-area* #x200000) i))
                 (logior phys-curr
+                        +page-table-writable+
                         +page-table-present+
-                        +page-table-global+
                         +page-table-large+))
           (incf phys-curr #x200000)))
       (dotimes (i (truncate (- *semispace-size* *newspace-offset*) #x40000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *newspace* #x200000)
                                                     (ceiling *newspace-offset* #x40000) i))
               (logior phys-curr
+                      +page-table-writable+
                       +page-table-present+
-                      +page-table-global+
                       +page-table-large+))
         (incf phys-curr #x200000))
       ;; And future-newspace also comes from the BSS.
       (dotimes (i (ceiling *semispace-size* #x40000))
         (setf (memref-unsigned-byte-64 data-pml2 (+ (truncate *oldspace* #x200000) i))
               (logior phys-curr
+                      +page-table-writable+
                       +page-table-present+
-                      +page-table-global+
                       +page-table-large+))
         (incf phys-curr #x200000)))))
 

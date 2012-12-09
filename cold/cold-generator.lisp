@@ -557,32 +557,32 @@
       (setf (word (+ pml4 i)) 0)
       ;; Link PML3s to PML2s.
       (setf (word (+ data-pml3 i)) (logior (+ (- (* data-pml2 8) *linear-map*) (* i 4096))
-                                           +page-table-present+
-                                           +page-table-global+))
+                                           +page-table-writable+
+                                           +page-table-present+))
       (setf (word (+ phys-pml3 i)) (logior (+ (- (* phys-pml2 8) *linear-map*) (* i 4096))
-                                           +page-table-present+
-                                           +page-table-global+))
+                                           +page-table-writable+
+                                           +page-table-present+))
       (dotimes (j 512)
         ;; Clear the data PML2.
         (setf (word (+ data-pml2 (* i 512) j)) 0)
         ;; Map the physical PML2 to the first 512GB of physical memory.
         (setf (word (+ phys-pml2 (* i 512) j)) (logior (* (+ (* i 512) j) #x200000)
                                                        +page-table-present+
-                                                       +page-table-global+
+                                                       +page-table-writable+
                                                        +page-table-large+))))
     ;; Link the PML4 to the PML3s.
     ;; Data PML3 at 0, physical PML3 at 512GB.
     (setf (word (+ pml4 0)) (logior (- (* data-pml3 8) *linear-map*)
-                                    +page-table-present+
-                                    +page-table-global+))
+                                    +page-table-writable+
+                                    +page-table-present+))
     (setf (word (+ pml4 1)) (logior (- (* phys-pml3 8) *linear-map*)
-                                    +page-table-present+
-                                    +page-table-global+))
+                                    +page-table-writable+
+                                    +page-table-present+))
     ;; Identity map the first 2MB of static space.
     (setf (word (+ data-pml2 (truncate phys-curr #x200000)))
           (logior phys-curr
+                  +page-table-writable+
                   +page-table-present+
-                  +page-table-global+
                   +page-table-large+))
     (incf phys-curr #x200000)
     ;; Skip over the support area.
@@ -591,47 +591,47 @@
     (dotimes (i (1- (ceiling *static-offset* #x40000)))
       (setf (word (+ data-pml2 1 (truncate *static-area-base* #x200000) i))
             (logior phys-curr
-                  +page-table-present+
-                  +page-table-global+
-                  +page-table-large+))
+                    +page-table-writable+
+                    +page-table-present+
+                    +page-table-large+))
       (incf phys-curr #x200000))
     ;; The dynamic area.
     (dotimes (i (ceiling *dynamic-offset* #x40000))
       (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) i))
             (logior phys-curr
-                  +page-table-present+
-                  +page-table-global+
-                  +page-table-large+))
+                    +page-table-writable+
+                    +page-table-present+
+                    +page-table-large+))
       (incf phys-curr #x200000))
     ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
     (dotimes (i (truncate (- (/ *static-area-limit* 8) *static-offset*) #x40000))
       (setf (word (+ data-pml2 (truncate *static-area-base* #x200000) (ceiling *static-offset* #x40000) i))
             (logior phys-curr
-                  +page-table-present+
-                  +page-table-global+
-                  +page-table-large+))
+                    +page-table-writable+
+                    +page-table-present+
+                    +page-table-large+))
       (incf phys-curr #x200000))
     (dotimes (i (truncate (- (/ *dynamic-area-semispace-limit* 8) *dynamic-offset*) #x40000))
       (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling *dynamic-offset* #x40000) i))
             (logior phys-curr
-                  +page-table-present+
-                  +page-table-global+
-                  +page-table-large+))
+                    +page-table-writable+
+                    +page-table-present+
+                    +page-table-large+))
       (incf phys-curr #x200000))
     ;; And future-newspace also comes from the BSS.
     (dotimes (i (ceiling (/ *dynamic-area-semispace-limit* 8) #x40000))
       (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling (/ *dynamic-area-size* 2) #x200000) i))
             (logior phys-curr
+                    +page-table-writable+
                     +page-table-present+
-                    +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000))
     ;; As does stack space.
     (dotimes (i (1+ (ceiling *stack-offset* #x40000)))
       (setf (word (+ data-pml2 (truncate *stack-area-base* #x200000) i))
             (logior phys-curr
+                    +page-table-writable+
                     +page-table-present+
-                    +page-table-global+
                     +page-table-large+))
       (incf phys-curr #x200000))
     (values (- (* pml4 8) *linear-map*) (* data-pml3 8))))
