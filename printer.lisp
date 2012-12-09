@@ -181,6 +181,12 @@
          (write-char #\Space stream))
        (write (aref object i) :stream stream))
      (write-char #\) stream))
+    (complex
+     (write-string "#C(" stream)
+     (write (realpart object))
+     (write-char #\Space stream)
+     (write (imagpart object))
+     (write-char #\) stream))
     (t (if *print-safe*
            (print-unreadable-object (object stream :type t :identity t))
            (print-object object stream))))
