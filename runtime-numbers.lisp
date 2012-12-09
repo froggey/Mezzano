@@ -10,9 +10,35 @@
       (floatp object)))
 
 (defun numberp (object)
-  (realp object))
+  (or (realp object)
+      (complexp object)))
+
+(defstruct (complex
+             (:constructor make-complex (realpart imagpart))
+             (:predicate complexp))
+  realpart
+  imagpart)
+
+(defun complex (realpart &optional imagpart)
+  (check-type realpart real)
+  (check-type imagpart (or real null))
+  (unless imagpart (setf imagpart (coerce 0 (type-of realpart))))
+  (if (and (integerp realpart) (zerop imagpart))
+      realpart
+      (make-complex realpart imagpart)))
+
+(defun realpart (number)
+  (if (complexp number)
+      (complex-realpart number)
+      number))
+
+(defun imagpart (number)
+  (if (complexp number)
+      (complex-imagpart number)
+      0))
 
 (defun expt (base power)
+  (check-type power integer)
   (let ((accum 1))
     (dotimes (i power accum)
       (setf accum (* accum base)))))
@@ -179,8 +205,8 @@
   (sys.lap-x86:ret))
 
 (defun generic-< (x y)
-  (check-type x number)
-  (check-type y number)
+  (check-type x real)
+  (check-type y real)
   (cond
     ((and (fixnump x)
           (fixnump y))
@@ -269,6 +295,10 @@
   (check-type y number)
   ;; Must not use EQ when the arguments are floats.
   (cond
+    ((or (complexp x)
+         (complexp y))
+     (and (= (realpart x) (realpart y))
+          (= (imagpart x) (imagpart y))))
     ((or (floatp x)
          (floatp y))
      ;; Convert both arguments to the same kind of float.
@@ -372,6 +402,8 @@
   (sys.lap-x86:ret))
 
 (defun generic-truncate (number divisor)
+  (check-type number real)
+  (check-type divisor real)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
   ;; Avoid overflow when doing fixnum arithmetic.
   ;; ????
@@ -436,7 +468,17 @@
   (sys.lap-x86:ret))
 
 (defun binary-/ (x y)
-  (%%float-/ (float x) (float y)))
+  (cond ((or (complexp x)
+             (complexp y))
+         (complex (/ (+ (* (realpart x) (realpart y))
+                        (* (imagpart x) (imagpart y)))
+                     (+ (expt (realpart y) 2)
+                        (expt (imagpart y) 2)))
+                  (/ (- (* (imagpart x) (realpart y))
+                        (* (realpart x) (imagpart y)))
+                     (+ (expt (realpart y) 2)
+                        (expt (imagpart y) 2)))))
+        (t (%%float-/ (float x) (float y)))))
 
 (define-lap-function %%bignum-+ ()
   ;; Save on the lisp stack.
@@ -591,6 +633,10 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-+ x y))
+        ((or (complexp x)
+             (complexp y))
+         (complex (+ (realpart x) (realpart y))
+                  (+ (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
          ;; Convert both arguments to the same kind of float.
@@ -756,6 +802,10 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-- x y))
+        ((or (complexp x)
+             (complexp y))
+         (complex (- (realpart x) (realpart y))
+                  (- (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
          ;; Convert both arguments to the same kind of float.
@@ -860,6 +910,12 @@
         ((and (bignump x)
               (bignump y))
          (%%bignum-* x y))
+        ((or (complexp x)
+             (complexp y))
+         (complex (- (* (realpart x) (realpart y))
+                     (* (imagpart x) (imagpart y)))
+                  (+ (* (imagpart x) (realpart y))
+                     (* (realpart x) (imagpart y)))))
         ((or (floatp x)
              (floatp y))
          ;; Convert both arguments to the same kind of float.
@@ -1368,3 +1424,33 @@
            (t integer)))
         (t (check-type integer integer)
            (ash integer count))))
+
+(defun abs (number)
+  (check-type number number)
+  (etypecase number
+    (complex (sqrt (+ (expt (realpart number) 2)
+                      (expt (imagpart number) 2))))
+    (real (if (minusp number)
+              (- number)
+              number))))
+
+(define-lap-function %%float-sqrt ()
+  ;; Unbox the float.
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 32)
+  ;; Load into XMM registers.
+  (sys.lap-x86:movd :xmm0 :eax)
+  ;; Sqrt.
+  (sys.lap-x86:sqrtss :xmm0 :xmm0)
+  ;; Box.
+  (sys.lap-x86:movd :eax :xmm0)
+  (sys.lap-x86:shl64 :rax 32)
+  (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(defun sqrt (number)
+  (check-type number number)
+  (etypecase number
+    (real (%%float-sqrt (float number)))))
