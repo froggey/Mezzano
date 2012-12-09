@@ -89,6 +89,15 @@
                               :relative-position :centre)))
         *screens*))
 
+(defun screen-size ()
+  (when *screens*
+    (let* ((screen (first *screens*))
+           (fb (screen-backbuffer screen))
+           (dims (array-dimensions fb))
+           (width (second dims))
+           (height (first dims)))
+      (values width height))))
+
 (defmacro with-window ((window title width height &optional (class ''window)) &body body)
   `(let ((,window nil))
      (unwind-protect
@@ -133,7 +142,7 @@
   ((title :initarg :title :accessor window-title)
    (width :initarg :width :reader window-width)
    (height :initarg :height :reader window-height)
-   (pos :initarg :position)
+   (pos :initarg :position :writer (setf window-position))
    (frontbuffer :initarg :frontbuffer :reader window-frontbuffer)
    (backbuffer :initarg :backbuffer :reader window-backbuffer)
    (visiblep :initarg :visiblep :reader window-visiblep)
@@ -175,12 +184,44 @@
           (slot-value instance 'backbuffer) (make-array (list (+ height top bottom) (+ width left right))
                                                         :element-type '(unsigned-byte 32)))))
 
-(defclass window-with-chrome (window) ())
+(defvar *active-drag-window* nil)
+
+(defun window-begin-drag (window mouse-x mouse-y)
+  (assert (not *active-drag-window*) () "Drag already in progress!")
+  (setf *active-drag-window* (list window mouse-x mouse-y)))
+
+(defun window-finish-drag (window)
+  (assert (and *active-drag-window* (eql (first *active-drag-window*) window))
+          (window) "Not dragging window!")
+  (setf *active-drag-window* nil))
+
+(defclass window-with-chrome (window)
+  ((chrome-drag-state :initform '())))
 
 (defmethod compute-window-margins ((window window-with-chrome))
   (values 1 1 19 1))
 
 (defgeneric window-redraw (window))
+
+(defgeneric key-press-event (window character))
+(defmethod key-press-event ((window window) character))
+(defgeneric mouse-button-event (window button-id state mouse-x mouse-y))
+(defmethod mouse-button-event ((window window) button-id state mouse-x mouse-y))
+(defgeneric mouse-move-event (window mouse-x mouse-y rel-x rel-y button-state))
+(defmethod mouse-move-event ((window window) mouse-x mouse-y rel-x rel-y button-state))
+
+(defun window-to-front (window)
+  (format t "Raising window ~S  (current is ~S)~%" window *window-list*)
+  (unless (eql window *window-list*)
+    (assert *window-list* () "No open windows?")
+    (setf (slot-value (window-next window) 'prev) (window-prev window)
+          (slot-value (window-prev window) 'next) (window-next window))
+    (setf (slot-value window 'next) *window-list*
+          (slot-value window 'prev) (window-prev *window-list*))
+    (setf (slot-value (window-prev *window-list*) 'next) window)
+    (setf (slot-value *window-list* 'prev) window)
+    (setf *window-list* window)
+    (setf *refresh-required* t)))
 
 (defmethod window-redraw :before ((window window-with-chrome))
   (let* ((fb (window-backbuffer window))
@@ -210,6 +251,45 @@
           (unless (eql character #\Space)
             (sys.int::render-char-at character fb x 1))
           (incf x width))))))
+
+(defmethod mouse-button-event :around ((window window-with-chrome) button-id state mouse-x mouse-y)
+  (let* ((fb (window-backbuffer window))
+         (dims (array-dimensions fb)))
+    (cond ((or (and (<= 1 mouse-y 17)
+                    (<= 1 mouse-x (- (second dims) 2)))
+               (slot-value window 'chrome-drag-state))
+           ;; Clicking the titlebar.
+           (when (eql button-id 0)
+             ;; Engage or disengage window dragging.
+             (cond (state
+                    (setf (slot-value window 'chrome-drag-state) (cons mouse-x mouse-y))
+                    (window-begin-drag window mouse-x mouse-y))
+                   (t (when (slot-value window 'chrome-drag-state)
+                        (setf (slot-value window 'chrome-drag-state) nil)
+                        (window-finish-drag window))))))
+          ;; FIXME: Should make window border mouse-sensitive as well.
+          (t (call-next-method)))))
+
+(defmethod mouse-move-event :around ((window window-with-chrome) mouse-x mouse-y rel-x rel-y button-state)
+  (let* ((fb (window-backbuffer window))
+         (dims (array-dimensions fb)))
+    (cond ((slot-value window 'chrome-drag-state)
+           (multiple-value-bind (win-x win-y)
+               (window-position window)
+             (multiple-value-bind (screen-width screen-height)
+                 (screen-size)
+               (let* ((dims (array-dimensions (window-frontbuffer window)))
+                      (width (second dims))
+                      (height (first dims))
+                      (new-x (clamp (+ win-x rel-x)
+                                    (+ (- width) 2)
+                                    (- screen-width 2)))
+                      (new-y (clamp (+ win-y rel-y)
+                                    0
+                                    (- screen-height 2))))
+                 (setf (window-position window) (cons new-x new-y)
+                       *refresh-required* t)))))
+          (t (call-next-method)))))
 
 (defmethod window-redraw :after ((window window))
   (window-swap-buffers window))
@@ -379,7 +459,7 @@
            (dims (array-dimensions src-buffer))
            (width (second dims))
            (height (first dims)))
-      (bitblt height width src-buffer 0 0 fb x y))))
+      (bitblt height width src-buffer 0 0 fb y x))))
 
 (defun compose-all-displays ()
   (when *screens*
@@ -402,9 +482,6 @@
       (rotatef (screen-backbuffer screen) (screen-framebuffer screen))
       (funcall (screen-flip-function screen)))))
 
-(defgeneric key-press-event (window character))
-(defmethod key-press-event ((window window) character))
-
 (defun handle-keypress (key)
   (let ((command (gethash key *global-keybindings*)))
     (when command
@@ -414,17 +491,48 @@
     (key-press-event *window-list* key)))
 
 (defun decode-mouse-packet (byte-1 byte-2 byte-3)
-  (values (logtest byte-1 #b001) ; button-1
-          (logtest byte-1 #b010) ; button-2
-          (logtest byte-1 #b100) ; button-3
-          nil ; button-4
-          nil ; button-5
+  (values (logand byte-1 #b111) ; buttons 1 to 3
           (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
           (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))) ; y-motion
           0)) ; z-motion
 
+(defvar *mouse-button-state* 0
+  "Bits representing the state of each button. 1 is pressed, 0 is released.")
+
+(defun map-windows (fn &optional reverse)
+  "Invoke FN on each window. If REVERSE is true, then windows are visited in
+reverse Z-order."
+  (when *window-list*
+    (if reverse
+        (do ((window (window-prev *window-list*) (window-prev window)))
+            ((eql window *window-list*)
+             (funcall fn *window-list*))
+          (funcall fn window))
+        (progn
+          (funcall fn *window-list*)
+          (do ((window (window-next *window-list*) (window-next window)))
+              ((eql window *window-list*))
+            (funcall fn window))))))
+
+(defun window-at (x y)
+  "Find the highest window at (X,Y), NIL if no window there."
+  (let ((result nil))
+    (tagbody
+       (map-windows (lambda (win)
+                      (multiple-value-bind (win-x win-y)
+                          (window-position win)
+                        (let* ((dims (array-dimensions (window-frontbuffer win)))
+                               (width (second dims))
+                               (height (first dims)))
+                          (when (and (<= win-x x (+ win-x width -1))
+                                     (<= win-y y (+ win-y height -1)))
+                            (setf result win)
+                            (go end))))))
+     end)
+    result))
+
 (defun process-mouse-packet (byte-1 byte-2 byte-3)
-  (multiple-value-bind (button-1 button-2 button-3 button-4 button-5 x-motion y-motion z-motion)
+  (multiple-value-bind (buttons x-motion y-motion z-motion)
       (decode-mouse-packet byte-1 byte-2 byte-3)
     (when *screens*
       (let* ((screen (first *screens*))
@@ -434,6 +542,31 @@
              (height (first dims)))
         (setf *mouse-x* (clamp (+ *mouse-x* x-motion) 0 (1- width)))
         (setf *mouse-y* (clamp (+ *mouse-y* y-motion) 0 (1- height)))))
+    (let ((window (or (when *active-drag-window* (first *active-drag-window*))
+                      (window-at *mouse-x* *mouse-y*))))
+      (when window
+        (multiple-value-bind (win-x win-y)
+            (window-position window)
+          (cond ((eql window *window-list*)
+                 ;; Window is at front.
+                 ;; Send mouse button events for each changing button.
+                 (do ((button 0 (1+ button))
+                      (current buttons (ash current -1))
+                      (changed (logxor buttons *mouse-button-state*) (ash changed -1)))
+                     ((zerop changed))
+                   (when (logtest changed 1)
+                     (mouse-button-event window button (logtest current 1) (- *mouse-x* win-x) (- *mouse-y* win-y)))))
+                (t ;; Window is behind, raise it up.
+                 (unless (zerop (logxor buttons *mouse-button-state*))
+                   (window-to-front window))))
+          ;; Send mouse move event when the mouse moves.
+          (when (or (not (zerop x-motion))
+                    (not (zerop y-motion)))
+            (mouse-move-event window
+                              (- *mouse-x* win-x) (- *mouse-y* win-y)
+                              x-motion y-motion
+                              buttons)))))
+    (setf *mouse-button-state* buttons)
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       (setf *refresh-required* t))))
@@ -448,28 +581,29 @@
                                        (and *read-input*
                                             (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*)))
                                        (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-aux-fifo*)))))
-       (when *refresh-required*
-         (setf *refresh-required* nil)
-         (with-simple-restart (abort "Cancel screen update.")
-           (compose-all-displays)))
-       (when *read-input*
+       (let ((*terminal-io* (sys.int::make-cold-stream)))
+         (when *refresh-required*
+           (setf *refresh-required* nil)
+           (with-simple-restart (abort "Cancel screen update.")
+             (compose-all-displays)))
+         (when *read-input*
+           (loop
+              (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
+                (when (not byte) (return))
+                (let ((key (sys.int::ps/2-translate-scancode byte)))
+                  (when key
+                    (handle-keypress key))))))
          (loop
-            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
+            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
               (when (not byte) (return))
-              (let ((key (sys.int::ps/2-translate-scancode byte)))
-                (when key
-                  (handle-keypress key))))))
-       (loop
-          (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
-            (when (not byte) (return))
-            (ecase mouse-state
-              (0 (when (logtest byte #b00001000)
-                   (setf mouse-1 byte)
-                   (incf mouse-state)))
-              (1 (setf mouse-2 byte)
-                 (incf mouse-state))
-              (2 (process-mouse-packet mouse-1 mouse-2 byte)
-                 (setf mouse-state 0))))))))
+              (ecase mouse-state
+                (0 (when (logtest byte #b00001000)
+                     (setf mouse-1 byte)
+                     (incf mouse-state)))
+                (1 (setf mouse-2 byte)
+                   (incf mouse-state))
+                (2 (process-mouse-packet mouse-1 mouse-2 byte)
+                   (setf mouse-state 0)))))))))
 
 (defvar *graphics-process* (make-instance 'sys.int::process :name "Graphics manager"))
 (sys.int::process-preset *graphics-process* #'graphics-worker)
@@ -499,6 +633,9 @@
 
 (defmethod key-press-event ((window text-window) character)
   (fifo-push character (text-window-buffer window)))
+
+(defmethod mouse-button-event ((window text-window) button-id state mouse-x mouse-y)
+  (format t "CLICK ~D ~S (~D,~D)~%" button-id state mouse-x mouse-y))
 
 (defmethod sys.int::stream-read-char ((stream text-window))
   (loop
