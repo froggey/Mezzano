@@ -1076,6 +1076,7 @@
 (define-sse-float-op div #x5E)
 (define-sse-float-op mul #x59)
 (define-sse-float-op sub #x5C)
+(define-sse-float-op sqrt #x51)
 
 (define-instruction cvtss2si64 (dst src)
   (when (and (eql (reg-class src) :xmm)
