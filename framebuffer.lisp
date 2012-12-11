@@ -25,28 +25,15 @@
   "Produce an array containing the glyph for C that can be blitted directly to the screen."
   (let ((uniglyph (map-unifont c)))
     (cond (uniglyph
-           (let* ((is-fullwidth (= (length uniglyph) 32))
-                  (screen-glyph (make-array (list 16 (if is-fullwidth 16 8))
+           (let* ((width (truncate (length uniglyph) 16))
+                  (screen-glyph (make-array (list 16 width)
                                             :element-type '(unsigned-byte 32))))
-             (if is-fullwidth
-                 ;; Fullwidth.
-                 (dotimes (i 16)
-                   (dotimes (j 8)
-                     (setf (aref screen-glyph i j)
-                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (* i 2))))
-                               #xFF000000
-                               #xFFB2B2B2)
-                           (aref screen-glyph i (+ j 8))
-                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph (1+ (* i 2)))))
-                               #xFF000000
-                               #xFFB2B2B2))))
-                 ;; Halfwidth.
-                 (dotimes (i 16)
-                   (dotimes (j 8)
-                     (setf (aref screen-glyph i j)
-                           (if (= 0 (logand (ash 1 (- 7 j)) (aref uniglyph i)))
-                               #xFF000000
-                               #xFFB2B2B2)))))
+             (dotimes (y 16)
+               (dotimes (x width)
+                 (setf (aref screen-glyph y x)
+                       (if (= 0 (aref uniglyph (+ x (* y width))))
+                           #xFF000000
+                           #xFFB2B2B2))))
              screen-glyph))
           (t ;; Render the character name surounded by a box.
            (let* ((name (char-name c))

@@ -6,20 +6,19 @@
 (in-package #:build-unicode)
 
 (defun decode-glyph (glyph)
-  "Generate a simple (unsigned-byte 8) or (unsigned-byte 16) vector from GLYPH."
-  (cond
-    ((= (length glyph) 64)
-     ;; Fullwidth character
-     (let ((vec (make-array 32 :element-type '(unsigned-byte 8))))
-       (dotimes (i 32 vec)
-	 (setf (aref vec i) (parse-integer glyph :radix 16
-					   :start (* i 2) :end (* (1+ i) 2))))))
-    ((= (length glyph) 32)
-     ;; Halfwidth character
-     (let ((vec (make-array 16 :element-type '(unsigned-byte 8))))
-       (dotimes (i 16 vec)
-	 (setf (aref vec i) (parse-integer glyph :radix 16
-					   :start (* i 2) :end (* (1+ i) 2))))))))
+  "Generate a simple-bit-vector from GLYPH."
+  ;; Each character represents 4 bits, there are 16 lines per glyph.
+  (let* ((width (/ (* (length glyph) 4) 16))
+         (vec (make-array (* width 16) :element-type 'bit))
+         (chars-per-row (/ width 4)))
+    (dotimes (y 16)
+      (let ((row (parse-integer glyph
+                                :start (* y chars-per-row)
+                                :end (* (1+ y) chars-per-row)
+                                :radix 16)))
+        (dotimes (x width)
+          (setf (bit vec (+ x (* y width))) (ldb (byte 1 (- width 1 x)) row)))))
+    vec))
 
 (defun generate-unifont-table (unifont)
   "Generate a radix tree of glyphs from a stream of unifont entries."
