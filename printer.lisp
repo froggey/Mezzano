@@ -173,6 +173,13 @@
                     (print-unreadable-object (object stream :type t :identity t)
                       (write name :stream stream))
                     (print-unreadable-object (object stream :type t :identity t)))))))
+    (bit-vector
+     (write-char #\# stream)
+     (write-char #\* stream)
+     (dotimes (i (length object))
+       (if (zerop (aref object i))
+           (write-char #\0 stream)
+           (write-char #\1 stream))))
     (vector
      (write-char #\# stream)
      (write-char #\( stream)
