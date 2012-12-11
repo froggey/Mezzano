@@ -17,9 +17,7 @@
   (let ((glyph (map-unifont character)))
     (cond ((null glyph)
            (* (length (char-name character)) 8))
-          ((eql (array-dimension glyph 0) 32)
-           16)
-          (t 8))))
+          (t (truncate (length glyph) 16)))))
 
 (defun render-unifont-glyph (c)
   "Produce an array containing the glyph for C that can be blitted directly to the screen."
