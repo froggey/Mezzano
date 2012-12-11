@@ -353,15 +353,18 @@
 (declaim (special *colour-names*))
 
 (defun make-colour (colour)
-  (if (listp colour)
-      (destructuring-bind (r g b &optional (a 1)) colour
-        (logior (ash (truncate (* (clamp a 0 1) 255)) 24)
-                (ash (truncate (* (clamp r 0 1) 255)) 16)
-                (ash (truncate (* (clamp g 0 1) 255)) 8)
-                (truncate (* (clamp b 0 1) 255))))
-      (let ((c (assoc colour *colour-names*)))
-        (unless c (error "Unknown colour name ~S." colour))
-        (cdr c))))
+  (etypecase colour
+    (list
+     (destructuring-bind (r g b &optional (a 1)) colour
+       (logior (ash (truncate (* (clamp a 0 1) 255)) 24)
+               (ash (truncate (* (clamp r 0 1) 255)) 16)
+               (ash (truncate (* (clamp g 0 1) 255)) 8)
+               (truncate (* (clamp b 0 1) 255)))))
+    (symbol
+     (let ((c (assoc colour *colour-names*)))
+       (unless c (error "Unknown colour name ~S." colour))
+       (cdr c)))
+    ((unsigned-byte 32) colour)))
 
 (defvar *colour-names*
   `((:white   . ,(make-colour '(1.0  1.0  1.0)))
@@ -620,8 +623,12 @@ reverse Z-order."
 (defclass text-window (sys.int::edit-stream sys.int::stream-object window)
   ((cursor-x :initarg :x :accessor cursor-x)
    (cursor-y :initarg :y :accessor cursor-y)
+   (foreground :initarg :foreground :accessor window-foreground-colour)
+   (background :initarg :background :accessor window-background-colour)
    (buffer :initarg :buffer :reader text-window-buffer))
   (:default-initargs :x 0 :y 0
+                     :foreground (make-colour '(0.863 0.863 0.8))
+                     :background (make-colour '(0.247 0.247 0.247))
                      :buffer (make-fifo 500 'character)))
 
 (defclass text-window-with-chrome (text-window window-with-chrome) ())
@@ -629,7 +636,7 @@ reverse Z-order."
 (defmethod window-redraw ((window text-window))
   (multiple-value-bind (left right top bottom)
       (compute-window-margins window)
-    (bitset (window-height window) (window-width window) (make-colour :black) (window-backbuffer window) top left)))
+    (bitset (window-height window) (window-width window) (window-background-colour window) (window-backbuffer window) top left)))
 
 (defmethod key-press-event ((window text-window) character)
   (fifo-push character (text-window-buffer window)))
@@ -661,7 +668,7 @@ reverse Z-order."
                      0
                      (+ y 16))
                (cursor-y stream) y)
-         (sys.int::%bitset 16 win-width #xFF000000 fb (+ top y) left))
+         (sys.int::%bitset 16 win-width (window-background-colour stream) fb (+ top y) left))
         (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
              (when (> (+ x width) win-width)
                ;; Advance to the next line.
@@ -671,10 +678,15 @@ reverse Z-order."
                            0
                            (+ y 16))
                      (cursor-y stream) y)
-               (sys.int::%bitset 16 win-width #xFF000000 fb (+ top y) left))
-             (if (eql character #\Space)
-                 (sys.int::%bitset 16 8 #xFF000000 fb (+ top y) (+ left x))
-                 (sys.int::render-char-at character fb (+ left x) (+ top y)))
+               (sys.int::%bitset 16 win-width (window-background-colour stream) fb (+ top y) left))
+             (sys.int::%bitset 16 width (window-background-colour stream) fb (+ top y) (+ left x))
+             (unless (eql character #\Space)
+               (let* ((glyph (sys.int::map-unifont character)))
+                 (cond (glyph
+                        (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
+                                                 (make-array (list 16 width) :displaced-to glyph) 0 0
+                                                 fb (+ top y) (+ left x)))
+                       (t))))
              (incf x width)
              (setf (cursor-x stream) x))))))
   (setf *refresh-required* t))
@@ -722,20 +734,21 @@ reverse Z-order."
       (compute-window-margins stream)
     (let ((framebuffer (window-frontbuffer stream))
           (win-width (window-width stream))
-          (win-height (window-height stream)))
+          (win-height (window-height stream))
+          (colour (window-background-colour stream)))
       (cond ((eql start-y end-y)
              ;; Clearing one line.
-             (sys.int::%bitset 16 (- end-x start-x) #xFF000000 framebuffer (+ top start-y) (+ left start-x)))
+             (sys.int::%bitset 16 (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x)))
             (t ;; Clearing many lines.
              ;; Clear top line.
-             (sys.int::%bitset 16 (- win-width start-x) #xFF000000
+             (sys.int::%bitset 16 (- win-width start-x) colour
                                framebuffer (+ top start-y) (+ left start-x))
              ;; Clear in-between.
              (when (> (- end-y start-y) 16)
-               (sys.int::%bitset (- end-y start-y 16) win-width #xFF000000
+               (sys.int::%bitset (- end-y start-y 16) win-width colour
                                  framebuffer (+ top start-y 16) left))
              ;; Clear bottom line.
-             (sys.int::%bitset 16 end-x #xFF000000
+             (sys.int::%bitset 16 end-x colour
                                framebuffer (+ top end-y) left)))))
   (setf *refresh-required* t))
 

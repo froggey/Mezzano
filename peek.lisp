@@ -12,7 +12,7 @@
     (sys.int::process-preset process 'peek-top-level instance)
     (sys.int::process-enable process)))
 
-(defun clear-window (window &optional (colour :black))
+(defun clear-window (window &optional (colour (sys.graphics::window-background-colour window)))
   (multiple-value-bind (left right top bottom)
       (sys.graphics::compute-window-margins window)
     (let* ((fb (sys.graphics::window-frontbuffer window))
