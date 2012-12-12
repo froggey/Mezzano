@@ -3,7 +3,8 @@
 (in-package #:sys.graphics)
 
 (defclass window-with-chrome (window)
-  ((chrome-drag-state :initform '())))
+  ((chrome-drag-state :initform '())
+   (has-close-button :initarg :close-button :initform 't)))
 
 (defmethod compute-window-margins ((window window-with-chrome))
   (values 1 1 19 1))
@@ -41,19 +42,21 @@
                                               fb 1 x))
                     (t))))
           (incf x width))))
-    ;; Close button. Unifont uses a chunky double-wide X.
-    (let* ((glyph (sys.int::map-unifont (name-char "Multiplication-X")))
-           (width (truncate (length glyph) 16)))
-      (cond (glyph
-             (bitset-argb-xrgb-mask-1 16 width (make-colour :red)
-                                      (make-array (list 16 width) :displaced-to glyph) 0 0
-                                      fb 2 (- (second dims) 1 16)))
-            (t)))))
+    (when (slot-value window 'has-close-button)
+      ;; Close button. Unifont uses a chunky double-wide X.
+      (let* ((glyph (sys.int::map-unifont (name-char "Multiplication-X")))
+             (width (truncate (length glyph) 16)))
+        (cond (glyph
+               (bitset-argb-xrgb-mask-1 16 width (make-colour :red)
+                                        (make-array (list 16 width) :displaced-to glyph) 0 0
+                                        fb 2 (- (second dims) 1 16)))
+              (t))))))
 
 (defmethod mouse-button-event :around ((window window-with-chrome) button-id clickedp mouse-x mouse-y)
   (let* ((fb (window-backbuffer window))
          (dims (array-dimensions fb)))
     (cond ((and (not (slot-value window 'chrome-drag-state))
+                (slot-value window 'has-close-button)
                 (<= 1 mouse-y 17)
                 (<= (- (second dims) 1 16) mouse-x (- (second dims) 1)))
            ;; Close button.
@@ -123,7 +126,7 @@
 (defmethod mouse-button-event ((window text-window) button-id state mouse-x mouse-y)
   (format t "CLICK ~D ~S (~D,~D)~%" button-id state mouse-x mouse-y))
 
-(defmethod window-close-event :before ((window text-window))
+(defmethod window-close-event ((window text-window))
   (close-window window))
 
 (defmethod sys.int::stream-read-char ((stream text-window))
@@ -269,5 +272,5 @@
 (defun create-lisp-listener ()
   (window-set-visibility (make-window "Lisp Listener" 640 400 'lisp-listener) t))
 
-(defvar *console-window* (make-window "Console" 640 400 'text-window-with-chrome))
+(defvar *console-window* (make-window "Console" 640 400 'text-window-with-chrome :close-button nil))
 (window-set-visibility *console-window* t)
