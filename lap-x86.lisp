@@ -151,7 +151,7 @@
 	(multiple-value-bind (index-nr rex-x)
 	    (when index (encode-register index))
 	  (ecase class
-            (:xmm)
+            ((:xmm :mm))
 	    (:gpr-64 (assert (= *cpu-mode* 64) (*cpu-mode*)
 			"64-bit operand-size only supported in 64-bit mode.")
 		     (setf rex-w t))
@@ -269,7 +269,7 @@
       (multiple-value-bind (r/m-nr rex-b)
 	  (encode-register r/m-reg)
 	(ecase class
-          (:xmm)
+          ((:xmm :mm))
 	  (:gpr-64 (setf rex-w t))
 	  (:gpr-32 (when (= *cpu-mode* 16)
 		     (setf operand-size-override t)))
@@ -301,7 +301,7 @@
     (multiple-value-bind (reg-nr rex-r)
 	(encode-register reg)
       (ecase class
-        (:xmm)
+        ((:xmm :mm))
 	(:gpr-64 (setf rex-w t))
 	(:gpr-32 nil)
 	(:gpr-16 (setf operand-size-override t))
@@ -443,7 +443,7 @@
     (setf width (ecase width
 		  ((:gpr-64 :gpr-32) 4)
 		  (:gpr-16 2)
-		  (:gpr-8 1))))
+		  ((:gpr-8 :mm :xmm) 1))))
   (when (and (= width 4) signedp (eql imm :fixup))
     (note-fixup *fixup-target*)
     (emit #xFF #xFF #xFF #xFF)
@@ -496,12 +496,12 @@
       (incf *current-address* (ecase class
 				((:gpr-64 :gpr-32) 4)
 				(:gpr-16 2)
-				(:gpr-8 1)))
+				((:gpr-8 :xmm :mm) 1)))
       (generate-modrm class r/m opc-minor opc)
       (decf *current-address* (ecase class
 				((:gpr-64 :gpr-32) 4)
 				(:gpr-16 2)
-				(:gpr-8 1)))
+				((:gpr-8 :xmm :mm) 1)))
       (emit-imm class imm-value)
       t)))
 
@@ -511,7 +511,7 @@
 	      (eql ,class (or (reg-class ,dst) ,class))
 	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
      (return-from instruction
-       (let ((*fixup-target* src))
+       (let ((*fixup-target* ,src))
          (generate-imm ,class ,dst ,src ,opc ,opc-minor)))))
 
 (defun generate-imm-short (class r/m imm opc opc-minor)
@@ -1047,13 +1047,49 @@
   (when (and (eql (reg-class dst) :xmm)
              (or (eql (reg-class src) :gpr-32)
                  (consp src)))
+    (emit #x66)
     (return-from instruction
-      (generate-modrm (if (= *cpu-mode* 16) :gpr-32 :gpr-16) src dst '(#x0F #x6E))))
+      (generate-modrm :xmm src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :xmm)
              (or (eql (reg-class dst) :gpr-32)
                  (consp dst)))
+    (emit #x66)
     (return-from instruction
-      (generate-modrm (if (= *cpu-mode* 16) :gpr-32 :gpr-16) dst src '(#x0F #x7E)))))
+      (generate-modrm :xmm dst src '(#x0F #x7E))))
+  (when (and (eql (reg-class dst) :mm)
+             (or (eql (reg-class src) :gpr-32)
+                 (consp src)))
+    (return-from instruction
+      (generate-modrm :mm src dst '(#x0F #x6E))))
+  (when (and (eql (reg-class src) :mm)
+             (or (eql (reg-class dst) :gpr-32)
+                 (consp dst)))
+    (return-from instruction
+      (generate-modrm :mm dst src '(#x0F #x7E)))))
+
+(define-instruction movq (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :gpr-32)
+                 (consp src)))
+    (emit #x66)
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-32)
+                 (consp dst)))
+    (emit #x66)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x7E))))
+  (when (and (eql (reg-class dst) :mm)
+             (or (eql (reg-class src) :gpr-32)
+                 (consp src)))
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
+  (when (and (eql (reg-class src) :mm)
+             (or (eql (reg-class dst) :gpr-32)
+                 (consp dst)))
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x7E)))))
 
 (define-instruction ucomiss (lhs rhs)
   (modrm :xmm rhs lhs '(#x0F #x2E)))
@@ -1117,3 +1153,68 @@
 (define-instruction stmxcsr (area)
   (when (consp area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 3)))
+
+
+        `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
+           (emit #xF2)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))
+        `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))
+        `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
+           (emit #x66)
+           (modrm :xmm rhs lhs '(#x0F ,opcode)))))
+
+(defmacro mmx-integer-op (lhs rhs opcode)
+  `(when (eql (reg-class ,lhs) :mm)
+     (modrm :mm ,rhs ,lhs ',opcode)))
+
+(defmacro xmm-integer-op (lhs rhs opcode)
+  `(when (eql (reg-class ,lhs) :xmm)
+     (emit #x66)
+     (modrm :xmm ,rhs ,lhs ',opcode)))
+
+(defmacro define-simd-integer-op (name opcode)
+  `(define-instruction ,name (lhs rhs)
+     (mmx-integer-op lhs rhs ,opcode)
+     (xmm-integer-op lhs rhs ,opcode)))
+
+(define-simd-integer-op pxor (#x0F #xEF))
+(define-simd-integer-op pshufb (#x0F #x38 #x00))
+(define-simd-integer-op psubb (#x0F #xF8))
+(define-simd-integer-op punpcklbw (#x0F #x60))
+(define-simd-integer-op pmulhuw (#x0F #xE4))
+(define-simd-integer-op pmullw (#x0F #xD5))
+(define-simd-integer-op pmuludq (#x0F #xF4))
+(define-simd-integer-op paddw (#x0F #xFD))
+(define-simd-integer-op packsswb (#x0F #x63))
+(define-simd-integer-op packuswb (#x0F #x67))
+
+(define-instruction psrlw (lhs rhs)
+  (when (eql (reg-class lhs) :mm)
+    (imm :mm lhs rhs '(#x0F #x71) 2)
+    (modrm :mm rhs lhs '(#x0F #xD1)))
+  (when (eql (reg-class lhs) :xmm)
+    (emit #x66)
+    (imm :xmm lhs rhs '(#x0F #x71) 2)
+    (modrm :xmm rhs lhs '(#x0F #xD1))))
+
+(define-instruction psrld (lhs rhs)
+  (when (eql (reg-class lhs) :mm)
+    (imm :mm lhs rhs '(#x0F #x72) 2)
+    (modrm :mm rhs lhs '(#x0F #xD2)))
+  (when (eql (reg-class lhs) :xmm)
+    (emit #x66)
+    (imm :xmm lhs rhs '(#x0F #x72) 2)
+    (modrm :xmm rhs lhs '(#x0F #xD2))))
+
+(defmacro modrm-imm8 (class r/m reg imm8 opc)
+  `(when (and (eql ,class (reg-class ,reg))
+	      (or (eql (reg-class ,r/m) ,class)
+		  (consp ,r/m))
+	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
+              (immediatep ,imm8))
+     (let ((value (resolve-immediate ,imm8)))
+       (when value
+         (generate-modrm ,class ,r/m ,reg ,opc)
+         (emit-imm 1 value))
+       (return-from instruction t))))
