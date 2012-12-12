@@ -12,6 +12,9 @@
     (sys.int::process-preset process 'peek-top-level instance)
     (sys.int::process-enable process)))
 
+(defmethod sys.graphics::window-close-event :before ((window peek-window))
+  (sys.int::process-arrest-reason (window-process window) :window-closed))
+
 (defun clear-window (window &optional (colour (sys.graphics::window-background-colour window)))
   (multiple-value-bind (left right top bottom)
       (sys.graphics::compute-window-margins window)

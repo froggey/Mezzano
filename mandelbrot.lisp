@@ -34,6 +34,9 @@
                 (ci (* scale (- y (/ height 2)))))
             (setf (aref fb (+ y top) (+ x bottom)) (m cr ci 100))))))))
 
+(defmethod sys.graphics::window-close-event :before ((window mandelbrot-window))
+  (sys.graphics::close-window window))
+
 (defun create-mandelbrot-window ()
   (sys.graphics::window-set-visibility (sys.graphics::make-window "Mandelbrot" 500 500 'mandelbrot-window) t))
 
