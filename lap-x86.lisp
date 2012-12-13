@@ -1154,16 +1154,6 @@
   (when (consp area)
     (modrm-single :gpr-32 area '(#x0F #xAE) 3)))
 
-
-        `(define-instruction ,(intern (format nil "~ASD" name)) (lhs rhs)
-           (emit #xF2)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))
-        `(define-instruction ,(intern (format nil "~APS" name)) (lhs rhs)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))
-        `(define-instruction ,(intern (format nil "~APD" name)) (lhs rhs)
-           (emit #x66)
-           (modrm :xmm rhs lhs '(#x0F ,opcode)))))
-
 (defmacro mmx-integer-op (lhs rhs opcode)
   `(when (eql (reg-class ,lhs) :mm)
      (modrm :mm ,rhs ,lhs ',opcode)))

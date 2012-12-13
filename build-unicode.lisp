@@ -35,8 +35,6 @@
 	(when (not (or (string= "00542A542A542A542A542A542A542A00" glyph)
 		       (<= #xD800 codepoint #xF8FF)))
 	  (let ((decoded-glyph (decode-glyph glyph)))
-	    (unless decoded-glyph
-	      (error "Invalid unifont line ~S." line))
 	    (unless (aref unifont-table row)
 	      (setf (aref unifont-table row) (make-array 256 :initial-element nil)))
 	    (setf (aref (aref unifont-table row) cell) decoded-glyph)))))))
