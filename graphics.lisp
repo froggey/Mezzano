@@ -37,6 +37,7 @@
 ;;; Colours from Zenburn.
 (defvar *default-foreground-colour* '(0.863 0.863 0.8))
 (defvar *default-background-colour* '(0.247 0.247 0.247))
+(defvar *default-background-darker-colour* '(0.169 0.169 0.169))
 
 (defstruct screen
   name
@@ -71,7 +72,8 @@
 (defvar *console-window*)
 
 (defun invoke-graphics ()
-  (setf *read-input* t)
+  (setf *read-input* t
+        *refresh-required* t)
   (let ((old-terminal-io *terminal-io*))
     (unwind-protect
          (progn (setf *terminal-io* *console-window*)
