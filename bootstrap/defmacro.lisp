@@ -85,7 +85,9 @@
 			    :lambda-list lambda-list
 			    :format-control "Missing variable name after ~S"
 			    :format-arguments (list (car lambda-list))))
-		   (push (list (cadr ll) current) bindings)
+                   (if (consp (cadr ll))
+                       (handle-sublist (cadr ll) current)
+                       (push (list (cadr ll) current) bindings))
 		   (setf ll (cddr ll)
 			 optional-count nil))
 		 ;; Keyword arguments.
