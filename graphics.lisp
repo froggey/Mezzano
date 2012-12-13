@@ -508,36 +508,36 @@ reverse Z-order."
 (defun graphics-worker ()
   (let ((mouse-state 0)
         (mouse-1 0)
-        (mouse-2 0))
+        (mouse-2 0)
+        (*terminal-io* (sys.int::make-cold-stream)))
     (loop (sys.int::process-wait "Input and display update"
                                  (lambda ()
                                    (or *refresh-required*
                                        (and *read-input*
                                             (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*)))
                                        (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-aux-fifo*)))))
-       (let ((*terminal-io* (sys.int::make-cold-stream)))
-         (when *refresh-required*
-           (setf *refresh-required* nil)
-           (with-simple-restart (abort "Cancel screen update.")
-             (compose-all-displays)))
-         (when *read-input*
-           (loop
-              (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
-                (when (not byte) (return))
-                (let ((key (sys.int::ps/2-translate-scancode byte)))
-                  (when key
-                    (handle-keypress key))))))
+       (when *refresh-required*
+         (setf *refresh-required* nil)
+         (with-simple-restart (abort "Cancel screen update.")
+           (compose-all-displays)))
+       (when *read-input*
          (loop
-            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
+            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-key-fifo*)))
               (when (not byte) (return))
-              (ecase mouse-state
-                (0 (when (logtest byte #b00001000)
-                     (setf mouse-1 byte)
-                     (incf mouse-state)))
-                (1 (setf mouse-2 byte)
-                   (incf mouse-state))
-                (2 (process-mouse-packet mouse-1 mouse-2 byte)
-                   (setf mouse-state 0)))))))))
+              (let ((key (sys.int::ps/2-translate-scancode byte)))
+                (when key
+                  (handle-keypress key))))))
+       (loop
+          (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
+            (when (not byte) (return))
+            (ecase mouse-state
+              (0 (when (logtest byte #b00001000)
+                   (setf mouse-1 byte)
+                   (incf mouse-state)))
+              (1 (setf mouse-2 byte)
+                 (incf mouse-state))
+              (2 (process-mouse-packet mouse-1 mouse-2 byte)
+                 (setf mouse-state 0))))))))
 
 (defvar *graphics-process* (make-instance 'sys.int::process :name "Graphics manager"))
 (sys.int::process-preset *graphics-process* #'graphics-worker)
