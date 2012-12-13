@@ -163,20 +163,26 @@
 ;;; FIXME: Running for so long with interrupts disabled is lame.
 ;;; Probably need to speed this up somehow.
 (defun process-scheduler ()
-  (loop
-     (%cli)
-     (let ((next-process (get-next-process *current-process*)))
-       (setf *current-process* next-process)
-       (cond (next-process
-              (if (typep next-process 'simple-process)
-                  (with-simple-restart (abort "Return from ~S." next-process)
-                    (%sti)
-                    (apply (car (process-initial-form next-process))
-                           (cdr (process-initial-form next-process))))
-                  (progn
-                    (stack-group-resume (process-stack-group next-process) nil)
-                    (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))))
-             (t (%stihlt))))))
+  (let ((*terminal-io* *terminal-io*)
+        (*standard-output* *standard-output*)
+        (*standard-input* *standard-input*)
+        (*debug-io* *debug-io*)
+        (*query-io* *query-io*)
+        (*error-output* *error-output*))
+    (loop
+       (%cli)
+       (let ((next-process (get-next-process *current-process*)))
+         (setf *current-process* next-process)
+         (cond (next-process
+                (if (typep next-process 'simple-process)
+                    (with-simple-restart (abort "Return from ~S." next-process)
+                      (%sti)
+                      (apply (car (process-initial-form next-process))
+                             (cdr (process-initial-form next-process))))
+                    (progn
+                      (stack-group-resume (process-stack-group next-process) nil)
+                      (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))))
+               (t (%stihlt)))))))
 
 (defmacro with-process ((name function &rest arguments) &body body)
   (let ((x (gensym)))
