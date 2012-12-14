@@ -1,3 +1,12 @@
+;;;; Optimized pluggable blitter functions.
+;;;; The low-level pixel blending functions use a custom calling
+;;;; convetion and must not be called directly from lisp.
+;;;; RAX contains the source pixel.
+;;;; RDI contains the address of the destination pixel.
+;;;; RAX, RBX, RDX and MMX/SSE registers are caller save.
+;;;; All other registers are callee save.
+;;;; Higher-level line blenders must be called with the GC deferred.
+
 (in-package #:sys.graphics)
 
 (defun compute-blit-info-dest-src (nrows ncols from-array from-row from-col to-array to-row to-col)
@@ -48,17 +57,64 @@
             from-array from-offset from-width
             to-array to-offset to-width)))
 
-(defun %bitset-argb-xrgb-mask-1 (nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
-  (dotimes (y nrows)
-    (dotimes (x ncols)
-      (unless (zerop (row-major-aref mask (+ mask-offset x (* y mask-stride))))
-        (alpha-blend-one-argb8888-xrgb8888 to (+ to-offset x (* y to-stride)) colour)))))
+;;; SETTER NCOLS COLOUR MASK MASK-OFFSET TO TO-OFFSET
+(sys.int::define-lap-function %bitset-mask-1-line ()
+  (sys.lap-x86:mov64 :rsi :r11)
+  (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
+  (sys.lap-x86:mov64 :rdi (:lsp 0))
+  (sys.lap-x86:sar64 :rdi 3) ; RSI = TO address (byte address)
+  (sys.lap-x86:sar64 (:lsp 8) 1) ; (:lsp 8) = TO-OFFSET (*4)
+  (sys.lap-x86:add64 :rdi (:lsp 8)) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
+  (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
+  (sys.lap-x86:mov64 :rcx :r12)
+  (sys.lap-x86:and8 :cl #b111111) ; CL = current bit in mask.
+  (sys.lap-x86:mov32 :eax 1)
+  (sys.lap-x86:shl64 :rax :cl)
+  (sys.lap-x86:mov64 :rcx :rax) ; RAX = mask mask.
+  (sys.lap-x86:sar64 :r12 6) ; R12 = offset to mask word.
+  (sys.lap-x86:lea64 :rsi (:rsi (:r12 8))) ; (RSI) = current mask word.
+  (sys.lap-x86:test64 :r9 :r9)
+  (sys.lap-x86:jmp test)
+  head
+  (sys.lap-x86:test64 (:rsi) :rcx)
+  (sys.lap-x86:jz next)
+  (sys.lap-x86:mov32 :eax :r10d)
+  (sys.lap-x86:call :r8)
+  next
+  (sys.lap-x86:add64 :rdi 4)
+  (sys.lap-x86:add64 :rcx :rcx)
+  (sys.lap-x86:jnc no-carry)
+  (sys.lap-x86:mov32 :ecx 1)
+  (sys.lap-x86:add64 :rsi 8)
+  no-carry
+  (sys.lap-x86:sub64 :r9 8)
+  test
+  (sys.lap-x86:jnz head)
+  ;; Clear the two data registers that got smashed.
+  (sys.lap-x86:xor32 :r10d :r10d)
+  (sys.lap-x86:xor32 :r12d :r12d)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:lea64 :rbx (:lsp 16))
+  (sys.lap-x86:ret))
 
-(defun %bitset-xrgb-xrgb-mask-1 (nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
-  (dotimes (y nrows)
-    (dotimes (x ncols)
-      (unless (zerop (row-major-aref mask (+ mask-offset x (* y mask-stride))))
-        (set-one-argb8888-xrgb8888 to (+ to-offset x (* y to-stride)) colour)))))
+(declaim (inline bitset-mask-1-whole))
+(defun %bitset-mask-1-whole (setter nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
+  (sys.int::with-deferred-gc ()
+    (when (sys.int::%array-header-p to)
+      (setf to (sys.int::%array-header-storage to)))
+    (unless (integerp to)
+      (assert (typep to 'simple-array))
+      (setf to (+ (sys.int::lisp-object-address to) (- sys.int::+tag-array-like+) 8)))
+    (when (sys.int::%array-header-p mask)
+      (setf mask (sys.int::%array-header-storage mask)))
+    (unless (integerp mask)
+      (assert (typep mask 'simple-array))
+      (setf mask (+ (sys.int::lisp-object-address mask) (- sys.int::+tag-array-like+) 8)))
+    (dotimes (y nrows)
+      (%bitset-mask-1-line setter ncols colour mask mask-offset to to-offset)
+      (incf mask-offset mask-stride)
+      (incf to-offset to-stride))))
 
 (defun bitset-argb-xrgb-mask-1 (nrows ncols colour mask-array mask-row mask-col to-array to-row to-col)
   "Fill a rectangle with COLOUR using a 1-bit mask."
@@ -70,77 +126,34 @@
       ;; Stop early for 100% transparent colours.
       (0)
       ;; Don't blend 100% opaque colours.
-      (#xFF (%bitset-xrgb-xrgb-mask-1 nrows ncols colour mask mask-offset mask-stride to to-offset to-stride))
+      (#xFF (%bitset-mask-1-whole #'%%set-one-xrgb8888-xrgb8888 nrows ncols colour mask mask-offset mask-stride to to-offset to-stride))
       ;; Fall back on blend function.
-      (t (%bitset-argb-xrgb-mask-1 nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)))))
+      (t (%bitset-mask-1-whole #'%%alpha-blend-one-argb8888-xrgb8888 nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)))))
 
-(defun set-one-argb8888-xrgb8888 (dest offset pixel)
-  (setf (row-major-aref dest offset) pixel))
+;;; EAX = XRGB8888 pixel.
+;;; RDI = XRGB8888 destination.
+(sys.int::define-lap-function %%set-one-xrgb8888-xrgb8888 ()
+  (sys.lap-x86:mov32 (:rdi) :eax)
+  (sys.lap-x86:ret))
 
-(defun alpha-blend-one-argb8888-xrgb8888 (dest offset pixel)
-    "Alpha-blend PIXEL into DEST.
-Uses OpenGL-style Src-alpha/One-minus-src-alpha blending.
-DEST must be of type (simple-array (unsigned-byte 32) (* *)).
-OFFSET must be a row-major index into DEST.
-PIXEL must be a 32-bit ARGB pixel."
-  (declare (type (unsigned-byte 32) pixel)
-           (type (simple-array (unsigned-byte 32) (* *)) dest)
-           (optimize speed))
-  (let ((ca (ldb (byte 8 24) pixel))
-        (cr (ldb (byte 8 16) pixel))
-        (cg (ldb (byte 8  8) pixel))
-        (cb (ldb (byte 8  0) pixel)))
-    (cond ((zerop ca)) ; Ignore 100% transparent pixels.
-          ((eql ca #xFF)
-           ;; Don't blend for 100% opaque pixels.
-           (setf (row-major-aref dest offset) pixel))
-          (t ;; Blend.
-           (flet ((blend (s d sa)
-                    (min (+ (truncate (* s sa) 255)
-                            (truncate (* d (- 255 sa)) 255))
-                         255)))
-             ;; Do complicated alpha blending.
-             (let* ((d (row-major-aref dest offset))
-                    (da (ldb (byte 8 24) d))
-                    (dr (ldb (byte 8 16) d))
-                    (dg (ldb (byte 8  8) d))
-                    (db (ldb (byte 8  0) d))
-                    (fa (blend ca da ca))
-                    (fr (blend cr dr ca))
-                    (fg (blend cg dg ca))
-                    (fb (blend cb db ca)))
-               (setf (row-major-aref dest offset)
-                     (logior (ash fa 24)
-                             (ash fr 16)
-                             (ash fg  8)
-                             fb))))))))
-
-;;; DEST OFFSET PIXEL
+;;; EAX = XRGB8888 pixel.
+;;; RDI = XRGB8888 destination.
 ;;; Alpha-blend PIXEL into DEST.
 ;;; Uses OpenGL-style Src-alpha/One-minus-src-alpha blending.
-;;; DEST must the fixnum address of an (unsigned-byte 32) simple-array.
-;;; OFFSET must be a row-major index into DEST.
-;;; PIXEL must be a 32-bit ARGB pixel.
-(sys.int::define-lap-function %alpha-blend-one-argb8888-xrgb8888 ()
-  (sys.lap-x86:mov64 :rax :r10) ; rax = pixel (ARGB fixnum)
-  (sys.lap-x86:shr64 :rax 3) ; rax = pixel (ARGB)
-  (sys.lap-x86:mov64 :rdi :r8) ; rdi = dest (fixnum)
-  (sys.lap-x86:shr64 :rdi 3) ; rdi = dest (byte address)
-  (sys.lap-x86:mov64 :rbx :r9) ; rbx = offset (* 8)
-  (sys.lap-x86:shr64 :rbx 1) ; rbx = offset (* 4)
-  (sys.lap-x86:mov32 :ecx :eax) ; ecx = pixel (ARGB)
-  (sys.lap-x86:and32 :ecx #xFF000000) ; ecx = pixel-alpha (A000)
+(sys.int::define-lap-function %%alpha-blend-one-argb8888-xrgb8888 ()
+  (sys.lap-x86:mov32 :ebx :eax) ; ebx = pixel (ARGB)
+  (sys.lap-x86:and32 :ebx #xFF000000) ; ebx = pixel-alpha (A000)
   (sys.lap-x86:jz out) ; Fully transparent, bail out.
-  (sys.lap-x86:cmp32 :ecx #xFF000000)
+  (sys.lap-x86:cmp32 :ebx #xFF000000)
   (sys.lap-x86:je set-result) ; Fully opaque, just set it.
   ;; Read destination.
-  (sys.lap-x86:mov32 :edx (:rdi :rbx)) ; rdx = pixel (XRGB)
+  (sys.lap-x86:mov32 :edx (:rdi)) ; rdx = pixel (XRGB)
   ;; MMX pixel blend.
   ;; RAX = Source pixel.
   ;; RCX = Alpha channel of source pixel at (byte 8 24).
   ;; RDX = Dest pixel.
   (sys.lap-x86:movd :mm0 :eax) ; MM0 = source (0000ARGB)
-  (sys.lap-x86:movd :mm1 :ecx) ; MM1 = source alpha (0000A000)
+  (sys.lap-x86:movd :mm1 :ebx) ; MM1 = source alpha (0000A000)
   (sys.lap-x86:movd :mm2 :edx) ; MM2 = dest (0000XRGB)
   (sys.lap-x86:pxor :mm3 :mm3) ; MM3 = 0
   ;; Swizzle alpha.
@@ -165,10 +178,8 @@ PIXEL must be a 32-bit ARGB pixel."
   (sys.lap-x86:movd :eax :mm0)
   ;; EAX = Final pixel.
   set-result
-  (sys.lap-x86:mov32 (:rdi :rbx) :eax) ; rdx = pixel (XRGB)
+  (sys.lap-x86:mov32 (:rdi) :eax) ; rdx = pixel (XRGB)
   out
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle
