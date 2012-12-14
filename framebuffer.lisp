@@ -3,6 +3,7 @@
 (declaim (special *unifont-bmp*))
 
 (defparameter *unifont-glyph-cache* (make-array 256 :initial-element nil))
+(defparameter *unifont-2d-glyph-cache* (make-array 256 :initial-element nil))
 
 (defun map-unifont (c)
   (let ((code (char-code c)))
@@ -48,6 +49,29 @@
                (setf (aref screen-glyph i 0) #xFFB2B2B2
                      (aref screen-glyph i (1- (* (length name) 8))) #xFFB2B2B2))
              screen-glyph)))))
+
+(defun map-unifont-2d (c)
+  ;; TODO: Generate missing characters here.
+  (let* ((code (char-code c))
+         (row (ldb (byte 8 8) code))
+         (cell (ldb (byte 8 0) code))
+         (cache-row nil)
+         (glyph nil)
+         (1d-glyph nil))
+    ;; Unifont only covers plane 0
+    (when (and (<= code #xffff)
+               (zerop (char-bits c)))
+      (setf cache-row (svref *unifont-2d-glyph-cache* row))
+      (unless cache-row
+        (setf cache-row (make-array 256 :initial-element nil)
+              (svref *unifont-2d-glyph-cache* row) cache-row))
+      (setf glyph (svref cache-row cell))
+      (unless glyph
+        (setf 1d-glyph (map-unifont c))
+        (when (not 1d-glyph) (return-from map-unifont-2d nil))
+        (setf glyph (make-array (list 16 (truncate (length 1d-glyph) 16)) :displaced-to 1d-glyph)
+              (svref cache-row cell) glyph))
+      glyph)))
 
 (defun get-unifont-glyph (c)
   ;; Only use the cache for characters in the BMP.
