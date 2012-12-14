@@ -9,13 +9,13 @@
 (define-condition simple-editor-error (simple-error) ())
 (define-condition minibuffer-complete () ())
 
+(defvar *editor-window* nil)
+(defvar *frame* nil)
 (defvar *minibuffer* nil)
 (defvar *delayed-minibuffer-clear* nil)
 (defvar *dispatch-table* (make-hash-table))
 (defvar *last-key-pressed* nil)
 (defvar *last-command* nil)
-(defvar *input-stream* nil)
-(defvar *main-screen* nil)
 (defvar *main-screen-buffer* nil)
 
 (defun global-key (character)
@@ -51,13 +51,14 @@
      ,@body))
 
 (defun display-buffer (buffer fb x y w h)
-  (sys.int::%bitset h w #xFF000000 fb y x)
+  (sys.graphics::bitset h w (sys.graphics::make-colour sys.graphics::*default-background-colour*) fb y x)
   (do ((lines-written 0)
        (line (buffer-first-line buffer)))
       ((or (>= lines-written h)
 	   (null line)))
     (let ((contents (slot-value line 'contents))
-          (next (slot-value line 'next)))
+          (next (slot-value line 'next))
+          (text-colour (sys.graphics::make-colour sys.graphics::*default-foreground-colour*)))
       (do ((i 0 (1+ i))
 	   (ofs 0))
 	  ((or (>= i (length contents))
@@ -68,10 +69,13 @@
 	     (draw-cursor fb (+ x ofs) (+ y lines-written) (eql *buffer* buffer))))
 	(let* ((ch (char contents i))
                (width (if (eql ch #\Space) 8 (sys.int::unifont-glyph-width ch))))
-          (unless (>= (+ ofs width) w)
-            (if (eql ch #\Space)
-                (sys.int::%bitset 16 8 #xFF000000 fb (+ y lines-written) (+ x ofs))
-                (sys.int::render-char-at ch fb (+ x ofs) (+ y lines-written))))
+          (when (and (< (+ ofs width) w)
+                     (not (eql ch #\Space)))
+            (let* ((glyph (sys.int::map-unifont-2d ch)))
+              (when glyph
+                (sys.graphics::bitset-argb-xrgb-mask-1 16 width text-colour
+                                                       glyph 0 0
+                                                       fb (+ y lines-written) (+ x ofs)))))
 	  (when (with-current-buffer buffer
                   (and (eql (point-line) line)
                        (eql (point-character) i)))
@@ -81,28 +85,7 @@
       (setf line next))))
 
 (defun redraw-screen ()
-  (let* ((dims (array-dimensions *main-screen*))
-         (width (second dims))
-         (height (first dims)))
-    (display-buffer *main-screen-buffer* *main-screen*
-                    0 0
-                    width (- height 16 16 2))
-    (display-buffer *minibuffer* *main-screen*
-                    0 (- height 16)
-                    width 16)
-    (sys.int::%bitset 16 width #xFF000000 *main-screen* (- height 16 16 1) 0)
-    (let ((name (buffer-name *main-screen-buffer*))
-          (ofs 0))
-      (dotimes (i (length name))
-        (let* ((ch (char name i))
-               (char-width (if (eql ch #\Space) 8 (sys.int::unifont-glyph-width ch))))
-          (when (< (+ ofs char-width) width)
-            (if (eql ch #\Space)
-                (sys.int::%bitset 16 8 #xFF000000 *main-screen* (- height 16 16 1) ofs)
-                (sys.int::render-char-at ch *main-screen* ofs (- height 16 16 1))))
-          (incf ofs char-width))))
-    (sys.int::%bitset 1 width #xFFD0D0D0 *main-screen* (- height 16 1) 0)
-    (sys.int::%bitset 1 width #xFFD0D0D0 *main-screen* (- height 16 16 2) 0)))
+  (sys.graphics::window-redraw *frame*))
 
 (defun read-from-minibuffer (prompt-string &key read)
   (let ((*buffer* *minibuffer*)
@@ -213,7 +196,7 @@
   (loop
      (with-simple-restart (continue "Ignore the error.")
        (redraw-screen)
-       (let* ((ch (read-char *input-stream*))
+       (let* ((ch (read-editor-character))
               (fn (or (buffer-key *buffer* ch)
                       (global-key ch))))
          (when (hash-table-p fn)
@@ -222,7 +205,7 @@
              (clear-buffer)
              (insert (char-name ch))
              (redraw-screen))
-           (setf ch (read-char *input-stream*))
+           (setf ch (read-editor-character))
            (setf fn (gethash ch fn)))
          (setf *last-key-pressed* ch)
          (when *delayed-minibuffer-clear*
@@ -233,16 +216,91 @@
            (funcall fn))
          (setf *last-command* fn)))))
 
-(defun ed (&optional thing)
+(defclass editor-window (sys.graphics::window-with-chrome)
+  ((input-buffer :initarg :input-buffer)
+   (process :reader window-process))
+  (:default-initargs :input-buffer (sys.graphics::make-fifo 500 'character)))
+
+(defmethod initialize-instance :after ((instance editor-window))
   (unless *buffer*
     (set-buffer (get-buffer-create "*scratch*"))
     (setf *main-screen-buffer* (get-buffer-create "*scratch*"))
     (setf *minibuffer* (get-buffer-create " *minibuffer*")
           (buffer-key *minibuffer* #\Newline) 'exit-minibuffer))
-  ;; Avoid the echo behaviour of framebuffer streams.
-  (let ((*input-stream* (make-instance 'sys.int::ps/2-keyboard-stream)))
-    (sys.int::with-saved-screen (fb) ; binding special variables using lambda seems to be astonishingly broken.
-      (let ((*main-screen* fb))
-        (handler-case
-            (editor-loop)
-          (exit-editor ()))))))
+  (let ((process (make-instance 'sys.int::process :name "Edit")))
+    (setf (slot-value instance 'process) process)
+    (sys.int::process-preset process 'editor-top-level instance)
+    (sys.int::process-enable process)))
+
+(defmethod sys.graphics::window-close-event :before ((window editor-window))
+  (sys.int::process-arrest-reason (window-process window) :window-closed))
+
+(defmethod sys.graphics::key-press-event ((window editor-window) character)
+  (sys.graphics::fifo-push character (slot-value window 'input-buffer)))
+
+(defmethod sys.graphics::window-redraw ((window editor-window))
+  (let* ((fb (sys.graphics::window-backbuffer window))
+         (dims (array-dimensions fb))
+         (width (second dims))
+         (height (first dims))
+         (text-colour (sys.graphics::make-colour sys.graphics::*default-foreground-colour*)))
+    (multiple-value-bind (left right top bottom)
+        (sys.graphics::compute-window-margins window)
+      (display-buffer *main-screen-buffer* fb
+                      left top
+                      (- width left right) (- height 16 16 2 top bottom))
+      (display-buffer *minibuffer* fb
+                      left (- height 16 bottom)
+                      (- width left right) 16)
+      (sys.graphics::bitset 16 (- width left right)
+                            (sys.graphics::make-colour sys.graphics::*default-background-darker-colour*)
+                            fb
+                            (- height 16 16 1 bottom) left)
+      (let ((name (buffer-name *main-screen-buffer*))
+            (ofs left))
+        (dotimes (i (length name))
+          (let* ((ch (char name i))
+                 (char-width (if (eql ch #\Space) 8 (sys.int::unifont-glyph-width ch)))
+                 (glyph (sys.int::map-unifont-2d ch)))
+            (when (and (< (+ ofs char-width) width)
+                       (not (eql ch #\Space))
+                       glyph)
+              (sys.graphics::bitset-argb-xrgb-mask-1 16 char-width text-colour
+                                                     glyph 0 0
+                                                     fb (- height 16 16 1 bottom) ofs))
+            (incf ofs char-width))))
+      (sys.graphics::bitset 1 (- width left right) #xFFD0D0D0 fb (- height 16 1 bottom) left)
+      (sys.graphics::bitset 1 (- width left right) #xFFD0D0D0 fb (- height 16 16 2 bottom) left))))
+
+(defun read-editor-character ()
+  (loop
+     (let ((char (sys.graphics::fifo-pop (slot-value *frame* 'input-buffer))))
+       (when char (return char)))
+     (sys.int::process-wait "User input"
+                            (lambda (frame)
+                              (not (sys.graphics::fifo-emptyp (slot-value frame 'input-buffer))))
+                            *frame*)))
+
+(defun editor-top-level (window)
+  (let ((*buffer* (get-buffer-create "*scratch*"))
+        (*last-key-pressed* nil)
+        (*frame* window))
+    (unwind-protect
+         (handler-case (editor-loop)
+           (exit-editor ()))
+      (sys.graphics::close-window window))))
+
+(defun ed (&optional thing)
+  (unless *editor-window*
+    (setf *editor-window* (sys.graphics::make-window "Edit.com" 600 600 'editor-window)))
+  (sys.graphics::window-set-visibility *editor-window* t))
+(defun create-or-show-editor-window ()
+  (unless *editor-window*
+    (setf *editor-window* (sys.graphics::make-window "Edit.com" 600 600 'editor-window)))
+  (sys.graphics::window-set-visibility *editor-window* t))
+(defun create-or-show-editor-window ()
+  (let ((win (sys.graphics::make-window "Edit" 600 600 'editor-window)))
+    (sys.graphics::window-set-visibility win t)))
+
+(setf (gethash (name-char "F6") sys.graphics::*global-keybindings*) 'create-or-show-editor-window)
+(setf (gethash (name-char "M-F6") sys.graphics::*global-keybindings*) 'create-editor-window)
