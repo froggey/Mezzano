@@ -541,7 +541,7 @@
         *print-escape* t
         *print-readably* nil
         *print-safe* t)
-  (setf *features* '(:x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
+  (setf *features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 60) 1)
         most-negative-fixnum #.(- (expt 2 60)))

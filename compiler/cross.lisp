@@ -33,7 +33,8 @@
            #:macro-function
            #:most-positive-fixnum
            #:most-negative-fixnum
-           #:lambda-list-keywords)
+           #:lambda-list-keywords
+           #:*features*)
   (:export #:proclaim
            #:get-setf-expansion
            #:macroexpand
@@ -43,6 +44,7 @@
            #:most-positive-fixnum
            #:most-negative-fixnum
            #:lambda-list-keywords
+           #:*features*
            #:allocate-std-instance
            #:std-instance-p
            #:std-instance-class
