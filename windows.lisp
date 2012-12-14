@@ -35,20 +35,20 @@
           (when (> (+ x width) (- (second dims) 2 16))
             (return))
           (unless (eql character #\Space)
-            (let* ((glyph (sys.int::map-unifont character)))
+            (let* ((glyph (sys.int::map-unifont-2d character)))
               (cond (glyph
                      (bitset-argb-xrgb-mask-1 16 width text-colour
-                                              (make-array (list 16 width) :displaced-to glyph) 0 0
+                                              glyph 0 0
                                               fb 1 x))
                     (t))))
           (incf x width))))
     (when (slot-value window 'has-close-button)
       ;; Close button. Unifont uses a chunky double-wide X.
-      (let* ((glyph (sys.int::map-unifont (name-char "Multiplication-X")))
-             (width (truncate (length glyph) 16)))
+      (let* ((glyph (sys.int::map-unifont-2d (name-char "Multiplication-X")))
+             (width (array-dimension glyph 1)))
         (cond (glyph
                (bitset-argb-xrgb-mask-1 16 width (make-colour :red)
-                                        (make-array (list 16 width) :displaced-to glyph) 0 0
+                                        glyph 0 0
                                         fb 2 (- (second dims) 1 16)))
               (t))))))
 
@@ -166,10 +166,10 @@
                (sys.int::%bitset 16 win-width (window-background-colour stream) fb (+ top y) left))
              (sys.int::%bitset 16 width (window-background-colour stream) fb (+ top y) (+ left x))
              (unless (eql character #\Space)
-               (let* ((glyph (sys.int::map-unifont character)))
+               (let* ((glyph (sys.int::map-unifont-2d character)))
                  (cond (glyph
                         (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
-                                                 (make-array (list 16 width) :displaced-to glyph) 0 0
+                                                 glyph 0 0
                                                  fb (+ top y) (+ left x)))
                        (t))))
              (incf x width)
