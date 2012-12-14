@@ -188,9 +188,11 @@
   (multiple-value-bind (left right top bottom)
       (compute-window-margins instance)
     (setf (slot-value instance 'frontbuffer) (make-array (list (+ height top bottom) (+ width left right))
-                                                         :element-type '(unsigned-byte 32))
+                                                         :element-type '(unsigned-byte 32)
+                                                         :area :static)
           (slot-value instance 'backbuffer) (make-array (list (+ height top bottom) (+ width left right))
-                                                        :element-type '(unsigned-byte 32)))))
+                                                        :element-type '(unsigned-byte 32)
+                                                        :area :static))))
 
 (defvar *active-drag-window* nil)
 
