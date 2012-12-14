@@ -303,9 +303,28 @@
   (sys.int::stream-write-byte (char-code char) stream))
 
 (defmethod sys.int::stream-read-char ((stream simple-file-character-stream))
-  (let ((x (sys.int::stream-read-byte stream)))
-    (when x
-      (code-char x))))
+  (let ((leader (read-byte stream nil)))
+    (when leader
+      (when (eql leader #x0D)
+        (read-byte stream nil)
+        (setf leader #x0A))
+      (multiple-value-bind (length code-point)
+          (sys.net::utf-8-decode-leader leader)
+        (when (null length)
+          (return-from sys.int::stream-read-char
+            (code-char #xFFFE)))
+        (dotimes (i length)
+          (let ((byte (read-byte stream nil)))
+            (when (or (null byte)
+                      (/= (ldb (byte 2 6) byte) #b10))
+              (return-from sys.int::stream-read-char
+                (code-char #xFFFE)))
+            (setf code-point (logior (ash code-point 6)
+                                     (ldb (byte 6 0) byte)))))
+        (if (or (> code-point #x0010FFFF)
+                (<= #xD800 code-point #xDFFF))
+            (code-char #xFFFE)
+            (code-char code-point))))))
 
 (defmethod sys.int::stream-file-position ((stream simple-file-stream))
   (sf-position stream))
