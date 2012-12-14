@@ -31,6 +31,7 @@
     (#\M "Memory" peek-memory "Show memory information.")
     (#\N "Network" peek-network "Show network information.")
     (#\D "Devices" peek-devices "Show device information.")
+    (#\C "CPU" peek-cpu "Show CPU information.")
     (#\Q "Quit" nil "Quit Peek")))
 
 (defun print-header ()
@@ -102,23 +103,188 @@
           (sys.int::pci-find-device (first id) (second id))
         (format t "   ~4,'0X ~4,'0X ~S ~S~%" (first id) (second id) vname dname)))))
 
+(defun decode-cpuid-vendor (vendor-1 vendor-2 vendor-3)
+  (let ((vendor (make-string (* 4 3))))
+    (setf (char vendor 0) (code-char (ldb (byte 8 0) vendor-1))
+          (char vendor 1) (code-char (ldb (byte 8 8) vendor-1))
+          (char vendor 2) (code-char (ldb (byte 8 16) vendor-1))
+          (char vendor 3) (code-char (ldb (byte 8 24) vendor-1))
+          (char vendor 4) (code-char (ldb (byte 8 0) vendor-2))
+          (char vendor 5) (code-char (ldb (byte 8 8) vendor-2))
+          (char vendor 6) (code-char (ldb (byte 8 16) vendor-2))
+          (char vendor 7) (code-char (ldb (byte 8 24) vendor-2))
+          (char vendor 8) (code-char (ldb (byte 8 0) vendor-3))
+          (char vendor 9) (code-char (ldb (byte 8 8) vendor-3))
+          (char vendor 10) (code-char (ldb (byte 8 16) vendor-3))
+          (char vendor 11) (code-char (ldb (byte 8 24) vendor-3)))
+    vendor))
+
+(defvar *cpuid-1-ecx-features*
+  #("SSE3"
+    nil
+    nil
+    "MONITOR"
+    "DS-CPL"
+    "VMX"
+    "SMX"
+    "EST"
+    "TM2"
+    "SSSE3"
+    "CNXT-ID"
+    nil
+    nil
+    "CMPXCHG16B"
+    "xTPR"
+    "PDCM"
+    nil
+    nil
+    "DCA"
+    "SSE4.1"
+    "SSE4.2"
+    nil
+    nil
+    "POPCNT"))
+
+(defvar *cpuid-1-edx-features*
+  #("FPU"
+    "VME"
+    "DE"
+    "PSE"
+    "TSC"
+    "MSR"
+    "PAE"
+    "MCE"
+    "CX8"
+    "APIC"
+    nil
+    "SEP"
+    "MTRR"
+    "PGE"
+    "MCA"
+    "CMOV"
+    "PAT"
+    "PSE-36"
+    "PSN"
+    "CLFSH"
+    nil
+    "DS"
+    "ACPI"
+    "MMX"
+    "FXSR"
+    "SSE"
+    "SSE2"
+    "SS"
+    "HTT"
+    "TM"
+    nil
+    "PBE"))
+
+(defvar *cpuid-ext-1-ecx-features*
+  #("LAHF/SAHF"))
+
+(defvar *cpuid-ext-1-edx-features*
+  #(nil ; FPU
+    nil ; VME
+    nil ; DE
+    nil ; PSE
+    nil ; TSC
+    nil ; MSR
+    nil ; PAE
+    nil ; MCE
+    nil ; CMPXCHG8B
+    nil ; APIC
+    nil
+    "SYSCALL"
+    nil ; MTRR
+    nil ; PGE
+    nil ; MCA
+    nil ; CMOV
+    nil ; PAT
+    nil ; PSE36
+    nil
+    nil
+    "NX"
+    nil
+    "MmxExt"
+    nil ; MMX
+    nil ; FXSR
+    "FFXSR"
+    "Page1GB"
+    "RDTSCP"
+    nil
+    "LM"
+    "3DNowExt"
+    "3DNow"))
+
+(defun scan-feature-bits (feature-seq bits)
+  (let ((features '()))
+    (dotimes (i (length feature-seq) features)
+      (when (and (elt feature-seq i)
+                 (logbitp i bits))
+        (push (elt feature-seq i) features)))))
+
+(defun peek-cpu ()
+  (let ((features '())
+        (extended-cpuid-max nil))
+    (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)
+        (sys.int::cpuid 0)
+      (format t "Maximum CPUID level: ~X~%" cpuid-max)
+      (format t "Vendor: ~A~%" (decode-cpuid-vendor vendor-1 vendor-2 vendor-3))
+      (setf extended-cpuid-max (sys.int::cpuid #x80000000))
+      (if (logbitp 31 extended-cpuid-max)
+          (format t "Maximum extended CPUID level: ~X~%" extended-cpuid-max)
+          (format t "Extended CPUID not supported.~%"))
+      (when (>= cpuid-max 1)
+        (multiple-value-bind (a b c d)
+            (sys.int::cpuid 1)
+          (let* ((stepping-id (ldb (byte 4 0) a))
+                 (model (ldb (byte 4 4) a))
+                 (family-id (ldb (byte 4 8) a))
+                 (processor-type (ldb (byte 2 12) a))
+                 (extended-model-id (ldb (byte 4 16) a))
+                 (extended-family-id (ldb (byte 8 20) a))
+                 (display-family (if (= family-id #xF)
+                                     (+ family-id extended-family-id)
+                                     family-id))
+                 (displayed-model (if (or (= family-id #x6) (= family-id #xF))
+                                      (+ (ash extended-model-id 4) model)
+                                      model))
+                 (brand (ldb (byte 8 0) b)))
+            (format t "Model: ~X  Family: ~X  Stepping: ~X  Processor type: ~X  Brand index: ~D~%"
+                    displayed-model display-family stepping-id processor-type brand))
+          (format t "CLFLUSH size: ~D bytes~%" (* (ldb (byte 8 8) b) 8))
+          (format t "Local APIC ID: ~D~%" (ldb (byte 8 24) b))
+          (setf features (nconc (scan-feature-bits *cpuid-1-ecx-features* c)
+                                (scan-feature-bits *cpuid-1-edx-features* d)
+                                features))))
+      (when (>= extended-cpuid-max #x80000001)
+        (multiple-value-bind (a b c d)
+            (sys.int::cpuid #x80000001)
+          (setf features (nconc (scan-feature-bits *cpuid-ext-1-ecx-features* c)
+                                (scan-feature-bits *cpuid-ext-1-edx-features* d)
+                                features)))))
+    (format t "Features: ~A~%" features)))
+
 (defun peek-top-level (window)
   (unwind-protect
        (let ((*standard-output* window)
              (*standard-input* window)
              (mode 'peek-help))
          (loop
-            (clear-window window)
-            (print-header)
-            (fresh-line)
-            (funcall mode)
-            (setf sys.graphics::*refresh-required* t)
-            (let* ((ch (read-char window))
-                   (cmd (assoc ch *peek-commands* :test 'char-equal)))
-              (cond ((char= ch #\Space)) ; refresh current window
-                    ((char-equal ch #\Q)
-                     (return))
-                    (cmd (setf mode (third cmd)))))))
+            (restart-case
+                (progn (clear-window window)
+                       (print-header)
+                       (fresh-line)
+                       (funcall mode)
+                       (setf sys.graphics::*refresh-required* t)
+                       (let* ((ch (read-char window))
+                              (cmd (assoc ch *peek-commands* :test 'char-equal)))
+                         (cond ((char= ch #\Space)) ; refresh current window
+                               ((char-equal ch #\Q)
+                                (return))
+                               (cmd (setf mode (third cmd))))))
+              (abort () :report "Reset Peek."
+                (setf mode 'peek-help)))))
     (sys.graphics::close-window window)))
 
 (defun create-peek-window ()
