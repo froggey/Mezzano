@@ -6,11 +6,13 @@
 
 (defvar *structure-type-type* nil)
 
-(defun make-struct-type (name slots)
-  (let ((x (%make-struct 3 :static)))
+(defun make-struct-type (name slots parent area)
+  (let ((x (%make-struct 5 :static)))
     (setf (%struct-slot x 0) *structure-type-type*
 	  (%struct-slot x 1) name
-	  (%struct-slot x 2) slots)
+	  (%struct-slot x 2) slots
+          (%struct-slot x 3) parent
+          (%struct-slot x 4) area)
     x))
 
 (defun structure-name (object)
@@ -23,12 +25,26 @@
     (error 'type-error :datum object :expected-type 'structure-definition))
   (%struct-slot object 2))
 
+(defun structure-parent (object)
+  (unless (eq (%struct-slot object 0) *structure-type-type*)
+    (error 'type-error :datum object :expected-type 'structure-definition))
+  (%struct-slot object 3))
+
+(defun structure-area (object)
+  (unless (eq (%struct-slot object 0) *structure-type-type*)
+    (error 'type-error :datum object :expected-type 'structure-definition))
+  (%struct-slot object 4))
+
 ;;; Bootstrap the defstruct system.
 (defun bootstrap-defstruct ()
   (setf *structure-type-type* nil
         *structure-type-type* (make-struct-type 'structure-definition
 						'((name structure-name nil t t)
-						  (slots structure-slots nil t t))))
+						  (slots structure-slots nil t t)
+                                                  (parent structure-parent nil t t)
+                                                  (area structure-area nil t t))
+                                                nil
+                                                :static))
   (setf (%struct-slot *structure-type-type* 0) *structure-type-type*)
   (setf (get 'structure-definition 'structure-type) *structure-type-type*))
 
@@ -42,7 +58,13 @@
 	(suppress-constructors nil)
 	(constructors '())
 	(predicate-name t)
-        (area nil))
+        (copier-name t)
+        (area nil)
+        (conc-namep t)
+        (conc-name nil)
+        (included-structure-name nil)
+        (included-slot-descriptions nil)
+        (included-structure nil))
     (if (symbolp name-and-options)
 	(setf name name-and-options)
 	(progn
@@ -102,19 +124,46 @@
 		    (eq :copier (first option))
 		    (cdr option)
 		    (null (cddr option)))
-	       ;; TODO: disable copier when supported
-	       (cond ((eq (second option) 'nil))
-		     (t (error "TODO: copier option."))))
+	       (cond ((eq (second option) 'nil)
+		      (setf copier-name nil))
+		     ((null copier-name)
+		      (error "Copier option ~S conflicts with (:copier nil) used earlier." option))
+		     ((eq copier-name t)
+		      (setf copier-name (second option)))
+		     (t (error "Multiple copier options supplied."))))
               ;; (:area name)
               ((and (consp option)
 		    (eq :area (first option))
 		    (cdr option)
 		    (null (cddr option)))
                (setf area (second option)))
+              ;; :conc-name, same as (:conc-name nil). no prefix.
+              ((eql option :conc-name)
+               (setf conc-namep nil))
+              ;; (:conc-name &optional name)
+              ((and (consp option)
+                    (eql (first option) :conc-name)
+                    (null (cddr option)))
+               (if (second option)
+                   (setf conc-namep t
+                         conc-name (second option))
+                   (setf conc-namep nil)))
+              ((or (eql option :include)
+                   (and (consp option)
+                        (eql (first option) :include)
+                        (null (cdr option))))
+               (error "Malformed :INCLUDE option ~S." option))
+              ((and (consp option)
+                    (eql (first option) :include))
+               (when included-structure-name
+                 (error "Multiple :INCLUDE options in DEFSTRUCT."))
+               (setf included-structure-name (second option)
+                     included-slot-descriptions (cddr option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
-	    ;; TODO: conc-name.
-	    (concat-symbols name '-)
+            (when conc-namep
+              (intern (string (or conc-name
+                                  (concat-symbols name '-)))))
 	    (cond
 	      ;; No constructor.
 	      (suppress-constructors
@@ -134,7 +183,17 @@
 	       (concat-symbols name '-p))
 	      ;; Explicit predicate.
 	      (t predicate-name))
-            area)))
+            area
+	    (cond
+	      ;; No copier.
+	      ((null copier-name)
+	       nil)
+	      ;; Default copier.
+	      ((eq copier-name 't)
+	       (concat-symbols 'copy- name))
+	      ;; Explicit copier.
+	      (t predicate-name))
+            included-structure-name included-slot-descriptions)))
 
 ;; Parses slot-description and produces:
 ;; (slot-name accessor-name initform type read-only)
@@ -185,21 +244,57 @@
 		       (structure-slots struct-type)))
 	   ,tmp)))))
 
+(defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
+  (when included-slot-descriptions
+    (error "Included slot-descriptions not supported yet."))
+  (append (when included-structure
+            (structure-slots included-structure))
+          (mapcar (lambda (s)
+                    (parse-defstruct-slot conc-name s))
+                  slot-descriptions)))
+
 )
 
+(defun structure-type-p (object struct-type)
+  (when (structure-object-p object)
+    (do ((object-type (%struct-slot object 0) (structure-parent object-type)))
+        ((null object-type) nil)
+      (when (eq object-type struct-type)
+        (return t)))))
+
+(defun copy-structure (structure)
+  (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")
+  (let* ((struct-type (%struct-slot object 0))
+         (n-slots (length (structure-slots struct-type)))
+         (new (%make-struct (1+ n-slots)
+                            (structure-area struct-type))))
+    (setf (%struct-slot new 0) struct-type)
+    (dotimes (i n-slots)
+      (setf (%struct-slot new (1+ i)) (%struct-slot structure (1+ i))))
+    new))
+
 (defmacro defstruct (name-and-options &rest slot-descriptions)
-  (multiple-value-bind (name conc-name constructors predicate area)
+  (multiple-value-bind (name conc-name constructors predicate area copier
+                        included-structure-name included-slot-descriptions)
       (parse-defstruct-options name-and-options)
-    (let* ((slots (mapcar (lambda (s) (parse-defstruct-slot conc-name s)) slot-descriptions))
+    (let* ((included-structure (when included-structure-name
+                                 (get-structure-type included-structure-name)))
+           (slots (compute-defstruct-slots conc-name
+                                           slot-descriptions
+                                           included-structure
+                                           included-slot-descriptions))
 	   (struct-type (or (get name 'structure-type)
-                            (make-struct-type name slots))))
+                            (make-struct-type name slots included-structure area))))
       `(progn
 	 (eval-when (:compile-toplevel :load-toplevel :execute)
 	   (%defstruct ',struct-type))
 	 ,@(when predicate
 	      (list `(defun ,predicate (object)
-		       (and (structure-object-p object)
-			    (eq (%struct-slot object 0) ',struct-type)))))
+                       (structure-type-p object ',struct-type))))
+         ,@(when copier
+             (list `(defun ,copier (object)
+                      (check-type object ,name)
+                      (copy-structure object))))
 	 ,@(let ((n 0))
 	     (mapcar (lambda (s)
 		       (setf n (1+ n))

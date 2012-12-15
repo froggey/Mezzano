@@ -1079,18 +1079,20 @@
   (unless (equal (third definition) slots)
     (error "Incompatible redefinition of structure. ~S ~S~%" definition slots)))
 
-(defun load-structure-definition (name* slots*)
+(defun load-structure-definition (name* slots* parent* area*)
   (let* ((name (extract-object name*))
          (slots (extract-object slots*))
          (definition (gethash name *struct-table*)))
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) +tag-array-like+))
-          (t (let ((address (allocate 4 :static)))
-               (setf (word address) (array-header +array-type-struct+ 3))
+          (t (let ((address (allocate 6 :static)))
+               (setf (word address) (array-header +array-type-struct+ 5))
                (setf (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
                (setf (word (+ address 2)) name*)
                (setf (word (+ address 3)) slots*)
+               (setf (word (+ address 4)) parent*)
+               (setf (word (+ address 5)) area*)
                (setf (gethash name *struct-table*) (list address name slots))
                (make-value address +tag-array-like+))))))
 
@@ -1265,9 +1267,11 @@
      (logior (ash (load-character stream) 4)
              +tag-character+))
     (#.+llf-structure-definition+
-     (let ((slots (vector-pop stack))
+     (let ((area (vector-pop stack))
+           (parent (vector-pop stack))
+           (slots (vector-pop stack))
            (name (vector-pop stack)))
-       (load-structure-definition name slots)))
+       (load-structure-definition name slots parent area)))
     (#.+llf-single-float+
      (logior (ash (load-integer stream) 32)
              +tag-single-float+))))

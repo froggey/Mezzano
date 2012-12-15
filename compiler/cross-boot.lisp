@@ -113,6 +113,11 @@
 (defun sys.int::%defstruct (def)
   (setf (gethash (structure-type-name def) *structure-types*) def))
 
+(defun sys.int::get-structure-type (name &optional (errorp t))
+  (or (gethash name *structure-types*)
+      (and errorp
+           (error "Unknown structure type ~S." name))))
+
 (macrolet ((def (b-name name)
              `(def-x-macro ,b-name (&rest rest)
                 (list* ',name rest))))

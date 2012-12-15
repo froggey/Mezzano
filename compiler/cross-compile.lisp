@@ -68,9 +68,12 @@
 (defvar *reverse-setf-symbols* (make-hash-table :test 'eq))
 
 (defstruct (structure-type
-             (:constructor sys.int::make-struct-type (name slots)))
+             (:constructor sys.int::make-struct-type
+                           (name slots parent area)))
   (name)
-  (slots))
+  (slots)
+  (parent)
+  (area))
 
 (defvar *structure-types* (make-hash-table :test 'eq))
 
@@ -426,6 +429,8 @@
 (defmethod save-one-object ((object structure-type) omap stream)
   (save-object (structure-type-name object) omap stream)
   (save-object (structure-type-slots object) omap stream)
+  (save-object (structure-type-parent object) omap stream)
+  (save-object (structure-type-area object) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defun %single-float-as-integer (value)

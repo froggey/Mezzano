@@ -97,14 +97,16 @@
     vector))
 
 (defun load-llf-structure-definition (stream stack)
-  (let* ((slots (vector-pop stack))
+  (let* ((area (vector-pop stack))
+         (parent (vector-pop stack))
+         (slots (vector-pop stack))
          (name (vector-pop stack))
          (definition (get name 'structure-type)))
     (cond (definition
            (unless (equal (structure-slots definition) slots)
              (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))
            definition)
-          (t (make-struct-type name slots)))))
+          (t (make-struct-type name slots parent area)))))
 
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
