@@ -92,3 +92,45 @@ BODY must not allocate!"
       (make-array size :element-type element-type)))
 
 (defvar *loaded-adsdf-systems* '())
+
+(defun map (result-type function first-sequence &rest more-sequences)
+  (let* ((sequences (cons first-sequence more-sequences))
+         (n-results (reduce 'min (mapcar 'length sequences))))
+    (flet ((map-body (accum-fn)
+             (dotimes (i n-results)
+               (funcall accum-fn
+                        (apply function
+                               (mapcar (lambda (seq)
+                                         (elt seq i))
+                                       sequences))))))
+      (cond ((null result-type)
+             ;; No result is accumulated, NIL is returned.
+             (map-body (lambda (value) (declare (ignore value)))))
+            ((subtypep result-type 'list)
+             ;; Generating a list.
+             (let* ((head (cons nil nil))
+                    (tail head))
+               (map-body (lambda (value)
+                           (setf (cdr tail) (cons value nil)
+                                 tail (cdr tail))))
+               (cdr head)))
+            ((subtypep result-type 'vector)
+             (multiple-value-bind (element-type array-dimensions)
+                 (parse-array-type (typeexpand result-type))
+               (when (eql element-type '*) (setf element-type 't))
+             (let* ((expected-length (cond ((eql array-dimensions '*) n-results)
+                                           ((eql (first array-dimensions) '*) n-results)
+                                           (t (first array-dimensions))))
+                    (result-vector (make-array n-results :element-type (if (eql element-type '*) 't element-type)))
+                    (position 0))
+               (unless (eql n-results expected-length)
+                 (error 'simple-type-error
+                        :expected-type `(eql ,n-results)
+                        :datum expected-length
+                        :format-control "Result-type restricted to ~D elements, but ~D elements provided"
+                        :format-arguments (list expected-length n-results)))
+               (map-body (lambda (value)
+                           (setf (aref result-type position) value)
+                           (incf position)))
+               result-vector)))
+            (t (error "~S is not a subtype of SEQUENCE." result-type))))))
