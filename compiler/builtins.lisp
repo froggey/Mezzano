@@ -492,7 +492,7 @@
             `(sys.lap-x86:jmp ,resume)))
     (emit-trailer (full-add)
       (when (constant-type-p x 'fixnum)
-        (load-constant :r9 x))
+        (load-constant :r9 (second x)))
       (emit `(sys.lap-x86:mov32 :ecx 16)
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::generic-+))
             `(sys.lap-x86:call (:symbol-function :r13))
