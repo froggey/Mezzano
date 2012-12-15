@@ -70,10 +70,12 @@
     "../ethernet.lisp"
     "../rtl8139.lisp"
     "../graphics.lisp"
+    "../blit.lisp"
+    "../windows.lisp"
     "../misc.lisp"
     "../peek.lisp"
-    "../telnet.lisp"
-    "../irc.lisp"
+    #+nil"../telnet.lisp"
+    #+nil"../irc.lisp"
     "../mandelbrot.lisp"))
 
 (defun compile-warm-source (&optional force)
@@ -895,7 +897,7 @@
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) '*additional-cold-toplevel-forms*))
     (format t "Saving Unifont...~%")
-    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifontfull-5.1.20080820.hex" :static))
+    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifont-5.1.20080820.hex" :static))
     (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
