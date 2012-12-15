@@ -48,6 +48,7 @@
     "../bootstrap/condition.lisp"
     "../bootstrap/restarts.lisp"
     "../bootstrap/error.lisp"
+    "../coerce.lisp"
     "../debug.lisp"
     "../eval.lisp"
     "../stream.lisp"
