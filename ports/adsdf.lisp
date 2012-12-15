@@ -25,7 +25,7 @@
       (do ((i body (cddr i)))
           ((endp i))
         (ecase (first i)
-          ((:version :licence :description :long-description))
+          ((:version :licence :license :description :long-description :author :maintainer))
           (:components
            (assert (null components) (components) "Multiple :COMPONENTS options...")
            (setf components (second i)))))
