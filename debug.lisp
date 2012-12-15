@@ -19,12 +19,37 @@
     (show-restarts restarts)
     (fresh-line)
     (backtrace 15)
+    (write-line "Enter a restart number or evaluate a form.")
     (loop
-       (fresh-line)
-       (write-string "Pick a restart# ")
-       (let ((form (read)))
-         (when (and (integerp form) (>= form 0) (< form restart-count))
-           (invoke-restart-interactively (nth (- restart-count form 1) restarts)))))))
+       (let ((* nil) (** nil) (*** nil)
+             (/ nil) (// nil) (/// nil)
+             (+ nil) (++ nil) (+++ nil)
+             (- nil))
+         (loop
+            (with-simple-restart (abort "Return to debugger top level.")
+              (fresh-line)
+              (format t "~D] " debug-level)
+              (let ((form (read)))
+                (fresh-line)
+                (if (integerp form)
+                    (if (and (>= form 0) (< form restart-count))
+                        (invoke-restart-interactively (nth (- restart-count form 1) restarts))
+                        (format t "Restart number ~D out of bounds.~%" form))
+                    (let ((result (multiple-value-list (let ((- form))
+                                                         (eval form)))))
+                      (setf *** **
+                            ** *
+                            * (first result)
+                            /// //
+                            // /
+                            / result
+                            +++ ++
+                            ++ +
+                            + form)
+                      (when result
+                        (dolist (v result)
+                          (fresh-line)
+                          (write v))))))))))))
 
 (defun show-restarts (restarts)
   (let ((restart-count (length restarts)))
