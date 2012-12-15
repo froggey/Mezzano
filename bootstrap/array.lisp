@@ -39,12 +39,17 @@
 (setf (get 'simple-array 'type-symbol) '%simple-array-p)
 )
 
-(defun array-type-p (object type)
+(defun parse-array-type (type)
   (destructuring-bind (&optional (element-type '*) (dimension-spec '*))
       (cdr type)
     (assert (or (listp dimension-spec)
                 (eql dimension-spec '*))
             (dimension-spec))
+    (values element-type dimension-spec)))
+
+(defun array-type-p (object type)
+  (multiple-value-bind (element-type dimension-spec)
+      (parse-array-type type)
     (let ((rank (if (listp dimension-spec)
                     (length dimension-spec)
                     '*)))
