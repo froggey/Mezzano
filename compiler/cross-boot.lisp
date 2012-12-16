@@ -110,8 +110,24 @@
 (defun sys.int::structure-name (x) (structure-type-name x))
 (defun sys.int::structure-slots (x) (structure-type-slots x))
 
+(defstruct cross-struct data)
+
 (defun sys.int::%defstruct (def)
-  (setf (gethash (structure-type-name def) *structure-types*) def))
+  (let ((predicate (gensym)))
+    (setf (symbol-function predicate) (lambda (x)
+                                        (and (cross-struct-p x)
+                                             (eql (sys.int::%struct-slot x 0) def))))
+    (eval `(deftype ,(structure-type-name def) () '(satisfies ,predicate)))
+    (setf (gethash (structure-type-name def) *structure-types*) def)))
+
+(defun sys.int::%make-struct (length area)
+  (declare (ignore area))
+  (make-cross-struct :data (make-array length)))
+
+(defun sys.int::%struct-slot (struct index)
+  (aref (cross-struct-data struct) index))
+(defun (setf sys.int::%struct-slot) (value struct index)
+  (setf (aref (cross-struct-data struct) index) value))
 
 (defun sys.int::get-structure-type (name &optional (errorp t))
   (or (gethash name *structure-types*)
