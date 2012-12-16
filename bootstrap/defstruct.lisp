@@ -64,7 +64,10 @@
         (conc-name nil)
         (included-structure-name nil)
         (included-slot-descriptions nil)
-        (included-structure nil))
+        (included-structure nil)
+        (print-object nil)
+        (print-function nil)
+        (print-object-specializer nil))
     (if (symbolp name-and-options)
 	(setf name name-and-options)
 	(progn
@@ -159,6 +162,27 @@
                  (error "Multiple :INCLUDE options in DEFSTRUCT."))
                (setf included-structure-name (second option)
                      included-slot-descriptions (cddr option)))
+              ;; (:print-object) or (:print-function)
+              ((and (consp option)
+                    (member (first option) '(:print-object :print-function))
+                    (null (cdr option)))
+               (when (or print-function print-object print-object-specializer)
+                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+               (setf print-object-specializer t))
+              ;; (:print-object function-name)
+              ((and (consp option)
+                    (eql (first option) :print-object)
+                    (null (cddr option)))
+               (when (or print-function print-object print-object-specializer)
+                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+               (setf print-object (second option)))
+              ;; (:print-function function-name)
+              ((and (consp option)
+                    (eql (first option) :print-function)
+                    (null (cddr option)))
+               (when (or print-function print-object print-object-specializer)
+                 (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
+               (setf print-function (second option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
             (when conc-namep
@@ -193,7 +217,8 @@
 	       (concat-symbols 'copy- name))
 	      ;; Explicit copier.
 	      (t predicate-name))
-            included-structure-name included-slot-descriptions)))
+            included-structure-name included-slot-descriptions
+            print-object print-function print-object-specializer)))
 
 ;; Parses slot-description and produces:
 ;; (slot-name accessor-name initform type read-only)
@@ -275,7 +300,8 @@
 
 (defmacro defstruct (name-and-options &rest slot-descriptions)
   (multiple-value-bind (name conc-name constructors predicate area copier
-                        included-structure-name included-slot-descriptions)
+                        included-structure-name included-slot-descriptions
+                        print-object print-function print-object-specializer)
       (parse-defstruct-options name-and-options)
     (let* ((included-structure (when included-structure-name
                                  (get-structure-type included-structure-name)))
@@ -295,6 +321,12 @@
              (list `(defun ,copier (object)
                       (check-type object ,name)
                       (copy-structure object))))
+         ,@(when print-object
+             (list `(defmethod print-object ((object ,name) stream)
+                      (funcall (function ,print-object) object stream))))
+         ,@(when print-function
+             (list `(defmethod print-object ((object ,name) stream)
+                      (funcall (function ,print-function) object stream 0))))
 	 ,@(let ((n 0))
 	     (mapcar (lambda (s)
 		       (setf n (1+ n))
