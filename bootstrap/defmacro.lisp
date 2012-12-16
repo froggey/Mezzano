@@ -96,7 +96,7 @@
 			 optional-count nil)
 		   (do ((keywords '()))
 		       ((or (endp ll)
-			    (member (car ll) macro-lambda-list-keywords))
+                            (member (car ll) macro-lambda-list-keywords))
 			;; Generate code for keyword parsing.
 			(let ((keyword-args (gensym "KEYWORDS"))
 			      (barf (gensym)))
@@ -150,7 +150,22 @@
 			   (push (list (list keyword var) init-form suppliedp) keywords))
 			 (push (list (list (intern (symbol-name (car ll)) "KEYWORD") (car ll)) nil nil) keywords))
 		     (setf ll (cdr ll))))
-		 ;; TODO: aux
+                 ;; &AUX args.
+		 (when (eq (car ll) '&aux)
+		   (setf ll (cdr ll))
+		   (do ()
+		       ((or (atom ll)
+			    (member (car ll) macro-lambda-list-keywords)))
+		     (if (consp (car ll))
+			 (let ((var (first (car ll)))
+			       (init-form (if (rest (car ll))
+					      (second (car ll))
+					      default-value)))
+			   (if (consp var)
+			       (handle-sublist var init-form)
+			       (push (list var init-form) bindings)))
+			 (push (list (car ll) nil) bindings))
+		     (setf ll (cdr ll))))
 		 (unless (endp ll)
 		   (error 'invalid-macro-lambda-list
 			  :lambda-list lambda-list
@@ -161,6 +176,7 @@
 	  (handle-one-level lambda-list current-value whole)
 	(setf bindings (nreverse bindings))
 	;; Pull declarations up and dump them in the LET.
+        ;; TODO: Docstrings.
 	(let ((declares '()))
 	  (do ()
 	      ((not (and body
