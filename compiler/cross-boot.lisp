@@ -145,7 +145,9 @@
 
 (defconstant sys.int::most-positive-fixnum (- (expt 2 60) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 60)))
-(defconstant sys.int::lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole))
+(alexandria:define-constant sys.int::lambda-list-keywords
+    '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)
+  :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp))
 
 (defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list)
