@@ -113,11 +113,13 @@
 (defstruct cross-struct data)
 
 (defun sys.int::%defstruct (def)
-  (let ((predicate (gensym)))
+  (let ((predicate (gensym (string (structure-type-name def)))))
     (setf (symbol-function predicate) (lambda (x)
                                         (and (cross-struct-p x)
                                              (eql (sys.int::%struct-slot x 0) def))))
-    (eval `(deftype ,(structure-type-name def) () '(satisfies ,predicate)))
+    (unless (eql (symbol-package (structure-type-name def))
+                 (find-package "CL"))
+      (eval `(deftype ,(structure-type-name def) () '(satisfies ,predicate))))
     (setf (gethash (structure-type-name def) *structure-types*) def)))
 
 (defun sys.int::%make-struct (length area)

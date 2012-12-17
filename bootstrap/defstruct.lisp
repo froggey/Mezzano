@@ -228,7 +228,7 @@
 	      ((eq copier-name 't)
 	       (concat-symbols 'copy- name))
 	      ;; Explicit copier.
-	      (t predicate-name))
+	      (t copier-name))
             included-structure-name included-slot-descriptions
             print-object print-function print-object-specializer)))
 
@@ -284,10 +284,14 @@
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
   (when included-slot-descriptions
     (error "Included slot-descriptions not supported yet."))
-  (append (when included-structure
-            (structure-slots included-structure))
-          (mapcar (lambda (s)
-                    (parse-defstruct-slot conc-name s))
+  (mapcar (lambda (s)
+            (parse-defstruct-slot conc-name s))
+          (append (when included-structure
+                    (mapcar (lambda (x)
+                              (destructuring-bind (slot-name accessor-name initform type read-only) x
+                                (declare (ignore accessor-name))
+                                (list slot-name initform :type type :read-only read-only)))
+                            (structure-slots included-structure)))
                   slot-descriptions)))
 
 )
@@ -301,7 +305,7 @@
 
 (defun copy-structure (structure)
   (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")
-  (let* ((struct-type (%struct-slot object 0))
+  (let* ((struct-type (%struct-slot structure 0))
          (n-slots (length (structure-slots struct-type)))
          (new (%make-struct (1+ n-slots)
                             (structure-area struct-type))))
