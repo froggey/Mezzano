@@ -291,6 +291,11 @@
           ((and (consp t1) (eql (first t1) 'eql))
            (destructuring-bind (object) (rest t1)
              (values (typep object t2) t)))
+          ((and (consp t1)
+                (eql (first t1) 'or))
+           (dolist (type (rest t1) (values t t))
+             (unless (subtypep type t2)
+               (return (values nil t)))))
 	  (t (values nil t)))))
 
 (defun typep (object type-specifier &optional environment)
