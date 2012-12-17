@@ -120,10 +120,16 @@
     (if (and (subtypep (stream-element-type stream) 'character)
              (or (listp sequence)
                  (not (subtypep (array-element-type sequence) 'unsigned-byte))))
-        (dotimes (i n)
-          (setf (aref sequence (+ start i)) (read-char stream)))
-        (dotimes (i n)
-          (setf (aref sequence (+ start i)) (read-byte stream))))))
+        (dotimes (i n end)
+          (let ((elt (read-char stream nil)))
+            (if elt
+                (setf (aref sequence (+ start i)) elt)
+                (return (+ start i)))))
+        (dotimes (i n end)
+          (let ((elt (read-byte stream nil)))
+            (if elt
+                (setf (aref sequence (+ start i)) elt)
+                (return (+ start i))))))))
 
 (defmethod stream-read-sequence (sequence (stream stream) start end)
   (generic-read-sequence sequence stream start end))
