@@ -149,8 +149,14 @@ the front buffer refers to the second buffer.")
                                         :element-type '(unsigned-byte 32)
                                         :memory (+ #x8000000000 *bochs-vbe-framebuffer-address* (* width height 4)))
         *bochs-flip-mode* nil)
-  (setf *terminal-io* (make-instance 'framebuffer-stream
-                                          :framebuffer *bochs-framebuffer*)))
+  #+nil(setf *terminal-io* (make-instance 'framebuffer-stream
+                                          :framebuffer *bochs-framebuffer*))
+  (let* ((fb-stream (make-instance 'framebuffer-stream
+                                   :framebuffer *bochs-framebuffer*))
+         (output-stream (make-instance 'shadow-stream
+                                       :primary fb-stream
+                                       :shadows (list *terminal-io*))))
+    (setf *terminal-io* output-stream)))
 
 (defun bochs-flip-buffer ()
   (rotatef *bochs-framebuffer* *bochs-back-buffer*)
