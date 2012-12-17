@@ -116,21 +116,59 @@ BODY must not allocate!"
                (cdr head)))
             ((subtypep result-type 'vector)
              (multiple-value-bind (element-type array-dimensions)
-                 (parse-array-type (typeexpand result-type))
+                 (if (subtypep result-type 'string)
+                     (values 'character '*)
+                     (parse-array-type (typeexpand result-type)))
                (when (eql element-type '*) (setf element-type 't))
-             (let* ((expected-length (cond ((eql array-dimensions '*) n-results)
-                                           ((eql (first array-dimensions) '*) n-results)
-                                           (t (first array-dimensions))))
-                    (result-vector (make-array n-results :element-type (if (eql element-type '*) 't element-type)))
-                    (position 0))
-               (unless (eql n-results expected-length)
-                 (error 'simple-type-error
-                        :expected-type `(eql ,n-results)
-                        :datum expected-length
-                        :format-control "Result-type restricted to ~D elements, but ~D elements provided"
-                        :format-arguments (list expected-length n-results)))
-               (map-body (lambda (value)
-                           (setf (aref result-type position) value)
-                           (incf position)))
-               result-vector)))
+               (let* ((expected-length (cond ((eql array-dimensions '*) n-results)
+                                             ((eql (first array-dimensions) '*) n-results)
+                                             (t (first array-dimensions))))
+                      (result-vector (make-array n-results :element-type (if (eql element-type '*) 't element-type)))
+                      (position 0))
+                 (unless (eql n-results expected-length)
+                   (error 'simple-type-error
+                          :expected-type `(eql ,n-results)
+                          :datum expected-length
+                          :format-control "Result-type restricted to ~D elements, but ~D elements provided"
+                          :format-arguments (list expected-length n-results)))
+                 (map-body (lambda (value)
+                             (setf (aref result-vector position) value)
+                             (incf position)))
+                 result-vector)))
             (t (error "~S is not a subtype of SEQUENCE." result-type))))))
+
+(defun fill (sequence item &key (start 0) end)
+  (unless end (setf end (length sequence)))
+  (dotimes (i (- end start))
+    (setf (elt sequence (+ i start)) item))
+  sequence)
+
+(defun replace (sequence-1 sequence-2 &key (start1 0) end1 (start2 0) end2)
+  (unless end1 (setf end1 (length sequence-1)))
+  (unless end2 (setf end2 (length sequence-2)))
+  (when (eql sequence-1 sequence-2)
+    (setf sequence-2 (subseq sequence-2 start2 end2)
+          end2 (- end2 start2)
+          start2 0))
+  (dotimes (i (min (- end1 start1) (- end2 start2)))
+    (setf (elt sequence-1 (+ start1 i)) (elt sequence-2 (+ start2 i))))
+  sequence-1)
+
+(defun mod (number divisor)
+  (multiple-value-bind (quot rem)
+      (floor number divisor)
+    (declare (ignore quot))
+    rem))
+
+;;; From SBCL 1.0.55
+(defun floor (number &optional (divisor 1))
+  ;; If the numbers do not divide exactly and the result of
+  ;; (/ NUMBER DIVISOR) would be negative then decrement the quotient
+  ;; and augment the remainder by the divisor.
+  (multiple-value-bind (tru rem) (truncate number divisor)
+    (if (and (not (zerop rem))
+             (if (minusp divisor)
+                 (plusp number)
+                 (minusp number)))
+        (values (1- tru) (+ rem divisor))
+        (values tru rem))))
