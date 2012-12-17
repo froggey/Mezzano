@@ -1,0 +1,21 @@
+Area: a collection of regions
+  name
+  bits
+  region-list-head
+  next-area
+
+Region: a region of memory with a storage type (structure or list), and gc info
+  origin        base address of the region (word address as fixnum)
+  length        number of words in the region
+  free-pointer
+  bits          various flag bits
+  next-region   next region in the chain (sorted?)
+
+
+Initial areas:
+  support-area           Holds NIL, T, the undefined-function function,
+                         directly-called helper functions and initial
+                         area/region data.
+  function-area          Compiled functions, a static area.
+  interrupt-area         Wired data used by interrupts or dma, etc. A static area.
+  runtime-data-area      General use area. The default allocation area.

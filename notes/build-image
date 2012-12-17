@@ -1,0 +1,3 @@
+#!/bin/sh
+
+~/source/qemu-0.15.0/x86_64-softmmu/qemu-system-x86_64 -kernel foo.image -m 768 -hda test.image -initrd ../closette.llf,../runtime-misc.llf,../bootstrap/condition.llf,../bootstrap/restarts.llf,../bootstrap/error.llf,../debug.llf,../eval.llf,../stream.llf,../process.llf,../lap.llf,../lap-x86.llf,../compiler/package.llf,../compiler/compiler.llf,../compiler/pass1.llf,../compiler/constprop.llf,../compiler/simplify.llf,../compiler/lift.llf,../compiler/inline.llf,../compiler/codegen.llf,../compiler/builtins.llf,../interrupt-compiler.llf,../keyboard.llf,../framebuffer.llf,../bochs-vbe.llf,../ethernet.llf,../rtl8139.llf,../irc.llf,../profiler.llf,../telnet.llf,../file.llf,../edit/edit.llf,../edit/buffer.llf
