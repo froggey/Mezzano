@@ -72,7 +72,10 @@ allocate environment frames."
                               index))
     (#.+array-type-unsigned-byte-64+
      (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
-                              index))))
+                              index))
+    (#.+array-type-signed-byte-64+
+     (memref-signed-byte-64 (+ (logand (lisp-object-address array) -16) 8)
+                            index))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%simple-array-type array)
@@ -102,6 +105,10 @@ allocate environment frames."
     (#.+array-type-unsigned-byte-64+
      (setf (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                                     index)
+           value))
+    (#.+array-type-signed-byte-64+
+     (setf (memref-signed-byte-64 (+ (logand (lisp-object-address array) -16) 8)
+                                  index)
            value))))
 
 (defun %memory-aref (type address index)

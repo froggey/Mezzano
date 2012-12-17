@@ -252,6 +252,38 @@
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
     *r8-value*))
 
+(defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
+  (let ((overflow-error-label (gensym))
+        (ok-label (gensym))
+        (resume (gensym)))
+    (emit-trailer (overflow-error-label)
+      `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+      `(sys.lap-x86:call (:symbol-function :r13))
+      `(sys.lap-x86:jmp ,resume))
+    (load-in-reg :r8 base t)
+    (fixnum-check :r8)
+    (load-in-reg :r9 offset t)
+    (fixnum-check :r9)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :rax :r8)
+          `(sys.lap-x86:mov64 :rcx :r9)
+	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
+	  `(sys.lap-x86:sar64 :rax 3)
+          ;; Read.
+          `(sys.lap-x86:mov64 :rax (:rax :rcx))
+          ;; Check for overflow. Top 3 bits must be all 0 or all 1.
+          `(sys.lap-x86:mov64 :rdx :rax)
+          `(sys.lap-x86:sar64 :rdx 61)
+          `(sys.lap-x86:jz ,ok-label)
+          `(sys.lap-x86:cmp8 :dl -1)
+          `(sys.lap-x86:jne ,overflow-error-label)
+          ok-label
+          ;; Convert to fixnum.
+          `(sys.lap-x86:shl64 :rax 3)
+          `(sys.lap-x86:mov64 :r8 :rax)
+          resume)
+    (setf *r8-value* (list (gensym)))))
+
 (defbuiltin (setf sys.int::memref-signed-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
