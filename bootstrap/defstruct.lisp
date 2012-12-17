@@ -7,12 +7,13 @@
 (defvar *structure-type-type* nil)
 
 (defun make-struct-type (name slots parent area)
-  (let ((x (%make-struct 5 :static)))
+  (let ((x (%make-struct 6 :static)))
     (setf (%struct-slot x 0) *structure-type-type*
 	  (%struct-slot x 1) name
 	  (%struct-slot x 2) slots
           (%struct-slot x 3) parent
-          (%struct-slot x 4) area)
+          (%struct-slot x 4) area
+          (%struct-slot x 5) nil)
     x))
 
 (defun structure-name (object)
@@ -35,6 +36,16 @@
     (error 'type-error :datum object :expected-type 'structure-definition))
   (%struct-slot object 4))
 
+(defun structure-class (object)
+  (unless (eq (%struct-slot object 0) *structure-type-type*)
+    (error 'type-error :datum object :expected-type 'structure-definition))
+  (%struct-slot object 5))
+
+(defun (setf structure-class) (value object)
+  (unless (eq (%struct-slot object 0) *structure-type-type*)
+    (error 'type-error :datum object :expected-type 'structure-definition))
+  (setf (%struct-slot object 5) value))
+
 ;;; Bootstrap the defstruct system.
 (defun bootstrap-defstruct ()
   (setf *structure-type-type* nil
@@ -42,7 +53,8 @@
 						'((name structure-name nil t t)
 						  (slots structure-slots nil t t)
                                                   (parent structure-parent nil t t)
-                                                  (area structure-area nil t t))
+                                                  (area structure-area nil t t)
+                                                  (class structure-class nil t nil))
                                                 nil
                                                 :static))
   (setf (%struct-slot *structure-type-type* 0) *structure-type-type*)

@@ -9,7 +9,6 @@
 (defstruct (synonym-stream
              (:constructor make-synonym-stream (symbol)))
   symbol)
-(defclass synonym-stream (stream) ()) ; ick
 
 (defvar *terminal-io* :terminal-io-is-uninitialized
   "A bi-directional stream connected to the user's console.")

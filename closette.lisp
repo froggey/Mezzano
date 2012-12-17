@@ -360,6 +360,34 @@
     (function                                      (find-class 'function))
     (t                                             (find-class 't))))
 
+(defun canonicalize-struct-slot (slot)
+  (destructuring-bind (slot-name accessor-name initform type read-only)
+      slot
+    (list :name slot-name
+          :accessor-name accessor-name
+          :type type
+          :read-only-p read-only)))
+
+(defun canonicalize-struct-slots (struct-def)
+  (mapcar 'canonicalize-struct-slot (sys.int::structure-slots struct-def)))
+
+(defun make-structure-class (struct-def)
+  (make-instance 'structure-class
+                 :name (sys.int::structure-name struct-def)
+                 :definition struct-def
+                 :direct-slots (canonicalize-struct-slots struct-def)
+                 :direct-superclasses (list (if (sys.int::structure-parent struct-def)
+                                                (class-of-structure-definition (sys.int::structure-parent struct-def))
+                                                (find-class 'structure-object)))))
+
+(defun class-of-structure-definition (struct-def)
+  (let* ((class (sys.int::structure-class struct-def)))
+    ;; Lazily create classes for structs.
+    (when (null class)
+      (setf class (make-structure-class struct-def)
+            (sys.int::structure-class struct-def) class))
+    class))
+
 (defun built-in-class-of (x)
   (typecase x
     (null                                          (find-class 'null))
@@ -372,12 +400,6 @@
     (float                                         (find-class 'float))
     (cons                                          (find-class 'cons))
     (character                                     (find-class 'character))
-    (hash-table                                    (find-class 'hash-table))
-    (package                                       (find-class 'package))
-    (pathname                                      (find-class 'pathname))
-    ;;(readtable                                     (find-class 'readtable))
-    (synonym-stream                                (find-class 'synonym-stream))
-    (stream                                        (find-class 'stream))
     ;;((and number (not (or integer complex float))) (find-class 'number))
     ;;((string *)                                    (find-class 'string))
     (simple-string                                 (find-class 'simple-string))
@@ -390,9 +412,8 @@
     (array                                         (find-class 'array))
     ;;((and sequence (not (or vector list)))         (find-class 'sequence))
     (function                                      (find-class 'function))
-    (restart                                       (find-class 'restart))
-    (sys.int::structure-definition                 (find-class 'sys.int::structure-definition))
-    (structure-object                              (find-class 'structure-object))
+    (structure-object
+     (class-of-structure-definition (sys.int::%struct-slot x 0)))
     (t                                             (find-class 't))))
 
 ;;; subclassp and sub-specializer-p
@@ -570,6 +591,10 @@
 
 (defun find-class (symbol &optional (errorp t))
   (let ((class (gethash symbol *class-table* nil)))
+    (when (not class)
+      (let ((struct (get symbol 'sys.int::structure-type)))
+        (when struct
+          (setf class (class-of-structure-definition struct)))))
     (if (and (null class) errorp)
         (error "No class named ~S." symbol)
         class)))
@@ -1692,20 +1717,13 @@ Dispatching on class ~S." gf class))
       the-class-standard-class)
 ;; (Clear sailing from here on in).
 ;; 9. Define the other built-in classes.
-(defclass structure-object (t) ())
 (defclass symbol (t) ())
 (defclass sequence (t) ())
 (defclass array (t) ())
 (defclass number (t) ())
 (defclass character (t) ())
 (defclass function (t) ())
-(defclass hash-table (structure-object) ())
-(defclass package (structure-object) ())
-(defclass sys.int::structure-definition (structure-object) ())
-(defclass pathname (t) ())
-(defclass readtable (t) ())
 (defclass stream (t) ())
-(defclass restart (structure-object) ())
 (defclass list (sequence) ())
 (defclass null (symbol list) ())
 (defclass cons (list) ())
@@ -1715,7 +1733,6 @@ Dispatching on class ~S." gf class))
 (defclass bit-vector (vector) ())
 (defclass string (vector) ())
 (defclass simple-string (string simple-array) ())
-(defclass complex (number) ())
 (defclass integer (number) ())
 (defclass float (number) ())
 ;; 10. Define the other standard metaobject classes.
@@ -2021,5 +2038,52 @@ Dispatching on class ~S." gf class))
   (values))
 
 (format t "~%Closette is a Knights of the Lambda Calculus production.~%")
+
+(defclass structure-class ()
+  ((name :initarg :name)              ; :accessor class-name
+   (direct-superclasses               ; :accessor class-direct-superclasses
+    :initarg :direct-superclasses)
+   (direct-slots)                     ; :accessor class-direct-slots
+   (class-precedence-list)            ; :accessor class-precedence-list
+   (effective-slots)                  ; :accessor class-slots
+   (slot-position-cache :initform ()) ; :accessor class-slot-cache
+   (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
+   (direct-methods :initform ())      ; :accessor class-direct-methods
+   (direct-default-initargs :initform ())
+   (structure-definition :initarg :definition)))
+
+(defmethod initialize-instance :after ((class structure-class) &rest args)
+  (apply #'std-after-initialization-for-classes class args))
+
+(defmethod slot-value-using-class ((class structure-class) instance slot-name)
+  (dolist (slot (class-slots class)
+           (error "The slot ~S is missing from the class ~S." slot-name class))
+    (when (eql (slot-definition-name slot) slot-name)
+      (return (funcall (getf slot ':accessor-name) instance)))))
+
+(defmethod (setf slot-value-using-class) (new-value (class structure-class) instance slot-name)
+  (dolist (slot (class-slots class)
+           (error "The slot ~S is missing from the class ~S." slot-name class))
+    (when (eql (slot-definition-name slot) slot-name)
+      (return (funcall (fdefinition `(setf ,(getf slot ':accessor-name))) new-value instance)))))
+
+(defmethod finalize-inheritance ((class structure-class))
+  (std-finalize-inheritance class)
+  (values))
+(defmethod compute-slots ((class structure-class))
+  (std-compute-slots class))
+(defmethod compute-class-precedence-list ((class structure-class))
+  (std-compute-class-precedence-list class))
+
+(defmethod compute-effective-slot-definition ((class structure-class) direct-slots)
+  (declare (ignore class))
+  (make-effective-slot-definition
+   :name (slot-definition-name (car direct-slots))
+   :accessor-name (getf (car direct-slots) :accessor-name)
+   :allocation (slot-definition-allocation (car direct-slots))))
+
+(defclass structure-object (t)
+  ()
+  (:metaclass structure-class))
 
 (values)) ;end progn

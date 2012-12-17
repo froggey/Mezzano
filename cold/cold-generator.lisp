@@ -1089,13 +1089,14 @@
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) +tag-array-like+))
-          (t (let ((address (allocate 6 :static)))
+          (t (let ((address (allocate 7 :static)))
                (setf (word address) (array-header +array-type-struct+ 5))
                (setf (word (+ address 1)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
                (setf (word (+ address 2)) name*)
                (setf (word (+ address 3)) slots*)
                (setf (word (+ address 4)) parent*)
                (setf (word (+ address 5)) area*)
+               (setf (word (+ address 6)) (make-value (symbol-address "NIL" nil) +tag-symbol+))
                (setf (gethash name *struct-table*) (list address name slots))
                (make-value address +tag-array-like+))))))
 
