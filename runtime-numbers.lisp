@@ -448,6 +448,26 @@
     (declare (ignore quot))
     rem))
 
+
+(defun mod (number divisor)
+  (multiple-value-bind (quot rem)
+      (floor number divisor)
+    (declare (ignore quot))
+    rem))
+
+;;; From SBCL 1.0.55
+(defun floor (number &optional (divisor 1))
+  ;; If the numbers do not divide exactly and the result of
+  ;; (/ NUMBER DIVISOR) would be negative then decrement the quotient
+  ;; and augment the remainder by the divisor.
+  (multiple-value-bind (tru rem) (truncate number divisor)
+    (if (and (not (zerop rem))
+             (if (minusp divisor)
+                 (plusp number)
+                 (minusp number)))
+        (values (1- tru) (+ rem divisor))
+        (values tru rem))))
+
 (define-lap-function %%float-/ ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
