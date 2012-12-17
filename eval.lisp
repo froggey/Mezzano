@@ -274,6 +274,11 @@
   (declare (ignore type))
   (eval-in-lexenv form env))
 
+(defspecial unwind-protect (&environment env protected-form &body cleanup-forms)
+  (unwind-protect
+       (eval-in-lexenv protected-form env)
+    (eval-progn-body cleanup-forms env)))
+
 (defspecial catch (&environment env tag &body body)
   (catch (eval-in-lexenv tag env)
     (eval-progn-body body env)))
