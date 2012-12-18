@@ -287,6 +287,29 @@
   (throw (eval-in-lexenv tag env)
     (eval-in-lexenv result env)))
 
+(defun frob-macrolet-definition (def)
+  (destructuring-bind (name lambda-list &body body) def
+    (let ((whole (gensym "WHOLE"))
+          (env (gensym "ENV")))
+      (multiple-value-bind (new-lambda-list env-binding)
+          (sys.int::fix-lambda-list-environment lambda-list)
+        (cons name
+              (eval `#'(lambda (,whole ,env)
+                         (declare (system:lambda-name (macrolet ,name))
+                                  (ignorable ,whole ,env))
+                         ,(sys.int::expand-destructuring-lambda-list new-lambda-list name body
+                                                                     whole `(cdr ,whole)
+                                                                     (when env-binding
+                                                                       (list `(,env-binding ,env)))))))))))
+
+(defspecial macrolet (&environment env definitions &body body)
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares body)
+    (eval-locally-body declares body
+                       (cons (list* :macros
+                                    (mapcar 'frob-macrolet-definition definitions))
+                             env))))
+
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
   (let ((var (find-variable form env)))
@@ -310,9 +333,8 @@
   "3.1.2.1.2  Conses as forms"
   (let ((fn (gethash (first form) *special-forms*)))
     (cond (fn (funcall fn form env))
-          ((macro-function (first form))
-           ;; TODO: env.
-           (eval-in-lexenv (macroexpand-1 form) env))
+          ((macro-function (first form) env)
+           (eval-in-lexenv (macroexpand-1 form env) env))
           (t (apply (if (sys.int::lambda-expression-p (first form))
                         (eval-lambda (first form) env)
                         (find-function (first form) env))
