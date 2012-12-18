@@ -44,10 +44,7 @@
                 #:funcallable-std-instance-p
                 #:funcallable-std-instance-function
                 #:funcallable-std-instance-class
-                #:funcallable-std-instance-slots
-
-                #:class-precedence-list
-                #:funcallable-standard-object))
+                #:funcallable-std-instance-slots))
 
 (in-package #:system.closette)
 

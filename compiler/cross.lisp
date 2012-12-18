@@ -1,13 +1,32 @@
+(defpackage #:cross-cl
+  (:use #:cl)
+  (:shadow #:proclaim
+           #:get-setf-expansion
+           #:macroexpand
+           #:macroexpand-1
+           #:compiler-macro-function
+           #:macro-function
+           #:most-positive-fixnum
+           #:most-negative-fixnum
+           #:lambda-list-keywords
+           #:*features*
+           #:compile
+           #:*macroexpand-hook*
+           #:constantp)
+  (:export . #.(let ((symbols '()))
+                 (do-external-symbols (sym :cl symbols)
+                   (push sym symbols)))))
+
 (defpackage #:system.compiler
   (:nicknames #:sys.c)
-  (:shadow #:compile
+  (:export #:compile
            #:compiler-macro-function
            #:*macroexpand-hook*
            #:macroexpand
            #:macroexpand-1
            #:macro-function
            #:constantp)
-  (:use #:cl))
+  (:use #:cross-cl))
 
 (in-package #:system.compiler)
 
@@ -24,28 +43,8 @@
 
 (defpackage #:system.internals
   (:nicknames #:sys.int)
-  (:use #:cl #:system)
-  (:shadow #:proclaim
-           #:get-setf-expansion
-           #:macroexpand
-           #:macroexpand-1
-           #:compiler-macro-function
-           #:macro-function
-           #:most-positive-fixnum
-           #:most-negative-fixnum
-           #:lambda-list-keywords
-           #:*features*)
-  (:export #:proclaim
-           #:get-setf-expansion
-           #:macroexpand
-           #:macroexpand-1
-           #:compiler-macro-function
-           #:macro-function
-           #:most-positive-fixnum
-           #:most-negative-fixnum
-           #:lambda-list-keywords
-           #:*features*
-           #:allocate-std-instance
+  (:use #:cross-cl #:system)
+  (:export #:allocate-std-instance
            #:std-instance-p
            #:std-instance-class
            #:std-instance-slots
@@ -59,4 +58,6 @@
 
 (defpackage #:system.closette
   (:nicknames #:sys.clos)
-  (:import-from "SYS.INT" #:lambda-list-keywords))
+  (:import-from #:sys.int
+                #:class-precedence-list
+                #:funcallable-standard-object))

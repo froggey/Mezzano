@@ -106,15 +106,9 @@
       (let ((x (assoc name (rest e) :test 'equal)))
         (when x (return (cdr x)))))))
 
-(defun sys.int::compiler-macro-function (name &optional env)
-  (compiler-macro-function name env))
-
 (defun (setf compiler-macro-function) (value name &optional env)
   (declare (ignore env))
   (setf (gethash name *system-compiler-macros*) value))
-
-(defun (setf sys.int::compiler-macro-function) (value name &optional env)
-  (setf (compiler-macro-function name env) value))
 
 (defun macro-function (symbol &optional env)
   (dolist (e env (gethash symbol *system-macros*))
@@ -389,9 +383,12 @@
          (save-integer (length (symbol-name object)) stream)
          (dotimes (i (length (symbol-name object)))
            (save-character (char (symbol-name object) i) stream))
-         (save-integer (length (package-name (symbol-package object))) stream)
-         (dotimes (i (length (package-name (symbol-package object))))
-           (save-character (char (package-name (symbol-package object)) i) stream)))
+         (let ((package (symbol-package object)))
+           (when (eql package (find-package :cross-cl))
+             (setf package (find-package :cl)))
+           (save-integer (length (package-name package)) stream)
+           (dotimes (i (length (package-name package)))
+             (save-character (char (package-name package) i) stream))))
         ((gethash object *reverse-setf-symbols*)
          (save-object (gethash object *reverse-setf-symbols*) omap stream)
          (write-byte +llf-setf-symbol+ stream))

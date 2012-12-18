@@ -57,7 +57,7 @@
 
 (defun sys.int::%defconstant (name value &optional docstring)
   (declare (ignore docstring))
-  (eval `(defconstant ,name ',value)))
+  (eval `(cl:defconstant ,name ',value)))
 
 (def-x-macro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
@@ -73,7 +73,7 @@
     (special
      (dolist (sym (rest declaration-specifier))
        (unless (eql (symbol-package sym) (find-package "CL"))
-         (proclaim `(special ,sym)))
+         (cl:proclaim `(special ,sym)))
        (setf (gethash sym *system-symbol-declarations*) :special)))
     (inline
      (dolist (name (rest declaration-specifier))
@@ -98,12 +98,6 @@
     ;;  then we must be stuck in a circular list.
     (when (and (eq fast slow) (> n 0)) (return nil))))
 
-(defun sys.int::macroexpand (form &optional env)
-  (macroexpand form env))
-
-(defun sys.int::macroexpand-1 (form &optional env)
-  (macroexpand-1 form env))
-
 (defun sys.int::concat-symbols (&rest symbols)
   (intern (apply 'concatenate 'string (mapcar 'string symbols))))
 
@@ -119,7 +113,7 @@
                                              (eql (sys.int::%struct-slot x 0) def))))
     (unless (eql (symbol-package (structure-type-name def))
                  (find-package "CL"))
-      (eval `(deftype ,(structure-type-name def) () '(satisfies ,predicate))))
+      (eval `(cl:deftype ,(structure-type-name def) () '(satisfies ,predicate))))
     (setf (gethash (structure-type-name def) *structure-types*) def)))
 
 (defun sys.int::%make-struct (length area)
@@ -153,8 +147,22 @@
 (defvar sys.int::*features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp))
 
 (defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list)
-  (declare (ignore documentation))
-  (let ((p (or (find-package name)
+  (eval `(cl:defpackage ,name
+           (:nicknames ,@nicknames)
+           ,@(mapcar (lambda (symbol)
+                       `(:import-from ,(package-name (symbol-package symbol)) ,symbol))
+                     import-list)
+           (:export ,@export-list)
+           (:intern ,@intern-list)
+           ,@(when documentation
+               `((:documentation ,documentation)))
+           (:use ,@(mapcar (lambda (package)
+                             (if (eql (find-package package)
+                                      (find-package :cl))
+                                 :cross-cl
+                                 package))
+                           use-list))))
+  #+nil(let ((p (or (find-package name)
 	       (make-package name :nicknames nicknames))))
     (use-package use-list p)
     (import import-list p)
