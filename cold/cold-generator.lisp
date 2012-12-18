@@ -4,80 +4,80 @@
 (in-package #:cold-generator)
 
 (defparameter *source-files*
-  '("../cold/test.lisp"
-    "../gc.lisp"
-    "../runtime-array.lisp"
-    "../runtime-numbers.lisp"
-    "../runtime-support.lisp"
-    "../stack-group.lisp"
-    "../bootstrap/setf.lisp"
-    "../bootstrap/setf-full.lisp"
-    "../bootstrap/string.lisp"
-    "../bootstrap/type.lisp"
-    "../bootstrap/sequence.lisp"
-    "../bootstrap/array.lisp"
-    "../bootstrap/numbers.lisp"
-    "../bootstrap/defstruct.lisp"
-    "../bootstrap/hash-table.lisp"
-    "../bootstrap/early-cons.lisp"
-    "../bootstrap/reader.lisp"
-    "../bootstrap/backquote.lisp"
-    "../character.lisp"
-    "../printer.lisp"
-    "../cold-stream.lisp"
-    "../cold/eval.lisp"
-    "../cold/load.lisp"
-    "../format.lisp"
-    "../type.lisp"
-    "../interrupt.lisp"
-    "../memory.lisp"
-    "../dump.lisp"
-    "../bootstrap/cons-compiler-macros.lisp"
-    "../bootstrap/defmacro.lisp"
-    "../bootstrap/basic-macros.lisp"
-    "../bootstrap/data-types.lisp"
-    "../bootstrap/parse.lisp"
-    "../pci.lisp"))
+  '("cold/test.lisp"
+    "gc.lisp"
+    "runtime-array.lisp"
+    "runtime-numbers.lisp"
+    "runtime-support.lisp"
+    "stack-group.lisp"
+    "bootstrap/setf.lisp"
+    "bootstrap/setf-full.lisp"
+    "bootstrap/string.lisp"
+    "bootstrap/type.lisp"
+    "bootstrap/sequence.lisp"
+    "bootstrap/array.lisp"
+    "bootstrap/numbers.lisp"
+    "bootstrap/defstruct.lisp"
+    "bootstrap/hash-table.lisp"
+    "bootstrap/early-cons.lisp"
+    "bootstrap/reader.lisp"
+    "bootstrap/backquote.lisp"
+    "character.lisp"
+    "printer.lisp"
+    "cold-stream.lisp"
+    "cold/eval.lisp"
+    "cold/load.lisp"
+    "format.lisp"
+    "type.lisp"
+    "interrupt.lisp"
+    "memory.lisp"
+    "dump.lisp"
+    "bootstrap/cons-compiler-macros.lisp"
+    "bootstrap/defmacro.lisp"
+    "bootstrap/basic-macros.lisp"
+    "bootstrap/data-types.lisp"
+    "bootstrap/parse.lisp"
+    "pci.lisp"))
 
 (defparameter *special-source-files*
-  '(("../packages.lisp" *package-system*)))
+  '(("packages.lisp" *package-system*)))
 
 (defparameter *warm-source-files*
-  '("../closette.lisp"
-    "../runtime-misc.lisp"
-    "../bootstrap/condition.lisp"
-    "../bootstrap/restarts.lisp"
-    "../bootstrap/error.lisp"
-    "../coerce.lisp"
-    "../debug.lisp"
-    "../eval.lisp"
-    "../stream.lisp"
-    "../process.lisp"
-    "../lap.lisp"
-    "../lap-x86.lisp"
-    "../compiler/package.lisp"
-    "../compiler/compiler.lisp"
-    "../compiler/pass1.lisp"
-    "../compiler/constprop.lisp"
-    "../compiler/simplify.lisp"
-    "../compiler/lift.lisp"
-    "../compiler/inline.lisp"
-    "../compiler/codegen.lisp"
-    "../compiler/builtins.lisp"
-    "../interrupt-compiler.lisp"
-    "../keyboard.lisp"
-    "../framebuffer.lisp"
-    "../bochs-vbe.lisp"
-    "../ethernet.lisp"
-    "../rtl8139.lisp"
-    "../graphics.lisp"
-    "../blit.lisp"
-    "../windows.lisp"
-    "../misc.lisp"
-    "../peek.lisp"
-    #+nil"../telnet.lisp"
-    #+nil"../irc.lisp"
-    "../mandelbrot.lisp"))
+  '("closette.lisp"
+    "runtime-misc.lisp"
+    "bootstrap/condition.lisp"
+    "bootstrap/restarts.lisp"
+    "bootstrap/error.lisp"
+    "coerce.lisp"
+    "debug.lisp"
+    "eval.lisp"
+    "stream.lisp"
+    "process.lisp"
+    "lap.lisp"
+    "lap-x86.lisp"
+    "compiler/package.lisp"
+    "compiler/compiler.lisp"
+    "compiler/pass1.lisp"
+    "compiler/constprop.lisp"
+    "compiler/simplify.lisp"
+    "compiler/lift.lisp"
+    "compiler/inline.lisp"
+    "compiler/codegen.lisp"
+    "compiler/builtins.lisp"
+    "interrupt-compiler.lisp"
+    "keyboard.lisp"
+    "framebuffer.lisp"
+    "bochs-vbe.lisp"
+    "ethernet.lisp"
+    "rtl8139.lisp"
+    "graphics.lisp"
+    "blit.lisp"
+    "windows.lisp"
+    "misc.lisp"
+    "peek.lisp"
+    #+nil"telnet.lisp"
+    #+nil"irc.lisp"
+    "mandelbrot.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
@@ -868,8 +868,8 @@
         (initial-stack nil)
         (initial-pml4)
         (data-pml3)
-        (cl-symbol-names (with-open-file (s "../cl-symbols.lisp-expr") (read s)))
-        (system-symbol-names (with-open-file (s "../system-symbols.lisp-expr") (read s))))
+        (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
+        (system-symbol-names (with-open-file (s "system-symbols.lisp-expr") (read s))))
     (create-support-objects)
     (setf multiboot (allocate 5 :static)
           initial-stack (allocate 8 :static)
@@ -898,16 +898,16 @@
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) '*additional-cold-toplevel-forms*))
     (format t "Saving Unifont...~%")
-    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "../unifont-5.1.20080820.hex" :static))
+    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "unifont-5.1.20080820.hex" :static))
     (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
-        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "../UnicodeData.txt"))
+        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "UnicodeData.txt"))
       (setf (cold-symbol-value '*unicode-info*) (save-object planes :static)
             (cold-symbol-value '*unicode-name-store*) (save-ub8-vector name-store :static)
             (cold-symbol-value '*unicode-encoding-table*) (save-object encoding-table :static)
             (cold-symbol-value '*unicode-name-trie*) (save-object name-trie :static)))
     (format t "Saving PCI IDs...~%")
-    (let* ((pci-ids (build-pci-ids:build-pci-ids "../pci.ids"))
+    (let* ((pci-ids (build-pci-ids:build-pci-ids "pci.ids"))
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value '*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.

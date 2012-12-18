@@ -5,11 +5,11 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "None"
-  :depends-on ("lispos-lap")
+  :depends-on ("lispos-lap" "lispos-compiler"
+               #:nibbles #:cl-ppcre #:iterate
+               #:alexandria)
   :components ((:file "build-unicode")
-               (:file "genesis/genesis")
-               (:file "genesis/read" :depends-on ("genesis/genesis"))
-               (:file "genesis/eval" :depends-on ("genesis/genesis"))
-               (:file "genesis/dump" :depends-on ("genesis/genesis"
-                                                  "genesis/eval"
-                                                  "build-unicode"))))
+               (:file "build-pci-ids")
+               (:file "cold/cold-generator"
+                :depends-on ("build-unicode"
+                             "build-pci-ids"))))
