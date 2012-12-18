@@ -1006,6 +1006,7 @@
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
+(defconstant +llf-proper-list+ #x11)
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
@@ -1278,7 +1279,13 @@
        (load-structure-definition name slots parent area)))
     (#.+llf-single-float+
      (logior (ash (load-integer stream) 32)
-             +tag-single-float+))))
+             +tag-single-float+))
+    (#.+llf-proper-list+
+     (let ((list (make-value (symbol-address "NIL" nil) +tag-symbol+))
+           (length (load-integer stream)))
+       (dotimes (i length)
+         (setf list (vcons (vector-pop stack) list)))
+       list))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))

@@ -18,6 +18,7 @@
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
+(defconstant +llf-proper-list+ #x11)
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -155,7 +156,13 @@
     (#.+llf-structure-definition+
      (load-llf-structure-definition stream stack))
     (#.+llf-single-float+
-     (%integer-as-single-float (load-integer stream)))))
+     (%integer-as-single-float (load-integer stream)))
+    (#.+llf-proper-list+
+     (let ((list '())
+           (len (load-integer stream)))
+       (dotimes (i len)
+         (setf list (cons (vector-pop stack) list)))
+       list))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)

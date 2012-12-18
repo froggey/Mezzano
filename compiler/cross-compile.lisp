@@ -307,6 +307,7 @@
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-defun+ #x0F)
 (defconstant +llf-single-float+ #x10)
+(defconstant +llf-proper-list+ #x11)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -365,9 +366,16 @@
     (write-sequence (cross-function-mc object) stream)))
 
 (defmethod save-one-object ((object cons) omap stream)
-  (save-object (cdr object) omap stream)
-  (save-object (car object) omap stream)
-  (write-byte +llf-cons+ stream))
+  (cond ((alexandria:proper-list-p object)
+         (let ((len 0))
+           (dolist (o object)
+             (save-object o omap stream)
+             (incf len))
+           (write-byte +llf-proper-list+ stream)
+           (save-integer len stream)))
+        (t (save-object (cdr object) omap stream)
+           (save-object (car object) omap stream)
+           (write-byte +llf-cons+ stream))))
 
 (defmethod save-one-object ((object symbol) omap stream)
   #+sbcl
