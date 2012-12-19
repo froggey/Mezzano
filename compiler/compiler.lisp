@@ -70,6 +70,11 @@ A list of any declaration-specifiers."
   (write-count 0)
   used-in)
 
+(defstruct (block-information
+             (:include lexical-variable))
+  return-mode
+  count)
+
 (defstruct tagbody-information
   definition-point
   go-tags)
@@ -151,9 +156,12 @@ A list of any declaration-specifiers."
 	     (mapcar (lambda (x) (copy-form x replacements)) forms))
 	   (copy-variable (var)
 	     (if (lexical-variable-p var)
-		 (let ((new (make-lexical-variable :name (lexical-variable-name var)
-						   :ignore (lexical-variable-ignore var)
-						   :dynamic-extent (lexical-variable-dynamic-extent var))))
+		 (let ((new (funcall (if (block-information-p var)
+                                         'make-block-information
+                                         'make-lexical-variable)
+                                     :name (lexical-variable-name var)
+                                     :ignore (lexical-variable-ignore var)
+                                     :dynamic-extent (lexical-variable-dynamic-extent var))))
 		   (setf (lexical-variable-definition-point new) (fix (lexical-variable-definition-point var))
 			 (lexical-variable-use-count new) 0
 			 (lexical-variable-write-count new) 0

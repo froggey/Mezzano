@@ -487,63 +487,135 @@ be generated instead.")
            (save-tag tag))
          tag)))))
 
-;;; TODO: Unwinding over special bindings (let, progv and unwind-protect).
 (defun cg-block (form)
-  (when (not (localp (second form)))
-    (return-from cg-block (cg-form '(error '"TODO: Escaping blocks."))))
-  (let* ((label (gensym))
-	 (*rename-list* (cons (list (second form)
-                                    label
-                                    (if (eql *for-value* :predicate)
-                                        t
-                                        *for-value*)
-                                    0
-                                    *special-bindings*)
-                              *rename-list*))
-	 (stack-slots (set-up-for-branch))
-	 (tag (cg-form `(progn ,@(cddr form)))))
-    (cond ((and *for-value* tag (/= (fourth (first *rename-list*)) 0))
-	   ;; Returning a value, exit is reached normally and there were return-from forms reached.
-           (case *for-value*
-             (:predicate
-              (cond ((keywordp tag)
-                     (load-predicate tag))
-                    (t (load-in-r8 tag t)
-                       (smash-r8)))
-              (emit label)
-              (setf *stack-values* (copy-stack-values stack-slots)
-                    *r8-value* (list (gensym))))
-             (:multiple
-              (unless (eql tag :multiple)
-                (load-multiple-values tag)
-                (smash-r8))
-              (emit label)
-              (setf *stack-values* (copy-stack-values stack-slots)
-                    *r8-value* :multiple))
-             (t (load-in-r8 tag t)
-                (smash-r8)
-                (emit label)
-                (setf *stack-values* (copy-stack-values stack-slots)
-                      *r8-value* (list (gensym))))))
-	  ((and *for-value* tag)
-	   ;; Returning a value, exit is reached normally, but no return-from forms were reached.
-	   tag)
-	  ((and *for-value* (/= (fourth (first *rename-list*)) 0))
-	   ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
-	   (smash-r8)
-	   (emit label)
-	   (setf *stack-values* (copy-stack-values stack-slots)
-		 *r8-value* (if (eql *for-value* :multiple)
-                                :multiple
-                                (list (gensym)))))
-	  ((/= (fourth (first *rename-list*)) 0)
-	   ;; Not returning a value, but there were return-from forms reached.
-	   (smash-r8)
-           (emit label)
-	   (setf *stack-values* (copy-stack-values stack-slots)
-		 *r8-value* (list (gensym))))
-          ;; No value returned, no return-from forms reached.
-	  (t nil))))
+  (let* ((info (second form))
+         (exit-label (gensym "block"))
+         (escapes (not (localp info)))
+         (*special-bindings* *special-bindings*)
+         (*environment* *environment*)
+         (*environment-chain* *environment-chain*)
+         ;; Allowing predicate values here is too complicated when dealing with
+         ;; non-local returns.
+         (*for-value* (if (and escapes (eql *for-value* :predicate)) t *for-value*)))
+    (setf (block-information-return-mode info) (if (eql *for-value* :predicate) t *for-value*)
+          (block-information-count info) 0)
+    (when escapes
+      (smash-r8)
+      ;; Allocate an environment for the tagbody.
+      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::make-simple-vector))
+            `(sys.lap-x86:mov32 :ecx 8)
+            `(sys.lap-x86:mov32 :r8d ,(* 2 8)) ; Backlink & pointer.
+            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:mov64 :lsp :rbx))
+      (when *environment-chain*
+        ;; Set back-link.
+        (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
+              `(sys.lap-x86:mov64 (:r8 1) :r9)))
+      (let ((slot (find-stack-slot))
+            (control-info (allocate-control-stack-slots 6)))
+        ;; Construct jump info.
+        (emit `(sys.lap-x86:lea64 :rax (:rip ,exit-label))
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-info) :rax)
+              `(sys.lap-x86:gs)
+              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 1)) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 2)) :csp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 3)) :cfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 4)) :lsp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 5)) :lfp)
+              ;; Save in the environment.
+              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea control-info))
+              `(sys.lap-x86:mov64 (:r8 9) :rax))
+        (setf (aref *stack-values* slot) (cons :environment :home))
+        (push slot *environment-chain*)
+        (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))
+        (push (list (second form)) *environment*)
+        (push (cons (list slot 2) :tagbody-or-block) *special-bindings*)
+        (emit `(sys.lap-x86:gs)
+              `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
+              `(sys.lap-x86:gs)
+              `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:mov64 (:rax 8) 8)
+              `(sys.lap-x86:mov64 (:rax 0) :r8))))
+    (let* ((*rename-list* (cons (list (second form) exit-label *special-bindings*) *rename-list*))
+           (stack-slots (set-up-for-branch))
+           (tag (cg-form `(progn ,@(cddr form)))))
+      (cond ((and *for-value* tag (/= (block-information-count info) 0))
+             ;; Returning a value, exit is reached normally and there were return-from forms reached.
+             (let ((return-mode nil))
+               (case *for-value*
+                 (:predicate
+                  (cond ((keywordp tag)
+                         (load-predicate tag))
+                        (t (load-in-r8 tag t)
+                           (smash-r8)))
+                  (setf return-mode (list (gensym))))
+                 (:multiple
+                  (unless (eql tag :multiple)
+                    (load-multiple-values tag)
+                    (smash-r8))
+                  (setf return-mode :multiple))
+                 (t (load-in-r8 tag t)
+                    (smash-r8)
+                    (setf return-mode (list (gensym)))))
+               (when escapes
+                 ;; Disable the tagbody and pop the binding stack.
+                 (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+                       `(sys.lap-x86:sub64 :lsp 8)
+                       `(sys.lap-x86:mov64 (:lsp) :r8)
+                       `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
+                       `(sys.lap-x86:mov64 (:r8 9) nil)
+                       `(sys.lap-x86:gs)
+                       `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+                       `(sys.lap-x86:mov64 (:rax 0) 0)
+                       `(sys.lap-x86:mov64 (:rax 8) 0)
+                       `(sys.lap-x86:gs)
+                       `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
+                       `(sys.lap-x86:mov64 :r8 (:lsp))
+                       `(sys.lap-x86:add64 :lsp 8)))
+               (emit exit-label)
+               (setf *stack-values* (copy-stack-values stack-slots)
+                     *r8-value* return-mode)))
+            ((and *for-value* tag)
+             ;; Returning a value, exit is reached normally, but no return-from forms were reached.
+             (when escapes
+               ;; Disable the tagbody and pop the binding stack.
+               (smash-r8)
+               (emit `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
+                     `(sys.lap-x86:mov64 (:r8 9) nil)
+                     `(sys.lap-x86:gs)
+                     `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+                     `(sys.lap-x86:mov64 (:rax 0) 0)
+                     `(sys.lap-x86:mov64 (:rax 8) 0)
+                     `(sys.lap-x86:gs)
+                     `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))
+             tag)
+            ((and *for-value* (/= (block-information-count info) 0))
+             ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
+             (smash-r8)
+             (emit exit-label)
+             (setf *stack-values* (copy-stack-values stack-slots)
+                   *r8-value* (if (eql *for-value* :multiple)
+                                  :multiple
+                                  (list (gensym)))))
+            ((/= (block-information-count info) 0)
+             ;; Not returning a value, but there were return-from forms reached.
+             (smash-r8)
+             (when escapes
+               ;; Disable the tagbody and pop the binding stack.
+               (emit `(sys.lap-x86:mov64 :r8 (:stack ,(first *environment-chain*)))
+                     `(sys.lap-x86:mov64 (:r8 9) nil)
+                     `(sys.lap-x86:gs)
+                     `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+                     `(sys.lap-x86:mov64 (:rax 0) 0)
+                     `(sys.lap-x86:mov64 (:rax 8) 0)
+                     `(sys.lap-x86:gs)
+                     `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))
+             (emit exit-label)
+             (setf *stack-values* (copy-stack-values stack-slots)
+                   *r8-value* (list (gensym))))
+            ;; No value returned, no return-from forms reached.
+            (t nil)))))
 
 (defun cg-go (form)
   (let ((tag (assoc (second form) *rename-list*)))
@@ -788,11 +860,25 @@ be generated instead.")
   "Generate unwind code. TARGET-REG holds the target special stack pointer.
 When PRESERVE-REGISTERS is true, all MV registers will be preserved, otherwise
 only R8 will be preserved."
-  (when preserve-registers
-    (error "TODO: unwind preserve registers."))
-  (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
-        `(sys.lap-x86:sub64 :lsp 8)
-        `(sys.lap-x86:mov64 (:lsp 0) :r8))
+  (if preserve-registers
+      (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+            `(sys.lap-x86:mov64 (:lsp -16) nil)
+            `(sys.lap-x86:mov64 (:lsp -24) nil)
+            `(sys.lap-x86:mov64 (:lsp -32) nil)
+            `(sys.lap-x86:mov64 (:lsp -40) nil)
+            `(sys.lap-x86:mov64 (:lsp -48) nil)
+            `(sys.lap-x86:mov64 (:lsp -56) nil)
+            `(sys.lap-x86:sub64 :lsp 56)
+            `(sys.lap-x86:mov64 (:lsp 0) :r8)
+            `(sys.lap-x86:mov64 (:lsp 8) :r9)
+            `(sys.lap-x86:mov64 (:lsp 16) :r10)
+            `(sys.lap-x86:mov64 (:lsp 24) :r11)
+            `(sys.lap-x86:mov64 (:lsp 32) :r12)
+            `(sys.lap-x86:mov64 (:lsp 40) :rbx)
+            `(sys.lap-x86:mov64 (:lsp 48) :rcx))
+      (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+            `(sys.lap-x86:sub64 :lsp 8)
+            `(sys.lap-x86:mov64 (:lsp 0) :r8)))
   (let ((loop-head (gensym))
         (loop-test (gensym))
         (unwind-symbol (gensym))
@@ -859,8 +945,18 @@ only R8 will be preserved."
           `(sys.lap-x86:gs)
           `(sys.lap-x86:cmp64 :rax (,+binding-stack-gs-offset+))
           `(sys.lap-x86:ja ,loop-head)))
-  (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
-        `(sys.lap-x86:add64 :lsp 8)))
+  (if preserve-registers
+      ;; Restore MV-registers.
+      (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
+            `(sys.lap-x86:mov64 :r9 (:lsp 8))
+            `(sys.lap-x86:mov64 :r10 (:lsp 16))
+            `(sys.lap-x86:mov64 :r11 (:lsp 24))
+            `(sys.lap-x86:mov64 :r12 (:lsp 32))
+            `(sys.lap-x86:mov64 :rbx (:lsp 40))
+            `(sys.lap-x86:mov64 :rcx (:lsp 48))
+            `(sys.lap-x86:add64 :lsp 56))
+      (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
+            `(sys.lap-x86:add64 :lsp 8))))
 
 (defun unbind-to (bindings target)
   (unless (eql bindings target)
@@ -1224,17 +1320,55 @@ only R8 will be preserved."
   form)
 
 (defun cg-return-from (form)
-  (let* ((label (assoc (second form) *rename-list*))
-	 (*for-value* (third label))
-	 (tag (cg-form (third form))))
+  (let* ((local-info (assoc (second form) *rename-list*))
+         (*for-value* (block-information-return-mode (second form)))
+         (tag (cg-form (third form))))
     (cond ((eql *for-value* :multiple)
            (load-multiple-values tag))
           (*for-value*
            (load-in-r8 tag t)))
-    (unbind-to *special-bindings* (fifth label))
-    (incf (fourth label))
+    (incf (block-information-count (second form)))
     (smash-r8)
-    (emit `(sys.lap-x86:jmp ,(second label)))
+    (cond (local-info ;; Local jump.
+           (unbind-to *special-bindings* (third local-info))
+           (emit `(sys.lap-x86:jmp ,(second local-info))))
+          (t ;; Non-local exit, unwind required.
+           (let ((invalid-block (gensym)))
+             (emit-trailer (invalid-block)
+               (load-constant :r8 (block-information-name (second form)))
+               (load-constant :r13 'sys.int::raise-bad-block)
+               (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
+                     `(sys.lap-x86:call (:symbol-function :r13))
+                     `(sys.lap-x86:ud2)))
+             (multiple-value-bind (stack-slot depth offset)
+                 (find-var (second form) *environment* *environment-chain*)
+               (when *for-value*
+                 ;; Save R8 (first value).
+                 (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
+                       `(sys.lap-x86:sub64 :lsp 8)
+                       `(sys.lap-x86:mov64 (:lsp 0) :r8)))
+               (emit `(sys.lap-x86:mov64 :r8 (:stack ,stack-slot)))
+               (dotimes (n depth)
+                 (emit `(sys.lap-x86:mov64 :r8 (:r8 1))))
+               (emit `(sys.lap-x86:mov64 :r8 (:r8 ,(1+ (* (1+ offset) 8)))))
+               ;; R8 holds the block info, ensure it's still valid.
+               (emit `(sys.lap-x86:cmp64 :r8 nil)
+                     `(sys.lap-x86:je ,invalid-block)
+                     `(sys.lap-x86:mov64 :rax (:r8 8)))
+               (unwind-to :rax *for-value*)
+               ;; Block info is just a fixnum, so can go in an arbitrary register.
+               (emit `(sys.lap-x86:mov64 :rax :r8))
+               ;; Restore first value.
+               (when *for-value*
+                 (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
+                       `(sys.lap-x86:add64 :lsp 8)))
+               ;; Restore registers.
+               (emit `(sys.lap-x86:mov64 :csp (:rax 16))
+                     `(sys.lap-x86:mov64 :cfp (:rax 24))
+                     `(sys.lap-x86:mov64 :lsp (:rax 32))
+                     `(sys.lap-x86:mov64 :lfp (:rax 40))
+                     ;; GO GO GO!
+                     `(sys.lap-x86:jmp (:rax 0)))))))
     'nil))
 
 (defun find-variable-home (var)

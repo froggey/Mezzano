@@ -295,8 +295,8 @@
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
-    (let ((var (make-lexical-variable :name name
-				      :definition-point *current-lambda*)))
+    (let ((var (make-block-information :name name
+				       :definition-point *current-lambda*)))
       `(block ,var ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
 
 (defun pass1-catch (form env)
