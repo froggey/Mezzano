@@ -344,6 +344,10 @@
                (member tag (cddr e)))
       (funcall (second e) tag))))
 
+(defspecial progv (&environment env symbols values &body body)
+  (progv (eval-in-lexenv symbols env) (eval-in-lexenv values env)
+    (eval-progn-body body env)))
+
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
   (let ((var (find-variable form env)))

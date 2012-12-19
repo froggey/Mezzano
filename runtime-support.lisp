@@ -237,3 +237,57 @@
         (funcall (cdr target) values)
         (error 'bad-catch-tag-error
                :tag tag))))
+
+;;; Bind one symbol. (symbol value)
+(define-lap-function %%bind ()
+  ;; Ensure there is a TLS slot.
+  (sys.lap-x86:mov32 :eax (:symbol-flags :r8))
+  (sys.lap-x86:shr32 :eax #.sys.c::+tls-offset-shift+)
+  (sys.lap-x86:and32 :eax #xFFFF)
+  (sys.lap-x86:jnz has-tls-slot)
+  ;; Nope, allocate a new one.
+  (sys.lap-x86:mov64 (:lsp -8) nil)
+  (sys.lap-x86:mov64 (:lsp -16) nil)
+  (sys.lap-x86:sub64 :lsp 16)
+  (sys.lap-x86:mov64 (:lsp 0) :r8)
+  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::%allocate-tls-slot))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr32 :eax 3)
+  (sys.lap-x86:mov64 :r8 (:lsp 0))
+  (sys.lap-x86:mov64 :r9 (:lsp 8))
+  (sys.lap-x86:add64 :lsp 16)
+  has-tls-slot
+  ;; Save the old value on the binding stack.
+  ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
+  ;; Bump binding stack.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:sub64 (#.sys.c::+binding-stack-gs-offset+) 16)
+  ;; Load binding stack pointer into R11.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :r11 (#.sys.c::+binding-stack-gs-offset+))
+  ;; Read the old symbol value.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :r10 ((:rax 8) #.sys.c::+tls-base-offset+))
+  ;; Store the old value on the stack.
+  (sys.lap-x86:mov64 (:r11 8) :r10)
+  ;; Store the symbol.
+  (sys.lap-x86:mov64 (:r11) :r8)
+  ;; Store new value.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 ((:rax 8) #.sys.c::+tls-base-offset+) :r9)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
+(defun %progv (symbols values)
+  (do ((s symbols (rest s))
+       (v values (rest v)))
+      ((null s))
+    (check-type (first s) symbol)
+    (%%bind (first s) (if v
+                          (first v)
+                          (%%assemble-value 0 +tag-unbound-value+)))))
