@@ -234,6 +234,6 @@
 (defun %throw (tag values)
   (let ((target (assoc tag *active-catch-handlers* :test 'eq)))
     (if target
-        (funcall (cdr fn) values)
+        (funcall (cdr target) values)
         (error 'bad-catch-tag-error
                :tag tag))))
