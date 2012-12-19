@@ -32,7 +32,7 @@
                  (fresh-line)
                  (write v)))))))))
 
-(defun go ()
+(defun run ()
   (sys.net::net-setup)
   (sys.graphics::register-screen :bochs *bochs-framebuffer* *bochs-back-buffer* 'bochs-flip-buffer)
   (sys.graphics::invoke-graphics))
