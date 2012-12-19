@@ -102,7 +102,7 @@
                      (unless allow-other-keys
                        (do ((i args (cddr i)))
                            ((null i))
-                         (unless (member (car i) keys)
+                         (unless (member (car i) keys :key 'caar)
                            (error "Unknown &KEY argument ~S." (car i)))))
                      (dolist (key keys)
                        (let ((arg (getf args (caar key) args)))
@@ -263,12 +263,20 @@
 (defspecial quote (object)
   object)
 
-;;; TODO: Expand symbol macros.
-(defspecial setq (&environment env symbol value)
-  (let ((var (find-variable symbol env)))
-    (if (symbolp var)
-        (setf (symbol-value var) (eval-in-lexenv value env))
-        (setf (third var) (eval-in-lexenv value env)))))
+;; TODO: symbol macros.
+(defspecial setq (&environment env &rest pairs)
+  (when (oddp pairs)
+    (error "Odd number of arguments to SETQ."))
+  (when pairs
+    (flet ((set-one (symbol value)
+             (let ((var (find-variable symbol env)))
+               (if (symbolp var)
+                   (setf (symbol-value var) (eval-in-lexenv value env))
+                   (setf (third var) (eval-in-lexenv value env))))))
+    (do ((i pairs (cddr i)))
+        ((null (cddr i))
+         (set-one (first i) (second i)))
+      (set-one (first i) (second i))))))
 
 (defspecial the (&environment env type form)
   (declare (ignore type))
