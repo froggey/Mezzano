@@ -265,7 +265,7 @@
 
 ;; TODO: symbol macros.
 (defspecial setq (&environment env &rest pairs)
-  (when (oddp pairs)
+  (when (oddp (length pairs))
     (error "Odd number of arguments to SETQ."))
   (when pairs
     (flet ((set-one (symbol value)
