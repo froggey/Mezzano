@@ -146,10 +146,16 @@
                          env))))
 
 (defspecial block (&environment env name &body body)
-  (let ((env (cons (list :block name #+nil(lambda (values)
+  (let ((env (cons (list :block name (lambda (values)
                                        (return-from block (values-list values))))
                    env)))
     (eval-progn-body body env)))
+
+(defspecial return-from (&environment env name &optional value)
+  (dolist (e env (error "No block named ~S." name))
+    (when (and (eql (first e) :block)
+               (eql (second e) name))
+      (funcall (third e) (multiple-value-list (eval-in-lexenv value env))))))
 
 (defspecial eval-when (&environment env situation &body body)
   (multiple-value-bind (compile load eval)
@@ -257,12 +263,6 @@
 (defspecial quote (object)
   object)
 
-(defspecial return-from (&environment env name &optional value)
-  (dolist (e env (error "No block named ~S." name))
-    (when (and (eql (first e) :block)
-               (eql (second e) name))
-      (funcall (third e) (multiple-value-list (eval-in-lexenv value env))))))
-
 ;;; TODO: Expand symbol macros.
 (defspecial setq (&environment env symbol value)
   (let ((var (find-variable symbol env)))
@@ -309,6 +309,32 @@
                        (cons (list* :macros
                                     (mapcar 'frob-macrolet-definition definitions))
                              env))))
+
+(defspecial tagbody (&environment env &body body)
+  (let ((current body))
+    (tagbody
+       (setf env (cons (list* :tagbody
+                              (lambda (tag)
+                                (setf current (member tag body))
+                                (go loop))
+                              (remove-if-not (lambda (x) (or (symbolp x) (integerp x))) body))
+                       env))
+     loop
+       (cond
+         ((null current)
+          (go end))
+         ((not (typep (first current) '(or symbol integer)))
+          (eval-in-lexenv (first current) env)))
+       (setf current (rest current))
+       (go loop)
+     end)))
+
+(defspecial go (&environment env tag)
+  (check-type tag (or symbol integer))
+  (dolist (e env (error "No GO-tag named ~S." tag))
+    (when (and (eql (first e) :tagbody)
+               (member tag (cddr e)))
+      (funcall (second e) tag))))
 
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
