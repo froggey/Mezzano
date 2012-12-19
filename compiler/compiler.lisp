@@ -213,7 +213,8 @@ A list of any declaration-specifiers."
 	       (let ((info (make-tagbody-information :definition-point (fix (tagbody-information-definition-point (second form))))))
 		 (push (cons (second form) info) replacements)
 		 (dolist (tag (tagbody-information-go-tags (second form)))
-		   (let ((new-tag (make-go-tag :name (go-tag-name tag))))
+		   (let ((new-tag (make-go-tag :name (go-tag-name tag)
+                                               :tagbody info)))
 		     (push new-tag (tagbody-information-go-tags info))
 		     (push (cons tag new-tag) replacements)))
 		 `(tagbody ,info
