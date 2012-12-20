@@ -225,11 +225,11 @@
       ((null (cdr i))
        i)))
 
-(defun butlast (list)
+(defun butlast (list &optional (n 1))
   (do* ((result (cons nil nil))
 	(tail result (cdr tail))
 	(itr list (cdr itr)))
-       ((null itr)
+       ((<= (length itr) n)
 	(cdr result))
     (funcall #'(setf cdr) (cons (car itr) nil) tail)))
 
