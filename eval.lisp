@@ -219,11 +219,8 @@
                (push name special-variables)
                (push value special-values))
               (:constant (error "Cannot bind over constant ~S." name))))))
-      (when special-variables
-        (error "TODO: special-variables"))
-      #+nil(progv special-variables special-values
-             (eval-locally-body declares body new-env))
-      (eval-locally-body declares body new-env))))
+      (progv special-variables special-values
+        (eval-locally-body declares body new-env)))))
 
 (defspecial let* (&environment env bindings &body forms)
   (multiple-value-bind (body declares)
