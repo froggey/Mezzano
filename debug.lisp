@@ -19,6 +19,7 @@
     (show-restarts restarts)
     (fresh-line)
     (backtrace 15)
+    (fresh-line)
     (write-line "Enter a restart number or evaluate a form.")
     (loop
        (let ((* nil) (** nil) (*** nil)
