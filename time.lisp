@@ -137,3 +137,11 @@ It should be the current year, or earlier."
       (read-rtc-time)
     (encode-universal-time second minute hour day month year
                            (if *rtc-is-utc* 0 *timeszone*))))
+
+(defmacro time (form)
+  `(%time (lambda () (progn ,form))))
+
+(defun %time (fn)
+  (let ((start-time (get-universal-time)))
+    (multiple-value-prog1 (funcall fn)
+      (format *trace-output* "; Execution took ~D seconds.~%" (- (get-universal-time) start-time)))))

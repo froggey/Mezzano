@@ -312,3 +312,11 @@
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
     (memref-unsigned-byte-8 address offset)))
+
+(defun get-structure-type (name &optional (errorp t))
+  (or (get name 'structure-type)
+      (and errorp
+           (error "Unknown structure type ~S." name))))
+
+(defun concat-symbols (&rest symbols)
+  (intern (apply 'concatenate 'string (mapcar 'string symbols))))

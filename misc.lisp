@@ -207,5 +207,9 @@ BODY must not allocate!"
 (unless (boundp 'lambda-list-keywords)
   (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)))
 
+(defconstant array-rank-limit 8) ; ###
+(defconstant array-dimension-limit (expt 1 48))
+(defconstant array-total-size-limit (expt 1 48))
+
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
