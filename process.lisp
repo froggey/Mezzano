@@ -119,9 +119,16 @@
 (defmethod initialize-instance :after ((instance simple-process))
   (process-consider-runnability instance))
 
-(defmethod initialize-instance :after ((instance process) &key name stack-group)
+(defmethod initialize-instance :after ((instance process) &key name stack-group
+                                                            (control-stack-size 8192)
+                                                            (data-stack-size 8192)
+                                                            (binding-stack-size 512)
+                                                            &allow-other-keys)
   (unless stack-group
-    (setf (slot-value instance 'stack-group) (make-stack-group name)))
+    (setf (slot-value instance 'stack-group) (make-stack-group name
+                                                               :control-stack-size control-stack-size
+                                                               :data-stack-size data-stack-size
+                                                               :binding-stack-size binding-stack-size)))
   (setf (slot-value instance 'initial-stack-group) (slot-value instance 'stack-group))
   (process-consider-runnability instance))
 
