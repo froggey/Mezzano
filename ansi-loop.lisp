@@ -139,12 +139,12 @@
 
 
 (defvar *loop-gentemp*
-	t)
+	nil)
 
 (defun loop-gentemp (&optional (pref 'loopvar-))
   (if *loop-gentemp*
       (gentemp (string pref))
-      (gensym)))
+      (gensym (string pref))))
 
 
 
@@ -793,7 +793,7 @@ a LET-like macro, and a SETQ-like macro, which perform LOOP-style destructuring.
     ;; This outer loop iterates once for each not-first-time flag test generated
     ;; plus once more for the forms that don't need a flag test
     (do ((threshold (loop-code-duplication-threshold env))) (nil)
-      (declare (fixnum threshold))
+      #+nil(declare (fixnum threshold))
       ;; Go backwards from the ends of before-loop and after-loop merging all the equivalent
       ;; forms into the body.
       (do () ((or (null rbefore) (not (equal (car rbefore) (car rafter)))))
@@ -977,30 +977,32 @@ collected result will be returned as the value of the LOOP."
 
 
 
-(defun loop-translate (*loop-source-code* *loop-macro-environment* *loop-universe*)
-  (let ((*loop-original-source-code* *loop-source-code*)
-	(*loop-source-context* nil)
-	(*loop-iteration-variables* nil)
-	(*loop-variables* nil)
-	(*loop-nodeclare* nil)
-	(*loop-named-variables* nil)
-	(*loop-declarations* nil)
-	(*loop-desetq-crocks* nil)
-	(*loop-bind-stack* nil)
-	(*loop-prologue* nil)
-	(*loop-wrappers* nil)
-	(*loop-before-loop* nil)
-	(*loop-body* nil)
-	(*loop-emitted-body* nil)
-	(*loop-after-body* nil)
-	(*loop-epilogue* nil)
-	(*loop-after-epilogue* nil)
-	(*loop-final-value-culprit* nil)
-	(*loop-inside-conditional* nil)
-	(*loop-when-it-variable* nil)
-	(*loop-never-stepped-variable* nil)
-	(*loop-names* nil)
-	(*loop-collection-cruft* nil))
+(defun loop-translate (%loop-source-code %loop-macro-environment %loop-universe)
+  (let* ((*loop-source-code* %loop-source-code)
+         (*loop-macro-environment* %loop-macro-environment)
+         (*loop-universe* %loop-universe)
+         (*loop-source-context* nil)
+         (*loop-iteration-variables* nil)
+         (*loop-variables* nil)
+         (*loop-nodeclare* nil)
+         (*loop-named-variables* nil)
+         (*loop-declarations* nil)
+         (*loop-desetq-crocks* nil)
+         (*loop-bind-stack* nil)
+         (*loop-prologue* nil)
+         (*loop-wrappers* nil)
+         (*loop-before-loop* nil)
+         (*loop-body* nil)
+         (*loop-emitted-body* nil)
+         (*loop-after-body* nil)
+         (*loop-epilogue* nil)
+         (*loop-after-epilogue* nil)
+         (*loop-final-value-culprit* nil)
+         (*loop-inside-conditional* nil)
+         (*loop-when-it-variable* nil)
+         (*loop-never-stepped-variable* nil)
+         (*loop-names* nil)
+         (*loop-collection-cruft* nil))
     (loop-iteration-driver)
     (loop-bind-block)
     (let ((answer `(loop-body
@@ -1791,7 +1793,7 @@ collected result will be returned as the value of the LOOP."
 		   initial-phrases))
 	 (used-prepositions (mapcar #'car initial-phrases)))
 	((null *loop-source-code*) (nreverse prepositional-phrases))
-      (declare (symbol this-prep))
+      #+nil(declare (symbol this-prep))
       (setq token (car *loop-source-code*))
       (dolist (group preposition-groups)
 	(when (setq this-prep (in-group-p token group))
