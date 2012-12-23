@@ -113,6 +113,7 @@
 	     (<= object max)))))
 
 (setf (get 'integer 'compound-type) 'integer-type-p)
+(setf (get 'rational 'compound-type) 'integer-type-p) ; ###
 
 (defun real-type-p (object type)
   (multiple-value-bind (min max)
@@ -170,6 +171,7 @@
 (setf (get 'real 'compound-type-optimizer) 'compile-rational-type)
 (setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
 (setf (get 'integer 'compound-type-optimizer) 'compile-rational-type)
+(setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
 (setf (get 'float 'compound-type-optimizer) 'compile-rational-type)
 )
 
@@ -196,6 +198,7 @@
 (setf (get 'real 'type-symbol) 'realp)
 (setf (get 'complex 'type-symbol) 'complexp)
 (setf (get 'integer 'type-symbol) 'integerp)
+(setf (get 'rational 'type-symbol) 'integerp) ; ###
 (setf (get 'float 'type-symbol) 'floatp)
 (setf (get 'character 'type-symbol) 'characterp)
 (setf (get 'string 'type-symbol) 'stringp)
