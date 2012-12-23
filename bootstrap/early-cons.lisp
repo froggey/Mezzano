@@ -412,3 +412,6 @@
 (defun make-list (size &key initial-element)
   (unless (zerop size)
     (cons initial-element (make-list (1- size)))))
+
+(defun acons (key datum alist)
+  (cons (cons key datum) alist))

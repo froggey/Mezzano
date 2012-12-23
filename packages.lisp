@@ -250,6 +250,48 @@
 		    ',export-list
 		    ',intern-list))))
 
+(defun rename-package (package new-name &optional new-nicknames)
+  (setf package (find-package-or-die package))
+  (when (packagep new-name) (error "Not sure what to do when NEW-NAME is a package?"))
+  (setf new-name (string new-name))
+  (setf new-nicknames (mapcar 'string new-nicknames))
+  (let ((new-names (remove-duplicates (cons new-name new-nicknames)))
+        (old-names (cons (package-name package) (package-nicknames package))))
+    (dolist (name new-names)
+      (when (and (find-package name)
+                 (not (eql (find-package name) package)))
+        (error "New name ~S for package ~S conflicts with existing package ~S.~%"
+               name package (find-package name))))
+    ;; Remove the old names.
+    (setf *package-list* (remove-if (lambda (name)
+                                      (member name old-names :test 'string=))
+                                    *package-list*
+                                    :key 'car))
+    ;; Add the new names.
+    (dolist (name new-names)
+      (push (cons name package) *package-list*))
+    ;; Rename the package
+    (setf (package-name package) new-name
+          (package-nicknames package) new-nicknames))
+  package)
+
+(defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
+  (let ((name-sym (gensym "name")))
+    `(block nil
+       (maphash (lambda (,name-sym ,var)
+                  (declare (ignore ,name-sym))
+                  ,@body)
+                (package-external-symbols (find-package-or-die ,package)))
+       ,result-form)))
+
+(defun shadow (symbol-names &optional (package *package*))
+  (unless (listp symbol-names)
+    (setf symbol-names (list symbol-names)))
+  (setf package (find-package-or-die package))
+  (dolist (symbol symbol-names)
+    (shadow-one-symbol symbol package))
+  t)
+
 (defun initialize-package-system ()
   (write-line "Initializing package system.")
   ;; Create the core packages.

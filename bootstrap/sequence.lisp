@@ -123,15 +123,29 @@
 (defun remove-if-not (test sequence &key key); from-end (start 0) end count
   (remove-if (complement test) sequence :key key))
 
-(defun remove-duplicates (sequence); &key test test-not key from-end (start 0) end
-  (do* ((result (cons nil nil))
-	(tail result)
-	(i sequence (cdr i)))
-       ((null i)
-	(cdr result))
-    (unless (member (car i) (cdr result))
-      (setf (cdr tail) (cons (car i) nil)
-	    tail (cdr tail)))))
+(defun remove-duplicates (sequence &key from-end test test-not key) ; (start 0) end
+  (when (and test test-not)
+    (error "Both :test and :test-not specified"))
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (unless key (setf key 'identity))
+  (if from-end
+      (do* ((result (cons nil nil))
+            (tail result)
+            (i sequence (cdr i)))
+           ((null i)
+            (cdr result))
+        (unless (member (car i) (cdr result) :test test :key key)
+          (setf (cdr tail) (cons (car i) nil)
+                tail (cdr tail))))
+      (do* ((result (cons nil nil))
+            (tail result)
+            (i sequence (cdr i)))
+           ((null i)
+            (cdr result))
+        (unless (member (car i) (cdr i) :test test :key key)
+          (setf (cdr tail) (cons (car i) nil)
+                tail (cdr tail))))))
 
 (defun subseq-list (sequence start end)
   ;; Seek in sequence
@@ -282,6 +296,12 @@
       (setf (cdr call-tail) (cons (caar itr) nil)
 	    (car itr) (cdar itr)))))
 
+(defun notany (predicate first-sequence &rest more-sequences)
+  (not (apply 'some predicate first-sequence more-sequences)))
+
+(defun notevery (predicate first-sequence &rest more-sequences)
+  (not (apply 'every predicate first-sequence more-sequences)))
+
 (defun replace (sequence-1 sequence-2 &key (start1 0) end1 (start2 0) end2)
   (unless end1 (setf end1 (length sequence-1)))
   (unless end2 (setf end2 (length sequence-2)))
@@ -342,3 +362,36 @@
                              (incf position)))
                  result-vector)))
             (t (error "~S is not a subtype of SEQUENCE." result-type))))))
+
+(defun substitute-if (newitem predicate sequence &key key (start 0) end) ; from-end
+  (unless key (setf key 'identity))
+  (cond ((and (listp sequence)
+              (zerop start)
+              (null end))
+         (mapcar (lambda (x)
+                   (if (funcall predicate (funcall key x))
+                       newitem
+                       x))
+                 sequence))
+        (t (unless end (setf end (length sequence)))
+           (let ((new-sequence (if (listp sequence)
+                                   (copy-list sequence)
+                                   (make-array (length sequence)
+                                               :element-type (array-element-type sequence)
+                                               :initial-contents sequence))))
+             (dotimes (i (- end start))
+               (when (funcall predicate (funcall key (elt new-sequence (+ start i))))
+                 (setf (elt new-sequence (+ start i)) newitem)))
+             new-sequence))))
+
+(defun substitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
+  (when (and test test-not)
+    (error "Both :test and :test-not specified"))
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (substitute-if newitem
+                 (lambda (x) (funcall test olditem x))
+                 sequence
+                 :key key
+                 :start start
+                 :end end))
