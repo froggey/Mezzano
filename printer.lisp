@@ -225,3 +225,20 @@
     (write-integer (sys.int::lisp-object-address object) 16 stream))
   (write-char #\> stream)
   nil)
+
+(defun prin1 (object &optional output-stream)
+  (write object :stream output-stream :escape t))
+
+(defun princ (object &optional output-stream)
+  (write object :stream output-stream :escape nil :readably nil))
+
+(defun print (object &optional output-stream)
+  (terpri output-stream)
+  (write object :stream output-stream :escape nil :readably nil)
+  (write-char #\Space output-stream)
+  object)
+
+(defun pprint (object &optional output-stream)
+  (terpri output-stream)
+  (write object :stream output-stream :escape nil :readably nil :pretty t)
+  (values))
