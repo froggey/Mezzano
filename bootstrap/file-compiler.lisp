@@ -192,8 +192,24 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (dotimes (i (- (function-code-size object) 12))
     (write-byte (function-code-byte object (+ i 12)) stream)))
 
+;;; From Alexandria.
+(defun proper-list-p (object)
+  "Returns true if OBJECT is a proper list."
+  (cond ((not object)
+         t)
+        ((consp object)
+         (do ((fast object (cddr fast))
+              (slow (cons (car object) (cdr object)) (cdr slow)))
+             (nil)
+           (unless (and (listp fast) (consp (cdr fast)))
+             (return (and (listp fast) (not (cdr fast)))))
+           (when (eq fast slow)
+             (return nil))))
+        (t
+         nil)))
+
 (defmethod save-one-object ((object cons) omap stream)
-  (cond #+nil((alexandria:proper-list-p object)
+  (cond ((proper-list-p object)
          (let ((len 0))
            (dolist (o object)
              (save-object o omap stream)
@@ -249,10 +265,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-character object stream))
 
 (defmethod save-one-object ((object structure-definition) omap stream)
-  (save-object (structure-type-name object) omap stream)
-  (save-object (structure-type-slots object) omap stream)
-  (save-object (structure-type-parent object) omap stream)
-  (save-object (structure-type-area object) omap stream)
+  (save-object (structure-name object) omap stream)
+  (save-object (structure-slots object) omap stream)
+  (save-object (structure-parent object) omap stream)
+  (save-object (structure-area object) omap stream)
   (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object float) omap stream)
