@@ -1,5 +1,7 @@
 (in-package #:system.compiler)
 
+(defvar *should-inline-functions* t)
+
 (defun parse-declares (forms)
   "Extract any leading declare forms.
 Returns 2 values:

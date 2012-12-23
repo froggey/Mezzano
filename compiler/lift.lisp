@@ -216,13 +216,13 @@
 
 (defun ll-function-form (form)
   (ll-implicit-progn (cdr form))
-  (or (and (eq (first form) 'funcall)
-	   (lambda-information-p (second form))
-	   (lift-lambda (second form) (cddr form)))
-      ;; Couldn't lift.
-      form
-      #+nil(progn (ll-implicit-progn (cdr form))
-	     form)))
+  (if *should-inline-functions*
+      (or (and (eq (first form) 'funcall)
+               (lambda-information-p (second form))
+               (lift-lambda (second form) (cddr form)))
+          ;; Couldn't lift.
+          form)
+      form))
 
 (defun ll-variable (form)
   form)
