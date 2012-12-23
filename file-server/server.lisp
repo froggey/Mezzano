@@ -78,9 +78,10 @@
 
 (defcommand :directory (path)
   (format *client* "~S~%"
-          (mapcar (lambda (path)
-                    (list (namestring path)))
-                  (cl-fad:list-directory path))))
+          (list* :ok
+                 (mapcar (lambda (path)
+                           (namestring path))
+                         (directory path)))))
 
 (defcommand :probe (path)
   (if (open path :direction :probe)
@@ -96,6 +97,25 @@
   (when (open path :direction :probe)
     (cl-fad:copy-file path (format nil "~A~~" path)
                       :overwrite t))
+  (format *client* ":ok~%"))
+
+(defcommand :create-directory (path)
+  (multiple-value-bind (_ created)
+      (ensure-directories-exist path)
+    (declare (ignore _))
+    (if created
+        (format *client* ":ok~%")
+        (format *client* ":exists~%"))))
+
+(defcommand :rename-file (source dest)
+  (rename-file source dest)
+  (format *client* ":ok~%"))
+
+(defcommand :file-write-date (path)
+  (format *client* "~D~%" (file-write-date path)))
+
+(defcommand :delete (path)
+  (delete-file path)
   (format *client* ":ok~%"))
 
 (defun handle-client (*client*)

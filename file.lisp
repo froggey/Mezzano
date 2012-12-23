@@ -60,8 +60,80 @@
                                   :port port))
         *host-alist*))
 
-(defstruct (pathname (:predicate pathnamep))
-  host device directory name type version)
+(defstruct (pathname (:predicate pathnamep) (:constructor %make-pathname))
+  %host %device %directory %name %type %version)
+
+;; This should really have a host associated with it...
+(defvar *default-pathname-defaults* (%make-pathname))
+
+(defun make-pathname (&key host
+                        (device nil devicep)
+                        (directory nil directoryp)
+                        (name nil namep)
+                        (type nil typep)
+                        (version nil versionp)
+                        defaults)
+  (if defaults
+      (setf defaults (pathname defaults))
+      (setf defaults (%make-pathname :%host (pathname-host *default-pathname-defaults*))))
+  (%make-pathname :%host (or host (pathname-host defaults))
+                  :%device (if devicep device (pathname-device defaults))
+                  :%directory (if directoryp directory (pathname-directory defaults))
+                  :%name (if namep name (pathname-name defaults))
+                  :%type (if typep type (pathname-type defaults))
+                  :%version (if versionp version (pathname-version defaults))))
+
+(defun pathname-host (pathname &key (case :local))
+  (pathname-%host (pathname pathname)))
+(defun pathname-device (pathname &key (case :local))
+  (pathname-%device (pathname pathname)))
+(defun pathname-directory (pathname &key (case :local))
+  (pathname-%directory (pathname pathname)))
+(defun pathname-name (pathname &key (case :local))
+  (pathname-%name (pathname pathname)))
+(defun pathname-type (pathname &key (case :local))
+  (pathname-%type (pathname pathname)))
+(defun pathname-version (pathname &key (case :local))
+  (pathname-%version (pathname pathname)))
+
+(defun sys.int::pathnames-equal (x y)
+  (and (equal (pathname-host x) (pathname-host y))
+       (equal (pathname-device x) (pathname-device y))
+       (equal (pathname-directory x) (pathname-directory y))
+       (equal (pathname-name x) (pathname-name y))
+       (equal (pathname-type x) (pathname-type y))
+       (equal (pathname-version x) (pathname-version y))))
+
+(defun pathname-match-directory (p w)
+  (let ((p-dir (pathname-directory p))
+        (w-dir (pathname-directory w)))
+    (labels ((match (p w)
+               (cond
+                 ((and (null p) (null w)) t)
+                 ((or (null p) (null w)) nil)
+                 ((eql (first w) :wild)
+                  (match (rest p) (rest w)))
+                 ((eql (first w) :wild-inferiors)
+                  (error "TODO: wild-inferiors"))
+                 (t (and (string= (first p) (first w))
+                         (match (rest p) (rest w)))))))
+      (and (eql (first p-dir) (first w-dir))
+           (match (rest p-dir) (rest w-dir))))))
+
+(defun pathname-match-p (pathname wildcard)
+  (let ((p (pathname pathname))
+        (w (pathname wildcard)))
+    (and (or (member (pathname-host w) '(nil :wild))
+             (eql (pathname-host p) (pathname-host w)))
+         (or (member (pathname-device w) '(nil :wild))
+             (equal (pathname-device p) (pathname-device w)))
+         (pathname-match-directory p w)
+         (or (member (pathname-name w) '(nil :wild))
+             (equal (pathname-name p) (pathname-name w)))
+         (or (member (pathname-type w) '(nil :wild))
+             (equal (pathname-type p) (pathname-type w)))
+         (or (member (pathname-version w) '(nil :wild))
+             (equal (pathname-version p) (pathname-version w))))))
 
 (defun explode (character string &optional (start 0) end)
   (setf end (or end (length string)))
@@ -109,7 +181,14 @@
                    (string= "." dir)))
               ((string= ".." dir)
                (push :up directory))
+              ((string= "*" dir)
+               (push :wild directory))
+              ((string= "**" dir)
+               (push :wild-inferiors directory))
               (t (push dir directory)))))
+    (when (string= name "*") (setf name :wild))
+    (when (string= type "*") (setf type :wild))
+    (when (string= version "*") (setf version :wild))
     (make-pathname :host host
                    :directory (nreverse directory)
                    :name name
@@ -128,12 +207,18 @@
         (cond
           ((stringp d) (write-string d s))
           ((eql d :up) (write-string ".." s))
+          ((eql d :wild) (write-char #\* s))
+          ((eql d :wild-inferiors) (write-string "**" s))
           (t (error "Invalid directory component ~S." d)))
         (write-char #\/ s))
-      (write-string name s)
+      (if (eql name :wild)
+          (write-char #\* s)
+          (write-string name s))
       (when type
         (write-char #\. s)
-        (write-string type s))
+        (if (eql type :wild)
+            (write-char #\* s)
+            (write-string type s)))
       (when (eql version :backup)
         (write-char #\~ s)))))
 
@@ -160,6 +245,9 @@
 (defun file-namestring (pathname)
   (unparse-pathname-file pathname (pathname-host pathname)))
 
+(defun namestring (pathname)
+  (unparse-pathname pathname (pathname-host pathname)))
+
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
          (format stream "#P~S" (concatenate 'string
@@ -175,7 +263,12 @@
 (defun pathname (pathname)
   (cond ((pathnamep pathname)
          pathname)
+        ((typep pathname 'file-stream)
+         (path pathname))
         (t (parse-simple-file-path (pathname-host *default-pathname-defaults*) pathname))))
+
+(defun truename (pathname)
+  (pathname pathname))
 
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
@@ -369,9 +462,6 @@
 (defmethod sys.int::stream-element-type* ((stream simple-file-character-stream))
   'character)
 
-;; This should really have a host associated with it...
-(defvar *default-pathname-defaults* (make-pathname))
-
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)
                         (default-version :newest))
@@ -392,10 +482,12 @@
       (if (and (eql (pathname-host pathname) (pathname-host default-pathname)))
           (setf device (pathname-device default-pathname))
           (setf device (host-default-device host))))
-    (when (and (pathname-directory default-pathname)
-               (eql (first directory) :relative))
-      (setf directory (append (pathname-directory default-pathname)
-                              (rest directory))))
+    (cond ((and (pathname-directory default-pathname)
+                (eql (first directory) :relative))
+           (setf directory (append (pathname-directory default-pathname)
+                                   (rest directory))))
+          ((null directory)
+           (setf directory (pathname-directory default-pathname))))
     (make-pathname :host host
                    :device device
                    :directory directory
@@ -435,6 +527,210 @@
                :if-does-not-exist if-does-not-exist
                :external-format external-format)))
 
+(defun probe-file (pathspec)
+  (let ((stream (open pathspec :direction :probe)))
+    (when stream
+      (close stream)
+      pathspec)))
+
+(defun wild-pathname-p (pathname &optional field-key)
+  (ecase field-key
+    ((nil) (or (eql (pathname-host pathname) :wild)
+               (eql (pathname-device pathname) :wild)
+               (eql (pathname-directory pathname) :wild)
+               (and (listp (pathname-directory pathname))
+                    (or (find :wild (cdr (pathname-directory pathname)))
+                        (find :wild-inferiors (cdr (pathname-directory pathname)))))
+               (eql (pathname-name pathname) :wild)
+               (eql (pathname-type pathname) :wild)
+               (eql (pathname-version pathname) :wild)))
+    (:host (eql (pathname-host pathname) :wild))
+    (:device (eql (pathname-device pathname) :wild))
+    (:directory (or (eql (pathname-directory pathname) :wild)
+                    (and (listp (pathname-directory pathname))
+                         (or (find :wild (cdr (pathname-directory pathname)))
+                             (find :wild-inferiors (cdr (pathname-directory pathname)))))))
+    (:name (eql (pathname-name pathname) :wild))
+    (:type (eql (pathname-type pathname) :wild))
+    (:version (eql (pathname-version pathname) :wild))))
+
+(defun parse-namestring (thing
+                         &optional
+                           host
+                           (default-pathname *default-pathname-defaults*)
+                         &key
+                           (start 0) end
+                           junk-allowed)
+  (when (or host
+            (not (eql default-pathname *default-pathname-defaults*))
+            (not (eql start 0))
+            end
+            junk-allowed)
+    (error "TODO: host/default-pathname/start/end/junk-allowed."))
+  (pathname thing))
+
+(defun directory (pathspec &key)
+  (let ((path (pathname pathspec)))
+    (directory* (pathname-host path) path)))
+
+(defgeneric directory* (host path))
+
+(defmethod directory* ((host simple-file-host) pathname)
+  (let ((path (unparse-simple-file-path pathname))
+        (x nil))
+    (with-connection (con host)
+      (format con "(:DIRECTORY ~S)~%" path)
+      (setf x (read-preserving-whitespace con))
+      (unless (and (listp x) (eql (first x) :ok))
+        (error 'simple-file-error
+               :pathname pathname
+               :format-control "Directory ~A does not exist. ~S"
+               :format-arguments (list pathname x)))
+      (mapcar 'pathname (rest x)))))
+
+(defun translate-logical-pathname (pathname &key)
+  (pathname pathname))
+
+(defun translate-one (source from to what)
+  (cond ((member (funcall what to) '(nil :wild))
+         (funcall what source))
+        ((or (eql (funcall what source) (funcall what from))
+             (eql (funcall what from) :wild))
+         (funcall what source))
+        (t (error "Source and from ~S don't match." what))))
+
+(defun translate-directory (source from-wildcard to-wildcard)
+  (let* ((s-d (pathname-directory source))
+         (f-d (pathname-directory from-wildcard))
+         (t-d (pathname-directory to-wildcard))
+         (new-path (list (first t-d))))
+    (when (null f-d)
+      (return-from translate-directory source))
+    (loop ;; Match leading parts of source/from.
+       (cond ((eql (first f-d) :wild)
+              (error ":WILD elements in from-wildcard directory not yet supported..."))
+             ((eql (first f-d) :wild-inferiors)
+              (assert (null (rest f-d)) (source from-wildcard to-wildcard)
+                      ":WILD-INFERIORS must be the last directory entry... (FIXME)")
+              (return))
+             ((and (null s-d) (null f-d))
+              (return))
+             ((or (null s-d) (null f-d)
+                  (not (equal (first s-d) (first f-d))))
+              (error "Directory entry mismatch. ~S ~S ~S ~S ~S~%"
+                     (first s-d) (first f-d)
+                     source from-wildcard to-wildcard)))
+       (setf s-d (rest s-d)
+             f-d (rest f-d)))
+    ;; Merge SOURCE and TO. First component was done above.
+    (do ((d (rest t-d) (cdr d)))
+        ((eql (first d) :wild-inferiors)
+         (assert (null (rest d))
+                 (source from-wildcard to-wildcard)
+                 ":WILD-INFERIORS must be the last directory entry... (FIXME)")
+         (nconc (nreverse new-path) (copy-list s-d)))
+      (push (first d) new-path))))
+
+(defun translate-pathname (source from-wildcard to-wildcard &key)
+  (assert (and (eql (pathname-host source) (pathname-host from-wildcard))
+               (eql (pathname-host source) (pathname-host to-wildcard)))
+          (source from-wildcard to-wildcard)
+          "Translating between hosts not yet supported...")
+  (make-pathname :host (pathname-host source)
+                 :device (translate-one source from-wildcard to-wildcard 'pathname-device)
+                 :name (translate-one source from-wildcard to-wildcard 'pathname-name)
+                 :type (translate-one source from-wildcard to-wildcard 'pathname-type)
+                 :version (translate-one source from-wildcard to-wildcard 'pathname-version)
+                 :directory (translate-directory source from-wildcard to-wildcard)))
+
+(defgeneric ensure-directories-exist* (host pathname &key verbose))
+
+(defmethod ensure-directories-exist* ((host simple-file-host) pathname &key verbose)
+  (declare (ignore host))
+  (let ((dirs (pathname-directory pathname))
+        (created-one nil))
+    (assert (eql (first dirs) :absolute) (pathname) "Absoute pathname required.")
+    (with-connection (con host)
+      (dotimes (i (length dirs))
+        (let* ((dir-path (make-pathname :directory (subseq dirs 0 (1+ i))
+                                        :name nil :type nil :version nil
+                                        :defaults pathname))
+               (namestring (unparse-simple-file-path dir-path))
+               x)
+          (format con "(:DIRECTORY ~S)~%" namestring)
+          (setf x (read-preserving-whitespace con))
+          (when (and (listp x) (= (length x) 1) (eql (first x) :ok))
+            (when verbose (format t "Creating directory ~A~%" dir-path))
+            (format con "(:CREATE-DIRECTORY ~S)~%" namestring)
+            (setf x (read-preserving-whitespace con))
+            (unless (member x '(:ok :exists))
+              (error "Cannot create ~A. ~S" namestring x))))))
+    created-one))
+
+(defun ensure-directories-exist (pathspec &rest keys &key verbose &allow-other-keys)
+  (values pathspec (apply 'ensure-directories-exist* (pathname-host pathspec) (merge-pathnames pathspec) keys)))
+
+(defgeneric rename-file* (host source dest))
+(defmethod rename-file* ((host simple-file-host) source dest)
+  (assert (eql (first (pathname-directory source)) :absolute) (source) "Absoute pathname required.")
+  (assert (eql (first (pathname-directory dest)) :absolute) (dest) "Absoute pathname required.")
+  (with-connection (con host)
+    (format con "(:RENAME-FILE ~S ~S)~%"
+            (unparse-simple-file-path source)
+            (unparse-simple-file-path dest))
+    (let ((x (read-preserving-whitespace con)))
+      (unless (eql x :ok)
+        (error "Could not rename ~A to ~A: ~S~%" source dest x)))))
+
+(defun rename-file (filespec new-name)
+  (let* ((source (merge-pathnames filespec))
+         (dest (merge-pathnames new-name source)))
+    (assert (eql (pathname-host source) (pathname-host dest))
+            (filespec new-name) "Cannot rename across hosts yet.")
+    (rename-file* (pathname-host source) source dest)
+    (values dest source dest)))
+
+(defgeneric file-write-date* (host path))
+(defmethod file-write-date* ((host simple-file-host) path)
+  (declare (ignore host))
+  (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
+  (with-connection (con host)
+    (format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
+    (let ((x (read-preserving-whitespace con)))
+      (unless (or (integerp x) (null x))
+        (error "Error: ~A ~S." path x))
+      x)))
+
+(defun file-write-date (pathspec)
+  (let ((path (merge-pathnames pathspec)))
+    (assert (not (wild-pathname-p path)))
+    (file-write-date* (pathname-host path) path)))
+
+(defgeneric delete-file* (host path))
+(defmethod delete-file* ((host simple-file-host) path)
+  (declare (ignore host))
+  (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
+  (with-connection (con host)
+    (format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
+    (let ((x (read-preserving-whitespace con)))
+      (unless (eql x :ok)
+        (error "Error: ~A ~S." path x))
+      x)))
+
+(defun delete-file (filespec)
+  (let ((path (merge-pathnames filespec)))
+    (assert (not (wild-pathname-p path)))
+    (y-or-n-p "Really want to delete ~A?" path)
+    (delete-file* (pathname-host path) path)))
+
+(defvar *home-directory* nil)
+
+(defun user-homedir-pathname (&optional host)
+  (if host
+      nil
+      *home-directory*))
+
 (add-simple-file-host :that-mac-thing '(192 168 1 13))
 (setf *default-pathname-defaults* (make-pathname :host (second (first *host-alist*))
                                                  :directory '(:absolute "Users" "henry" "Documents" "LispOS")))
+(setf *home-directory* (make-pathname :directory '(:absolute "Users" "henry" "Documents" "LispOS-home")))
