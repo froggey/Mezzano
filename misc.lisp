@@ -96,7 +96,56 @@ BODY must not allocate!"
       (make-array size :element-type element-type :initial-element initial-element)
       (make-array size :element-type element-type)))
 
-(defvar *loaded-adsdf-systems* '())
+(defvar *load-verbose* nil)
+(defvar *load-print* nil)
+
+(defun load-lisp-source (stream)
+  (when *load-verbose*
+    (format t ";;; Loading from ~S~%" stream))
+  (let ((*readtable* *readtable*)
+        (*package* *package*)
+        (*load-truename* stream)
+        (*load-pathname* stream)
+        (eof (cons nil nil)))
+    (loop (let ((form (read stream nil eof)))
+            (when *load-print* (format t ";; Loading ~S~%" form))
+            (when (eql form eof) (return))
+            (eval form)))
+    t))
+
+(defun load-from-stream (stream)
+  (if (subtypep (stream-element-type stream) 'character)
+      (load-lisp-source stream)
+      (mini-load-llf stream)))
+
+(defvar *load-pathname* nil)
+(defvar *load-truename* nil)
+
+(defun load (filespec &key
+             (verbose *load-verbose*)
+             (print *load-print*)
+             (if-does-not-exist t)
+             (external-format :default))
+  (let ((*load-verbose* verbose)
+        (*load-print* print))
+    (cond ((streamp filespec)
+           (let* ((*load-pathname* (pathname filespec))
+                  (*load-truename* (pathname filespec)))
+             (load-from-stream filespec)))
+          (t (let* ((path (merge-pathnames filespec))
+                    (*load-pathname* (pathname path))
+                    (*load-truename* (pathname path)))
+               (with-open-file (stream filespec
+                                       :if-does-not-exist (if if-does-not-exist
+                                                              :error
+                                                              nil)
+                                       :element-type (if (string-equal (pathname-type path) "LLF")
+                                                         '(unsigned-byte 8)
+                                                         'character)
+                                       :external-format (if (string-equal (pathname-type path) "LLF")
+                                                            :default
+                                                            external-format))
+                 (load-from-stream stream)))))))
 
 (defmacro multiple-value-setq (vars form)
   (let ((temps (mapcar (lambda (sym) (gensym (string sym))) vars)))

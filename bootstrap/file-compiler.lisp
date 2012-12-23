@@ -17,9 +17,11 @@
 ;; TODO: Create macrofunctions correctly, instead of using the host's destructuring-bind
 (defun make-macrolet-env (defs env)
   "Return a new environment containing the macro definitions."
-  (dolist (d defs)
-    (push (list :macro (first d) (eval (expand-macrolet-function d))) env))
-  env)
+  (list* (list* :macros (mapcar (lambda (def)
+                                  (cons (first def)
+                                        (eval (expand-macrolet-function def))))
+                                defs))
+         env))
 
 (defun make-symbol-macrolet-env (defs env)
   (dolist (d defs)
@@ -109,8 +111,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defvar *compile-verbose* t)
 (defvar *compile-print* t)
 
-(defun compile-file-default-output (input-file)
-  (make-pathname :type "llf" :defaults input-file))
+(defun compile-file-pathname (input-file &key output-file &allow-other-keys)
+  (if output-file
+      output-file
+      (make-pathname :type "llf" :defaults input-file)))
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
@@ -128,6 +132,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defconstant +llf-character+ #x0D)
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
+(defconstant +llf-proper-list+ #x11)
 
 (defun write-llf-header (output-stream input-file)
   ;; TODO: write the source file name out as well.
@@ -176,20 +181,28 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defgeneric save-one-object (object object-map stream))
 
 (defmethod save-one-object ((object function) omap stream)
+  (dotimes (i (function-pool-size object))
+    (save-object (function-pool-object object i) omap stream))
+  ;; FIXME: This should be the fixup list.
+  (save-object nil omap stream)
   (write-byte +llf-function+ stream)
   (write-byte (function-tag object) stream)
-  (save-integer (function-code-size object) stream)
-  (dotimes (i (function-code-size object))
-    (write-byte (function-code-byte object i) stream))
-  (save-object (function-fixups object) omap stream)
+  (save-integer (- (function-code-size object) 12) stream)
   (save-integer (function-pool-size object) stream)
-  (dotimes (i (function-pool-size object))
-    (save-object (function-pool-object object i) omap stream)))
+  (dotimes (i (- (function-code-size object) 12))
+    (write-byte (function-code-byte object (+ i 12)) stream)))
 
 (defmethod save-one-object ((object cons) omap stream)
-  (write-byte +llf-cons+ stream)
-  (save-object (cdr object) omap stream)
-  (save-object (car object) omap stream))
+  (cond #+nil((alexandria:proper-list-p object)
+         (let ((len 0))
+           (dolist (o object)
+             (save-object o omap stream)
+             (incf len))
+           (write-byte +llf-proper-list+ stream)
+           (save-integer len stream)))
+        (t (save-object (cdr object) omap stream)
+           (save-object (car object) omap stream)
+           (write-byte +llf-cons+ stream))))
 
 (defmethod save-one-object ((object symbol) omap stream)
   (cond ((symbol-package object)
@@ -197,16 +210,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          (save-integer (length (symbol-name object)) stream)
          (dotimes (i (length (symbol-name object)))
            (save-character (char (symbol-name object) i) stream))
-         (save-integer (length (package-name (symbol-package object))) stream)
-         (dotimes (i (length (package-name (symbol-package object))))
-           (save-character (char (package-name (symbol-package object)) i) stream)))
+         (let ((package (symbol-package object)))
+           (save-integer (length (package-name package)) stream)
+           (dotimes (i (length (package-name package)))
+             (save-character (char (package-name package) i) stream))))
         ((get object 'setf-symbol-backlink)
-         (write-byte +llf-setf-symbol+ stream)
-         (save-object (get object 'setf-symbol-backlink) omap stream))
-        (t (write-byte +llf-uninterned-symbol+ stream)
-           (save-integer (length (symbol-name object)) stream)
-           (dotimes (i (length (symbol-name object)))
-             (save-character (char (symbol-name object) i) stream))
+         (save-object (get object 'setf-symbol-backlink) omap stream)
+         (write-byte +llf-setf-symbol+ stream))
+        (t (save-object (symbol-name object) omap stream)
            ;; Should save flags?
            (if (boundp object)
                (save-object (symbol-value object) omap stream)
@@ -214,7 +225,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (if (fboundp object)
                (save-object (symbol-function object) omap stream)
                (write-byte +llf-unbound+ stream))
-           (save-object (symbol-plist object) omap stream))))
+           (save-object (symbol-plist object) omap stream)
+           (write-byte +llf-uninterned-symbol+ stream))))
 
 (defmethod save-one-object ((object string) omap stream)
   (write-byte +llf-string+ stream)
@@ -227,26 +239,29 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer object stream))
 
 (defmethod save-one-object ((object vector) omap stream)
-  (write-byte +llf-simple-vector+ stream)
-  (save-integer (length object) stream)
   (dotimes (i (length object))
-    (save-object (aref object i) omap stream)))
+    (save-object (aref object i) omap stream))
+  (write-byte +llf-simple-vector+ stream)
+  (save-integer (length object) stream))
 
 (defmethod save-one-object ((object character) omap stream)
   (write-byte +llf-character+ stream)
   (save-character object stream))
 
 (defmethod save-one-object ((object structure-definition) omap stream)
-  (write-byte +llf-structure-definition+ stream)
-  (save-object (structure-name object) omap stream)
-  (save-object (structure-slots object) omap stream))
+  (save-object (structure-type-name object) omap stream)
+  (save-object (structure-type-slots object) omap stream)
+  (save-object (structure-type-parent object) omap stream)
+  (save-object (structure-type-area object) omap stream)
+  (write-byte +llf-structure-definition+ stream))
 
 (defmethod save-one-object ((object float) omap stream)
   (write-byte +llf-single-float+ stream)
   (save-integer (%single-float-as-integer object) stream))
 
 (defun save-object (object omap stream)
-  (let ((id (gethash object omap)))
+  (save-one-object object omap stream)
+  #+nil(let ((id (gethash object omap)))
     (when id
       (write-byte +llf-backlink+ stream)
       (save-integer id stream)
@@ -268,9 +283,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (= (list-length (fourth form)) 2)
               (eql (first (fourth form)) 'quote))
          ;; FORM looks like (FUNCALL #'(SETF FDEFINITION) #'(LAMBDA ...) 'name)
-         (write-byte +llf-setf-fdefinition+ stream)
          (save-object (compile nil (second (third form))) omap stream)
          (save-object (second (fourth form)) omap stream)
+         (write-byte +llf-setf-fdefinition+ stream)
          t)
         ((and (listp form)
               (>= (list-length form) 3)
@@ -279,9 +294,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          ;; FORM looks like (DEFINE-LAP-FUNCTION name (options) code...)
          (unless (= (list-length (third form)) 0)
            (error "TODO: DEFINE-LAP-FUNCTION with options."))
-         (write-byte +llf-setf-fdefinition+ stream)
          (save-object (assemble-lap (cdddr form) (second form)) omap stream)
          (save-object (second form) omap stream)
+         (write-byte +llf-setf-fdefinition+ stream)
          t)
         ((and (listp form)
               (= (list-length form 2))
@@ -289,7 +304,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          t)))
 
 (defun compile-file (input-file &key
-                     (output-file (compile-file-default-output input-file))
+                     (output-file (compile-file-pathname input-file))
                      (verbose *compile-verbose*)
                      (print *compile-print*)
                      (external-format :default))
@@ -313,18 +328,21 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                 (*print-level* 3))
             (declare (special *print-length* *print-level*))
             (format t ";; Compiling form ~S.~%" form))
+          (gc)
           ;; TODO: Deal with lexical environments.
           (handle-top-level-form form
                                  (lambda (f env)
-                                   (assert (not env))
                                    (or (fastload-form f omap output-stream)
-                                       (progn (write-byte +llf-invoke+ output-stream)
-                                              (save-object (compile nil `(lambda () (progn ,f)))
-                                                           omap output-stream))))
+                                       (progn (save-object (compile nil `(lambda () (progn ,f)))
+                                                           omap output-stream)
+                                              (write-byte +llf-invoke+ output-stream))))
                                  (lambda (f env)
-                                   (assert (not env))
-                                   (eval f))))
-        (write-byte +llf-end-of-load+ output-stream)))))
+                                   (sys.eval::eval-in-lexenv f env))))
+        (write-byte +llf-end-of-load+ output-stream))
+      (values (truename output-stream) nil nil))))
+
+(defmacro with-compilation-unit ((&key override) &body body)
+  `(progn ,override ,@body))
 
 (defun save-compiler-builtins (path)
   (with-open-file (output-stream path
@@ -345,6 +363,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (error "Could not fastload builtin."))))
       (write-byte +llf-end-of-load+ output-stream))))
 
+#+nil (progn
 (defun load-integer (stream)
   (let ((value 0) (shift 0))
     (loop
@@ -498,3 +517,4 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                      :if-does-not-exist if-does-not-exist
                                      :external-format external-format)
                (load-from-stream stream))))))
+)
