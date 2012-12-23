@@ -220,7 +220,8 @@
 	   (lambda-information-p (second form))
 	   (lift-lambda (second form) (cddr form)))
       ;; Couldn't lift.
-      (progn (ll-implicit-progn (cdr form))
+      form
+      #+nil(progn (ll-implicit-progn (cdr form))
 	     form)))
 
 (defun ll-variable (form)
