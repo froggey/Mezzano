@@ -586,7 +586,7 @@
 
 (defvar *class-table* (make-hash-table :test #'eq))
 
-(defun find-class (symbol &optional (errorp t))
+(defun find-class (symbol &optional (errorp t) environment)
   (let ((class (gethash symbol *class-table* nil)))
     (when (not class)
       (let ((struct (get symbol 'sys.int::structure-type)))
@@ -596,7 +596,7 @@
         (error "No class named ~S." symbol)
         class)))
 
-(defun (setf find-class) (new-value symbol)
+(defun (setf find-class) (new-value symbol &optional (errorp t) environment)
   (setf (gethash symbol *class-table*) new-value))
 
 (defun forget-all-classes ()
