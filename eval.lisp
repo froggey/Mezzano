@@ -254,6 +254,10 @@
                    (multiple-value-list (eval-in-lexenv f env)))
                  forms)))
 
+(defspecial multiple-value-prog1 (&environment env first-form &body forms)
+  (multiple-value-prog1 (eval-in-lexenv first-form env)
+    (eval-progn-body forms env)))
+
 (defspecial progn (&environment env &body forms)
   (eval-progn-body forms env))
 
