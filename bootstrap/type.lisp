@@ -232,6 +232,8 @@
 
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
+  (when (typep type-2 'standard-class)
+    (return-from subtypep (subclassp type-1 type-2)))
   (let ((t1 (typeexpand type-1 environment))
 	(t2 (typeexpand type-2 environment)))
     (cond ((equal t1 t2) (values t t))
@@ -300,6 +302,11 @@
              (unless (subtypep type t2)
                (return (values nil t)))))
 	  (t (values nil t)))))
+
+(defun subclassp (class-1 class-2)
+  (let ((c1 (if (typep class-1 'standard-class) class-1 (find-class class-1 nil))))
+    (cond (c1 (values (member class-2 (sys.clos::class-precedence-list class-1)) t))
+          (t (values nil nil)))))
 
 (defun typep (object type-specifier &optional environment)
   (let ((type-symbol (cond ((symbolp type-specifier)
