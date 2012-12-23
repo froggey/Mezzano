@@ -77,7 +77,8 @@
     "peek.lisp"
     #+nil"telnet.lisp"
     #+nil"irc.lisp"
-    "mandelbrot.lisp"))
+    "mandelbrot.lisp"
+    "time.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
