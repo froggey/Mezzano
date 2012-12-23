@@ -115,6 +115,9 @@
   (backtrace)
   (loop (%hlt)))
 
+(defun pathnamep (x) nil)
+(defun pathnames-equal (x y) nil)
+
 ;; NOTE: incomplete.
 (defun equal (x y)
   (cond
@@ -125,7 +128,9 @@
     ((consp x)
      (and (consp y)
 	  (equal (car x) (car y))
-	  (equal (cdr x) (cdr y))))))
+	  (equal (cdr x) (cdr y))))
+    ((and (pathnamep x) (pathnamep y))
+     (pathnames-equal x y))))
 
 (defun equalp (x y)
   (typecase x
