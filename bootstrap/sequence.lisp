@@ -32,44 +32,40 @@
       (setf (nth index sequence) value)
       (setf (aref sequence index) value)))
 
-(declaim (inline position))
-(defun position (item sequence &key test key from-end); test-not start end
-  (unless test (setf test 'eql))
+(declaim (inline position-if))
+(defun position-if (predicate sequence &key key from-end (start 0) end)
   (unless key (setf key 'identity))
-  (cond ((listp sequence)
+  (cond ((and (listp sequence)
+              (eql start 0)
+              (eql end nil))
          (when from-end
            (setf sequence (reverse sequence)))
          (do ((p 0 (1+ p))
               (i sequence (cdr i)))
              ((null i) nil)
-           (when (funcall test item (funcall key (car i)))
+           (when (funcall predicate (funcall key (car i)))
              (return p))))
-        (t (if from-end
-               (let ((len (length sequence)))
+        (t (unless end (setf end (length sequence)))
+           (if from-end
+               (let ((len (- end start)))
                  (dotimes (i len nil)
-                   (when (funcall test item (funcall key (elt sequence (- len i 1))))
-                     (return (- len i 1)))))
-               (dotimes (i (length sequence) nil)
-                 (when (funcall test item (funcall key (elt sequence i)))
-                   (return i)))))))
+                   (when (funcall predicate (funcall key (elt sequence (+ start (- len i 1)))))
+                     (return (+ start (- len i 1))))))
+               (dotimes (i (- end start) nil)
+                 (when (funcall predicate (funcall key (elt sequence (+ i start))))
+                   (return (+ start i))))))))
 
-;;; SBCL's compiler has trouble inlining position optimally.
-;;; Give it a little help to speed Genesis up.
-(define-compiler-macro position (&whole whole item sequence &key test key from-end)
-  (when (or test key from-end)
-    (return-from position whole))
-  `(%position-eq ,item ,sequence))
-
-(defun %position-eq (item sequence)
-  (if (listp sequence)
-      (do ((p 0 (1+ p))
-	   (i sequence (cdr i)))
-	  ((null i) nil)
-	(when (eql item (car i))
-	  (return p)))
-      (dotimes (i (length sequence) nil)
-	(when (eql item (elt sequence i))
-	  (return i)))))
+(declaim (inline position))
+(defun position (item sequence &key test test-not key from-end (start 0) end)
+  (when (and test test-not)
+    (error "Both :test and :test-not specified"))
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (position-if (lambda (x) (funcall test item x)) sequence
+               :key key
+               :from-end from-end
+               :start start
+               :end end))
 
 (defun count-if (predicate sequence &key key);from-end start end
   (unless key (setf key 'identity))
