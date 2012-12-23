@@ -133,6 +133,10 @@
       (terpri s)))
   args)
 
+(defun format-ignore (s args params at-sign colon)
+  (declare (ignore s params at-sign colon))
+  args)
+
 (defparameter *format-functions*
   '((#\C format-c)
     (#\R format-r)
@@ -144,7 +148,17 @@
     (#\A format-a)
     (#\~ format-~)
     (#\% format-%)
-    (#\& format-&)))
+    (#\& format-&)
+    (#\< format-ignore)
+    (#\> format-ignore)
+    (#\[ format-ignore)
+    (#\] format-ignore)
+    (#\I format-ignore)
+    (#\_ format-ignore)
+    (#\; format-ignore)
+    (#\{ format-ignore)
+    (#\} format-ignore)
+    (#\^ format-ignore)))
 
 (defun whitespace[1]p (c)
   (or (eql c #\Newline)
@@ -262,8 +276,8 @@
                  (if fn
                      (setf args (funcall fn destination args prefix-parameters
                                          at-sign-modifier colon-modifier))
-                     (error "Invalid format control character ~S in ~S."
-                            (char control-string offset) control-string))))))
+                     (cerror "Invalid format control character ~S in ~S."
+                             (char control-string offset) control-string))))))
         (write-char (char control-string offset) destination))))
 
 (defun format* (destination control-string args)
