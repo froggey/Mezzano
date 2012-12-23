@@ -90,7 +90,7 @@
 	(:test
 	 (when test
 	   (error "Duplicate test clause"))
-	 (setf test `(function (cadr forms))
+	 (setf test `(function ,(cadr forms))
 	       forms (cddr forms)))
 	(t (return))))
     (values `(,name #'(lambda (&rest temp)
