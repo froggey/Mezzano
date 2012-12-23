@@ -16,10 +16,10 @@
 	   (when (cdr newvals)
 	     (error "Can't expand this"))
 	   `(let* (,@(mapcar #'list dummies vals) (,(car newvals)
-						   ,(list ',function getter
-							  ,@required
-							  ,@(mapcar #'car optional)
-							  ,@(when rest (list rest)))))
+						   ,(list* ',function getter
+                                                           ,@required
+                                                           ,@(mapcar #'car optional)
+                                                           ,@(when rest (list rest)))))
 	      ,setter))))))
 
 (defmacro define-setf-expander (access-fn lambda-list &body body)
