@@ -78,7 +78,9 @@
     #+nil"telnet.lisp"
     #+nil"irc.lisp"
     "mandelbrot.lisp"
-    "time.lisp"))
+    "time.lisp"
+    "file.lisp"
+    "ansi-loop.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
@@ -642,9 +644,9 @@
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
-         (control-stack-size 2048)
+         (control-stack-size 8192)
          (control-stack (allocate-stack control-stack-size :control))
-         (data-stack-size 2048)
+         (data-stack-size 8192)
          (data-stack (allocate-stack data-stack-size :data))
          (binding-stack-size 1024)
          (binding-stack (allocate-stack binding-stack-size :binding)))

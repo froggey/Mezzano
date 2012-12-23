@@ -281,3 +281,34 @@
     (%%bind (first s) (if v
                           (first v)
                           (%%assemble-value 0 +tag-unbound-value+)))))
+
+(defun function-tag (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (ldb (byte 8 0) info)))
+
+(defun function-pool-size (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (ldb (byte 16 32) info)))
+
+(defun function-code-size (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (* (ldb (byte 16 16) info) 16)))
+
+(defun function-pool-object (function offset)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0))
+         (mc-size (* (ldb (byte 16 16) info) 2))) ; in words.
+    (memref-t address (+ mc-size offset))))
+
+(defun function-code-byte (function offset)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (memref-unsigned-byte-8 address offset)))

@@ -103,22 +103,6 @@
           (sys.int::pci-find-device (first id) (second id))
         (format t "   ~4,'0X ~4,'0X ~S ~S~%" (first id) (second id) vname dname)))))
 
-(defun decode-cpuid-vendor (vendor-1 vendor-2 vendor-3)
-  (let ((vendor (make-string (* 4 3))))
-    (setf (char vendor 0) (code-char (ldb (byte 8 0) vendor-1))
-          (char vendor 1) (code-char (ldb (byte 8 8) vendor-1))
-          (char vendor 2) (code-char (ldb (byte 8 16) vendor-1))
-          (char vendor 3) (code-char (ldb (byte 8 24) vendor-1))
-          (char vendor 4) (code-char (ldb (byte 8 0) vendor-2))
-          (char vendor 5) (code-char (ldb (byte 8 8) vendor-2))
-          (char vendor 6) (code-char (ldb (byte 8 16) vendor-2))
-          (char vendor 7) (code-char (ldb (byte 8 24) vendor-2))
-          (char vendor 8) (code-char (ldb (byte 8 0) vendor-3))
-          (char vendor 9) (code-char (ldb (byte 8 8) vendor-3))
-          (char vendor 10) (code-char (ldb (byte 8 16) vendor-3))
-          (char vendor 11) (code-char (ldb (byte 8 24) vendor-3)))
-    vendor))
-
 (defvar *cpuid-1-ecx-features*
   #("SSE3"
     nil
@@ -229,7 +213,7 @@
     (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)
         (sys.int::cpuid 0)
       (format t "Maximum CPUID level: ~X~%" cpuid-max)
-      (format t "Vendor: ~A~%" (decode-cpuid-vendor vendor-1 vendor-2 vendor-3))
+      (format t "Vendor: ~A~%" (sys.int::decode-cpuid-vendor vendor-1 vendor-2 vendor-3))
       (setf extended-cpuid-max (sys.int::cpuid #x80000000))
       (if (logbitp 31 extended-cpuid-max)
           (format t "Maximum extended CPUID level: ~X~%" extended-cpuid-max)
