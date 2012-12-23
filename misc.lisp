@@ -82,3 +82,13 @@ BODY must not allocate!"
       (make-array size :element-type element-type)))
 
 (defvar *loaded-adsdf-systems* '())
+
+(defun assemble-lap (code &optional name)
+  (multiple-value-bind (mc constants)
+      (sys.lap-x86:assemble code
+        :base-address 12
+        :initial-symbols (list (cons nil (lisp-object-address 'nil))
+                               (cons t (lisp-object-address 't))
+                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
+        :info (list name))
+    (make-function mc constants)))

@@ -205,16 +205,6 @@
 (defun gensym (&optional (thing "G"))
   (make-symbol (format nil "~A~D" thing (prog1 *gensym-counter* (incf *gensym-counter*)))))
 
-(defun assemble-lap (code &optional name)
-  (multiple-value-bind (mc constants)
-      (sys.lap-x86:assemble code
-        :base-address 12
-        :initial-symbols (list (cons nil (lisp-object-address 'nil))
-                               (cons t (lisp-object-address 't))
-                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
-        :info (list name))
-    (make-function mc constants)))
-
 ;;; TODO: Expand this so it knows about the compiler's constant folders.
 (defun constantp (form &optional environment)
   (declare (ignore environment))
