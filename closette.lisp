@@ -993,10 +993,11 @@
 ;;; defgeneric
 
 (defmacro defgeneric (function-name lambda-list &rest options)
-  `(ensure-generic-function
-     ',function-name
-     :lambda-list ',lambda-list
-     ,@(canonicalize-defgeneric-options options)))
+  `(progn (ensure-generic-function
+           ',function-name
+           :lambda-list ',lambda-list
+           ,@(canonicalize-defgeneric-options options))
+          ,@(defgeneric-methods function-name options)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
@@ -1011,7 +1012,15 @@
     (:method-class
       (list ':method-class
             `(find-class ',(cadr option))))
+    (:method '())
     (t (list `',(car option) `',(cadr option)))))
+
+(defun defgeneric-methods (name options)
+  (mapcar (lambda (x) (defgeneric-method name x))
+          (remove :method options :key 'first :test-not 'eql)))
+
+(defun defgeneric-method (name def)
+  `(defmethod ,name ,(second def) ,@(cddr def)))
 
 )
 
