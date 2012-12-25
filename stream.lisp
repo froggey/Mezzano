@@ -22,6 +22,7 @@
   "Default input stream.")
 (defparameter *standard-output* (make-synonym-stream '*terminal-io*)
   "Default output stream.")
+(defparameter *trace-output* (make-synonym-stream '*terminal-io*))
 
 (defparameter *stream-object-class* (find-class 'stream-object))
 
