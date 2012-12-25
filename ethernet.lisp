@@ -17,13 +17,6 @@
 
 (defgeneric ethernet-mac (nic))
 
-(defun reduce (function list)
-  (cond ((null list) (funcall function))
-        ((null (rest list)) (first list))
-        (t (let ((x (funcall function (first list) (second list))))
-             (dolist (i (cddr list) x)
-               (setf x (funcall function x i)))))))
-
 (defun packet-length (packet)
   (reduce '+ (mapcar 'length packet)))
 

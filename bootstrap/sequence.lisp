@@ -395,3 +395,20 @@
                  :key key
                  :start start
                  :end end))
+
+(defun reduce (function sequence &key key) ; from-end start end initial-value
+  (check-type key (or null symbol function))
+  (unless key (setf key 'identity))
+  (cond ((eql (length sequence) 0)
+         (funcall function))
+        ((eql (length sequence) 1)
+         (funcall key (elt sequence 0)))
+        (t (let ((x (funcall function
+                             (funcall key (elt sequence 0))
+                             (funcall key (elt sequence 1)))))
+             (dotimes (i (- (length sequence) 2))
+               (setf x (funcall function
+                                x
+                                (funcall key
+                                         (elt sequence (+ i 2))))))
+             x))))

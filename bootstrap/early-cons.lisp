@@ -415,3 +415,34 @@
 
 (defun acons (key datum alist)
   (cons (cons key datum) alist))
+
+(defun sublis (alist tree &key) ; key test test-not
+  (flet ((sublis-one (thing)
+           (if (consp thing)
+               (sublis alist thing)
+               (let ((x (assoc thing alist)))
+                 (if x (cdr x) thing)))))
+    (cons (sublis-one (car tree))
+          (sublis-one (cdr tree)))))
+
+(defun pairlis (keys data &optional alist)
+  (assert (or (and keys data)
+              (and (not keys) (not data))))
+  (if keys
+      (cons (cons (car keys) (car data))
+            (pairlis (cdr keys) (cdr data) alist))
+      alist))
+
+(defun ldiff (list object)
+  (do ((list list (cdr list))
+       (r '() (cons (car list) r)))
+      ((atom list)
+       (if (eql list object) (nreverse r) (nreconc r list)))
+    (when (eql object list)
+      (return (nreverse r)))))
+
+(defun tailp (object list)
+   (do ((list list (cdr list)))
+       ((atom list) (eql list object))
+      (if (eql object list)
+          (return t))))

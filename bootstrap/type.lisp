@@ -204,6 +204,7 @@
 (setf (get 'string 'type-symbol) 'stringp)
 (setf (get 'function 'type-symbol) 'functionp)
 (setf (get 'structure-object 'type-symbol) 'structure-object-p)
+(setf (get 'keyword 'type-symbol) 'keywordp)
 )
 (setf (get 't 'type-symbol) #'(lambda (x) (declare (ignore x)) t))
 

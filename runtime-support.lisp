@@ -320,3 +320,13 @@
 
 (defun concat-symbols (&rest symbols)
   (intern (apply 'concatenate 'string (mapcar 'string symbols))))
+
+(defvar *gentemp-counter* 0)
+
+(defun gentemp (&optional (prefix "T") (package *package*))
+  (do () (nil)
+    (let ((name (format nil "~A~D" prefix (incf *gentemp-counter*))))
+      (multiple-value-bind (x status)
+          (find-symbol name package)
+        (declare (ignore x))
+        (unless status (return (intern name package)))))))
