@@ -5,14 +5,16 @@
                   *standard-output*))
 
 (defparameter *debugger-depth* 0)
+(defvar *debugger-condition* nil)
 
-(defun sys.int::enter-debugger (condition)
+(defun enter-debugger (condition)
   (let* ((*standard-input* *debug-io*)
 	 (*standard-output* *debug-io*)
 	 (debug-level *debugger-depth*)
 	 (*debugger-depth* (1+ *debugger-depth*))
 	 (restarts (compute-restarts))
-	 (restart-count (length restarts)))
+	 (restart-count (length restarts))
+         (*debugger-condition* condition))
     (fresh-line)
     (write condition :escape nil :readably nil)
     (fresh-line)
