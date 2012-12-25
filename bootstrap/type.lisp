@@ -230,6 +230,29 @@
     (eql object other-object)))
 (setf (get 'eql 'compound-type) 'eql-type)
 
+(setf (get 'fixnum 'numeric-supertype) 'integer
+      (get 'bignum 'numeric-supertype) 'integer
+      (get 'integer 'numeric-supertype) 'rational
+      (get 'ratio 'numeric-supertype) 'rational
+      (get 'rational 'numeric-supertype) 'real
+      (get 'short-float 'numeric-supertype) 'float
+      (get 'single-float 'numeric-supertype) 'float
+      (get 'double-float 'numeric-supertype) 'float
+      (get 'long-float 'numeric-supertype) 'float
+      (get 'float 'numeric-supertype) 'real
+      (get 'real 'numeric-supertype) 'number
+      (get 'complex 'numeric-supertype) 'number
+      (get 'number 'numeric-supertype) 't)
+
+(defun numeric-subtypep (t1 t2)
+  (and (symbolp t1) (symbolp t2)
+       (get t1 'numeric-supertype)
+       (get t2 'numeric-supertype)
+       (or (eql t1 t2)
+           (numeric-subtypep (get t1 'numeric-supertype) t2))))
+
+(defun real-type-p (type) (numeric-subtypep type 'real))
+
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (when (typep type-2 'standard-class)
@@ -239,16 +262,17 @@
     (cond ((equal t1 t2) (values t t))
 	  ((eql t1 'nil) (values t t))
 	  ((eql t2 'nil) (values nil t))
-	  ((and (or (eql t2 'integer)
+	  ((and (or (real-type-p t2)
 		    (and (consp t2)
-			 (eql (car t2) 'integer)))
-		(or (eql t1 'integer)
+			 (real-type-p (car t2))))
+		(or (real-type-p t1)
 		    (and (consp t1)
-			 (eql (car t1) 'integer))))
+			 (real-type-p (car t1))))
+                (numeric-subtypep (if (consp t1) (car t1) t1) (if (consp t2) (car t2) t2)))
 	   (multiple-value-bind (min-1 max-1)
-	       (canonicalize-real-type t1 'integer)
+	       (canonicalize-real-type t1 (if (consp t1) (car t1) t1))
 	     (multiple-value-bind (min-2 max-2)
-		 (canonicalize-real-type t2 'integer)
+		 (canonicalize-real-type t2 (if (consp t2) (car t2) t2))
 	       (values (and (or (eql min-2 '*)
 				(and (not (eql min-1 '*)) (<= min-2 min-1)))
 			    (or (eql max-2 '*)
