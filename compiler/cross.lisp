@@ -12,7 +12,11 @@
            #:*features*
            #:compile
            #:*macroexpand-hook*
-           #:constantp)
+           #:constantp
+           #:array-rank-limit
+           #:array-dimension-limit
+           #:array-total-size-limit
+           #:char-code-limit)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

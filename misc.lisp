@@ -208,8 +208,10 @@ BODY must not allocate!"
   (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)))
 
 (defconstant array-rank-limit 8) ; ###
-(defconstant array-dimension-limit (expt 1 48))
-(defconstant array-total-size-limit (expt 1 48))
+(defconstant array-dimension-limit (ash 1 48))
+(defconstant array-total-size-limit (ash 1 48))
+
+(defconstant char-code-limit #x110000)
 
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
