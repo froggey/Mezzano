@@ -91,9 +91,14 @@
           ;;
           compute-discriminating-function
           compute-applicable-methods-using-classes method-more-specific-p
+          compute-applicable-methods
           compute-effective-method-function compute-method-function
           apply-methods apply-method
           find-generic-function  ; Necessary artifact of this implementation
+
+          metaobject specializer class
+          structure-class structure-object
+          intern-eql-specializer eql-specializer eql-specializer-object
           ))
 
 (export exports)
@@ -911,7 +916,9 @@
                                   ;    -discriminating-function
        (classes-to-emf-table      ; :accessor classes-to-emf-table
           :initform (make-hash-table :test #'equal))
-       (relevant-arguments))      ; :accessor generic-function-relevant-arguments
+       (relevant-arguments)       ; :accessor generic-function-relevant-arguments
+       (weird-specializers-p)     ; :accessor generic-function-has-unusual-specializers
+       )
       (:metaclass funcallable-standard-class)))
 
 (defvar the-class-standard-gf) ;standard-generic-function's class metaobject
@@ -945,6 +952,11 @@
   (slot-value gf 'relevant-arguments))
 (defun (setf generic-function-relevant-arguments) (new-value gf)
   (setf (slot-value gf 'relevant-arguments) new-value))
+
+(defun generic-function-has-unusual-specializers (gf)
+  (slot-value gf 'weird-specializers-p))
+(defun (setf generic-function-has-unusual-specializers) (new-value gf)
+  (setf (slot-value gf 'weird-specializers-p) new-value))
 
 ;;; Internal accessor for effective method function table
 
@@ -1064,8 +1076,10 @@
          gf)))
 
 (defun generic-function-single-dispatch-p (gf)
-  "Returns true when the generic function only one non-t specialized argument."
-  (when (eq (class-of gf) the-class-standard-gf)
+  "Returns true when the generic function only one non-t specialized argument and
+has only has class specializer."
+  (when (and (eq (class-of gf) the-class-standard-gf)
+             (not (generic-function-has-unusual-specializers gf)))
     (let ((specializers (generic-function-relevant-arguments gf))
           (count 0)
           (offset 0))
@@ -1090,10 +1104,13 @@
                                     ;:element-type 'bit
                                     :initial-element 0))
          (class-t (find-class 't)))
+    (setf (generic-function-has-unusual-specializers gf) nil)
     (dolist (m (generic-function-methods gf))
       (do ((i 0 (1+ i))
            (spec (method-specializers m) (rest spec)))
           ((null spec))
+        (unless (typep (first spec) '(or standard-class funcallable-standard-class class))
+          (setf (generic-function-has-unusual-specializers gf) t))
         (unless (eql (first spec) class-t)
           (setf (aref relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
@@ -1142,7 +1159,13 @@
   `(list ,@(mapcar #'canonicalize-specializer specializers)))
 
 (defun canonicalize-specializer (specializer)
-  `(find-class ',specializer))
+  (cond ((and (listp specializer)
+              (eql (length specializer) 2)
+              (eql (first specializer) 'eql))
+         `(intern-eql-specializer ,(second specializer)))
+        ((symbolp specializer)
+         `(find-class ',specializer))
+        (t (error "Bad method specializer ~S." specializer))))
 
 (defun parse-defmethod (args)
   (let ((fn-spec (car args))
@@ -1323,7 +1346,8 @@
   (setf (method-generic-function method) gf)
   (push method (generic-function-methods gf))
   (dolist (specializer (method-specializers method))
-    (pushnew method (class-direct-methods specializer)))
+    (when (typep specializer '(or standard-class funcallable-standard-class class))
+      (pushnew method (class-direct-methods specializer))))
   (finalize-generic-function gf)
   method)
 
@@ -1506,16 +1530,19 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                (apply gf args))))))
 
 (defun slow-method-lookup (gf args classes)
-  (let* ((applicable-methods
-          (compute-applicable-methods-using-classes gf classes))
-         (emfun
-           (funcall
-             (if (eq (class-of gf) the-class-standard-gf)
-                 #'std-compute-effective-method-function
-                 #'compute-effective-method-function)
-             gf applicable-methods)))
-    (setf (gethash classes (classes-to-emf-table gf)) emfun)
-    (funcall emfun args)))
+  (multiple-value-bind (applicable-methods validp)
+      (compute-applicable-methods-using-classes gf classes)
+    (unless validp
+      (setf applicable-methods (compute-applicable-methods gf args)))
+    (let ((emfun (funcall
+                  (if (eq (class-of gf) the-class-standard-gf)
+                      #'std-compute-effective-method-function
+                      #'compute-effective-method-function)
+                  gf applicable-methods)))
+      ;; Cache is only valid for non-eql methods.
+      (when validp
+        (setf (gethash classes (classes-to-emf-table gf)) emfun))
+      (funcall emfun args))))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
   (let* ((classes (mapcar #'class-of
@@ -1533,31 +1560,81 @@ Dispatching on class ~S." gf class))
 
 (defun compute-applicable-methods-using-classes
        (gf required-classes)
+  (values (sort
+           (copy-list
+            (remove-if-not #'(lambda (method)
+                               (every (lambda (class specializer)
+                                        (etypecase specializer
+                                          (eql-specializer
+                                           (return-from compute-applicable-methods-using-classes
+                                             (values nil nil)))
+                                          ((or standard-class funcallable-standard-class class)
+                                           (subclassp class specializer))))
+                                      required-classes
+                                      (method-specializers method)))
+                           (generic-function-methods gf)))
+           #'(lambda (m1 m2)
+               (funcall
+                (if (eq (class-of gf) the-class-standard-gf)
+                    #'std-method-more-specific-p
+                    #'method-more-specific-p)
+                gf m1 m2 required-classes)))
+          t))
+
+(defun compute-applicable-methods (gf args)
   (sort
-    (copy-list
-      (remove-if-not #'(lambda (method)
-                         (every #'subclassp
-                                required-classes
-                                (method-specializers method)))
-                     (generic-function-methods gf)))
-    #'(lambda (m1 m2)
-        (funcall
-          (if (eq (class-of gf) the-class-standard-gf)
-              #'std-method-more-specific-p
-              #'method-more-specific-p)
-          gf m1 m2 required-classes))))
+   (copy-list
+    (remove-if-not #'(lambda (method)
+                       (every (lambda (arg specializer)
+                                (etypecase specializer
+                                  (eql-specializer
+                                   (eql (eql-specializer-object specializer) arg))
+                                  ((or standard-class funcallable-standard-class class)
+                                   (subclassp (class-of arg) specializer))))
+                              args
+                              (method-specializers method)))
+                   (generic-function-methods gf)))
+   #'(lambda (m1 m2)
+       (funcall
+        (if (eq (class-of gf) the-class-standard-gf)
+            #'std-method-more-specific-with-args-p
+            #'method-more-specific-with-args-p)
+        gf m1 m2 args))))
 
 ;;; method-more-specific-p
 
 (defun std-method-more-specific-p (gf method1 method2 required-classes)
   (declare (ignore gf))
   (mapc #'(lambda (spec1 spec2 arg-class)
-            (unless (eq spec1 spec2)
-              (return-from std-method-more-specific-p
-                 (sub-specializer-p spec1 spec2 arg-class))))
+            (cond ((and (typep spec1 'eql-specializer)
+                        (not (typep spec2 'eql-specializer)))
+                   (return-from std-method-more-specific-p t))
+                  ((and (typep spec1 'eql-specializer)
+                        (typep spec2 'eql-specializer))
+                   (return-from std-method-more-specific-p nil))
+                  (t (unless (eq spec1 spec2)
+                       (return-from std-method-more-specific-p
+                         (sub-specializer-p spec1 spec2 arg-class))))))
         (method-specializers method1)
         (method-specializers method2)
         required-classes)
+  nil)
+
+(defun std-method-more-specific-with-args-p (gf method1 method2 args)
+  (declare (ignore gf))
+  (mapc #'(lambda (spec1 spec2 arg)
+            (cond ((and (typep spec1 'eql-specializer)
+                        (not (typep spec2 'eql-specializer)))
+                   (return-from std-method-more-specific-with-args-p t))
+                  ((and (typep spec1 'eql-specializer)
+                        (typep spec2 'eql-specializer))
+                   (return-from std-method-more-specific-with-args-p nil))
+                  (t (unless (eq spec1 spec2)
+                       (return-from std-method-more-specific-with-args-p
+                         (sub-specializer-p spec1 spec2 (class-of arg)))))))
+        (method-specializers method1)
+        (method-specializers method2)
+        args)
   nil)
 
 ;;; apply-methods and compute-effective-method-function
@@ -2003,7 +2080,11 @@ Dispatching on class ~S." gf class))
 	    (class-name (class-of method))
 	    (generic-function-name (method-generic-function method))
 	    (method-qualifiers method)
-	    (mapcar #'class-name (method-specializers method))))
+	    (mapcar (lambda (x) (typecase x
+                                  ((or standard-class funcallable-standard-class class)
+                                   (class-name x))
+                                  (t x)))
+                    (method-specializers method))))
   method)
 
 ;;;
@@ -2018,6 +2099,11 @@ Dispatching on class ~S." gf class))
 (defmethod method-more-specific-p
            ((gf standard-generic-function) method1 method2 required-classes)
   (std-method-more-specific-p gf method1 method2 required-classes))
+
+(defgeneric method-more-specific-with-args-p (gf method1 method2 args))
+(defmethod method-more-specific-with-args-p
+           ((gf standard-generic-function) method1 method2 args)
+  (std-method-more-specific-with-args-p gf method1 method2 args))
 
 (defgeneric compute-effective-method-function (gf methods))
 (defmethod compute-effective-method-function
@@ -2045,7 +2131,15 @@ Dispatching on class ~S." gf class))
 
 (format t "~%Closette is a Knights of the Lambda Calculus production.~%")
 
-(defclass structure-class ()
+;;; Metaclasses.
+
+(defclass metaobject () ())
+(defclass specializer (metaobject) ())
+(defclass class (specializer) ())
+
+;;; Structure-class.
+
+(defclass structure-class (class)
   ((name :initarg :name)              ; :accessor class-name
    (direct-superclasses               ; :accessor class-direct-superclasses
     :initarg :direct-superclasses)
@@ -2091,5 +2185,18 @@ Dispatching on class ~S." gf class))
 (defclass structure-object (t)
   ()
   (:metaclass structure-class))
+
+;;; eql specializers.
+
+(defvar *interned-eql-specializers* (make-hash-table))
+
+(defclass eql-specializer (specializer)
+  ((object :initarg :object :reader eql-specializer-object)))
+
+(defun intern-eql-specializer (object)
+  (or (gethash object *interned-eql-specializers*)
+      (setf (gethash object *interned-eql-specializers*)
+            (make-instance 'eql-specializer
+                           :object object))))
 
 (values)) ;end progn
