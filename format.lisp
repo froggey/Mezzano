@@ -276,7 +276,8 @@
                  (if fn
                      (setf args (funcall fn destination args prefix-parameters
                                          at-sign-modifier colon-modifier))
-                     (cerror "Invalid format control character ~S in ~S."
+                     (cerror "Ignore it."
+                             "Invalid format control character ~S in ~S."
                              (char control-string offset) control-string))))))
         (write-char (char control-string offset) destination))))
 
