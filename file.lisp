@@ -720,7 +720,6 @@
 (defun delete-file (filespec)
   (let ((path (merge-pathnames filespec)))
     (assert (not (wild-pathname-p path)))
-    (y-or-n-p "Really want to delete ~A?" path)
     (delete-file* (pathname-host path) path)))
 
 (defvar *home-directory* nil)
