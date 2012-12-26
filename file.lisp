@@ -270,6 +270,9 @@
 (defun truename (pathname)
   (pathname pathname))
 
+(defun buffered-format (stream control-stream &rest args)
+  (write-sequence (apply 'format nil control-stream args) stream))
+
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
      ,@body))
@@ -284,7 +287,7 @@
         (x nil)
         (created-file nil))
     (with-connection (con host)
-      (format con "(:PROBE ~S)~%" path)
+      (buffered-format con "(:PROBE ~S)~%" path)
       (setf x (read-preserving-whitespace con))
       (when (listp x)
         (ecase if-does-not-exist
@@ -294,7 +297,7 @@
                          :format-arguments (list pathname x)))
           (:create
            (setf created-file t)
-           (format con "(:CREATE ~S)~%" path)
+           (buffered-format con "(:CREATE ~S)~%" path)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
              (error "Cannot create ~A. ~S" pathname x)))
@@ -308,7 +311,7 @@
           ((:new-version
             :rename
             :rename-and-delete)
-           (format con "(:BACKUP ~S)" path)
+           (buffered-format con "(:BACKUP ~S)" path)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
              (error 'simple-file-error
@@ -316,7 +319,7 @@
                     :format-control "Could not rename ~S."
                     :format-arguments (list pathname))))
           (:supersede
-           (format con "(:DELETE ~S)" path)
+           (buffered-format con "(:DELETE ~S)" path)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
              (error 'simple-file-error
@@ -367,11 +370,11 @@
   (when (and (write-buffer stream)
              (not (zerop (write-buffer-offset stream))))
     (with-connection (con (host stream))
-      (format con "(:OPEN ~S :DIRECTION :OUTPUT :IF-DOES-NOT-EXIST :ERROR :IF-EXISTS :OVERWRITE)~%" (path stream))
+      (buffered-format con "(:OPEN ~S :DIRECTION :OUTPUT :IF-DOES-NOT-EXIST :ERROR :IF-EXISTS :OVERWRITE)~%" (path stream))
       (let ((id (read-preserving-whitespace con)))
         (unless (integerp id)
           (error "Write error! ~S" id))
-        (format con "(:WRITE ~D ~D ~D)~%" id (write-buffer-position stream) (write-buffer-offset stream))
+        (buffered-format con "(:WRITE ~D ~D ~D)~%" id (write-buffer-position stream) (write-buffer-offset stream))
         (write-sequence (write-buffer stream) con :end (write-buffer-offset stream))
         (let ((x (read-preserving-whitespace con)))
           (when (listp x)
@@ -392,11 +395,11 @@
         (incf (sf-position stream)))))
   ;; Refill buffer.
   (with-connection (con (host stream))
-    (format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
+    (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
     (let ((id (read-preserving-whitespace con)))
       (unless (integerp id)
         (error "Read error! ~S" id))
-      (format con "(:READ ~D ~D ~D)~%" id (sf-position stream) (* 32 1024))
+      (buffered-format con "(:READ ~D ~D ~D)~%" id (sf-position stream) (* 32 1024))
       (let ((count (read-preserving-whitespace con)))
         (unless (integerp count)
           (error "Read error! ~S" count))
@@ -448,11 +451,11 @@
 (defmethod sys.int::stream-set-file-position ((stream simple-file-stream) new-position)
   (when (eql new-position :end)
     (with-connection (con (host stream))
-      (format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
+      (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
       (let ((id (read-preserving-whitespace con)))
         (unless (integerp id)
           (error "Read error! ~S" id))
-        (format con "(:SIZE ~D)~%" id)
+        (buffered-format con "(:SIZE ~D)~%" id)
         (let ((file-size (read-preserving-whitespace con)))
           (unless (integerp file-size)
             (error "Read error! ~S" file-size))
@@ -579,7 +582,7 @@
   (let ((path (unparse-simple-file-path pathname))
         (x nil))
     (with-connection (con host)
-      (format con "(:DIRECTORY ~S)~%" path)
+      (buffered-format con "(:DIRECTORY ~S)~%" path)
       (setf x (read-preserving-whitespace con))
       (unless (and (listp x) (eql (first x) :ok))
         (error 'simple-file-error
@@ -657,11 +660,11 @@
                                         :defaults pathname))
                (namestring (unparse-simple-file-path dir-path))
                x)
-          (format con "(:DIRECTORY ~S)~%" namestring)
+          (buffered-format con "(:DIRECTORY ~S)~%" namestring)
           (setf x (read-preserving-whitespace con))
           (when (and (listp x) (= (length x) 1) (eql (first x) :ok))
             (when verbose (format t "Creating directory ~A~%" dir-path))
-            (format con "(:CREATE-DIRECTORY ~S)~%" namestring)
+            (buffered-format con "(:CREATE-DIRECTORY ~S)~%" namestring)
             (setf x (read-preserving-whitespace con))
             (unless (member x '(:ok :exists))
               (error "Cannot create ~A. ~S" namestring x))))))
@@ -675,7 +678,7 @@
   (assert (eql (first (pathname-directory source)) :absolute) (source) "Absoute pathname required.")
   (assert (eql (first (pathname-directory dest)) :absolute) (dest) "Absoute pathname required.")
   (with-connection (con host)
-    (format con "(:RENAME-FILE ~S ~S)~%"
+    (buffered-format con "(:RENAME-FILE ~S ~S)~%"
             (unparse-simple-file-path source)
             (unparse-simple-file-path dest))
     (let ((x (read-preserving-whitespace con)))
@@ -695,7 +698,7 @@
   (declare (ignore host))
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
-    (format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
+    (buffered-format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (or (integerp x) (null x))
         (error "Error: ~A ~S." path x))
@@ -711,7 +714,7 @@
   (declare (ignore host))
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
-    (format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
+    (buffered-format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (eql x :ok)
         (error "Error: ~A ~S." path x))
