@@ -2,6 +2,8 @@
 
 (in-package #:system.compiler)
 
+(defparameter *perform-tce* nil
+  "When true, attempt to eliminate tail calls.")
 (defparameter *suppress-builtins* nil
   "When T, the built-in functions will not be used and full calls will
 be generated instead.")
@@ -53,6 +55,11 @@ be generated instead.")
 (defun allocate-control-stack-slots (count)
   (when (oddp count) (incf count))
   (incf *control-stack-depth* count))
+
+(defun no-tail (value-mode)
+  (ecase value-mode
+    ((:multiple :predicate t nil) value-mode)
+    (:tail :multiple)))
 
 (defun codegen-lambda (lambda)
   (let* ((*current-lambda* lambda)
@@ -277,40 +284,46 @@ be generated instead.")
                                                ,t))))))
             (emit end-label)
             (incf current-arg-index)))))
-    (let* ((code-tag (let ((*for-value* :multiple))
-                       (cg-form `(progn ,@(lambda-information-body lambda)))))
-           (req-count (length (lambda-information-required-args lambda)))
-           (opt-count (length (lambda-information-optional-args lambda)))
-           (arg-count (+ req-count opt-count))
-           (stack-arg-count (max 0 (- arg-count 5))))
+    ;; ### Suppress TCE when binding special variables.
+    (let* ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
+                       (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
         (unless (eql code-tag :multiple)
           (load-in-r8 code-tag t)
           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
-        (cond ((and (plusp stack-arg-count)
-                    (zerop opt-count)
-                    (not (lambda-information-rest-arg lambda)))
-               ;; More than 5 required arguments, no &OPTIONAL or &REST.
-               (emit `(sys.lap-x86:lea64 :rbx (:lfp ,(* stack-arg-count 8)))))
-              ((or (and (plusp stack-arg-count)
-                        (plusp opt-count))
-                   (lambda-information-rest-arg lambda))
-               ;; Many &OPTIONAL args or a &REST arg supplied. Do the full-fat pop.
-               (emit `(sys.lap-x86:mov64 :rax (:cfp -24))
-                     `(sys.lap-x86:xor32 :edx :edx)
-                     `(sys.lap-x86:sub64 :rax ,(* 8 5))
-                     `(sys.lap-x86:cmov64ng :rax :rdx)
-                     `(sys.lap-x86:lea64 :rbx (:lfp :rax))))
-              (t ;; 5 or fewer arguments, no &REST.
-               (emit `(sys.lap-x86:mov64 :rbx :lfp))))
-        (emit `(sys.lap-x86:mov64 :lfp (:cfp -8)))
-        (emit `(sys.lap-x86:leave)
-              `(sys.lap-x86:ret))))
+        (emit-return-code)
+        (emit `(sys.lap-x86:ret))))
     (sys.int::assemble-lap (nconc
 			    (generate-entry-code lambda)
 			    (nreverse *code-accum*)
 			    (apply #'nconc *trailers*))
                            *current-lambda-name*)))
+
+(defun emit-return-code (&optional tail-call)
+  (let* ((req-count (length (lambda-information-required-args *current-lambda*)))
+         (opt-count (length (lambda-information-optional-args *current-lambda*)))
+         (arg-count (+ req-count opt-count))
+         (stack-arg-count (max 0 (- arg-count 5))))
+    (cond ((and (plusp stack-arg-count)
+                (zerop opt-count)
+                (not (lambda-information-rest-arg *current-lambda*)))
+           ;; More than 5 required arguments, no &OPTIONAL or &REST.
+           (emit `(sys.lap-x86:lea64 :rbx (:lfp ,(* stack-arg-count 8)))))
+          ((or (and (plusp stack-arg-count)
+                    (plusp opt-count))
+               (lambda-information-rest-arg *current-lambda*))
+           ;; Many &OPTIONAL args or a &REST arg supplied. Do the full-fat pop.
+           (emit `(sys.lap-x86:mov64 :rax (:cfp -24))
+                 `(sys.lap-x86:xor32 :edx :edx)
+                 `(sys.lap-x86:sub64 :rax ,(* 8 5))
+                 `(sys.lap-x86:cmov64ng :rax :rdx)
+                 `(sys.lap-x86:lea64 :rbx (:lfp :rax))))
+          (t ;; 5 or fewer arguments, no &REST.
+           (emit `(sys.lap-x86:mov64 :rbx :lfp))))
+    (emit `(sys.lap-x86:mov64 :lfp (:cfp -8)))
+    (when tail-call
+      (emit `(sys.lap-x86:mov64 :lsp :rbx)))
+    (emit `(sys.lap-x86:leave))))
 
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
@@ -498,10 +511,16 @@ be generated instead.")
          (*special-bindings* *special-bindings*)
          (*environment* *environment*)
          (*environment-chain* *environment-chain*)
-         ;; Allowing predicate values here is too complicated when dealing with
-         ;; non-local returns.
-         (*for-value* (if (and escapes (eql *for-value* :predicate)) t *for-value*)))
-    (setf (block-information-return-mode info) (if (eql *for-value* :predicate) t *for-value*)
+         (*for-value* *for-value*))
+    ;; Allowing predicate values here is too complicated.
+    (when (eql *for-value* :predicate)
+      (setf *for-value* t))
+    ;; Disable tail calls when the BLOCK escapes.
+    ;; TODO: When tailcalling, configure the escaping block so
+    ;; control returns to the caller.
+    (when (and escapes (eql *for-value* :tail))
+       (setf *for-value* :multiple))
+    (setf (block-information-return-mode info) *for-value*
           (block-information-count info) 0)
     (when escapes
       (smash-r8)
@@ -547,14 +566,8 @@ be generated instead.")
       (cond ((and *for-value* tag (/= (block-information-count info) 0))
              ;; Returning a value, exit is reached normally and there were return-from forms reached.
              (let ((return-mode nil))
-               (case *for-value*
-                 (:predicate
-                  (cond ((keywordp tag)
-                         (load-predicate tag))
-                        (t (load-in-r8 tag t)
-                           (smash-r8)))
-                  (setf return-mode (list (gensym))))
-                 (:multiple
+               (ecase *for-value*
+                 ((:multiple :tail)
                   (unless (eql tag :multiple)
                     (load-multiple-values tag)
                     (smash-r8))
@@ -599,7 +612,7 @@ be generated instead.")
              (smash-r8)
              (emit exit-label)
              (setf *stack-values* (copy-stack-values stack-slots)
-                   *r8-value* (if (eql *for-value* :multiple)
+                   *r8-value* (if (member *for-value* '(:multiple :tail))
                                   :multiple
                                   (list (gensym)))))
             ((/= (block-information-count info) 0)
@@ -782,7 +795,7 @@ be generated instead.")
 	(when tag
 	  (when *for-value*
             (case *for-value*
-              (:multiple (load-multiple-values tag))
+              ((:multiple :tail) (load-multiple-values tag))
               (:predicate (if (keywordp tag)
                               (load-predicate tag)
                               (load-in-r8 tag t)))
@@ -797,7 +810,7 @@ be generated instead.")
 	(when tag
 	  (when *for-value*
             (case *for-value*
-              (:multiple (load-multiple-values tag))
+              ((:multiple :tail) (load-multiple-values tag))
               (:predicate (if (keywordp tag)
                               (load-predicate tag)
                               (load-in-r8 tag t)))
@@ -807,7 +820,7 @@ be generated instead.")
       (emit-label end-label)
       (setf *stack-values* (copy-stack-values stack-slots))
       (unless (zerop branch-count)
-	(setf *r8-value* (if (eql *for-value* :multiple)
+	(setf *r8-value* (if (member *for-value* '(:multiple :tail))
                              :multiple
                              (list (gensym))))))))
 
@@ -970,7 +983,7 @@ only R8 will be preserved."
       (ecase (cdr b)
         (:unwind-protect ;; Unwind-protect cleanup function.
          (case *for-value*
-           (:multiple
+           ((:multiple :tail)
             ;; Save all MV-related registers on the stacks.
             (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
                   `(sys.lap-x86:mov64 (:lsp -16) nil)
@@ -1031,7 +1044,7 @@ only R8 will be preserved."
                `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)))
         (:symbol ;; Special variable
          (case *for-value*
-           (:multiple
+           ((:multiple :tail)
             ;; Stash R8 and R9 on the stack.
             (emit `(sys.lap-x86:mov64 (:lsp -8) nil)
                   `(sys.lap-x86:mov64 (:lsp -16) nil)
@@ -1239,6 +1252,7 @@ only R8 will be preserved."
                (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rbx))
                (smash-r8)
                (load-in-reg :r13 fn-tag t)
+               ;; ### TCO here
                (let ((type-error-label (gensym))
                      (function-label (gensym)))
                  (emit-trailer (type-error-label)
@@ -1252,7 +1266,7 @@ only R8 will be preserved."
                        `(sys.lap-x86:mov64 :r13 (:symbol-function :r13))
                        function-label
                        `(sys.lap-x86:call :r13))
-                 (cond ((eql *for-value* :multiple)
+                 (cond ((member *for-value* '(:multiple :tail))
                         (emit `(sys.lap-x86:mov64 :rbx ,(control-stack-slot-ea stack-pointer-save-area)))
                         :multiple)
                        (t (emit `(sys.lap-x86:mov64 :lsp ,(control-stack-slot-ea stack-pointer-save-area)))
@@ -1264,9 +1278,10 @@ only R8 will be preserved."
     ((null *for-value*)
      ;; Not for value
      (cg-progn form))
-    (t (let ((tag (let ((*for-value* (if (eql *for-value* :predicate)
-                                         t
-                                         *for-value*)))
+    (t (let ((tag (let ((*for-value* (case *for-value*
+                                       (:predicate t)
+                                       (:tail :multiple)
+                                       (t *for-value*))))
                     (cg-form (second form)))))
          (smash-r8)
          (when (eql tag :multiple)
@@ -1343,7 +1358,7 @@ only R8 will be preserved."
         (unless tag (return-from cg-progv nil))
         ;; Unwind.
         (emit `(sys.lap-x86:mov64 :rax ,(control-stack-slot-ea stack-pointer-save-area)))
-        (unwind-to :rax (eql *for-value* :multiple))
+        (unwind-to :rax (member *for-value* '(:multiple :tail)))
         tag))))
 
 (defun cg-quote (form)
@@ -1353,7 +1368,8 @@ only R8 will be preserved."
   (let* ((local-info (assoc (second form) *rename-list*))
          (*for-value* (block-information-return-mode (second form)))
          (tag (cg-form (third form))))
-    (cond ((eql *for-value* :multiple)
+    (unless tag (return-from cg-return-from nil))
+    (cond ((member *for-value* '(:multiple :tail))
            (load-multiple-values tag))
           (*for-value*
            (load-in-r8 tag t)))
@@ -1553,12 +1569,12 @@ only R8 will be preserved."
           `(sys.lap-x86:mov64 (:rax 0) :r8))
     ;; Compile the protected form (not for predicate).
     (let ((tag (let ((*for-value* (if (and (keywordp *for-value*)
-                                           (not (eql *for-value* :multiple)))
+                                           (not (member *for-value* '(:multiple :tail))))
                                       t
                                       *for-value*)))
                  (cg-form (second form)))))
       (when tag
-        (cond ((eql *for-value* :multiple)
+        (cond ((member *for-value* '(:multiple :tail))
                (load-multiple-values tag))
               (*for-value*
                (load-in-r8 tag t)))
@@ -1756,7 +1772,7 @@ only R8 will be preserved."
 (defun cg-values (forms)
   (cond ((null forms)
          ;; No values.
-         (cond ((eql *for-value* :multiple)
+         (cond ((member *for-value* '(:multiple :tail))
                 ;; R8 must hold NIL.
                 (load-in-r8 ''nil)
                 (emit `(sys.lap-x86:xor32 :ecx :ecx)
@@ -1768,7 +1784,7 @@ only R8 will be preserved."
          (let ((*for-value* t))
            (cg-form (first forms))))
         (t ;; Multiple-values
-         (cond ((eql *for-value* :multiple)
+         (cond ((member *for-value* '(:multiple :tail))
                 ;; The MV return convention happens to be almost identical
                 ;; to the standard calling convention!
                 (when (prep-arguments-for-call forms)
@@ -1788,6 +1804,7 @@ only R8 will be preserved."
                         (return-from cg-values nil))))
                   tag))))))
 
+;; ### TCE here
 (defun cg-function-form (form)
   (let ((fn (when (not *suppress-builtins*)
               (match-builtin (first form) (length (rest form))))))
@@ -1832,18 +1849,25 @@ only R8 will be preserved."
 		    (load-in-reg :r13 fn-tag t)
 		    (smash-r8)
 		    (load-constant :rcx (length (cddr form)))
-		    (emit `(sys.lap-x86:mov8 :al :r13l)
-			  `(sys.lap-x86:and8 :al #b1111)
-			  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
-			  `(sys.lap-x86:je ,function-label)
-			  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-			  `(sys.lap-x86:jne ,type-error-label)
-			  `(sys.lap-x86:call (:symbol-function :r13))
-                          `(sys.lap-x86:jmp ,out-label)
-			  function-label
-			  `(sys.lap-x86:call :r13)
-                          out-label)
-                    (cond ((eql *for-value* :multiple)
+                    (unless (typep (second form) 'lambda-information)
+                      ;; Might be a symbol.
+                      (emit `(sys.lap-x86:mov8 :al :r13l)
+                            `(sys.lap-x86:and8 :al #b1111)
+                            `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
+                            `(sys.lap-x86:je ,function-label)
+                            `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
+                            `(sys.lap-x86:jne ,type-error-label))
+                      (if (can-tail-call (cddr form))
+                          (emit-tail-call '(:symbol-function :r13) (second form))
+                          (emit `(sys.lap-x86:call (:symbol-function :r13))
+                                `(sys.lap-x86:jmp ,out-label))))
+                    (emit function-label)
+                    (if (can-tail-call (cddr form))
+                        (emit-tail-call :r13 (second form))
+                        (emit `(sys.lap-x86:call :r13)))
+                    (emit out-label)
+                    (cond ((can-tail-call (cddr form)) nil)
+                          ((member *for-value* '(:multiple :tail))
                            :multiple)
                           (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
                              (setf *r8-value* (list (gensym))))))
@@ -1855,11 +1879,25 @@ only R8 will be preserved."
 	       (load-constant :r13 (first form))
 	       (smash-r8)
 	       (load-constant :rcx (length (rest form)))
-	       (emit `(sys.lap-x86:call (:symbol-function :r13)))
-               (cond ((eql *for-value* :multiple)
-                      :multiple)
-                     (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
-                        (setf *r8-value* (list (gensym))))))))))
+               (cond ((can-tail-call (rest form))
+                      (emit-tail-call '(:symbol-function :r13) (first form))
+                      nil)
+                     (t (emit `(sys.lap-x86:call (:symbol-function :r13)))
+                        (cond ((member *for-value* '(:multiple :tail))
+                               :multiple)
+                              (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
+                                 (setf *r8-value* (list (gensym))))))))))))
+
+(defun can-tail-call (args)
+  (and (eql *for-value* :tail)
+       (null *special-bindings*)
+       (<= (length args) 5)))
+
+(defun emit-tail-call (where &optional what)
+  (format t "Performing tail call to ~S in ~S~%"
+          what (lambda-information-name *current-lambda*))
+  (emit-return-code t)
+  (emit `(sys.lap-x86:jmp ,where)))
 
 ;;; Locate a variable in the environment.
 (defun find-var (var env chain)
