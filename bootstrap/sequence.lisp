@@ -257,28 +257,35 @@
 		   (vector-push (aref seq i) result))))
 	   result)))))
 
-;;; FIXME: must work on sequences, not lists.
-(defun every (predicate first-seq &rest sequences)
+(defun every (predicate first-seq &rest more-sequences)
   (declare (dynamic-extent sequences))
-  (if (listp first-seq)
-      (do* ((lists (cons first-seq sequences)))
-           (nil)
-        (do* ((call-list (cons nil nil))
-              (call-tail call-list (cdr call-tail))
-              (itr lists (cdr itr)))
-             ((null itr)
-              (when (not (apply predicate (cdr call-list)))
-                (return-from every nil)))
-          (when (null (car itr))
-            (return-from every t))
-          (setf (cdr call-tail) (cons (caar itr) nil)
-                (car itr) (cdar itr))))
-      (progn
-        (when sequences
-          (error "TODO: Every with many non-list sequences."))
-        (dotimes (i (length first-seq) t)
-          (unless (funcall predicate (aref first-seq i))
-            (return nil))))))
+  (cond ((and (listp first-seq)
+              (null more-sequences))
+         ;; One list, used to implement the other cases.
+         (dolist (x first-seq t)
+           (unless (funcall predicate x)
+             (return nil))))
+        ((and (listp first-seq)
+              (every 'listp more-sequences))
+         ;; Many lists.
+         (do* ((lists (cons first-seq more-sequences)))
+              (nil)
+           (do* ((call-list (cons nil nil))
+                 (call-tail call-list (cdr call-tail))
+                 (itr lists (cdr itr)))
+                ((null itr)
+                 (when (not (apply predicate (cdr call-list)))
+                   (return-from every nil)))
+             (when (null (car itr))
+               (return-from every t))
+             (setf (cdr call-tail) (cons (caar itr) nil)
+                   (car itr) (cdar itr)))))
+        (t ;; One or more non-list sequence.
+         (let* ((sequences (cons first-seq more-sequences))
+                (n-elts (reduce 'min (mapcar 'length sequences))))
+           (dotimes (i n-elts t)
+             (unless (apply predicate (mapcar (lambda (seq) (elt seq i)) sequences))
+               (return nil)))))))
 
 (defun some (predicate first-seq &rest sequences)
   (declare (dynamic-extent sequences))
@@ -396,13 +403,26 @@
                  :start start
                  :end end))
 
-(defun reduce (function sequence &key key) ; from-end start end initial-value
+(defun reduce (function sequence &key key (initial-value nil initial-valuep)) ; from-end start end initial-value
   (check-type key (or null symbol function))
   (unless key (setf key 'identity))
   (cond ((eql (length sequence) 0)
-         (funcall function))
-        ((eql (length sequence) 1)
+         (if initial-valuep
+             initial-value
+             (funcall function)))
+        ((and (eql (length sequence) 1)
+              (not initial-valuep))
          (funcall key (elt sequence 0)))
+        (initial-valuep
+         (let ((x (funcall function
+                           initial-value
+                           (funcall key (elt sequence 0)))))
+           (dotimes (i (1- (length sequence)))
+             (setf x (funcall function
+                              x
+                              (funcall key
+                                       (elt sequence (1+ i))))))
+           x))
         (t (let ((x (funcall function
                              (funcall key (elt sequence 0))
                              (funcall key (elt sequence 1)))))
