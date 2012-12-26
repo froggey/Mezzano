@@ -460,6 +460,7 @@
           (unless (integerp file-size)
             (error "Read error! ~S" file-size))
           (setf new-position file-size)))))
+  (setf (read-buffer stream) nil)
   (setf (sf-position stream) new-position))
 
 (defmethod sys.int::stream-element-type* ((stream simple-file-character-stream))
