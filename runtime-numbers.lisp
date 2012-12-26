@@ -488,7 +488,14 @@
   (sys.lap-x86:ret))
 
 (defun binary-/ (x y)
-  (cond ((or (complexp x)
+  (cond ((and (typep x 'integer)
+              (typep y 'integer))
+         (multiple-value-bind (quot rem)
+             (truncate x y)
+           (if (zerop rem)
+               quot
+               (%%float-/ (float x) (float y)))))
+        ((or (complexp x)
              (complexp y))
          (complex (/ (+ (* (realpart x) (realpart y))
                         (* (imagpart x) (imagpart y)))
