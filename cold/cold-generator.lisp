@@ -244,6 +244,118 @@
     (:d16/le idt-length)
     (:d32/le idt)))
 
+(defparameter *kboot-entry-function*
+  `(;; KBoot enters here.
+    ;; RDI hold the KBoot magic value. (Don't care)
+    ;; RSI contains a virtual pointer to the tag list.
+    ;; We want a physical pointer!
+    ;; CS/DS/ES/FS/GS/SS are set to sensible segments.
+    ;; GDTR/IDTR may not be valid.
+    ;; RSP holds a valid stack, but we've got our own.
+    ;; RFLAGS is clear, interrupts are off.
+    ;; Load our own GDT/IDT asap.
+    (sys.lap-x86:lgdt (:rip gdtr))
+    (sys.lap-x86:lidt (:rip idtr))
+    ;; Reload CS.
+    (sys.lap-x86:push #x0008)
+    (sys.lap-x86:lea64 :rax (:rip cs-reload))
+    (sys.lap-x86:push :rax)
+    (sys.lap-x86:retf)
+    cs-reload
+    ;; Reload data segs.
+    (sys.lap-x86:xor32 :eax :eax)
+    (sys.lap-x86:movseg :ds :eax)
+    (sys.lap-x86:movseg :es :eax)
+    (sys.lap-x86:movseg :fs :eax)
+    (sys.lap-x86:movseg :gs :eax)
+    (sys.lap-x86:movseg :ss :eax)
+    ;; Save the KBoot CR3 before we load our own.
+    ;; This is needed so we can figure out where the
+    ;; tag list is later.
+    (sys.lap-x86:movcr :rbx :cr3)
+    ;; Switch over to our page tables.
+    (sys.lap-x86:mov64 :rax initial-page-table)
+    (sys.lap-x86:movcr :cr3 :rax)
+    ;; Now save the old CR3.
+    (sys.lap-x86:shl64 :rbx 3)
+    (sys.lap-x86:mov64 :r8 (:constant *kboot-initial-cr3*))
+    (sys.lap-x86:mov64 (:symbol-value :r8) :rbx)
+    ;; Save the tag list address.
+    (sys.lap-x86:shl64 :rsi 3)
+    (sys.lap-x86:mov64 :r8 (:constant *kboot-tag-list*))
+    (sys.lap-x86:mov64 (:symbol-value :r8) :rsi)
+    ;; SSE init.
+    ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
+    (sys.lap-x86:movcr :rax :cr4)
+    (sys.lap-x86:or64 :rax #x00000600)
+    (sys.lap-x86:movcr :cr4 :rax)
+    ;; Clear CR0.EM and set CR0.MP.
+    (sys.lap-x86:movcr :rax :cr0)
+    (sys.lap-x86:and64 :rax -5)
+    (sys.lap-x86:or64 :rax #x00000002)
+    (sys.lap-x86:movcr :cr0 :rax)
+    ;; Clear FPU/SSE state.
+    (sys.lap-x86:push #x1F80)
+    (sys.lap-x86:ldmxcsr (:rsp))
+    (sys.lap-x86:add64 :rsp 8)
+    (sys.lap-x86:fninit)
+    ;; Preset the initial stack group.
+    (sys.lap-x86:mov64 :r8 (:constant *initial-stack-group*))
+    (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
+    (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) +tag-array-like+)))
+    (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) +tag-array-like+)))
+    (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) +tag-array-like+)))
+    (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) +tag-array-like+)))
+    ;; Clear binding stack.
+    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 9 8) +tag-array-like+)))
+    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 10 8) +tag-array-like+)))
+    (sys.lap-x86:sar64 :rcx 3)
+    (sys.lap-x86:xor32 :eax :eax)
+    (sys.lap-x86:rep)
+    (sys.lap-x86:stos64)
+    ;; Set the binding stack pointer.
+    (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) +tag-array-like+)) :rdi)
+    ;; Clear TLS binding slots.
+    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* 12 8) +tag-array-like+)))
+    (sys.lap-x86:mov64 :rax -2)
+    (sys.lap-x86:mov32 :ecx 500)
+    (sys.lap-x86:rep)
+    (sys.lap-x86:stos64)
+    ;; Mark the SG as running/unsafe.
+    (sys.lap-x86:mov64 (:r8 ,(- (* 2 8) +tag-array-like+)) 0)
+    ;; Initialize GS.
+    (sys.lap-x86:mov64 :rax :r8)
+    (sys.lap-x86:mov64 :rdx :r8)
+    (sys.lap-x86:sar64 :rdx 32)
+    (sys.lap-x86:mov64 :rcx #xC0000101)
+    (sys.lap-x86:wrmsr)
+    ;; Clear frame pointers.
+    (sys.lap-x86:mov64 :cfp 0)
+    (sys.lap-x86:mov64 :lfp 0)
+    ;; Clear data registers.
+    (sys.lap-x86:xor32 :r8d :r8d)
+    (sys.lap-x86:xor32 :r9d :r9d)
+    (sys.lap-x86:xor32 :r10d :r10d)
+    (sys.lap-x86:xor32 :r11d :r11d)
+    (sys.lap-x86:xor32 :r12d :r12d)
+    (sys.lap-x86:xor32 :ebx :ebx)
+    ;; Prepare for call.
+    (sys.lap-x86:mov64 :r13 (:constant kboot-initialize-lisp))
+    (sys.lap-x86:xor32 :ecx :ecx)
+    ;; Call the entry function.
+    (sys.lap-x86:call (:symbol-function :r13))
+    ;; Crash if it returns.
+    here
+    (sys.lap-x86:ud2)
+    (sys.lap-x86:jmp here)
+    #+nil(:align 4) ; TODO!! ######
+    gdtr
+    (:d16/le gdt-length)
+    (:d32/le gdt)
+    idtr
+    (:d16/le idt-length)
+    (:d32/le idt)))
+
 (defparameter *static-area-limit* (* 64 1024 1024))
 (defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
 
@@ -500,12 +612,194 @@
           (gethash "T" *symbol-table*) t-value
           *undefined-function-address* undef-fn)))
 
-(defun write-image (name description)
-  (declare (ignore description))
-  (with-open-file (s (format nil "~A.image" name)
+(alexandria:define-constant +kboot-note-name+ #(#x4B #x42 #x6F #x6F #x74 #x00) ; "KBoot\0"
+  :test 'equalp)
+(defconstant +kboot-itag-image+ 0)
+(defconstant +kboot-itag-image-length+ 8)
+(defconstant +kboot-image-version+ 1)
+(defconstant +kboot-image-sections+ (ash 1 0))
+(defconstant +kboot-image-log+ (ash 1 1))
+(defconstant +kboot-itag-load+ 1)
+(defconstant +kboot-itag-load-length+ 48)
+(defconstant +kboot-load-fixed+ (ash 1 0))
+(defconstant +kboot-itag-option+ 2)
+(defconstant +kboot-itag-option-length+ 13)
+(defconstant +kboot-option-boolean+ 0)
+(defconstant +kboot-option-string+ 1)
+(defconstant +kboot-option-integer+ 2)
+(defconstant +kboot-itag-mapping+ 3)
+(defconstant +kboot-itag-mapping-length+ 24)
+(defconstant +kboot-itag-video+ 4)
+(defconstant +kboot-itag-video-length+ 13)
+(defconstant +kboot-video-vga+ (ash 1 0))
+(defconstant +kboot-video-lfb+ (ash 1 1))
+
+;;; ELF64 ident field.
+(alexandria:define-constant +elf64-ident+ #(#x7F #x45 #x4C #x46 ; Magic, "\x7FELF".
+                                            #x02                ; 64-bit class.
+                                            #x01                ; LSB data.
+                                            #x01                ; ELF v1.
+                                            #xFF                ; OS ABI, standalone.
+                                            #x00                ; ABI version.
+                                            ;; Padding.
+                                            #x00 #x00 #x00 #x00 #x00 #x00 #x00)
+  :test 'equalp
+  :documentation "ELF e_ident field.")
+
+(defconstant +elf-header-size+ 64 "Size of ELF header in octets.")
+(defconstant +elf-e_ident+ 0 "Offset of e_ident field.")
+(defconstant +elf-e_type+ 16 "Offset of e_type field.")
+(defconstant +elf-e_machine+ 18 "Offset of e_machine field.")
+(defconstant +elf-e_version+ 20 "Offset of e_version field.")
+(defconstant +elf-e_entry+ 24 "Offset of e_entry field.")
+(defconstant +elf-e_phoff+ 32 "Offset of e_phoff field.")
+(defconstant +elf-e_shoff+ 40 "Offset of e_shoff field.")
+(defconstant +elf-e_flags+ 48 "Offset of e_flags field.")
+(defconstant +elf-e_ehsize+ 52 "Offset of e_ehsize field.")
+(defconstant +elf-e_phentsize+ 54 "Offset of e_phentsize field.")
+(defconstant +elf-e_phnum+ 56 "Offset of e_phnum field.")
+(defconstant +elf-e_shentsize+ 58 "Offset of e_shentsize field.")
+(defconstant +elf-e_shnum+ 60 "Offset of e_shnum field.")
+(defconstant +elf-e_shstrndx+ 62 "Offset of e_shstrndx field.")
+(defconstant +elf-type-exec+ 2 "ELF e_type field.")
+(defconstant +elf-machine-x86-64+ 62 "ELF e_machine field.")
+(defconstant +elf-version+ 1 "ELF e_version field.")
+
+(defconstant +elf-phdr-size+ 56 "Size of one ELF program header in octets.")
+(defconstant +elf-p_type+ 0 "Offset of p_type field.")
+(defconstant +elf-p_flags+ 4 "Offset of p_flags field.")
+(defconstant +elf-p_offset+ 8 "Offset of p_offset field.")
+(defconstant +elf-p_vaddr+ 16 "Offset of p_vaddr field.")
+(defconstant +elf-p_paddr+ 24 "Offset of p_paddr field.")
+(defconstant +elf-p_filesz+ 32 "Offset of p_filesz field.")
+(defconstant +elf-p_memsz+ 40 "Offset of p_memsz field.")
+(defconstant +elf-p_align+ 48 "Offset of p_align field.")
+
+(defconstant +elf-pt-null+ 0)
+(defconstant +elf-pt-load+ 1)
+(defconstant +elf-pt-note+ 4)
+
+(defun round-up (n boundary)
+  (if (zerop (rem n boundary))
+      n
+      (+ n boundary (- (rem n boundary)))))
+
+(defun elf-note (name type data)
+  "Construct an ELF note."
+  ;; +0  4B Length of name.
+  ;; +4  4B Length of data.
+  ;; +8  4B Type
+  ;; +12 x  Name, padded up to 4 bytes.
+  ;; +12+x  Data, padded up to 4 bytes.
+  (let* ((len (+ 4 4 4 (round-up (length name) 4) (round-up (length data) 4)))
+         (vec (make-array len
+                          :element-type '(unsigned-byte 8)
+                          :initial-element 0)))
+    (setf (ub32ref/le vec 0) (length name)
+          (ub32ref/le vec 4) (length data)
+          (ub32ref/le vec 8) type)
+    (replace vec name :start1 12)
+    (replace vec data :start1 (+ 12 (round-up (length name) 4)))
+    vec))
+
+(defun kboot-itag-image ()
+  (let ((vec (make-array +kboot-itag-image-length+
+                         :element-type '(unsigned-byte 8)
+                         :initial-element 0)))
+    (setf (ub32ref/le vec 0) +kboot-image-version+
+          (ub32ref/le vec 4) (logior +kboot-image-log+))
+    (elf-note +kboot-note-name+ +kboot-itag-image+ vec)))
+
+(defun kboot-itag-load (physical)
+  (let ((vec (make-array +kboot-itag-load-length+
+                         :element-type '(unsigned-byte 8)
+                         :initial-element 0)))
+    (setf (ub32ref/le vec 0) (logior +kboot-load-fixed+)
+          (ub32ref/le vec 24) physical)
+    (elf-note +kboot-note-name+ +kboot-itag-load+ vec)))
+
+(defun kboot-itag-video ()
+  (let ((vec (make-array +kboot-itag-load-length+
+                         :element-type '(unsigned-byte 8)
+                         :initial-element 0)))
+    (setf (ub32ref/le vec 0) (logior +kboot-video-lfb+ +kboot-video-vga+))
+    (elf-note +kboot-note-name+ +kboot-itag-video+ vec)))
+
+(defun make-elf-header (kboot-entry n-phdrs)
+  (let ((elf-header (make-array +elf-header-size+
+                                :element-type '(unsigned-byte 8)
+                                :initial-element 0)))
+    (replace elf-header +elf64-ident+)
+    (setf (ub16ref/le elf-header +elf-e_type+) +elf-type-exec+
+          (ub16ref/le elf-header +elf-e_machine+) +elf-machine-x86-64+
+          (ub32ref/le elf-header +elf-e_version+) +elf-version+
+          (ub64ref/le elf-header +elf-e_entry+) kboot-entry
+          ;; Program headers come after the ELF header.
+          (ub64ref/le elf-header +elf-e_phoff+) +elf-header-size+
+          ;; No section headers.
+          (ub64ref/le elf-header +elf-e_shoff+) 0
+          (ub32ref/le elf-header +elf-e_flags+) 0
+          (ub16ref/le elf-header +elf-e_ehsize+) +elf-header-size+
+          (ub16ref/le elf-header +elf-e_phentsize+) +elf-phdr-size+
+          (ub16ref/le elf-header +elf-e_phnum+) n-phdrs
+          (ub16ref/le elf-header +elf-e_shentsize+) 0
+          (ub16ref/le elf-header +elf-e_shnum+) 0
+          (ub16ref/le elf-header +elf-e_shstrndx+) 0)
+    elf-header))
+
+(defun make-elf-phdr (type &key (offset 0) (vaddr 0) (paddr vaddr) (filesz 0) (memsz filesz))
+  (let ((phdr (make-array +elf-phdr-size+
+                          :element-type '(unsigned-byte 8)
+                          :initial-element 0)))
+    (setf (ub32ref/le phdr +elf-p_type+) type
+          (ub32ref/le phdr +elf-p_flags+) #b111 ; RWX
+          (ub64ref/le phdr +elf-p_offset+) offset
+          (ub64ref/le phdr +elf-p_vaddr+) vaddr
+          (ub64ref/le phdr +elf-p_paddr+) paddr
+          (ub64ref/le phdr +elf-p_filesz+) filesz
+          (ub64ref/le phdr +elf-p_memsz+) memsz
+          (ub64ref/le phdr +elf-p_align+) 4)
+    phdr))
+
+(defun write-kboot-header (stream kboot-entry)
+  (let ((notes '())
+        n-phdrs
+        file-offset)
+    ;; Add notes.
+    (push (list (kboot-itag-image) 0) notes)
+    (push (list (kboot-itag-load *physical-load-address*) 0) notes)
+    (push (list (kboot-itag-video) 0) notes)
+    ;; LOAD phdr plus NOTE phdrs.
+    (setf n-phdrs (+ 1 (length notes)))
+    ;; Compute note file offsets.
+    (setf file-offset (+ +elf-header-size+ (* n-phdrs +elf-phdr-size+)))
+    (dolist (n notes)
+      (setf (second n) file-offset)
+      (incf file-offset (length (first n))))
+    ;; Write out the ELF header.
+    (write-sequence (make-elf-header kboot-entry n-phdrs) stream)
+    ;; Write program headers.
+    (write-sequence (make-elf-phdr +elf-pt-load+
+                                   :offset file-offset
+                                   :vaddr *physical-load-address*
+                                   :filesz (image-data-size)
+                                   :memsz (total-image-size))
+                    stream)
+    (dolist (n notes)
+      (write-sequence (make-elf-phdr +elf-pt-note+
+                                     :offset (second n)
+                                     :filesz (length (first n)))
+                      stream))
+    ;; Write notes.
+    (dolist (n notes)
+      (write-sequence (first n) stream))))
+
+(defun write-image (name kboot)
+  (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
+    (when kboot (write-kboot-header s kboot))
     ;; Must match the page-table code!
     ;; First comes the first 2MB of the static area.
     (write-sequence *static-data* s :end #x200000)
@@ -849,7 +1143,7 @@
                         (build-unicode:generate-unifont-table s))))
     (save-object unifont-data area)))
 
-(defun make-image (image-name &optional description extra-source-files)
+(defun make-image (image-name &key kboot extra-source-files)
   (let ((*support-offset* 0)
         (*static-offset* 0)
         (*dynamic-offset* 0)
@@ -865,6 +1159,7 @@
         (*undefined-function-address* nil)
         (*function-map* '())
         (setup-fn nil)
+        (kboot-entry-fn nil)
         (gdt nil)
         (idt nil)
         (multiboot nil)
@@ -889,6 +1184,16 @@
                                                (cons 'initial-page-table #x400000))))
     (setf (cold-symbol-value '*%setup-function*) (make-value setup-fn +tag-function+))
     (create-initial-stack-group)
+    (when kboot
+      (setf kboot-entry-fn (compile-lap-function *kboot-entry-function* :static
+                                         (list (cons 'gdt (* (1+ gdt) 8))
+                                               (cons 'gdt-length (1- (* 2 8)))
+                                               (cons 'idt (* (1+ idt) 8))
+                                               (cons 'idt-length (1- (* 256 8)))
+                                               (cons 'initial-stack (* (+ initial-stack 8) 8))
+                                               ;; PML4 must be at this address
+                                               (cons 'initial-page-table #x400000))))
+      (setf (cold-symbol-value '*%kboot-entry*) (make-value kboot-entry-fn +tag-function+)))
     (let ((*load-time-evals* '()))
       (load-compiler-builtins)
       (load-source-files *source-files* t)
@@ -926,7 +1231,9 @@
             *static-area* *static-area-hint*
             *unifont-bmp*
             *unicode-info* *unicode-name-store*
-            *unicode-encoding-table* *unicode-name-trie*))
+            *unicode-encoding-table* *unicode-name-trie*
+            *%kboot-entry* *kboot-initial-cr3* *kboot-tag-list* kboot-initialize-lisp
+            ))
     (setf (cold-symbol-value '*undefined-function-thunk*) (make-value *undefined-function-address* +tag-function+))
     (generate-string-array cl-symbol-names '*cl-symbols*)
     (generate-string-array system-symbol-names '*system-symbols*)
@@ -948,6 +1255,8 @@
     (setf (word initial-stack) (array-header +array-type-unsigned-byte-64+ 7))
     (setf (cold-symbol-value '*%setup-stack*) (make-value initial-stack +tag-array-like+))
     (format t "Entry point at ~X~%" (make-value setup-fn +tag-function+))
+    (when kboot
+      (format t "KBoot entry point at ~X~%" (make-value kboot-entry-fn +tag-function+)))
     ;; Generate page tables.
     (setf (values initial-pml4 data-pml3) (create-page-tables))
     ;; Create multiboot header.
@@ -986,7 +1295,7 @@
             (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
-    (write-image image-name description)))
+    (write-image image-name (when kboot (make-value kboot-entry-fn +tag-function+)))))
 
 (defun load-source-files (files set-fdefinitions)
   (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))
