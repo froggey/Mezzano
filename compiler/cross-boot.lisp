@@ -171,3 +171,15 @@
     (dolist (s export-list)
       (export (list (intern (string s) p)) p))
     p))
+
+(defun sys.int::round-up (n boundary)
+  (if (zerop (rem n boundary))
+      n
+      (+ n boundary (- (rem n boundary)))))
+
+(macrolet ((x (nib int)
+             `(progn (defun ,int (vec index) (,nib vec index))
+                     (defun (setf ,int) (val vec index) (setf (,nib vec index) val)))))
+   (x nibbles:ub16ref/le sys.int::ub16ref/le)
+   (x nibbles:ub32ref/le sys.int::ub32ref/le)
+   (x nibbles:ub64ref/le sys.int::ub64ref/le))

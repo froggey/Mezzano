@@ -195,12 +195,23 @@ know where the PDEs for new- and old-space are."
   (let ((total-sectors 0)
         (static-pages (make-array (ceiling *static-area-size* #x200000)
                                   :element-type 'bit
-                                  :initial-element 0)))
+                                  :initial-element 0))
+        (kboot (make-kboot-header (lisp-object-address *%kboot-entry*)
+                                  #x200000
+                                  #xFFFFFFFF
+                                  #xFFFFFFFF
+                                  512)))
     (with-interrupts-disabled ()
-      (let ((old-bump-pointer *bump-pointer*))
+      (let ((old-bump-pointer *bump-pointer*)
+            (old-mb-info *multiboot-info*)
+            (old-kboot-tags *kboot-tag-list*)
+            (page-tables-here nil)
+            (kboot-here nil))
         (unwind-protect
              (progn
                ;; Scan the static area and figure out which pages need to be dumped.
+               (setf *multiboot-info* nil
+                     *kboot-tag-list* nil)
                (let ((offset 0))
                  (loop (let* ((size (memref-unsigned-byte-64 *static-area* offset))
                               (info (memref-unsigned-byte-64 *static-area* (+ offset 1)))
@@ -214,16 +225,28 @@ know where the PDEs for new- and old-space are."
                          (when (logtest info #b100)
                            (return))
                          (incf offset (+ size 2)))))
-               (setf *bump-pointer* (round-up old-bump-pointer 512))
-               (dump-generate-page-tables *bump-pointer* static-pages)
+               (setf *bump-pointer* (round-up old-bump-pointer 512)
+                     kboot-here *bump-pointer*
+                     page-tables-here (+ *bump-pointer* (length kboot)))
+               (dump-generate-page-tables page-tables-here static-pages)
                ;; Reconfigure the multiboot header for the larger image.
                (setf (aref *multiboot-header* 5) (+ #x200000 (dump-disk-image-size static-pages))
                      (aref *multiboot-header* 6) (+ #x200000 (dump-memory-image-size)))
+               ;; Hack correct sizes into the KBoot LOAD phdr.
+               (setf (ub64ref/le kboot (+ +elf-header-size+ +elf-p_filesz+)) (dump-disk-image-size static-pages)
+                     (ub64ref/le kboot (+ +elf-header-size+ +elf-p_memsz+)) (dump-memory-image-size))
+               ;; Copy kboot header to the temporary location.
+               (dotimes (i (length kboot))
+                 (setf (memref-unsigned-byte-8 kboot-here i) (aref kboot i)))
+               ;; Write the kboot header.
+               (incf total-sectors (dump-range (- kboot-here #x8000000000)
+                                               (+ (- kboot-here #x8000000000) (length kboot))
+                                               total-sectors))
                ;; Identity mapped static area.
-               (incf total-sectors (dump-range #x200000 #x400000 0))
+               (incf total-sectors (dump-range #x200000 #x400000 total-sectors))
                ;; Page tables.
-               (incf total-sectors (dump-range (- *bump-pointer* #x8000000000)
-                                               (+ (- *bump-pointer* #x8000000000) #x600000)
+               (incf total-sectors (dump-range (- page-tables-here #x8000000000)
+                                               (+ (- page-tables-here #x8000000000) #x600000)
                                                total-sectors))
                ;; Rest of static area.
                (dotimes (i (1- (length static-pages)))
@@ -239,6 +262,8 @@ know where the PDEs for new- and old-space are."
                (incf total-sectors (dump-virtual-range #x100000000
                                                        (round-up *stack-bump-pointer-limit* #x200000)
                                                        total-sectors)))
-          (setf *bump-pointer* old-bump-pointer))))
+          (setf *bump-pointer* old-bump-pointer
+                *multiboot-info* old-mb-info
+                *kboot-tag-list* old-kboot-tags))))
     (format t "Wrote ~S sectors (~DbMB) to disk.~%" total-sectors (truncate (truncate (* total-sectors 512) 1024) 1024))
     total-sectors))

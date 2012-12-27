@@ -5,7 +5,7 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "None"
-  :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2)
+  :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2 #:nibbles)
   :components ((:file "cross")
                #+nil(:file "../bootstrap/data-types.lisp")
                (:file "cross-compile" :depends-on ("cross"))

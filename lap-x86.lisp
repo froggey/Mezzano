@@ -630,7 +630,6 @@
 (define-simple-instruction sahf #x9E)
 (define-simple-instruction lahf #x9F)
 (define-simple-instruction ret #xC3)
-(define-simple-instruction retf #xCB)
 (define-simple-instruction leave #xC9)
 (define-simple-instruction hlt #xF4)
 (define-simple-instruction cmc #xF5)
@@ -914,6 +913,12 @@
   (if (= *cpu-mode* 64)
       (emit #x48 #xCF)
       (emit #xCF))
+  (return-from instruction t))
+
+(define-instruction retf ()
+  (if (= *cpu-mode* 64)
+      (emit #x48 #xCB)
+      (emit #xCB))
   (return-from instruction t))
 
 (define-instruction int (vector)

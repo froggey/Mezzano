@@ -6,7 +6,9 @@
                   *initial-obarray*
                   *initial-keyword-obarray*
                   *initial-setf-obarray*
-                  *initial-structure-obarray*)
+                  *initial-structure-obarray*
+                  *kboot-tag-list*
+                  *multiboot-info*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
@@ -51,14 +53,6 @@
            (values eof-value t)
            (values result (null c))))
     (vector-push-extend c result)))
-
-(defun %read-byte (stream)
-  (prog1 (aref (car stream) (cdr stream))
-    (incf (cdr stream))))
-
-(defun %read-sequence (seq stream)
-  (setf (subseq seq 0) (subseq (car stream) (cdr stream) (+ (cdr stream) (length seq))))
-  (incf (cdr stream) (length seq)))
 
 (defun yes-or-no-p (&optional control &rest arguments)
   (declare (dynamic-extent arguments))
@@ -448,12 +442,14 @@
 (declaim (special *features* *macroexpand-hook*))
 
 (defun multiboot-module-count ()
-  (if (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+  (if (and *multiboot-info*
+           (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+))
       (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5)
       0))
 
 (defun multiboot-module-info ()
-  (if (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+)
+  (if (and *multiboot-info*
+           (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+))
       (make-array (* (multiboot-module-count) 4)
                   :element-type '(unsigned-byte 32)
                   :memory (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6)))
@@ -492,7 +488,18 @@
     command-line))
 
 (defun mini-multiboot-module-stream (id)
-  (cons (multiboot-module id) 0))
+  (mini-vector-stream (multiboot-module-data id)))
+
+(defun mini-vector-stream (vector)
+  (cons vector 0))
+
+(defun %read-byte (stream)
+  (prog1 (aref (car stream) (cdr stream))
+    (incf (cdr stream))))
+
+(defun %read-sequence (seq stream)
+  (replace seq (car stream) :start2 (cdr stream) :end2 (+ (cdr stream) (length seq)))
+  (incf (cdr stream) (length seq)))
 
 (defun %defconstant (name value &optional docstring)
   (proclaim `(special ,name))
@@ -505,6 +512,322 @@
   (write condition)
   (backtrace)
   (loop (%hlt)))
+
+(defun round-up (n boundary)
+  (if (zerop (rem n boundary))
+      n
+      (+ n boundary (- (rem n boundary)))))
+
+(defun ub16ref/be (vector index)
+  (logior (ash (aref vector index) 8)
+	  (aref vector (1+ index))))
+(defun (setf ub16ref/be) (value vector index)
+  (setf (aref vector index) (ash value -8)
+	(aref vector (1+ index)) (logand value #xFF))
+  value)
+
+(defun ub16ref/le (vector index)
+  (logior (aref vector index)
+	  (ash (aref vector (1+ index)) 8)))
+(defun (setf ub16ref/le) (value vector index)
+  (setf (aref vector index) (logand value #xFF)
+	(aref vector (1+ index)) (ash value -8))
+  value)
+
+(defun ub32ref/be (vector index)
+  (logior (ash (aref vector index) 24)
+	  (ash (aref vector (+ index 1)) 16)
+	  (ash (aref vector (+ index 2)) 8)
+	  (aref vector (+ index 3))))
+(defun (setf ub32ref/be) (value vector index)
+  (setf (aref vector index) (ash value -24)
+	(aref vector (+ index 1)) (logand (ash value -16) #xFF)
+	(aref vector (+ index 2)) (logand (ash value -8) #xFF)
+	(aref vector (+ index 3)) (logand value #xFF))
+  value)
+
+(defun ub32ref/le (vector index)
+  (logior (aref vector index)
+	  (ash (aref vector (+ index 1)) 8)
+	  (ash (aref vector (+ index 2)) 16)
+	  (ash (aref vector (+ index 3)) 24)))
+(defun (setf ub32ref/le) (value vector index)
+  (setf (aref vector index) (logand value #xFF)
+	(aref vector (+ index 1)) (logand (ash value -8) #xFF)
+	(aref vector (+ index 2)) (logand (ash value -16) #xFF)
+	(aref vector (+ index 3)) (ash value -24))
+  value)
+
+(defun ub64ref/le (vector index)
+  (logior (aref vector index)
+	  (ash (aref vector (+ index 1)) 8)
+	  (ash (aref vector (+ index 2)) 16)
+	  (ash (aref vector (+ index 3)) 24)
+	  (ash (aref vector (+ index 3)) 32)
+	  (ash (aref vector (+ index 3)) 40)
+	  (ash (aref vector (+ index 3)) 48)
+	  (ash (aref vector (+ index 3)) 56)))
+(defun (setf ub64ref/le) (value vector index)
+  (setf (aref vector index) (ldb (byte 8 0) value)
+	(aref vector (+ index 1)) (ldb (byte 8 8) value)
+	(aref vector (+ index 2)) (ldb (byte 8 16) value)
+	(aref vector (+ index 3)) (ldb (byte 8 24) value)
+	(aref vector (+ index 4)) (ldb (byte 8 32) value)
+	(aref vector (+ index 5)) (ldb (byte 8 40) value)
+	(aref vector (+ index 6)) (ldb (byte 8 48) value)
+	(aref vector (+ index 7)) (ldb (byte 8 56) value))
+  value)
+
+(defun format-uuid (stream argument &optional colon-p at-sign-p)
+  (check-type argument (unsigned-byte 128))
+  (format stream "~8,'0X-~4,'0X-~4,'0X-~4,'0X-~12,'0X"
+          (ldb (byte 32 96) argument)
+          (ldb (byte 16 80) argument)
+          (ldb (byte 16 64) argument)
+          (ldb (byte 16 48) argument)
+          (ldb (byte 48 0) argument)))
+
+(defun format-ipv4-address (stream argument &optional colon-p at-sign-p)
+  (check-type argument (unsigned-byte 32))
+  (format stream "~D.~D.~D.~D"
+          (ldb (byte 8 24) argument)
+          (ldb (byte 8 16) argument)
+          (ldb (byte 8 8) argument)
+          (ldb (byte 8 0) argument)))
+
+(defun format-ipv6-address (stream argument &optional colon-p at-sign-p)
+  (check-type argument (unsigned-byte 128))
+  (dotimes (i 8)
+    (unless (zerop i) (write-char #\: stream))
+    (let ((group (ldb (byte 16 (* (- 7 i) 16)) argument)))
+      (write group :base 16 :stream stream))))
+
+(defun format-mac-address (stream argument &optional colon-p at-sign-p)
+  (check-type argument (unsigned-byte 64))
+  (dotimes (i 8)
+    (unless (zerop i) (write-char #\: stream))
+    (format stream "~2,'0X" (ldb (byte 8 (* (- 7 i) 8)) argument))))
+
+(defun display-kboot-tag-list ()
+  (when *kboot-tag-list*
+    (labels ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
+             (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
+             (p/32 (addr) (memref-unsigned-byte-32 (+ #x8000000000 addr) 0))
+             (p/64 (addr) (memref-unsigned-byte-64 (+ #x8000000000 addr) 0))
+             (p/uuid (addr)
+               (let ((uuid (make-array 64 :element-type 'base-char)))
+                 (dotimes (i 64)
+                   (setf (aref uuid i) (code-char (p/8 (+ addr i)))))
+                 (subseq uuid 0 (position (code-char 0) uuid))))
+             (p/be (addr len)
+               "Read a big-endian value from memory."
+               (let ((value 0))
+                 (dotimes (i len)
+                   (setf value (logior (ash value 8)
+                                       (p/8 (+ addr i)))))
+                 value))
+             (p/ipv4 (addr) (p/be addr 4))
+             (p/ipv6 (addr) (p/be addr 16)))
+      (format t "Loaded by KBoot. Tag list at #x~8,'0X~%" *kboot-tag-list*)
+      (let ((addr *kboot-tag-list*)
+            ;; For sanity checking.
+            (max-addr (+ *kboot-tag-list* 1024))
+            (last-type -1)
+            (saw-memory nil)
+            (saw-vmem nil)
+            (saw-e820 nil))
+        (loop (when (>= addr max-addr)
+                (format t "Went past tag list max address.~%")
+                (return))
+           (let ((type (p/32 (+ addr 0)))
+                 (size (p/32 (+ addr 4))))
+             (unless (member type '(#.+kboot-tag-memory+ #.+kboot-tag-vmem+ #.+kboot-tag-e820+))
+               (format t "Tag ~A (~D), ~:D bytes.~%"
+                       (if (> type (length *kboot-tag-names*))
+                           "Unknown"
+                           (aref *kboot-tag-names* type))
+                       type size))
+             (when (and (eql addr *kboot-tag-list*)
+                        (not (eql type +kboot-tag-core+)))
+               (format t "CORE tag not first in the list?~%"))
+             (case type
+               (#.+kboot-tag-none+ (return))
+               (#.+kboot-tag-core+
+                (unless (eql addr *kboot-tag-list*)
+                  (format t "CORE tag not first in the list?~%"))
+                (format t "     tags_phys: ~8,'0X~%" (p/64 (+ addr 8)))
+                (format t "     tags_size: ~:D bytes~%" (p/32 (+ addr 16)))
+                (format t "   kernel_phys: ~8,'0X~%" (p/64 (+ addr 24)))
+                (format t "    stack_base: ~8,'0X~%" (p/64 (+ addr 32)))
+                (format t "    stack_phys: ~8,'0X~%" (p/64 (+ addr 40)))
+                (format t "    stack_size: ~:D bytes~%" (p/32 (+ addr 48)))
+                (setf max-addr (+ *kboot-tag-list* (p/32 (+ addr 16)))))
+               #+nil(#.+kboot-tag-option+)
+               (#.+kboot-tag-memory+
+                (unless (eql last-type +kboot-tag-memory+)
+                  (when saw-memory
+                    (format t "MEMORY tags are non-contigious.~%"))
+                  (setf saw-memory t)
+                  (format t "MEMORY map:~%"))
+                (let ((start (p/64 (+ addr 8)))
+                      (length (p/64 (+ addr 16)))
+                      (type (p/8 (+ addr 24))))
+                  (format t "  ~16,'0X-~16,'0X  ~A~%"
+                          start (+ start length)
+                          (case type
+                            (#.+kboot-memory-free+ "Free")
+                            (#.+kboot-memory-allocated+ "Allocated")
+                            (#.+kboot-memory-reclaimable+ "Reclaimable")
+                            (t (format nil "Unknown (~D)" type))))))
+               (#.+kboot-tag-vmem+
+                (unless (eql last-type +kboot-tag-vmem+)
+                  (when saw-vmem
+                    (format t "VMEM tags are non-contigious.~%"))
+                  (setf saw-vmem t)
+                  (format t "VMEM map:~%"))
+                (let ((start (p/64 (+ addr 8)))
+                      (size (p/64 (+ addr 16)))
+                      (phys (p/64 (+ addr 24))))
+                  (format t "  ~16,'0X-~16,'0X -> ~8,'0X~%"
+                          start (+ start size) phys)))
+               (#.+kboot-tag-pagetables+
+                (format t "          pml4: ~8,'0X~%" (p/64 (+ addr 8)))
+                (format t "       mapping: ~8,'0X~%" (p/64 (+ addr 16))))
+               (#.+kboot-tag-module+
+                (format t "          addr: ~8,'0X~%" (p/64 (+ addr 8)))
+                (format t "          size: ~:D bytes~%" (p/32 (+ addr 16))))
+               (#.+kboot-tag-video+
+                (case (p/32 (+ addr 8))
+                  (#.+kboot-video-vga+
+                   (format t "  VGA text mode.~%")
+                   (format t "          cols: ~:D~%" (p/8 (+ addr 16)))
+                   (format t "          rows: ~:D~%" (p/8 (+ addr 17)))
+                   (format t "             x: ~:D~%" (p/8 (+ addr 18)))
+                   (format t "             y: ~:D~%" (p/8 (+ addr 19)))
+                   (format t "      mem_phys: ~8,'0X~%" (p/64 (+ addr 24)))
+                   (format t "      mem_virt: ~8,'0X~%" (p/64 (+ addr 32)))
+                   (format t "      mem_size: ~:D bytes~%" (p/32 (+ addr 40))))
+                  (#.+kboot-video-lfb+
+                   (let ((flags (p/32 (+ addr 16))))
+                     (format t " LFB ~A mode.~%"
+                             (cond
+                               ((logtest flags +kboot-lfb-indexed+)
+                                "indexed colour")
+                               ((logtest flags +kboot-lfb-rgb+)
+                                "direct colour")
+                               (t "unknown")))
+                     (format t "         flags: ~8,'0B" flags)
+                     (when (logtest flags +kboot-lfb-rgb+)
+                       (format t " KBOOT_LFB_RGB"))
+                     (when (logtest flags +kboot-lfb-indexed+)
+                       (format t " KBOOT_LFB_INDEXED"))
+                     (format t "~%")
+                     (format t "         width: ~:D~%" (p/32 (+ addr 20)))
+                     (format t "        height: ~:D~%" (p/32 (+ addr 24)))
+                     (format t "           bpp: ~:D~%" (p/8 (+ addr 28)))
+                     (format t "         pitch: ~:D~%" (p/32 (+ addr 32)))
+                     (format t "       fb_phys: ~8,'0X~%" (p/64 (+ addr 40)))
+                     (format t "       fb_virt: ~8,'0X~%" (p/64 (+ addr 48)))
+                     (format t "       fb_size: ~:D bytes~%" (p/32 (+ addr 56)))
+                     (when (logtest flags +kboot-lfb-rgb+)
+                       (format t "      red_size: ~:D bits~%" (p/8 (+ addr 60)))
+                       (format t "       red_pos: ~:D~%" (p/8 (+ addr 61)))
+                       (format t "    green_size: ~:D bits~%" (p/8 (+ addr 62)))
+                       (format t "     green_pos: ~:D~%" (p/8 (+ addr 63)))
+                       (format t "     blue_size: ~:D bits~%" (p/8 (+ addr 64)))
+                       (format t "      blue_pos: ~:D~%" (p/8 (+ addr 65))))
+                     (when (logtest flags +kboot-lfb-indexed+)
+                       (format t "  palette_size: ~:D~%" (p/16 (+ addr 66))))))))
+               (#.+kboot-tag-bootdev+
+                (format t "        method: ~A~%"
+                        (case (p/32 (+ addr 8))
+                          (#.+kboot-method-none+ "None")
+                          (#.+kboot-method-disk+ "Disk")
+                          (#.+kboot-method-network+ "Network")
+                          (t (format nil "Unknown (~D)" (p/32 (+ addr 8))))))
+                (case (p/32 (+ addr 8))
+                  (#.+kboot-method-disk+
+                   (format t "         flags: ~8,'0B~%" (p/32 (+ addr 12)))
+                   (format t "          uuid: ~S~%" (p/uuid (+ addr 16)))
+                   (format t "        device: ~2,'0X~%" (p/8 (+ addr 80)))
+                   (format t "     partition: ~2,'0X~%" (p/8 (+ addr 81)))
+                   (format t " sub_partition: ~2,'0X~%" (p/8 (+ addr 82))))
+                  (#.+kboot-method-network+
+                   (let ((flags (p/32 (+ addr 12))))
+                     (format t "         flags: ~8,'0B" flags)
+                     (when (logtest flags +kboot-net-ipv6+)
+                       (format t " KBOOT_NET_IPv6"))
+                     (format t "~%")
+                     (if (logtest flags +kboot-net-ipv6+)
+                         (format t "     server_ip: ~/sys.int::format-ipv6-address/~%"
+                                 (p/ipv6 (+ addr 16)))
+                         (format t "     server_ip: ~/sys.int::format-ipv4-address/~%"
+                                 (p/ipv4 (+ addr 16))))
+                     (format t "   server_port: ~D~%" (p/16 (+ addr 32)))
+                     (if (logtest flags +kboot-net-ipv6+)
+                         (format t "    gateway_ip: ~/sys.int::format-ipv6-address/~%"
+                                 (p/ipv6 (+ addr 34)))
+                         (format t "    gateway_ip: ~/sys.int::format-ipv4-address/~%"
+                                 (p/ipv4 (+ addr 34))))
+                     (if (logtest flags +kboot-net-ipv6+)
+                         (format t "     client_ip: ~/sys.int::format-ipv6-address/~%"
+                                 (p/ipv6 (+ addr 50)))
+                         (format t "     client_ip: ~/sys.int::format-ipv4-address/~%"
+                                 (p/ipv4 (+ addr 50))))
+                     (format t "    client_mac: ~/sys.int::format-mac-address/~%"
+                             (p/be (+ addr 66) 8))))))
+               (#.+kboot-tag-e820+
+                (unless (eql last-type +kboot-tag-e820+)
+                  (when saw-e820
+                    (format t "E820 tags are non-contigious.~%"))
+                  (setf saw-e820 t)
+                  (format t "E820 map:~%"))
+                (let ((start (p/64 (+ addr 8)))
+                      (size (p/64 (+ addr 16)))
+                      (type (p/32 (+ addr 24)))
+                      (attr (p/32 (+ addr 28))))
+                  (format t "  ~16,'0X-~16,'0X ~D ~D~%"
+                          start (+ start size) type attr))))
+             (setf last-type type)
+             (incf addr (round-up size 8))))))))
+
+(defun load-modules ()
+  (when *multiboot-info*
+    (dotimes (i (multiboot-module-count))
+      (format t "Loading module ~S.~%" (multiboot-module-command-line i))
+      (mini-load-llf (mini-multiboot-module-stream i))))
+  (when *kboot-tag-list*
+    (flet ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
+           (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
+           (p/32 (addr) (memref-unsigned-byte-32 (+ #x8000000000 addr) 0))
+           (p/64 (addr) (memref-unsigned-byte-64 (+ #x8000000000 addr) 0)))
+      (let ((addr *kboot-tag-list*)
+            ;; For sanity checking.
+            (max-addr (+ *kboot-tag-list* 1024)))
+      (loop (when (>= addr max-addr) (return))
+         (let ((type (p/32 (+ addr 0)))
+               (size (p/32 (+ addr 4))))
+           (when (and (eql addr *kboot-tag-list*)
+                      (not (eql type +kboot-tag-core+)))
+             (format t "CORE tag not first in the list?~%")
+             (return))
+           (case type
+             (#.+kboot-tag-none+ (return))
+             (#.+kboot-tag-core+
+              (unless (eql addr *kboot-tag-list*)
+                (format t "CORE tag not first in the list?~%")
+                (return))
+              (setf max-addr (+ *kboot-tag-list* (p/32 (+ addr 16)))))
+             (#.+kboot-tag-module+
+              (let* ((address (p/64 (+ addr 8)))
+                     (size (p/32 (+ addr 16)))
+                     (array (make-array size
+                                        :element-type '(unsigned-byte 8)
+                                        :memory (+ #x8000000000 address)))
+                     (stream (mini-vector-stream array)))
+                (format t "Loading KBoot module at ~X~%" address)
+                (mini-load-llf stream))))
+           (incf addr (round-up size 8))))))))
 
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 12
@@ -597,13 +920,13 @@
   (%sti)
   (pci-device-scan)
   (write-line "Hello, world.")
-  (dotimes (i (multiboot-module-count))
-    (format t "Loading module ~S.~%" (multiboot-module-command-line i))
-    (mini-load-llf (mini-multiboot-module-stream i)))
+  (load-modules)
   (mapc 'funcall *initialize-hook*)
   (terpri)
   (write-char #\*)
   (write-char #\O)
   (write-char #\K)
+  (terpri)
+  (display-kboot-tag-list)
   (repl)
   (loop (%hlt)))
