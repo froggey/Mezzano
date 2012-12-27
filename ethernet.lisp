@@ -805,8 +805,10 @@
               (pkt-offset (second packet))
               (pkt-length (third packet))
               (bytes-to-copy (min (- end position) (- pkt-length pkt-offset))))
-         ;; Would be nice to do this without the packet subseq.
-         (setf (subseq sequence position) (subseq pkt-data pkt-offset (+ pkt-offset bytes-to-copy)))
+         (replace sequence pkt-data
+                  :start1 position
+                  :start2 pkt-offset
+                  :end2 (+ pkt-offset bytes-to-copy))
          (when (>= (incf (second packet) bytes-to-copy) (third packet))
            (setf (tcp-stream-packet stream) nil))
          (incf position bytes-to-copy)))
