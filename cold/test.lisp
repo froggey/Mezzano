@@ -13,7 +13,7 @@
                   *standard-output*
                   *standard-input*
                   *debug-io*
-                  *screen-offset*
+                  *cold-stream-screen*
                   *keyboard-shifted*))
 
 (defun write-char (character &optional stream)
@@ -861,7 +861,7 @@
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
         *debug-io* *cold-stream*
-        *screen-offset* 0
+        *cold-stream-screen* nil
         *keyboard-shifted* nil
         *early-initialize-hook* '()
         *initialize-hook* '())

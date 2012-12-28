@@ -156,6 +156,7 @@ the front buffer refers to the second buffer.")
          (output-stream (make-instance 'shadow-stream
                                        :primary fb-stream
                                        :shadows (list *terminal-io*))))
+    (setf *cold-stream-screen* nil)
     (setf *terminal-io* output-stream)))
 
 (defun bochs-flip-buffer ()

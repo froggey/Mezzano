@@ -38,7 +38,8 @@
     "bootstrap/basic-macros.lisp"
     "bootstrap/data-types.lisp"
     "bootstrap/parse.lisp"
-    "pci.lisp"))
+    "pci.lisp"
+    "framebuffer.lisp"))
 
 (defparameter *special-source-files*
   '(("packages.lisp" *package-system*)))
@@ -67,7 +68,7 @@
     "compiler/builtins.lisp"
     "interrupt-compiler.lisp"
     "keyboard.lisp"
-    "framebuffer.lisp"
+    "framebuffer-stream.lisp"
     "bochs-vbe.lisp"
     "ethernet.lisp"
     "rtl8139.lisp"

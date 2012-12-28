@@ -242,7 +242,7 @@
           (ub64ref/le phdr +elf-p_align+) 4)
     phdr))
 
-(defun make-kboot-header (kboot-entry load-addr file-size mem-size round-to &key (vga t) (lfb nil))
+(defun make-kboot-header (kboot-entry load-addr file-size mem-size round-to &key (vga t) (lfb t))
   "Build a complete ELF/KBoot header, assuming that the kernel is stored
 immediately after the header."
   (let ((notes '())
