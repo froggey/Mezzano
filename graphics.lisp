@@ -417,8 +417,9 @@
       (bitset 16 16 (name-colour :white) fb *mouse-y* *mouse-x*)
       (bitset 14 14 (name-colour :black) fb (1+ *mouse-y*) (1+ *mouse-x*))
       (bitset 4 4 (name-colour :white) fb *mouse-y* *mouse-x*)
-      (rotatef (screen-backbuffer screen) (screen-framebuffer screen))
-      (funcall (screen-flip-function screen)))))
+      (when (screen-flip-function screen)
+        (rotatef (screen-backbuffer screen) (screen-framebuffer screen))
+        (funcall (screen-flip-function screen))))))
 
 (defun handle-keypress (key)
   (let ((command (gethash key *global-keybindings*)))
