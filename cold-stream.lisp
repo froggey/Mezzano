@@ -104,7 +104,11 @@
                           (%bitset 16 8 #xFF000000 fb y x)
                           (render-char-at c fb x y))
                       (incf x width)
-                      (setf (car *screen-offset*) x)))))))
+                      (setf (car *screen-offset*) x))))))
+        ((eql (first *cold-stream-screen*) :serial)
+         (setf (system:io-port/8 (second *cold-stream-screen*)) (logand (char-code c) #xFF)))
+        ((functionp (first *cold-stream-screen*))
+         (funcall (first *cold-stream-screen*) c)))
  c)
 
 (defun cold-start-line-p (stream)
