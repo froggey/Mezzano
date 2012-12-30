@@ -181,9 +181,6 @@
 (defun scan-array-header (object transportp)
   (scan-generic object transportp 4))
 
-(defun scan-std-instance (object transportp)
-  (scan-generic object transportp 2))
-
 (defun scan-array-t (object transportp)
   (let* ((old-address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 old-address 0))
@@ -296,7 +293,7 @@
       (26 (scan-error object transportp)) ; unused (26)
       (27 (scan-error object transportp)) ; unused (27)
       (28 (scan-error object transportp)) ; unused (28)
-      (29 (scan-error object transportp)) ; unused (29)
+      (29 (scan-array-t object transportp)) ; std-instance
       (30 (scan-stack-group object transportp))
       (31 (scan-array-t object transportp)) ; struct
       (t (scan-error object transportp)))))
@@ -336,7 +333,7 @@
     (1  (scan-cons object transportp))
     (2  (scan-symbol object transportp))
     (3  (scan-array-header object transportp))
-    (4  (scan-std-instance object transportp))
+    (4  (scan-error object transportp)) ; unused
     (5  (scan-error object transportp)) ; unused
     (6  (scan-error object transportp)) ; unused
     (7  (scan-array-like object transportp))
@@ -552,13 +549,6 @@
             (cdr cons) cdr)
       cons)))
 
-(defun allocate-std-instance (class slots)
-  (with-interrupts-disabled ()
-    (let ((value (%%assemble-value (%raw-allocate 2) +tag-std-instance+)))
-      (setf (std-instance-class value) class
-            (std-instance-slots value) slots)
-      value)))
-
 (defun %allocate-array-like (tag word-count length &optional area)
   "Allocate a array-like object. All storage is initialized to zero.
 WORD-COUNT must be the number of words used to store the data, not including
@@ -577,6 +567,12 @@ the header word. LENGTH is the number of elements in the array."
             (logior (ash length 8) (ash tag 1)))
       ;; Return value.
       (%%assemble-value address +tag-array-like+))))
+
+(defun allocate-std-instance (class slots &optional area)
+  (let ((value (%allocate-array-like +array-type-std-instance+ 2 2 area)))
+    (setf (std-instance-class value) class
+          (std-instance-slots value) slots)
+    value))
 
 (defun %make-struct (length &optional area)
   (%allocate-array-like +array-type-struct+ length length area))

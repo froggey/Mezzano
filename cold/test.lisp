@@ -415,13 +415,15 @@
     (#b0001 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
     (#b0010 (describe-symbol object stream))
     (#b0011 (describe-array object stream)) ; simple array.
-    (#b0100 (describe-object object stream)) ; instance object.
+    ;; #b0100
     ;; #b0101
     ;; #b0110
     (#b0111 (cond ((structure-object-p object)
                    (describe-structure object stream))
                   ((stack-group-p object)
                    (describe-stack-group object stream))
+                  ((std-instance-p object)
+                   (describe-object object stream))
                   ((bignump object)
                    (describe-bignum object))
                   (t (describe-array object stream))))

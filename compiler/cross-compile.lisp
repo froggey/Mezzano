@@ -8,7 +8,7 @@
 (defconstant sys.int::+tag-cons+          #b0001)
 (defconstant sys.int::+tag-symbol+        #b0010)
 (defconstant sys.int::+tag-array-header+  #b0011)
-(defconstant sys.int::+tag-std-instance+  #b0100)
+;;(defconstant sys.int::+tag-+  #b0100)
 ;;(defconstant sys.int::+tag-+  #b0101)
 ;;(defconstant sys.int::+tag-+  #b0110)
 (defconstant sys.int::+tag-array-like+    #b0111)

@@ -6,7 +6,7 @@
 (defconstant +tag-cons+          #b0001)
 (defconstant +tag-symbol+        #b0010)
 (defconstant +tag-array-header+  #b0011)
-(defconstant +tag-std-instance+  #b0100)
+;;(defconstant +tag-+  #b0100)
 ;;(defconstant +tag-+  #b0101)
 ;;(defconstant +tag-+  #b0110)
 (defconstant +tag-array-like+    #b0111)
@@ -45,6 +45,7 @@
 (defconstant +array-type-complex-long-float+ 23)
 (defconstant +last-array-type+ 23)
 (defconstant +array-type-bignum+ 25)
+(defconstant +array-type-std-instance+ 29)
 (defconstant +array-type-stack-group+ 30)
 (defconstant +array-type-struct+ 31)
 

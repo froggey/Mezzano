@@ -97,7 +97,7 @@
 (defconstant +tag-cons+          #b0001)
 (defconstant +tag-symbol+        #b0010)
 (defconstant +tag-array-header+  #b0011)
-(defconstant +tag-std-instance+  #b0100)
+;;(defconstant +tag-+  #b0100)
 ;;(defconstant +tag-+  #b0101)
 ;;(defconstant +tag-+  #b0110)
 (defconstant +tag-array-like+    #b0111)

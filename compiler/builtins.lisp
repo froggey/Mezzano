@@ -54,6 +54,64 @@
            `(sys.lap-x86:cmp8 :al ,,tag))
      (predicate-result :e)))
 
+(defmacro define-array-like-predicate (name array-type)
+  `(defbuiltin ,name (object) ()
+     (let ((out (gensym)))
+       (load-in-reg :r9 object t)
+       (smash-r8)
+       ;; Check tag.
+       (emit `(sys.lap-x86:mov64 :r8 nil)
+             `(sys.lap-x86:mov8 :al :r9l)
+             `(sys.lap-x86:and8 :al #b1111)
+             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+             `(sys.lap-x86:jne ,out)
+             `(sys.lap-x86:mov8 :al (:simple-array-header :r9))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:mov64 :r9 t)
+             `(sys.lap-x86:cmov64e :r8 :r9)
+             out)
+       (setf *r8-value* (list (gensym))))))
+
+(defmacro define-array-like-reader (name type-name array-type slot)
+  `(defbuiltin ,name (object) ()
+     (let ((type-error-label (gensym)))
+       (emit-trailer (type-error-label)
+         (raise-type-error :r8 ',type-name))
+       (load-in-reg :r8 object t)
+       (smash-r8)
+       (emit `(sys.lap-x86:mov8 :al :r8l)
+             `(sys.lap-x86:and8 :al #b1111)
+             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+             `(sys.lap-x86:jne ,type-error-label)
+             `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:jne ,type-error-label)
+             ;; Load.
+             `(sys.lap-x86:mov64 :r8 (:r8 ,(+ 1 (* ,slot 8))))))
+    (setf *r8-value* (list (gensym)))))
+
+(defmacro define-array-like-writer (name type-name array-type slot)
+  `(defbuiltin ,name (value object) ()
+     (let ((type-error-label (gensym)))
+       (emit-trailer (type-error-label)
+         (raise-type-error :r9 ',type-name))
+       (load-in-reg :r9 object t)
+       (load-in-reg :r8 value t)
+       (emit `(sys.lap-x86:mov8 :al :r9l)
+             `(sys.lap-x86:and8 :al #b1111)
+             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+             `(sys.lap-x86:jne ,type-error-label)
+             `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:jne ,type-error-label)
+             ;; Store.
+             `(sys.lap-x86:mov64 (:r9 ,(+ 1 (* ,slot 8))) :r8)))
+    *r8-value*))
+
+(defmacro define-array-like-accessor (name type-name array-type slot)
+  `(progn (define-array-like-reader ,name ,type-name ,array-type ,slot)
+          (define-array-like-writer (setf ,name) ,type-name ,array-type ,slot)))
+
 ;; Produce an alist of symbol names and their associated functions.
 (defun generate-builtin-functions ()
   (let ((functions '()))
@@ -1489,22 +1547,8 @@
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin system.internals::structure-object-p (object) ()
-  (let ((out (gensym)))
-    (load-in-reg :r9 object t)
-    (smash-r8)
-    ;; Check tag.
-    (emit `(sys.lap-x86:mov64 :r8 nil)
-          `(sys.lap-x86:mov8 :al :r9l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
-          `(sys.lap-x86:jne ,out)
-          `(sys.lap-x86:mov8 :al (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
-          `(sys.lap-x86:mov64 :r9 t)
-          `(sys.lap-x86:cmov64e :r8 :r9)
-          out)
-    (setf *r8-value* (list (gensym)))))
+(define-array-like-predicate system.internals::structure-object-p
+    sys.int::+array-type-struct+)
 
 (defbuiltin system.internals::%struct-slot (object slot) ()
   (let ((type-error-label (gensym))
@@ -1741,13 +1785,13 @@
           (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
              (setf *r8-value* (list (gensym)))))))
 
-(define-tag-type-predicate sys.int::std-instance-p sys.int::+tag-std-instance+)
-(define-accessor sys.int::std-instance-class
-    sys.int::std-instance sys.int::+tag-std-instance+
-    :std-instance-class)
-(define-accessor sys.int::std-instance-slots
-    sys.int::std-instance sys.int::+tag-std-instance+
-    :std-instance-slots)
+(define-array-like-predicate sys.int::std-instance-p sys.int::+array-type-std-instance+)
+(define-array-like-accessor sys.int::std-instance-class
+    sys.int::std-instance sys.int::+array-type-std-instance+
+    0)
+(define-array-like-accessor sys.int::std-instance-slots
+    sys.int::std-instance sys.int::+array-type-std-instance+
+    1)
 
 (define-tag-type-predicate functionp sys.int::+tag-function+)
 
