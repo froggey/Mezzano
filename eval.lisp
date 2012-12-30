@@ -195,6 +195,11 @@
         (sys.int::parse-declares forms)
       (eval-locally-body declares body env))))
 
+(defspecial locally (&environment env &body forms)
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares forms)
+    (eval-locally-body declares body env)))
+
 (defspecial let (&environment env bindings &body forms)
   (multiple-value-bind (body declares)
       (sys.int::parse-declares forms)
@@ -348,6 +353,10 @@
 (defspecial progv (&environment env symbols values &body body)
   (progv (eval-in-lexenv symbols env) (eval-in-lexenv values env)
     (eval-progn-body body env)))
+
+(defspecial load-time-value (&environment env form &optional read-only-p)
+  (declare (ignore read-only-p))
+  (eval form))
 
 (defun eval-symbol (form env)
   "3.1.2.1.1  Symbols as forms"
