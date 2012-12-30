@@ -741,18 +741,18 @@
                (#.+kboot-tag-bootdev+
                 (format t "        method: ~A~%"
                         (case (p/32 (+ addr 8))
-                          (#.+kboot-method-none+ "None")
-                          (#.+kboot-method-disk+ "Disk")
-                          (#.+kboot-method-network+ "Network")
+                          (#.+kboot-bootdev-none+ "None")
+                          (#.+kboot-bootdev-disk+ "Disk")
+                          (#.+kboot-bootdev-network+ "Network")
                           (t (format nil "Unknown (~D)" (p/32 (+ addr 8))))))
                 (case (p/32 (+ addr 8))
-                  (#.+kboot-method-disk+
+                  (#.+kboot-bootdev-disk+
                    (format t "         flags: ~8,'0B~%" (p/32 (+ addr 12)))
                    (format t "          uuid: ~S~%" (p/uuid (+ addr 16)))
                    (format t "        device: ~2,'0X~%" (p/8 (+ addr 80)))
                    (format t "     partition: ~2,'0X~%" (p/8 (+ addr 81)))
                    (format t " sub_partition: ~2,'0X~%" (p/8 (+ addr 82))))
-                  (#.+kboot-method-network+
+                  (#.+kboot-bootdev-network+
                    (let ((flags (p/32 (+ addr 12))))
                      (format t "         flags: ~8,'0B" flags)
                      (when (logtest flags +kboot-net-ipv6+)

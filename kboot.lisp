@@ -4,8 +4,9 @@
 
 (defmacro sys.int::define-constant (name initial-value &key (test ''eql) documentation)
   `(defconstant ,name (let ((val ,initial-value))
-                        (if (and (boundp ',name) (funcall ,test val ,name))
-                            ,name
+                        (if (and (boundp ',name)
+                                 (funcall ,test val (symbol-value ',name)))
+                            (symbol-value ',name)
                             val))
      ,@(when documentation `(,documentation))))
 
