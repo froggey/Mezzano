@@ -1,6 +1,8 @@
 (in-package #:sys.int)
 
 (defconstant +fixnum-tag-mask+ #b111)
+(defconstant +array-type-shift+ 3)
+(defconstant +array-type-size+ 5)
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)

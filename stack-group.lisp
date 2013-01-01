@@ -14,8 +14,9 @@
 (defun stack-group-p (object)
   ;; Simple-array-like with a type field of 30.
   (and (eql (%tag-field object) #b0111)
-       (eql (ash (logand (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0) #xFE) -1)
-            30)))
+       (eql (ldb (byte +array-type-size+ +array-type-shift+)
+                 (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+            +array-type-stack-group+)))
 
 (defun make-stack-group (name &key
                          (control-stack-size 8192)

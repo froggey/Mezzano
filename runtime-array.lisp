@@ -31,6 +31,11 @@
   (let* ((info (assoc real-element-type *array-info* :test 'equal))
          (total-size (+ (if (fourth info) 64 0) ; padding for alignment.
                         (* length (third info)))))
+    (unless (eql (first info) 't)
+      ;; Not a simple-vector.
+      (ecase area
+        ((:dynamic) (error "Cannot allocate data vectors in dynamic space"))
+        ((:static nil) (setf area :static))))
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))
       (incf total-size (- 64 (rem total-size 64))))

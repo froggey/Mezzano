@@ -242,6 +242,9 @@
   (when (not transportp)
     ;; Numeric arrays have nothing to scan so just return.
     (return-from scan-numeric-array object))
+  ;; Numeric arrays should not be in dynamic space!
+  (mumble "Transporting numeric array!")
+  (mumble-hex width)
   (let* ((old-address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 old-address 0))
          (length (ldb (byte 56 8) header))
@@ -267,7 +270,7 @@
         (%%assemble-value (logand header -2)
                           +tag-array-like+)))
     ;; Dispatch again based on the type.
-    (case (ldb (byte 5 1) header)
+    (case (ldb (byte +array-type-size+ +array-type-shift+) header)
       (0  (scan-array-t object transportp)) ; simple-vector
       (1  (scan-numeric-array object transportp 8)) ; base-char
       (2  (scan-numeric-array object transportp 32)) ; character
@@ -575,7 +578,7 @@ the header word. LENGTH is the number of elements in the array."
         (setf (memref-unsigned-byte-64 address i) 0))
       ;; Set header word.
       (setf (memref-unsigned-byte-64 address 0)
-            (logior (ash length 8) (ash tag 1)))
+            (logior (ash length 8) (ash tag +array-type-shift+)))
       ;; Return value.
       (%%assemble-value address +tag-array-like+))))
 
@@ -713,15 +716,16 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push :rdx)
   ;; Allocate a 2 word bignum.
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r8 32) ; fixnum 4 (ugh)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
   ;; fixnum to pointer.
   (sys.lap-x86:sar64 :r8 3)
   ;; Set the header.
-  (sys.lap-x86:mov64 (:r8) #.(logior (ash 2 8) (ash +array-type-bignum+ 1)))
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 2 8) (ash +array-type-bignum+ +array-type-shift+)))
   ;; Set values.
   (sys.lap-x86:pop (:r8 16))
   (sys.lap-x86:pop (:r8 8))
@@ -740,15 +744,16 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:push 0) ; alignment
   (sys.lap-x86:push :rax)
   ;; Allocate a 1 word bignum.
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r8 16) ; fixnum 2 (ugh)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
   ;; fixnum to pointer.
   (sys.lap-x86:sar64 :r8 3)
   ;; Set the header.
-  (sys.lap-x86:mov64 (:r8) #.(logior (ash 1 8) (ash +array-type-bignum+ 1)))
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 1 8) (ash +array-type-bignum+ +array-type-shift+)))
   ;; Set values.
   (sys.lap-x86:pop (:r8 8))
   ;; realign stack.
@@ -767,7 +772,7 @@ the header word. LENGTH is the number of elements in the array."
 (defun %make-bignum-from-fixnum (n)
   (with-interrupts-disabled ()
     (let* ((address (%raw-allocate 2)))
-      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 8) (ash +array-type-bignum+ 1))
+      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 8) (ash +array-type-bignum+ +array-type-shift+))
             (memref-unsigned-byte-64 address 1) n)
       (%%assemble-value address +tag-array-like+))))
 

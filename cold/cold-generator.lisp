@@ -539,10 +539,10 @@
 (defconstant +array-type-stack-group+ 30)
 (defconstant +array-type-struct+ 31)
 
-(defun store-string (string &optional (area :dynamic))
-  (let ((address (allocate (1+ (ceiling (length string) 8)) area)))
+(defun store-string (string)
+  (let ((address (allocate (1+ (ceiling (length string) 8)) :static)))
     ;; Header word.
-    (setf (word address) (logior (ash (length string) 8) (ash +array-type-base-char+ 1)))
+    (setf (word address) (array-header +array-type-base-char+ (length string)))
     (dotimes (i (ceiling (length string) 8))
       (let ((value 0))
         (dotimes (j 8)
@@ -644,7 +644,7 @@
      (* (ceiling *support-offset* #x40000) #x40000)))
 
 (defun array-header (tag length)
-  (logior (ash tag 1)
+  (logior (ash tag 3)
           (ash length 8)))
 
 (defun pack-halfwords (low high)
@@ -935,7 +935,7 @@
 (defun save-object (object &optional (area :dynamic))
   (etypecase object
     ((signed-byte 61) (make-fixnum object))
-    (string (make-value (store-string object area)
+    (string (make-value (store-string object)
                         +tag-array-like+))
     (cons (vcons (save-object (car object))
                  (save-object (cdr object))))
@@ -943,19 +943,19 @@
                                         (keywordp object))
                         +tag-symbol+))
     ((vector (unsigned-byte 1))
-     (save-ub1-vector object area))
+     (save-ub1-vector object :static))
     ((vector (unsigned-byte 2))
-     (save-ub2-vector object area))
+     (save-ub2-vector object :static))
     ((vector (unsigned-byte 4))
-     (save-ub4-vector object area))
+     (save-ub4-vector object :static))
     ((vector (unsigned-byte 8))
-     (save-ub8-vector object area))
+     (save-ub8-vector object :static))
     ((vector (unsigned-byte 16))
-     (save-ub16-vector object area))
+     (save-ub16-vector object :static))
     ((vector (unsigned-byte 32))
-     (save-ub32-vector object area))
+     (save-ub32-vector object :static))
     ((vector (unsigned-byte 64))
-     (save-ub64-vector object area))
+     (save-ub64-vector object :static))
     ((vector t)
      (save-simple-vector object area))))
 
@@ -1143,7 +1143,7 @@
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
-         (address (allocate (1+ length))))
+         (address (allocate (1+ length) :static)))
     (setf (word address) (array-header +array-type-bignum+ length))
     (dotimes (i length)
       (setf (word (+ address 1 i)) (ldb (byte 64 (* i 64)) value)))
@@ -1193,9 +1193,9 @@
 
 (defun load-string (stream)
   (let* ((len (load-integer stream))
-         (address (allocate (1+ (ceiling len 2)))))
+         (address (allocate (1+ (ceiling len 2)) :static)))
     ;; Header word.
-    (setf (word address) (logior (ash len 8) (ash +array-type-character+ 1)))
+    (setf (word address) (array-header +array-type-character+ len))
     (dotimes (i (ceiling len 2))
       (let ((value 0))
         (dotimes (j 2)
@@ -1262,7 +1262,7 @@
            (error "Attemping to extract an uninterned symbol."))
          (intern name '#:cold-generator)))
       (#.+tag-array-like+
-       (ecase (ldb (byte 6 1) (word address))
+       (ecase (ldb (byte 5 3) (word address))
          (#.+array-type-base-char+
           (map 'simple-string 'code-char (extract-array address 8)))
          (#.+array-type-character+
@@ -1332,7 +1332,7 @@
   (let* ((len (load-integer stream))
          (address (allocate (1+ len))))
     ;; Header word.
-    (setf (word address) (logior (ash len 8) (ash +array-type-t+ 1)))
+    (setf (word address) (array-header +array-type-t+ len))
     ;; Drop vector values and copy them into the image.
     (decf (fill-pointer stack) len)
     (dotimes (i len)

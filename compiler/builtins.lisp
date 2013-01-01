@@ -66,7 +66,7 @@
              `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
              `(sys.lap-x86:jne ,out)
              `(sys.lap-x86:mov8 :al (:simple-array-header :r9))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
              `(sys.lap-x86:mov64 :r9 t)
              `(sys.lap-x86:cmov64e :r8 :r9)
              out)
@@ -84,7 +84,7 @@
              `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
              `(sys.lap-x86:jne ,type-error-label)
              `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
              `(sys.lap-x86:jne ,type-error-label)
              ;; Load.
              `(sys.lap-x86:mov64 :r8 (:r8 ,(+ 1 (* ,slot 8))))))
@@ -102,7 +102,7 @@
              `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
              `(sys.lap-x86:jne ,type-error-label)
              `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type 1))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
              `(sys.lap-x86:jne ,type-error-label)
              ;; Store.
              `(sys.lap-x86:mov64 (:r9 ,(+ 1 (* ,slot 8))) :r8)))
@@ -396,7 +396,7 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,false-out)
           `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
           `(sys.lap-x86:jnbe ,false-out)
           `(sys.lap-x86:mov64 :r8 t)
           `(sys.lap-x86:jmp ,out)
@@ -417,7 +417,7 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
 	  ;; Convert length to fixnum.
 	  `(sys.lap-x86:shr64 :rax 5)
@@ -437,11 +437,10 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ 1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
-	  ;; Convert tag to fixnum. Low bit is the GC bit, always clear.
-          `(sys.lap-x86:and32 :eax #x000000FE)
-	  `(sys.lap-x86:shl32 :eax 2)
+	  ;; Convert tag to fixnum. Low 3 bits are for the GC, always clear.
+          `(sys.lap-x86:and32 :eax ,(ash (- (ash 1 sys.int::+array-type-size+) 1) sys.int::+array-type-shift+))
 	  `(sys.lap-x86:mov32 :r8d :eax))
     (setf *r8-value* (list (gensym)))))
 
@@ -924,9 +923,9 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-string.
 	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; simple-string (not simple-base-string).
 	  `(sys.lap-x86:shr64 :rcx 8)
@@ -979,9 +978,9 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-string.
 	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r9))
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ 1))
+	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; simple-string (not simple-base-string).
 	  `(sys.lap-x86:shr64 :rcx 8)
@@ -1569,7 +1568,7 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
           `(sys.lap-x86:shr64 :rax 8)
@@ -1601,7 +1600,7 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ 1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
           `(sys.lap-x86:shr64 :rax 8)
@@ -1924,17 +1923,5 @@
   (emit `(sys.lap-x86:mov64 :r8 :lsp))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin system.internals::bignump (object) ()
-  (let ((out (gensym)))
-    (load-in-reg :r8 object t)
-    ;; Check tag.
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
-          `(sys.lap-x86:jne ,out)
-          `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-bignum+ 1))
-          out)
-    (predicate-result :e)))
-
+(define-array-like-predicate sys.int::bignump sys.int::+array-type-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)

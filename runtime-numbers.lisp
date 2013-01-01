@@ -537,7 +537,8 @@
   count-even
   (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
@@ -547,7 +548,7 @@
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r8) :rax)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
   (sys.lap-x86:popf)
@@ -594,7 +595,7 @@
   ;; Crunch the bignum down to the correct size.
   (sys.lap-x86:shl64 :rbx 5)
   (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
   (sys.lap-x86:cmp64 :rbx #x100)
   (sys.lap-x86:je maybe-make-fixnum)
@@ -706,7 +707,8 @@
   count-even
   (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
@@ -716,7 +718,7 @@
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r8) :rax)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
   (sys.lap-x86:popf)
@@ -763,7 +765,7 @@
   ;; Crunch the bignum down to the correct size.
   (sys.lap-x86:shl64 :rbx 5)
   (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
   (sys.lap-x86:cmp64 :rbx #x100)
   (sys.lap-x86:je maybe-make-fixnum)
@@ -985,7 +987,8 @@
   count-even
   (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
@@ -995,7 +998,7 @@
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r8) :rax)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
   (sys.lap-x86:popf)
@@ -1043,7 +1046,7 @@
   stop-crunching
   (sys.lap-x86:shl64 :rbx 5)
   (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
   (sys.lap-x86:cmp64 :rbx #x100)
   (sys.lap-x86:je maybe-make-fixnum)
@@ -1121,7 +1124,8 @@
   count-even
   (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
@@ -1131,7 +1135,7 @@
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r8) :rax)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
   (sys.lap-x86:popf)
@@ -1179,7 +1183,7 @@
   stop-crunching
   (sys.lap-x86:shl64 :rbx 5)
   (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
   (sys.lap-x86:cmp64 :rbx #x100)
   (sys.lap-x86:je maybe-make-fixnum)
@@ -1258,7 +1262,8 @@
   count-even
   (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
@@ -1268,7 +1273,7 @@
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r8) :rax)
   (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
   (sys.lap-x86:popf)
@@ -1316,7 +1321,7 @@
   stop-crunching
   (sys.lap-x86:shl64 :rbx 5)
   (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 1))
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
   (sys.lap-x86:cmp64 :rbx #x100)
   (sys.lap-x86:je maybe-make-fixnum)
