@@ -520,18 +520,17 @@ reverse Z-order."
       (when window
         (multiple-value-bind (win-x win-y)
             (window-position window)
-          (cond ((eql window *window-list*)
-                 ;; Window is at front.
-                 ;; Send mouse button events for each changing button.
-                 (do ((button 0 (1+ button))
-                      (current buttons (ash current -1))
-                      (changed (logxor buttons *mouse-button-state*) (ash changed -1)))
-                     ((zerop changed))
-                   (when (logtest changed 1)
-                     (mouse-button-event window button (logtest current 1) (- *mouse-x* win-x) (- *mouse-y* win-y)))))
-                (t ;; Window is behind, raise it up.
-                 (unless (zerop (logxor buttons *mouse-button-state*))
-                   (window-to-front window))))
+          (unless (eql window *window-list*)
+            ;; Window is behind, raise it up.
+            (unless (zerop (logxor buttons *mouse-button-state*))
+              (window-to-front window)))
+          ;; Send mouse button events for each changing button.
+          (do ((button 0 (1+ button))
+               (current buttons (ash current -1))
+               (changed (logxor buttons *mouse-button-state*) (ash changed -1)))
+              ((zerop changed))
+            (when (logtest changed 1)
+              (mouse-button-event window button (logtest current 1) (- *mouse-x* win-x) (- *mouse-y* win-y))))
           ;; Send mouse move event when the mouse moves.
           (when (or (not (zerop x-motion))
                     (not (zerop y-motion)))
