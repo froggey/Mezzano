@@ -9,6 +9,29 @@
 (defmethod compute-window-margins ((window window-with-chrome))
   (values 1 1 19 1))
 
+(defun 2d-array (data)
+  (let* ((width (length (first data)))
+         (height (length data))
+         (a (make-array (list height width))))
+    (dotimes (y height)
+      (dotimes (x width)
+        (setf (aref a y x) (elt (elt data y) x))))
+    a))
+
+(defvar *corner-mask*
+  (2d-array '((t   t   t   t   t)
+              (t   t   t nil nil)
+              (t   t nil nil nil)
+              (t nil nil nil nil)
+              (t nil nil nil nil))))
+
+(defvar *corner-border*
+  (2d-array '((nil nil nil nil nil)
+              (nil nil nil   t   t)
+              (nil nil   t nil nil)
+              (nil   t nil nil nil)
+              (nil   t nil nil nil))))
+
 (defmethod window-redraw :before ((window window-with-chrome))
   (let* ((fb (window-backbuffer window))
          (dims (array-dimensions fb))
@@ -50,7 +73,18 @@
                (bitset-argb-xrgb-mask-1 16 width (make-colour :red)
                                         glyph 0 0
                                         fb 2 (- (second dims) 1 16)))
-              (t))))))
+              (t))))
+    ;; Round off the corners.
+    (let* ((corner-width (array-dimension *corner-mask* 1))
+           (corner-height (array-dimension *corner-mask* 0)))
+      (dotimes (y corner-height)
+        (dotimes (x corner-width)
+          (when (aref *corner-mask* y x)
+            (setf (aref fb y x) (make-colour '(0 0 0 0)))
+            (setf (aref fb y (- (second dims) x 1)) (make-colour '(0 0 0 0))))
+          (when (aref *corner-border* y x)
+            (setf (aref fb y x) border-colour)
+            (setf (aref fb y (- (second dims) x 1)) border-colour)))))))
 
 (defmethod mouse-button-event :around ((window window-with-chrome) button-id clickedp mouse-x mouse-y)
   (let* ((fb (window-backbuffer window))
