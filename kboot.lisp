@@ -156,6 +156,8 @@
 (defconstant +elf-p_memsz+ 40 "Offset of p_memsz field.")
 (defconstant +elf-p_align+ 48 "Offset of p_align field.")
 
+(defconstant +elf-shdr-size+ 64 "Size of one ELF section header in octets.")
+
 (defconstant +elf-pt-null+ 0 "NULL phdr type.")
 (defconstant +elf-pt-load+ 1 "LOAD phdr type.")
 (defconstant +elf-pt-note+ 4 "NOTE phdr type.")
@@ -224,7 +226,7 @@
           (ub16ref/le elf-header +elf-e_ehsize+) +elf-header-size+
           (ub16ref/le elf-header +elf-e_phentsize+) +elf-phdr-size+
           (ub16ref/le elf-header +elf-e_phnum+) phnum
-          (ub16ref/le elf-header +elf-e_shentsize+) 0
+          (ub16ref/le elf-header +elf-e_shentsize+) +elf-shdr-size+
           (ub16ref/le elf-header +elf-e_shnum+) 0
           (ub16ref/le elf-header +elf-e_shstrndx+) 0)
     elf-header))
