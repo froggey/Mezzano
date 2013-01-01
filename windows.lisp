@@ -9,15 +9,6 @@
 (defmethod compute-window-margins ((window window-with-chrome))
   (values 1 1 19 1))
 
-(defun 2d-array (data)
-  (let* ((width (length (first data)))
-         (height (length data))
-         (a (make-array (list height width))))
-    (dotimes (y height)
-      (dotimes (x width)
-        (setf (aref a y x) (elt (elt data y) x))))
-    a))
-
 (defvar *corner-mask*
   (2d-array '((t   t   t   t   t)
               (t   t   t nil nil)
