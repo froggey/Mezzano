@@ -270,7 +270,7 @@
         (%%assemble-value (logand header -2)
                           +tag-array-like+)))
     ;; Dispatch again based on the type.
-    (case (ldb (byte +array-type-size+ +array-type-shift+) header)
+    (case (ldb (byte 5 3) header)
       (0  (scan-array-t object transportp)) ; simple-vector
       (1  (scan-numeric-array object transportp 8)) ; base-char
       (2  (scan-numeric-array object transportp 32)) ; character

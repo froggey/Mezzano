@@ -11,12 +11,19 @@
 ;;; Safe bit.
 (defconstant +stack-group-safe+ #b10000)
 
+(defun %array-like-p (object)
+  (eql (%tag-field object) +tag-array-like+))
+
+(defun %array-like-header (object)
+  (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+
+(defun %array-like-type (object)
+  (logand (1- (ash 1 +array-type-size+))
+          (ash (%array-like-header object) (- +array-type-shift+))))
+
 (defun stack-group-p (object)
-  ;; Simple-array-like with a type field of 30.
-  (and (eql (%tag-field object) #b0111)
-       (eql (ldb (byte +array-type-size+ +array-type-shift+)
-                 (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
-            +array-type-stack-group+)))
+  (and (%array-like-p object)
+       (eql (%array-like-type object) +array-type-stack-group+)))
 
 (defun make-stack-group (name &key
                          (control-stack-size 8192)
