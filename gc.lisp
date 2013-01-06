@@ -771,7 +771,7 @@ the header word. LENGTH is the number of elements in the array."
 ;;; to be directly compared.
 (defun %make-bignum-from-fixnum (n)
   (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate 2)))
+    (let* ((address (%raw-allocate 2 :static)))
       (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 8) (ash +array-type-bignum+ +array-type-shift+))
             (memref-unsigned-byte-64 address 1) n)
       (%%assemble-value address +tag-array-like+))))

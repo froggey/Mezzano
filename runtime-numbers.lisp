@@ -1392,7 +1392,8 @@
   count-even
   (sys.lap-x86:add64 :r8 32) ; one word for the header, one extra, one word for alignment.
   do-allocate
-  (sys.lap-x86:mov64 :rcx 8)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
   (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :lsp :rbx)
