@@ -977,8 +977,7 @@
   (sys.lap-x86:cmov64ng :rcx :rdx)
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push 0)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
   (sys.lap-x86:jz count-even)
   (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
@@ -1109,13 +1108,12 @@
   ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:pushf)
   (sys.lap-x86:cli)
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
+  (sys.lap-x86:mov64 :rcx :rax) ; rcx = len1
+  (sys.lap-x86:cmp64 :rax :rdx) ; rdx = len2
+  (sys.lap-x86:cmov64ng :rcx :rdx) ; rcx = !(len1 > len2) ? len2 : len1
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push 0)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
   (sys.lap-x86:jz count-even)
   (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
@@ -1252,8 +1250,7 @@
   (sys.lap-x86:cmov64ng :rcx :rdx)
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push 0)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
   (sys.lap-x86:jz count-even)
   (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
