@@ -24,8 +24,8 @@
   (with-open-file (s (file-image-path instance)
                      :element-type '(unsigned-byte 8))
     (file-position s :end)
-    (let ((size (file-position s)))
-      (file-position s 0)
+    (let ((size (- (file-position s) 512)))
+      (file-position s 512)
       (setf (slot-value instance 'data) (make-array size :element-type '(unsigned-byte 8)))
       (read-sequence (file-image-data instance) s))))
 
@@ -66,7 +66,7 @@
 
 (defun map-array-like-object (fn image seen-objects address)
   (let* ((header (image-word image address))
-         (type (ldb (byte 6 1) header))
+         (type (ldb (byte 5 3) header))
          (length (ldb (byte 48 8) header)))
     (ecase type
       ((0 29 31) ; simple-vector, std-instance and structure-object
@@ -176,11 +176,14 @@ Assumes that everything can be reached from NIL."
                               :name name
                               :package-name package-name))))
       (#.+tag-array-like+
-       (ecase (ldb (byte 6 1) (image-word image address))
+       (ecase (ldb (byte 5 3) (image-word image address))
          (#.+array-type-base-char+
           (map 'simple-string 'code-char (extract-image-array image address 8)))
          (#.+array-type-character+
-          (map 'simple-string 'code-char (extract-image-array image address 32))))))))
+          (map 'simple-string 'code-char (extract-image-array image address 32)))
+         (#.sys.int::+array-type-std-instance+
+          (cons (extract-image-object image (image-word image (+ address 8)))
+                (extract-image-object image (image-word image (+ address 16))))))))))
 
 (defun identify-symbols (image)
   "Detect all symbols in IMAGE, returning a list of (symbol-name address)."
