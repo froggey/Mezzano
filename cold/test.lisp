@@ -517,6 +517,12 @@
   (backtrace)
   (loop (%hlt)))
 
+(defun invoke-debugger (condition)
+  (write-char #\!)
+  (write condition)
+  (backtrace)
+  (loop (%hlt)))
+
 (defun round-up (n boundary)
   (if (zerop (rem n boundary))
       n
