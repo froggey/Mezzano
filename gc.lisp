@@ -95,11 +95,12 @@
   (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
           *newspace-offset* *semispace-size*
           (truncate (* *newspace-offset* 100) *semispace-size*))
-  (multiple-value-bind (allocated-words total-words)
+  (multiple-value-bind (allocated-words total-words largest-free-space)
       (static-area-info)
     (format t "Static space: ~:D/~:D words allocated (~D%).~%"
             allocated-words total-words
-            (truncate (* allocated-words 100) total-words)))
+            (truncate (* allocated-words 100) total-words))
+    (format t "  Largest free area: ~:D words.~%" largest-free-space))
   (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
           (truncate (- *stack-bump-pointer* #x100000000) 8)
           (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
@@ -110,17 +111,20 @@
 (defun static-area-info ()
   (let ((allocated-words 0)
         (total-words 0)
-        (offset 0))
+        (offset 0)
+        (largest-free-space 0))
     (with-interrupts-disabled ()
       (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
                   (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
               (incf total-words (+ size 2))
-              (when (logtest info #b010)
-                (incf allocated-words (+ size 2)))
+              (cond ((logtest info #b010)
+                     (incf allocated-words (+ size 2)))
+                    (t ; free block.
+                     (setf largest-free-space (max largest-free-space size))))
               (when (logtest info #b100)
                 (return))
               (incf offset (+ size 2)))))
-    (values allocated-words total-words)))
+    (values allocated-words total-words largest-free-space)))
 
 (defun gc ()
   "Run a garbage-collection cycle."
