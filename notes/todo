@@ -1,4 +1,4 @@
-New FASL format.
+New FASL format. (done!)
   Use RPN-style, not command-then-operands.
   This allows an explicit stack to be used for operands and requires no stack
   for commands.
@@ -144,9 +144,13 @@ Swank requires:
 Class redefinition.
 Pretty printer.
 More format.
-Native file compiler.
+Native file compiler. (done?)
 Disassembler.
-Fix the xcompiler package problems.
-EQL specializers
-classes for structs
-escaping blocks (sigh.)
+Fix the xcompiler package problems. (done?)
+EQL specializers (done!)
+classes for structs (done!)
+escaping blocks (sigh.) (done!)
+processes as structs, not classes
+preemtive multitasking (aiee)
+hw interrupts switch to another stack group
+smp (double aiee)
