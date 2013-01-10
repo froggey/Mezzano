@@ -532,7 +532,10 @@
          ;; Initialize the static header words.
          (setf (ldb (byte 1 0) (memref-unsigned-byte-64 *static-area* (+ hint 1))) *static-mark-bit*
                (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ hint 1))) 1)
-         (setf *static-area-hint* (+ hint 2 words))
+         ;; Update the hint value, be careful to avoid running past the end of static space.
+         (setf *static-area-hint* (if (logtest (memref-unsigned-byte-64 *static-area* (+ hint 1)) #b100)
+                                      0
+                                      (+ hint 2 words)))
          (return (+ *static-area* (* hint 8) 16)))
        (when (logtest info #b100)
          ;; Last tag.
