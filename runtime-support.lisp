@@ -46,7 +46,7 @@
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
 ;;; NOTE: Is set by initialize-lisp during cold boot.
-(defparameter *next-symbol-tls-slot* 12)
+(defvar *next-symbol-tls-slot* 12)
 (defconstant +maximum-tls-slot+ 512)
 (defun %allocate-tls-slot (symbol)
   (when (>= *next-symbol-tls-slot* +maximum-tls-slot+)
