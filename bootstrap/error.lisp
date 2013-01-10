@@ -129,6 +129,9 @@
 (define-condition simple-style-warning (simple-condition style-warning)
   ())
 
+(define-condition storage-condition (serious-condition) ())
+(define-condition simple-storage-condition (simple-condition storage-condition) ())
+
 (defun error (datum &rest arguments)
   (declare (dynamic-extent arguments))
   (let ((condition datum))

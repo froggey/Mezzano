@@ -513,6 +513,10 @@
          (%gc)
          (setf address (%attempt-static-allocation words 0))
          (unless address
+           (mumble "Static space exhausted.")
+           (error 'simple-storage-condition
+                  :format-control "Static space exhausted during allocation of size ~:D words."
+                  :format-arguments (list words))
            (emergency-halt "Static space exhausted.")))
        address))))
 
