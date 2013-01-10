@@ -575,6 +575,7 @@
     "bootstrap/numbers.lisp"
     "character.lisp"
     "closette.lisp"
+    "bootstrap/data-types.lisp"
     "gc.lisp"
     "process.lisp"
 )
