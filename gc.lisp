@@ -2,7 +2,9 @@
 
 (declaim (special *oldspace* *newspace* *newspace-offset* *semispace-size*
                   *oldspace-paging-bits* *newspace-paging-bits*))
-(declaim (special *static-area* *static-mark-bit* *static-area-hint*))
+(declaim (special *small-static-area* *small-static-area-hint*))
+(declaim (special *large-static-area* *large-static-area-hint*))
+(declaim (special *static-mark-bit*))
 (declaim (special *stack-bump-pointer* *stack-bump-pointer-limit*))
 (declaim (special *bump-pointer*))
 (declaim (special *verbose-gc*))
@@ -96,8 +98,14 @@
           *newspace-offset* *semispace-size*
           (truncate (* *newspace-offset* 100) *semispace-size*))
   (multiple-value-bind (allocated-words total-words largest-free-space)
-      (static-area-info)
-    (format t "Static space: ~:D/~:D words allocated (~D%).~%"
+      (static-area-info *small-static-area*)
+    (format t "Small static space: ~:D/~:D words allocated (~D%).~%"
+            allocated-words total-words
+            (truncate (* allocated-words 100) total-words))
+    (format t "  Largest free area: ~:D words.~%" largest-free-space))
+  (multiple-value-bind (allocated-words total-words largest-free-space)
+      (static-area-info *large-static-area*)
+    (format t "Large static space: ~:D/~:D words allocated (~D%).~%"
             allocated-words total-words
             (truncate (* allocated-words 100) total-words))
     (format t "  Largest free area: ~:D words.~%" largest-free-space))
@@ -108,14 +116,14 @@
                     (- *stack-bump-pointer-limit* #x100000000)))
   (values))
 
-(defun static-area-info ()
+(defun static-area-info (space)
   (let ((allocated-words 0)
         (total-words 0)
         (offset 0)
         (largest-free-space 0))
     (with-interrupts-disabled ()
-      (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
-                  (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+      (loop (let ((size (memref-unsigned-byte-64 space offset))
+                  (info (memref-unsigned-byte-64 space (+ offset 1))))
               (incf total-words (+ size 2))
               (cond ((logtest info #b010)
                      (incf allocated-words (+ size 2)))
@@ -426,24 +434,24 @@
   (values a1 a2 a3 a4 a5))
 
 ;;; TODO: This needs to coalesce adjacent free areas.
-(defun sweep-static-space ()
+(defun sweep-static-space (space)
   (mumble "Sweeping static space")
   (let ((offset 0)
         (last-free-tag nil))
-    (loop (let ((size (memref-unsigned-byte-64 *static-area* offset))
-                (info (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+    (loop (let ((size (memref-unsigned-byte-64 space offset))
+                (info (memref-unsigned-byte-64 space (+ offset 1))))
             (when (and (logtest info #b010)
                        (not (eql (ldb (byte 1 0) info) *static-mark-bit*)))
               ;; Allocated, but not marked. Must not be reachable.
-              (setf (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ offset 1))) 0))
-            (if (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ offset 1))))
+              (setf (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ offset 1))) 0))
+            (if (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ offset 1))))
                 ;; Free tag.
                 (cond (last-free-tag
                        ;; Merge adjacent free tags.
-                       (incf (memref-unsigned-byte-64 *static-area* last-free-tag) (+ size 2))
+                       (incf (memref-unsigned-byte-64 space last-free-tag) (+ size 2))
                        (when (logtest info #b100)
                          ;; Last tag.
-                         (setf (ldb (byte 1 2) (memref-unsigned-byte-64 *static-area* (1+ last-free-tag))) 1)
+                         (setf (ldb (byte 1 2) (memref-unsigned-byte-64 space (1+ last-free-tag))) 1)
                          (return)))
                       (t ;; Previous free tag.
                        (setf last-free-tag offset)))
@@ -451,8 +459,7 @@
                 (setf last-free-tag nil))
             (when (logtest info #b100)
               (return))
-            (incf offset (+ size 2))))
-    (setf *static-area-hint* 0)))
+            (incf offset (+ size 2))))))
 
 (defun gc-task ()
   (loop
@@ -480,7 +487,10 @@
        ;; Flush TLB.
        (setf (%cr3) (%cr3))
        ;; Sweep static space.
-       (sweep-static-space)
+       (sweep-static-space *small-static-area*)
+       (setf *small-static-area-hint* 0)
+       (sweep-static-space *large-static-area*)
+       (setf *large-static-area-hint* 0)
        (mumble "complete")
        (clear-gc-light)
        (stack-group-return t))))
@@ -513,41 +523,51 @@
      (prog1 (+ *newspace* (ash *newspace-offset* 3))
        (incf *newspace-offset* words)))
     (:static
-     (let ((address (or (when (not (zerop *static-area-hint*))
-                          (%attempt-static-allocation words *static-area-hint*))
-                        (%attempt-static-allocation words 0))))
-       (unless address
-         (%gc)
-         (setf address (%attempt-static-allocation words 0))
+     (multiple-value-bind (space hint)
+         (if (<= words 30)
+             (values *small-static-area* *small-static-area-hint*)
+             (values *large-static-area* *large-static-area-hint*))
+       (let ((address (or (when (not (zerop hint))
+                            (%attempt-static-allocation space words hint))
+                          (%attempt-static-allocation space words 0))))
          (unless address
-           (mumble "Static space exhausted.")
-           (error 'simple-storage-condition
-                  :format-control "Static space exhausted during allocation of size ~:D words."
-                  :format-arguments (list words))
-           (emergency-halt "Static space exhausted.")))
-       address))))
+           (%gc)
+           (setf address (%attempt-static-allocation space words 0))
+           (unless address
+             (mumble "Static space exhausted.")
+             (error 'simple-storage-condition
+                    :format-control "Static space exhausted during allocation of size ~:D words."
+                    :format-arguments (list words))
+             (emergency-halt "Static space exhausted.")))
+         address)))))
 
-(defun %attempt-static-allocation (words hint)
+(defun %attempt-static-allocation (space words hint)
   (loop
-     (let ((size (memref-unsigned-byte-64 *static-area* hint))
-           (info (memref-unsigned-byte-64 *static-area* (+ hint 1))))
+     (let ((size (memref-unsigned-byte-64 space hint))
+           (info (memref-unsigned-byte-64 space (+ hint 1))))
        (when (and (>= size words)
                   (not (logtest info #b010)))
          ;; Large enough to satisfy and free.
          (unless (= size words)
            ;; Larger than required. Split it.
-           (setf (memref-unsigned-byte-64 *static-area* (+ hint 2 words)) (- size words 2)
-                 (memref-unsigned-byte-64 *static-area* (+ hint 3 words)) (logand info #b100)
-                 (memref-unsigned-byte-64 *static-area* hint) words
-                 (ldb (byte 1 2) (memref-unsigned-byte-64 *static-area* (+ hint 1))) 0))
+           (setf (memref-unsigned-byte-64 space (+ hint 2 words)) (- size words 2)
+                 (memref-unsigned-byte-64 space (+ hint 3 words)) (logand info #b100)
+                 (memref-unsigned-byte-64 space hint) words
+                 (ldb (byte 1 2) (memref-unsigned-byte-64 space (+ hint 1))) 0))
          ;; Initialize the static header words.
-         (setf (ldb (byte 1 0) (memref-unsigned-byte-64 *static-area* (+ hint 1))) *static-mark-bit*
-               (ldb (byte 1 1) (memref-unsigned-byte-64 *static-area* (+ hint 1))) 1)
+         (setf (ldb (byte 1 0) (memref-unsigned-byte-64 space (+ hint 1))) *static-mark-bit*
+               (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ hint 1))) 1)
          ;; Update the hint value, be careful to avoid running past the end of static space.
-         (setf *static-area-hint* (if (logtest (memref-unsigned-byte-64 *static-area* (+ hint 1)) #b100)
-                                      0
-                                      (+ hint 2 words)))
-         (return (+ *static-area* (* hint 8) 16)))
+         (let ((new-hint (if (logtest (memref-unsigned-byte-64 space (+ hint 1)) #b100)
+                             0
+                             (+ hint 2 words))))
+           ;; Arf.
+           (cond ((eql space *small-static-area*)
+                  (setf *small-static-area-hint* new-hint))
+                 ((eql space *large-static-area*)
+                  (setf *large-static-area-hint* new-hint))
+                 (t (error "Unknown space ~X??" space))))
+         (return (+ space (* hint 8) 16)))
        (when (logtest info #b100)
          ;; Last tag.
          (return nil))

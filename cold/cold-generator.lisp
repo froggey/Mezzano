@@ -355,7 +355,7 @@
     (:d16/le idt-length)
     (:d64/le idt)))
 
-(defparameter *static-area-limit* (* 64 1024 1024))
+(defparameter *static-area-limit* (* 32 1024 1024))
 (defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
 
 (defparameter *static-area-base*  #x0000200000)
@@ -633,7 +633,7 @@
   (values))
 
 (defun total-image-size ()
-  (+ (/ *static-area-limit* 8)
+  (+ (* (/ *static-area-limit* 8) 2)
      (/ (* *dynamic-area-semispace-limit* 2) 8)
      (* (ceiling *support-offset* #x40000) #x40000)
      (* (1+ (ceiling *stack-offset* #x40000)) #x40000)))
@@ -725,7 +725,7 @@
                     +page-table-large+))
       (incf phys-curr #x200000))
     ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
-    (dotimes (i (truncate (- (/ *static-area-limit* 8) *static-offset*) #x40000))
+    (dotimes (i (truncate (- (/ (* *static-area-limit* 2) 8) *static-offset*) #x40000))
       (setf (word (+ data-pml2 (truncate *static-area-base* #x200000) (ceiling *static-offset* #x40000) i))
             (logior phys-curr
                     +page-table-writable+
@@ -1099,15 +1099,18 @@
       (set-value '*semispace-size* (/ *dynamic-area-semispace-limit* 8))
       (set-value '*newspace* *dynamic-area-base*)
       (set-value '*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
-      (set-value '*static-area* *static-area-base*)
+      (set-value '*large-static-area* *static-area-base*)
+      (set-value '*large-static-area-hint* 0)
+      (set-value '*small-static-area* (+ *static-area-base* *static-area-limit*))
+      (set-value '*small-static-area-hint* 0)
       (set-value '*static-mark-bit* 0)
-      (set-value '*static-area-hint* 0)
       (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
       (set-value '*oldspace-paging-bits* (+ data-pml3 (* (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x40000000) 8)))
       (set-value '*newspace-paging-bits* (+ data-pml3 (* (/ *dynamic-area-base* #x40000000) 8)))
       (set-value '*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
       (set-value '*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
     ;; Write the boundary tag for the static area's free part.
+    ;; This does not write the boundary tag for the small static area!
     (let ((*static-offset* (+ *static-offset* 2)))
       (format t "~:D/~:D words free in static space.~%"
               (- (truncate *static-area-limit* 8) (- *static-offset* 2))

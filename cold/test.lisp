@@ -865,6 +865,9 @@
                         (complex single-float)
                         (complex double-float)
                         (complex long-float))
+        ;; Ugh!
+        (memref-unsigned-byte-64 *small-static-area* 0) (- (* 4 1024 1024) 2)
+        (memref-unsigned-byte-64 *small-static-area* 1) #b100
         *package* nil
         *cold-stream* (make-cold-stream)
         *terminal-io* *cold-stream*
