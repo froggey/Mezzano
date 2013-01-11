@@ -155,176 +155,15 @@
 (defun static-pointer-p (address)
   (< address #x80000000))
 
-(defun scan-error (object transport)
-  (declare (ignore object transport))
-  (emergency-halt "unscannable object"))
-
-(defun scan-generic (object transportp size)
-  (let* ((old-address (ash (%pointer-field object) 4))
-         (new-address old-address)
-         (first-value (memref-t old-address 0)))
-    ;; Check for a forwarding pointer.
-    (when (eql (%tag-field first-value) +tag-gc-forward+)
-      (return-from scan-generic
-        (%%assemble-value (ash (%pointer-field first-value) 4) (%tag-field object))))
-    (when transportp
-      (incf *objects-copied*)
-      (incf *words-copied* size)
-      ;; Leave a forwarding pointer.
-      (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
-      ;; Copy fields without updating them.
-      ;; This prevents SCAN-GENERIC from breaking when it's copying a symbol
-      ;; that it uses.
-      (%fast-copy new-address old-address (ash size 3))
-      (setf (memref-t old-address 0) (%%assemble-value new-address +tag-gc-forward+))
-      (incf *newspace-offset* size))
-    (setf (memref-t new-address 0) (gc-object first-value))
-    (dotimes (i (1- size))
-      (setf (memref-t new-address (1+ i))
-            (gc-object (memref-t old-address (1+ i)))))
-    (%%assemble-value new-address (%tag-field object))))
-
-(defun scan-cons (object transportp)
-  (scan-generic object transportp 2))
-
-(defun scan-symbol (object transportp)
-  (scan-generic object transportp 6))
-
-(defun scan-array-header (object transportp)
-  (scan-generic object transportp 4))
-
-(defun scan-array-t (object transportp)
-  (let* ((old-address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 old-address 0))
-         (length (ldb (byte 56 8) header))
-         (word-count (1+ length))
-         (new-address old-address))
-    (when (hash-table-p object)
-      (setf (hash-table-rehash-required object) 't))
-    (when (oddp word-count) (incf word-count))
-    (when transportp
-      (incf *objects-copied*)
-      (incf *words-copied* word-count)
-      (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
-      (incf *newspace-offset* word-count)
-      ;; Set the GC flag and leave a forwarding pointer.
-      (setf (memref-unsigned-byte-64 old-address 0) (logior new-address 1)))
-    (setf (memref-unsigned-byte-64 new-address 0) header)
-    (dotimes (i length)
-      (setf (memref-t new-address (1+ i))
-            (gc-object (memref-t old-address (1+ i)))))
-    (%%assemble-value new-address +tag-array-like+)))
-
-(defun scan-stack-group (object transportp)
-  (when transportp
-    (emergency-halt "Attempting to transport a stack-group!"))
-  (let ((address (ash (%pointer-field object) 4)))
-    (dotimes (i (- 511 64)) ; skip the fxsave area at the end.
-      (let ((x (memref-t address (1+ i))))
-        (when (not (eql (%tag-field x) +tag-unbound-value+))
-          (setf (memref-t address (1+ i)) (gc-object x)))))
-    ;; Scan the data/binding stacks only when the sg is not active.
-    (when (not (eql (logand (memref-t address 2) +stack-group-state-mask+) +stack-group-active+))
-      ;; FIXME: Need to scan the control stack as well, along with the saved RIP and stuff.
-      (let* ((ds-base (memref-unsigned-byte-64 address 7))
-             (ds-size (memref-unsigned-byte-64 address 8))
-             (bs-base (memref-unsigned-byte-64 address 9))
-             (bs-size (memref-unsigned-byte-64 address 10))
-             (binding-stack-pointer (memref-unsigned-byte-64 address 1))
-             (control-stack-pointer (memref-unsigned-byte-64 address 3))
-             (data-stack-pointer (memref-unsigned-byte-64 control-stack-pointer 2)))
-        (do ((fp (memref-unsigned-byte-64 control-stack-pointer 0)
-                 (memref-unsigned-byte-64 fp 0)))
-            ((= fp 0))
-          (setf (memref-t fp -2)
-                (gc-object (memref-t fp -2))))
-        (dotimes (i (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
-          (setf (memref-t data-stack-pointer i)
-                (gc-object (memref-t data-stack-pointer i))))
-        (dotimes (i (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
-          (setf (memref-t binding-stack-pointer i)
-                (gc-object (memref-t binding-stack-pointer i))))))
-    object))
-
-(defun scan-numeric-array (object transportp width)
-  (when (not transportp)
-    ;; Numeric arrays have nothing to scan so just return.
-    (return-from scan-numeric-array object))
-  ;; Numeric arrays should not be in dynamic space!
-  (mumble "Transporting numeric array!")
-  (mumble-hex width)
-  (let* ((old-address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 old-address 0))
-         (length (ldb (byte 56 8) header))
-         (word-count (1+ (ceiling (* length width) 64)))
-         (new-address (+ *newspace* (ash *newspace-offset* 3))))
-    (when (oddp word-count) (incf word-count))
-    (incf *objects-copied*)
-    (incf *words-copied* word-count)
-    (incf *newspace-offset* word-count)
-    ;; Set the GC flag and leave a forwarding pointer.
-    (setf (memref-unsigned-byte-64 old-address 0) (logior new-address 1))
-    ;; Just copy data over.
-    (setf (memref-unsigned-byte-64 new-address 0) header)
-    (%fast-copy (+ new-address 8) (+ old-address 8) (ash (1- word-count) 3))
-    (%%assemble-value new-address +tag-array-like+)))
-
-(defun scan-array-like (object transportp)
-  (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0)))
-    ;; Check the GC bit.
-    (when (logtest header 1)
-      (return-from scan-array-like
-        (%%assemble-value (logand header -2)
-                          +tag-array-like+)))
-    ;; Dispatch again based on the type.
-    (case (ldb (byte 5 3) header)
-      (0  (scan-array-t object transportp)) ; simple-vector
-      (1  (scan-numeric-array object transportp 8)) ; base-char
-      (2  (scan-numeric-array object transportp 32)) ; character
-      (3  (scan-numeric-array object transportp 1)) ; bit
-      (4  (scan-numeric-array object transportp 2)) ; unsigned-byte 2
-      (5  (scan-numeric-array object transportp 4)) ; unsigned-byte 4
-      (6  (scan-numeric-array object transportp 8)) ; unsigned-byte 8
-      (7  (scan-numeric-array object transportp 16)) ; unsigned-byte 16
-      (8  (scan-numeric-array object transportp 32)) ; unsigned-byte 32
-      (9  (scan-numeric-array object transportp 64)) ; unsigned-byte 64
-      (10 (scan-numeric-array object transportp 1)) ; signed-byte 1
-      (11 (scan-numeric-array object transportp 2)) ; signed-byte 2
-      (12 (scan-numeric-array object transportp 4)) ; signed-byte 4
-      (13 (scan-numeric-array object transportp 8)) ; signed-byte 8
-      (14 (scan-numeric-array object transportp 16)) ; signed-byte 16
-      (15 (scan-numeric-array object transportp 32)) ; signed-byte 32
-      (16 (scan-numeric-array object transportp 64)) ; signed-byte 64
-      (17 (scan-numeric-array object transportp 32)) ; single-float
-      (18 (scan-numeric-array object transportp 64)) ; double-float
-      (19 (scan-numeric-array object transportp 128)) ; long-float
-      (20 (scan-numeric-array object transportp 128)) ; xmm-vector
-      (21 (scan-numeric-array object transportp 64)) ; complex single-float
-      (22 (scan-numeric-array object transportp 128)) ; complex double-float
-      (23 (scan-numeric-array object transportp 256)) ; complex long-float
-      (24 (scan-error object transportp)) ; unused (24)
-      (25 (scan-numeric-array object transportp 64)) ; bignum
-      (26 (scan-error object transportp)) ; unused (26)
-      (27 (scan-error object transportp)) ; unused (27)
-      (28 (scan-error object transportp)) ; unused (28)
-      (29 (scan-array-t object transportp)) ; std-instance
-      (30 (scan-stack-group object transportp))
-      (31 (scan-array-t object transportp)) ; struct
-      (t (scan-error object transportp)))))
-
-(defun scan-function (object transportp)
-  (when transportp
-    (emergency-halt "Attempting to transport a function!"))
-  ;; Scan the constant pool.
-  (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0))
-         (mc-size (ash (ldb (byte 16 16) header) 1))
-         (pool-size (ldb (byte 16 32) header)))
-    (dotimes (i pool-size)
-      (setf (memref-t address (+ mc-size i))
-            (gc-object (memref-t address (+ mc-size i)))))
-    object))
+(declaim (inline immediatep))
+(defun immediatep (object)
+  "Return true if OBJECT is an immediate object."
+  (case (%tag-field object)
+    ((#.+tag-even-fixnum+ #.+tag-odd-fixnum+
+      #.+tag-character+ #.+tag-single-float+
+      #.+tag-unbound-value+)
+     t)
+    (t nil)))
 
 (defmacro with-gc-trace ((object prefix) &body body)
   (let ((object-sym (gensym))
@@ -342,28 +181,258 @@
   (declare (ignore object prefix))
   `(progn ,@body))
 
-(defun scan-object (object transportp)
-  (case (%tag-field object)
-    (0  (scan-error object transportp)) ; even-fixnum
-    (1  (scan-cons object transportp))
-    (2  (scan-symbol object transportp))
-    (3  (scan-array-header object transportp))
-    (4  (scan-error object transportp)) ; unused
-    (5  (scan-error object transportp)) ; unused
-    (6  (scan-error object transportp)) ; unused
-    (7  (scan-array-like object transportp))
-    (8  (scan-error object transportp)) ; odd-fixnum
-    (9  (scan-error object transportp)) ; unused
-    (10 (scan-error object transportp)) ; character
-    (11 (scan-error object transportp)) ; unused
-    (12 (scan-function object transportp))
-    (13 (scan-error object transportp)) ; unused
-    (14 (scan-error object transportp)) ; unbound-value
-    (15 (scan-error object transportp))))
+(defun scavenge-many (address n)
+  (dotimes (i n)
+    (setf (memref-t address i)
+          (scavenge-object (memref-t address i)))))
 
-(defun scan-and-transport (object)
-  (with-gc-trace (object #\d)
-    (scan-object object t)))
+(defun scavenge-newspace ()
+  (mumble "Scav newspace")
+  (do ((pointer 0))
+      ((>= pointer *newspace-offset*))
+    ;; Walk newspace, updating pointers as we go.
+    (let ((n (- *newspace-offset* pointer)))
+      (scavenge-many (+ *newspace* (* pointer 8)) n)
+      (incf pointer n))))
+
+;;; Arguments and MV return are to force the data registers on to the stack.
+;;; This does not work for RBX or R13, but RBX is smashed by the function
+;;; return and R13 shouldn't matter.
+(defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
+  (let* ((sg-pointer (ash (%pointer-field (current-stack-group)) 4))
+	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
+	 (ds-size (memref-unsigned-byte-64 sg-pointer 8))
+	 (bs-base (memref-unsigned-byte-64 sg-pointer 9))
+	 (bs-size (memref-unsigned-byte-64 sg-pointer 10))
+         (binding-stack-pointer (memref-unsigned-byte-64 sg-pointer 1))
+         (data-stack-pointer (ash (%%get-data-stack-pointer) 3)))
+    (mumble "Scav control stack")
+    (do ((fp (read-frame-pointer)
+             (memref-unsigned-byte-64 fp 0)))
+        ((= fp 0))
+      (setf (memref-t fp -2) (scavenge-object (memref-t fp -2))))
+    (mumble "Scav data stack")
+    (scavenge-many data-stack-pointer
+                   (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
+    (mumble "Scav binding stack")
+    (scavenge-many binding-stack-pointer
+                   (ash (- (+ bs-base bs-size) binding-stack-pointer) -3)))
+  (values a1 a2 a3 a4 a5))
+
+(defun scavenge-object (object)
+  "Scavange one object, returning an updated pointer."
+  (when (immediatep object)
+    ;; Don't care about immediate objects, return them unchanged.
+    (return-from scavenge-object object))
+  (let ((address (ash (%pointer-field object) 4)))
+    (cond ((oldspace-pointer-p address)
+           ;; Object is in oldspace, transport to newspace.
+           (transport-object object))
+          ((newspace-pointer-p address)
+           ;; Object is already in newspace.
+           object)
+          ((static-pointer-p address)
+           ;; Object is in the static area, mark and scan.
+           (mark-static-object object)
+           object)
+          (t
+           ;; Assume the pointer is on the stack.
+           ;; TODO: Track scanned stack objects. Allocate a cons with dynamic-extent
+           ;; and push on some symbol.
+           (scan-object object)
+           object))))
+
+(defun scan-error (object)
+  (mumble-hex (lisp-object-address object))
+  (mumble " ")
+  (mumble-hex (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+  (emergency-halt "unscannable object"))
+
+(defun scan-generic (object size)
+  (scavenge-many (ash (%pointer-field object) 4) size))
+
+(defun scan-cons (object)
+  (scan-generic object 2))
+
+(defun scan-symbol (object)
+  (scan-generic object 6))
+
+(defun scan-array-header (object)
+  (scan-generic object 4))
+
+(defun scan-array-t (object)
+  (let* ((address (ash (%pointer-field object) 4))
+         (header (memref-unsigned-byte-64 address 0))
+         (length (ldb (byte 56 8) header))
+         (word-count (1+ length)))
+    (when (hash-table-p object)
+      (setf (hash-table-rehash-required object) 't))
+    (scavenge-many address word-count)))
+
+(defun scan-stack-group (object)
+  (let ((address (ash (%pointer-field object) 4)))
+    (scavenge-many address (- 512 64)) ; skip the fxsave area at the end.
+    ;; Scan the data/binding stacks only when the sg is not active.
+    (when (not (eql (logand (memref-t address 2) +stack-group-state-mask+) +stack-group-active+))
+      ;; FIXME: Need to scan the saved RIP, or at least the function associated with it.
+      (let* ((ds-base (memref-unsigned-byte-64 address 7))
+             (ds-size (memref-unsigned-byte-64 address 8))
+             (bs-base (memref-unsigned-byte-64 address 9))
+             (bs-size (memref-unsigned-byte-64 address 10))
+             (binding-stack-pointer (memref-unsigned-byte-64 address 1))
+             (control-stack-pointer (memref-unsigned-byte-64 address 3))
+             (data-stack-pointer (memref-unsigned-byte-64 control-stack-pointer 2)))
+        (do ((fp (memref-unsigned-byte-64 control-stack-pointer 0)
+                 (memref-unsigned-byte-64 fp 0)))
+            ((= fp 0))
+          (setf (memref-t fp -2) (scavenge-object (memref-t fp -2))))
+        (scavenge-many data-stack-pointer
+                       (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
+        (scavenge-many binding-stack-pointer
+                       (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))))
+    object))
+
+(defun scan-numeric-array (object width)
+  (declare (ignore width))
+  ;; Numeric arrays have nothing to scan so just return.
+  object)
+
+(defun scan-array-like (object)
+  (let* ((address (ash (%pointer-field object) 4))
+         (header (memref-unsigned-byte-64 address 0)))
+    ;; Dispatch again based on the type.
+    (case (ldb (byte 5 3) header)
+      (0  (scan-array-t object)) ; simple-vector
+      (1  (scan-numeric-array object 8)) ; base-char
+      (2  (scan-numeric-array object 32)) ; character
+      (3  (scan-numeric-array object 1)) ; bit
+      (4  (scan-numeric-array object 2)) ; unsigned-byte 2
+      (5  (scan-numeric-array object 4)) ; unsigned-byte 4
+      (6  (scan-numeric-array object 8)) ; unsigned-byte 8
+      (7  (scan-numeric-array object 16)) ; unsigned-byte 16
+      (8  (scan-numeric-array object 32)) ; unsigned-byte 32
+      (9  (scan-numeric-array object 64)) ; unsigned-byte 64
+      (10 (scan-numeric-array object 1)) ; signed-byte 1
+      (11 (scan-numeric-array object 2)) ; signed-byte 2
+      (12 (scan-numeric-array object 4)) ; signed-byte 4
+      (13 (scan-numeric-array object 8)) ; signed-byte 8
+      (14 (scan-numeric-array object 16)) ; signed-byte 16
+      (15 (scan-numeric-array object 32)) ; signed-byte 32
+      (16 (scan-numeric-array object 64)) ; signed-byte 64
+      (17 (scan-numeric-array object 32)) ; single-float
+      (18 (scan-numeric-array object 64)) ; double-float
+      (19 (scan-numeric-array object 128)) ; long-float
+      (20 (scan-numeric-array object 128)) ; xmm-vector
+      (21 (scan-numeric-array object 64)) ; complex single-float
+      (22 (scan-numeric-array object 128)) ; complex double-float
+      (23 (scan-numeric-array object 256)) ; complex long-float
+      (24 (scan-error object)) ; unused (24)
+      (25 (scan-numeric-array object 64)) ; bignum
+      (26 (scan-error object)) ; unused (26)
+      (27 (scan-error object)) ; unused (27)
+      (28 (scan-error object)) ; unused (28)
+      (29 (scan-array-t object)) ; std-instance
+      (30 (scan-stack-group object))
+      (31 (scan-array-t object)) ; struct
+      (t (scan-error object)))))
+
+(defun scan-function (object)
+  ;; Scan the constant pool.
+  (let* ((address (ash (%pointer-field object) 4))
+         (header (memref-unsigned-byte-64 address 0))
+         (mc-size (ash (ldb (byte 16 16) header) 1))
+         (pool-size (ldb (byte 16 32) header)))
+    (scavenge-many (+ address (* mc-size 8)) pool-size)
+    object))
+
+(defun scan-object (object)
+  "Scan one object, updating pointer fields."
+  (case (%tag-field object)
+    (0  (scan-error object)) ; even-fixnum
+    (1  (scan-cons object))
+    (2  (scan-symbol object))
+    (3  (scan-array-header object))
+    (4  (scan-error object)) ; unused
+    (5  (scan-error object)) ; unused
+    (6  (scan-error object)) ; unused
+    (7  (scan-array-like object))
+    (8  (scan-error object)) ; odd-fixnum
+    (9  (scan-error object)) ; unused
+    (10 (scan-error object)) ; character
+    (11 (scan-error object)) ; single-float
+    (12 (scan-function object))
+    (13 (scan-error object)) ; unused
+    (14 (scan-error object)) ; unbound-value
+    (15 (scan-error object)))) ; gc-forward
+
+(defun transport-error (object)
+  (mumble-hex (lisp-object-address object))
+  (mumble " ")
+  (mumble-hex (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+  (emergency-halt "untransportable object"))
+
+(defun transport-generic (object length)
+  "Transport LENGTH words from oldspace to newspace, returning
+a pointer to the new object. Leaves a forwarding pointer in place."
+  (let* ((address (ash (%pointer-field object) 4))
+         (first-word (memref-t address 0))
+         (new-address nil))
+    ;; Check for a GC forwarding pointer.
+    (when (eql (%tag-field first-word) +tag-gc-forward+)
+      (return-from transport-generic
+        (%%assemble-value (ash (%pointer-field first-word) 4)
+                          (%tag-field object))))
+    ;; Update meters.
+    (incf *objects-copied*)
+    (incf *words-copied* length)
+    ;; Copy words.
+    (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
+    (%fast-copy new-address address (ash length 3))
+    ;; Update newspace size.
+    (incf *newspace-offset* length)
+    (when (oddp length)
+      (incf *newspace-offset*))
+    ;; Leave a forwarding pointer.
+    (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
+    ;; Complete! Return the new object
+    (%%assemble-value new-address (%tag-field object))))
+
+(defun transport-array-like (object)
+  (let* ((address (ash (%pointer-field object) 4))
+         (header (memref-unsigned-byte-64 address 0))
+         (type (ldb (byte 5 3) header))
+         (length (ldb (byte 56 8) header)))
+    ;; Check for a forwarding pointer before the type check.
+    (when (eql (ldb (byte 4 0) header) +tag-gc-forward+)
+      (return-from transport-array-like
+        (%%assemble-value (logand header (lognot #b1111))
+                          +tag-array-like+)))
+    (when (hash-table-p object)
+      (setf (hash-table-rehash-required object) 't))
+    ;; Dispatch again based on the type.
+    (case type
+      ((#.+array-type-t+
+        #.+array-type-std-instance+
+        #.+array-type-struct+)
+       ;; simple-vector, std-instance or structure-object.
+       ;; 1+ to account for the header word.
+       (transport-generic object (1+ length)))
+      ;; Nothing else can be transported
+      (t (transport-error object)))))
+
+(defun transport-object (object)
+  "Transport an object in oldspace to newspace.
+Leaves pointer fields unchanged and returns the new object."
+  (case (%tag-field object)
+    (#.+tag-cons+
+     (transport-generic object 2))
+    (#.+tag-symbol+
+     (transport-generic object 6))
+    (#.+tag-array-header+
+     (transport-generic object 4))
+    (#.+tag-array-like+
+     (transport-array-like object))
+    (t (transport-error object))))
 
 (defun mark-static-object (object)
   (let ((address (ash (%pointer-field object) 4)))
@@ -374,64 +443,7 @@
       (return-from mark-static-object))
     (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
     (with-gc-trace (object #\s)
-      (scan-object object nil))))
-
-(defun gc-object (object)
-  (when (or (fixnump object)
-            (floatp object)
-            (eql (%tag-field object) +tag-unbound-value+))
-    ;; Attempting to shift the pointer-field of negative fixnums
-    ;; about will cause a fixnum overflow.
-    ;; TLS-unbound tags also have the same issue.
-    (return-from gc-object object))
-  (let ((address (ash (%pointer-field object) 4)))
-    (cond ((characterp object)
-           ;; Do nothing with immediate objects.
-           object)
-          ((oldspace-pointer-p address)
-           ;; Object is in oldspace, transport to newspace.
-           (scan-and-transport object))
-          ((newspace-pointer-p address)
-           ;; Object is already in newspace.
-           ;; Can this ever happen??
-           object)
-          ((static-pointer-p address)
-           ;; Object is in the static area, mark and scan.
-           (mark-static-object object)
-           object)
-          (t
-           ;; Assume the pointer is on the stack.
-           ;; TODO: Track scanned stack objects. Allocate a cons with dynamic-extent
-           ;; and push on some symbol.
-           (scan-object object nil)))))
-
-;;; Arguments and MV return are to force the data registers on to the stack.
-;;; This does not work for RBX or R13, but RBX is smashed by the function
-;;; return and R13 will be holding a newspace pointer by the time this
-;;; function is called.
-(defun transport-registers-and-stack (a1 a2 a3 a4 a5)
-  (let* ((sg-pointer (ash (%pointer-field (current-stack-group)) 4))
-	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
-	 (ds-size (memref-unsigned-byte-64 sg-pointer 8))
-	 (bs-base (memref-unsigned-byte-64 sg-pointer 9))
-	 (bs-size (memref-unsigned-byte-64 sg-pointer 10))
-         (binding-stack-pointer (memref-unsigned-byte-64 sg-pointer 1))
-         (data-stack-pointer (ash (%%get-data-stack-pointer) 3)))
-    (mumble "Scanning control stack")
-    (do ((fp (read-frame-pointer)
-             (memref-unsigned-byte-64 fp 0)))
-        ((= fp 0))
-      (setf (memref-t fp -2)
-            (gc-object (memref-t fp -2))))
-    (mumble "Scanning data stack")
-    (dotimes (i (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
-      (setf (memref-t data-stack-pointer i)
-            (gc-object (memref-t data-stack-pointer i))))
-    (mumble "Scanning binding stack")
-    (dotimes (i (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
-      (setf (memref-t binding-stack-pointer i)
-            (gc-object (memref-t binding-stack-pointer i)))))
-  (values a1 a2 a3 a4 a5))
+      (scan-object object))))
 
 ;;; TODO: This needs to coalesce adjacent free areas.
 (defun sweep-static-space (space)
@@ -478,10 +490,12 @@
               *newspace-paging-bits* *oldspace-paging-bits*
               *newspace-offset* 0
               *static-mark-bit* (logxor *static-mark-bit* 1))
-       ;; Transport the major root, NIL.
-       (gc-object 'nil)
-       ;; Transport registers, the data stack and the binding stack.
-       (transport-registers-and-stack 1 2 3 4 5)
+       ;; Scavenge NIL to start things off.
+       (scavenge-object 'nil)
+       ;; And scavenge the current registers and stacks.
+       (scavenge-current-stack-group 1 2 3 4 5)
+       ;; Now do the bulk of the work by scavenging newspace.
+       (scavenge-newspace)
        ;; Make oldspace inaccessible.
        (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
        ;; Flush TLB.
