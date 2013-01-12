@@ -592,12 +592,11 @@
   (sys.lap-x86:rcl64 :r11 1) ; Restore saved carry.
   (sys.lap-x86:adc64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
+  (sys.lap-x86:rcr64 :rax 1)
+  (sys.lap-x86:sar64 :rax 63)
+  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rax)
   ;; Crunch the bignum down to the correct size.
-  (sys.lap-x86:shl64 :rbx 5)
-  (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
-  (sys.lap-x86:cmp64 :rbx #x100)
+  (sys.lap-x86:cmp64 :rbx 8)
   (sys.lap-x86:je maybe-make-fixnum)
   not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
@@ -694,7 +693,9 @@
   ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:pushf)
   (sys.lap-x86:cli)
-  (sys.lap-x86:add32 :eax :edx)
+  (sys.lap-x86:cmp64 :rax :rdx)
+  (sys.lap-x86:cmov64ng :rax :rdx)
+  (sys.lap-x86:add32 :eax 1)
   (sys.lap-x86:jc bignum-overflow)
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push 0)
@@ -762,12 +763,11 @@
   (sys.lap-x86:rcl64 :r11 1) ; Restore saved carry.
   (sys.lap-x86:sbb64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  ;; Crunch the bignum down to the correct size.
-  (sys.lap-x86:shl64 :rbx 5)
-  (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
-  (sys.lap-x86:cmp64 :rbx #x100)
+  (sys.lap-x86:cmc)
+  (sys.lap-x86:rcr64 :rax 1)
+  (sys.lap-x86:sar64 :rax 63)
+  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rax)
+  (sys.lap-x86:cmp64 :rbx 8)
   (sys.lap-x86:je maybe-make-fixnum)
   not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)

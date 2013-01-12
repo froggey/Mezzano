@@ -651,6 +651,7 @@
       ;; 128-bit result in rdx:rax.
       ;; Unbox the result.
       (emit `(sys.lap-x86:shrd64 :rax :rdx 3)
+            `(sys.lap-x86:sar64 :rdx 3)
             ;; Check if the result will fit in 64 bits.
             ;; Save the high bits.
             `(sys.lap-x86:mov64 :rcx :rdx)
