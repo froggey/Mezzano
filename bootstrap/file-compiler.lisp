@@ -344,7 +344,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                 (*print-level* 3))
             (declare (special *print-length* *print-level*))
             (format t ";; Compiling form ~S.~%" form))
-          (gc)
           ;; TODO: Deal with lexical environments.
           (handle-top-level-form form
                                  (lambda (f env)

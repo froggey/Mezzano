@@ -198,6 +198,9 @@
 ;;; Arguments and MV return are to force the data registers on to the stack.
 ;;; This does not work for RBX or R13, but RBX is smashed by the function
 ;;; return and R13 shouldn't matter.
+;;; This only scavenges the stacks/register. Scavenging the actual
+;;; stack-group object is done by scan-stack-group, assuming the
+;;; current stack-group is actually reachable.
 (defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
   (let* ((sg-pointer (ash (%pointer-field (current-stack-group)) 4))
 	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
@@ -227,7 +230,8 @@
   (let ((address (ash (%pointer-field object) 4)))
     (cond ((oldspace-pointer-p address)
            ;; Object is in oldspace, transport to newspace.
-           (transport-object object))
+           (with-gc-trace (object #\t)
+             (transport-object object)))
           ((newspace-pointer-p address)
            ;; Object is already in newspace.
            object)
@@ -239,7 +243,8 @@
            ;; Assume the pointer is on the stack.
            ;; TODO: Track scanned stack objects. Allocate a cons with dynamic-extent
            ;; and push on some symbol.
-           (scan-object object)
+           (with-gc-trace (object #\k)
+             (scan-object object))
            object))))
 
 (defun scan-error (object)
@@ -263,11 +268,11 @@
 (defun scan-array-t (object)
   (let* ((address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 address 0))
-         (length (ldb (byte 56 8) header))
-         (word-count (1+ length)))
+         (length (ldb (byte 56 8) header)))
     (when (hash-table-p object)
       (setf (hash-table-rehash-required object) 't))
-    (scavenge-many address word-count)))
+    ;; 1+ to account for the header word.
+    (scavenge-many address (1+ length))))
 
 (defun scan-stack-group (object)
   (let ((address (ash (%pointer-field object) 4)))
@@ -289,13 +294,11 @@
         (scavenge-many data-stack-pointer
                        (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
         (scavenge-many binding-stack-pointer
-                       (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))))
-    object))
+                       (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))))))
 
 (defun scan-numeric-array (object width)
-  (declare (ignore width))
   ;; Numeric arrays have nothing to scan so just return.
-  object)
+  (declare (ignore object width)))
 
 (defun scan-array-like (object)
   (let* ((address (ash (%pointer-field object) 4))
@@ -342,8 +345,7 @@
          (header (memref-unsigned-byte-64 address 0))
          (mc-size (ash (ldb (byte 16 16) header) 1))
          (pool-size (ldb (byte 16 32) header)))
-    (scavenge-many (+ address (* mc-size 8)) pool-size)
-    object))
+    (scavenge-many (+ address (* mc-size 8)) pool-size)))
 
 (defun scan-object (object)
   "Scan one object, updating pointer fields."
@@ -363,7 +365,8 @@
     (12 (scan-function object))
     (13 (scan-error object)) ; unused
     (14 (scan-error object)) ; unbound-value
-    (15 (scan-error object)))) ; gc-forward
+    (15 (scan-error object)) ; gc-forward
+    (t (scan-error object))))
 
 (defun transport-error (object)
   (mumble-hex (lisp-object-address object))
@@ -404,6 +407,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (type (ldb (byte 5 3) header))
          (length (ldb (byte 56 8) header)))
     ;; Check for a forwarding pointer before the type check.
+    ;; This test is duplicated from transport-generic.
     (when (eql (ldb (byte 4 0) header) +tag-gc-forward+)
       (return-from transport-array-like
         (%%assemble-value (logand header (lognot #b1111))
@@ -438,6 +442,7 @@ Leaves pointer fields unchanged and returns the new object."
 (defun mark-static-object (object)
   (let ((address (ash (%pointer-field object) 4)))
     (when (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 address -1)))
+      (mumble-hex object)
       (emergency-halt "Marking free static object."))
     (when (eql (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
       ;; Object has already been marked.
