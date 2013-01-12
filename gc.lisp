@@ -391,6 +391,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     ;; Update newspace size.
     (incf *newspace-offset* length)
     (when (oddp length)
+      (setf (memref-t new-address length) 0)
       (incf *newspace-offset*))
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
