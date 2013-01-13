@@ -592,10 +592,11 @@
   (sys.lap-x86:rcl64 :r11 1) ; Restore saved carry.
   (sys.lap-x86:adc64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:rcr64 :rax 1)
-  (sys.lap-x86:sar64 :rax 63)
-  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rax)
-  ;; Crunch the bignum down to the correct size.
+  (sys.lap-x86:jo sign-changed)
+  ;; Sign didn't change.
+  (sys.lap-x86:sar64 :rsi 63)
+  sign-fixed
+  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rsi)
   (sys.lap-x86:cmp64 :rbx 8)
   (sys.lap-x86:je maybe-make-fixnum)
   not-fixnum
@@ -621,6 +622,10 @@
   ;; Sign extend the right argument (previous value in RDI).
   (sys.lap-x86:sar64 :rdi 63)
   (sys.lap-x86:jmp sx-right-resume)
+  sign-changed
+  (sys.lap-x86:rcr64 :rsi 1)
+  (sys.lap-x86:sar64 :rsi 63)
+  (sys.lap-x86:jmp sign-fixed)
   bignum-overflow
   (sys.lap-x86:push 0) ; align
   (sys.lap-x86:mov64 :r8 (:constant "Aiee! Bignum overflow."))
@@ -763,10 +768,11 @@
   (sys.lap-x86:rcl64 :r11 1) ; Restore saved carry.
   (sys.lap-x86:sbb64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:cmc)
-  (sys.lap-x86:rcr64 :rax 1)
-  (sys.lap-x86:sar64 :rax 63)
-  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rax)
+  (sys.lap-x86:jo sign-changed)
+  ;; Sign didn't change.
+  (sys.lap-x86:sar64 :rsi 63)
+  sign-fixed
+  (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rsi)
   (sys.lap-x86:cmp64 :rbx 8)
   (sys.lap-x86:je maybe-make-fixnum)
   not-fixnum
@@ -792,6 +798,11 @@
   ;; Sign extend the right argument (previous value in RDI).
   (sys.lap-x86:sar64 :rdi 63)
   (sys.lap-x86:jmp sx-right-resume)
+  sign-changed
+  (sys.lap-x86:cmc)
+  (sys.lap-x86:rcr64 :rsi 1)
+  (sys.lap-x86:sar64 :rsi 63)
+  (sys.lap-x86:jmp sign-fixed)
   bignum-overflow
   (sys.lap-x86:push 0) ; align
   (sys.lap-x86:mov64 :r8 (:constant "Aiee! Bignum overflow."))
@@ -1038,6 +1049,8 @@
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
   ;; Crunch the bignum down to the correct size.
   ;; TODO: Not really correct...
+  (sys.lap-x86:cmp64 :rbx 8)
+  (sys.lap-x86:je stop-crunching)
   keep-crunching
   (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
   (sys.lap-x86:je crunch)
@@ -1175,6 +1188,8 @@
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
   ;; Crunch the bignum down to the correct size.
   ;; TODO: Not really correct...
+  (sys.lap-x86:cmp64 :rbx 8)
+  (sys.lap-x86:je stop-crunching)
   keep-crunching
   (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
   (sys.lap-x86:je crunch)
@@ -1313,6 +1328,8 @@
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
   ;; Crunch the bignum down to the correct size.
   ;; TODO: Not really correct...
+  (sys.lap-x86:cmp64 :rbx 8)
+  (sys.lap-x86:je stop-crunching)
   keep-crunching
   (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
   (sys.lap-x86:je crunch)
