@@ -1454,6 +1454,69 @@
   (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
+(define-lap-function %%bignum-right-shift ()
+  ;; Save on the lisp stack.
+  (sys.lap-x86:mov64 (:lsp -8) nil)
+  (sys.lap-x86:mov64 (:lsp -16) nil)
+  (sys.lap-x86:sub64 :lsp 16)
+  (sys.lap-x86:mov64 (:lsp) :r8)
+  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
+  (sys.lap-x86:shr64 :rax 8)
+    ;; Allocate a new bignum large enough to hold the result.
+  (sys.lap-x86:pushf)
+  (sys.lap-x86:cli)
+  (sys.lap-x86:shl64 :rax 3)
+  (sys.lap-x86:mov64 :r8 :rax)
+  (sys.lap-x86:test64 :r8 8)
+  (sys.lap-x86:jz count-even)
+  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
+  (sys.lap-x86:jmp do-allocate)
+  count-even
+  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
+  do-allocate
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :rcx 16)
+  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; fixnum to pointer.
+  (sys.lap-x86:sar64 :r8 3)
+  ;; Set the header.
+  (sys.lap-x86:mov64 :r9 (:lsp))
+  (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-array-like+)))
+  (sys.lap-x86:mov64 (:r8) :rbx)
+  (sys.lap-x86:add64 :r8 #.+tag-array-like+)
+  (sys.lap-x86:popf)
+  ;; R8: dest
+  ;; R9: src
+  ;; CL: count (raw)
+  ;; RBX: n words. (fixnum)
+  ;; R10: current word. (fixnum)
+  (sys.lap-x86:mov64 :rcx (:lsp 8))
+  (sys.lap-x86:sar64 :rcx 3)
+  (sys.lap-x86:and64 :rbx #.(lognot #xFF))
+  (sys.lap-x86:shr64 :rbx 5)
+  (sys.lap-x86:mov32 :r10d 8)
+  loop
+  (sys.lap-x86:cmp64 :r10 :rbx)
+  (sys.lap-x86:jae last-word)
+  ;; current+1
+  (sys.lap-x86:mov64 :rax (:r9 #.(+ (- +tag-array-like+) 8) :r10))
+  ;; current
+  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+) :r10))
+  (sys.lap-x86:shrd64 :rdx :rax :cl)
+  (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) :r10) :rdx)
+  (sys.lap-x86:add64 :r10 1)
+  (sys.lap-x86:jmp loop)
+  last-word
+  (sys.lap-x86:mov64 :rax (:r9 #.(- +tag-array-like+) :rbx))
+  (sys.lap-x86:sar64 :rax :cl)
+  (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) :rbx) :rax)
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret))
+
 (defun %ash (integer count)
   (cond ((not (fixnump count))
          (check-type count integer)
