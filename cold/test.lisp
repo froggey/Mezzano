@@ -427,7 +427,7 @@
                   ((std-instance-p object)
                    (describe-object object stream))
                   ((bignump object)
-                   (describe-bignum object))
+                   (describe-bignum object stream))
                   (t (describe-array object stream))))
     (#b1000 (format stream "~D is an odd fixnum.~%" object))
     ;; #b1001

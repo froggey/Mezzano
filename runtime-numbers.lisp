@@ -597,21 +597,10 @@
   (sys.lap-x86:sar64 :rsi 63)
   sign-fixed
   (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rsi)
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je maybe-make-fixnum)
-  not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
-  finish
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  maybe-make-fixnum
-  ;; Attempt to convert the result to a fixnum.
-  (sys.lap-x86:mov64 :rax (:r10 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo not-fixnum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:jmp finish)
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -773,21 +762,10 @@
   (sys.lap-x86:sar64 :rsi 63)
   sign-fixed
   (sys.lap-x86:mov64 (:r10 #.(+ (- +tag-array-like+) 8) :rbx) :rsi)
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je maybe-make-fixnum)
-  not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
-  finish
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  maybe-make-fixnum
-  ;; Attempt to convert the result to a fixnum.
-  (sys.lap-x86:mov64 :rax (:r10 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo not-fixnum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:jmp finish)
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -988,7 +966,7 @@
   (sys.lap-x86:mov64 :rcx :rax)
   (sys.lap-x86:cmp64 :rax :rdx)
   (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rcx)
   (sys.lap-x86:push 0)
   (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
@@ -1047,40 +1025,10 @@
   last
   (sys.lap-x86:and64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  ;; Crunch the bignum down to the correct size.
-  ;; TODO: Not really correct...
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  keep-crunching
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
-  (sys.lap-x86:je crunch)
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) -1)
-  (sys.lap-x86:je crunch)
-  stop-crunching
-  (sys.lap-x86:shl64 :rbx 5)
-  (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
-  (sys.lap-x86:cmp64 :rbx #x100)
-  (sys.lap-x86:je maybe-make-fixnum)
-  not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
-  finish
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  crunch
-  (sys.lap-x86:sub64 :rbx 8)
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  (sys.lap-x86:jmp keep-crunching)
-  maybe-make-fixnum
-  ;; Attempt to convert the result to a fixnum.
-  (sys.lap-x86:mov64 :rax (:r10 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo not-fixnum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:jmp finish)
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -1127,7 +1075,7 @@
   (sys.lap-x86:mov64 :rcx :rax) ; rcx = len1
   (sys.lap-x86:cmp64 :rax :rdx) ; rdx = len2
   (sys.lap-x86:cmov64ng :rcx :rdx) ; rcx = !(len1 > len2) ? len2 : len1
-  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rcx)
   (sys.lap-x86:push 0)
   (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
@@ -1186,40 +1134,10 @@
   last
   (sys.lap-x86:or64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  ;; Crunch the bignum down to the correct size.
-  ;; TODO: Not really correct...
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  keep-crunching
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
-  (sys.lap-x86:je crunch)
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) -1)
-  (sys.lap-x86:je crunch)
-  stop-crunching
-  (sys.lap-x86:shl64 :rbx 5)
-  (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
-  (sys.lap-x86:cmp64 :rbx #x100)
-  (sys.lap-x86:je maybe-make-fixnum)
-  not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
-  finish
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  crunch
-  (sys.lap-x86:sub64 :rbx 8)
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  (sys.lap-x86:jmp keep-crunching)
-  maybe-make-fixnum
-  ;; Attempt to convert the result to a fixnum.
-  (sys.lap-x86:mov64 :rax (:r10 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo not-fixnum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:jmp finish)
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -1267,7 +1185,7 @@
   (sys.lap-x86:mov64 :rcx :rax)
   (sys.lap-x86:cmp64 :rax :rdx)
   (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rcx)
   (sys.lap-x86:push 0)
   (sys.lap-x86:lea64 :r8 ((:rcx 8)))
   (sys.lap-x86:test64 :r8 8)
@@ -1326,40 +1244,10 @@
   last
   (sys.lap-x86:xor64 :rsi :rdi)
   (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  ;; Crunch the bignum down to the correct size.
-  ;; TODO: Not really correct...
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  keep-crunching
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) 0)
-  (sys.lap-x86:je crunch)
-  (sys.lap-x86:cmp64 (:r10 #.(- +tag-array-like+) :rbx) -1)
-  (sys.lap-x86:je crunch)
-  stop-crunching
-  (sys.lap-x86:shl64 :rbx 5)
-  (sys.lap-x86:mov64 :rax :rbx)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+)) :rax)
-  (sys.lap-x86:cmp64 :rbx #x100)
-  (sys.lap-x86:je maybe-make-fixnum)
-  not-fixnum
   (sys.lap-x86:mov64 :r8 :r10)
-  finish
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  crunch
-  (sys.lap-x86:sub64 :rbx 8)
-  (sys.lap-x86:cmp64 :rbx 8)
-  (sys.lap-x86:je stop-crunching)
-  (sys.lap-x86:jmp keep-crunching)
-  maybe-make-fixnum
-  ;; Attempt to convert the result to a fixnum.
-  (sys.lap-x86:mov64 :rax (:r10 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo not-fixnum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:jmp finish)
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -1451,8 +1339,8 @@
   (sys.lap-x86:shl64 :rax :cl)
   (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 8)) :rax)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret))
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (define-lap-function %%bignum-right-shift ()
   ;; Save on the lisp stack.
@@ -1514,8 +1402,8 @@
   (sys.lap-x86:sar64 :rax :cl)
   (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) :rbx) :rax)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret))
+  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (defun %ash (integer count)
   (cond ((not (fixnump count))
@@ -1564,3 +1452,107 @@
   (check-type number number)
   (etypecase number
     (real (%%float-sqrt (float number)))))
+
+;;; Convert a bignum to canonical form.
+;;; If it can be represented as a fixnum it is converted,
+;;; otherwise it is converted to the shortest possible bignum
+;;; by removing redundant sign-extension bits.
+(define-lap-function %%canonicalize-bignum ()
+  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
+  (sys.lap-x86:shr64 :rax 8) ; RAX = number of fragments (raw).
+  ;; Zero-size bignums are zero.
+  (sys.lap-x86:jz return-zero)
+  ;; Read the sign bit.
+  (sys.lap-x86:mov64 :rcx (:r8 #.(- +tag-array-like+) (:rax 8)))
+  (sys.lap-x86:sar64 :rcx 63) ; rcx = sign-extended sign-bit.
+  crunch-loop
+  (sys.lap-x86:cmp64 :rax 1)
+  (sys.lap-x86:je maybe-fixnumize)
+  ;; Read the last fragment.
+  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) (:rax 8)))
+  ;; Compare against the extended sign bit.
+  ;; Finish if they're not equal.
+  (sys.lap-x86:cmp64 :rsi :rcx)
+  (sys.lap-x86:jne maybe-resize-bignum)
+  ;; Read the sign bit of the second-to-last fragment
+  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-array-like+) -8) (:rax 8)))
+  (sys.lap-x86:sar64 :rsi 63)
+  ;; Compare against the original sign bit. If equal, then this
+  ;; fragment can be dropped.
+  (sys.lap-x86:cmp64 :rsi :rcx)
+  (sys.lap-x86:jne maybe-resize-bignum)
+  (sys.lap-x86:sub64 :rax 1)
+  (sys.lap-x86:jmp crunch-loop)
+  ;; Final size of the bignum has been determined.
+  maybe-resize-bignum
+  ;; Test if the size actually changed.
+  (sys.lap-x86:mov64 :rdx (:r8 #.(- +tag-array-like+)))
+  (sys.lap-x86:shr64 :rdx 8)
+  (sys.lap-x86:cmp64 :rax :rdx)
+  ;; If it didn't change, return the original bignum.
+  ;; TODO: eventually the bignum code will pass in stack-allocated
+  ;; bignum objects, this'll have to allocate anyway...
+  (sys.lap-x86:je do-return)
+  ;; Resizing.
+  (sys.lap-x86:pushf)
+  (sys.lap-x86:cli)
+  ;; Align control stack and save the new size.
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push 0)
+  ;; Save the original bignum on the data stack.
+  (sys.lap-x86:mov64 (:lsp -8) nil)
+  (sys.lap-x86:sub64 :lsp 8)
+  (sys.lap-x86:mov64 (:lsp) :r8)
+  ;; Convert new size (in rax) to fixnum.
+  (sys.lap-x86:shl64 :rax 3)
+  ;; Add in the header and any alignment required.
+  (sys.lap-x86:test64 :rax 8)
+  (sys.lap-x86:jz adjust-even)
+  (sys.lap-x86:lea64 :r8 (:rax 8))
+  (sys.lap-x86:jmp do-allocate)
+  adjust-even
+  (sys.lap-x86:lea64 :r8 (:rax 16))
+  do-allocate
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov32 :ecx 16)
+  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; fixnum to pointer.
+  (sys.lap-x86:sar64 :r8 3)
+  ;; Restore new size.
+  (sys.lap-x86:pop :rax)
+  (sys.lap-x86:pop :rax)
+  ;; Set the header.
+  (sys.lap-x86:mov64 :rcx :rax)
+  (sys.lap-x86:shl64 :rax 8)
+  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 3))
+  (sys.lap-x86:mov64 (:r8) :rax)
+  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
+  (sys.lap-x86:popf)
+  ;; Fetch the original bignum.
+  (sys.lap-x86:mov64 :r9 (:lsp))
+  (sys.lap-x86:add64 :lsp 8)
+  ;; Copy words, we know there will always be at least one.
+  copy-loop
+  (sys.lap-x86:mov64 :rax (:r9 #.(- +tag-array-like+) (:rcx 8)))
+  (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) (:rcx 8)) :rax)
+  (sys.lap-x86:sub64 :rcx 1)
+  (sys.lap-x86:jnz copy-loop)
+  do-return
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:ret)
+  ;; Attempt to convert a size-1 bignum to a fixnum.
+  maybe-fixnumize
+  (sys.lap-x86:mov64 :rdx (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:imul64 :rdx 8)
+  (sys.lap-x86:jo maybe-resize-bignum)
+  (sys.lap-x86:mov64 :r8 :rdx)
+  (sys.lap-x86:jmp do-return)
+  return-zero
+  (sys.lap-x86:xor32 :r8d :r8d)
+  (sys.lap-x86:jmp do-return))
+
+(defun generic-lognot (integer)
+  (logxor integer -1))
