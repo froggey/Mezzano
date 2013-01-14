@@ -356,6 +356,10 @@
 (defun make-case-correcting-stream (stream case)
   stream)
 
+;;; Initial PRINT-OBJECT, replaced when CLOS is loaded.
+(defun print-object (object stream)
+  (print-unreadable-object (object stream :type t :identity t)))
+
 (defun describe-symbol (object stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
   (if (symbol-package object)
@@ -881,7 +885,7 @@
   (setf *print-base* 10.
         *print-escape* t
         *print-readably* nil
-        *print-safe* t)
+        *print-safe* nil)
   (setf *features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 60) 1)
