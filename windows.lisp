@@ -286,7 +286,7 @@
     (close-window window)))
 
 (defmethod initialize-instance :after ((instance lisp-listener))
-  (let ((process (make-instance 'sys.int::process :name "Lisp Listener REPL")))
+  (let ((process (sys.int::make-process "Lisp Listener REPL")))
     (setf (slot-value instance 'process) process)
     (sys.int::process-preset process 'lisp-listener-top-level instance)
     (sys.int::process-enable process)))

@@ -26,10 +26,13 @@
        (eql (%array-like-type object) +array-type-stack-group+)))
 
 (defun make-stack-group (name &key
-                         (control-stack-size 8192)
-			 (data-stack-size 8192)
-			 (binding-stack-size 512)
+                         control-stack-size
+			 data-stack-size
+			 binding-stack-size
 			 (safe t))
+  (unless control-stack-size (setf control-stack-size 8192))
+  (unless data-stack-size (setf data-stack-size 8192))
+  (unless binding-stack-size (setf binding-stack-size 512))
   (when (oddp binding-stack-size)
     (decf binding-stack-size))
   ;; Allocate stack and the stack-group object.

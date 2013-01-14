@@ -120,9 +120,9 @@
   (process-consider-runnability instance))
 
 (defmethod initialize-instance :after ((instance process) &key name stack-group
-                                                            (control-stack-size 8192)
-                                                            (data-stack-size 8192)
-                                                            (binding-stack-size 512)
+                                                            control-stack-size
+                                                            data-stack-size
+                                                            binding-stack-size
                                                             &allow-other-keys)
   (unless stack-group
     (setf (slot-value instance 'stack-group) (make-stack-group name
@@ -191,9 +191,25 @@
                       (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))))
                (t (%stihlt)))))))
 
+(defun make-process (name &key stack-group
+                            control-stack-size
+                            data-stack-size
+                            binding-stack-size
+                            run-reasons
+                            arrest-reasons
+                            whostate)
+  (make-instance 'sys.int::process :name name
+                 :stack-group stack-group
+                 :control-stack-size control-stack-size
+                 :data-stack-size data-stack-size
+                 :binding-stack-size binding-stack-size
+                 :run-reasons run-reasons
+                 :arrest-reasons arrest-reasons
+                 :whostate whostate))
+
 (defmacro with-process ((name function &rest arguments) &body body)
   (let ((x (gensym)))
-    `(let ((,x (make-instance 'sys.int::process :name ,name)))
+    `(let ((,x (make-process ,name)))
        (unwind-protect (progn
                          (sys.int::process-preset ,x ,function ,@arguments)
                          (sys.int::process-enable ,x)
@@ -202,8 +218,7 @@
 
 (setf *scheduler-stack-group* (make-stack-group "scheduler" :safe nil))
 (stack-group-preset *scheduler-stack-group* #'process-scheduler)
-(setf *current-process* (make-instance 'process
-                                       :name "initial-process"
-                                       :stack-group (current-stack-group)
-                                       :run-reasons '(:initial)
-                                       :whostate "RUN"))
+(setf *current-process* (make-process "Initial Process"
+                                      :stack-group (current-stack-group)
+                                      :run-reasons '(:initial)
+                                      :whostate "RUN"))

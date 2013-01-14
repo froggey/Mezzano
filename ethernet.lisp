@@ -309,7 +309,7 @@
        (handler-case (apply '%receive-packet (pop *pending-packets*))
          (drop-packet ())))))
 
-(defvar *ethernet-process* (make-instance 'sys.int::process :name "Ethernet worker"))
+(defvar *ethernet-process* (sys.int::make-process "Ethernet worker"))
 (sys.int::process-preset *ethernet-process* #'ethernet-worker)
 (sys.int::process-enable *ethernet-process*)
 
@@ -977,7 +977,7 @@
                 (t (send stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
 (defun open-http-server (connection)
-  (let ((process (make-instance 'sys.int::process :name "HTTP server")))
+  (let ((process (sys.int::make-process "HTTP server")))
     (sys.int::process-preset process #'http-server (make-instance 'tcp-stream :connection connection))
     (sys.int::process-enable process)))
 
@@ -1008,7 +1008,7 @@
         (close-eval-server ())))))
 
 (defun open-eval-server (connection)
-  (let ((process (make-instance 'sys.int::process :name "Remote Lisp server")))
+  (let ((process (sys.int::make-process "Remote Lisp server")))
     (sys.int::process-preset process #'eval-server (make-instance 'tcp-stream :connection connection))
     (sys.int::process-enable process)))
 

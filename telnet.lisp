@@ -398,7 +398,7 @@ party to perform, the indicated option.")
   (sys.graphics::fifo-push character (window-buffer window)))
 
 (defmethod initialize-instance :after ((instance telnet-client))
-  (let ((cmd (make-instance 'sys.int::process :name "Telnet command")))
+  (let ((cmd (sys.int::make-process "Telnet command")))
     (setf (slot-value instance 'command-process) cmd)
     (sys.int::process-preset cmd 'telnet-top-level instance)
     (sys.int::process-enable cmd)))

@@ -577,7 +577,7 @@ reverse Z-order."
               (2 (process-mouse-packet mouse-1 mouse-2 byte)
                  (setf mouse-state 0))))))))
 
-(defvar *graphics-process* (make-instance 'sys.int::process :name "Graphics manager"))
+(defvar *graphics-process* (sys.int::make-process "Graphics manager"))
 (sys.int::process-preset *graphics-process* #'graphics-worker)
 (sys.int::process-enable *graphics-process*)
 

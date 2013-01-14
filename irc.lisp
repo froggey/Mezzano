@@ -230,8 +230,8 @@
    (display :accessor irc-display*)))
 
 (defmethod initialize-instance :after ((instance irc-client))
-  (let ((cmd (make-instance 'sys.int::process :name "IRC command"))
-        (rcv (make-instance 'sys.int::process :name "IRC receive")))
+  (let ((cmd (sys.int::make-process "IRC command"))
+        (rcv (sys.int::make-process "IRC receive")))
     (setf (slot-value instance 'command-process) cmd)
     (setf (slot-value instance 'receive-process) rcv)
     (sys.int::process-preset cmd 'irc-top-level instance)

@@ -227,7 +227,7 @@
     (setf *main-screen-buffer* (get-buffer-create "*scratch*"))
     (setf *minibuffer* (get-buffer-create " *minibuffer*")
           (buffer-key *minibuffer* #\Newline) 'exit-minibuffer))
-  (let ((process (make-instance 'sys.int::process :name "Edit")))
+  (let ((process (sys.int::make-process "Edit")))
     (setf (slot-value instance 'process) process)
     (sys.int::process-preset process 'editor-top-level instance)
     (sys.int::process-enable process)))

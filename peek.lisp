@@ -7,7 +7,7 @@
   ((process :reader window-process)))
 
 (defmethod initialize-instance :after ((instance peek-window))
-  (let ((process (make-instance 'sys.int::process :name "Peek")))
+  (let ((process (sys.int::make-process "Peek")))
     (setf (slot-value instance 'process) process)
     (sys.int::process-preset process 'peek-top-level instance)
     (sys.int::process-enable process)))

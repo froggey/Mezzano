@@ -324,8 +324,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
     (multiple-value-bind (rx-buffer rx-address)
 	(sys.int::allocate-dma-buffer +rtl8139-rx-buffer-size+)
       (format t "Tx buffer base: ~X  Rx buffer base: ~X~%" tx-address rx-address)
-      (setf (slot-value card 'rx-process) (make-instance 'sys.int::process
-                                                         :name "RTL8139 receive process")
+      (setf (slot-value card 'rx-process) (sys.int::make-process "RTL8139 receive process")
             (slot-value card 'signal-cons) (sys.int::cons-in-area nil nil :static)
             (slot-value card 'tx-buffer) tx-buffer
 	    (slot-value card 'tx-address) tx-address
