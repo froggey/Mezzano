@@ -165,7 +165,7 @@
      t)
     (t nil)))
 
-(defmacro with-gc-trace ((object prefix) &body body)
+#+nil(defmacro with-gc-trace ((object prefix) &body body)
   (let ((object-sym (gensym))
         (result-sym (gensym)))
     `(let ((,object-sym ,object))
@@ -177,7 +177,7 @@
            (gc-trace ,object-sym #\< ,prefix))
          ,result-sym))))
 
-#+nil(defmacro with-gc-trace ((object prefix) &body body)
+(defmacro with-gc-trace ((object prefix) &body body)
   (declare (ignore object prefix))
   `(progn ,@body))
 
@@ -254,25 +254,8 @@
   (emergency-halt "unscannable object"))
 
 (defun scan-generic (object size)
+  "Scavenge SIZE words pointed to by OBJECT."
   (scavenge-many (ash (%pointer-field object) 4) size))
-
-(defun scan-cons (object)
-  (scan-generic object 2))
-
-(defun scan-symbol (object)
-  (scan-generic object 6))
-
-(defun scan-array-header (object)
-  (scan-generic object 4))
-
-(defun scan-array-t (object)
-  (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0))
-         (length (ldb (byte 56 8) header)))
-    (when (hash-table-p object)
-      (setf (hash-table-rehash-required object) 't))
-    ;; 1+ to account for the header word.
-    (scavenge-many address (1+ length))))
 
 (defun scan-stack-group (object)
   (let ((address (ash (%pointer-field object) 4)))
@@ -296,48 +279,27 @@
         (scavenge-many binding-stack-pointer
                        (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))))))
 
-(defun scan-numeric-array (object width)
-  ;; Numeric arrays have nothing to scan so just return.
-  (declare (ignore object width)))
-
 (defun scan-array-like (object)
   (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0)))
+         (header (memref-unsigned-byte-64 address 0))
+         (length (ldb (byte 56 8) header))
+         (type (ldb (byte 5 3) header)))
     ;; Dispatch again based on the type.
-    (case (ldb (byte 5 3) header)
-      (0  (scan-array-t object)) ; simple-vector
-      (1  (scan-numeric-array object 8)) ; base-char
-      (2  (scan-numeric-array object 32)) ; character
-      (3  (scan-numeric-array object 1)) ; bit
-      (4  (scan-numeric-array object 2)) ; unsigned-byte 2
-      (5  (scan-numeric-array object 4)) ; unsigned-byte 4
-      (6  (scan-numeric-array object 8)) ; unsigned-byte 8
-      (7  (scan-numeric-array object 16)) ; unsigned-byte 16
-      (8  (scan-numeric-array object 32)) ; unsigned-byte 32
-      (9  (scan-numeric-array object 64)) ; unsigned-byte 64
-      (10 (scan-numeric-array object 1)) ; signed-byte 1
-      (11 (scan-numeric-array object 2)) ; signed-byte 2
-      (12 (scan-numeric-array object 4)) ; signed-byte 4
-      (13 (scan-numeric-array object 8)) ; signed-byte 8
-      (14 (scan-numeric-array object 16)) ; signed-byte 16
-      (15 (scan-numeric-array object 32)) ; signed-byte 32
-      (16 (scan-numeric-array object 64)) ; signed-byte 64
-      (17 (scan-numeric-array object 32)) ; single-float
-      (18 (scan-numeric-array object 64)) ; double-float
-      (19 (scan-numeric-array object 128)) ; long-float
-      (20 (scan-numeric-array object 128)) ; xmm-vector
-      (21 (scan-numeric-array object 64)) ; complex single-float
-      (22 (scan-numeric-array object 128)) ; complex double-float
-      (23 (scan-numeric-array object 256)) ; complex long-float
-      (24 (scan-error object)) ; unused (24)
-      (25 (scan-numeric-array object 64)) ; bignum
-      (26 (scan-error object)) ; unused (26)
-      (27 (scan-error object)) ; unused (27)
-      (28 (scan-error object)) ; unused (28)
-      (29 (scan-array-t object)) ; std-instance
-      (30 (scan-stack-group object))
-      (31 (scan-array-t object)) ; struct
-      (t (scan-error object)))))
+    (cond ((member type '(#.+array-type-t+
+                          #.+array-type-std-instance+
+                          #.+array-type-struct+))
+           ;; simple-vector, std-instance or structure-object.
+           (when (hash-table-p object)
+             (setf (hash-table-rehash-required object) 't))
+           ;; 1+ to account for the header word.
+           (scan-generic object (1+ length)))
+          ((eql type +array-type-stack-group+)
+           (scan-stack-group object))
+          ;; Ignore numeric arrays and bignums.
+          ;; Array-type 0 is simple-vector, but that's handled above.
+          ((or (<= type +last-array-type+)
+               (eql type +array-type-bignum+)))
+          (t (scan-error object)))))
 
 (defun scan-function (object)
   ;; Scan the constant pool.
@@ -350,22 +312,16 @@
 (defun scan-object (object)
   "Scan one object, updating pointer fields."
   (case (%tag-field object)
-    (0  (scan-error object)) ; even-fixnum
-    (1  (scan-cons object))
-    (2  (scan-symbol object))
-    (3  (scan-array-header object))
-    (4  (scan-error object)) ; unused
-    (5  (scan-error object)) ; unused
-    (6  (scan-error object)) ; unused
-    (7  (scan-array-like object))
-    (8  (scan-error object)) ; odd-fixnum
-    (9  (scan-error object)) ; unused
-    (10 (scan-error object)) ; character
-    (11 (scan-error object)) ; single-float
-    (12 (scan-function object))
-    (13 (scan-error object)) ; unused
-    (14 (scan-error object)) ; unbound-value
-    (15 (scan-error object)) ; gc-forward
+    (#.+tag-cons+
+     (scan-generic object 2))
+    (#.+tag-symbol+
+     (scan-generic object 6))
+    (#.+tag-array-header+
+     (scan-generic object 4))
+    (#.+tag-array-like+
+     (scan-array-like object))
+    (#.+tag-function+
+     (scan-function object))
     (t (scan-error object))))
 
 (defun transport-error (object)
@@ -451,7 +407,6 @@ Leaves pointer fields unchanged and returns the new object."
     (with-gc-trace (object #\s)
       (scan-object object))))
 
-;;; TODO: This needs to coalesce adjacent free areas.
 (defun sweep-static-space (space)
   (mumble "Sweeping static space")
   (let ((offset 0)
