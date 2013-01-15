@@ -190,13 +190,12 @@
                                      (if crash-log +kboot-image-log+ 0)))
     (elf-note +kboot-note-name+ +kboot-itag-image+ vec)))
 
-(defun kboot-itag-load (physical)
+(defun kboot-itag-load ()
   "Build a KBoot LOAD note."
   (let ((vec (make-array +kboot-itag-load-length+
                          :element-type '(unsigned-byte 8)
                          :initial-element 0)))
-    (setf (ub32ref/le vec 0) (logior +kboot-load-fixed+)
-          (ub32ref/le vec 24) physical)
+    (setf (ub32ref/le vec 0) (logior +kboot-load-fixed+))
     (elf-note +kboot-note-name+ +kboot-itag-load+ vec)))
 
 (defun kboot-itag-video (&key (vga t) (lfb t))
@@ -254,7 +253,7 @@ immediately after the header."
         hdr)
     ;; Add notes.
     (push (list (kboot-itag-image) 0) notes)
-    (push (list (kboot-itag-load load-addr) 0) notes)
+    (push (list (kboot-itag-load) 0) notes)
     (push (list (kboot-itag-video :vga vga :lfb lfb) 0) notes)
     ;; LOAD phdr plus NOTE phdrs.
     (setf n-phdrs (+ 1 (length notes)))
