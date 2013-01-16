@@ -24,6 +24,8 @@
 
 (defvar *ps/2-key-fifo*)
 (defvar *ps/2-aux-fifo*)
+(defvar *ps/2-key-port-working* nil)
+(defvar *ps/2-aux-port-working* nil)
 
 (defun ps/2-fifo-empty (fifo)
   (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo)))
@@ -36,13 +38,18 @@
       (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
         (setf (ps/2-fifo-head fifo) 0)))))
 
-(defun ps/2-read-fifo (fifo)
+(defun ps/2-read-fifo (fifo &optional timeout)
   (loop
      (let ((byte (ps/2-pop-fifo fifo)))
        (when byte (return byte)))
-     (process-wait "Keyboard input"
-                   (lambda ()
-                     (not (ps/2-fifo-empty fifo))))))
+     (cond (timeout
+            (when (process-wait-with-timeout "PS/2 input" timeout
+                                             (lambda ()
+                                               (not (ps/2-fifo-empty fifo))))
+              (return nil)))
+           (t (process-wait "PS/2 input"
+                            (lambda ()
+                              (not (ps/2-fifo-empty fifo))))))))
 
 (defclass ps/2-keyboard-stream (stream-object) ())
 
@@ -188,70 +195,286 @@
 (defmethod stream-listen ((stream ps/2-keyboard-stream))
   (keyboard-listen *ps/2-key-fifo*))
 
-(defun ps/2-command-wait ()
+;;; PS/2 controller commands.
+(defconstant +ps/2-read-config-byte+ #x20)
+(defconstant +ps/2-write-config-byte+ #x60)
+(defconstant +ps/2-disable-aux-port+ #xA7)
+(defconstant +ps/2-enable-aux-port+ #xA8)
+(defconstant +ps/2-test-aux-port+ #xA9)
+(defconstant +ps/2-test-controller+ #xAA)
+(defconstant +ps/2-test-key-port+ #xAB)
+(defconstant +ps/2-disable-key-port+ #xAD)
+(defconstant +ps/2-enable-key-port+ #xAE)
+(defconstant +ps/2-read-controller-output-port+ #xD0)
+(defconstant +ps/2-write-controller-output-port+ #xD1)
+(defconstant +ps/2-write-key-port+ #xD2)
+(defconstant +ps/2-write-aux-port+ #xD4)
+
+;;; PS/2 status register bits.
+(defconstant +ps/2-status-output-buffer-status+ (ash 1 0))
+(defconstant +ps/2-status-input-buffer-status+ (ash 1 1))
+(defconstant +ps/2-status-command/data+ (ash 1 3))
+(defconstant +ps/2-status-timeout-error+ (ash 1 6))
+(defconstant +ps/2-status-parity-error+ (ash 1 7))
+
+;;; PS/2 config byte bits.
+(defconstant +ps/2-config-key-interrupt+ (ash 1 0))
+(defconstant +ps/2-config-aux-interrupt+ (ash 1 1))
+(defconstant +ps/2-config-key-clock+ (ash 1 4))
+(defconstant +ps/2-config-aux-clock+ (ash 1 5))
+(defconstant +ps/2-config-key-translation+ (ash 1 6))
+
+;;; PS/2 device commands and responses.
+;;; Not directly related to the PS/2 controller, but close enough.
+(defconstant +ps/2-reset+ #xFF)
+(defconstant +ps/2-disable-scanning+ #xF5)
+(defconstant +ps/2-identify+ #xF2)
+(defconstant +ps/2-ack+ #xFA)
+(defconstant +ps/2-self-test-passed+ #xAA)
+
+(defun ps/2-input-wait (&optional (what "data"))
+  "Wait for space in the input buffer."
+  ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
-            (warn "PS/2: Timeout waiting for write buffer."))
-    (when (zerop (logand (io-port/8 +ps/2-control-port+) 2))
+            (warn "PS/2: Timeout waiting for ~S." what))
+    (when (zerop (logand (io-port/8 +ps/2-control-port+)
+                         +ps/2-status-input-buffer-status+))
       (return t))))
 
-(defun ps/2-data-wait ()
+(defun ps/2-output-wait (&optional (what "data"))
+  "Wait for data to become available in the output buffer."
+  ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
-            (warn "PS/2: Timeout waiting for data."))
-    (when (not (zerop (logand (io-port/8 +ps/2-control-port+) 1)))
+            (warn "PS/2: Timeout waiting for ~S." what))
+    (when (not (zerop (logand (io-port/8 +ps/2-control-port+)
+                              +ps/2-status-output-buffer-status+)))
       (return t))))
 
-(defun ps/2-command-write (byte)
-  "Send a command to the PS/2 controller."
-  (ps/2-command-wait)
+;;; FIXME: should return timeout status.
+(defun ps/2-send-key-byte (byte)
+  "Send a byte to the device attached to the KEY port."
+  (ps/2-input-wait "KEY port")
+  (setf (io-port/8 +ps/2-data-port+) byte))
+(defun ps/2-send-aux-byte (byte)
+  "Send a byte to the device attached to the AUX port."
+  (ps/2-input-wait "AUX port command")
+  (setf (io-port/8 +ps/2-control-port+) +ps/2-write-aux-port+)
+  (ps/2-input-wait "AUX port")
   (setf (io-port/8 +ps/2-data-port+) byte))
 
-(defun ps/2-mouse-command (command)
-  (ps/2-command-wait)
-  (setf (io-port/8 +ps/2-control-port+) #xD4 ; send to aux port.
-        (io-port/8 +ps/2-data-port+) command)
-  (ps/2-data-wait)
-  (let ((result (io-port/8 +ps/2-data-port+)))
-    (unless (eql result #xFA)
+(defun ps/2-read-config ()
+  "Read the PS/2 configuration byte."
+  (ps/2-input-wait "config byte command")
+  (setf (io-port/8 +ps/2-control-port+) +ps/2-read-config-byte+)
+  (ps/2-output-wait "config byte")
+  (io-port/8 +ps/2-data-port+))
+
+(defun ps/2-write-config (byte)
+  "Write the PS/2 configuration byte."
+  (ps/2-input-wait "config byte command")
+  (setf (io-port/8 +ps/2-control-port+) +ps/2-write-config-byte+)
+  (ps/2-input-wait "config byte")
+  (setf (io-port/8 +ps/2-data-port+) byte))
+
+(defun reset-ps/2 ()
+  ;; Before we begin, mask the KEY and AUX IRQs.
+  (setf (isa-pic-irq-mask +ps/2-key-irq+) t
+        (isa-pic-irq-mask +ps/2-aux-irq+) t)
+  ;; Disable devices.
+  (ps/2-input-wait "disable key port")
+  (setf (io-port/8 +ps/2-control-port+) +ps/2-disable-key-port+)
+  (ps/2-input-wait "disable aux port")
+  (setf (io-port/8 +ps/2-control-port+) +ps/2-disable-aux-port+)
+  ;; Flush the output buffer.
+  (do () ((not (logtest (io-port/8 +ps/2-control-port+)
+                        +ps/2-status-output-buffer-status+)))
+    (io-port/8 +ps/2-data-port+))
+  (let ((config-byte (ps/2-read-config))
+        (single-channelp nil))
+    ;; If the aux clock bit is clear, then it can't be a dual-channel controller.
+    (unless (logtest config-byte +ps/2-config-aux-clock+)
+      (setf single-channelp t))
+    (format t "Config word: ~8,'0B~%" config-byte)
+    ;; Disable the key and aux interrupts and key translation.
+    (ps/2-write-config (logand config-byte
+                               (lognot (logior +ps/2-config-key-interrupt+
+                                               +ps/2-config-aux-interrupt+
+                                               +ps/2-config-key-translation+))))
+    ;; Perform a self-test.
+    (ps/2-input-wait "self-test")
+    (setf (io-port/8 +ps/2-control-port+) +ps/2-test-controller+)
+    (ps/2-output-wait "self-test")
+    (let ((result (io-port/8 +ps/2-data-port+)))
+      (unless (eql result #x55)
+        (warn "PS/2: Self test failed: ~2,'0X! Blazing ahead anyway..." result)))
+    ;; Look for the second channel, unless we already know there isn't one.
+    (unless single-channelp
+      (ps/2-input-wait "enable-aux")
+      (setf (io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
+      ;; This bit should be clear now, for a dual-channel controller.
+      (setf config-byte (ps/2-read-config))
+      (format t "Config word: ~8,'0B (after aux enable)~%" config-byte)
+      (when (logtest config-byte +ps/2-config-aux-clock+)
+        (setf single-channelp t))
+      (ps/2-input-wait "disable-aux")
+      (setf (io-port/8 +ps/2-control-port+) +ps/2-disable-aux-port+))
+    ;; Test the ports.
+    (ps/2-input-wait "key test")
+    (setf (io-port/8 +ps/2-control-port+) +ps/2-test-key-port+)
+    (ps/2-output-wait "KEY port test")
+    (let ((result (io-port/8 +ps/2-data-port+)))
+      (cond ((eql result #x00)
+             (setf *ps/2-key-port-working* t))
+            (t (setf *ps/2-key-port-working* nil)
+               (warn "PS/2: KEY port test failed: ~2,'0X!" result))))
+    (setf *ps/2-aux-port-working* (not single-channelp))
+    (unless single-channelp
+      (ps/2-input-wait "aux test")
+      (setf (io-port/8 +ps/2-control-port+) +ps/2-test-aux-port+)
+      (ps/2-output-wait "AUX port test")
+      (let ((result (io-port/8 +ps/2-data-port+)))
+        (cond ((eql result #x00)
+               (setf *ps/2-aux-port-working* t))
+              (t (setf *ps/2-aux-port-working* nil)
+                 (warn "PS/2: AUX port test failed: ~2,'0X!" result)))))
+    ;; Ports have been detected, enable them and their IRQs.
+    (ps/2-write-config (logior (ps/2-read-config)
+                               (if *ps/2-key-port-working* +ps/2-config-key-interrupt+ 0)
+                               (if *ps/2-aux-port-working* +ps/2-config-aux-interrupt+ 0)))
+    (format t "Config word: ~8,'0B (after init)~%" (ps/2-read-config))
+    (setf *ps/2-key-port-working* t
+          *ps/2-aux-port-working* t)
+    ;; Enable ports.
+    (when *ps/2-key-port-working*
+      (ps/2-input-wait "enable key")
+      (setf (io-port/8 +ps/2-control-port+) +ps/2-enable-key-port+)
+      (setf (isa-pic-irq-mask +ps/2-key-irq+) nil))
+    (when *ps/2-aux-port-working*
+      (ps/2-input-wait "enable aux")
+      (setf (io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
+      (setf (isa-pic-irq-mask +ps/2-aux-irq+) nil))
+    ;; Flush data FIFOs.
+    (ps/2-flush-input :key)
+    (ps/2-flush-input :aux)
+    (format t "Config word: ~8,'0B  KEY: ~S  AUX: ~S (after setup)~%"
+            (ps/2-read-config)
+            *ps/2-key-port-working*
+            *ps/2-aux-port-working*)))
+
+(defun ps/2-write (port byte)
+  (ecase port
+    (:key (ps/2-send-key-byte byte))
+    (:aux (ps/2-send-aux-byte byte))))
+
+(defun ps/2-read (port &optional timeout)
+  (ps/2-read-fifo (ecase port
+                    (:key *ps/2-key-fifo*)
+                    (:aux *ps/2-aux-fifo*))
+                  (if (eql timeout t) 10000 timeout)))
+
+(defun ps/2-flush-input (port)
+  (ecase port
+    (:key (loop (unless (ps/2-pop-fifo *ps/2-key-fifo*) (return))))
+    (:aux (loop (unless (ps/2-pop-fifo *ps/2-aux-fifo*) (return))))))
+
+(defun ps/2-identify (port)
+  (ps/2-write port +ps/2-disable-scanning+)
+  ;; Wait for success reply.
+  (let ((response (ps/2-read port t)))
+    (cond ((not response)
+           (warn "No response during PS/2 identify")
+           (return-from ps/2-identify nil))
+          ((not (eql response +ps/2-ack+))
+           (warn "PS/2 identify failed: ~2,'0X~%" response)
+           (return-from ps/2-identify nil))))
+  (ps/2-write port +ps/2-identify+)
+  ;; Wait for success reply.
+  (let ((response (ps/2-read port t)))
+    (cond ((not response)
+           (warn "No response during PS/2 identify")
+           (return-from ps/2-identify nil))
+          ((not (eql response +ps/2-ack+))
+           (warn "PS/2 identify failed: ~2,'0X~%" response)
+           (return-from ps/2-identify nil))))
+  ;; Read up to two bytes.
+  (let ((byte-one (ps/2-read port t)))
+    (case byte-one
+      (#x00 :standard-mouse)
+      (#x03 :scroll-mouse)
+      (#x04 :5-button-mouse)
+      (#xAB (let ((byte-two (ps/2-read port t)))
+              (case byte-two
+                ((#x41 #xC1) :mf2-keyboard-translated)
+                ((#x83) :mf2-keyboard)
+                ((nil) byte-one)
+                (t (list byte-one byte-two)))))
+      ((nil) :at-keyboard)
+      (t byte-one))))
+
+(defun init-keyboard (port)
+  (ps/2-flush-input port)
+  ;; Expecting ACK followed by Self-Test-Passed.
+  (ps/2-write port +ps/2-reset+)
+  (unless (eql (ps/2-read port t) +ps/2-ack+)
+    (warn "PS/2 keyboard reset failed.~%")
+    (return-from init-keyboard))
+  (unless (eql (ps/2-read port t) +ps/2-self-test-passed+)
+    (warn "PS/2 keyboard reset failed.~%")
+    (return-from init-keyboard))
+  (format t "Detected ~S on PS/2 ~S port.~%" (ps/2-identify port) port)
+  ;; Switch to scancode set 1.
+  (ps/2-write port #xF0)
+  (unless (eql (ps/2-read port t) +ps/2-ack+)
+    (warn "PS/2 keyboard scancode change failed (1).~%")
+    (return-from init-keyboard))
+  (ps/2-write port 1)
+  (unless (eql (ps/2-read port t) +ps/2-ack+)
+    (warn "PS/2 keyboard scancode change failed (2).~%")
+    (return-from init-keyboard)))
+
+(defun ps/2-mouse-command (port command)
+  (ps/2-write port command)
+  (let ((result (ps/2-read port t)))
+    (unless (eql result +ps/2-ack+)
       (warn "PS/2: Error controlling mouse, expected ACK(FA) got ~2,'0X~%" result))))
 
-(defun init-mouse ()
-  ;; Turn PS/2 interrupts off before doing anything.
-  (let ((key-mask (isa-pic-irq-mask +ps/2-key-irq+))
-        (aux-mask (isa-pic-irq-mask +ps/2-aux-irq+)))
-    (unwind-protect
-         (progn (setf (isa-pic-irq-mask +ps/2-key-irq+) t
-                      (isa-pic-irq-mask +ps/2-aux-irq+) t)
-                ;; Drain internal buffer.
-                (do () ((not (logtest (io-port/8 +ps/2-control-port+) 1)))
-                  (io-port/8 +ps/2-data-port+))
-                ;; Enable mouse.
-                (setf (io-port/8 +ps/2-control-port+) #xA8)
-                ;; Enable mouse interrupts
-                (setf (io-port/8 +ps/2-control-port+) #x20) ; Get Command Byte.
-                (ps/2-data-wait)
-                ;; Set mouse interrupt bit.
-                (let ((command (logior (io-port/8 +ps/2-data-port+) 2)))
-                  (setf (io-port/8 +ps/2-control-port+) #x60) ; Set Command Byte.
-                  (ps/2-command-wait)
-                  (setf (io-port/8 +ps/2-data-port+) command))
-                ;; Set mouse defaults.
-                (ps/2-mouse-command #xF6)
-                ;; Enable mouse data reporting.
-                (ps/2-mouse-command #xF4))
-      (setf (isa-pic-irq-mask +ps/2-key-irq+) key-mask
-            (isa-pic-irq-mask +ps/2-aux-irq+) aux-mask))))
+(defun init-mouse (port)
+  #+nil(progn
+  (ps/2-flush-input port)
+  (ps/2-write port +ps/2-reset+)
+  (unless (eql (ps/2-read port t) +ps/2-ack+)
+    (warn "PS/2 mouse reset change failed (1).~%")))
+  #+nil(unless (eql (ps/2-read port t) #xAA)
+    (warn "PS/2 mouse reset change failed (2).~%"))
+  #+nil(unless (eql (ps/2-read port t) 0)
+    (warn "PS/2 mouse reset change failed (3).~%"))
+  (ps/2-flush-input port)
+  (format t "Detected ~S on PS/2 ~S port.~%" (ps/2-identify port) port)
+  ;; Set mouse defaults.
+  (ps/2-mouse-command port #xF6)
+  ;; Enable mouse data reporting.
+  (ps/2-mouse-command port #xF4))
 
 (defun init-ps/2 ()
+  ;; Install IRQ handlers.
   (setf *ps/2-key-fifo* (make-ps/2-fifo)
         (isa-pic-interrupt-handler +ps/2-key-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
-        (isa-pic-irq-mask +ps/2-key-irq+) nil
         *ps/2-aux-fifo* (make-ps/2-fifo)
-        (isa-pic-interrupt-handler +ps/2-aux-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*)
-        (isa-pic-irq-mask +ps/2-aux-irq+) nil
-        *ps/2-keyboard-shifted* nil)
-  (init-mouse)
-  ;; Flush away anything that might have built up because of the mouse init.
-  (loop (unless (ps/2-pop-fifo *ps/2-key-fifo*) (return)))
-  (loop (unless (ps/2-pop-fifo *ps/2-aux-fifo*) (return))))
+        (isa-pic-interrupt-handler +ps/2-aux-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*))
+  ;; Reset keyboard state.
+  (setf *ps/2-keyboard-extended-key* nil
+        *ps/2-keyboard-shifted* nil
+        *ps/2-keyboard-ctrled* nil
+        *ps/2-keyboard-metaed* nil
+        *ps/2-keyboard-supered* nil
+        *ps/2-keyboard-hypered* nil)
+  (trace ps/2-write ps/2-read ps/2-write-config ps/2-read-config)
+  ;; Reset the controller.
+  (reset-ps/2)
+  ;; Initialize devices.
+  (when *ps/2-key-port-working*
+    (init-keyboard :key))
+  (when *ps/2-aux-port-working*
+    (init-mouse :aux)))
 
 (add-hook '*initialize-hook* 'init-ps/2)
