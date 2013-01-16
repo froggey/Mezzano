@@ -552,8 +552,8 @@ reverse Z-order."
                                  (lambda ()
                                    (or *refresh-required*
                                        (and *read-input*
-                                            (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*)))
-                                       (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-aux-fifo*)))))
+                                            (or (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-key-fifo*))
+                                                (not (sys.int::ps/2-fifo-empty sys.int::*ps/2-aux-fifo*)))))))
        (when *refresh-required*
          (setf *refresh-required* nil)
          (with-simple-restart (abort "Cancel screen update.")
@@ -564,18 +564,18 @@ reverse Z-order."
               (when (not byte) (return))
               (let ((key (sys.int::ps/2-translate-scancode byte)))
                 (when key
-                  (handle-keypress key))))))
-       (loop
-          (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
-            (when (not byte) (return))
-            (ecase mouse-state
-              (0 (when (logtest byte #b00001000)
-                   (setf mouse-1 byte)
-                   (incf mouse-state)))
-              (1 (setf mouse-2 byte)
-                 (incf mouse-state))
-              (2 (process-mouse-packet mouse-1 mouse-2 byte)
-                 (setf mouse-state 0))))))))
+                  (handle-keypress key)))))
+         (loop
+            (let ((byte (sys.int::ps/2-pop-fifo sys.int::*ps/2-aux-fifo*)))
+              (when (not byte) (return))
+              (ecase mouse-state
+                (0 (when (logtest byte #b00001000)
+                     (setf mouse-1 byte)
+                     (incf mouse-state)))
+                (1 (setf mouse-2 byte)
+                   (incf mouse-state))
+                (2 (process-mouse-packet mouse-1 mouse-2 byte)
+                   (setf mouse-state 0)))))))))
 
 (defvar *graphics-process* (sys.int::make-process "Graphics manager"))
 (sys.int::process-preset *graphics-process* #'graphics-worker)
