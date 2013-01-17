@@ -468,7 +468,6 @@
         *ps/2-keyboard-metaed* nil
         *ps/2-keyboard-supered* nil
         *ps/2-keyboard-hypered* nil)
-  (trace ps/2-write ps/2-read ps/2-write-config ps/2-read-config)
   ;; Reset the controller.
   (reset-ps/2)
   ;; Initialize devices.

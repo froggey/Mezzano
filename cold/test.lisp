@@ -944,6 +944,5 @@
   (write-char #\O)
   (write-char #\K)
   (terpri)
-  (display-kboot-tag-list)
   (repl)
   (loop (%hlt)))
