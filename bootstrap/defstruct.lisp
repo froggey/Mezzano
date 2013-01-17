@@ -79,7 +79,9 @@
         (included-structure nil)
         (print-object nil)
         (print-function nil)
-        (print-object-specializer nil))
+        (print-object-specializer nil)
+        (type nil)
+        (named nil))
     (if (symbolp name-and-options)
 	(setf name name-and-options)
 	(progn
@@ -195,6 +197,24 @@
                (when (or print-function print-object print-object-specializer)
                  (error "Multiple :PRINT-OBJECT or :PRINT-FUNCTION options specified."))
                (setf print-function (second option)))
+              ;; :named
+              ((eql option :named)
+               (setf named t))
+              ;; (:type type)
+              ((and (consp option)
+                    (eql (first option) :type)
+                    (= (length option) 2))
+               (when type
+                 (error "Multiple :TYPE options specified."))
+               (setf type (second option))
+               (unless (or (eql type 'list) (eql type 'vector)
+                           (and (consp type)
+                                (eql (first type) 'vector)
+                                (= (length type) 2)
+                                (or (and (integerp (second type))
+                                         (<= 0 (second type) array-dimension-limit))
+                                    (eql (second type) '*))))
+                 (error "Invalid :TYPE option ~S.%" option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
             (when conc-namep
@@ -216,7 +236,8 @@
 	       nil)
 	      ;; Default predicate.
 	      ((eq predicate-name 't)
-	       (concat-symbols name '-p))
+               (when (or (null type) named)
+                 (concat-symbols name '-p)))
 	      ;; Explicit predicate.
 	      (t predicate-name))
             area
@@ -230,7 +251,8 @@
 	      ;; Explicit copier.
 	      (t copier-name))
             included-structure-name included-slot-descriptions
-            print-object print-function print-object-specializer)))
+            print-object print-function print-object-specializer
+            named type)))
 
 ;; Parses slot-description and produces:
 ;; (slot-name accessor-name initform type read-only)
@@ -270,16 +292,44 @@
 	   (default-slots (set-difference (mapcar #'first (structure-slots struct-type)) assigned-slots))
 	   (tmp (gensym)))
       `(defun ,name ,lambda-list
-	 (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
-	   (setf (%struct-slot ,tmp 0) ',struct-type)
-	   ,@(let ((n 0))
-	       (mapcar (lambda (s)
-			 (setf n (1+ n))
-			 `(setf (%struct-slot ,tmp ,n) ,(if (member (first s) default-slots)
-							    (third s)
-							    (first s))))
-		       (structure-slots struct-type)))
-	   ,tmp)))))
+         (let ((,tmp (%make-struct ,(1+ (length (structure-slots struct-type))) ',area)))
+           (setf (%struct-slot ,tmp 0) ',struct-type)
+           ,@(let ((n 0))
+                  (mapcar (lambda (s)
+                            (setf n (1+ n))
+                            `(setf (%struct-slot ,tmp ,n) ,(if (member (first s) default-slots)
+                                                               (third s)
+                                                               (first s))))
+                          (structure-slots struct-type)))
+           ,tmp)))))
+
+(defun generate-simple-defstruct-list-constructor (leader-name slots name area)
+  `(defun ,name (&key ,@(mapcar (lambda (slot)
+                                  (list (first slot) (third slot)))
+                                slots))
+     (list ,@(when leader-name (list `',leader-name))
+           ,@(mapcar 'first slots))))
+
+(defun generate-defstruct-list-constructor (leader-name slots name lambda-list area)
+  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
+      (parse-ordinary-lambda-list lambda-list)
+    (declare (ignore enable-keys allow-other-keys))
+    ;; Pick out the slot names and compute the slots without a lambda variable
+    (let* ((assigned-slots (append required
+				   (mapcar #'first optional)
+				   (remove 'nil (mapcar #'third optional))
+				   (when rest (list rest))
+				   (mapcar #'cadar keys)
+				   (remove 'nil (mapcar #'third keys))
+				   (mapcar #'first aux)))
+	   (default-slots (set-difference (mapcar #'first slots) assigned-slots)))
+      `(defun ,name ,lambda-list
+         (list ,@(when leader-name (list `',leader-name))
+               ,@(mapcar (lambda (s)
+                           (if (member (first s) default-slots)
+                               (third s)
+                               (first s)))
+                         slots))))))
 
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
   (when included-slot-descriptions
@@ -294,31 +344,9 @@
                             (structure-slots included-structure)))
                   slot-descriptions)))
 
-)
-
-(defun structure-type-p (object struct-type)
-  (when (structure-object-p object)
-    (do ((object-type (%struct-slot object 0) (structure-parent object-type)))
-        ((null object-type) nil)
-      (when (eq object-type struct-type)
-        (return t)))))
-
-(defun copy-structure (structure)
-  (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")
-  (let* ((struct-type (%struct-slot structure 0))
-         (n-slots (length (structure-slots struct-type)))
-         (new (%make-struct (1+ n-slots)
-                            (structure-area struct-type))))
-    (setf (%struct-slot new 0) struct-type)
-    (dotimes (i n-slots)
-      (setf (%struct-slot new (1+ i)) (%struct-slot structure (1+ i))))
-    new))
-
-(defmacro defstruct (name-and-options &rest slot-descriptions)
-  (multiple-value-bind (name conc-name constructors predicate area copier
-                        included-structure-name included-slot-descriptions
-                        print-object print-function print-object-specializer)
-      (parse-defstruct-options name-and-options)
+(defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
+                                  included-structure-name included-slot-descriptions
+                                  print-object print-function print-object-specializer)
     (let* ((included-structure (when included-structure-name
                                  (get-structure-type included-structure-name)))
            (slots (compute-defstruct-slots conc-name
@@ -361,4 +389,86 @@
 			 (generate-simple-defstruct-constructor struct-type x area)
 			 (generate-defstruct-constructor struct-type (first x) (second x) area)))
 		   constructors)
-	 ',name))))
+	 ',name)))
+
+(defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
+                                included-structure-name included-slot-descriptions
+                                print-object print-function print-object-specializer
+                                named)
+  (when (or included-structure-name included-slot-descriptions)
+    (error "Included LIST structures not supported yet."))
+  (when (and predicate (not named))
+    (error "Predicate with unnamed LIST structure."))
+  (when (or print-object print-function print-object-specializer)
+    (error "PRINT-OBJECT and PRINT-FUNCTION with LIST structure not supported yet."))
+  (let ((slots (compute-defstruct-slots conc-name
+                                        slot-descriptions
+                                        nil
+                                        included-slot-descriptions)))
+    `(progn
+       ,@(when predicate
+           (list `(defun ,predicate (object)
+                    (and (listp object) (eql (first object) ',name)))))
+       ,@(when copier
+           (list `(defun ,copier (object)
+                    (copy-list object))))
+       ,@(let ((n (if named 0 -1)))
+           (mapcar (lambda (s)
+                     (incf n)
+                     `(progn
+                        (defun ,(second s) (object)
+                          ,@(when (and named predicate)
+                              (list `(check-type object (satisfies ,predicate))))
+                          (nth ,n object))
+                        ,@(unless (fifth s)
+                            (list `(defun (setf ,(second s)) (new-value object)
+                                     ,@(when (and named predicate)
+                                         (list `(check-type object (satisfies ,predicate))))
+                                     (funcall #'(setf nth)
+                                              (the ,(fourth s) new-value)
+                                              ,n
+                                              object))))))
+                   slots))
+       ,@(mapcar (lambda (x)
+                   (if (symbolp x)
+                       (generate-simple-defstruct-list-constructor (when named name) slots x area)
+                       (generate-defstruct-list-constructor (when named name) slots (first x) (second x) area)))
+                 constructors)
+       ',name)))
+)
+
+(defun structure-type-p (object struct-type)
+  (when (structure-object-p object)
+    (do ((object-type (%struct-slot object 0) (structure-parent object-type)))
+        ((null object-type) nil)
+      (when (eq object-type struct-type)
+        (return t)))))
+
+(defun copy-structure (structure)
+  (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")
+  (let* ((struct-type (%struct-slot structure 0))
+         (n-slots (length (structure-slots struct-type)))
+         (new (%make-struct (1+ n-slots)
+                            (structure-area struct-type))))
+    (setf (%struct-slot new 0) struct-type)
+    (dotimes (i n-slots)
+      (setf (%struct-slot new (1+ i)) (%struct-slot structure (1+ i))))
+    new))
+
+(defmacro defstruct (name-and-options &rest slot-descriptions)
+  (multiple-value-bind (name conc-name constructors predicate area copier
+                        included-structure-name included-slot-descriptions
+                        print-object print-function print-object-specializer
+                        named type)
+      (parse-defstruct-options name-and-options)
+    (cond
+      ((null type)
+       (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
+                                  included-structure-name included-slot-descriptions
+                                  print-object print-function print-object-specializer))
+      ((eql type 'list)
+       (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
+                                 included-structure-name included-slot-descriptions
+                                 print-object print-function print-object-specializer
+                                 named))
+      (t (error "Currently unsupported defstruct type ~S." type)))))
