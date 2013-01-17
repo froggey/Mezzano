@@ -1556,3 +1556,10 @@
 
 (defun generic-lognot (integer)
   (logxor integer -1))
+
+(defun integer-length (integer)
+  (when (minusp integer) (setf integer (- integer)))
+  (do ((len 0 (1+ len)))
+      ((zerop integer)
+       len)
+    (setf integer (ash integer -1))))
