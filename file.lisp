@@ -242,8 +242,27 @@
         (when (eql version :backup)
           (write-char #\~ s))))))
 
+(defgeneric unparse-pathname-directory (pathname host))
+
+(defmethod unparse-pathname-directory (pathname (host simple-file-host))
+  (let ((dir (pathname-directory pathname)))
+    (with-output-to-string (s)
+      (when (eql (first dir) :absolute)
+        (write-char #\/ s))
+      (dolist (d (rest dir))
+        (cond
+          ((stringp d) (write-string d s))
+          ((eql d :up) (write-string ".." s))
+          ((eql d :wild) (write-char #\* s))
+          ((eql d :wild-inferiors) (write-string "**" s))
+          (t (error "Invalid directory component ~S." d)))
+        (write-char #\/ s)))))
+
 (defun file-namestring (pathname)
   (unparse-pathname-file pathname (pathname-host pathname)))
+
+(defun directory-namestring (pathname)
+  (unparse-pathname-directory pathname (pathname-host pathname)))
 
 (defun namestring (pathname)
   (unparse-pathname pathname (pathname-host pathname)))
