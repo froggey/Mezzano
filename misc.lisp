@@ -34,17 +34,18 @@
 
 (defun run ()
   (sys.net::net-setup)
-  (cond (*bochs-framebuffer*
-         (sys.graphics::register-screen :bochs *bochs-framebuffer* *bochs-back-buffer* 'bochs-flip-buffer))
-        ((eql (first *cold-stream-screen*) :framebuffer)
-         (let ((buffer (make-array (array-dimensions (second *cold-stream-screen*))
-                                   :element-type '(unsigned-byte 32)))
-               (width (second (array-dimensions (second *cold-stream-screen*))))
-               (height (first (array-dimensions (second *cold-stream-screen*)))))
-           (sys.graphics::register-screen :cold-framebuffer buffer buffer
-                                          (lambda ()
-                                            (%bitblt height width buffer 0 0 (second *cold-stream-screen*) 0 0)))))
-        (t (error "No screens.")))
+  (when (null sys.graphics::*screens*)
+    (cond (*bochs-framebuffer*
+           (sys.graphics::register-screen :bochs *bochs-framebuffer* *bochs-back-buffer* 'bochs-flip-buffer))
+          ((eql (first *cold-stream-screen*) :framebuffer)
+           (let ((buffer (make-array (array-dimensions (second *cold-stream-screen*))
+                                     :element-type '(unsigned-byte 32)))
+                 (width (second (array-dimensions (second *cold-stream-screen*))))
+                 (height (first (array-dimensions (second *cold-stream-screen*)))))
+             (sys.graphics::register-screen :cold-framebuffer buffer buffer
+                                            (lambda ()
+                                              (%bitblt height width buffer 0 0 (second *cold-stream-screen*) 0 0)))))
+          (t (error "No screens."))))
   (sys.graphics::invoke-graphics))
 
 (defun hexdump-range (start end &optional stream)
