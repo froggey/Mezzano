@@ -198,6 +198,7 @@
     (#x0009 "Tab")
     (#x000A "Newline" "Linefeed")
     (#x000C "Page")
+    (#x000D "Return")
     (#x001B "Esc" "Escape")
     (#x0020 "Space")
     (#x007F "Rubout")
