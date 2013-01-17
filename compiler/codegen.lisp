@@ -1574,11 +1574,12 @@ only R8 will be preserved."
                                       *for-value*)))
                  (cg-form (second form)))))
       (when tag
-        (cond ((member *for-value* '(:multiple :tail))
-               (load-multiple-values tag))
-              (*for-value*
-               (load-in-r8 tag t)))
+        (when (member *for-value* '(:multiple :tail))
+          (load-multiple-values tag))
         (unbind-to *special-bindings* (rest *special-bindings*))
+        (when (and *for-value*
+                   (not (member *for-value* '(:multiple :tail))))
+          (load-in-r8 tag t))
         ;; Kill cleanup-tag, not needed past here.
         (setf *load-list* (delete cleanup-tag *load-list*))
         tag))))
