@@ -226,7 +226,9 @@
 ;;;  (op item (op a b c)) => (op item a b c)
 
 (defun bq-attach-append (op item result)
-  (cond ((and (null-or-quoted item) (null-or-quoted result))
+  (cond ((and (null-or-quoted item) (null result))
+         (list *bq-quote* (cadr item)))
+        ((and (null-or-quoted item) (null-or-quoted result))
          (list *bq-quote* (append (cadr item) (cadr result))))
         ((or (null result) (equal result *bq-quote-nil*))
          (if (bq-splicing-frob item) (list op item) item))
