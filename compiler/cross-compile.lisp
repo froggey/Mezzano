@@ -92,12 +92,12 @@
 
 (defvar *cross-readtable* (copy-readtable nil))
 
-(defun sys.int::symbol-macro-function (symbol &optional env)
+(defun sys.int::symbol-macro-expansion (symbol &optional env)
   (dolist (e env
            (gethash symbol *system-symbol-macros*))
     (when (eql (first e) :symbol-macros)
       (let ((x (assoc symbol (rest e))))
-        (when x (return (cdr x)))))))
+        (when x (return (second x)))))))
 
 (defun compiler-macro-function (name &optional env)
   (dolist (e env
@@ -127,10 +127,7 @@
 
 (defun macroexpand-1 (form &optional env)
   (cond ((symbolp form)
-         (let ((x (sys.int::symbol-macro-function form env)))
-           (if x
-               (values (funcall x form env) t)
-               (values form nil))))
+         (sys.int::symbol-macro-expansion form env))
         ((consp form)
          (let ((fn (macro-function (first form) env)))
            (if fn

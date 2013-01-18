@@ -14,7 +14,6 @@
                                               (when env-binding
                                                 (list `(,env-binding ,env)))))))))
 
-;; TODO: Create macrofunctions correctly, instead of using the host's destructuring-bind
 (defun make-macrolet-env (defs env)
   "Return a new environment containing the macro definitions."
   (list* (list* :macros (mapcar (lambda (def)
@@ -24,13 +23,7 @@
          env))
 
 (defun make-symbol-macrolet-env (defs env)
-  (dolist (d defs)
-    (destructuring-bind (symbol expansion) d
-      (push (list :symbol-macro symbol (lambda (whole env)
-                                         (declare (ignore whole env))
-                                         expansion))
-            env)))
-  env)
+  (cons (list* :symbol-macros defs) env))
 
 (defun handle-top-level-implicit-progn (forms load-fn eval-fn mode env)
   (dolist (f forms)

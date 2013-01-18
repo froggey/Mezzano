@@ -324,6 +324,13 @@
                                     (mapcar 'frob-macrolet-definition definitions))
                              env))))
 
+(defspecial symbol-macrolet (&environment env definitions &body body)
+  (multiple-value-bind (body declares)
+      (sys.int::parse-declares body)
+    (eval-locally-body declares body
+                       (cons (list* :symbol-macros definitions)
+                             env))))
+
 (defspecial tagbody (&environment env &body body)
   (let ((current body))
     (tagbody

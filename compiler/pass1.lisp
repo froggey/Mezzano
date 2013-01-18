@@ -167,13 +167,20 @@
 (defun pass1-implicit-progn (forms env)
   (mapcar (lambda (x) (pass1-form x env)) forms))
 
-(defun find-variable (symbol env)
+(defun find-variable (symbol env &optional allow-symbol-macros)
   "Find SYMBOL in ENV, returning SYMBOL if it's special or if it's not found."
+  ;; FIXME: Should check for symbols defined with DEFINE-SYMBOL-MACRO.
   (dolist (e env symbol)
     (when (eq (first e) :bindings)
       (let ((v (assoc symbol (rest e))))
 	(when v
-	  (return (cdr v)))))))
+	  (return (cdr v)))))
+    (when (eql (first e) :symbol-macros)
+      (let ((v (assoc symbol (rest e))))
+        (when v
+          (unless allow-symbol-macros
+            (error "Symbol-macro not allowed here."))
+          (return v))))))
 
 (defun find-function (symbol env)
   "Find the function named by SYMBOL in ENV, returning SYMBOL if not found."
@@ -213,23 +220,24 @@
   (cond
     ((symbolp form)
      ;; Expand symbol macros.
-     ;; FIXME: not right, should examine lexical environment.
-     (if (sys.int::symbol-macro-function form)
-	 (pass1-form (funcall *macroexpand-hook* (sys.int::symbol-macro-function form) form env) env)
-	 (let ((var (find-variable form env)))
-	   (if (symbolp var)
-	       ;; Replace constants with their quoted values.
-	       (or (expand-constant-variable form)
-		   ;; And replace special variable with calls to symbol-value.
-		   (pass1-form `(symbol-value ',var) env))
-	       (progn
-		 (when (eq (lexical-variable-ignore var) 't)
-		   (warn 'sys.int::simple-style-warning
-			 :format-control "Reading ignored variable ~S."
-			 :format-arguments (list (lexical-variable-name var))))
-		 (incf (lexical-variable-use-count var))
-		 (pushnew *current-lambda* (lexical-variable-used-in var))
-		 var)))))
+     (multiple-value-bind (expansion expandedp)
+         (macroexpand-1 form env)
+       (if expandedp
+           (pass1-form expansion env)
+           (let ((var (find-variable form env)))
+             (if (symbolp var)
+                 ;; Replace constants with their quoted values.
+                 (or (expand-constant-variable form)
+                     ;; And replace special variable with calls to symbol-value.
+                     (pass1-form `(symbol-value ',var) env))
+                 (progn
+                   (when (eq (lexical-variable-ignore var) 't)
+                     (warn 'sys.int::simple-style-warning
+                           :format-control "Reading ignored variable ~S."
+                           :format-arguments (list (lexical-variable-name var))))
+                   (incf (lexical-variable-use-count var))
+                   (pushnew *current-lambda* (lexical-variable-used-in var))
+                   var))))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
      `(quote ,form))
@@ -524,22 +532,34 @@
 	     (t `(progn ,@(nreverse forms)))))
     (when (null (cdr i))
       (error "Odd number of arguments to SETQ."))
-    (let ((var (find-variable (first i) env))
+    (let ((var (find-variable (first i) env t))
 	  (val (second i)))
-      ;; TODO: symbol macros.
-      (if (symbolp var)
-	  (push (pass1-form `(funcall #'(setf symbol-value) ,val ',var) env) forms)
-	  (progn
-	    (when (eq (lexical-variable-ignore var) 't)
-	      (warn 'sys.int::simple-style-warning
-		    :format-control "Writing ignored variable ~S."
-		    :format-arguments (list (lexical-variable-name var))))
-	    (incf (lexical-variable-use-count var))
-	    (incf (lexical-variable-write-count var))
-	    (pushnew *current-lambda* (lexical-variable-used-in var))
-	    (push `(setq ,var ,(pass1-form val env)) forms))))))
+      (etypecase var
+        (symbol
+         (push (pass1-form `(funcall #'(setf symbol-value) ,val ',var) env) forms))
+        (lexical-variable
+         (when (eq (lexical-variable-ignore var) 't)
+           (warn 'sys.int::simple-style-warning
+                 :format-control "Writing ignored variable ~S."
+                 :format-arguments (list (lexical-variable-name var))))
+         (incf (lexical-variable-use-count var))
+         (incf (lexical-variable-write-count var))
+         (pushnew *current-lambda* (lexical-variable-used-in var))
+         (push `(setq ,var ,(pass1-form val env)) forms))
+        (cons
+         ;; Symbol macro.
+         (push (pass1-form `(setf ,(second var) ,val) env) forms))))))
 
-;;; (defun pass1-symbol-macrolet (form env))
+(defun pass1-symbol-macrolet (form env)
+  (destructuring-bind (definitions &body body) (cdr form)
+    (assert (every (lambda (def)
+                     (and (= (list-length def) 2)
+                          (symbolp (first def))))
+                   definitions)
+            ()
+            "Bad SYMBOL-MACROLET definition.")
+    (let ((env (list* (list* :symbol-macros definitions) env)))
+      (pass1-locally-body body env))))
 
 (defun pass1-tagbody (form env)
   (let* ((tb (make-tagbody-information :definition-point *current-lambda*))

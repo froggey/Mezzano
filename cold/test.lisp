@@ -197,14 +197,22 @@
   (setf (fdefinition name) lambda)
   name)
 
-;; TODO: Symbol macros, macroexpand-hook.
+(defun symbol-macro-expansion (symbol env)
+  (dolist (e env (values symbol nil))
+    (when (eql (first e) :symbol-macros)
+      (let ((x (assoc symbol (rest e))))
+        (when x
+          (return (values (second x) t)))))))
+
 (defun macroexpand-1 (form &optional env)
-  (if (consp form)
-      (let ((mf (macro-function (car form) env)))
-	(if mf
-	    (values (funcall mf form env) t)
-	    (values form nil)))
-      (values form nil)))
+  (cond ((symbolp form)
+         (symbol-macro-expansion form env))
+        ((consp form)
+         (let ((fn (macro-function (first form) env)))
+           (if fn
+               (values (funcall *macroexpand-hook* fn form env) t)
+               (values form nil))))
+        (t (values form nil))))
 
 (defun macroexpand (form &optional env)
   (let ((did-expand nil))
