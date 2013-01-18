@@ -220,6 +220,9 @@
                  (subseq message 8 (1- (length message)))))
         (t (format t "[~A]<~A> ~A~%" channel from message))))
 
+(define-server-command ping (irc from message)
+  (send (irc-connection irc) "PONG :~A~%" message))
+
 (defvar *known-servers*
   '((:freenode (213 92 8 4) 6667))
   "A list of known/named IRC servers.")
