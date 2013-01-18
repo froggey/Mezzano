@@ -156,7 +156,8 @@ BODY must not allocate!"
                                        :external-format (if (string-equal (pathname-type path) "LLF")
                                                             :default
                                                             external-format))
-                 (load-from-stream stream)))))))
+                 (when stream
+                   (load-from-stream stream))))))))
 
 (defmacro multiple-value-setq (vars form)
   (let ((temps (mapcar (lambda (sym) (gensym (string sym))) vars)))
