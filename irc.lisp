@@ -230,13 +230,42 @@
            (values (second known) (third known)))
           (t (error "Unknown server ~S~%" name)))))
 
-(defclass irc-client (sys.graphics::text-window)
+(defclass irc-client (sys.graphics::character-input-mixin
+                      sys.graphics::window-with-chrome
+                      sys.int::edit-stream
+                      sys.int::stream-object)
   ((command-process :reader irc-command-process)
    (receive-process :reader irc-receive-process)
    (connection :initform nil :accessor irc-connection)
-   (display :accessor irc-display*)))
+   (input :reader irc-input)
+   (display :reader irc-display)))
+
+;;; This is just so the graphics manager knows the display needs an update.
+(defclass irc-display (sys.graphics::text-widget) ())
+(defmethod sys.int::stream-write-char :after (character (stream irc-display))
+  (setf sys.graphics::*refresh-required* t))
 
 (defmethod initialize-instance :after ((instance irc-client))
+  (multiple-value-bind (left right top bottom)
+      (sys.graphics::compute-window-margins instance)
+    (setf (slot-value instance 'display) (make-instance 'irc-display
+                                                        :framebuffer (sys.graphics::window-backbuffer instance)
+                                                        :x left
+                                                        :y top
+                                                        :width (- (array-dimension (sys.graphics::window-backbuffer instance) 1)
+                                                                  left right)
+                                                        :height (- (array-dimension (sys.graphics::window-backbuffer instance) 0)
+                                                                   top bottom 1 16)))
+    (setf (slot-value instance 'input) (make-instance 'sys.graphics::text-widget
+                                                      :framebuffer (sys.graphics::window-backbuffer instance)
+                                                      :x left
+                                                      :y (+ top
+                                                            (- (array-dimension (sys.graphics::window-backbuffer instance) 0)
+                                                               top bottom 1 16)
+                                                            1)
+                                                      :width (- (array-dimension (sys.graphics::window-backbuffer instance) 1)
+                                                                left right)
+                                                      :height 16)))
   (let ((cmd (sys.int::make-process "IRC command"))
         (rcv (sys.int::make-process "IRC receive")))
     (setf (slot-value instance 'command-process) cmd)
@@ -246,38 +275,58 @@
     (sys.int::process-enable cmd)
     (sys.int::process-enable rcv)))
 
-(defclass hacky-framebuffer-stream (sys.int::edit-stream sys.int::framebuffer-output-stream)
-  ((irc :initarg :irc)))
+;;; The IRC-CLIENT stream is used to read/write from the input line, not from
+;;; the display.
+;;; Edit-stream expects the stream to be able to do input and output, so
+;;; *STANDARD-INPUT* is bound to this stream (with line-editing) and
+;;; *STANDARD-OUTPUT* is bound to the display text widget (no input).
+;;; READ-CHAR is provided by Character-Input-Mixin.
+(defmethod sys.int::stream-write-char (character (stream irc-client))
+  (sys.int::stream-write-char character (irc-input stream))
+  (setf sys.graphics::*refresh-required* t))
+(defmethod sys.int::stream-start-line-p ((stream irc-client))
+  (sys.int::stream-start-line-p (irc-input stream)))
+(defmethod sys.int::stream-cursor-pos ((stream irc-client))
+  (sys.int::stream-cursor-pos (irc-input stream)))
+(defmethod sys.int::stream-move-to ((stream irc-client) x y)
+  (sys.int::stream-move-to (irc-input stream) x y))
+(defmethod sys.int::stream-character-width ((stream irc-client) character)
+  (sys.int::stream-character-width (irc-input stream) character))
+(defmethod sys.int::stream-compute-motion ((stream irc-client) string &optional (start 0) end initial-x initial-y)
+  (sys.int::stream-compute-motion (irc-input stream) string start end initial-x initial-y))
+(defmethod sys.int::stream-clear-between ((stream irc-client) start-x start-y end-x end-y)
+  (sys.int::stream-clear-between (irc-input stream) start-x start-y end-x end-y)
+  (setf sys.graphics::*refresh-required* t))
+(defmethod sys.int::stream-element-type* ((stream irc-client))
+  'character)
 
-(defmethod sys.int::stream-write-char :after (character (stream hacky-framebuffer-stream))
-  (setf sys.graphics::*refresh-required* t))
-(defmethod sys.int::stream-clear-between :after ((stream hacky-framebuffer-stream) start-x start-y end-x end-y)
-  (setf sys.graphics::*refresh-required* t))
-(defmethod sys.int::stream-read-char ((stream hacky-framebuffer-stream))
-  (loop
-     (let ((char (sys.graphics::fifo-pop (sys.graphics::text-window-buffer (slot-value stream 'irc)))))
-       (when char (return char)))
-     (sys.int::process-wait "User input"
-                            (lambda ()
-                              (not (sys.graphics::fifo-emptyp (sys.graphics::text-window-buffer (slot-value stream 'irc))))))))
+(defmethod sys.graphics::window-close-event ((irc irc-client))
+  (sys.int::process-disable (irc-command-process irc))
+  (sys.int::process-disable (irc-receive-process irc))
+  (when (irc-connection irc)
+    (close (irc-connection irc)))
+  (sys.graphics::close-window irc))
 
 (defun irc-receive (irc)
-  (sys.graphics::with-window-streams irc
+  (let ((*standard-input* irc)
+        (*standard-output* (irc-display irc))
+        (*error-output* (irc-display irc))
+        (*query-io* (make-two-way-stream irc (irc-display irc)))
+        (*debug-io* (make-two-way-stream irc (irc-display irc))))
+    ;; Should close the connection here...
     (with-simple-restart (abort "Give up")
       (sys.int::process-wait "Awaiting connection" (lambda () (irc-connection irc)))
-      (let ((connection (irc-connection irc))
-            (display (irc-display* irc)))
+      (let ((connection (irc-connection irc)))
         (loop (let ((line (read-line connection)))
                 (multiple-value-bind (prefix command parameters)
                     (decode-command line)
                   (let ((fn (gethash command *command-table*)))
-                    (cond (fn (let ((*standard-output* display))
-                                (funcall fn prefix parameters)))
+                    (cond (fn (funcall fn prefix parameters))
                           ((keywordp command)
-                           (format display "[~A] -!- ~A~%" prefix (car (last parameters))))
+                           (format t "[~A] -!- ~A~%" prefix (car (last parameters))))
                           ((integerp command)
-                           (format display "[~A] ~D ~A~%" prefix command parameters))
-                          (t (write-line line display)))))))))))
+                           (format t "[~A] ~D ~A~%" prefix command parameters))
+                          (t (write-line line)))))))))))
 
 (defvar *top-level-commands* (make-hash-table :test 'equal))
 
@@ -317,83 +366,81 @@
 
 (define-command me (:text text :connection connection :channel channel :nick nick)
   (when (and connection channel)
-    (format t "[~A]* ~A ~A~%" current-channel nick text)
+    (format t "[~A]* ~A ~A~%" channel nick text)
     (send connection "PRIVMSG ~A :~AACTION ~A~A~%"
           channel (code-char 1) text (code-char 1))))
 
+(defmethod sys.graphics::window-redraw ((window irc-client))
+  (multiple-value-bind (left right top bottom)
+      (sys.graphics::compute-window-margins window)
+    (sys.graphics::bitset (sys.graphics::window-height window) (sys.graphics::window-width window)
+                          (sys.graphics::window-background-colour (irc-display window))
+                          (sys.graphics::window-backbuffer window) top left)
+    (sys.graphics::bitset 1 (sys.graphics::window-width window)
+                          (sys.graphics::make-colour :gray)
+                          (sys.graphics::window-backbuffer window)
+                          (+ top
+                             (- (array-dimension (sys.graphics::window-backbuffer window) 0)
+                                top bottom 1 16))
+                          left)))
+
 (defun irc-top-level (irc)
-  (sys.graphics::with-window-streams irc
+  (let ((*standard-input* irc)
+        (*standard-output* (irc-display irc))
+        (*error-output* (irc-display irc))
+        (*query-io* (make-two-way-stream irc (irc-display irc)))
+        (*debug-io* (make-two-way-stream irc (irc-display irc))))
     (unwind-protect
          (handler-case
-             (let* ((main-fb (sys.graphics::window-frontbuffer irc))
-                    (dims (array-dimensions main-fb))
-                    (display-fb (make-array (list (- (first dims) 20) (second dims))
-                                            :displaced-to main-fb
-                                            :displaced-index-offset 0))
-                    (display (make-instance 'hacky-framebuffer-stream
-                                            :irc irc
-                                            :framebuffer display-fb))
-                    (input-fb (make-array (list 16 (second dims))
-                                          :displaced-to main-fb
-                                          :displaced-index-offset (* (- (first dims) 16) (second dims))))
-                    (input (make-instance 'hacky-framebuffer-stream
-                                          :irc irc
-                                          :framebuffer input-fb)))
-               (setf (irc-display* irc) display)
-               (sys.int::%bitset (first dims) (second dims) 0 main-fb 0 0)
-               (sys.int::%bitset 2 (second dims) #xFFD8D8D8 main-fb (- (first dims) 20) 0)
-               (let ((current-channel nil)
-                     (joined-channels '())
-                     (connection nil)
-                     (nick nil))
-                 (loop (format input "~A] " (or current-channel ""))
-                    (let ((line (read-line input)))
-                      (sys.int::stream-move-to input 0 0)
-                      (cond ((and (>= (length line) 1)
-                                  (eql (char line 0) #\/)
-                                  (not (and (>= (length line) 2)
-                                            (eql (char line 1) #\/))))
-                             (multiple-value-bind (command rest)
-                                 (parse-command line)
-                               (cond ((string-equal command "nick")
-                                      (setf nick rest)
-                                      (when connection
-                                        (send connection "NICK ~A~%" nick)))
-                                     ((string-equal command "connect")
-                                      (cond ((not nick)
-                                             (format display "Use /nick to set a nickname before connecting.~%"))
-                                            ((irc-connection irc)
-                                             (format display "Already connected.~%"))
-                                            (t (multiple-value-bind (address port)
-                                                   (resolve-server-name rest)
-                                                 (setf connection (sys.net::tcp-stream-connect address port)
-                                                       (irc-connection irc) connection)
-                                                 (send (irc-connection irc) "USER ~A hostname servername :~A~%" nick nick)
-                                                 (send (irc-connection irc) "NICK ~A~%" nick)))))
-                                     ((string-equal command "join")
-                                      (when connection
-                                        (send connection "JOIN ~A~%" rest)
-                                        (push rest joined-channels)
-                                        (unless current-channel
-                                          (setf current-channel rest))))
-                                     ((string-equal command "chan")
-                                      (when connection
-                                        (setf current-channel rest)))
-                                     ((string-equal command "part")
-                                      (when (and connection current-channel)
-                                        (send connection "PART ~A :~A~%" current-channel rest)
-                                        (setf current-channel nil)))
-                                     (t (let ((fn (gethash (string-upcase command) *top-level-commands*)))
-                                          (if fn
-                                              (with-simple-restart (abort "Abort evaulation and return to IRC.")
-                                                (let ((*standard-input* input)
-                                                      (*standard-output* display)
-                                                      (*query-io* (make-two-way-stream input display)))
-                                                  (funcall fn rest connection current-channel nick)))
-                                              (format display "Unknown command ~S.~%" command)))))))
-                            (current-channel
-                             (format display "[~A]<~A> ~A~%" current-channel nick line)
-                             (send connection "PRIVMSG ~A :~A~%" current-channel line)))))))
+             (let ((current-channel nil)
+                   (joined-channels '())
+                   (connection nil)
+                   (nick nil))
+               (loop (format irc "~A] " (or current-channel "")) ; write prompt to the input line. (ugh!)
+                  (let ((line (read-line)))
+                    (sys.int::stream-move-to irc 0 0)
+                    (cond ((and (>= (length line) 1)
+                                (eql (char line 0) #\/)
+                                (not (and (>= (length line) 2)
+                                          (eql (char line 1) #\/))))
+                           (multiple-value-bind (command rest)
+                               (parse-command line)
+                             (cond ((string-equal command "nick")
+                                    (setf nick rest)
+                                    (when connection
+                                      (send connection "NICK ~A~%" nick)))
+                                   ((string-equal command "connect")
+                                    (cond ((not nick)
+                                           (format t "Use /nick to set a nickname before connecting.~%"))
+                                          ((irc-connection irc)
+                                           (format t "Already connected.~%"))
+                                          (t (multiple-value-bind (address port)
+                                                 (resolve-server-name rest)
+                                               (setf connection (sys.net::tcp-stream-connect address port)
+                                                     (irc-connection irc) connection)
+                                               (send (irc-connection irc) "USER ~A hostname servername :~A~%" nick nick)
+                                               (send (irc-connection irc) "NICK ~A~%" nick)))))
+                                   ((string-equal command "join")
+                                    (when connection
+                                      (send connection "JOIN ~A~%" rest)
+                                      (push rest joined-channels)
+                                      (unless current-channel
+                                        (setf current-channel rest))))
+                                   ((string-equal command "chan")
+                                    (when connection
+                                      (setf current-channel rest)))
+                                   ((string-equal command "part")
+                                    (when (and connection current-channel)
+                                      (send connection "PART ~A :~A~%" current-channel rest)
+                                      (setf current-channel nil)))
+                                   (t (let ((fn (gethash (string-upcase command) *top-level-commands*)))
+                                        (if fn
+                                            (with-simple-restart (abort "Abort evaulation and return to IRC.")
+                                              (funcall fn rest connection current-channel nick))
+                                            (format t "Unknown command ~S.~%" command)))))))
+                          (current-channel
+                           (format t "[~A]<~A> ~A~%" current-channel nick line)
+                           (send connection "PRIVMSG ~A :~A~%" current-channel line))))))
            (quit-irc ()))
       (sys.int::process-disable (irc-receive-process irc))
       (when (irc-connection irc)
@@ -402,6 +449,6 @@
 
 (defun create-irc-client ()
   "Open an IRC window."
-  (sys.graphics::window-set-visibility (sys.graphics::make-window "Unconnected IRC" 640 400 'irc-client) t))
+  (sys.graphics::window-set-visibility (sys.graphics::make-window "IRC" 640 400 'irc-client) t))
 
 (setf (gethash (name-char "F2") sys.graphics::*global-keybindings*) 'create-irc-client)
