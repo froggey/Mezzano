@@ -127,104 +127,151 @@
 (defmethod window-redraw :after ((window window))
   (window-swap-buffers window))
 
-(defclass text-window (sys.int::edit-stream sys.int::stream-object window)
-  ((cursor-x :initarg :x :accessor cursor-x)
-   (cursor-y :initarg :y :accessor cursor-y)
+(defclass text-widget (sys.int::edit-stream sys.int::stream-object)
+  ((cursor-x :initarg :cursor-x :accessor cursor-x)
+   (cursor-y :initarg :cursor-y :accessor cursor-y)
    (foreground :initarg :foreground :accessor window-foreground-colour)
    (background :initarg :background :accessor window-background-colour)
-   (buffer :initarg :buffer :reader text-window-buffer))
+   (framebuffer :initarg :framebuffer :reader framebuffer)
+   (x :initarg :x :accessor widget-x)
+   (y :initarg :y :accessor widget-y)
+   (width :initarg :width :accessor widget-width)
+   (height :initarg :height :accessor widget-height))
   (:default-initargs :x 0 :y 0
+                     :cursor-x 0 :cursor-y 0
                      :foreground (make-colour *default-foreground-colour*)
-                     :background (make-colour *default-background-colour*)
-                     :buffer (make-fifo 500 'character)))
+                     :background (make-colour *default-background-colour*)))
+
+(defclass character-input-mixin ()
+  ((character-buffer :initarg :buffer :reader character-buffer))
+  (:default-initargs :buffer (make-fifo 500 'character)))
+
+(defmethod key-press-event ((window character-input-mixin) character)
+  (fifo-push character (character-buffer window)))
+
+(defmethod sys.int::stream-read-char ((stream character-input-mixin))
+  (loop
+     (let ((char (fifo-pop (character-buffer stream))))
+       (when char (return char)))
+     (sys.int::process-wait "User input"
+                            (lambda ()
+                              (not (fifo-emptyp (character-buffer stream)))))))
+
+(defclass text-window (sys.int::edit-stream character-input-mixin sys.int::stream-object window)
+  ((widget :reader text-window-display)))
+
+(defmethod window-foreground-colour ((window text-window))
+  (window-foreground-colour (text-window-display window)))
+
+(defmethod (setf window-foreground-colour) (new-value (window text-window))
+  (setf (window-foreground-colour (text-window-display window)) new-value))
+
+(defmethod window-background-colour ((window text-window))
+  (window-background-colour (text-window-display window)))
+
+(defmethod (setf window-background-colour) (new-value (window text-window))
+  (setf (window-background-colour (text-window-display window)) new-value))
+
+(defmethod initialize-instance :after ((instance text-window))
+  (multiple-value-bind (left right top bottom)
+      (compute-window-margins instance)
+    (setf (slot-value instance 'widget) (make-instance 'text-widget
+                                                       :framebuffer (window-backbuffer instance)
+                                                       :x left
+                                                       :y top
+                                                       :width (- (array-dimension (window-backbuffer instance) 1)
+                                                                 left right)
+                                                       :height (- (array-dimension (window-backbuffer instance) 0)
+                                                                  top bottom)))))
 
 (defclass text-window-with-chrome (text-window window-with-chrome) ())
 
 (defmethod window-redraw ((window text-window))
   (multiple-value-bind (left right top bottom)
       (compute-window-margins window)
-    (bitset (window-height window) (window-width window) (window-background-colour window) (window-backbuffer window) top left)))
-
-(defmethod key-press-event ((window text-window) character)
-  (fifo-push character (text-window-buffer window)))
-
-(defmethod mouse-button-event ((window text-window) button-id state mouse-x mouse-y)
-  (format t "CLICK ~D ~S (~D,~D)~%" button-id state mouse-x mouse-y))
+    (bitset (window-height window) (window-width window)
+            (window-background-colour (text-window-display window))
+            (window-backbuffer window) top left)))
 
 (defmethod window-close-event ((window text-window))
   (close-window window))
 
-(defmethod sys.int::stream-read-char ((stream text-window))
-  (loop
-     (let ((char (fifo-pop (text-window-buffer stream))))
-       (when char (return char)))
-     (sys.int::process-wait "User input"
-                            (lambda ()
-                              (not (fifo-emptyp (text-window-buffer stream)))))))
+(defmethod sys.int::stream-write-char (character (stream text-widget))
+  (let ((fb (framebuffer stream))
+        (x (cursor-x stream))
+        (y (cursor-y stream))
+        (win-width (widget-width stream))
+        (win-height (widget-height stream)))
+    (cond
+      ((eql character #\Newline)
+       ;; Clear the next line.
+       (setf (cursor-x stream) 0
+             y (if (> (+ y 16 16) win-height)
+                   0
+                   (+ y 16))
+             (cursor-y stream) y)
+       (bitset 16 win-width (window-background-colour stream) fb (+ (widget-y stream) y) (widget-x stream)))
+      (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
+           (when (> (+ x width) win-width)
+             ;; Advance to the next line.
+             ;; Maybe should clear the end of the current line?
+             (setf x 0
+                   y (if (> (+ y 16 16) win-height)
+                         0
+                         (+ y 16))
+                   (cursor-y stream) y)
+             (bitset 16 win-width (window-background-colour stream) fb (+ (widget-y stream) y) (widget-x stream)))
+           (bitset 16 width (window-background-colour stream) fb (+ (widget-y stream) y) (+ (widget-x stream) x))
+           (unless (eql character #\Space)
+             (let* ((glyph (sys.int::map-unifont-2d character)))
+               (cond (glyph
+                      (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
+                                               glyph 0 0
+                                               fb (+ (widget-y stream) y) (+ (widget-x stream) x)))
+                     (t))))
+           (incf x width)
+           (setf (cursor-x stream) x))))))
 
 (defmethod sys.int::stream-write-char (character (stream text-window))
-  (multiple-value-bind (left right top bottom)
-      (compute-window-margins stream)
-    (let ((fb (window-frontbuffer stream))
-          (x (cursor-x stream))
-          (y (cursor-y stream))
-          (win-width (window-width stream))
-          (win-height (window-height stream)))
-      (cond
-        ((eql character #\Newline)
-         ;; Clear the next line.
-         (setf (cursor-x stream) 0
-               y (if (> (+ y 16 16) win-height)
-                     0
-                     (+ y 16))
-               (cursor-y stream) y)
-         (sys.int::%bitset 16 win-width (window-background-colour stream) fb (+ top y) left))
-        (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
-             (when (> (+ x width) win-width)
-               ;; Advance to the next line.
-               ;; Maybe should clear the end of the current line?
-               (setf x 0
-                     y (if (> (+ y 16 16) win-height)
-                           0
-                           (+ y 16))
-                     (cursor-y stream) y)
-               (sys.int::%bitset 16 win-width (window-background-colour stream) fb (+ top y) left))
-             (sys.int::%bitset 16 width (window-background-colour stream) fb (+ top y) (+ left x))
-             (unless (eql character #\Space)
-               (let* ((glyph (sys.int::map-unifont-2d character)))
-                 (cond (glyph
-                        (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
-                                                 glyph 0 0
-                                                 fb (+ top y) (+ left x)))
-                       (t))))
-             (incf x width)
-             (setf (cursor-x stream) x))))))
+  (sys.int::stream-write-char character (text-window-display stream))
   (setf *refresh-required* t))
 
-(defmethod sys.int::stream-start-line-p ((stream text-window))
+(defmethod sys.int::stream-start-line-p ((stream text-widget))
   (zerop (cursor-x stream)))
 
-(defmethod sys.int::stream-cursor-pos ((stream text-window))
+(defmethod sys.int::stream-start-line-p ((stream text-window))
+  (sys.int::stream-start-line-p (text-window-display stream)))
+
+(defmethod sys.int::stream-cursor-pos ((stream text-widget))
   (values (cursor-x stream) (cursor-y stream)))
 
-(defmethod sys.int::stream-move-to ((stream text-window) x y)
+(defmethod sys.int::stream-cursor-pos ((stream text-window))
+  (sys.int::stream-cursor-pos (text-window-display stream)))
+
+(defmethod sys.int::stream-move-to ((stream text-widget) x y)
   (check-type x integer)
   (check-type y integer)
   (setf (cursor-x stream) x
         (cursor-y stream) y))
 
-(defmethod sys.int::stream-character-width ((stream text-window) character)
+(defmethod sys.int::stream-move-to ((stream text-window) x y)
+  (sys.int::stream-move-to (text-window-display stream) x y))
+
+(defmethod sys.int::stream-character-width ((stream text-widget) character)
   (if (eql character #\Space)
       8
       (sys.int::unifont-glyph-width character)))
 
-(defmethod sys.int::stream-compute-motion ((stream text-window) string &optional (start 0) end initial-x initial-y)
+(defmethod sys.int::stream-character-width ((stream text-window) character)
+  (sys.int::stream-character-width (text-window-display stream) character))
+
+(defmethod sys.int::stream-compute-motion ((stream text-widget) string &optional (start 0) end initial-x initial-y)
   (unless end (setf end (length string)))
   (unless initial-x (setf initial-x (cursor-x stream)))
   (unless initial-y (setf initial-y (cursor-y stream)))
-  (do ((framebuffer (window-frontbuffer stream))
-       (win-width (window-width stream))
-       (win-height (window-height stream))
+  (do ((framebuffer (framebuffer stream))
+       (win-width (widget-width stream))
+       (win-height (widget-height stream))
        (i start (1+ i)))
       ((>= i end)
        (values initial-x initial-y))
@@ -239,28 +286,35 @@
       (unless (eql ch #\Newline)
         (incf initial-x width)))))
 
+(defmethod sys.int::stream-compute-motion ((stream text-window) string &optional (start 0) end initial-x initial-y)
+  (sys.int::stream-compute-motion (text-window-display stream) string start end initial-x initial-y))
+
+(defmethod sys.int::stream-clear-between ((stream text-widget) start-x start-y end-x end-y)
+  (let ((framebuffer (framebuffer stream))
+        (win-width (widget-width stream))
+        (win-height (widget-height stream))
+        (colour (window-background-colour stream)))
+    (cond ((eql start-y end-y)
+           ;; Clearing one line.
+           (bitset 16 (- end-x start-x) colour framebuffer (+ (widget-y stream) start-y) (+ (widget-x stream) start-x)))
+          (t ;; Clearing many lines.
+           ;; Clear top line.
+           (bitset 16 (- win-width start-x) colour
+                   framebuffer (+ (widget-y stream) start-y) (+ (widget-x stream) start-x))
+           ;; Clear in-between.
+           (when (> (- end-y start-y) 16)
+             (bitset (- end-y start-y 16) win-width colour
+                     framebuffer (+ (widget-y stream) start-y 16) (widget-x stream)))
+           ;; Clear bottom line.
+           (bitset 16 end-x colour
+                   framebuffer (+ (widget-y stream) end-y) (widget-x stream))))))
+
 (defmethod sys.int::stream-clear-between ((stream text-window) start-x start-y end-x end-y)
-  (multiple-value-bind (left right top bottom)
-      (compute-window-margins stream)
-    (let ((framebuffer (window-frontbuffer stream))
-          (win-width (window-width stream))
-          (win-height (window-height stream))
-          (colour (window-background-colour stream)))
-      (cond ((eql start-y end-y)
-             ;; Clearing one line.
-             (sys.int::%bitset 16 (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x)))
-            (t ;; Clearing many lines.
-             ;; Clear top line.
-             (sys.int::%bitset 16 (- win-width start-x) colour
-                               framebuffer (+ top start-y) (+ left start-x))
-             ;; Clear in-between.
-             (when (> (- end-y start-y) 16)
-               (sys.int::%bitset (- end-y start-y 16) win-width colour
-                                 framebuffer (+ top start-y 16) left))
-             ;; Clear bottom line.
-             (sys.int::%bitset 16 end-x colour
-                               framebuffer (+ top end-y) left)))))
+  (sys.int::stream-clear-between (text-window-display stream) start-x start-y end-x end-y)
   (setf *refresh-required* t))
+
+(defmethod sys.int::stream-element-type* ((stream text-widget))
+  'character)
 
 (defmethod sys.int::stream-element-type* ((stream text-window))
   'character)
