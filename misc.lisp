@@ -111,8 +111,6 @@ BODY must not allocate!"
 (defvar *load-print* nil)
 
 (defun load-lisp-source (stream)
-  (when *load-verbose*
-    (format t ";;; Loading from ~S~%" stream))
   (let ((*readtable* *readtable*)
         (*package* *package*)
         (*load-truename* stream)
@@ -125,6 +123,8 @@ BODY must not allocate!"
     t))
 
 (defun load-from-stream (stream)
+  (when *load-verbose*
+    (format t ";;; Loading from ~S~%" stream))
   (if (subtypep (stream-element-type stream) 'character)
       (load-lisp-source stream)
       (mini-load-llf stream)))
