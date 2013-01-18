@@ -1,8 +1,8 @@
-(defpackage #:lrssl
+(defpackage #:irc-client
   (:use #:cl #:sys.net)
   (:export lrssl))
 
-(in-package #:lrssl)
+(in-package #:irc-client)
 
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)
@@ -199,18 +199,18 @@
 
 (defvar *command-table* (make-hash-table :test 'equal))
 
-(defmacro define-server-command (name lambda-list &body body)
+(defmacro define-server-command (name (state . lambda-list) &body body)
   (let ((args (gensym)))
     `(setf (gethash ,(if (and (symbolp name) (not (keywordp name)))
                          (symbol-name name)
                          name)
                     *command-table*)
-           (lambda (,(first lambda-list) ,args)
+           (lambda (,state ,(first lambda-list) ,args)
              (declare (system:lambda-name (irc-command ,name)))
              (destructuring-bind ,(rest lambda-list) ,args
                ,@body)))))
 
-(define-server-command privmsg (from channel message)
+(define-server-command privmsg (irc from channel message)
   ;; ^AACTION [msg]^A is a /me command.
   (cond ((and (>= (length message) 9)
               (eql (char message 0) (code-char #x01))
@@ -238,7 +238,11 @@
    (receive-process :reader irc-receive-process)
    (connection :initform nil :accessor irc-connection)
    (input :reader irc-input)
-   (display :reader irc-display)))
+   (display :reader irc-display)
+   (current-channel :initform nil :accessor current-channel)
+   (joined-channels :initform '() :accessor joined-channels)
+   (nickname :initarg :nickname :accessor nickname))
+  (:default-initargs :nickname nil))
 
 ;;; This is just so the graphics manager knows the display needs an update.
 (defclass irc-display (sys.graphics::text-widget) ())
@@ -307,69 +311,6 @@
     (close (irc-connection irc)))
   (sys.graphics::close-window irc))
 
-(defun irc-receive (irc)
-  (let ((*standard-input* irc)
-        (*standard-output* (irc-display irc))
-        (*error-output* (irc-display irc))
-        (*query-io* (make-two-way-stream irc (irc-display irc)))
-        (*debug-io* (make-two-way-stream irc (irc-display irc))))
-    ;; Should close the connection here...
-    (with-simple-restart (abort "Give up")
-      (sys.int::process-wait "Awaiting connection" (lambda () (irc-connection irc)))
-      (let ((connection (irc-connection irc)))
-        (loop (let ((line (read-line connection)))
-                (multiple-value-bind (prefix command parameters)
-                    (decode-command line)
-                  (let ((fn (gethash command *command-table*)))
-                    (cond (fn (funcall fn prefix parameters))
-                          ((keywordp command)
-                           (format t "[~A] -!- ~A~%" prefix (car (last parameters))))
-                          ((integerp command)
-                           (format t "[~A] ~D ~A~%" prefix command parameters))
-                          (t (write-line line)))))))))))
-
-(defvar *top-level-commands* (make-hash-table :test 'equal))
-
-(defmacro define-command (name (&key text connection channel nick) &body body)
-  (let ((text-sym (or text (gensym)))
-        (con-sym (or connection (gensym)))
-        (chan-sym (or channel (gensym)))
-        (nick-sym (or nick (gensym))))
-  `(setf (gethash ',(string-upcase (string name))
-                  *top-level-commands*)
-         (lambda (,text-sym ,con-sym ,chan-sym ,nick-sym)
-           (declare (system:lambda-name (irc-command ,name))
-                    (ignorable ,text-sym ,con-sym ,chan-sym ,nick-sym))
-           ,@body))))
-
-(define-condition quit-irc () ())
-
-(define-command quit (:text text :connection connection)
-  (when connection
-    (send connection "QUIT :~A~%" text))
-  (signal 'quit-irc))
-
-(define-command raw (:text text :connection connection)
-  (when connection
-    (write-string rest connection)
-    (terpri connection)))
-
-(define-command eval (:text text)
-  (format t "[eval] ~A~%" text)
-  (eval (read-from-string text))
-  (fresh-line))
-
-(define-command say (:text text :connection connection :channel channel :nick nick)
-  (when (and connection channel)
-    (format t "[~A]<~A> ~A~%" channel nick text)
-    (send connection "PRIVMSG ~A :~A~%" channel text)))
-
-(define-command me (:text text :connection connection :channel channel :nick nick)
-  (when (and connection channel)
-    (format t "[~A]* ~A ~A~%" channel nick text)
-    (send connection "PRIVMSG ~A :~AACTION ~A~A~%"
-          channel (code-char 1) text (code-char 1))))
-
 (defmethod sys.graphics::window-redraw ((window irc-client))
   (multiple-value-bind (left right top bottom)
       (sys.graphics::compute-window-margins window)
@@ -384,6 +325,104 @@
                                 top bottom 1 16))
                           left)))
 
+(defun irc-receive (irc)
+  (let ((*standard-input* irc)
+        (*standard-output* (irc-display irc))
+        (*error-output* (irc-display irc))
+        (*query-io* (make-two-way-stream irc (irc-display irc)))
+        (*debug-io* (make-two-way-stream irc (irc-display irc))))
+    ;; Should close the connection here...
+    (with-simple-restart (abort "Give up")
+      (sys.int::process-wait "Awaiting connection" (lambda () (irc-connection irc)))
+      (let ((connection (irc-connection irc)))
+        (loop (let ((line (read-line connection)))
+                (multiple-value-bind (prefix command parameters)
+                    (decode-command line)
+                  (let ((fn (gethash command *command-table*)))
+                    (cond (fn (funcall fn irc prefix parameters))
+                          ((keywordp command)
+                           (format t "[~A] -!- ~A~%" prefix (car (last parameters))))
+                          ((integerp command)
+                           (format t "[~A] ~D ~A~%" prefix command parameters))
+                          (t (write-line line)))))))))))
+
+(defvar *top-level-commands* (make-hash-table :test 'equal))
+
+(defmacro define-command (name (irc text) &body body)
+  `(setf (gethash ',(string-upcase (string name))
+                  *top-level-commands*)
+         (lambda (,irc ,text)
+           (declare (system:lambda-name (irc-command ,name)))
+           ,@body)))
+
+(define-condition quit-irc () ())
+
+(define-command quit (irc text)
+  (when (irc-connection irc)
+    (send (irc-connection irc) "QUIT :~A~%" text))
+  (signal 'quit-irc))
+
+(define-command raw (irc text)
+  (when (irc-connection irc)
+    (write-string text (irc-connection irc))
+    (terpri (irc-connection irc))))
+
+(define-command eval (irc text)
+  (declare (ignore irc))
+  (format t "[eval] ~A~%" text)
+  (eval (read-from-string text))
+  (fresh-line))
+
+(define-command say (irc text)
+  (when (and (irc-connection irc) (current-channel irc))
+    (format t "[~A]<~A> ~A~%" (current-channel irc) (nickname irc) text)
+    (send (irc-connection irc) "PRIVMSG ~A :~A~%"
+          (current-channel irc) text)))
+
+(define-command me (irc text)
+  (when (and (irc-connection irc) (current-channel irc))
+    (format t "[~A]* ~A ~A~%" (current-channel irc) (nickname irc) text)
+    (send (irc-connection irc) "PRIVMSG ~A :~AACTION ~A~A~%"
+          (current-channel irc) (code-char 1) text (code-char 1))))
+
+(define-command nick (irc text)
+  (format t "Changing nickname to ~A.~%" text)
+  (setf (nickname irc) text)
+  (when (irc-connection irc)
+    (send (irc-connection irc) "NICK ~A~%" (nickname irc))))
+
+(define-command connect (irc text)
+  (cond ((not (nickname irc))
+         (format t "Use /nick to set a nickname before connecting.~%"))
+        ((irc-connection irc)
+         (format t "Already connected.~%"))
+        (t (multiple-value-bind (address port)
+               (resolve-server-name text)
+             (setf (irc-connection irc) (sys.net::tcp-stream-connect address port))
+             (send (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
+             (send (irc-connection irc) "NICK ~A~%" (nickname irc))))))
+
+(define-command join (irc text)
+  (if (find text (joined-channels irc) :test 'equal)
+      (format t "Already joined to ~A.~%" text)
+      (when (irc-connection irc)
+        (send (irc-connection irc) "JOIN ~A~%" text)
+        (push text (joined-channels irc))
+        (unless (current-channel irc)
+          (setf (current-channel irc) text)))))
+
+(define-command chan (irc text)
+  (when (irc-connection irc)
+    (if (find text (joined-channels irc) :test 'equal)
+        (setf (current-channel irc) text)
+        (format t "Not joined to channel ~A." text))))
+
+(define-command part (irc text)
+  (when (and (irc-connection irc) (current-channel irc))
+    (send (irc-connection irc) "PART ~A :~A~%" (current-channel irc) text)
+    (setf (joined-channels irc) (remove (current-channel irc) (joined-channels irc)))
+    (setf (current-channel irc) (first (joined-channels irc)))))
+
 (defun irc-top-level (irc)
   (let ((*standard-input* irc)
         (*standard-output* (irc-display irc))
@@ -392,55 +431,23 @@
         (*debug-io* (make-two-way-stream irc (irc-display irc))))
     (unwind-protect
          (handler-case
-             (let ((current-channel nil)
-                   (joined-channels '())
-                   (connection nil)
-                   (nick nil))
-               (loop (format irc "~A] " (or current-channel "")) ; write prompt to the input line. (ugh!)
-                  (let ((line (read-line)))
-                    (sys.int::stream-move-to irc 0 0)
-                    (cond ((and (>= (length line) 1)
-                                (eql (char line 0) #\/)
-                                (not (and (>= (length line) 2)
-                                          (eql (char line 1) #\/))))
-                           (multiple-value-bind (command rest)
-                               (parse-command line)
-                             (cond ((string-equal command "nick")
-                                    (setf nick rest)
-                                    (when connection
-                                      (send connection "NICK ~A~%" nick)))
-                                   ((string-equal command "connect")
-                                    (cond ((not nick)
-                                           (format t "Use /nick to set a nickname before connecting.~%"))
-                                          ((irc-connection irc)
-                                           (format t "Already connected.~%"))
-                                          (t (multiple-value-bind (address port)
-                                                 (resolve-server-name rest)
-                                               (setf connection (sys.net::tcp-stream-connect address port)
-                                                     (irc-connection irc) connection)
-                                               (send (irc-connection irc) "USER ~A hostname servername :~A~%" nick nick)
-                                               (send (irc-connection irc) "NICK ~A~%" nick)))))
-                                   ((string-equal command "join")
-                                    (when connection
-                                      (send connection "JOIN ~A~%" rest)
-                                      (push rest joined-channels)
-                                      (unless current-channel
-                                        (setf current-channel rest))))
-                                   ((string-equal command "chan")
-                                    (when connection
-                                      (setf current-channel rest)))
-                                   ((string-equal command "part")
-                                    (when (and connection current-channel)
-                                      (send connection "PART ~A :~A~%" current-channel rest)
-                                      (setf current-channel nil)))
-                                   (t (let ((fn (gethash (string-upcase command) *top-level-commands*)))
-                                        (if fn
-                                            (with-simple-restart (abort "Abort evaulation and return to IRC.")
-                                              (funcall fn rest connection current-channel nick))
-                                            (format t "Unknown command ~S.~%" command)))))))
-                          (current-channel
-                           (format t "[~A]<~A> ~A~%" current-channel nick line)
-                           (send connection "PRIVMSG ~A :~A~%" current-channel line))))))
+             (loop (format irc "~A] " (or (current-channel irc) "")) ; write prompt to the input line. (ugh!)
+                (let ((line (read-line)))
+                  (sys.int::stream-move-to irc 0 0)
+                  (cond ((and (>= (length line) 1)
+                              (eql (char line 0) #\/)
+                              (not (and (>= (length line) 2)
+                                        (eql (char line 1) #\/))))
+                         (multiple-value-bind (command rest)
+                             (parse-command line)
+                           (let ((fn (gethash (string-upcase command) *top-level-commands*)))
+                             (if fn
+                                 (with-simple-restart (abort "Abort evaulation and return to IRC.")
+                                   (funcall fn irc rest))
+                                 (format t "Unknown command ~S.~%" command)))))
+                        ((current-channel irc)
+                         (format t "[~A]<~A> ~A~%" (current-channel irc) (nickname irc) line)
+                         (send (irc-connection irc) "PRIVMSG ~A :~A~%" (current-channel irc) line)))))
            (quit-irc ()))
       (sys.int::process-disable (irc-receive-process irc))
       (when (irc-connection irc)
