@@ -1487,6 +1487,7 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                (t ;; Give up and use the full path.
                 (slow-single-dispatch-method-lookup* gf argument-offset args :never-called)))))
       (:never-called
+       (clrhash emf-table)
        (let* ((classes (mapcar #'class-of (required-portion gf args)))
               (class (nth argument-offset classes))
               (applicable-methods
