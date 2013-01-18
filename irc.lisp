@@ -211,7 +211,14 @@
                ,@body)))))
 
 (define-server-command privmsg (from channel message)
-  (format t "[~A]<~A> ~A~%" channel from message))
+  ;; ^AACTION [msg]^A is a /me command.
+  (cond ((and (>= (length message) 9)
+              (eql (char message 0) (code-char #x01))
+              (eql (char message (1- (length message))) (code-char #x01))
+              (string= "ACTION " message :start2 1 :end2 8))
+         (format t "[~A]* ~A ~A~%" channel from
+                 (subseq message 8 (1- (length message)))))
+        (t (format t "[~A]<~A> ~A~%" channel from message))))
 
 (defvar *known-servers*
   '((:freenode (213 92 8 4) 6667))
@@ -272,93 +279,122 @@
                            (format display "[~A] ~D ~A~%" prefix command parameters))
                           (t (write-line line display)))))))))))
 
+(defvar *top-level-commands* (make-hash-table :test 'equal))
+
+(defmacro define-command (name (&key text connection channel nick) &body body)
+  (let ((text-sym (or text (gensym)))
+        (con-sym (or connection (gensym)))
+        (chan-sym (or channel (gensym)))
+        (nick-sym (or nick (gensym))))
+  `(setf (gethash ',(string-upcase (string name))
+                  *top-level-commands*)
+         (lambda (,text-sym ,con-sym ,chan-sym ,nick-sym)
+           (declare (system:lambda-name (irc-command ,name))
+                    (ignorable ,text-sym ,con-sym ,chan-sym ,nick-sym))
+           ,@body))))
+
+(define-condition quit-irc () ())
+
+(define-command quit (:text text :connection connection)
+  (when connection
+    (send connection "QUIT :~A~%" text))
+  (signal 'quit-irc))
+
+(define-command raw (:text text :connection connection)
+  (when connection
+    (write-string rest connection)
+    (terpri connection)))
+
+(define-command eval (:text text)
+  (format t "[eval] ~A~%" text)
+  (eval (read-from-string text))
+  (fresh-line))
+
+(define-command say (:text text :connection connection :channel channel :nick nick)
+  (when (and connection channel)
+    (format t "[~A]<~A> ~A~%" channel nick text)
+    (send connection "PRIVMSG ~A :~A~%" channel text)))
+
+(define-command me (:text text :connection connection :channel channel :nick nick)
+  (when (and connection channel)
+    (format t "[~A]* ~A ~A~%" current-channel nick text)
+    (send connection "PRIVMSG ~A :~AACTION ~A~A~%"
+          channel (code-char 1) text (code-char 1))))
+
 (defun irc-top-level (irc)
   (sys.graphics::with-window-streams irc
     (unwind-protect
-         (let* ((main-fb (sys.graphics::window-frontbuffer irc))
-                (dims (array-dimensions main-fb))
-                (display-fb (make-array (list (- (first dims) 20) (second dims))
-                                        :displaced-to main-fb
-                                        :displaced-index-offset 0))
-                (display (make-instance 'hacky-framebuffer-stream
-                                        :irc irc
-                                        :framebuffer display-fb))
-                (input-fb (make-array (list 16 (second dims))
-                                      :displaced-to main-fb
-                                      :displaced-index-offset (* (- (first dims) 16) (second dims))))
-                (input (make-instance 'hacky-framebuffer-stream
-                                      :irc irc
-                                      :framebuffer input-fb)))
-           (setf (irc-display* irc) display)
-           (sys.int::%bitset (first dims) (second dims) 0 main-fb 0 0)
-           (sys.int::%bitset 2 (second dims) #xFFD8D8D8 main-fb (- (first dims) 20) 0)
-           (let ((current-channel nil)
-                 (joined-channels '())
-                 (connection nil)
-                 (nick nil))
-             (loop (format input "~A] " (or current-channel ""))
-                (let ((line (read-line input)))
-                  (sys.int::stream-move-to input 0 0)
-                  (cond ((and (>= (length line) 1)
-                              (eql (char line 0) #\/)
-                              (not (and (>= (length line) 2)
-                                        (eql (char line 1) #\/))))
-                         (multiple-value-bind (command rest)
-                             (parse-command line)
-                           (cond ((string-equal command "nick")
-                                  (setf nick rest)
-                                  (when connection
-                                    (send connection "NICK ~A~%" nick)))
-                                 ((string-equal command "connect")
-                                  (cond ((not nick)
-                                         (format display "Use /nick to set a nickname before connecting.~%"))
-                                        ((irc-connection irc)
-                                         (format display "Already connected.~%"))
-                                        (t (multiple-value-bind (address port)
-                                               (resolve-server-name rest)
-                                             (setf connection (sys.net::tcp-stream-connect address port)
-                                                   (irc-connection irc) connection)
-                                             (send (irc-connection irc) "USER ~A hostname servername :~A~%" nick nick)
-                                             (send (irc-connection irc) "NICK ~A~%" nick)))))
-                                 ((string-equal command "quit")
-                                  (when connection
-                                    (send connection "QUIT :~A~%" rest))
-                                  (return))
-                                 ((string-equal command "join")
-                                  (when connection
-                                    (send connection "JOIN ~A~%" rest)
-                                    (push rest joined-channels)
-                                    (unless current-channel
-                                      (setf current-channel rest))))
-                                 ((string-equal command "chan")
-                                  (when connection
-                                    (setf current-channel rest)))
-                                 ((string-equal command "part")
-                                  (when connection
-                                    (when current-channel
-                                      (send connection "PART ~A :~A~%" current-channel rest)
-                                      (setf current-channel nil))))
-                                 ((string-equal command "raw")
-                                  (when connection
-                                    (write-string rest connection)
-                                    (terpri connection)))
-                                 ((string-equal command "eval")
-                                  (format display "[eval] ~A~%" rest)
-                                  (let ((*standard-output* display)
-                                        (*query-io* input)
-                                        (*standard-input* input))
-                                    (with-simple-restart (abort "Abort evaulation and return to LRSSL.")
-                                      (eval (read-from-string rest)))
-                                    (fresh-line display)))
-                                 ((string-equal command "say")
-                                  (when connection
-                                    (when current-channel
-                                      (format display "[~A]<~A> ~A~%" current-channel nick rest)
-                                      (send connection "PRIVMSG ~A :~A~%" current-channel rest))))
-                                 (t (format display "Unknown command ~S.~%" command)))))
-                        (current-channel
-                         (format display "[~A]<~A> ~A~%" current-channel nick line)
-                         (send connection "PRIVMSG ~A :~A~%" current-channel line)))))))
+         (handler-case
+             (let* ((main-fb (sys.graphics::window-frontbuffer irc))
+                    (dims (array-dimensions main-fb))
+                    (display-fb (make-array (list (- (first dims) 20) (second dims))
+                                            :displaced-to main-fb
+                                            :displaced-index-offset 0))
+                    (display (make-instance 'hacky-framebuffer-stream
+                                            :irc irc
+                                            :framebuffer display-fb))
+                    (input-fb (make-array (list 16 (second dims))
+                                          :displaced-to main-fb
+                                          :displaced-index-offset (* (- (first dims) 16) (second dims))))
+                    (input (make-instance 'hacky-framebuffer-stream
+                                          :irc irc
+                                          :framebuffer input-fb)))
+               (setf (irc-display* irc) display)
+               (sys.int::%bitset (first dims) (second dims) 0 main-fb 0 0)
+               (sys.int::%bitset 2 (second dims) #xFFD8D8D8 main-fb (- (first dims) 20) 0)
+               (let ((current-channel nil)
+                     (joined-channels '())
+                     (connection nil)
+                     (nick nil))
+                 (loop (format input "~A] " (or current-channel ""))
+                    (let ((line (read-line input)))
+                      (sys.int::stream-move-to input 0 0)
+                      (cond ((and (>= (length line) 1)
+                                  (eql (char line 0) #\/)
+                                  (not (and (>= (length line) 2)
+                                            (eql (char line 1) #\/))))
+                             (multiple-value-bind (command rest)
+                                 (parse-command line)
+                               (cond ((string-equal command "nick")
+                                      (setf nick rest)
+                                      (when connection
+                                        (send connection "NICK ~A~%" nick)))
+                                     ((string-equal command "connect")
+                                      (cond ((not nick)
+                                             (format display "Use /nick to set a nickname before connecting.~%"))
+                                            ((irc-connection irc)
+                                             (format display "Already connected.~%"))
+                                            (t (multiple-value-bind (address port)
+                                                   (resolve-server-name rest)
+                                                 (setf connection (sys.net::tcp-stream-connect address port)
+                                                       (irc-connection irc) connection)
+                                                 (send (irc-connection irc) "USER ~A hostname servername :~A~%" nick nick)
+                                                 (send (irc-connection irc) "NICK ~A~%" nick)))))
+                                     ((string-equal command "join")
+                                      (when connection
+                                        (send connection "JOIN ~A~%" rest)
+                                        (push rest joined-channels)
+                                        (unless current-channel
+                                          (setf current-channel rest))))
+                                     ((string-equal command "chan")
+                                      (when connection
+                                        (setf current-channel rest)))
+                                     ((string-equal command "part")
+                                      (when (and connection current-channel)
+                                        (send connection "PART ~A :~A~%" current-channel rest)
+                                        (setf current-channel nil)))
+                                     (t (let ((fn (gethash (string-upcase command) *top-level-commands*)))
+                                          (if fn
+                                              (with-simple-restart (abort "Abort evaulation and return to IRC.")
+                                                (let ((*standard-input* input)
+                                                      (*standard-output* display)
+                                                      (*query-io* (make-two-way-stream input display)))
+                                                  (funcall fn rest connection current-channel nick)))
+                                              (format display "Unknown command ~S.~%" command)))))))
+                            (current-channel
+                             (format display "[~A]<~A> ~A~%" current-channel nick line)
+                             (send connection "PRIVMSG ~A :~A~%" current-channel line)))))))
+           (quit-irc ()))
       (sys.int::process-disable (irc-receive-process irc))
       (when (irc-connection irc)
         (close (irc-connection irc)))
