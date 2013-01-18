@@ -19,6 +19,7 @@
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
 (defconstant +llf-proper-list+ #x11)
+(defconstant +llf-package+ #x12)
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -162,7 +163,11 @@
            (len (load-integer stream)))
        (dotimes (i len)
          (setf list (cons (vector-pop stack) list)))
-       list))))
+       list))
+    (#.+llf-package+
+     (let ((package (load-string stream)))
+       (or (find-package package)
+           (error "No such package ~S." package))))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)
