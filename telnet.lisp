@@ -77,7 +77,9 @@ party to perform, the indicated option.")
    (bold :initarg :bold :accessor bold)
    (inverse :initarg :inverse :accessor inverse)
    (underline :initarg :underline :accessor underline)
-   (character-set :initarg :charset :accessor charset))
+   (character-set :initarg :charset :accessor charset)
+   (saved-x :initform 0 :accessor saved-x)
+   (saved-y :initform 0 :accessor saved-y))
   (:default-initargs
    :interrupt-character nil
    :queued-bytes '()
@@ -271,34 +273,44 @@ party to perform, the indicated option.")
 
 (defun xterm-initial (terminal byte)
   "Initial state."
-  (case (code-char byte)
-    (#\Escape
-     (return-from xterm-initial
-       'xterm-saw-escape))
-    (#\Cr
-     (setf (x-pos terminal) 0))
-    (#\Lf
-     (incf (y-pos terminal)))
-    (#\Bs
-     (decf (x-pos terminal)))
-    (t (let ((char (ecase (charset terminal)
-                     (:usascii (code-char byte)) ; No translation.
-                     (:dec ;; Translate some characters.
-                      (if (<= #x60 byte #x7E)
-                          (aref *dec-special-characters-and-line-drawing*
-                                (- byte #x60))
-                          (code-char byte))))))
-         (write-terminal terminal char))))
+  (let ((char (ecase (charset terminal)
+                (:usascii (code-char byte)) ; No translation.
+                (:dec ;; Translate some characters.
+                 (if (<= #x60 byte #x7E)
+                     (aref *dec-special-characters-and-line-drawing*
+                           (- byte #x60))
+                     (code-char byte))))))
+    (case char
+      (#\Escape
+       (return-from xterm-initial
+         'xterm-saw-escape))
+      (#\Cr
+       (setf (x-pos terminal) 0))
+      (#\Lf
+       (incf (y-pos terminal)))
+      (#\Bs
+       (decf (x-pos terminal)))
+      (t (write-terminal terminal char))))
   nil)
 
 (defun xterm-saw-escape (terminal byte)
   "Saw escape byte."
   (case (code-char byte)
     (#\[ 'xterm-saw-bracket)
+    (#\] 'xterm-saw-close-bracket)
     (#\( 'xterm-saw-paren)
-    (#\> nil) ; ???
-    (#\= nil) ; ???
+    (#\) 'xterm-saw-close-paren)
+    (#\> nil) ; DECKPNM
+    (#\= nil) ; DECKPAM
     (#\M nil) ; Reverse index?
+    ;; Save cursor position.
+    (#\7 (setf (saved-x terminal) (x-pos terminal)
+               (saved-y terminal) (y-pos terminal))
+         nil)
+    ;; Restore cursor position.
+    (#\8 (setf (x-pos terminal) (saved-x terminal)
+               (y-pos terminal) (saved-y terminal))
+         nil)
     (t (report-unknown-escape terminal) nil)))
 
 (defun xterm-saw-bracket (terminal byte)
@@ -384,12 +396,28 @@ party to perform, the indicated option.")
              (t (report-unknown-escape terminal)))
            nil)))
 
+(defun xterm-saw-close-bracket (terminal byte)
+  "Saw '<Esc>('/OSC."
+  (report-unknown-escape terminal)
+  nil)
+
 (defun xterm-saw-paren (terminal byte)
   "Saw '<Esc>(', expecting a character set identifier."
+  ;; Set G0 character set.
   (case (code-char byte)
     (#\B (setf (charset terminal) :usascii))
     (#\0 (setf (charset terminal) :dec))
     (t (setf (charset terminal) :usascii)
+       (report-unknown-escape terminal)))
+  nil)
+
+(defun xterm-saw-close-paren (terminal byte)
+  "Saw '<Esc>)', expecting a character set identifier."
+  ;; Set G1 character set.
+  (case (code-char byte)
+    (#\B #+nil(setf (charset terminal) :usascii))
+    (#\0 #+nil(setf (charset terminal) :dec))
+    (t #+nil(setf (charset terminal) :usascii)
        (report-unknown-escape terminal)))
   nil)
 
