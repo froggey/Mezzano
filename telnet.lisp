@@ -71,10 +71,16 @@ party to perform, the indicated option.")
    (width :reader terminal-width)
    (height :reader terminal-height)
    (x-pos :initform 0 :accessor x-pos)
-   (y-pos :initform 0 :accessor y-pos))
+   (y-pos :initform 0 :accessor y-pos)
+   (foreground :initarg :foreground :accessor foreground-colour)
+   (background :initarg :background :accessor background-colour)
+   (bold :initarg :bold :accessor bold))
   (:default-initargs
    :interrupt-character nil
    :queued-bytes '()
+   :foreground #xC0C0C0
+   :background #x000000
+   :bold nil
    :x 0 :y 0))
 
 (defmethod initialize-instance :after ((term xterm-terminal) &key width height)
@@ -83,7 +89,7 @@ party to perform, the indicated option.")
     (setf (slot-value term 'width) (truncate (or width (- (second dims) (x-offset term))) 8)
           (slot-value term 'height) (truncate (or height (- (first dims) (y-offset term))) 16))
     (sys.graphics::bitset (* (terminal-height term) 16) (* (terminal-width term) 8)
-                          #xFF000000 fb
+                          (logior #xFF000000 (background-colour term)) fb
                           (y-offset term) (x-offset term))))
 
 (defun report-unknown-escape (term)
@@ -95,9 +101,23 @@ party to perform, the indicated option.")
   (let ((x (x-pos term)) (y (y-pos term)))
     (when (and (<= 0 x (1- (terminal-width term)))
                (<= 0 y (1- (terminal-height term))))
-      (if (eql char #\Space)
-          (sys.graphics::bitset 16 8 #xFF000000 (terminal-framebuffer term) (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
-          (sys.int::render-char-at char (terminal-framebuffer term) (+ (* x 8) (x-offset term)) (+ (* y 16) (y-offset term)))))
+      (sys.graphics::bitset 16 8
+                            (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
+                            (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
+      (unless (eql char #\Space)
+        (let* ((glyph (sys.int::map-unifont-2d char)))
+          (when glyph
+            (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (logior #xFF000000 (foreground-colour term))
+                                                   glyph 0 0
+                                                   (terminal-framebuffer term)
+                                                   (+ (* y 16) (y-offset term))
+                                                   (+ (* x 8) (x-offset term)))
+            (when (bold term)
+              (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (logior #xFF000000 (foreground-colour term))
+                                                   glyph 0 0
+                                                   (terminal-framebuffer term)
+                                                   (+ (* y 16) (y-offset term))
+                                                   (+ (* x 8) (x-offset term) 1)))))))
     (incf (x-pos term))))
 
 (defun clamp (value min max)
@@ -110,7 +130,7 @@ party to perform, the indicated option.")
   (setf bottom (clamp bottom 0 (terminal-height term)))
   (when (< top bottom)
     (sys.graphics::bitset (* (- bottom top) 16) (* (terminal-width term) 8)
-                          #xFF000000 (terminal-framebuffer term)
+                          (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
                           (+ (* top 16) (y-offset term)) (x-offset term))))
 
 (defun erase (term left right)
@@ -119,8 +139,70 @@ party to perform, the indicated option.")
   (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
              (< left right))
     (sys.graphics::bitset 16 (* (- right left) 8)
-                          #xFF000000 (terminal-framebuffer term)
+                          (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
                           (+ (* (y-pos term) 16) (y-offset term)) (+ (* left 8) (x-offset term)))))
+
+(defparameter *xterm-colours*
+  #(#x000000 ; 0 Black
+    #x800000 ; 1 Red
+    #x008000 ; 2 Green
+    #x808000 ; 3 Yellow
+    #x000080 ; 4 Blue
+    #x800080 ; 5 Magenta
+    #x008080 ; 6 Cyan
+    #xC0C0C0 ; 7 "White"
+    #x808080 ; 0 Bright Black
+    #xFF0000 ; 1 Bright Red
+    #x00FF00 ; 2 Bright Green
+    #xFFFF00 ; 3 Bright Yellow
+    #x0000FF ; 4 Bright Blue
+    #xFF00FF ; 5 Bright Magenta
+    #x00FFFF ; 6 Bright Cyan
+    #xFFFFFF ; 7 Bright White
+    ))
+
+(defun set-character-attributes (terminal attributes)
+  (when (endp attributes) (setf attributes '(0)))
+  (dolist (attr attributes)
+    (case attr
+      (0 ;; Normal (reset to defaults).
+       (setf (bold terminal) nil
+             (foreground-colour terminal) #xC0C0C0
+             (background-colour terminal) #x000000))
+      (1 ;; Bold.
+       (setf (bold terminal) t))
+      (4 ;; Underlined
+       )
+      (5 ;; Blink.
+       (setf (bold terminal) t))
+      (7 ;; Inverse.
+       )
+      (8 ;; Invisible.
+       )
+      (22 ;; Not bold.
+       (setf (bold terminal) nil))
+      (24 ;; Not underlined.
+       )
+      (25 ;; Not blink.
+       )
+      (27 ;; Not inverse.
+       )
+      (28 ;; Not invisible.
+       )
+      (39 ;; Set foreground to default
+       (setf (foreground-colour terminal) #xC0C0C0))
+      (49 ;; Set background to default
+       (setf (background-colour terminal) #x000000))
+      (t (cond
+           ((<= 30 attr 37)
+            (setf (foreground-colour terminal) (elt *xterm-colours* (- attr 30))))
+           ((<= 40 attr 47)
+            (setf (background-colour terminal) (elt *xterm-colours* (- attr 40))))
+           ((<= 90 attr 97)
+            (setf (foreground-colour terminal) (elt *xterm-colours* (+ 8 (- attr 90)))))
+           ((<= 100 attr 107)
+            (setf (background-colour terminal) (elt *xterm-colours* (+ 8 (- attr 100)))))
+           (t (report-unknown-escape terminal)))))))
 
 (defun xterm-initial (terminal byte)
   "Initial state."
@@ -195,7 +277,7 @@ party to perform, the indicated option.")
                 (t (report-unknown-escape terminal))))
              (#\d
               (setf (y-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
-             (#\m) ; character attributes **
+             (#\m (set-character-attributes terminal (nreverse (slot-value terminal 'parameters))))
              (#\r) ; set scroll region. **
              (#\h) ; set mode **
              (#\l) ; clear mode **
@@ -312,9 +394,10 @@ party to perform, the indicated option.")
            (data (read-subnegotiation connection)))
        (case option
          (#.+option-terminal-type+
-          (write-sequence (vector +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+
-                                  (char-code #\x) (char-code #\t) (char-code #\e) (char-code #\r) (char-code #\m)
-                                  +command-iac+ +command-se+)
+          (write-sequence (apply 'vector
+                                 (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
+                                         (map 'list 'char-code "xterm-color")
+                                         (list +command-iac+ +command-se+)))
                           connection))
          (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
                                     +command-iac+ +command-se+)
