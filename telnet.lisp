@@ -64,10 +64,10 @@ party to perform, the indicated option.")
    (input :initarg :input)
    (queued-bytes :initarg :queued-bytes)
    (interrupt-character :initarg :interrupt-character :accessor interrupt-character)
-   (state :initarg :state :accessor terminal-state)
-   (current-number)
-   (parameters)
-   (escape-sequence)
+   (state :initform 'xterm-initial :accessor terminal-state)
+   (current-number :initform nil)
+   (parameters :initform '())
+   (escape-sequence :initform '())
    (width :reader terminal-width)
    (height :reader terminal-height)
    (x-pos :initform 0 :accessor x-pos)
@@ -75,7 +75,6 @@ party to perform, the indicated option.")
   (:default-initargs
    :interrupt-character nil
    :queued-bytes '()
-   :state nil
    :x 0 :y 0))
 
 (defmethod initialize-instance :after ((term xterm-terminal) &key width height)
@@ -87,14 +86,10 @@ party to perform, the indicated option.")
                           #xFF000000 fb
                           (y-offset term) (x-offset term))))
 
-(defun give-up-parsing-escape (term)
+(defun report-unknown-escape (term)
   (format t "Failed to parse escape sequence ~S in state ~S.~%"
           (mapcar 'code-char (nreverse (slot-value term 'escape-sequence)))
-          (terminal-state term))
-  (setf (terminal-state term) nil))
-
-(defun finish-parsing-escape (term)
-  (setf (terminal-state term) nil))
+          (terminal-state term)))
 
 (defun write-terminal (term char)
   (let ((x (x-pos term)) (y (y-pos term)))
@@ -127,121 +122,127 @@ party to perform, the indicated option.")
                           #xFF000000 (terminal-framebuffer term)
                           (+ (* (y-pos term) 16) (y-offset term)) (+ (* left 8) (x-offset term)))))
 
+(defun xterm-initial (terminal byte)
+  "Initial state."
+  (case (code-char byte)
+    (#\Escape
+     (return-from xterm-initial
+       'xterm-saw-escape))
+    (#\Cr
+     (setf (x-pos terminal) 0))
+    (#\Lf
+     (incf (y-pos terminal)))
+    (#\Bs
+     (decf (x-pos terminal)))
+    (t (write-terminal terminal (code-char byte))))
+  nil)
+
+(defun xterm-saw-escape (terminal byte)
+  "Saw escape byte."
+  (case (code-char byte)
+    (#\[ 'xterm-saw-bracket)
+    (#\( 'xterm-saw-paren)
+    (#\> nil) ; ???
+    (#\= nil) ; ???
+    (#\M nil) ; Reverse index?
+    (t (report-unknown-escape terminal) nil)))
+
+(defun xterm-saw-bracket (terminal byte)
+  "Saw '<Esc>[' and maybe some digits and semicolons."
+  (cond ((eql (code-char byte) #\;)
+         (cond ((slot-value terminal 'current-number)
+                (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
+                (setf (slot-value terminal 'current-number) nil))
+               (t (push 0 (slot-value terminal 'parameters))))
+         (return-from xterm-saw-bracket 'xterm-saw-bracket))
+        ((digit-char-p (code-char byte))
+         (unless (slot-value terminal 'current-number)
+           (setf (slot-value terminal 'current-number) 0))
+         (setf (slot-value terminal 'current-number) (+ (* (slot-value terminal 'current-number) 10)
+                                                        (- byte (char-code #\0))))
+         (return-from xterm-saw-bracket 'xterm-saw-bracket))
+        (t (when (slot-value terminal 'current-number)
+             (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
+             (setf (slot-value terminal 'current-number) nil))
+           (case (code-char byte)
+             (#\A
+              (decf (y-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
+             (#\B
+              (incf (y-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
+             (#\C
+              (incf (x-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
+             (#\D
+              (decf (x-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
+             (#\H
+              (let* ((params (nreverse (slot-value terminal 'parameters)))
+                     (row (or (first params) 1))
+                     (column (or (second params) 1)))
+                (setf (y-pos terminal) (1- row)
+                      (x-pos terminal) (1- column))))
+             (#\G
+              (setf (x-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
+             (#\J
+              (case (first (slot-value terminal 'parameters))
+                ((0 nil) (clear terminal 0 (y-pos terminal))) ; clear above
+                (1 (clear terminal (y-pos terminal) (terminal-height terminal))) ; clear below
+                (2 (clear terminal 0 (terminal-height terminal)))
+                (t (report-unknown-escape terminal))))
+             (#\K
+              (case (first (slot-value terminal 'parameters))
+                ((0 nil) (erase terminal (x-pos terminal) (terminal-width terminal))) ; erase to right
+                (1 (erase terminal 0 (x-pos terminal))) ; erase to left
+                (2 (erase terminal 0 (terminal-width terminal))) ; erase all
+                (t (report-unknown-escape terminal))))
+             (#\d
+              (setf (y-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
+             (#\m) ; character attributes **
+             (#\r) ; set scroll region. **
+             (#\h) ; set mode **
+             (#\l) ; clear mode **
+             (#\?
+              (if (or (slot-value terminal 'parameters)
+                      (slot-value terminal 'current-number))
+                  (report-unknown-escape terminal)
+                  (return-from xterm-saw-bracket 'xterm-saw-bracket-question)))
+             (t (report-unknown-escape terminal)))))
+  nil)
+
+(defun xterm-saw-bracket-question (terminal byte)
+  "Saw '<Esc>[?'"
+  (cond ((eql (code-char byte) #\;)
+         (cond ((slot-value terminal 'current-number)
+                (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
+                (setf (slot-value terminal 'current-number) nil))
+               (t (push 0 (slot-value terminal 'parameters))))
+         'xterm-saw-bracket-question)
+        ((digit-char-p (code-char byte))
+         (unless (slot-value terminal 'current-number)
+           (setf (slot-value terminal 'current-number) 0))
+         (setf (slot-value terminal 'current-number) (+ (* (slot-value terminal 'current-number) 10)
+                                                      (- byte (char-code #\0))))
+         'xterm-saw-bracket-question)
+        (t (when (slot-value terminal 'current-number)
+             (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
+             (setf (slot-value terminal 'current-number) nil))
+           (case (code-char byte)
+             (#\h) ; DEC private mode set **
+             (#\l) ; DEC private mode clear **
+             (t (report-unknown-escape terminal)))
+           nil)))
+
+(defun xterm-saw-paren (terminal byte)
+  "Saw '<Esc>(', expecting a character set identifier."
+  nil)
+
 (defmethod sys.int::stream-write-byte (byte (stream xterm-terminal))
-  (ecase (terminal-state stream)
-    ((nil)
-     (case (code-char byte)
-       (#\Escape
-        (setf (terminal-state stream) :saw-escape
-              (slot-value stream 'current-number) nil
-              (slot-value stream 'parameters) '()
-              (slot-value stream 'escape-sequence) '()))
-       (#\Cr
-        (setf (x-pos stream) 0))
-       (#\Lf
-        (incf (y-pos stream)))
-       (#\Bs
-        (decf (x-pos stream)))
-       (t (write-terminal stream (code-char byte)))))
-    (:saw-escape
-     (push byte (slot-value stream 'escape-sequence))
-     ;; Saw escape byte.
-     (case (code-char byte)
-       (#\[ (setf (terminal-state stream) :saw-bracket))
-       (#\( (setf (terminal-state stream) :saw-paren))
-       (#\> (finish-parsing-escape stream))
-       (#\= (finish-parsing-escape stream))
-       (#\M (finish-parsing-escape stream)) ; Reverse index?
-       (t (give-up-parsing-escape stream))))
-    (:saw-bracket ;; Saw "\e[" and maybe some digits and semicolons.
-     (push byte (slot-value stream 'escape-sequence))
-     (cond ((eql (code-char byte) #\;)
-            (cond ((slot-value stream 'current-number)
-                   (push (slot-value stream 'current-number) (slot-value stream 'parameters))
-                   (setf (slot-value stream 'current-number) nil))
-                  (t (push 0 (slot-value stream 'parameters)))))
-           ((digit-char-p (code-char byte))
-            (unless (slot-value stream 'current-number)
-              (setf (slot-value stream 'current-number) 0))
-            (setf (slot-value stream 'current-number) (+ (* (slot-value stream 'current-number) 10)
-                                                         (- byte (char-code #\0)))))
-           (t (when (slot-value stream 'current-number)
-                (push (slot-value stream 'current-number) (slot-value stream 'parameters))
-                (setf (slot-value stream 'current-number) nil))
-              (case (code-char byte)
-                (#\A
-                 (decf (y-pos stream) (or (first (slot-value stream 'parameters)) 1))
-                 (finish-parsing-escape stream))
-                (#\B
-                 (incf (y-pos stream) (or (first (slot-value stream 'parameters)) 1))
-                 (finish-parsing-escape stream))
-                (#\C
-                 (incf (x-pos stream) (or (first (slot-value stream 'parameters)) 1))
-                 (finish-parsing-escape stream))
-                (#\D
-                 (decf (x-pos stream) (or (first (slot-value stream 'parameters)) 1))
-                 (finish-parsing-escape stream))
-                (#\H
-                 (let* ((params (nreverse (slot-value stream 'parameters)))
-                        (row (or (first params) 1))
-                        (column (or (second params) 1)))
-                   (setf (y-pos stream) (1- row)
-                         (x-pos stream) (1- column)))
-                 (finish-parsing-escape stream))
-                (#\G
-                 (setf (x-pos stream) (1- (or (first (slot-value stream 'parameters)) 1)))
-                 (finish-parsing-escape stream))
-                (#\J
-                 (case (first (slot-value stream 'parameters))
-                   ((0 nil) (clear stream 0 (y-pos stream))) ; clear above
-                   (1 (clear stream (y-pos stream) (terminal-height stream))) ; clear below
-                   (2 (clear stream 0 (terminal-height stream)))
-                   (t (give-up-parsing-escape stream)))
-                 (finish-parsing-escape stream))
-                (#\K
-                 (case (first (slot-value stream 'parameters))
-                   ((0 nil) (erase stream (x-pos stream) (terminal-width stream))) ; erase to right
-                   (1 (erase stream 0 (x-pos stream))) ; erase to left
-                   (2 (erase stream 0 (terminal-width stream))) ; erase all
-                   (t (give-up-parsing-escape stream)))
-                 (finish-parsing-escape stream))
-                (#\d
-                 (setf (y-pos stream) (1- (or (first (slot-value stream 'parameters)) 1)))
-                 (finish-parsing-escape stream))
-                (#\m (finish-parsing-escape stream)) ; character attributes **
-                (#\r (finish-parsing-escape stream)) ; set scroll region. **
-                (#\h (finish-parsing-escape stream)) ; set mode **
-                (#\l (finish-parsing-escape stream)) ; clear mode **
-                (#\?
-                 (if (or (slot-value stream 'parameters)
-                         (slot-value stream 'current-number))
-                     (give-up-parsing-escape stream)
-                     (setf (terminal-state stream) :saw-bracket-question)))
-                (t (give-up-parsing-escape stream))))))
-    (:saw-bracket-question
-     ;; Saw "\e[?"
-     (push byte (slot-value stream 'escape-sequence))
-     (cond ((eql (code-char byte) #\;)
-            (cond ((slot-value stream 'current-number)
-                   (push (slot-value stream 'current-number) (slot-value stream 'parameters))
-                   (setf (slot-value stream 'current-number) nil))
-                  (t (push 0 (slot-value stream 'parameters)))))
-           ((digit-char-p (code-char byte))
-            (unless (slot-value stream 'current-number)
-              (setf (slot-value stream 'current-number) 0))
-            (setf (slot-value stream 'current-number) (+ (* (slot-value stream 'current-number) 10)
-                                                         (- byte (char-code #\0)))))
-           (t (when (slot-value stream 'current-number)
-                (push (slot-value stream 'current-number) (slot-value stream 'parameters))
-                (setf (slot-value stream 'current-number) nil))
-              (case (code-char byte)
-                (#\h (finish-parsing-escape stream)) ; DEC private mode set **
-                (#\l (finish-parsing-escape stream)) ; DEC private mode clear **
-                (t (give-up-parsing-escape stream))))))
-    (:saw-paren
-     ;; Saw "\e(", expecting a character set identifier. **
-     (push byte (slot-value stream 'escape-sequence))
-     (finish-parsing-escape stream))))
+  (push byte (slot-value stream 'escape-sequence))
+  (let ((new-state (funcall (terminal-state stream) stream byte)))
+    (cond (new-state
+           (setf (terminal-state stream) new-state))
+          (t (setf (terminal-state stream) 'xterm-initial
+                   (slot-value stream 'current-number) nil
+                   (slot-value stream 'parameters) '()
+                   (slot-value stream 'escape-sequence) '())))))
 
 (defvar *xterm-translations*
   (list (list (name-char "Up-Arrow")    '(#\Esc #\[ #\A))
