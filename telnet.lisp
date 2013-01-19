@@ -74,73 +74,20 @@ party to perform, the indicated option.")
    (y-pos :initform 0 :accessor y-pos)
    (foreground :initarg :foreground :accessor foreground-colour)
    (background :initarg :background :accessor background-colour)
-   (bold :initarg :bold :accessor bold))
+   (bold :initarg :bold :accessor bold)
+   (inverse :initarg :inverse :accessor inverse)
+   (underline :initarg :underline :accessor underline)
+   (character-set :initarg :charset :accessor charset))
   (:default-initargs
    :interrupt-character nil
    :queued-bytes '()
-   :foreground #xC0C0C0
-   :background #x000000
+   :foreground nil
+   :background nil
    :bold nil
+   :inverse nil
+   :underline nil
+   :charset :usascii
    :x 0 :y 0))
-
-(defmethod initialize-instance :after ((term xterm-terminal) &key width height)
-  (let* ((fb (terminal-framebuffer term))
-         (dims (array-dimensions fb)))
-    (setf (slot-value term 'width) (truncate (or width (- (second dims) (x-offset term))) 8)
-          (slot-value term 'height) (truncate (or height (- (first dims) (y-offset term))) 16))
-    (sys.graphics::bitset (* (terminal-height term) 16) (* (terminal-width term) 8)
-                          (logior #xFF000000 (background-colour term)) fb
-                          (y-offset term) (x-offset term))))
-
-(defun report-unknown-escape (term)
-  (format t "Failed to parse escape sequence ~S in state ~S.~%"
-          (mapcar 'code-char (nreverse (slot-value term 'escape-sequence)))
-          (terminal-state term)))
-
-(defun write-terminal (term char)
-  (let ((x (x-pos term)) (y (y-pos term)))
-    (when (and (<= 0 x (1- (terminal-width term)))
-               (<= 0 y (1- (terminal-height term))))
-      (sys.graphics::bitset 16 8
-                            (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
-                            (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
-      (unless (eql char #\Space)
-        (let* ((glyph (sys.int::map-unifont-2d char)))
-          (when glyph
-            (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (logior #xFF000000 (foreground-colour term))
-                                                   glyph 0 0
-                                                   (terminal-framebuffer term)
-                                                   (+ (* y 16) (y-offset term))
-                                                   (+ (* x 8) (x-offset term)))
-            (when (bold term)
-              (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (logior #xFF000000 (foreground-colour term))
-                                                   glyph 0 0
-                                                   (terminal-framebuffer term)
-                                                   (+ (* y 16) (y-offset term))
-                                                   (+ (* x 8) (x-offset term) 1)))))))
-    (incf (x-pos term))))
-
-(defun clamp (value min max)
-  (cond ((> value max) max)
-        ((< value min) min)
-        (t value)))
-
-(defun clear (term top bottom)
-  (setf top (clamp top 0 (terminal-height term)))
-  (setf bottom (clamp bottom 0 (terminal-height term)))
-  (when (< top bottom)
-    (sys.graphics::bitset (* (- bottom top) 16) (* (terminal-width term) 8)
-                          (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
-                          (+ (* top 16) (y-offset term)) (x-offset term))))
-
-(defun erase (term left right)
-  (setf left (clamp left 0 (terminal-width term)))
-  (setf right (clamp right 0 (terminal-width term)))
-  (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
-             (< left right))
-    (sys.graphics::bitset 16 (* (- right left) 8)
-                          (logior #xFF000000 (background-colour term)) (terminal-framebuffer term)
-                          (+ (* (y-pos term) 16) (y-offset term)) (+ (* left 8) (x-offset term)))))
 
 (defparameter *xterm-colours*
   #(#x000000 ; 0 Black
@@ -161,47 +108,165 @@ party to perform, the indicated option.")
     #xFFFFFF ; 7 Bright White
     ))
 
+(defparameter *dec-special-characters-and-line-drawing*
+  #(#\BLACK_LOZENGE
+    #\MEDIUM_SHADE
+    #\Tab
+    #\u000C ; form feed
+    #\Return
+    #\Newline
+    #\DEGREE_SIGN
+    #\PLUS-MINUS_SIGN
+    #\Newline
+    #\u000B ; vertical tab
+    #\BOX_DRAWINGS_LIGHT_UP_AND_LEFT
+    #\BOX_DRAWINGS_LIGHT_DOWN_AND_LEFT
+    #\BOX_DRAWINGS_LIGHT_DOWN_AND_RIGHT
+    #\BOX_DRAWINGS_LIGHT_UP_AND_RIGHT
+    #\BOX_DRAWINGS_LIGHT_VERTICAL_AND_HORIZONTAL
+    #\Space ; "SCAN 1"?
+    #\Space ; "SCAN 3"?
+    #\BOX_DRAWINGS_LIGHT_HORIZONTAL ; "SCAN 5"?
+    #\Space ; "SCAN 7"?
+    #\Space ; "SCAN 9"?
+    #\BOX_DRAWINGS_LIGHT_VERTICAL_AND_RIGHT
+    #\BOX_DRAWINGS_LIGHT_VERTICAL_AND_LEFT
+    #\BOX_DRAWINGS_LIGHT_UP_AND_HORIZONTAL
+    #\BOX_DRAWINGS_LIGHT_DOWN_AND_HORIZONTAL
+    #\BOX_DRAWINGS_LIGHT_VERTICAL
+    #\LESS-THAN_OR_SLANTED_EQUAL_TO
+    #\GREATER-THAN_OR_SLANTED_EQUAL_TO
+    #\GREEK_SMALL_LETTER_PI
+    #\NOT_EQUAL_TO
+    #\£
+    #\MIDDLE_DOT))
+
+(defun true-foreground-colour (terminal)
+  (let ((colour (or (if (inverse terminal)
+                        (background-colour terminal)
+                        (foreground-colour terminal))
+                    (if (inverse terminal) 0 7))))
+    (when (and (bold terminal)
+               (not (inverse terminal))
+               (< colour 8))
+      (incf colour 8))
+    (logior #xFF000000
+            (elt *xterm-colours* colour))))
+
+(defun true-background-colour (terminal)
+  (logior #xFF000000
+          (elt *xterm-colours* (or (if (inverse terminal)
+                                       (foreground-colour terminal)
+                                       (background-colour terminal))
+                                   (if (inverse terminal) 7 0)))))
+
+(defmethod initialize-instance :after ((term xterm-terminal) &key width height)
+  (let* ((fb (terminal-framebuffer term))
+         (dims (array-dimensions fb)))
+    (setf (slot-value term 'width) (truncate (or width (- (second dims) (x-offset term))) 8)
+          (slot-value term 'height) (truncate (or height (- (first dims) (y-offset term))) 16))
+    (sys.graphics::bitset (* (terminal-height term) 16) (* (terminal-width term) 8)
+                          (true-background-colour term) fb
+                          (y-offset term) (x-offset term))))
+
+(defun report-unknown-escape (term)
+  (format t "Failed to parse escape sequence ~S in state ~S.~%"
+          (mapcar 'code-char (nreverse (slot-value term 'escape-sequence)))
+          (terminal-state term)))
+
+
+(defun write-terminal (term char)
+  (let ((x (x-pos term)) (y (y-pos term)))
+    (when (and (<= 0 x (1- (terminal-width term)))
+               (<= 0 y (1- (terminal-height term))))
+      (sys.graphics::bitset 16 8
+                            (true-background-colour term) (terminal-framebuffer term)
+                            (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
+      (unless (eql char #\Space)
+        (let* ((glyph (sys.int::map-unifont-2d char)))
+          (when glyph
+            (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (true-foreground-colour term)
+                                                   glyph 0 0
+                                                   (terminal-framebuffer term)
+                                                   (+ (* y 16) (y-offset term))
+                                                   (+ (* x 8) (x-offset term)))
+            (when (bold term)
+              (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
+                                                   glyph 0 0
+                                                   (terminal-framebuffer term)
+                                                   (+ (* y 16) (y-offset term))
+                                                   (+ (* x 8) (x-offset term) 1))))))
+      (when (underline term)
+        (sys.graphics::bitset 1 8 (true-foreground-colour term) (terminal-framebuffer term)
+                              (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term) 7))))
+    (incf (x-pos term))))
+
+(defun clamp (value min max)
+  (cond ((> value max) max)
+        ((< value min) min)
+        (t value)))
+
+(defun clear (term top bottom)
+  (setf top (clamp top 0 (terminal-height term)))
+  (setf bottom (clamp bottom 0 (terminal-height term)))
+  (when (< top bottom)
+    (sys.graphics::bitset (* (- bottom top) 16) (* (terminal-width term) 8)
+                          (true-background-colour term) (terminal-framebuffer term)
+                          (+ (* top 16) (y-offset term)) (x-offset term))))
+
+(defun erase (term left right)
+  (setf left (clamp left 0 (terminal-width term)))
+  (setf right (clamp right 0 (terminal-width term)))
+  (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
+             (< left right))
+    (sys.graphics::bitset 16 (* (- right left) 8)
+                          (true-background-colour term) (terminal-framebuffer term)
+                          (+ (* (y-pos term) 16) (y-offset term)) (+ (* left 8) (x-offset term)))))
+
 (defun set-character-attributes (terminal attributes)
   (when (endp attributes) (setf attributes '(0)))
   (dolist (attr attributes)
     (case attr
       (0 ;; Normal (reset to defaults).
        (setf (bold terminal) nil
-             (foreground-colour terminal) #xC0C0C0
-             (background-colour terminal) #x000000))
+             (inverse terminal) nil
+             (underline terminal) nil
+             (foreground-colour terminal) nil
+             (background-colour terminal) nil))
       (1 ;; Bold.
        (setf (bold terminal) t))
       (4 ;; Underlined
-       )
+       (setf (underline terminal) t))
       (5 ;; Blink.
        (setf (bold terminal) t))
       (7 ;; Inverse.
-       )
+       (setf (inverse terminal) t))
       (8 ;; Invisible.
        )
       (22 ;; Not bold.
        (setf (bold terminal) nil))
       (24 ;; Not underlined.
-       )
+       (setf (underline terminal) nil))
       (25 ;; Not blink.
        )
       (27 ;; Not inverse.
-       )
+       (setf (inverse terminal) nil))
       (28 ;; Not invisible.
        )
       (39 ;; Set foreground to default
-       (setf (foreground-colour terminal) #xC0C0C0))
+       (setf (foreground-colour terminal) nil))
       (49 ;; Set background to default
-       (setf (background-colour terminal) #x000000))
+       (setf (background-colour terminal) nil))
+      ((2 3 6 9 38 38)) ; ???
       (t (cond
            ((<= 30 attr 37)
-            (setf (foreground-colour terminal) (elt *xterm-colours* (- attr 30))))
+            (setf (foreground-colour terminal) (- attr 30)))
            ((<= 40 attr 47)
-            (setf (background-colour terminal) (elt *xterm-colours* (- attr 40))))
+            (setf (background-colour terminal) (- attr 40)))
            ((<= 90 attr 97)
-            (setf (foreground-colour terminal) (elt *xterm-colours* (+ 8 (- attr 90)))))
+            (setf (foreground-colour terminal) (+ 8 (- attr 90))))
            ((<= 100 attr 107)
-            (setf (background-colour terminal) (elt *xterm-colours* (+ 8 (- attr 100)))))
+            (setf (background-colour terminal) (+ 8 (- attr 100))))
            (t (report-unknown-escape terminal)))))))
 
 (defun xterm-initial (terminal byte)
@@ -216,7 +281,14 @@ party to perform, the indicated option.")
      (incf (y-pos terminal)))
     (#\Bs
      (decf (x-pos terminal)))
-    (t (write-terminal terminal (code-char byte))))
+    (t (let ((char (ecase (charset terminal)
+                     (:usascii (code-char byte)) ; No translation.
+                     (:dec ;; Translate some characters.
+                      (if (<= #x60 byte #x7E)
+                          (aref *dec-special-characters-and-line-drawing*
+                                (- byte #x60))
+                          (code-char byte))))))
+         (write-terminal terminal char))))
   nil)
 
 (defun xterm-saw-escape (terminal byte)
@@ -314,6 +386,11 @@ party to perform, the indicated option.")
 
 (defun xterm-saw-paren (terminal byte)
   "Saw '<Esc>(', expecting a character set identifier."
+  (case (code-char byte)
+    (#\B (setf (charset terminal) :usascii))
+    (#\0 (setf (charset terminal) :dec))
+    (t (setf (charset terminal) :usascii)
+       (report-unknown-escape terminal)))
   nil)
 
 (defmethod sys.int::stream-write-byte (byte (stream xterm-terminal))
