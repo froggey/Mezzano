@@ -400,18 +400,16 @@
             (error "Write error! ~S" x))
           (setf (write-buffer stream) nil))))))
 
-(defmethod sys.int::stream-read-byte ((stream simple-file-stream))
-  (assert (member (direction stream) '(:input :io)))
+(defun refill-read-buffer (stream)
+  "Ensure bytes are available in the stream read buffer, returning false at end-of-file."
   (when (and (read-buffer stream)
              (<= (read-buffer-position stream)
                  (sf-position stream)
                  (+ (read-buffer-position stream)
                     (length (read-buffer stream))
                     -1)))
-    (return-from sys.int::stream-read-byte
-      (prog1 (aref (read-buffer stream) (read-buffer-offset stream))
-        (incf (read-buffer-offset stream))
-        (incf (sf-position stream)))))
+    ;; At least one byte is available.
+    (return-from refill-read-buffer t))
   ;; Refill buffer.
   (with-connection (con (host stream))
     (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
@@ -424,21 +422,58 @@
           (error "Read error! ~S" count))
         (when (eql count 0)
           ;; Nothing to read, end of file.
-          (return-from sys.int::stream-read-byte nil))
+          (return-from refill-read-buffer nil))
         (let ((buffer (make-array count :element-type '(unsigned-byte 8))))
           (read-line con)
           (read-sequence buffer con)
           (setf (read-buffer stream) buffer
                 (read-buffer-position stream) (sf-position stream)
-                (read-buffer-offset stream) 1)
-          (incf (sf-position stream))
-          (aref buffer 0))))))
+                (read-buffer-offset stream) 0)
+          t)))))
+
+(defmethod sys.int::stream-read-byte ((stream simple-file-stream))
+  (assert (member (direction stream) '(:input :io)))
+  (if (refill-read-buffer stream)
+      ;; Data available
+      (prog1 (aref (read-buffer stream) (read-buffer-offset stream))
+        (incf (read-buffer-offset stream))
+        (incf (sf-position stream)))
+      ;; End of file
+      nil))
+
+(defmethod sys.int::stream-read-sequence (sequence (stream simple-file-stream) start end)
+  (let ((bytes-read 0)
+        (offset start)
+        (bytes-to-go (- end start)))
+    (loop
+       (when (<= bytes-to-go 0)
+         (return))
+       (when (not (refill-read-buffer stream))
+         (return))
+       (let ((bytes-to-read (min (- (length (read-buffer stream))
+                                    (read-buffer-offset stream))
+                                 bytes-to-go)))
+         (replace sequence (read-buffer stream)
+                  :start1 offset
+                  :start2 (read-buffer-offset stream)
+                  :end2 (+ (read-buffer-offset stream) bytes-to-read))
+         (incf (read-buffer-offset stream) bytes-to-read)
+         (incf (sf-position stream) bytes-to-read)
+         (incf bytes-read bytes-to-read)
+         (incf offset bytes-to-read)
+         (decf bytes-to-go bytes-to-read)))
+    (+ start bytes-read)))
 
 (defmethod sys.int::stream-element-type* ((stream simple-file-stream))
   '(unsigned-byte 8))
 
 (defmethod sys.int::stream-write-char (char (stream simple-file-character-stream))
   (sys.int::stream-write-byte (char-code char) stream))
+
+;;; Explicitly fall back on the generic function so the byte read-sequence function
+;;; doesn't get called.
+(defmethod sys.int::stream-read-sequence (sequence (stream simple-file-character-stream) start end)
+  (sys.int::generic-read-sequence sequence stream start end))
 
 (defmethod sys.int::stream-read-char ((stream simple-file-character-stream))
   (let ((leader (read-byte stream nil)))
