@@ -127,7 +127,7 @@
 (defmethod window-redraw :after ((window window))
   (window-swap-buffers window))
 
-(defclass text-widget (sys.int::edit-stream sys.int::stream-object)
+(defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((cursor-x :initarg :cursor-x :accessor cursor-x)
    (cursor-y :initarg :cursor-y :accessor cursor-y)
    (foreground :initarg :foreground :accessor window-foreground-colour)
@@ -149,7 +149,7 @@
 (defmethod key-press-event ((window character-input-mixin) character)
   (fifo-push character (character-buffer window)))
 
-(defmethod sys.int::stream-read-char ((stream character-input-mixin))
+(defmethod sys.gray:stream-read-char ((stream character-input-mixin))
   (loop
      (let ((char (fifo-pop (character-buffer stream))))
        (when char (return char)))
@@ -157,7 +157,12 @@
                             (lambda ()
                               (not (fifo-emptyp (character-buffer stream)))))))
 
-(defclass text-window (sys.int::edit-stream character-input-mixin sys.int::stream-object window)
+(defclass text-window (sys.gray:unread-char-mixin
+                       sys.int::simple-edit-mixin
+                       character-input-mixin
+                       sys.gray:fundamental-character-output-stream
+                       sys.gray:fundamental-character-input-stream
+                       window)
   ((widget :reader text-window-display)))
 
 (defmethod window-foreground-colour ((window text-window))
@@ -196,7 +201,7 @@
 (defmethod window-close-event ((window text-window))
   (close-window window))
 
-(defmethod sys.int::stream-write-char (character (stream text-widget))
+(defmethod sys.gray:stream-write-char ((stream text-widget) character)
   (let ((fb (framebuffer stream))
         (x (cursor-x stream))
         (y (cursor-y stream))
@@ -232,15 +237,15 @@
            (incf x width)
            (setf (cursor-x stream) x))))))
 
-(defmethod sys.int::stream-write-char (character (stream text-window))
-  (sys.int::stream-write-char character (text-window-display stream))
+(defmethod sys.gray:stream-write-char ((stream text-window) character)
+  (sys.gray:stream-write-char (text-window-display stream) character)
   (setf *refresh-required* t))
 
-(defmethod sys.int::stream-start-line-p ((stream text-widget))
+(defmethod sys.gray:stream-start-line-p ((stream text-widget))
   (zerop (cursor-x stream)))
 
-(defmethod sys.int::stream-start-line-p ((stream text-window))
-  (sys.int::stream-start-line-p (text-window-display stream)))
+(defmethod sys.gray:stream-start-line-p ((stream text-window))
+  (sys.gray:stream-start-line-p (text-window-display stream)))
 
 (defmethod sys.int::stream-cursor-pos ((stream text-widget))
   (values (cursor-x stream) (cursor-y stream)))
@@ -313,12 +318,6 @@
   (sys.int::stream-clear-between (text-window-display stream) start-x start-y end-x end-y)
   (setf *refresh-required* t))
 
-(defmethod sys.int::stream-element-type* ((stream text-widget))
-  'character)
-
-(defmethod sys.int::stream-element-type* ((stream text-window))
-  'character)
-
 (defclass lisp-listener (text-window-with-chrome)
   ((process :reader lisp-listener-process)))
 
@@ -329,7 +328,8 @@
           (*standard-output* *standard-input*)
           (*error-output* *standard-input*)
           (*query-io* *standard-input*)
-          (*debug-io* *standard-input*))
+          (*debug-io* *standard-input*)
+          (*trace-output* *standard-input*))
      ,@body))
 
 (defun lisp-listener-top-level (window)

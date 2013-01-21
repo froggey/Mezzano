@@ -1,12 +1,14 @@
 (in-package #:sys.int)
 
-(defclass framebuffer-output-stream (stream-object)
+(defclass framebuffer-output-stream (sys.gray:fundamental-character-output-stream)
   ((framebuffer :initarg :framebuffer :accessor fbstream-framebuffer)
    (x :initarg :x :accessor fbstream-x)
    (y :initarg :y :accessor fbstream-y))
   (:default-initargs :x 0 :y 0))
 
-(defclass framebuffer-stream (framebuffer-output-stream edit-stream ps/2-keyboard-stream stream-object)
+(defclass framebuffer-stream (simple-edit-mixin
+                              ps/2-keyboard-stream
+                              framebuffer-output-stream)
   ())
 
 (defun framebuffer-write-char (character stream)
@@ -38,10 +40,10 @@
            (incf x width)
            (setf (fbstream-x stream) x))))))
 
-(defmethod stream-write-char (character (stream framebuffer-output-stream))
+(defmethod sys.gray:stream-write-char ((stream framebuffer-output-stream) character)
   (framebuffer-write-char character stream))
 
-(defmethod stream-start-line-p ((stream framebuffer-output-stream))
+(defmethod sys.gray:stream-start-line-p ((stream framebuffer-output-stream))
   (zerop (fbstream-x stream)))
 
 (defmethod stream-cursor-pos ((stream framebuffer-output-stream))
@@ -96,6 +98,3 @@
            ;; Clear bottom line.
            (%bitset 16 end-x #xFF000000
                     framebuffer end-y 0)))))
-
-(defmethod stream-element-type* ((stream framebuffer-output-stream))
-  'character)

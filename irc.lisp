@@ -235,8 +235,10 @@
 
 (defclass irc-client (sys.graphics::character-input-mixin
                       sys.graphics::window-with-chrome
-                      sys.int::edit-stream
-                      sys.int::stream-object)
+                      sys.int::simple-edit-mixin
+                      sys.gray:fundamental-character-input-stream
+                      sys.gray:fundamental-character-output-stream
+                      sys.gray:unread-char-mixin)
   ((command-process :reader irc-command-process)
    (receive-process :reader irc-receive-process)
    (connection :initform nil :accessor irc-connection)
@@ -249,7 +251,7 @@
 
 ;;; This is just so the graphics manager knows the display needs an update.
 (defclass irc-display (sys.graphics::text-widget) ())
-(defmethod sys.int::stream-write-char :after (character (stream irc-display))
+(defmethod sys.gray:stream-write-char :after ((stream irc-display) character)
   (setf sys.graphics::*refresh-required* t))
 
 (defmethod initialize-instance :after ((instance irc-client))
@@ -288,11 +290,11 @@
 ;;; *STANDARD-INPUT* is bound to this stream (with line-editing) and
 ;;; *STANDARD-OUTPUT* is bound to the display text widget (no input).
 ;;; READ-CHAR is provided by Character-Input-Mixin.
-(defmethod sys.int::stream-write-char (character (stream irc-client))
-  (sys.int::stream-write-char character (irc-input stream))
+(defmethod sys.gray:stream-write-char ((stream irc-client) character)
+  (write-char character (irc-input stream))
   (setf sys.graphics::*refresh-required* t))
-(defmethod sys.int::stream-start-line-p ((stream irc-client))
-  (sys.int::stream-start-line-p (irc-input stream)))
+(defmethod sys.gray:stream-start-line-p ((stream irc-client))
+  (sys.gray:stream-start-line-p (irc-input stream)))
 (defmethod sys.int::stream-cursor-pos ((stream irc-client))
   (sys.int::stream-cursor-pos (irc-input stream)))
 (defmethod sys.int::stream-move-to ((stream irc-client) x y)
@@ -304,8 +306,6 @@
 (defmethod sys.int::stream-clear-between ((stream irc-client) start-x start-y end-x end-y)
   (sys.int::stream-clear-between (irc-input stream) start-x start-y end-x end-y)
   (setf sys.graphics::*refresh-required* t))
-(defmethod sys.int::stream-element-type* ((stream irc-client))
-  'character)
 
 (defmethod sys.graphics::window-close-event ((irc irc-client))
   (sys.int::process-disable (irc-command-process irc))
@@ -430,6 +430,7 @@
   (let ((*standard-input* irc)
         (*standard-output* (irc-display irc))
         (*error-output* (irc-display irc))
+        ;; This isn't great... No line editing.
         (*query-io* (make-two-way-stream irc (irc-display irc)))
         (*debug-io* (make-two-way-stream irc (irc-display irc))))
     (unwind-protect
@@ -459,6 +460,9 @@
 
 (defun create-irc-client ()
   "Open an IRC window."
-  (sys.graphics::window-set-visibility (sys.graphics::make-window "IRC" 640 400 'irc-client) t))
+  ;; 400 = 24 8 pixel tall characters for the display.
+  ;; 1 pixel for the seperator line.
+  ;; 8 pixels for the input line.
+  (sys.graphics::window-set-visibility (sys.graphics::make-window "IRC" 640 (+ 400 1 8) 'irc-client) t))
 
 (setf (gethash (name-char "F2") sys.graphics::*global-keybindings*) 'create-irc-client)

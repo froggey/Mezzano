@@ -56,7 +56,8 @@ party to perform, the indicated option.")
 
 (define-condition terminal-interrupt () ())
 
-(defclass xterm-terminal (sys.int::stream-object)
+(defclass xterm-terminal (sys.gray:fundamental-binary-input-stream
+                          sys.gray:fundamental-binary-output-stream)
   ((framebuffer :initarg :framebuffer :reader terminal-framebuffer)
    ;; Offsets in the framebuffer.
    (x-offs :initarg :x :reader x-offset)
@@ -90,6 +91,9 @@ party to perform, the indicated option.")
    :underline nil
    :charset :usascii
    :x 0 :y 0))
+
+(defmethod sys.gray:stream-element-type ((stream xterm-terminal))
+  '(unsigned-byte 8))
 
 (defparameter *xterm-colours*
   #(#x000000 ; 0 Black
@@ -421,7 +425,7 @@ party to perform, the indicated option.")
        (report-unknown-escape terminal)))
   nil)
 
-(defmethod sys.int::stream-write-byte (byte (stream xterm-terminal))
+(defmethod sys.gray:stream-write-byte ((stream xterm-terminal) byte)
   (push byte (slot-value stream 'escape-sequence))
   (let ((new-state (funcall (terminal-state stream) stream byte)))
     (cond (new-state
@@ -454,7 +458,7 @@ party to perform, the indicated option.")
         (list (name-char "KP-8")        '(#\8))
         (list (name-char "KP-9")        '(#\9))))
 
-(defmethod sys.int::stream-read-byte ((stream xterm-terminal))
+(defmethod sys.gray:stream-read-byte ((stream xterm-terminal))
   (cond ((slot-value stream 'queued-bytes)
          (pop (slot-value stream 'queued-bytes)))
         (t (let ((ch (read-char (slot-value stream 'input))))
@@ -587,7 +591,10 @@ party to perform, the indicated option.")
       (sys.graphics::close-window window)
       (sys.int::process-disable (receive-process window)))))
 
-(defclass telnet-client (sys.int::stream-object sys.graphics::window-with-chrome)
+(defclass telnet-client (sys.gray:fundamental-character-input-stream
+                         sys.gray:fundamental-character-output-stream
+                         sys.gray:unread-char-mixin
+                         sys.graphics::window-with-chrome)
   ((command-process :reader command-process)
    (receive-process :reader receive-process)
    (buffer :initarg :buffer :reader window-buffer)
@@ -595,7 +602,7 @@ party to perform, the indicated option.")
    (terminal :reader telnet-terminal))
   (:default-initargs :buffer (sys.graphics::make-fifo 500 'character)))
 
-(defmethod sys.int::stream-read-char ((stream telnet-client))
+(defmethod sys.gray:stream-read-char ((stream telnet-client))
   (loop
      (let ((char (sys.graphics::fifo-pop (window-buffer stream))))
        (when char (return char)))

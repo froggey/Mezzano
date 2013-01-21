@@ -20,7 +20,9 @@
             (host-address object)
             (host-port object))))
 
-(defclass simple-file-stream (sys.int::stream-object file-stream)
+(defclass simple-file-stream (sys.gray:fundamental-binary-input-stream
+                              sys.gray:fundamental-binary-output-stream
+                              file-stream)
   ((path :initarg :path :reader path)
    (host :initarg :host :reader host)
    (position :initarg :position :accessor sf-position)
@@ -37,12 +39,10 @@
    (write-buffer-offset :accessor write-buffer-offset))
   (:default-initargs :position 0))
 
-(defclass character-stream-input-mixin () ())
-(defclass character-stream-output-mixin () ())
-
-(defclass simple-file-character-stream (character-stream-input-mixin
-                                        character-stream-output-mixin
-                                        simple-file-stream)
+(defclass simple-file-character-stream (sys.gray:fundamental-character-input-stream
+                                        sys.gray:fundamental-character-output-stream
+                                        simple-file-stream
+                                        sys.gray:unread-char-mixin)
   ())
 
 (defmethod print-object ((object simple-file-stream) stream)
@@ -366,7 +366,13 @@
           (file-position stream :end))
         stream))))
 
-(defmethod sys.int::stream-write-byte (byte (stream simple-file-stream))
+(defmethod sys.gray:stream-element-type ((stream simple-file-stream))
+  '(unsigned-byte 8))
+
+(defmethod sys.gray:stream-element-type ((stream simple-file-character-stream))
+  'character)
+
+(defmethod sys.gray:stream-write-byte ((stream simple-file-stream) byte)
   (assert (member (direction stream) '(:io :output)))
   (setf (read-buffer stream) nil)
   (when (and (write-buffer stream)
@@ -431,7 +437,7 @@
                 (read-buffer-offset stream) 0)
           t)))))
 
-(defmethod sys.int::stream-read-byte ((stream simple-file-stream))
+(defmethod sys.gray:stream-read-byte ((stream simple-file-stream))
   (assert (member (direction stream) '(:input :io)))
   (if (refill-read-buffer stream)
       ;; Data available
@@ -439,9 +445,10 @@
         (incf (read-buffer-offset stream))
         (incf (sf-position stream)))
       ;; End of file
-      nil))
+      :eof))
 
-(defmethod sys.int::stream-read-sequence (sequence (stream simple-file-stream) start end)
+(defmethod sys.gray:stream-read-sequence ((stream simple-file-stream) sequence &optional (start 0) end)
+  (unless end (setf end (length sequence)))
   (let ((bytes-read 0)
         (offset start)
         (bytes-to-go (- end start)))
@@ -464,61 +471,58 @@
          (decf bytes-to-go bytes-to-read)))
     (+ start bytes-read)))
 
-(defmethod sys.int::stream-element-type* ((stream simple-file-stream))
-  '(unsigned-byte 8))
-
-(defmethod sys.int::stream-write-char (char (stream simple-file-character-stream))
-  (sys.int::stream-write-byte (char-code char) stream))
+(defmethod sys.gray:stream-write-char ((stream simple-file-character-stream) char)
+  (sys.gray:stream-write-byte stream (char-code char)))
 
 ;;; Explicitly fall back on the generic function so the byte read-sequence function
 ;;; doesn't get called.
-(defmethod sys.int::stream-read-sequence (sequence (stream simple-file-character-stream) start end)
-  (sys.int::generic-read-sequence sequence stream start end))
+(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence start end)
+  (if (stringp sequence)
+      (sys.int::generic-read-sequence sequence stream start end)
+      (call-next-method)))
 
-(defmethod sys.int::stream-read-char ((stream simple-file-character-stream))
+(defmethod sys.gray:stream-read-char ((stream simple-file-character-stream))
   (let ((leader (read-byte stream nil)))
-    (when leader
-      (when (eql leader #x0D)
-        (read-byte stream nil)
-        (setf leader #x0A))
-      (multiple-value-bind (length code-point)
-          (sys.net::utf-8-decode-leader leader)
-        (when (null length)
-          (return-from sys.int::stream-read-char
-            (code-char #xFFFE)))
-        (dotimes (i length)
-          (let ((byte (read-byte stream nil)))
-            (when (or (null byte)
-                      (/= (ldb (byte 2 6) byte) #b10))
-              (return-from sys.int::stream-read-char
-                (code-char #xFFFE)))
-            (setf code-point (logior (ash code-point 6)
-                                     (ldb (byte 6 0) byte)))))
-        (if (or (> code-point #x0010FFFF)
-                (<= #xD800 code-point #xDFFF))
-            (code-char #xFFFE)
-            (code-char code-point))))))
+    (unless leader
+      (return-from sys.gray:stream-read-char :eof))
+    (when (eql leader #x0D)
+      (read-byte stream nil)
+      (setf leader #x0A))
+    (multiple-value-bind (length code-point)
+        (sys.net::utf-8-decode-leader leader)
+      (when (null length)
+        (return-from sys.gray:stream-read-char
+          (code-char #xFFFE)))
+      (dotimes (i length)
+        (let ((byte (read-byte stream nil)))
+          (when (or (null byte)
+                    (/= (ldb (byte 2 6) byte) #b10))
+            (return-from sys.gray:stream-read-char
+              (code-char #xFFFE)))
+          (setf code-point (logior (ash code-point 6)
+                                   (ldb (byte 6 0) byte)))))
+      (if (or (> code-point #x0010FFFF)
+              (<= #xD800 code-point #xDFFF))
+          (code-char #xFFFE)
+          (code-char code-point)))))
 
-(defmethod sys.int::stream-file-position ((stream simple-file-stream))
-  (sf-position stream))
 
-(defmethod sys.int::stream-set-file-position ((stream simple-file-stream) new-position)
-  (when (eql new-position :end)
-    (with-connection (con (host stream))
-      (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
-      (let ((id (read-preserving-whitespace con)))
-        (unless (integerp id)
-          (error "Read error! ~S" id))
-        (buffered-format con "(:SIZE ~D)~%" id)
-        (let ((file-size (read-preserving-whitespace con)))
-          (unless (integerp file-size)
-            (error "Read error! ~S" file-size))
-          (setf new-position file-size)))))
-  (setf (read-buffer stream) nil)
-  (setf (sf-position stream) new-position))
-
-(defmethod sys.int::stream-element-type* ((stream simple-file-character-stream))
-  'character)
+(defmethod sys.gray:stream-file-position ((stream simple-file-stream) &optional (position-spec nil position-specp))
+  (cond (position-specp
+         (when (eql new-position :end)
+           (with-connection (con (host stream))
+             (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
+             (let ((id (read-preserving-whitespace con)))
+               (unless (integerp id)
+                 (error "Read error! ~S" id))
+               (buffered-format con "(:SIZE ~D)~%" id)
+               (let ((file-size (read-preserving-whitespace con)))
+                 (unless (integerp file-size)
+                   (error "Read error! ~S" file-size))
+                 (setf new-position file-size)))))
+         (setf (read-buffer stream) nil)
+         (setf (sf-position stream) new-position))
+        (t (sf-position stream))))
 
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)

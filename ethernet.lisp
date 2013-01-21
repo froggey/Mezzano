@@ -699,7 +699,11 @@
 
 (defgeneric transmit-packet (nic packet-descriptor))
 
-(defclass tcp-stream (sys.int::stream-object)
+(defclass tcp-stream (sys.gray:fundamental-character-input-stream
+                      sys.gray:fundamental-character-output-stream
+                      sys.gray:fundamental-binary-input-stream
+                      sys.gray:fundamental-binary-output-stream
+                      sys.gray:unread-char-mixin)
   ((connection :initarg :connection :reader tcp-stream-connection)
    (current-packet :initform nil :accessor tcp-stream-packet)))
 
@@ -747,11 +751,11 @@
          (not (eql (tcp-connection-state connection) :established))
          (not (eql (tcp-connection-state connection) :syn-received)))))
 
-(defmethod sys.int::stream-listen ((stream tcp-stream))
+(defmethod sys.gray:stream-listen ((stream tcp-stream))
   (refill-tcp-stream-buffer stream)
   (not (null (tcp-stream-packet stream))))
 
-(defmethod sys.int::stream-read-byte ((stream tcp-stream))
+(defmethod sys.gray:stream-read-byte ((stream tcp-stream))
   (let ((connection (tcp-stream-connection stream)))
     ;; Refill the packet buffer.
     (when (null (tcp-stream-packet stream))
@@ -762,7 +766,7 @@
       (when (and (null (tcp-connection-rx-data connection))
 		 (not (eql (tcp-connection-state connection) :established))
                  (not (eql (tcp-connection-state connection) :syn-received)))
-	(return-from sys.int::stream-read-byte nil))
+	(return-from sys.gray:stream-read-byte :eof))
       (setf (tcp-stream-packet stream) (first (tcp-connection-rx-data connection))
 	    (tcp-connection-rx-data connection) (cdr (tcp-connection-rx-data connection))))
     (let* ((packet (tcp-stream-packet stream))
@@ -771,7 +775,8 @@
 	(setf (tcp-stream-packet stream) nil))
       byte)))
 
-(defmethod sys.int::stream-read-sequence (sequence (stream tcp-stream) start end)
+(defmethod sys.gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
+  (unless end (setf end (length sequence)))
   (let ((n (- end start)))
     (if (and (subtypep (stream-element-type stream) 'character)
              (or (listp sequence)
@@ -825,36 +830,38 @@
         ((eql (logand leader #b11111000) #b11110000)
          (values 3 (logand leader #b00000111)))))
 
-(defmethod sys.int::stream-read-char ((stream tcp-stream))
+(defmethod sys.gray:stream-read-char ((stream tcp-stream))
   (let ((leader (read-byte stream nil)))
-    (when leader
-      (when (eql leader #x0D)
-        (read-byte stream nil)
-        (setf leader #x0A))
-      (multiple-value-bind (length code-point)
-          (utf-8-decode-leader leader)
-        (when (null length)
-          (return-from sys.int::stream-read-char
-            (code-char #xFFFE)))
-        (dotimes (i length)
-          (let ((byte (read-byte stream nil)))
-            (when (or (null byte)
-                      (/= (ldb (byte 2 6) byte) #b10))
-              (return-from sys.int::stream-read-char
-                (code-char #xFFFE)))
-            (setf code-point (logior (ash code-point 6)
-                                     (ldb (byte 6 0) byte)))))
-        (if (or (> code-point #x0010FFFF)
-                (<= #xD800 code-point #xDFFF))
-            (code-char #xFFFE)
-            (code-char code-point))))))
+    (unless leader
+      (return-from sys.gray:stream-read-char :eof))
+    (when (eql leader #x0D)
+      (read-byte stream nil)
+      (setf leader #x0A))
+    (multiple-value-bind (length code-point)
+        (utf-8-decode-leader leader)
+      (when (null length)
+        (return-from sys.gray:stream-read-char
+          (code-char #xFFFE)))
+      (dotimes (i length)
+        (let ((byte (read-byte stream nil)))
+          (when (or (null byte)
+                    (/= (ldb (byte 2 6) byte) #b10))
+            (return-from sys.gray:stream-read-char
+              (code-char #xFFFE)))
+          (setf code-point (logior (ash code-point 6)
+                                   (ldb (byte 6 0) byte)))))
+      (if (or (> code-point #x0010FFFF)
+              (<= #xD800 code-point #xDFFF))
+          (code-char #xFFFE)
+          (code-char code-point)))))
 
-(defmethod sys.int::stream-write-byte (byte (stream tcp-stream))
+(defmethod sys.gray:stream-write-byte ((stream tcp-stream) byte)
   (let ((ary (make-array 1 :element-type '(unsigned-byte 8)
                          :initial-element byte)))
     (tcp-send (tcp-stream-connection stream) ary)))
 
-(defmethod sys.int::stream-write-sequence (sequence (stream tcp-stream) start end)
+(defmethod sys.gray:stream-write-sequence ((stream tcp-stream) sequence &optional (start 0) end)
+  (unless end (setf end (length sequence)))
   (cond ((stringp sequence)
          (setf sequence (encode-utf8-string sequence start end)))
         ((not (and (zerop start)
@@ -862,12 +869,12 @@
          (setf sequence (subseq sequence start end))))
   (tcp-send (tcp-stream-connection stream) sequence))
 
-(defmethod sys.int::stream-write-char (character (stream tcp-stream))
+(defmethod sys.gray:stream-write-char ((stream tcp-stream) character)
   (when (eql character #\Newline)
     (write-byte #x0D stream))
   (write-byte (char-code character) stream))
 
-(defmethod sys.int::stream-close ((stream tcp-stream) abort)
+(defmethod close ((stream tcp-stream) &key abort)
   (let* ((connection (tcp-stream-connection stream)))
     (setf (tcp-connection-state connection) :closing)
     (tcp4-send-packet connection
@@ -875,9 +882,6 @@
                       (tcp-connection-r-next connection)
                       nil
                       :fin-p t)))
-
-(defmethod sys.int::stream-element-type* ((stream tcp-stream))
-  'character)
 
 #+nil(defun ethernet-init ()
   (setf *cards* '()
@@ -983,13 +987,16 @@
 
 (define-condition close-eval-server () ())
 
-(defclass eval-server-stream (sys.int::stream-object)
-  ((remote-stream :initarg :remote-stream :reader remote-stream)))
+(defclass eval-server-stream (sys.gray:fundamental-character-input-stream
+                              sys.gray:fundamental-character-output-stream
+                              sys.gray:unread-char-mixin)
+  ((remote-stream :initarg :remote-stream :reader remote-stream)
+   (unread-char :initform nil)))
 
-(defmethod sys.int::stream-write-char (char (stream eval-server-stream))
+(defmethod sys.gray:stream-write-char ((stream eval-server-stream) char)
   (write-char char (remote-stream stream)))
 
-(defmethod sys.int::stream-read-char ((stream eval-server-stream))
+(defmethod sys.gray:stream-read-char ((stream eval-server-stream))
   (let ((c (read-char (remote-stream stream) nil)))
     (or c
         (signal (make-condition 'close-eval-server)))))

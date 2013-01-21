@@ -51,7 +51,7 @@
                             (lambda ()
                               (not (ps/2-fifo-empty fifo))))))))
 
-(defclass ps/2-keyboard-stream (stream-object) ())
+(defclass ps/2-keyboard-stream (sys.gray:fundamental-character-input-stream sys.gray:unread-char-mixin) ())
 
 (defconstant +extended-scan-code+ #xE0)
 
@@ -146,7 +146,7 @@
      (let ((key (ps/2-translate-scancode (ps/2-read-fifo fifo))))
        (when key (return key)))))
 
-(defmethod stream-read-char ((stream ps/2-keyboard-stream))
+(defmethod sys.gray:stream-read-char ((stream ps/2-keyboard-stream))
   (ps/2-read-char *ps/2-key-fifo*))
 
 (defun keyboard-listen (fifo)
@@ -192,7 +192,8 @@
        (incf (ps/2-fifo-head fifo))
        (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
          (setf (ps/2-fifo-head fifo) 0)))))
-(defmethod stream-listen ((stream ps/2-keyboard-stream))
+
+(defmethod sys.gray:stream-listen ((stream ps/2-keyboard-stream))
   (keyboard-listen *ps/2-key-fifo*))
 
 ;;; PS/2 controller commands.
