@@ -380,9 +380,6 @@
            (cold-start-line-p s))
           (t (sys.gray:stream-start-line-p s)))))
 
-(defmethod sys.gray:stream-start-line-p ((stream stream))
-  nil)
-
 (defmethod close ((stream stream) &key abort)
   t)
 
@@ -813,6 +810,9 @@ CASE may be one of:
 (defmethod sys.gray:stream-fresh-line ((stream sys.gray:fundamental-character-output-stream))
   (unless (sys.gray:stream-start-line-p stream)
     (sys.gray:stream-terpri stream)))
+
+(defmethod sys.gray:stream-line-column ((stream sys.gray:fundamental-character-output-stream))
+  nil)
 
 (defmethod sys.gray:stream-start-line-p ((stream sys.gray:fundamental-character-output-stream))
   (let ((column (sys.gray:stream-line-column stream)))
