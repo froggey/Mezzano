@@ -84,6 +84,14 @@
 
 (defun stack-group-preset (stack-group function &rest arguments)
   (declare (dynamic-extent arguments))
+  (stack-group-preset-common stack-group #x202 function arguments))
+
+(defun stack-group-preset-no-interrupts (stack-group function &rest arguments)
+  (declare (dynamic-extent arguments))
+  (stack-group-preset-common stack-group #x2 function arguments))
+
+(defun stack-group-preset-common (stack-group initial-flags function arguments)
+  (declare (dynamic-extent arguments))
   (check-type function function)
   (when (eq (stack-group-state stack-group) :active)
     (error "Cannot preset an active stack-group."))
@@ -123,7 +131,7 @@
     ;; Must match the frame %%stack-group-resume expects!
     (setf (memref-t (decf cs-pointer 8) 0) #'%%initial-stack-group-function)
     ;; Initial EFLAGS, interrupts enabled.
-    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) #x200)
+    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) initial-flags)
     ;; Data stack pointer.
     (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) ds-pointer)
     ;; Data stack frame pointer.
