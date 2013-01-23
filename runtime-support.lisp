@@ -123,9 +123,9 @@
 (defun list (&rest args)
   args)
 
-(defun copy-list (list)
+(defun copy-list (list &optional area)
   (when list
-    (cons (car list) (copy-list (cdr list)))))
+    (cons-in-area (car list) (copy-list (cdr list)) area)))
 
 ;;; Will be overriden later in the init process.
 (defun funcallable-instance-lambda-expression (function)
