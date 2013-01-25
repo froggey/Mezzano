@@ -11,7 +11,7 @@
 (defconstant +ps/2-key-irq+ 1)
 (defconstant +ps/2-aux-irq+ 12)
 
-(sys.intc:define-interrupt-handler ps/2-interrupt (fifo &aux data x)
+(define-interrupt-handler ps/2-interrupt (fifo &aux data x)
   (setf data (io-port/8 +ps/2-data-port+))
   (setf x (1+ (ps/2-fifo-tail fifo)))
   (when (>= x (length (ps/2-fifo-buffer fifo)))
@@ -459,9 +459,9 @@
 (defun init-ps/2 ()
   ;; Install IRQ handlers.
   (setf *ps/2-key-fifo* (make-ps/2-fifo)
-        (isa-pic-interrupt-handler +ps/2-key-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
+        (isa-pic-interrupt-handler +ps/2-key-irq+) (make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
         *ps/2-aux-fifo* (make-ps/2-fifo)
-        (isa-pic-interrupt-handler +ps/2-aux-irq+) (sys.intc:make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*))
+        (isa-pic-interrupt-handler +ps/2-aux-irq+) (make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*))
   ;; Reset keyboard state.
   (setf *ps/2-keyboard-extended-key* nil
         *ps/2-keyboard-shifted* nil

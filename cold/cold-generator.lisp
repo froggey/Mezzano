@@ -66,7 +66,6 @@
     "compiler/inline.lisp"
     "compiler/codegen.lisp"
     "compiler/builtins.lisp"
-    "interrupt-compiler.lisp"
     "keyboard.lisp"
     "framebuffer-stream.lisp"
     "bochs-vbe.lisp"

@@ -242,7 +242,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
 (defmethod sys.net:transmit-packet ((interface rtl8139) packet-descriptor)
   (rtl8139-tx interface packet-descriptor))
 
-(sys.intc:define-interrupt-handler rtl8139-interrupt (io-base signal-cons)
+(sys.int::define-interrupt-handler rtl8139-interrupt (io-base signal-cons)
   ;; Copy the current ISR state into the signal cons.
   (setf (car signal-cons) (io-port/16 (+ io-base +rtl8139-isr+)))
   ;; Write #xFFFF to ISR to clear the interrupt state.
@@ -332,7 +332,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
 	    (slot-value card 'rx-address) rx-address
 	    (slot-value card 'ioar) (logand (sys.int::pci-bar pci-device 0) -4)
 	    (slot-value card 'memar) (logand (sys.int::pci-bar pci-device 1) -4)
-            (slot-value card 'isr) (sys.intc:make-interrupt-handler 'rtl8139-interrupt
+            (slot-value card 'isr) (sys.int::make-interrupt-handler 'rtl8139-interrupt
                                                                     (slot-value card 'ioar)
                                                                     (slot-value card 'signal-cons))
             (slot-value card 'mac) (make-array 6 :element-type '(unsigned-byte 8)))
