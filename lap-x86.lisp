@@ -774,7 +774,7 @@
 (define-simple-instruction-with-operand-size scas #xAE)
 
 (define-simple-instruction-with-operand-size cwd #x99 (:gpr-16))
-(define-simple-instruction-with-operand-size cwq #x99 (:gpr-32))
+(define-simple-instruction-with-operand-size cdq #x99 (:gpr-32))
 (define-simple-instruction-with-operand-size cqo #x99 (:gpr-64))
 
 (defmacro define-integer-instruction (name lambda-list (class) &body body)
