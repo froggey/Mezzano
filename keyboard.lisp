@@ -295,7 +295,6 @@
     ;; If the aux clock bit is clear, then it can't be a dual-channel controller.
     (unless (logtest config-byte +ps/2-config-aux-clock+)
       (setf single-channelp t))
-    (format t "Config word: ~8,'0B~%" config-byte)
     ;; Disable the key and aux interrupts and key translation.
     (ps/2-write-config (logand config-byte
                                (lognot (logior +ps/2-config-key-interrupt+
@@ -314,7 +313,6 @@
       (setf (io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
       ;; This bit should be clear now, for a dual-channel controller.
       (setf config-byte (ps/2-read-config))
-      (format t "Config word: ~8,'0B (after aux enable)~%" config-byte)
       (when (logtest config-byte +ps/2-config-aux-clock+)
         (setf single-channelp t))
       (ps/2-input-wait "disable-aux")
@@ -342,7 +340,6 @@
     (ps/2-write-config (logior (ps/2-read-config)
                                (if *ps/2-key-port-working* +ps/2-config-key-interrupt+ 0)
                                (if *ps/2-aux-port-working* +ps/2-config-aux-interrupt+ 0)))
-    (format t "Config word: ~8,'0B (after init)~%" (ps/2-read-config))
     (setf *ps/2-key-port-working* t
           *ps/2-aux-port-working* t)
     ;; Enable ports.
@@ -356,11 +353,7 @@
       (setf (isa-pic-irq-mask +ps/2-aux-irq+) nil))
     ;; Flush data FIFOs.
     (ps/2-flush-input :key)
-    (ps/2-flush-input :aux)
-    (format t "Config word: ~8,'0B  KEY: ~S  AUX: ~S (after setup)~%"
-            (ps/2-read-config)
-            *ps/2-key-port-working*
-            *ps/2-aux-port-working*)))
+    (ps/2-flush-input :aux)))
 
 (defun ps/2-write (port byte)
   (ecase port
