@@ -1,5 +1,35 @@
 (in-package #:sys.int)
 
+;;; 8253 PIT.
+
+(defconstant +i8253-irq+ 0)
+(defconstant +i8253-channel-0+ #x40)
+(defconstant +i8253-channel-1+ #x41)
+(defconstant +i8253-channel-2+ #x42)
+(defconstant +i8253-command+ #x43)
+(defconstant +i8253-base-frequency+ 1193181)
+(defconstant +i8253-channel-shift+ 6
+  "The channel number must be shifted by this for commands.")
+(defconstant +i8253-latch-count-value+ (ash 0 4)
+  "Latch the current count for the selected channel for read-out.")
+(defconstant +i8253-access-lsb-only+   (ash 1 4))
+(defconstant +i8253-access-msb-only+   (ash 2 4))
+(defconstant +i8253-access-lsb/msb+    (ash 3 4))
+(defconstant +i8253-square-wave+ (ash 3 1))
+(defconstant +i8253-binary+ 0)
+(defconstant +i8253-bcd+    1)
+
+(defun configure-pit (hz)
+  (let ((period (truncate +i8253-base-frequency+ hz)))
+    ;; Configure the PIT channel 0 to generate a repeating interrupt.
+    (setf (io-port/8 +i8253-command+) (logior (ash 0 +i8253-channel-shift+)
+                                              +i8253-access-lsb/msb+
+                                              +i8253-square-wave+
+                                              +i8253-binary+)
+          ;; Set low & high frequency octets.
+          (io-port/8 +i8253-channel-0+) (ldb (byte 8 0) period)
+          (io-port/8 +i8253-channel-0+) (ldb (byte 8 8) period))))
+
 ;; RTC IO ports.
 (defconstant +rtc-index-io-reg+ #x70)
 (defconstant +rtc-data-io-reg+ #x71)

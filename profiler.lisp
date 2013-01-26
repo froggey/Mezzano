@@ -24,12 +24,6 @@ an offset into the buffer. Should be allocated in static space.")
     (setf (cdr *profile-buffer*) 0))
   t)
 
-(defun configure-pit (hz)
-  (let ((period (truncate 1193181 hz)))
-    (setf (io-port/8 #x43) #x36 ; channel 0, LSB/MSB, mode 3, binary
-          (io-port/8 #x40) (ldb (byte 8 0) period)
-          (io-port/8 #x40) (ldb (byte 8 8) period))))
-
 (defun install-profile-handler (buffer)
   (multiple-value-bind (mc pool)
       (sys.lap-x86:assemble
