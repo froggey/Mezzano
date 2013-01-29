@@ -47,14 +47,18 @@
                  (append used-vars used)))))))
 
 (defmethod optimize-form ((form closure) &optional substitutions)
-  (multiple-value-bind (result used)
-      (optimize-application (closure-body form) substitutions)
-    (values (make-instance 'closure
-                           :name (closure-name form)
-                           :required-params (closure-required-params form)
-                           :body result)
-            (remove-if (lambda (x) (member x (closure-required-params form)))
-                       used))))
+  ;; (lambda () (foo)) => foo
+  (cond ((and (null (closure-required-params form))
+              (null (closure-arguments form)))
+         (closure-function form))
+        (t (multiple-value-bind (result used)
+               (optimize-application (closure-body form) substitutions)
+             (values (make-instance 'closure
+                                    :name (closure-name form)
+                                    :required-params (closure-required-params form)
+                                    :body result)
+                     (remove-if (lambda (x) (member x (closure-required-params form)))
+                                used))))))
 
 (defmethod optimize-form ((form constant) &optional substitutions)
   (declare (ignore substitutions))
