@@ -1,14 +1,14 @@
 (in-package #:sys.newc)
 
-(defgeneric optimize-form (form &optional substitutions))
+(defgeneric optimize-form (form use-map &optional substitutions))
 
-(defun optimize-application (form &optional substitutions)
+(defun optimize-application (form use-map &optional substitutions)
   (let* ((used-vars '())
          (fn (first form))
          ;; Optimize arguments first.
          (args (mapcar (lambda (a)
                          (multiple-value-bind (result used)
-                             (optimize-form a substitutions)
+                             (optimize-form a use-map substitutions)
                            (setf used-vars (append used used-vars))
                            result))
                        (rest form))))
@@ -18,18 +18,21 @@
          ((funcall)
           ;; (funcall cont fn args...) -> (fn cont args...)
           (optimize-application (list* (second args) (first args) (cddr args))
+                                use-map
                          substitutions))
          (t (values (list* fn args) used-vars))))
       (closure
        (assert (= (length args)
                   (length (closure-required-params fn))))
        (let ((paired-args (pairlis (closure-required-params fn) args)))
-         ;; Substitute arguments, but not closures
+         ;; Substitute lexicals, constants and used-once closures.
          (multiple-value-bind (result used)
              (optimize-application (closure-body fn)
-                                   (append (remove-if (lambda (x) (typep x 'closure))
-                                                      paired-args
-                                                      :key 'cdr)
+                                   use-map
+                                   (append (remove-if (lambda (x)
+                                                        (and (typep (cdr x) 'closure)
+                                                             (not (= (length (gethash (car x) use-map)) 1))))
+                                                      paired-args)
                                            substitutions))
            ;; Eliminate unused arguments.
            (let* ((used-args (remove-if-not (lambda (x) (member x used)) paired-args :key 'car))
@@ -42,17 +45,17 @@
                      (append used-vars used))))))
       (t ;; Something else.
        (multiple-value-bind (result used)
-           (optimize-form fn substitutions)
+           (optimize-form fn use-map substitutions)
          (values (list* result args)
                  (append used-vars used)))))))
 
-(defmethod optimize-form ((form closure) &optional substitutions)
+(defmethod optimize-form ((form closure) use-map &optional substitutions)
   ;; (lambda () (foo)) => foo
   (cond ((and (null (closure-required-params form))
               (null (closure-arguments form)))
          (closure-function form))
         (t (multiple-value-bind (result used)
-               (optimize-application (closure-body form) substitutions)
+               (optimize-application (closure-body form) use-map substitutions)
              (values (make-instance 'closure
                                     :name (closure-name form)
                                     :required-params (closure-required-params form)
@@ -60,15 +63,15 @@
                      (remove-if (lambda (x) (member x (closure-required-params form)))
                                 used))))))
 
-(defmethod optimize-form ((form constant) &optional substitutions)
-  (declare (ignore substitutions))
+(defmethod optimize-form ((form constant) use-map &optional substitutions)
+  (declare (ignore substitutions use-map))
   (values form '()))
 
-(defmethod optimize-form ((form lexical) &optional substitutions)
+(defmethod optimize-form ((form lexical) use-map &optional substitutions)
   ;; Substitute lexicals.
   (let ((replacement (assoc form substitutions)))
     (if replacement
-        (optimize-form (cdr replacement) substitutions)
+        (optimize-form (cdr replacement) use-map substitutions)
         (values form (list form)))))
 
 ;; Build a hash-table mapping variables and closures to their uses.

@@ -114,7 +114,7 @@
                                 (list cont)
                                 env))
           (t (multiple-value-bind (expansion expandedp)
-                 (macroexpand-1 form env)
+                 (sys.c::compiler-macroexpand-1 form env)
                (if expandedp
                    (translate expansion cont env)
                    (translate-arguments (rest form)
@@ -301,7 +301,8 @@
 )
 
 (defun translate-and-optimize (lambda)
-  (let ((form (optimize-form (convert-assignments (translate-lambda lambda nil)))))
+  (let ((form (convert-assignments (translate-lambda lambda nil))))
+    (setf form (optimize-form form (use-map form)))
     (loop
        (setf form (tricky-if (simple-optimize-if form)))
        (multiple-value-bind (new-form target-ifs)
@@ -311,5 +312,5 @@
            (return))
          (dolist (target target-ifs)
            (setf form (apply 'replace-if-closure form target))))
-       (setf form (optimize-form form)))
-    (optimize-form form)))
+       (setf form (optimize-form form (use-map form))))
+    (optimize-form form (use-map form))))
