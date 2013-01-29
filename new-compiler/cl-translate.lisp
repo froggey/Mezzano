@@ -6,12 +6,6 @@
 (defvar *print-ir-like-cl* t
   "Set to true if the IR printer should use ()' instead of {}? when printing.")
 
-(defclass application ()
-  ((function :initarg :function :reader application-function)
-   (arguments :initarg :arguments :reader application-arguments)
-   (plist :initform '() :accessor plist))
-  (:documentation "Apply arguments to function."))
-
 (defclass constant ()
   ((value :initarg :value :reader constant-value)
    (plist :initform '() :accessor plist))
@@ -25,20 +19,17 @@
 
 (defclass closure ()
   ((name :initarg :name :reader closure-name)
-   (required-args :initarg :required-args :reader closure-required-args)
+   (required-params :initarg :required-params :reader closure-required-params)
+   ;; Body of the closure, a function application.
    (body :initarg :body :reader closure-body)
    (plist :initform '() :accessor plist))
   (:documentation "A closure.")
   (:default-initargs :name nil))
 
-(defmethod print-object ((o application) stream)
-  (cond (*print-pretty*
-         (write-char (if *print-ir-like-cl* #\( #\{) stream)
-         (pprint-fill stream (list* (application-function o)
-                                    (application-arguments o))
-                      nil)
-         (write-char (if *print-ir-like-cl* #\) #\}) stream))
-        (t (call-next-method))))
+(defun closure-function (closure)
+  (first (closure-body closure)))
+(defun closure-arguments (closure)
+  (rest (closure-body closure)))
 
 (defmethod print-object ((o constant) stream)
   (if *print-pretty*
@@ -55,10 +46,12 @@
 
 (defmethod print-object ((o closure) stream)
   (if *print-pretty*
-      (format stream "~A~:<~;LAMBDA ~:S~1I ~_~S~;~:>~A"
+      (format stream "~A~:<~;LAMBDA ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
               (if *print-ir-like-cl* #\( #\{)
-              (list (closure-required-args o)
-                    (closure-body o))
+              (list (closure-required-params o)
+                    (if *print-ir-like-cl* #\( #\{)
+                    (closure-body o)
+                    (if *print-ir-like-cl* #\) #\}))
               (if *print-ir-like-cl* #\) #\}))
       (call-next-method)))
 
@@ -75,18 +68,13 @@
 (defun ! (code)
   "Convert shorthand to proper IR objects."
   (typecase code
-    (cons (cond
-            ((eql (first code) 'lambda)
-             (make-instance 'closure
-                            :required-args (second code)
-                            :body (! (third code))))
-            ((lambda-expression-p (first code))
-             (make-instance 'application
-                            :function (! (first code))
-                            :arguments (mapcar '! (rest code))))
-            (t (make-instance 'application
-                              :function (first code)
-                              :arguments (mapcar '! (rest code))))))
+    (cons
+     (assert (eql (first code) 'lambda))
+     (assert (listp (third code)))
+     (make-instance 'closure
+                    :required-params (second code)
+                    :body (mapcar '! (third code))))
+    (symbol (make-instance 'constant :value code))
     (t code)))
 
 (defun lambda-expression-p (thing)
@@ -113,9 +101,7 @@
 (defun translate-symbol (form cont env)
   (let ((info (find-variable form env)))
     (if info
-        (make-instance 'application
-                       :function cont
-                       :arguments (list (cdr info)))
+        (list cont (cdr info))
         (translate `(symbol-value ',form) cont env))))
 
 (defun translate-cons (form cont env)
@@ -132,7 +118,7 @@
                (if expandedp
                    (translate expansion cont env)
                    (translate-arguments (rest form)
-                                        (first form)
+                                        (make-instance 'constant :value (first form))
                                         (list cont)
                                         env)))))))
 
@@ -140,16 +126,13 @@
   (if args
       (let ((arg (make-instance 'lexical :name (gensym "arg"))))
         (translate (first args)
-                   (make-instance 'closure
-                                  :required-args (list arg)
-                                  :body (translate-arguments (rest args)
-                                                             function
-                                                             (cons arg accum)
-                                                             env))
+                   (! `(lambda (,arg)
+                         ,(translate-arguments (rest args)
+                                               function
+                                               (cons arg accum)
+                                               env)))
                    env))
-      (make-instance 'application
-                     :function function
-                     :arguments (nreverse accum))))
+      (list* function (nreverse accum))))
 
 (defun translate-progn (forms cont env)
   "Translate a PROGN-like list of FORMS."
@@ -158,9 +141,8 @@
          (translate (first forms) cont env))
         (t (let ((v (make-instance 'lexical :name (gensym "progn"))))
              (translate (first forms)
-                        (make-instance 'closure
-                                       :required-args (list v)
-                                       :body (translate-progn (rest forms) cont env))
+                        (! `(lambda (,v)
+                              ,(translate-progn (rest forms) cont env)))
                         env)))))
 
 (defun translate-lambda (lambda env)
@@ -175,7 +157,7 @@
                                    required)))
         (make-instance 'closure
                        :name name
-                       :required-args (list* lambda-cont required-args)
+                       :required-params (list* lambda-cont required-args)
                        :body (translate-progn body
                                               lambda-cont
                                               (list* `(:bindings ,@(pairlis required required-args)) env)))))))
@@ -196,15 +178,11 @@
   (translate-progn forms cont env))
 
 (defspecial quote ((object) cont env)
-  (make-instance 'application
-                 :function cont
-                 :arguments (list (make-instance 'constant :value object))))
+  (list cont (make-instance 'constant :value object)))
 
 (defspecial function ((name) cont env)
   (if (lambda-expression-p name)
-      (make-instance 'application
-                 :function cont
-                 :arguments (list (translate-lambda name env)))
+      (list cont (translate-lambda name env))
       (translate `(fdefinition ',name) cont env)))
 
 (defspecial multiple-value-call ((function-form &rest forms) cont env)
@@ -218,7 +196,7 @@
                                      #'(lambda () ,@forms))
              cont env))
 
-(defspecial block ((name &body body) original-cont env)
+#+nil(defspecial block ((name &body body) original-cont env)
   (let ((cont (make-instance 'lexical :name (gensym "block-cont"))))
     (! `(%block ,original-cont
                 (lambda (,cont)
@@ -227,7 +205,7 @@
                               (list* (list :block name cont)
                                      env)))))))
 
-(defspecial return-from ((name &optional (result ''nil)) cont env)
+#+nil(defspecial return-from ((name &optional (result ''nil)) cont env)
   (dolist (e env (error "RETURN-FROM refers to unknown block ~S." name))
     (when (and (eql (first e) :block)
                (eql (second e) name))

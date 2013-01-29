@@ -7,16 +7,18 @@
 
 (defgeneric convert-assignments (form &optional env))
 
-(defmethod convert-assignments ((form application) &optional env)
-  (cond ((eql (application-function form) '%setq)
+(defun convert-application-assignments (form &optional env)
+  (cond ((and (typep (first form) 'constant)
+              (eql (constant-value (first form)) '%setq))
          ;; (%SETQ cont var val) -> (SET-CONTENTS cont cell-var val)
          ;; Careful here, cont and val need to be converted as well.
-         (let ((args (application-arguments form)))
-           (convert-assignments
-            (! `(set-contents ,(convert-assignments (first args) env)
-                              ,(or (cdr (assoc (second args) env))
-                                   (error "Variable assigned but not in env?"))
-                              ,(third args)))
+         (let ((args (rest form)))
+           (convert-application-assignments
+            (list (make-instance 'constant :value 'set-contents)
+                  (convert-assignments (first args) env)
+                  (or (cdr (assoc (second args) env))
+                      (error "Variable assigned but not in env?"))
+                  (third args))
             env)))
         (t
          ;; (fn A Y C) ->
@@ -24,10 +26,7 @@
          ;; For variables in the environment.
          ;; Applications won't appear in the argument list, thanks to CPS.
          ;; The function is relatively uninteresting, deal with it quickly.
-         (let* ((fn (if (symbolp (application-function form))
-                        (application-function form)
-                        (convert-assignments (application-function form) env)))
-                (needed-values '())
+         (let* ((needed-values '())
                 (args (mapcar (lambda (arg)
                                 (if (assoc arg env)
                                     (let ((val (make-instance 'lexical
@@ -36,16 +35,14 @@
                                       (push (cons val arg) needed-values)
                                       val)
                                     arg))
-                                (application-arguments form))))
+                                form)))
            (labels ((frob (vals)
                       (cond (vals
-                             (! `(contents (lambda (,(car (first vals))) ,(frob (rest vals)))
-                                           ,(cdr (assoc (cdr (first vals)) env)))))
-                            (t (make-instance 'application
-                                              :function fn
-                                              :arguments (mapcar (lambda (x)
-                                                                   (convert-assignments x env))
-                                                                 args))))))
+                             `(contents ,(! `(lambda (,(car (first vals))) ,(frob (rest vals))))
+                                        ,(cdr (assoc (cdr (first vals)) env))))
+                            (t (mapcar (lambda (x)
+                                         (convert-assignments x env))
+                                       args)))))
              (frob needed-values))))))
 
 (defmethod convert-assignments ((form constant) &optional env)
@@ -66,7 +63,7 @@
   ;;   (make-cell (lambda (X-cell) ...) X-orig))
   ;; Where X has the IS-SET property.
   (let* ((req-args (remove-if-not (lambda (x) (getf (plist x) 'is-set))
-                              (closure-required-args form)))
+                              (closure-required-params form)))
          (cell-vars (mapcar (lambda (arg)
                               (make-instance 'lexical
                                              :name (gensym (format nil "~A-cell" (lexical-name arg)))))
@@ -75,10 +72,10 @@
       (setf (getf (plist x) 'is-set) nil))
     (labels ((frob (args cells)
                (cond (args
-                      (! `(make-cell (lambda (,(first cells))
-                                       ,(frob (rest args) (rest cells)))
-                                     ,(first args))))
-                     (t (convert-assignments (closure-body form)
-                                             (pairlis req-args cell-vars env))))))
-      (! `(lambda ,(closure-required-args form)
+                      `(make-cell ,(! `(lambda (,(first cells))
+                                         ,(frob (rest args) (rest cells))))
+                                  ,(first args)))
+                     (t (convert-application-assignments (closure-body form)
+                                                         (pairlis req-args cell-vars env))))))
+      (! `(lambda ,(closure-required-params form)
             ,(frob req-args cell-vars))))))
