@@ -196,16 +196,17 @@
                                      #'(lambda () ,@forms))
              cont env))
 
-#+nil(defspecial block ((name &body body) original-cont env)
+(defspecial block ((name &body body) original-cont env)
   (let ((cont (make-instance 'lexical :name (gensym "block-cont"))))
-    (! `(%block ,original-cont
-                (lambda (,cont)
-                  ,(translate `(progn ,@body)
-                              cont
-                              (list* (list :block name cont)
-                                     env)))))))
+    (list (make-instance 'constant :value '%block)
+          original-cont
+          (! `(lambda (,cont)
+                ,(translate `(progn ,@body)
+                            cont
+                            (list* (list :block name cont)
+                                   env)))))))
 
-#+nil(defspecial return-from ((name &optional (result ''nil)) cont env)
+(defspecial return-from ((name &optional (result ''nil)) cont env)
   (dolist (e env (error "RETURN-FROM refers to unknown block ~S." name))
     (when (and (eql (first e) :block)
                (eql (second e) name))
