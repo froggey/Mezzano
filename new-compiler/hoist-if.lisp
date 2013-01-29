@@ -1,78 +1,32 @@
 (in-package #:sys.newc)
 
-(defun candidate-ifp (closure use-map)
-  (and
-   ;; Must be (LAMBDA (test) ('%IF then else test))
-   (typep closure 'closure)
-   (typep (closure-function closure) 'constant)
-   (eql (constant-value (closure-function closure)) '%if)
-   (= (length (closure-arguments closure)) 3)
-   (= (length (closure-required-params closure)) 1)
-   (eql (first (closure-required-params closure))
-        (third (closure-arguments closure)))
-   ;; The test-arg must not be captured.
-   (= (length (gethash (third (closure-arguments closure)) use-map)) 1)
-   ;; And must be the argument of a one-argument closure.
-   (let* ((uses (gethash closure use-map))
-          (outer (first uses)))
-     (and (= (length uses) 1)
-          (not (eql (closure-function outer) closure))
-          (typep (closure-function outer) 'closure)
-          (= (length (closure-required-params (closure-function outer))) 1)
-          (= (length (closure-arguments outer)) 1)
-          (eql (first (closure-arguments outer)) closure)))))
+(define-rewrite-rule hoist-if-branches ()
+  ((lambda (if-closure) body)
+   (lambda ((test :uses 1)) ('%if then else test)))
+  ((lambda (then-var else-var)
+     ((lambda (if-closure) body)
+      (lambda (test)
+        ('%if then-var else-var test))))
+   then
+   else)
+  (list if-closure then-var else-var))
 
-(defun hoist-candidate-if (form candidate use-map)
-  ;; (LAMBDA (...) ((LAMBDA (K) ...) #candidate=(LAMBDA (X) (%IF foo bar X)))) =>
-  ;; (LAMBDA (...)
-  ;;   ((LAMBDA (true false)
-  ;;      ((LAMBDA (K) ...) (LAMBDA (X) (%IF true false X))))
-  ;;    foo bar))
-  (let* ((replace-this (first (gethash candidate use-map)))
-         (args (closure-arguments candidate))
-         (then-arg (first args))
-         (else-arg (second args))
-         (then-var (make-instance 'lexical :name (gensym "if-then")))
-         (else-var (make-instance 'lexical :name (gensym "if-else")))
-         (test-var (make-instance 'lexical :name (gensym "if-test"))))
-    (values (substitute-form form replace-this
-                             (! `(lambda ,(closure-required-params replace-this)
-                                   ((lambda (,then-var ,else-var)
-                                      (,(closure-function replace-this)
-                                        (lambda (,test-var)
-                                          (%if ,then-var ,else-var ,test-var))))
-                                    ,then-arg
-                                    ,else-arg))))
-            then-var
-            else-var
-            (first (closure-required-params (closure-function replace-this))))))
+(define-rewrite-rule tricky-if ()
+  (l1
+   (lambda (test)
+     ((lambda (c1)
+        ('%if then else test))
+      l2)))
+  ((lambda (c1)
+     (l1
+      (lambda (test)
+        ('%if then else test))))
+   l2))
 
-;; (LAMBDA (...) (... closure-var ...)) =>
-;; (LAMBDA (...) (... (LAMBDA (test) (%IF then-var else-var test)) ...))
-(defgeneric replace-if-closure (form closure-var then-var else-var))
-
-(defun replace-if-closure-application (form closure-var then-var else-var)
-  (mapcar (lambda (f)
-            (cond ((eql f closure-var)
-                   (let ((test (make-instance 'lexical :name (gensym "if-test"))))
-                     (! `(lambda (,test) (%if ,then-var ,else-var ,test)))))
-                  (t (replace-if-closure f closure-var then-var else-var))))
-          form))
-
-(defmethod replace-if-closure ((form closure) closure-var then-var else-var)
-  (make-instance 'closure
-                 :name (closure-name form)
-                 :required-params (closure-required-params form)
-                 :body (replace-if-closure-application (closure-body form)
-                                                       closure-var then-var else-var)))
-
-(defmethod replace-if-closure ((form lexical) closure-var then-var else-var)
-  (declare (ignore closure-var then-var else-var))
-  form)
-
-(defmethod replace-if-closure ((form constant) closure-var then-var else-var)
-  (declare (ignore closure-var then-var else-var))
-  form)
+(define-rewrite-rule replace-if-closure (closure-var then-var else-var)
+  closure-var
+  (lambda (test)
+    ('%if then-var else-var test)))
 
 ;; Replace %IF applications with calls to their appropriate branch when the
 ;; test is known to be true or false.

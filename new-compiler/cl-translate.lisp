@@ -299,3 +299,17 @@
 ((symbol-macrolet) (pass1-symbol-macrolet form env))
 ((tagbody) (pass1-tagbody form env))
 )
+
+(defun translate-and-optimize (lambda)
+  (let ((form (optimize-form (convert-assignments (translate-lambda lambda nil)))))
+    (loop
+       (setf form (tricky-if (simple-optimize-if form)))
+       (multiple-value-bind (new-form target-ifs)
+           (hoist-if-branches form)
+         (setf form new-form)
+         (when (endp target-ifs)
+           (return))
+         (dolist (target target-ifs)
+           (setf form (apply 'replace-if-closure form target))))
+       (setf form (optimize-form form)))
+    (optimize-form form)))
