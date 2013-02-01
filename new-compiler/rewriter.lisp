@@ -1,5 +1,7 @@
 ;;;; Pattern-based form rewriter.
 
+(in-package #:sys.newc)
+
 (defun match-form (form original bindings use-map)
   (labels ((frob (form template)
              (etypecase template
