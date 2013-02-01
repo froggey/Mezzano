@@ -289,19 +289,60 @@
   (declare (ignore value-type))
   (translate form cont env))
 
+(defspecial tagbody ((&rest statements) cont env)
+  (let ((go-tags (remove-if-not 'go-tag-p statements)))
+    (list* (make-instance 'constant :value '%tagbody)
+           cont
+           (do ((i statements (cdr i))
+                (forms '())
+                (lambdas '()))
+               ((null i)
+                (let ((tag-mapping (mapcar (lambda (tag)
+                                                 (cons tag
+                                                       (make-instance 'lexical
+                                                                      :name (gensym (format nil "~A-" tag)))))
+                                               go-tags))
+                      (exit-cont (make-instance 'lexical :name "tagbody-exit")))
+                  (push (! `(lambda (,exit-cont ,@(mapcar 'cdr tag-mapping))
+                              ,(translate `(progn ,@(nreverse forms))
+                                          exit-cont
+                                          (list* `(:tagbody ,@tag-mapping) env))))
+                        lambdas))
+                (nreverse lambdas))
+             (cond ((go-tag-p (car i))
+                    (let ((tag-mapping (mapcar (lambda (tag)
+                                                 (cons tag
+                                                       (make-instance 'lexical
+                                                                      :name (gensym (format nil "~A-" tag)))))
+                                               go-tags)))
+                      (push (! `(lambda ,(mapcar 'cdr tag-mapping)
+                                  ,(translate `(progn ,@(nreverse forms))
+                                              (! `(lambda (,(make-instance 'lexical)) (,(cdr (assoc (car i) tag-mapping)))))
+                                              (list* `(:tagbody ,@tag-mapping) env))))
+                            lambdas)
+                      (setf forms '())))
+                   (t (push (car i) forms)))))))
+
+(defspecial go ((tag) cont env)
+  (check-type tag (satisfies go-tag-p) "a go tag")
+  (dolist (e env (error "GO refers to unknown tag ~S." tag))
+    (when (eql (first e) :tagbody)
+      (let ((x (assoc tag (rest e))))
+        (when x
+          (return (list (cdr x))))))))
+
 #+(or)(
 ((flet) (pass1-flet form env))
-((go) (pass1-go form env))
 ((labels) (pass1-labels form env))
 ((load-time-value) (pass1-load-time-value form env))
 ((locally) (pass1-locally form env))
 ((macrolet) (pass1-macrolet form env))
 ((symbol-macrolet) (pass1-symbol-macrolet form env))
-((tagbody) (pass1-tagbody form env))
 )
 
 (defun translate-and-optimize (lambda)
-  (let ((form (convert-assignments (translate-lambda lambda nil))))
+  (let* ((*gensym-counter* 0)
+         (form (convert-assignments (translate-lambda lambda nil))))
     (setf form (optimize-form form (use-map form)))
     (loop
        (setf form (tricky-if (simple-optimize-if form)))
