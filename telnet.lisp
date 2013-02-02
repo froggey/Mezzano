@@ -354,8 +354,11 @@ party to perform, the indicated option.")
               (setf (x-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
              (#\J
               (case (first (slot-value terminal 'parameters))
-                ((0 nil) (clear terminal 0 (y-pos terminal))) ; clear above
-                (1 (clear terminal (y-pos terminal) (terminal-height terminal))) ; clear below
+                ((0 nil)
+                 ;; clear below
+                 (erase terminal (x-pos terminal) (terminal-width terminal))
+                 (clear terminal (1+ (y-pos terminal)) (terminal-height terminal)))
+                (1 (clear terminal 0 (y-pos terminal))) ; clear above
                 (2 (clear terminal 0 (terminal-height terminal)))
                 (t (report-unknown-escape terminal))))
              (#\K
