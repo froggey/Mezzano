@@ -45,6 +45,7 @@ party to perform, the indicated option.")
 (defconstant +option-echo+ 1)
 (defconstant +option-suppress-go-ahead+ 3)
 (defconstant +option-status+ 5)
+(defconstant +option-window-size+ 31)
 (defconstant +option-terminal-speed+ 32)
 (defconstant +option-terminal-type+ 24)
 (defconstant +option-x-display-location+ 35)
@@ -518,6 +519,12 @@ party to perform, the indicated option.")
           (write-sequence (vector +command-iac+ +command-will+
                                   +option-terminal-type+)
                           connection))
+         (#.+option-window-size+
+          (write-sequence (apply 'vector
+                                 (append (list +command-iac+ +command-sb+ +option-window-size+)
+                                         (list #x00 80 #x00 24)
+                                         (list +command-iac+ +command-se+)))
+                          connection))
          (t (write-sequence (vector +command-iac+ +command-wont+ option)
                             connection)))))
     (#.+command-dont+
@@ -538,7 +545,8 @@ party to perform, the indicated option.")
       (with-simple-restart (abort "Give up")
         (sys.int::process-wait "Awaiting connection" (lambda () (telnet-connection telnet)))
         ;; Announce capabilities.
-        (write-sequence #(#.+command-iac+ #.+command-do+ #.+option-suppress-go-ahead+)
+        (write-sequence #(#.+command-iac+ #.+command-do+ #.+option-suppress-go-ahead+
+                          #.+command-iac+ #.+command-will+ #.+option-window-size+)
                         (telnet-connection telnet))
         (let ((last-was-cr nil))
           (loop (let ((byte (read-byte (telnet-connection telnet))))
