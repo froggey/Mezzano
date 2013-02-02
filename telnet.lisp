@@ -264,7 +264,7 @@ party to perform, the indicated option.")
        (setf (foreground-colour terminal) nil))
       (49 ;; Set background to default
        (setf (background-colour terminal) nil))
-      ((2 3 6 9 38 38)) ; ???
+      ((2 3 6 9 38 48)) ; ???
       (t (cond
            ((<= 30 attr 37)
             (setf (foreground-colour terminal) (- attr 30)))
