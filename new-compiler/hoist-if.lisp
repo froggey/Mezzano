@@ -76,7 +76,8 @@
 
 (defmethod simple-optimize-if ((form lexical) &optional known-truths)
   (let ((info (assoc form known-truths)))
-    (if info
+    ;; Only substitute NIL, can't know the actual value when true.
+    (if (and info (eql (cdr info) 'nil))
         (make-instance 'constant :value (cdr info))
         form)))
 
