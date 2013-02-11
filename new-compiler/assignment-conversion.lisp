@@ -14,7 +14,7 @@
          ;; Careful here, cont and val need to be converted as well.
          (let ((args (rest form)))
            (convert-application-assignments
-            (list (make-instance 'constant :value 'set-contents)
+            (list (make-instance 'constant :value '%set-contents)
                   (convert-assignments (first args) env)
                   (or (cdr (assoc (second args) env))
                       (error "Variable assigned but not in env?"))
@@ -38,8 +38,8 @@
                                 form)))
            (labels ((frob (vals)
                       (cond (vals
-                             `(contents ,(! `(clambda (,(car (first vals))) ,(frob (rest vals))))
-                                        ,(cdr (assoc (cdr (first vals)) env))))
+                             `(%contents ,(! `(clambda (,(car (first vals))) ,(frob (rest vals))))
+                                         ,(cdr (assoc (cdr (first vals)) env))))
                             (t (mapcar (lambda (x)
                                          (convert-assignments x env))
                                        args)))))
@@ -72,9 +72,9 @@
       (setf (getf (plist x) 'is-set) nil))
     (labels ((frob (args cells)
                (cond (args
-                      `(make-cell ,(! `(clambda (,(first cells))
-                                         ,(frob (rest args) (rest cells))))
-                                  ,(first args)))
+                      `(%make-cell ,(! `(clambda (,(first cells))
+                                          ,(frob (rest args) (rest cells))))
+                                   ,(first args)))
                      (t (convert-application-assignments (closure-body form)
                                                          (pairlis req-args cell-vars env))))))
       (! `(,(if (getf (plist form) 'continuation) 'clambda 'lambda) ,(closure-required-params form)
