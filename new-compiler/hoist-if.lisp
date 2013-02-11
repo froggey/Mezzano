@@ -36,6 +36,12 @@
   (cond ((and (typep (first form) 'constant)
               (eql (constant-value (first form)) '%IF)
               (= (length (rest form)) 3)
+              (eql (first (rest form)) (second (rest form))))
+         ;; Both branches jump to the same place.
+         (list (first (rest form))))
+        ((and (typep (first form) 'constant)
+              (eql (constant-value (first form)) '%IF)
+              (= (length (rest form)) 3)
               (or (typep (third (rest form)) 'constant)
                   (typep (third (rest form)) 'closure)
                   (and (typep (third (rest form)) 'lexical)
