@@ -8,12 +8,12 @@
 
 (defclass constant ()
   ((value :initarg :value :reader constant-value)
-   (plist :initform '() :accessor plist))
+   (plist :initform '() :initarg :plist :accessor plist))
   (:documentation "A constant value."))
 
 (defclass lexical ()
   ((name :initarg :name :reader lexical-name)
-   (plist :initform '() :accessor plist))
+   (plist :initform '() :initarg :plist :accessor plist))
   (:documentation "A lexical variable.")
   (:default-initargs :name (gensym "var")))
 
@@ -22,7 +22,7 @@
    (required-params :initarg :required-params :reader closure-required-params)
    ;; Body of the closure, a function application.
    (body :initarg :body :reader closure-body)
-   (plist :initform '() :accessor plist))
+   (plist :initform '() :initarg :plist :accessor plist))
   (:documentation "A closure.")
   (:default-initargs :name nil))
 
@@ -46,9 +46,10 @@
 
 (defmethod print-object ((o closure) stream)
   (if *print-pretty*
-      (format stream "~A~:<~;LAMBDA ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
+      (format stream "~A~:<~;~ALAMBDA ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
               (if *print-ir-like-cl* #\( #\{)
-              (list (closure-required-params o)
+              (list (if (getf (plist o) 'continuation) "C" "")
+                    (closure-required-params o)
                     (if *print-ir-like-cl* #\( #\{)
                     (closure-body o)
                     (if *print-ir-like-cl* #\) #\}))
@@ -69,11 +70,12 @@
   "Convert shorthand to proper IR objects."
   (typecase code
     (cons
-     (assert (eql (first code) 'lambda))
+     (assert (member (first code) '(lambda clambda)))
      (assert (listp (third code)))
      (make-instance 'closure
                     :required-params (second code)
-                    :body (mapcar '! (third code))))
+                    :body (mapcar '! (third code))
+                    :plist (list 'continuation (eql (first code) 'clambda))))
     (symbol (make-instance 'constant :value code))
     (t code)))
 
@@ -101,7 +103,8 @@
 (defun translate-symbol (form cont env)
   (let ((info (find-variable form env)))
     (if info
-        (list cont (cdr info))
+        (list (make-instance 'constant :value '%invoke-continuation)
+              cont (cdr info))
         (translate `(symbol-value ',form) cont env))))
 
 (defun translate-cons (form cont env)
@@ -126,7 +129,7 @@
   (if args
       (let ((arg (make-instance 'lexical :name (gensym "arg"))))
         (translate (first args)
-                   (! `(lambda (,arg)
+                   (! `(clambda (,arg)
                          ,(translate-arguments (rest args)
                                                function
                                                (cons arg accum)
@@ -141,7 +144,7 @@
          (translate (first forms) cont env))
         (t (let ((v (make-instance 'lexical :name (gensym "progn"))))
              (translate (first forms)
-                        (! `(lambda (,v)
+                        (! `(clambda (,v)
                               ,(translate-progn (rest forms) cont env)))
                         env)))))
 
@@ -166,10 +169,10 @@
   (let ((test (make-instance 'lexical :name (gensym "test")))
         (cont-arg (make-instance 'lexical :name (gensym "cont"))))
     (translate test-form
-               (! `(lambda (,test)
+               (! `(clambda (,test)
                      ((lambda (,cont-arg)
-                        (%if (lambda () ,(translate then-form cont-arg env))
-                             (lambda () ,(translate else-form cont-arg env))
+                        (%if (clambda () ,(translate then-form cont-arg env))
+                             (clambda () ,(translate else-form cont-arg env))
                              ,test))
                       ,cont)))
                env)))
@@ -178,7 +181,8 @@
   (translate-progn forms cont env))
 
 (defspecial quote ((object) cont env)
-  (list cont (make-instance 'constant :value object)))
+  (list (make-instance 'constant :value '%invoke-continuation)
+        cont (make-instance 'constant :value object)))
 
 (defspecial function ((name) cont env)
   (if (lambda-expression-p name)
@@ -279,7 +283,7 @@
       (info
        (setf (getf (plist (cdr info)) 'is-set) t)
        (translate value
-                  (! `(lambda (,val)
+                  (! `(clambda (,val)
                         (%setq ,cont ,(cdr info) ,val)))
                   env))
       (t (translate `(funcall #'(setf symbol-value) ,value ',variable)
@@ -317,7 +321,7 @@
                                                go-tags)))
                       (push (! `(lambda ,(mapcar 'cdr tag-mapping)
                                   ,(translate `(progn ,@(nreverse forms))
-                                              (! `(lambda (,(make-instance 'lexical)) (,(cdr (assoc (car i) tag-mapping)))))
+                                              (! `(clambda (,(make-instance 'lexical)) (%invoke-continuation ,(cdr (assoc (car i) tag-mapping)))))
                                               (list* `(:tagbody ,@tag-mapping) env))))
                             lambdas)
                       (setf forms '())))
@@ -329,7 +333,8 @@
     (when (eql (first e) :tagbody)
       (let ((x (assoc tag (rest e))))
         (when x
-          (return (list (cdr x))))))))
+          (return (list (make-instance 'constant :value '%invoke-continuation)
+                        (cdr x))))))))
 
 #+(or)(
 ((flet) (pass1-flet form env))

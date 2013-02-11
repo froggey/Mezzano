@@ -38,7 +38,7 @@
                                 form)))
            (labels ((frob (vals)
                       (cond (vals
-                             `(contents ,(! `(lambda (,(car (first vals))) ,(frob (rest vals))))
+                             `(contents ,(! `(clambda (,(car (first vals))) ,(frob (rest vals))))
                                         ,(cdr (assoc (cdr (first vals)) env))))
                             (t (mapcar (lambda (x)
                                          (convert-assignments x env))
@@ -72,10 +72,10 @@
       (setf (getf (plist x) 'is-set) nil))
     (labels ((frob (args cells)
                (cond (args
-                      `(make-cell ,(! `(lambda (,(first cells))
+                      `(make-cell ,(! `(clambda (,(first cells))
                                          ,(frob (rest args) (rest cells))))
                                   ,(first args)))
                      (t (convert-application-assignments (closure-body form)
                                                          (pairlis req-args cell-vars env))))))
-      (! `(lambda ,(closure-required-params form)
+      (! `(,(if (getf (plist form) 'continuation) 'clambda 'lambda) ,(closure-required-params form)
             ,(frob req-args cell-vars))))))

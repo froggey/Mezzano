@@ -40,8 +40,13 @@
                   (new-params (mapcar 'car used-args)))
              (values (if (null new-args)
                          ;; ((lambda () body)) -> body.
-                         result
-                         (list* (! `(lambda ,new-params ,result)) new-args))
+                         (multiple-value-bind (r2 u2)
+                             (optimize-application result use-map substitutions)
+                           (setf used-args (union u2 used-args))
+                           r2)
+                         ;; Closures used in bindings are always treated as continuations.
+                         (list* (! `(clambda
+                                      ,new-params ,result)) new-args))
                      (append used-vars used))))))
       (t ;; Something else.
        (multiple-value-bind (result used)
@@ -59,7 +64,8 @@
              (values (make-instance 'closure
                                     :name (closure-name form)
                                     :required-params (closure-required-params form)
-                                    :body result)
+                                    :body result
+                                    :plist (list 'continuation (getf (plist form) 'continuation)))
                      (remove-if (lambda (x) (member x (closure-required-params form)))
                                 used))))))
 

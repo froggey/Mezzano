@@ -1,11 +1,11 @@
 (in-package #:sys.newc)
 
 (define-rewrite-rule hoist-if-branches ()
-  ((lambda (if-closure) body)
-   (lambda ((test :uses 1)) ('%if then else test)))
-  ((lambda (then-var else-var)
-     ((lambda (if-closure) body)
-      (lambda (test)
+  ((clambda (if-closure) body)
+   (clambda ((test :uses 1)) ('%if then else test)))
+  ((clambda (then-var else-var)
+     ((clambda (if-closure) body)
+      (clambda (test)
         ('%if then-var else-var test))))
    then
    else)
@@ -14,18 +14,18 @@
 (define-rewrite-rule tricky-if ()
   (l1
    (lambda (test)
-     ((lambda (c1)
+     ((clambda (c1)
         ('%if then else test))
       l2)))
-  ((lambda (c1)
+  ((clambda (c1)
      (l1
-      (lambda (test)
+      (clambda (test)
         ('%if then else test))))
    l2))
 
 (define-rewrite-rule replace-if-closure (closure-var then-var else-var)
   closure-var
-  (lambda (test)
+  (clambda (test)
     ('%if then-var else-var test)))
 
 ;; Replace %IF applications with calls to their appropriate branch when the
@@ -71,7 +71,8 @@
                  :name (closure-name form)
                  :required-params (closure-required-params form)
                  :body (simple-optimize-if-application (closure-body form)
-                                                       known-truths)))
+                                                       known-truths)
+                 :plist (plist form)))
 
 (defmethod simple-optimize-if ((form lexical) &optional known-truths)
   (let ((info (assoc form known-truths)))

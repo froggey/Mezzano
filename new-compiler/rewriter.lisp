@@ -12,9 +12,16 @@
                         (t (push (cons template form) bindings)
                            t))))
                (cons
-                (cond ((eql (first template) 'lambda)
+                (cond ((member (first template) '(lambda clambda))
                        ;; Scanning closure.
                        (when (typep form 'closure)
+                         (ecase (first template)
+                           ((lambda)
+                            (when (getf (plist form) 'continuation)
+                              (return-from frob nil)))
+                           ((clambda)
+                            (unless (getf (plist form) 'continuation)
+                              (return-from frob nil))))
                          ;; Match formals list
                          (cond ((symbolp (second template))
                                 (let ((info (assoc (second template) bindings)))
@@ -74,14 +81,15 @@
            (frob (r)
              (etypecase r
                (cons
-                (cond ((eql (first r) 'lambda)
+                (cond ((member (first r) '(clambda lambda))
                        (let ((result (make-instance 'closure
                                                     :required-params (if (symbolp (second r))
                                                                          (sym (second r))
                                                                          (mapcar #'sym (second r)))
                                                     :body (if (symbolp (third r))
                                                               (sym (third r))
-                                                              (frob (third r))))))
+                                                              (frob (third r)))
+                                                    :plist (list 'continuation (eql (first r) 'clambda)))))
                          (if (symbolp (third r))
                              (funcall subrewriter result)
                              result)))
@@ -119,11 +127,12 @@
                           (when result
                             (push (eval-rewrite-result result new-bindings) accumulated-results))
                           (if (and (listp replacement)
-                                   (not (eql (first replacement) 'lambda)))
+                                   (not (member (first replacement) '(lambda clambda))))
                               (make-instance 'closure
                                              :name (closure-name form)
                                              :required-params (closure-required-params form)
-                                             :body new-form)
+                                             :body new-form
+                                             :plist (plist form))
                               new-form)))
                        (t ;; No match, recurse.
                         (etypecase form
@@ -131,7 +140,8 @@
                            (make-instance 'closure
                                           :name (closure-name form)
                                           :required-params (closure-required-params form)
-                                          :body (mapcar #'frob (closure-body form))))
+                                          :body (mapcar #'frob (closure-body form))
+                                          :plist (plist form)))
                           ((or lexical constant)
                            form)))))))
       (values (frob form)
