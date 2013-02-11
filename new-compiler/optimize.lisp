@@ -20,6 +20,14 @@
           (optimize-application (list* (second args) (first args) (cddr args))
                                 use-map
                          substitutions))
+         ((%tagbody)
+          ;; (%tagbody cont (lambda (exit) body)) ->
+          ;; ((clambda (exit) body) cont))
+          (cond ((= (length args) 2)
+                 (optimize-application (list (second args) (first args))
+                                       use-map
+                                       substitutions))
+                (t (values (list* fn args) used-vars))))
          (t (values (list* fn args) used-vars))))
       (closure
        (assert (= (length args)

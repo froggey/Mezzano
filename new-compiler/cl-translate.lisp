@@ -306,7 +306,7 @@
                                                        (make-instance 'lexical
                                                                       :name (gensym (format nil "~A-" tag)))))
                                                go-tags))
-                      (exit-cont (make-instance 'lexical :name "tagbody-exit")))
+                      (exit-cont (make-instance 'lexical :name (gensym "tagbody-exit"))))
                   (push (! `(lambda (,exit-cont ,@(mapcar 'cdr tag-mapping))
                               ,(translate `(progn ,@(nreverse forms))
                                           exit-cont
