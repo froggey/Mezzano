@@ -19,7 +19,13 @@
           ;; (funcall cont fn args...) -> (fn cont args...)
           (optimize-application (list* (second args) (first args) (cddr args))
                                 use-map
-                         substitutions))
+                                substitutions))
+         ((%invoke-continuation)
+          ;; (%invoke-continuation (clambda ...) ...) -> ((clambda ...) ...)
+          (if (and (typep (first args) 'closure)
+                   (getf (plist (first args)) 'continuation))
+              (optimize-application args use-map substitutions)
+              (values (list* fn args) used-vars)))
          ((%tagbody)
           ;; (%tagbody cont (lambda (exit) body)) ->
           ;; ((clambda (exit) body) cont))
