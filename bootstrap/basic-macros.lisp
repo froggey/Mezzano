@@ -103,11 +103,17 @@
   (expand-do varlist (car end) (cdr end) body 'let* 'setq))
 
 (defmacro dolist ((var list-form &optional result-form) &body body)
-  (let ((itr (gensym "ITERATOR")))
-    `(do* ((,itr (the list ,list-form) (cdr ,itr))
-	   (,var (car ,itr) (car ,itr)))
-	  ((null ,itr) ,result-form)
-       ,@body)))
+  (let ((itr (gensym "ITERATOR"))
+        (head (gensym "HEAD")))
+    `(block nil
+       (let ((,itr ,list-form))
+         (tagbody ,head
+            (if (null ,itr)
+                (return ,result-form))
+            (let ((,var (car ,itr)))
+              (tagbody ,@body))
+            (setq ,itr (cdr ,itr))
+            (go ,head))))))
 
 (defmacro dotimes ((var count-form &optional result-form) &body body)
   (let ((count-val (gensym "COUNT")))
