@@ -46,9 +46,9 @@
 
 (defmethod print-object ((o closure) stream)
   (if *print-pretty*
-      (format stream "~A~:<~;~ALAMBDA ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
+      (format stream "~A~:<~;~A ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
               (if *print-ir-like-cl* #\( #\{)
-              (list (if (getf (plist o) 'continuation) "C" "")
+              (list (if (getf (plist o) 'continuation) 'clambda 'lambda)
                     (closure-required-params o)
                     (if *print-ir-like-cl* #\( #\{)
                     (closure-body o)
@@ -319,9 +319,15 @@
                                                        (make-instance 'lexical
                                                                       :name (gensym (format nil "~A-" tag)))))
                                                go-tags)))
-                      (push (! `(lambda ,(mapcar 'cdr tag-mapping)
+                      (push (! `(lambda (,(make-instance 'lexical :name (gensym "cont")) ,@(mapcar 'cdr tag-mapping))
                                   ,(translate `(progn ,@(nreverse forms))
-                                              (! `(clambda (,(make-instance 'lexical)) (%invoke-continuation ,(cdr (assoc (car i) tag-mapping)))))
+                                              (let ((loop (make-instance 'lexical))
+                                                    (loop2 (make-instance 'lexical)))
+                                                (! `(clambda (,(make-instance 'lexical))
+                                                      (,(cdr (assoc (car i) tag-mapping))
+                                                        (clambda (,(make-instance 'lexical))
+                                                          ((clambda (,loop) (%invoke-continuation ,loop ,loop))
+                                                           (clambda (,loop2) (%invoke-continuation ,loop2 ,loop2))))))))
                                               (list* `(:tagbody ,@tag-mapping) env))))
                             lambdas)
                       (setf forms '())))
@@ -333,8 +339,12 @@
     (when (eql (first e) :tagbody)
       (let ((x (assoc tag (rest e))))
         (when x
-          (return (list (make-instance 'constant :value '%invoke-continuation)
-                        (cdr x))))))))
+          (return (list (cdr x)
+                        (let ((loop (make-instance 'lexical))
+                              (loop2 (make-instance 'lexical)))
+                          (! `(clambda (,(make-instance 'lexical))
+                                ((clambda (,loop) (%invoke-continuation ,loop ,loop))
+                                 (clambda (,loop2) (%invoke-continuation ,loop2 ,loop2)))))))))))))
 
 #+(or)(
 ((flet) (pass1-flet form env))
@@ -345,18 +355,35 @@
 ((symbol-macrolet) (pass1-symbol-macrolet form env))
 )
 
+(defvar *change-count* nil)
+
+(defun made-a-change ()
+  (when *change-count*
+    (incf *change-count*)))
+
+(defun bash-with-optimizers (form)
+  "Repeatedly run the optimizers on form, returning the optimized form and the number of changes made."
+  (let ((total-changes 0))
+    (loop
+       (let ((*change-count* 0))
+         (setf form (optimize-form form (use-map form)))
+         (setf form (tricky-if (simple-optimize-if form)))
+         (multiple-value-bind (new-form target-ifs)
+             (hoist-if-branches form)
+           (setf form new-form)
+           (dolist (target target-ifs)
+             (setf form (apply 'replace-if-closure form target))))
+         (setf form (optimize-form form (use-map form)))
+         (setf form (lower-tagbody form (dynamic-contour-analysis form)))
+         (setf form (optimize-form form (use-map form)))
+         (setf form (lower-block form (dynamic-contour-analysis form)))
+         (when (zerop *change-count*)
+           (return))
+         (format t "Made ~D changes this iteration.~%" *change-count*)
+         (incf total-changes *change-count*)))
+    (values (optimize-form form (use-map form)) total-changes)))
+
 (defun translate-and-optimize (lambda)
   (let* ((*gensym-counter* 0)
          (form (convert-assignments (translate-lambda lambda nil))))
-    (setf form (optimize-form form (use-map form)))
-    (loop
-       (setf form (tricky-if (simple-optimize-if form)))
-       (multiple-value-bind (new-form target-ifs)
-           (hoist-if-branches form)
-         (setf form new-form)
-         (when (endp target-ifs)
-           (return))
-         (dolist (target target-ifs)
-           (setf form (apply 'replace-if-closure form target))))
-       (setf form (optimize-form form (use-map form))))
-    (optimize-form form (use-map form))))
+    (bash-with-optimizers form)))

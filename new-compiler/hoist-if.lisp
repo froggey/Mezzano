@@ -38,6 +38,7 @@
               (= (length (rest form)) 3)
               (eql (first (rest form)) (second (rest form))))
          ;; Both branches jump to the same place.
+         (made-a-change)
          (list (first (rest form))))
         ((and (typep (first form) 'constant)
               (eql (constant-value (first form)) '%IF)
@@ -47,6 +48,7 @@
                   (and (typep (third (rest form)) 'lexical)
                        (assoc (third (rest form)) known-truths))))
          ;; Known test result.
+         (made-a-change)
          (cond ((or (typep (third (rest form)) 'closure)
                     (and (typep (third (rest form)) 'constant)
                          (not (null (constant-value (third (rest form))))))
@@ -83,9 +85,10 @@
 (defmethod simple-optimize-if ((form lexical) &optional known-truths)
   (let ((info (assoc form known-truths)))
     ;; Only substitute NIL, can't know the actual value when true.
-    (if (and info (eql (cdr info) 'nil))
-        (make-instance 'constant :value (cdr info))
-        form)))
+    (cond ((and info (eql (cdr info) 'nil))
+           (made-a-change)
+           (make-instance 'constant :value (cdr info)))
+          (t form))))
 
 (defmethod simple-optimize-if ((form constant) &optional known-truths)
   (declare (ignore known-truths))

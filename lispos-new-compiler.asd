@@ -10,5 +10,6 @@
                (:file "new-compiler/assignment-conversion")
                (:file "new-compiler/rewriter")
                (:file "new-compiler/optimize")
+               (:file "new-compiler/target-cl")
                (:file "new-compiler/hoist-if"
                 :depends-on ("new-compiler/rewriter"))))

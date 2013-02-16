@@ -124,6 +124,7 @@
                         ;; Form matches, rewrite it.
                         (multiple-value-bind (new-form new-bindings)
                             (perform-rewrite replacement bindings #'frob)
+                          (made-a-change)
                           (when result
                             (push (eval-rewrite-result result new-bindings) accumulated-results))
                           (if (and (listp replacement)
