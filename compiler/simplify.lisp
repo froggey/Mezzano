@@ -41,12 +41,17 @@
 	  (setf (car i) (simp-form form))))))
 
 (defun simp-block (form)
-  (if (eql (lexical-variable-use-count (second form)) 0)
-      (progn
-	(incf *change-count*)
-	(simp-form `(progn ,@(cddr form))))
-      (progn
-	(simp-implicit-progn (cddr form) t)
+  (cond
+     ((eql (lexical-variable-use-count (second form)) 0)
+      (incf *change-count*)
+      (simp-form `(progn ,@(cddr form))))
+     ;; (block foo (return-from foo form)) => form
+     ((and (eql (lexical-variable-use-count (second form)) 1)
+           (eql (length form) 3)
+           (eql (first (third form)) 'return-from)
+           (eql (second form) (second (third form))))
+      (third (third form)))
+     (t (simp-implicit-progn (cddr form) t)
 	form)))
 
 (defun simp-go (form)
