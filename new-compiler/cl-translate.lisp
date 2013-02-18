@@ -19,12 +19,22 @@
 
 (defclass closure ()
   ((name :initarg :name :reader closure-name)
-   (required-params :initarg :required-params :reader closure-required-params)
+   (required-params :initarg :required-params :reader closure-required-params*)
+   (optional-params :initarg :optional-params :reader closure-optional-params)
+   (rest-param :initarg :rest-param :reader closure-rest-param)
+   (keyword-params :initarg :keyword-params :reader closure-keyword-params)
+   (keyword-params-enabled :initarg :keyword-params-enabled :reader closure-keyword-params-enabled)
+   (allow-other-keywords :initarg :allow-other-keywords :reader closure-allow-other-keywords)
    ;; Body of the closure, a function application.
    (body :initarg :body :reader closure-body)
    (plist :initform '() :initarg :plist :accessor plist))
   (:documentation "A closure.")
-  (:default-initargs :name nil))
+  (:default-initargs :name nil
+    :optional-params '()
+    :rest-param nil
+    :keyword-params-enabled nil
+    :keyword-params '()
+    :allow-other-keywords nil))
 
 (defun closure-function (closure)
   (first (closure-body closure)))
@@ -46,10 +56,15 @@
 
 (defmethod print-object ((o closure) stream)
   (if *print-pretty*
-      (format stream "~A~:<~;~A ~:S~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
+      (format stream "~A~:<~;~A (~{~S ~}~@[&OPTIONAL ~{~S ~}~]~@[&REST ~S ~]~:[~*~;&KEY ~{~S ~}~]~:[~;&ALLOW-OTHER-KEYS~])~1I ~_~A~/CL:PPRINT-FILL/~A~;~:>~A"
               (if *print-ir-like-cl* #\( #\{)
               (list (if (getf (plist o) 'continuation) 'clambda 'lambda)
-                    (closure-required-params o)
+                    (closure-required-params* o)
+                    (closure-optional-params o)
+                    (closure-rest-param o)
+                    (closure-keyword-params-enabled o)
+                    (closure-keyword-params o)
+                    (closure-allow-other-keywords o)
                     (if *print-ir-like-cl* #\( #\{)
                     (closure-body o)
                     (if *print-ir-like-cl* #\) #\}))
@@ -105,7 +120,9 @@
     (if info
         (list (make-instance 'constant :value '%invoke-continuation)
               cont (cdr info))
-        (translate `(symbol-value ',form) cont env))))
+        (translate (or (sys.c::expand-constant-variable form)
+                       `(symbol-value ',form))
+                   cont env))))
 
 (defun translate-cons (form cont env)
   (let ((special-fn (gethash (first form) *special-form-translators*)))
@@ -153,24 +170,113 @@
       (sys.c::parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
 	(sys.int::parse-ordinary-lambda-list lambda-list)
-      (when (or optional rest enable-keys aux)
-        (error "TODO: nontrivial lambda-lists."))
       (let ((lambda-cont (make-instance 'lexical :name (gensym "cont")))
             (required-args (mapcar (lambda (x) (make-instance 'lexical :name x))
-                                   required)))
-        (make-instance 'closure
-                       :name name
-                       :required-params (list* lambda-cont required-args)
-                       :body (translate-progn body
-                                              lambda-cont
-                                              (list* `(:bindings ,@(pairlis required required-args)) env)))))))
+                                   required))
+            (optional-args (mapcar (lambda (x) (make-instance 'lexical :name (gensym (format nil "%~A" (first x)))))
+                                   optional))
+            (optional-supplied-args (mapcar (lambda (x)
+                                              (make-instance 'lexical
+                                                             :name (gensym (format nil "~A-suppliedp" (first x)))))
+                                            optional))
+            (rest-arg (when rest (make-instance 'lexical :name rest)))
+            (key-args (mapcar (lambda (x) (make-instance 'lexical :name (gensym (format nil "%~A" (second (first x))))))
+                              keys))
+            (key-supplied-args (mapcar (lambda (x)
+                                         (make-instance 'lexical
+                                                             :name (gensym (format nil "~A-suppliedp" (second (first x))))))
+                                       keys)))
+        (labels ((frob-optional (opt args suppliedp env)
+                   (cond (opt
+                          (let ((true-optional (make-instance 'lexical
+                                                              :name (first (car opt))))
+                                (cont (make-instance 'lexical :name (gensym "cont"))))
+                            (list (! `(clambda (,cont)
+                                        (%if (clambda () (%invoke-continuation ,cont ,(car args)))
+                                             ,(make-instance 'closure
+                                                             :required-params '()
+                                                             :body (translate (second (car opt))
+                                                                              cont
+                                                                              env)
+                                                             :plist '(continuation t))
+                                             ,(car suppliedp))))
+                                  (make-instance 'closure
+                                                 :required-params (list true-optional)
+                                                 :body (frob-optional (cdr opt) (cdr args) (cdr suppliedp)
+                                                                      (append
+                                                                       `((:bindings (,(first (car opt)) . ,true-optional)))
+                                                                       (when (third (car opt))
+                                                                         `((:bindings (,(third (car opt)) . ,(car suppliedp)))))
+                                                                       env))
+                                                 :plist '(continuation t)))))
+                         (t (frob-rest env))))
+                 (frob-rest (env)
+                   (when rest
+                     (push (list :bindings (cons rest rest-arg)) env))
+                   (if enable-keys
+                       (frob-keys keys key-args key-supplied-args env)
+                       (frob-aux aux env)))
+                 (frob-keys (keys args suppliedp env)
+                   (cond (keys
+                          (let ((true-key (make-instance 'lexical
+                                                         :name (second (first (car keys)))))
+                                (cont (make-instance 'lexical :name (gensym "cont"))))
+                            (list (! `(clambda (,cont)
+                                        (%if (clambda () (%invoke-continuation ,cont ,(car args)))
+                                             ,(make-instance 'closure
+                                                             :required-params '()
+                                                             :body (translate (second (car keys))
+                                                                              cont
+                                                                              env)
+                                                             :plist '(continuation t))
+                                             ,(car suppliedp))))
+                                  (make-instance 'closure
+                                                 :required-params (list true-key)
+                                                 :body (frob-keys (cdr keys) (cdr args) (cdr suppliedp)
+                                                                  (append
+                                                                   `((:bindings (,(second (first (car keys))) . ,true-key)))
+                                                                   (when (third (car keys))
+                                                                     `((:bindings (,(third (car keys)) . ,(car suppliedp)))))
+                                                                   env))
+                                                 :plist '(continuation t)))))
+                         (t (frob-aux aux env))))
+                 (frob-aux (aux env)
+                   (cond (aux
+                          (let ((aux-var (make-instance 'lexical :name (first (car aux)))))
+                            (translate (second (car aux))
+                                       (make-instance 'closure
+                                                      :required-params (list aux-var)
+                                                      :body (frob-aux (cdr aux)
+                                                                      (list* (list :bindings (cons (first (car aux)) aux-var)) env))
+                                                      :plist '(continuation t))
+                                       env)))
+                         (t (finish env))))
+                 (finish (env)
+                   (translate-progn body
+                                    lambda-cont
+                                    env)))
+          (make-instance 'closure
+                         :name name
+                         :required-params (list* lambda-cont required-args)
+                         :optional-params (mapcar 'list optional-args optional-supplied-args)
+                         :rest-param rest-arg
+                         :keyword-params-enabled enable-keys
+                         :keyword-params (mapcar (lambda (k lexical suppliedp)
+                                                   (list (first (first k)) lexical suppliedp))
+                                                 keys
+                                                 key-args
+                                                 key-supplied-args)
+                         :allow-other-keywords allow-other-keys
+                         :body (frob-optional optional optional-args optional-supplied-args
+                                              (list* `(:bindings ,@(pairlis required required-args))
+                                                     env))))))))
 
 (defspecial if ((test-form then-form &optional (else-form ''nil)) cont env)
   (let ((test (make-instance 'lexical :name (gensym "test")))
         (cont-arg (make-instance 'lexical :name (gensym "cont"))))
     (translate test-form
                (! `(clambda (,test)
-                     ((lambda (,cont-arg)
+                     ((clambda (,cont-arg)
                         (%if (clambda () ,(translate then-form cont-arg env))
                              (clambda () ,(translate else-form cont-arg env))
                              ,test))
@@ -367,6 +473,7 @@
     (loop
        (let ((*change-count* 0))
          (setf form (optimize-form form (use-map form)))
+         (setf form (if-to-select form))
          (setf form (tricky-if (simple-optimize-if form)))
          (multiple-value-bind (new-form target-ifs)
              (hoist-if-branches form)
@@ -387,3 +494,11 @@
   (let* ((*gensym-counter* 0)
          (form (convert-assignments (translate-lambda lambda nil))))
     (bash-with-optimizers form)))
+
+(defun check-required-params-only (closure)
+  "Ensure that CLOSURE only has required parameters."
+  (assert (and (null (closure-optional-params closure))
+               (not (closure-rest-param closure))
+               (not (closure-keyword-params-enabled closure)))
+          (closure)
+          "Closure must not have non-required parameters."))

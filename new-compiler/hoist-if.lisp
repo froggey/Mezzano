@@ -28,6 +28,12 @@
   (clambda (test)
     ('%if then-var else-var test)))
 
+(define-rewrite-rule if-to-select ()
+  ('%if (clambda () ('%invoke-continuation cont then))
+        (clambda () ('%invoke-continuation cont else))
+        test)
+  ('%select cont then else test))
+
 ;; Replace %IF applications with calls to their appropriate branch when the
 ;; test is known to be true or false.
 (defgeneric simple-optimize-if (form &optional known-truths))
@@ -71,16 +77,31 @@
                (simple-optimize-if (second (rest form))
                                    (list* (cons (third (rest form)) nil) known-truths))
                (third (rest form))))
+        ((and (typep (first form) 'constant)
+              (eql (constant-value (first form)) '%SELECT)
+              (= (length (rest form)) 4)
+              (or (typep (fourth (rest form)) 'constant)
+                  (typep (fourth (rest form)) 'closure)
+                  (and (typep (fourth (rest form)) 'lexical)
+                       (assoc (fourth (rest form)) known-truths))))
+         ;; %SELECT with a constant test.
+         (made-a-change)
+         (list (make-instance 'constant :value '%invoke-continuation)
+               (first (rest form))
+               (if (or (typep (fourth (rest form)) 'closure)
+                       (and (typep (fourth (rest form)) 'constant)
+                            (not (null (constant-value (fourth (rest form))))))
+                       (and (typep (fourth (rest form)) 'lexical)
+                            (cdr (assoc (fourth (rest form)) known-truths))))
+                   (second (rest form))
+                   (third (rest form)))))
         (t ;; Dunno.
          (mapcar (lambda (f) (simple-optimize-if f known-truths)) form))))
 
 (defmethod simple-optimize-if ((form closure) &optional known-truths)
-  (make-instance 'closure
-                 :name (closure-name form)
-                 :required-params (closure-required-params form)
-                 :body (simple-optimize-if-application (closure-body form)
-                                                       known-truths)
-                 :plist (plist form)))
+  (copy-closure-with-new-body form
+                              (simple-optimize-if-application (closure-body form)
+                                                              known-truths)))
 
 (defmethod simple-optimize-if ((form lexical) &optional known-truths)
   (let ((info (assoc form known-truths)))

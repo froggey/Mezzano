@@ -23,15 +23,19 @@
                             (unless (getf (plist form) 'continuation)
                               (return-from frob nil))))
                          ;; Match formals list
+                         (when (or (closure-optional-params form)
+                                   (closure-rest-param form)
+                                   (closure-keyword-params-enabled form))
+                           (return-from frob nil))
                          (cond ((symbolp (second template))
                                 (let ((info (assoc (second template) bindings)))
                                   (cond (info
-                                         (when (not (eql (cdr info) (closure-required-params form)))
+                                         (when (not (eql (cdr info) (closure-required-params* form)))
                                            (return-from frob nil)))
                                         (t (push (cons (second template)
-                                                       (closure-required-params form))
+                                                       (closure-required-params* form))
                                                  bindings)))))
-                               (t (when (not (eql (length (closure-required-params form))
+                               (t (when (not (eql (length (closure-required-params* form))
                                                   (length (second template))))
                                     (return-from frob nil))
                                   (mapc (lambda (p tmplt)
@@ -45,7 +49,7 @@
                                                      (when (not (eql (cdr info) p))
                                                        (return-from frob nil)))
                                                     (t (push (cons name p) bindings))))))
-                                        (closure-required-params form)
+                                        (closure-required-params* form)
                                         (second template))))
                          ;; Match body.
                          (cond ((symbolp (third template))
@@ -129,20 +133,13 @@
                             (push (eval-rewrite-result result new-bindings) accumulated-results))
                           (if (and (listp replacement)
                                    (not (member (first replacement) '(lambda clambda))))
-                              (make-instance 'closure
-                                             :name (closure-name form)
-                                             :required-params (closure-required-params form)
-                                             :body new-form
-                                             :plist (plist form))
+                              (copy-closure-with-new-body form new-form)
                               new-form)))
                        (t ;; No match, recurse.
                         (etypecase form
                           (closure
-                           (make-instance 'closure
-                                          :name (closure-name form)
-                                          :required-params (closure-required-params form)
-                                          :body (mapcar #'frob (closure-body form))
-                                          :plist (plist form)))
+                           (copy-closure-with-new-body form
+                                                       (mapcar #'frob (closure-body form))))
                           ((or lexical constant)
                            form)))))))
       (values (frob form)

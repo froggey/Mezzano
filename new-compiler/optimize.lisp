@@ -26,61 +26,108 @@
                    (getf (plist (first args)) 'continuation))
               (optimize-application args use-map substitutions)
               (values (list* fn args) used-vars)))
-         ((%tagbody)
-          ;; (%tagbody cont (lambda (exit) body)) ->
-          ;; ((clambda (exit) body) cont))
-          (cond ((= (length args) 2)
-                 (optimize-application (list (second args) (first args))
-                                       use-map
-                                       substitutions))
-                (t (values (list* fn args) used-vars))))
          (t (values (list* fn args) used-vars))))
       (closure
-       (assert (= (length args)
-                  (length (closure-required-params fn))))
-       (let ((paired-args (pairlis (closure-required-params fn) args)))
-         ;; Substitute lexicals, constants and used-once closures.
-         (multiple-value-bind (result used)
-             (optimize-application (closure-body fn)
-                                   use-map
-                                   (append (remove-if (lambda (x)
-                                                        (and (typep (cdr x) 'closure)
-                                                             (not (= (length (gethash (car x) use-map)) 1))))
-                                                      paired-args)
-                                           substitutions))
-           ;; Eliminate unused arguments.
-           (let* ((used-args (remove-if-not (lambda (x) (member x used)) paired-args :key 'car))
-                  (new-args (mapcar 'cdr used-args))
-                  (new-params (mapcar 'car used-args)))
-             (values (if (null new-args)
-                         ;; ((lambda () body)) -> body.
-                         (multiple-value-bind (r2 u2)
-                             (optimize-application result use-map substitutions)
-                           (setf used-args (union u2 used-args))
-                           r2)
-                         ;; Closures used in bindings are always treated as continuations.
-                         (list* (! `(clambda
-                                      ,new-params ,result)) new-args))
-                     (append used-vars used))))))
+       (multiple-value-bind (result used)
+           (optimize-binding fn args use-map substitutions)
+         (values result (append used used-vars))))
       (t ;; Something else.
        (multiple-value-bind (result used)
            (optimize-form fn use-map substitutions)
          (values (list* result args)
                  (append used-vars used)))))))
 
+(defun optimize-binding (closure args use-map substitutions)
+  (let ((n-args (length args))
+        (req (closure-required-params* closure))
+        (opt (closure-optional-params closure))
+        (rest (closure-rest-param closure))
+        (keys-enabled (closure-keyword-params-enabled closure))
+        (keys (closure-keyword-params closure)))
+    (assert (>= n-args (length req)) (closure args) "Too few arguments in binding.")
+    (unless (or rest keys-enabled)
+      (assert (<= n-args (+ (length req) (length opt))) (closure args) "Too many arguments in binding."))
+    (let ((paired-args '())
+          (remaining-args args))
+      (dolist (r req)
+        (push (cons r (pop remaining-args)) paired-args))
+      (dolist (o opt)
+        (cond (remaining-args
+               ;; Value.
+               (push (cons (first o) (pop remaining-args)) paired-args)
+               ;; Suppliedp.
+               (push (cons (second o) (make-instance 'constant :value 't)) paired-args))
+              (t ;; Value.
+               (push (cons (first o) (make-instance 'constant :value 'nil)) paired-args)
+               ;; Suppliedp.
+               (push (cons (second o) (make-instance 'constant :value 'nil)) paired-args))))
+      (when keys-enabled
+        (assert (evenp (length remaining-args)))
+        (do ((k-arg remaining-args (cddr k-arg)))
+            ((null k-arg))
+          ;; dealing with this is tricky...
+          (unless (typep (car k-arg) 'constant)
+            (error "TODO: binding keyword argument with non-constant keyword thing."))
+          (unless (closure-allow-other-keywords closure)
+            (unless (assoc (constant-value (car k-arg)) keys)
+              (error "Unknown keyword ~S~%" (constant-value (car k-arg))))))
+        (dolist (k keys)
+          (do ((k-arg remaining-args (cddr k-arg)))
+              ((null k-arg)
+               ;; Not found.
+               (push (cons (second k) (make-instance 'constant :value 'nil)) paired-args)
+               (push (cons (third k) (make-instance 'constant :value 'nil)) paired-args))
+            (when (eql (constant-value (car k-arg)) (first k))
+              ;; Found.
+              (push (cons (second k) (cadr k-arg)) paired-args)
+              (push (cons (third k) (make-instance 'constant :value 't)) paired-args)
+              (return)))))
+      (when rest
+        (when remaining-args
+          (error "TODO: binding rest with args."))
+        (push (cons rest (make-instance 'constant :value 'nil)) paired-args))
+      ;; Substitute lexicals, constants and used-once closures.
+      (multiple-value-bind (result used)
+          (optimize-application (closure-body closure)
+                                use-map
+                                (append (remove-if (lambda (x)
+                                                     (and (typep (cdr x) 'closure)
+                                                          (not (= (length (gethash (car x) use-map)) 1))))
+                                                   paired-args)
+                                        substitutions))
+        ;; Eliminate unused arguments.
+        (let* ((used-args (remove-if-not (lambda (x) (member x used)) paired-args :key 'car))
+               (new-args (mapcar 'cdr used-args))
+               (new-params (mapcar 'car used-args)))
+          (values (if (null new-args)
+                      ;; ((lambda () body)) -> body.
+                      (multiple-value-bind (r2 u2)
+                          (optimize-application result use-map substitutions)
+                        (setf used-args (union u2 used-args))
+                        r2)
+                      ;; Closures used in bindings are always treated as continuations.
+                      (list* (! `(clambda ,new-params ,result)) new-args))
+                  used))))))
+
 (defmethod optimize-form ((form closure) use-map &optional substitutions)
   ;; (lambda () (foo)) => foo
-  (cond ((and (null (closure-required-params form))
+  (cond ((and (null (closure-required-params* form))
+              (null (closure-optional-params form))
+              (not (closure-rest-param form))
+              (not (closure-keyword-params-enabled form))
               (null (closure-arguments form)))
          (closure-function form))
         (t (multiple-value-bind (result used)
                (optimize-application (closure-body form) use-map substitutions)
-             (values (make-instance 'closure
-                                    :name (closure-name form)
-                                    :required-params (closure-required-params form)
-                                    :body result
-                                    :plist (list 'continuation (getf (plist form) 'continuation)))
-                     (remove-if (lambda (x) (member x (closure-required-params form)))
+             (values (copy-closure-with-new-body form
+                                                 result)
+                     (remove-if (lambda (x)
+                                  (or (member x (closure-required-params* form))
+                                      (member x (mapcar 'first (closure-optional-params form)))
+                                      (member x (mapcar 'second (closure-optional-params form)))
+                                      (eql x (closure-rest-param form))
+                                      (member x (mapcar 'second (closure-keyword-params form)))
+                                      (member x (mapcar 'third (closure-keyword-params form)))))
                                 used))))))
 
 (defmethod optimize-form ((form constant) use-map &optional substitutions)
@@ -107,12 +154,12 @@
       (build-use-map x table))))
 
 ;; Build a hash-table mapping variables to their definitions.
-(defun def-map (closure)
+#+nil(defun def-map (closure)
   (let ((table (make-hash-table)))
     (build-def-map closure table)
     table))
 
-(defun build-def-map (closure table)
+#+nil(defun build-def-map (closure table)
   (dolist (var (closure-required-params closure))
     (setf (gethash var table) closure))
   (dolist (x (closure-body closure))
@@ -127,6 +174,7 @@
              map)
     results))
 
+#+nil(progn
 ;; Replace one form with another, by rebuilding the tree.
 (defgeneric substitute-form (form target replacement))
 
@@ -152,24 +200,39 @@
 
 (defmethod substitute-form ((form constant) target replacement)
   (declare (ignore target replacement))
-  form)
+  form))
 
 (defun track-one-continuation (fn arguments info)
   (check-type fn (and closure (satisfies continuationp)))
+  (check-required-params-only fn)
   (mapc (lambda (p a)
           (pushnew a (gethash p info))
           (when (typep a 'lexical)
             (setf (gethash p info) (union (gethash p info)
                                           (gethash a info)))))
-        (closure-required-params fn)
+        (closure-required-params* fn)
         arguments))
+
+(defun mark-closure-arguments (closure info first-is-continuation)
+  (cond (first-is-continuation
+         (pushnew :continuation (gethash (first (closure-required-params* closure)) info))
+         (dolist (p (rest (closure-required-params* closure)))
+           (pushnew :argument (gethash p info))))
+        (t (dolist (p (closure-required-params* closure))
+             (pushnew :argument (gethash p info)))))
+  (dolist (o (closure-optional-params closure))
+    (pushnew :argument (gethash (first o) info))
+    (pushnew :argument (gethash (second o) info)))
+  (when (closure-rest-param closure)
+    (pushnew :argument (gethash (closure-rest-param closure) info)))
+  (dolist (k (closure-keyword-params closure))
+    (pushnew :argument (gethash (second k) info))
+    (pushnew :argument (gethash (third k) info))))
 
 (defun variable-value-tracking* (thing info)
   (when (typep thing 'closure)
     (when (not (continuationp thing))
-      (pushnew :continuation (gethash (first (closure-required-params thing)) info))
-      (dolist (p (rest (closure-required-params thing)))
-        (pushnew :argument (gethash p info))))
+      (mark-closure-arguments thing info t))
     (let ((fn (closure-function thing)))
       (cond
         ((typep fn 'closure)
@@ -187,11 +250,9 @@
             (dolist (cont (gethash (first (closure-arguments thing)) info))
               (unless (or (eql cont :continuation)
                           (typep cont 'lexical))
-                (dolist (param (closure-required-params cont))
-                  (pushnew :argument (gethash param info))))))
+                (mark-closure-arguments cont info nil))))
            (closure
-            (dolist (param (closure-required-params (first (closure-arguments thing))))
-              (pushnew :argument (gethash param info))))))))
+            (mark-closure-arguments (first (closure-arguments thing)) info nil))))))
     (dolist (x (closure-body thing))
       (variable-value-tracking* x info))))
 
@@ -295,9 +356,12 @@
               (= (length (rest form)) 2)
               (and (typep (third form) 'closure)
                    (not (continuationp (third form))))
-              (= (length (closure-required-params (third form))) 1)
-              (variable-in-dynamic-contourp (first (closure-required-params (third form)))
-                                            (closure-required-params (third form))
+              (= (length (closure-required-params* (third form))) 1)
+              (null (closure-optional-params (third form)))
+              (not (closure-rest-param (third form)))
+              (not (closure-keyword-params-enabled (third form)))
+              (variable-in-dynamic-contourp (first (closure-required-params* (third form)))
+                                            (third form)
                                             contour-map))
          (made-a-change)
          (list (lower-block (third form) contour-map)
@@ -306,12 +370,9 @@
          (mapcar (lambda (f) (lower-block f contour-map)) form))))
 
 (defmethod lower-block ((form closure) contour-map)
-  (make-instance 'closure
-                 :name (closure-name form)
-                 :required-params (closure-required-params form)
-                 :body (lower-block-application (closure-body form)
-                                    contour-map)
-                 :plist (plist form)))
+  (copy-closure-with-new-body form
+                              (lower-block-application (closure-body form)
+                                                       contour-map)))
 
 (defmethod lower-block ((form lexical) contour-map)
   (declare (ignore contour-map))
@@ -328,21 +389,24 @@
               (eql (constant-value (first form)) '%tagbody)
               (> (length form) 2) ; (%tagbody cont form1 ...)
               (every (lambda (closure)
-                       (every (lambda (name)
-                                (variable-in-dynamic-contourp name
-                                                              closure
-                                                              contour-map))
-                              (rest (closure-required-params closure))))
+                       (and (every (lambda (name)
+                                     (variable-in-dynamic-contourp name
+                                                                   closure
+                                                                   contour-map))
+                                   (rest (closure-required-params* closure)))
+                            (null (closure-optional-params closure))
+                            (not (closure-rest-param closure))
+                            (not (closure-keyword-params-enabled closure))))
                      (cddr form)))
          (made-a-change)
          (let ((cont-name (make-instance 'lexical :name (gensym "cont"))))
            (flet ((lower-one (closure)
                     (let ((closure-names (mapcar (lambda (x)
                                                    (make-instance 'lexical :name (genname x)))
-                                                 (rest (closure-required-params closure))))
+                                                 (rest (closure-required-params* closure))))
                           (thunk-var (make-instance 'lexical :name (gensym "var"))))
                       (! `(clambda ,closure-names
-                            ((clambda ,(closure-required-params closure)
+                            ((clambda ,(closure-required-params* closure)
                                ,(lower-tagbody-application (closure-body closure) contour-map))
                              (clambda (,thunk-var)
                                (%invoke-continuation ,cont-name nil))
@@ -357,12 +421,9 @@
          (mapcar (lambda (f) (lower-tagbody f contour-map)) form))))
 
 (defmethod lower-tagbody ((form closure) contour-map)
-  (make-instance 'closure
-                 :name (closure-name form)
-                 :required-params (closure-required-params form)
-                 :body (lower-tagbody-application (closure-body form)
-                                    contour-map)
-                 :plist (plist form)))
+  (copy-closure-with-new-body form
+                              (lower-tagbody-application (closure-body form)
+                                                         contour-map)))
 
 (defmethod lower-tagbody ((form lexical) contour-map)
   (declare (ignore contour-map))

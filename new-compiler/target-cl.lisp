@@ -30,13 +30,41 @@
   (etypecase cont
     (closure
      (assert (continuationp cont))
-     (let* ((param-symbols (mapcar 'genname (closure-required-params cont)))
-            (env (nconc (mapcar 'list (closure-required-params cont) param-symbols) env)))
+     (let* ((required-symbols (mapcar 'genname (closure-required-params* cont)))
+            (optional-symbols (mapcar 'genname (mapcar 'first (closure-optional-params cont))))
+            (optional-suppliedp-symbols (mapcar 'genname (mapcar 'second (closure-optional-params cont))))
+            (rest-symbol (when (closure-rest-param cont) (genname (closure-rest-param cont))))
+            (key-symbols (mapcar 'genname (mapcar 'second (closure-keyword-params cont))))
+            (key-suppliedp-symbols (mapcar 'genname (mapcar 'third (closure-keyword-params cont))))
+            (env (nconc (mapcar 'list (closure-required-params* cont) required-symbols)
+                        (mapcar 'list (mapcar 'first (closure-optional-params cont)) optional-symbols)
+                        (mapcar 'list (mapcar 'second (closure-optional-params cont)) optional-suppliedp-symbols)
+                        (when rest-symbol
+                          (list (list (closure-rest-param cont) rest-symbol)))
+                        (mapcar 'list (mapcar 'second (closure-keyword-params cont)) key-symbols)
+                        (mapcar 'list (mapcar 'third (closure-keyword-params cont)) key-suppliedp-symbols)
+                        env)))
        (mapc (lambda (param sym)
                (setf (get sym 'use-count) (length (gethash param *use-map*))))
-             (closure-required-params cont)
-             param-symbols)
-       `(lambda ,param-symbols
+             (closure-required-params* cont)
+             required-symbols)
+       `(lambda (,@required-symbols
+                 ,@(when optional-symbols
+                     (list* '&optional
+                            (mapcar (lambda (sym suppliedp) (list sym nil suppliedp))
+                                    optional-symbols
+                                    optional-suppliedp-symbols)))
+                 ,@(when rest-symbol
+                     (list '&rest rest-symbol))
+                 ,@(when (closure-keyword-params-enabled cont)
+                     `(&key
+                       ,@(mapcar (lambda (keyword sym suppliedp)
+                                   `((,keyword ,sym) nil ,suppliedp))
+                                 (mapcar 'first (closure-keyword-params cont))
+                                 key-symbols
+                                 key-suppliedp-symbols)
+                       ,@(when (closure-allow-other-keywords cont)
+                           (list '&allow-other-keys)))))
           ,(emit-application cont env))))
     (lexical
      (second (assoc cont env)))))
@@ -50,7 +78,7 @@
                                        (not (continuationp x))))
                       (rest (closure-arguments closure)))))
   (let* ((last-lambda (car (last (closure-arguments closure))))
-         (go-tag-params (rest (closure-required-params last-lambda)))
+         (go-tag-params (rest (closure-required-params* last-lambda)))
          (go-tags (mapcar 'genname go-tag-params))
          (go-tag-continuations (mapcar (lambda (name)
                                          `(lambda (&rest args)
@@ -59,7 +87,7 @@
                                        go-tags))
          (exit-tag (gensym "exit")))
     `(tagbody ,@(mapcan (lambda (closure next-tag)
-                          (let* ((params (rest (closure-required-params closure)))
+                          (let* ((params (rest (closure-required-params* closure)))
                                  (param-symbols (mapcar 'genname params))
                                  (new-env (nconc (mapcar (lambda (p ps tag)
                                                            (list p ps :go tag))
@@ -71,7 +99,7 @@
                                   next-tag)))
                         (rest (closure-arguments closure))
                         go-tags)
-        ,(let* ((params (closure-required-params last-lambda))
+        ,(let* ((params (closure-required-params* last-lambda))
                 (param-symbols (mapcar 'genname params))
                 (new-env (nconc (mapcar (lambda (p ps tag)
                                           (list p ps :go tag))
@@ -94,28 +122,33 @@
     (cond ((and (typep cont 'lexical)
                 info
                 (eql (third info) :go))
-           `(go ,(fourth info)))
+           `(progn ,@args (go ,(fourth info))))
           ((and (typep cont 'lexical)
                 info
                 (eql (third info) :return-from))
-           `(return-from ,(fourth info) ,(first args)))
+           `(return-from ,(fourth info) (prog1 ,(first args) ,@(rest args))))
           ((and (typep cont 'lexical)
                 global-info
                 (eql (length possible-values) 1))
-           `(go ,(second global-info)))
+           `(progn ,@args (go ,(second global-info))))
           (t `(funcall ,(emit-continuation cont env) ,@args)))))
 
-(defun should-emit-bound-closure-in-tagbody (val)
+(defun should-emit-bound-closure-in-tagbody (val bound-in)
   (and (typep val 'closure)
        (continuationp val)
-       (or (endp (closure-required-params val))
-           ;; Detect recursive functions.
-           (and (eql (length (closure-required-params val)) 1)
-                (let ((possible-values (remove-if (lambda (x) (typep x 'lexical))
-                                                  (gethash (first (closure-required-params val))
-                                                           *variable-value-map*))))
-                  (and (eql (length possible-values) 1)
-                       (eql (first possible-values) val)))))
+       (every (lambda (param)
+                (or (zerop (length (gethash param *use-map*)))
+                    (let ((possible-values (remove-if (lambda (x) (typep x 'lexical))
+                                                      (gethash param *variable-value-map*))))
+                      (and (eql (length possible-values) 1)
+                           (or (eql (first possible-values) val)
+                               (and (typep (first possible-values) 'closure)
+                                    (continuationp (first possible-values)))
+                               (member (first possible-values) (closure-arguments bound-in)))))))
+              (closure-required-params* val))
+       (null (closure-optional-params val))
+       (not (closure-rest-param val))
+       (not (closure-keyword-params-enabled val))
        (every (lambda (var)
                 (let ((contours (gethash var *contour-map*)))
                   (and (eql (length contours) 1)
@@ -126,19 +159,20 @@
   (etypecase (closure-function closure)
     (closure
      (cond ((continuationp (closure-function closure))
+            (check-required-params-only (closure-function closure))
             ;; This isn't particularly flexible. Would be nice to be able
             ;; to mix & match closures & values.
             (cond ((and (closure-arguments closure)
                         (every (lambda (arg)
-                                 (should-emit-bound-closure-in-tagbody arg))
+                                 (should-emit-bound-closure-in-tagbody arg closure))
                                (closure-arguments closure)))
                    ;; All arguments are closures, generate a tagbody here.
-                   (let* ((go-tags (mapcar 'genname (closure-required-params (closure-function closure))))
+                   (let* ((go-tags (mapcar 'genname (closure-required-params* (closure-function closure))))
                           ;; (code param-symbol param-object)
                           (local-tags (mapcar 'list
                                               (closure-arguments closure)
                                               go-tags
-                                              (closure-required-params (closure-function closure)))))
+                                              (closure-required-params* (closure-function closure)))))
                      (setf *emited-tagbody-things* (append local-tags *emited-tagbody-things*))
                    `(tagbody
                        (let ,(mapcar (lambda (tag) (list (second tag) `(lambda () (go ,(second tag)))))
@@ -146,7 +180,7 @@
                          ,(emit-application (closure-function closure)
                                             (nconc (mapcar (lambda (param param-sym)
                                                              (list param param-sym :go param-sym))
-                                                           (closure-required-params (closure-function closure))
+                                                           (closure-required-params* (closure-function closure))
                                                            go-tags)
                                                    env)))
                        ,@(mapcan (lambda (tag)
@@ -154,10 +188,10 @@
                                          (emit-application (first tag) env)))
                                  local-tags))))
                   (t ;; Simple binding.
-                   (let* ((param-symbols (mapcar 'genname (closure-required-params (closure-function closure)))))
+                   (let* ((param-symbols (mapcar 'genname (closure-required-params* (closure-function closure)))))
                      (mapc (lambda (param sym)
                              (setf (get sym 'use-count) (length (gethash param *use-map*))))
-                           (closure-required-params (closure-function closure))
+                           (closure-required-params* (closure-function closure))
                            param-symbols)
                      `(let ,(mapcar (lambda (p val)
                                       (list p (emit-arg val env)))
@@ -166,7 +200,7 @@
                         ,(emit-application (closure-function closure)
                                            (nconc (mapcar (lambda (p-obj p)
                                                             (list p-obj p))
-                                                          (closure-required-params (closure-function closure))
+                                                          (closure-required-params* (closure-function closure))
                                                           param-symbols)
                                                   env)))))))
            (t (error "TODO: non-binding closure application."))))
@@ -187,6 +221,13 @@
         `(if ,(emit-arg (third (closure-arguments closure)) env)
              ,(emit-continuation-invocation (first (closure-arguments closure)) '() env)
              ,(emit-continuation-invocation (second (closure-arguments closure)) '() env)))
+       ((%select)
+        (destructuring-bind (cont then else test) (closure-arguments closure)
+          (emit-continuation-invocation cont
+                                        (list `(if ,(emit-arg test env)
+                                                   ,(emit-arg then env)
+                                                   ,(emit-arg else env)))
+                                        env)))
        ((%block)
         ;; Block lifetimes are handled by CL's block form, no need for anything special.
         (emit-continuation-invocation (first (closure-arguments closure))
@@ -206,11 +247,12 @@
         (destructuring-bind (cont value) (closure-arguments closure)
           (assert (and (typep cont 'closure)
                        (continuationp cont)
-                       (= (length (closure-required-params cont)) 1)))
-          (let ((sym (genname (first (closure-required-params cont)))))
+                       (= (length (closure-required-params* cont)) 1)))
+          (check-required-params-only cont)
+          (let ((sym (genname (first (closure-required-params* cont)))))
             `(let ((,sym ,(emit-arg value env)))
                ,(emit-application cont
-                                  (list* (list (first (closure-required-params cont)) sym)
+                                  (list* (list (first (closure-required-params* cont)) sym)
                                          env))))))
        ((%contents)
         (destructuring-bind (cont cell) (closure-arguments closure)
@@ -234,20 +276,47 @@
 
 (defun emit-closure (closure env)
   (check-type closure (and closure (not (satisfies continuationp))))
-  (let* ((param-symbols (mapcar 'genname (closure-required-params closure)))
+  (let* ((required-symbols (mapcar 'genname (closure-required-params* closure)))
+         (optional-symbols (mapcar 'genname (mapcar 'first (closure-optional-params closure))))
+         (optional-suppliedp-symbols (mapcar 'genname (mapcar 'second (closure-optional-params closure))))
+         (rest-symbol (when (closure-rest-param closure) (genname (closure-rest-param closure))))
+         (key-symbols (mapcar 'genname (mapcar 'second (closure-keyword-params closure))))
+         (key-suppliedp-symbols (mapcar 'genname (mapcar 'third (closure-keyword-params closure))))
          (block-name (gensym))
-         (env (nconc (mapcar 'list (rest (closure-required-params closure)) (rest param-symbols))
-                     (list (list (first (closure-required-params closure))
-                                 (first param-symbols)
+         (env (nconc (mapcar 'list (rest (closure-required-params* closure)) (rest required-symbols))
+                     (mapcar 'list (mapcar 'first (closure-optional-params closure)) optional-symbols)
+                     (mapcar 'list (mapcar 'second (closure-optional-params closure)) optional-suppliedp-symbols)
+                     (when rest-symbol
+                       (list (list (closure-rest-param closure) rest-symbol)))
+                     (mapcar 'list (mapcar 'second (closure-keyword-params closure)) key-symbols)
+                     (mapcar 'list (mapcar 'third (closure-keyword-params closure)) key-suppliedp-symbols)
+                     (list (list (first (closure-required-params* closure))
+                                 (first required-symbols)
                                  :return-from
                                  block-name))
                      env))
          ; this in closure only!
          (*emited-tagbody-things* '())
          (*current-closure* closure))
-    `(lambda ,(rest param-symbols)
+    `(lambda (,@(rest required-symbols)
+              ,@(when optional-symbols
+                  (list* '&optional
+                         (mapcar (lambda (sym suppliedp) (list sym nil suppliedp))
+                                 optional-symbols
+                                 optional-suppliedp-symbols)))
+              ,@(when rest-symbol
+                  (list '&rest rest-symbol))
+              ,@(when (closure-keyword-params-enabled closure)
+                      `(&key
+                        ,@(mapcar (lambda (keyword sym suppliedp)
+                                    `((,keyword ,sym) nil ,suppliedp))
+                                  (mapcar 'first (closure-keyword-params closure))
+                                  key-symbols
+                                  key-suppliedp-symbols)
+                        ,@(when (closure-allow-other-keywords closure)
+                                (list '&allow-other-keys)))))
        (block ,block-name
-         (let ((,(first param-symbols) (lambda (&optional arg) (return-from ,block-name arg))))
+         (let ((,(first required-symbols) (lambda (&optional arg) (return-from ,block-name arg))))
            ,(emit-application closure env))))))
 
 (defvar *prettify-emitted-code* t)
@@ -263,7 +332,8 @@
         code)))
 
 (defun forward-expression (code variable form)
-  (when (consp code)
+  (when (and (consp code)
+             (symbolp (first code)))
     (case (first code)
       ((progn)
        (forward-expression (second code) variable form))
@@ -277,16 +347,26 @@
               (setf (third code) form)
               t)
              (t (forward-expression (third code) variable form))))
-      ((funcall)
-       (do ((arg (cdr code) (cdr arg)))
-           ((null arg) nil)
-         (cond ((symbolp (car arg))
-                (when (eql (car arg) variable)
-                  (setf (car arg) form)
-                  (return t)))
-               ((consp (car arg))
-                (unless (member (first (car arg)) '(function lambda quote))
-                  (return (forward-expression (car arg) variable form))))))))))
+      ((return-from)
+       (cond ((eql (third code) variable)
+              (setf (third code) form)
+              t)
+             (t (forward-expression (third code) variable form))))
+      ((block catch eval-when flet function
+        go labels let let* load-time-value locally
+        macrolet multiple-value-call multiple-value-prog1
+        progv quote symbol-macrolet tagbody the throw
+        unwind-protect)
+       nil)
+      (t (do ((arg (cdr code) (cdr arg)))
+             ((null arg) nil)
+           (cond ((symbolp (car arg))
+                  (when (eql (car arg) variable)
+                    (setf (car arg) form)
+                    (return t)))
+                 ((consp (car arg))
+                  (unless (member (first (car arg)) '(function lambda quote))
+                    (return (forward-expression (car arg) variable form))))))))))
 
 (defun prettify-emitted-code (code)
   (typecase code
@@ -313,27 +393,27 @@
           (setf code `(let ()
                         ,(second (first (second code)))
                         ,@(cddr code))))
-        ;; Attempt to push used-once variables into the next expression.
-        (when (and (= (length (second code)) 1)
-                   (eql (get (first (first (second code))) 'use-count) 1))
-          (when (forward-expression `(progn ,@(cddr code))
-                                    (first (first (second code)))
-                                    (second (first (second code))))
-            ;; Expression was forwareded, drop it.
-            (setf code `(let () ,@(cddr code)))))
         ;; Collapse nested LETs.
-        (let ((inner (prettify-emitted-code `(progn ,@(cddr code))))
-              (bindings (mapcar (lambda (b)
-                                  (list (first b) (prettify-emitted-code (second b))))
-                                (second code))))
-          (when (and (consp inner)
-                     (member (first inner) '(let let*)))
-            (setf bindings (append bindings (second inner))
-                  inner `(progn ,@(cddr inner))))
-          ;; Empty LETs will become PROGNs.
-          (if (endp bindings)
-              (prettify-emitted-code inner)
-              `(let* ,bindings ,(prettify-emitted-code inner)))))
+        (let ((inner (prettify-emitted-code `(progn ,@(cddr code)))))
+          ;; Attempt to push used-once variables into the next expression.
+          (when (and (= (length (second code)) 1)
+                     (eql (get (first (first (second code))) 'use-count) 1))
+            (when (forward-expression inner
+                                      (first (first (second code)))
+                                      (second (first (second code))))
+              ;; Expression was forwarded, drop it.
+              (return-from prettify-emitted-code inner)))
+          (let ((bindings (mapcar (lambda (b)
+                                    (list (first b) (prettify-emitted-code (second b))))
+                                  (second code))))
+            (when (and (consp inner)
+                       (member (first inner) '(let let*)))
+              (setf bindings (append bindings (second inner))
+                    inner `(progn ,@(cddr inner))))
+            ;; Empty LETs will become PROGNs.
+            (if (endp bindings)
+                (prettify-emitted-code inner)
+                `(let* ,bindings ,(prettify-emitted-code inner))))))
        ((progn)
         (if (null (cddr code))
             (prettify-emitted-code (second code))
@@ -341,7 +421,9 @@
        (t (cond ((and (consp (first code))
                       (eql (first (first code)) 'lambda)
                       (eql (length (second (first code)))
-                           (length (rest code))))
+                           (length (rest code)))
+                      (notany (lambda (x) (member x lambda-list-keywords))
+                              (second (first code))))
                  ;; Transform LAMBDA into LET.
                  ;; FIXME: Don't do this in the presense of non-required parameters.
                  (prettify-emitted-code `(let ,(mapcar 'list (second (first code)) (rest code))
