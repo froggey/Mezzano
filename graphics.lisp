@@ -39,6 +39,8 @@
 (defvar *default-background-colour* '(0.247 0.247 0.247))
 (defvar *default-background-darker-colour* '(0.169 0.169 0.169))
 
+(defvar *background* nil)
+
 (defstruct screen
   name
   framebuffer
@@ -436,7 +438,14 @@
            (dims (array-dimensions fb))
            (width (second dims))
            (height (first dims)))
-      (sys.int::%bitset height width (name-colour :blue) fb 0 0)
+      (typecase *background*
+        ((unsigned-byte 32)
+         (sys.int::%bitset height width *background* fb 0 0))
+        ((array (unsigned-byte 32) (* *))
+         (bitblt (array-dimension *background* 0) (array-dimension *background* 1)
+                 *background* 0 0
+                 fb 0 0))
+        (t (sys.int::%bitset height width (name-colour :blue) fb 0 0)))
       (when *window-list*
         (do ((window (window-prev *window-list*) (window-prev window)))
             ((eql window *window-list*))
@@ -444,10 +453,6 @@
             (blit-window fb window)))
         (when (window-visiblep *window-list*)
           (blit-window fb *window-list*)))
-      #+nil(progn
-             (bitset 16 16 (name-colour :white) fb *mouse-y* *mouse-x*)
-             (bitset 14 14 (name-colour :black) fb (1+ *mouse-y*) (1+ *mouse-x*))
-             (bitset 4 4 (name-colour :white) fb *mouse-y* *mouse-x*))
       (bitblt-argb-xrgb (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
                         *mouse-pointer* 0 0
                         fb *mouse-y* *mouse-x*)
