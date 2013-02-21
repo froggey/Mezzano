@@ -305,6 +305,8 @@
 (defconstant +llf-defun+ #x0F)
 (defconstant +llf-single-float+ #x10)
 (defconstant +llf-proper-list+ #x11)
+;; A vector consisting entirely of integers.
+(defconstant +llf-integer-vector+ #x13)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -419,10 +421,15 @@
   (save-integer object stream))
 
 (defmethod save-one-object ((object vector) omap stream)
-  (dotimes (i (length object))
-    (save-object (aref object i) omap stream))
-  (write-byte +llf-simple-vector+ stream)
-  (save-integer (length object) stream))
+  (cond ((every #'integerp object)
+         (write-byte +llf-integer-vector+ stream)
+         (save-integer (length object) stream)
+         (dotimes (i (length object))
+           (save-integer (aref object i) stream)))
+        (t (dotimes (i (length object))
+             (save-object (aref object i) omap stream))
+           (write-byte +llf-simple-vector+ stream)
+           (save-integer (length object) stream))))
 
 (defmethod save-one-object ((object character) omap stream)
   (write-byte +llf-character+ stream)

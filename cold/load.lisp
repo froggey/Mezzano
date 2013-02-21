@@ -20,6 +20,8 @@
 (defconstant +llf-single-float+ #x10)
 (defconstant +llf-proper-list+ #x11)
 (defconstant +llf-package+ #x12)
+;; A vector consisting entirely of integers.
+(defconstant +llf-integer-vector+ #x13)
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -167,7 +169,13 @@
     (#.+llf-package+
      (let ((package (load-string stream)))
        (or (find-package package)
-           (error "No such package ~S." package))))))
+           (error "No such package ~S." package))))
+    (#.+llf-integer-vector+
+     (let* ((len (load-integer stream))
+            (vec (make-array len)))
+       (dotimes (i len)
+         (setf (aref vec i) (load-integer stream)))
+       vec))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)
