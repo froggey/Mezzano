@@ -582,6 +582,7 @@
     "bootstrap/data-types.lisp"
     "gc.lisp"
     "process.lisp"
+    "interrupt.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
