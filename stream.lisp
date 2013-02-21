@@ -134,7 +134,7 @@
   (setf (slot-value stream 'unread-char) character))
 
 (defmethod sys.gray:stream-listen ((stream unread-char-mixin))
- (slot-value s 'unread-char))
+ (slot-value stream 'unread-char))
 
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
   (setf (slot-value s 'unread-char) nil))
