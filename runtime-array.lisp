@@ -182,10 +182,16 @@ allocate environment frames."
 (define-lap-function %fast-copy ()
   (sys.lap-x86:mov64 :rdi :r8)
   (sys.lap-x86:mov64 :rsi :r9)
-  (sys.lap-x86:mov64 :rcx :r10)
+  (sys.lap-x86:mov64 :rdx :r10)
   (sys.lap-x86:sar64 :rdi 3)
   (sys.lap-x86:sar64 :rsi 3)
+  (sys.lap-x86:sar64 :rdx 3)
+  (sys.lap-x86:mov64 :rcx :rdx)
   (sys.lap-x86:sar64 :rcx 3)
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  (sys.lap-x86:mov32 :ecx :edx)
+  (sys.lap-x86:and32 :ecx 7)
   (sys.lap-x86:rep)
   (sys.lap-x86:movs8)
   (sys.lap-x86:mov32 :ecx 8)
@@ -204,7 +210,12 @@ allocate environment frames."
   (sys.lap-x86:jmp loop-test)
   loop-head
   (sys.lap-x86:mov64 :rcx :r10) ; bytes-per-col
-  (sys.lap-x86:sar64 :rcx 3)
+  (sys.lap-x86:sar64 :rcx 6)
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  (sys.lap-x86:mov64 :rcx :r10) ; bytes-per-col
+  (sys.lap-x86:sar32 :ecx 3)
+  (sys.lap-x86:and32 :ecx 7)
   (sys.lap-x86:rep)
   (sys.lap-x86:movs8)
   (sys.lap-x86:mov64 :rax :r11) ; to-stride
