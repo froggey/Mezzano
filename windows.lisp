@@ -10,29 +10,70 @@
   (values 1 1 19 1))
 
 (defvar *corner-mask*
-  (2d-array '((t   t   t   t   t)
-              (t   t   t nil nil)
-              (t   t nil nil nil)
-              (t nil nil nil nil)
-              (t nil nil nil nil))))
+  (2d-array '((0.0 0.0 0.0 0.2 0.5)
+              (0.0 0.0 0.5 1.0 1.0)
+              (0.0 0.5 1.0 1.0 1.0)
+              (0.2 1.0 1.0 1.0 1.0)
+              (0.5 1.0 1.0 1.0 1.0)))
+  "Alpha values for the rounded window corners.")
 
-(defvar *corner-border*
-  (2d-array '((nil nil nil nil nil)
-              (nil nil nil   t   t)
-              (nil nil   t nil nil)
-              (nil   t nil nil nil)
-              (nil   t nil nil nil))))
+(defvar *title-top-colour* :silver)
+(defvar *title-text-colour* :black)
+(defvar *title-text-drop-colour* :gray)
+(defvar *border-colour* :gray)
+(defvar *close-button-main* :red)
+(defvar *close-button-drop* :maroon)
+
+(defun lerp (v0 v1 a)
+  (+ v0 (* (- v1 v0) a)))
+
+(defun lerp-colour (colour1 colour2 a)
+  (let ((c1 (make-colour colour1))
+        (c2 (make-colour colour2)))
+    (logior (ash (truncate (lerp (ldb (byte 8 24) c1)
+                                 (ldb (byte 8 24) c2)
+                                 a))
+                 24)
+            (ash (truncate (lerp (ldb (byte 8 16) c1)
+                                 (ldb (byte 8 16) c2)
+                                 a))
+                 16)
+            (ash (truncate (lerp (ldb (byte 8 8) c1)
+                                 (ldb (byte 8 8) c2)
+                                 a))
+                 8)
+            (truncate (lerp (ldb (byte 8 0) c1)
+                            (ldb (byte 8 0) c2)
+                            a)))))
+
+(defun vertical-gradient (nrows ncols colour1 colour2 to-array to-row to-col)
+  (dotimes (i nrows)
+    (bitset 1 ncols
+            (lerp-colour colour1 colour2 (/ i (1- nrows)))
+            to-array (+ to-row i) to-col)))
+
+(defun draw-string (string colour to-array to-row to-col)
+  (let ((s (string string))
+        (x 0))
+    (dotimes (i (length s))
+      (let ((ch (char s i)))
+        (case ch
+          (#\Space (incf x 8))
+          (t (let ((glyph (sys.int::map-unifont-2d ch))
+                   (width (sys.int::unifont-glyph-width ch)))
+               (when glyph
+                 (bitset-argb-xrgb-mask-1 16 width colour
+                                          glyph 0 0
+                                          to-array to-row (+ to-col x)))
+               (incf x width))))))
+    x))
 
 (defmethod window-redraw :before ((window window-with-chrome))
   (let* ((fb (window-backbuffer window))
          (dims (array-dimensions fb))
-         (border-colour (make-colour :gray))
-         (titlebar-colour (make-colour :black))
-         (text-colour (make-colour :white)))
-    ;; Top.
-    (bitset 1 (second dims) border-colour fb 0 0)
-    ;; Top between title and main body.
-    (bitset 1 (second dims) border-colour fb 18 0)
+         (border-colour (make-colour *border-colour*))
+         (text-colour (make-colour *title-text-colour*))
+         (text-drop-colour (make-colour *title-text-drop-colour*)))
     ;; Bottom.
     (bitset 1 (second dims) border-colour fb (1- (first dims)) 0)
     ;; Left.
@@ -40,42 +81,28 @@
     ;; Right
     (bitset (first dims) 1 border-colour fb 0 (1- (second dims)))
     ;; Title.
-    (let ((x 5)
-          (title (window-title window)))
-      (bitset 17 (- (second dims) 2) titlebar-colour fb 1 1)
-      (dotimes (i (length title))
-        (let* ((character (char title i))
-               (width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
-          (when (> (+ x width) (- (second dims) 2 16))
-            (return))
-          (unless (eql character #\Space)
-            (let* ((glyph (sys.int::map-unifont-2d character)))
-              (cond (glyph
-                     (bitset-argb-xrgb-mask-1 16 width text-colour
-                                              glyph 0 0
-                                              fb 1 x))
-                    (t))))
-          (incf x width))))
+    (let ((title (window-title window)))
+      (vertical-gradient 19 (second dims)
+                         *title-top-colour* *border-colour*
+                         fb 0 0)
+      (draw-string title text-drop-colour fb 2 6)
+      (draw-string title text-colour fb 1 5))
     (when (slot-value window 'has-close-button)
       ;; Close button. Unifont uses a chunky double-wide X.
-      (let* ((glyph (sys.int::map-unifont-2d (name-char "Multiplication-X")))
-             (width (array-dimension glyph 1)))
-        (cond (glyph
-               (bitset-argb-xrgb-mask-1 16 width (make-colour :red)
-                                        glyph 0 0
-                                        fb 2 (- (second dims) 1 16)))
-              (t))))
+      (let ((ch (name-char "Multiplication-X"))
+            (position (- (second dims) 1 16)))
+        (draw-string ch (make-colour *close-button-drop*)
+                     fb 2 (1+ position))
+        (draw-string ch (make-colour *close-button-main*)
+                     fb 2 position)))
     ;; Round off the corners.
     (let* ((corner-width (array-dimension *corner-mask* 1))
            (corner-height (array-dimension *corner-mask* 0)))
       (dotimes (y corner-height)
         (dotimes (x corner-width)
-          (when (aref *corner-mask* y x)
-            (setf (aref fb y x) (make-colour '(0 0 0 0)))
-            (setf (aref fb y (- (second dims) x 1)) (make-colour '(0 0 0 0))))
-          (when (aref *corner-border* y x)
-            (setf (aref fb y x) border-colour)
-            (setf (aref fb y (- (second dims) x 1)) border-colour)))))))
+          (let ((alpha (truncate (* (aref *corner-mask* y x) 255))))
+            (setf (ldb (byte 8 24) (aref fb y x)) alpha
+                  (ldb (byte 8 24) (aref fb y (- (second dims) x 1))) alpha)))))))
 
 (defmethod mouse-button-event :around ((window window-with-chrome) button-id clickedp mouse-x mouse-y)
   (let* ((fb (window-backbuffer window))
