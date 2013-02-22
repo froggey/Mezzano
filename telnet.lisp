@@ -96,24 +96,43 @@ party to perform, the indicated option.")
 (defmethod sys.gray:stream-element-type ((stream xterm-terminal))
   '(unsigned-byte 8))
 
-(defparameter *xterm-colours*
-  #(#x000000 ; 0 Black
-    #x800000 ; 1 Red
-    #x008000 ; 2 Green
-    #x808000 ; 3 Yellow
-    #x000080 ; 4 Blue
-    #x800080 ; 5 Magenta
-    #x008080 ; 6 Cyan
-    #xC0C0C0 ; 7 "White"
-    #x808080 ; 0 Bright Black
-    #xFF0000 ; 1 Bright Red
-    #x00FF00 ; 2 Bright Green
-    #xFFFF00 ; 3 Bright Yellow
-    #x0000FF ; 4 Bright Blue
-    #xFF00FF ; 5 Bright Magenta
-    #x00FFFF ; 6 Bright Cyan
-    #xFFFFFF ; 7 Bright White
-    ))
+(defun generate-xterm-colour-table ()
+  (let ((colours (make-array 256 :element-type '(unsigned-byte 32))))
+    (setf (subseq colours 0) #(#x000000 ; 0 Black
+                               #x800000 ; 1 Red
+                               #x008000 ; 2 Green
+                               #x808000 ; 3 Yellow
+                               #x000080 ; 4 Blue
+                               #x800080 ; 5 Magenta
+                               #x008080 ; 6 Cyan
+                               #xC0C0C0 ; 7 "White"
+                               #x808080 ; 0 Bright Black
+                               #xFF0000 ; 1 Bright Red
+                               #x00FF00 ; 2 Bright Green
+                               #xFFFF00 ; 3 Bright Yellow
+                               #x0000FF ; 4 Bright Blue
+                               #xFF00FF ; 5 Bright Magenta
+                               #x00FFFF ; 6 Bright Cyan
+                               #xFFFFFF ; 7 Bright White
+                               ))
+    ;; 16-231 are a 6x6x6 colour cube.
+    (dotimes (red 6)
+      (dotimes (green 6)
+        (dotimes (blue 6)
+          (setf (aref colours (+ 16 (* red 36) (* green 6) blue))
+                (logior (ash (if (zerop red)   0 (+ (* red   40) 55)) 16)
+                        (ash (if (zerop green) 0 (+ (* green 40) 55)) 8)
+                             (if (zerop blue)  0 (+ (* blue  40) 55)))))))
+    ;; 232-255 area a greyscale ramp, leaving out black & white.
+    (dotimes (grey 24)
+      (let ((level (+ (* grey 10) 8)))
+        (setf (aref colours (+ 232 grey))
+              (logior (ash level 16)
+                      (ash level 8)
+                      level))))
+    colours))
+
+(defparameter *xterm-colours* (generate-xterm-colour-table))
 
 (defparameter *dec-special-characters-and-line-drawing*
   #(#\BLACK_LOZENGE
@@ -232,49 +251,63 @@ party to perform, the indicated option.")
 
 (defun set-character-attributes (terminal attributes)
   (when (endp attributes) (setf attributes '(0)))
-  (dolist (attr attributes)
-    (case attr
-      (0 ;; Normal (reset to defaults).
-       (setf (bold terminal) nil
-             (inverse terminal) nil
-             (underline terminal) nil
-             (foreground-colour terminal) nil
-             (background-colour terminal) nil))
-      (1 ;; Bold.
-       (setf (bold terminal) t))
-      (4 ;; Underlined
-       (setf (underline terminal) t))
-      (5 ;; Blink.
-       (setf (bold terminal) t))
-      (7 ;; Inverse.
-       (setf (inverse terminal) t))
-      (8 ;; Invisible.
-       )
-      (22 ;; Not bold.
-       (setf (bold terminal) nil))
-      (24 ;; Not underlined.
-       (setf (underline terminal) nil))
-      (25 ;; Not blink.
-       )
-      (27 ;; Not inverse.
-       (setf (inverse terminal) nil))
-      (28 ;; Not invisible.
-       )
-      (39 ;; Set foreground to default
-       (setf (foreground-colour terminal) nil))
-      (49 ;; Set background to default
-       (setf (background-colour terminal) nil))
-      ((2 3 6 9 38 48)) ; ???
-      (t (cond
-           ((<= 30 attr 37)
-            (setf (foreground-colour terminal) (- attr 30)))
-           ((<= 40 attr 47)
-            (setf (background-colour terminal) (- attr 40)))
-           ((<= 90 attr 97)
-            (setf (foreground-colour terminal) (+ 8 (- attr 90))))
-           ((<= 100 attr 107)
-            (setf (background-colour terminal) (+ 8 (- attr 100))))
-           (t (report-unknown-escape terminal)))))))
+  (cond ((and (eql (first attributes) 38)
+              (eql (second attributes) 5)
+              (integerp (third attributes))
+              (null (fourth attributes))
+              (<= 0 (third attributes) 255))
+         ;; \e[38;5;${N}m  Set foreground to 256-colour ${N}.
+         (setf (foreground-colour terminal) (third attributes)))
+        ((and (eql (first attributes) 48)
+              (eql (second attributes) 5)
+              (integerp (third attributes))
+              (null (fourth attributes))
+              (<= 0 (third attributes) 255))
+         ;; \e[48;5;${N}m  Set background to 256-colour ${N}.
+         (setf (background-colour terminal) (third attributes)))
+        (t (dolist (attr attributes)
+             (case attr
+               (0 ;; Normal (reset to defaults).
+                (setf (bold terminal) nil
+                      (inverse terminal) nil
+                      (underline terminal) nil
+                      (foreground-colour terminal) nil
+                      (background-colour terminal) nil))
+               (1 ;; Bold.
+                (setf (bold terminal) t))
+               (4 ;; Underlined
+                (setf (underline terminal) t))
+               (5 ;; Blink.
+                (setf (bold terminal) t))
+               (7 ;; Inverse.
+                (setf (inverse terminal) t))
+               (8 ;; Invisible.
+                )
+               (22 ;; Not bold.
+                (setf (bold terminal) nil))
+               (24 ;; Not underlined.
+                (setf (underline terminal) nil))
+               (25 ;; Not blink.
+                )
+               (27 ;; Not inverse.
+                (setf (inverse terminal) nil))
+               (28 ;; Not invisible.
+                )
+               (39 ;; Set foreground to default
+                (setf (foreground-colour terminal) nil))
+               (49 ;; Set background to default
+                (setf (background-colour terminal) nil))
+               ((2 3 6 9)) ; ???
+               (t (cond
+                    ((<= 30 attr 37)
+                     (setf (foreground-colour terminal) (- attr 30)))
+                    ((<= 40 attr 47)
+                     (setf (background-colour terminal) (- attr 40)))
+                    ((<= 90 attr 97)
+                     (setf (foreground-colour terminal) (+ 8 (- attr 90))))
+                    ((<= 100 attr 107)
+                     (setf (background-colour terminal) (+ 8 (- attr 100))))
+                    (t (report-unknown-escape terminal)))))))))
 
 (defun xterm-initial (terminal byte)
   "Initial state."
@@ -658,4 +691,4 @@ party to perform, the indicated option.")
       (lambda () (create-telnet-client '(204 236 130 210) :title "nethack.alt.org")))
 (setf (gethash (name-char "F7") sys.graphics::*global-keybindings*)
       ;; This server is dumb and treats xterm-color as xterm-256color. Jerk.
-      (lambda () (create-telnet-client '(128 174 251 59) :title "nyancat" :terminal-type "term")))
+      (lambda () (create-telnet-client '(128 174 251 59) :title "nyancat")))
