@@ -437,7 +437,7 @@
                                   (multiple-value-bind (significand exponent)
                                       (integer-decode-float val)
                                     (ash significand exponent)))))
-           (values integer-part (- val integer-part))))
+           (values integer-part (* (- val integer-part) divisor))))
         (t (check-type number number)
            (check-type divisor number)
            (error "Argument combination not supported."))))
@@ -447,7 +447,6 @@
       (generic-truncate number divisor)
     (declare (ignore quot))
     rem))
-
 
 (defun mod (number divisor)
   (multiple-value-bind (quot rem)
