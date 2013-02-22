@@ -500,7 +500,7 @@ party to perform, the indicated option.")
                  (return bytes))))
              (t (vector-push-extend byte bytes))))))
 
-(defun telnet-command (connection command)
+(defun telnet-command (telnet connection command)
   (case command
     (#.+command-sb+
      (let ((option (read-byte connection))
@@ -509,7 +509,7 @@ party to perform, the indicated option.")
          (#.+option-terminal-type+
           (write-sequence (apply 'vector
                                  (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
-                                         (map 'list 'char-code "xterm-color")
+                                         (map 'list 'char-code (telnet-terminal-type telnet))
                                          (list +command-iac+ +command-se+)))
                           connection))
          (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
@@ -557,7 +557,7 @@ party to perform, the indicated option.")
                          (let ((command (read-byte (telnet-connection telnet))))
                            (if (eql command +command-iac+)
                                (write-byte +command-iac+ (telnet-terminal telnet))
-                               (telnet-command (telnet-connection telnet) command))))
+                               (telnet-command telnet (telnet-connection telnet) command))))
                         ((eql byte #x0D) ; CR
                          (setf last-was-cr t)
                          (write-byte byte (telnet-terminal telnet)))
@@ -590,8 +590,7 @@ party to perform, the indicated option.")
                                          :interrupt-character (name-char "C-["))))
            (setf (slot-value window 'terminal) terminal)
            (setf sys.graphics::*refresh-required* t)
-           ;; Hard-code NAO for now.
-           (with-open-stream (connection (sys.net::tcp-stream-connect '(204 236 130 210) 23))
+           (with-open-stream (connection (sys.net::tcp-stream-connect (telnet-server window) (telnet-port window)))
              (setf (telnet-connection window) connection)
              (handler-case
                  (loop (let ((byte (read-byte terminal)))
@@ -610,7 +609,10 @@ party to perform, the indicated option.")
    (receive-process :reader receive-process)
    (buffer :initarg :buffer :reader window-buffer)
    (connection :initform nil :accessor telnet-connection)
-   (terminal :reader telnet-terminal))
+   (terminal :reader telnet-terminal)
+   (server :initarg :server :reader telnet-server)
+   (port :initarg :port :reader telnet-port)
+   (terminal-type :initarg :terminal-type :reader telnet-terminal-type))
   (:default-initargs :buffer (sys.graphics::make-fifo 500 'character)))
 
 (defmethod sys.gray:stream-read-char ((stream telnet-client))
@@ -643,8 +645,17 @@ party to perform, the indicated option.")
 
 (defmethod sys.graphics::window-redraw ((window telnet-client)))
 
-(defun create-telnet-client ()
+(defun create-telnet-client (server &key (port 23) title (terminal-type "xterm-color"))
   "Open a telnet window."
-  (sys.graphics::window-set-visibility (sys.graphics::make-window "Telnet" 640 400 'telnet-client) t))
+  (sys.graphics::window-set-visibility (sys.graphics::make-window (if title (format nil "Telnet - ~A" title) "Telnet")
+                                                                  640 400
+                                                                  'telnet-client
+                                                                  :server server
+                                                                  :port port
+                                                                  :terminal-type terminal-type) t))
 
-(setf (gethash (name-char "F3") sys.graphics::*global-keybindings*) 'create-telnet-client)
+(setf (gethash (name-char "F3") sys.graphics::*global-keybindings*)
+      (lambda () (create-telnet-client '(204 236 130 210) :title "nethack.alt.org")))
+(setf (gethash (name-char "F7") sys.graphics::*global-keybindings*)
+      ;; This server is dumb and treats xterm-color as xterm-256color. Jerk.
+      (lambda () (create-telnet-client '(128 174 251 59) :title "nyancat" :terminal-type "term")))
