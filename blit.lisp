@@ -136,7 +136,7 @@
   (sys.lap-x86:mov32 (:rdi) :eax)
   (sys.lap-x86:ret))
 
-;;; EAX = XRGB8888 pixel.
+;;; EAX = ARGB8888 pixel.
 ;;; RDI = XRGB8888 destination.
 ;;; Alpha-blend PIXEL into DEST.
 ;;; Uses OpenGL-style Src-alpha/One-minus-src-alpha blending.
