@@ -354,7 +354,8 @@
     (:d16/le idt-length)
     (:d64/le idt)))
 
-(defparameter *static-area-limit* (* 32 1024 1024))
+(defparameter *small-static-area-size* (* 8 1024 1024))
+(defparameter *large-static-area-size* (* 56 1024 1024))
 (defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
 
 (defparameter *static-area-base*  #x0000200000)
@@ -632,7 +633,8 @@
   (values))
 
 (defun total-image-size ()
-  (+ (* (/ *static-area-limit* 8) 2)
+  (+ (* (/ *small-static-area-size* 8) 2)
+     (* (/ *large-static-area-size* 8) 2)
      (/ (* *dynamic-area-semispace-limit* 2) 8)
      (* (ceiling *support-offset* #x40000) #x40000)
      (* (1+ (ceiling *stack-offset* #x40000)) #x40000)))
@@ -724,7 +726,7 @@
                     +page-table-large+))
       (incf phys-curr #x200000))
     ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
-    (dotimes (i (truncate (- (/ (* *static-area-limit* 2) 8) *static-offset*) #x40000))
+    (dotimes (i (truncate (- (/ (+ *small-static-area-size* *large-static-area-size*) 8) *static-offset*) #x40000))
       (setf (word (+ data-pml2 (truncate *static-area-base* #x200000) (ceiling *static-offset* #x40000) i))
             (logior phys-curr
                     +page-table-writable+
@@ -1100,7 +1102,7 @@
       (set-value '*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
       (set-value '*large-static-area* *static-area-base*)
       (set-value '*large-static-area-hint* 0)
-      (set-value '*small-static-area* (+ *static-area-base* *static-area-limit*))
+      (set-value '*small-static-area* (+ *static-area-base* *large-static-area-size*))
       (set-value '*small-static-area-hint* 0)
       (set-value '*static-mark-bit* 0)
       (set-value '*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
@@ -1112,9 +1114,9 @@
     ;; This does not write the boundary tag for the small static area!
     (let ((*static-offset* (+ *static-offset* 2)))
       (format t "~:D/~:D words free in static space.~%"
-              (- (truncate *static-area-limit* 8) (- *static-offset* 2))
-              (truncate *static-area-limit* 8))
-      (setf (word (+ (truncate *static-area-base* 8) *static-offset* -2)) (- (truncate *static-area-limit* 8) *static-offset*)
+              (- (truncate *large-static-area-size* 8) (- *static-offset* 2))
+              (truncate *large-static-area-size* 8))
+      (setf (word (+ (truncate *static-area-base* 8) *static-offset* -2)) (- (truncate *large-static-area-size* 8) *static-offset*)
             (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)

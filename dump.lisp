@@ -61,7 +61,8 @@ Returns number of sectors written."
 (defun dump-memory-image-size ()
   "Calculate the amount of actual data that dump must save."
   (+ #x600000 ; 6MB for paging structures.
-     (round-up (* *static-area-size* 2) #x200000)
+     (round-up *small-static-area-size* #x200000)
+     (round-up *large-static-area-size* #x200000)
      (round-up (* *semispace-size* 8 2) #x200000)
      (round-up (- *stack-bump-pointer-limit* #x100000000) #x200000)))
 
@@ -78,7 +79,8 @@ Returns number of sectors written."
 
 (defparameter *static-area-base*  #x0000200000)
 #+nil(defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
-(defparameter *static-area-size*  (* 32 1024 1024))
+(defparameter *small-static-area-size*  (* 8 1024 1024))
+(defparameter *large-static-area-size*  (* 56 1024 1024))
 (defparameter *dynamic-area-base* #x0080000000)
 (defparameter *dynamic-area-size* #x0080000000) ; 2GB
 (defparameter *stack-area-base*   #x0100000000)
@@ -210,7 +212,7 @@ know where the PDEs for new- and old-space are."
     (return-from dump-image))
   (format t "Saving image... ")
   (let ((total-sectors 0)
-        (static-pages (make-array (ceiling (* *static-area-size* 2) #x200000)
+        (static-pages (make-array (ceiling (+ *small-static-area-size* *large-static-area-size*) #x200000)
                                   :element-type 'bit
                                   :initial-element 0))
         (kboot (make-kboot-header (lisp-object-address *%kboot-entry*)
