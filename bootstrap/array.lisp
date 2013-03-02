@@ -167,6 +167,16 @@ This must be sorted from most-specific to least-specific.")
 		  (incf i))))
 	     (t (dotimes (i (array-dimension array 0))
 		  (setf (aref array i) (aref sequence i))))))
+    (2 (when (/= (array-dimension array 0) (length sequence))
+         (error "Malformed :INITIAL-CONTENTS: Dimension of axis 0 is ~S but ~S is ~S long."
+		(array-dimension array 0) sequence (length sequence)))
+       (dotimes (i (array-dimension array 0))
+         (let ((subsequence (elt sequence i)))
+           (when (/= (array-dimension array 1) (length subsequence))
+             (error "Malformed :INITIAL-CONTENTS: Dimension of axis 1 is ~S but ~S is ~S long."
+                    (array-dimension array 1) subsequence (length subsequence)))
+           (dotimes (j (array-dimension array 1))
+             (setf (aref array i j) (elt subsequence j))))))
     (t (error "TODO: :INITIAL-CONTENTS for multidimensional arrays."))))
 
 (define-compiler-macro aref (&whole whole array &rest subscripts)

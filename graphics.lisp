@@ -28,13 +28,10 @@
 
 (defun 2d-array (data &optional (element-type 't))
   (let* ((width (length (first data)))
-         (height (length data))
-         (a (make-array (list height width)
-                        :element-type element-type)))
-    (dotimes (y height)
-      (dotimes (x width)
-        (setf (aref a y x) (elt (elt data y) x))))
-    a))
+         (height (length data)))
+    (make-array (list height width)
+                :element-type element-type
+                :initial-contents data)))
 
 (defvar *mouse-pointer*
   (2d-array '((#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
