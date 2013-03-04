@@ -310,7 +310,7 @@
 
 (defun read-line (&optional (input-stream *standard-input*) (eof-error-p t) eof-value recursive-p)
   (with-stream-editor (input-stream recursive-p)
-    (do ((result (make-array 16 :element-type 'character :adjustable t :fill-pointer 0))
+    (do ((result (make-array 80 :element-type 'character :adjustable t :fill-pointer 0))
          (c (read-char input-stream eof-error-p nil recursive-p)
             (read-char input-stream eof-error-p nil recursive-p)))
         ((or (null c)
