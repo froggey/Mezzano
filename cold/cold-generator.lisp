@@ -1144,6 +1144,8 @@
 (defconstant +llf-structure-definition+ #x0E)
 (defconstant +llf-single-float+ #x10)
 (defconstant +llf-proper-list+ #x11)
+(defconstant +llf-package+ #x12)
+(defconstant +llf-integer-vector+ #x13)
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
@@ -1422,7 +1424,18 @@
            (length (load-integer stream)))
        (dotimes (i length)
          (setf list (vcons (vector-pop stack) list)))
-       list))))
+       list))
+    (#.+llf-integer-vector+
+     (let* ((len (load-integer stream))
+            (address (allocate (1+ len))))
+       ;; Header word.
+       (setf (word address) (array-header +array-type-t+ len))
+       (dotimes (i len)
+         (let ((value (load-integer stream)))
+           (setf (word (+ address 1 i)) (typecase value
+                                          ((signed-byte 61) (make-fixnum value))
+                                          (t (make-bignum value))))))
+       (make-value address +tag-array-like+)))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))
