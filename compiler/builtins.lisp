@@ -1114,7 +1114,7 @@
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'symbol))
     (emit-trailer (undefined-function-error-label)
-      (load-constant :r13 'sys.int::raise-undefined-function)
+      (load-constant :r13 'sys.int::raise-undefined-function-via-%symbol-function)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
             `(sys.lap-x86:call (:symbol-function :r13))
             `(sys.lap-x86:ud2)))
