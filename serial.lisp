@@ -3,6 +3,7 @@
 (defclass serial-stream (sys.gray:fundamental-binary-input-stream
                          sys.gray:fundamental-binary-output-stream)
   ((base :initarg :base :reader serial-stream-io-base)
+   (irq :initarg :irq :reader serial-stream-irq)
    (speed :initarg :speed :reader serial-stream-speed))
   (:default-initargs :speed 38400))
 
@@ -112,14 +113,19 @@
 (defconstant +serial-msr-ring-indicator+ 6)
 (defconstant +serial-msr-carrier-detect+ 7)
 
+(define-interrupt-handler serial-interrupt ()
+  't)
+
 (defun reset-serial-port (port &optional speed)
   (check-type speed (or null (integer 50 115200)))
   (if speed
       (setf (slot-value port 'speed) speed)
       (setf speed (serial-stream-speed port)))
   (let ((base (serial-stream-io-base port))
+        (irq (serial-stream-irq port))
         (divisor (truncate 115200 speed)))
-    (format t "Initializing serial port ~X, speed ~D (~D)~%" base speed divisor)
+    (format t "Initializing serial port ~X (irq ~D), speed ~D (~D)~%" base irq speed divisor)
+    (setf (isa-pic-irq-mask irq) t)
     (when (zerop divisor) (setf divisor 1))
     ;; Configure the port.
     (setf (io-port/8 (+ base +serial-IER+)) #x00 ; Turn off interrupts.
@@ -138,10 +144,14 @@
     ;; Modem control.
     (setf (io-port/8 (+ base +serial-MCR+)) (logior +serial-mcr-data-terminal-ready+
                                                     +serial-mcr-request-to-send+
-                                                    +serial-mcr-auxiliary-output-2+))))
+                                                    +serial-mcr-auxiliary-output-2+))
+    ;; Turn RX interrupts on.
+    (setf (io-port/8 (+ base +serial-IER+)) +serial-ier-received-data-available+)
+    (setf (isa-pic-interrupt-handler irq) (make-interrupt-handler 'serial-interrupt)
+          (isa-pic-irq-mask irq) nil)))
 
-(defvar *serial-one* (make-instance 'serial-stream :base #x3F8))
-(defvar *serial-two* (make-instance 'serial-stream :base #x2F8))
+(defvar *serial-one* (make-instance 'serial-stream :base #x3F8 :irq 4))
+(defvar *serial-two* (make-instance 'serial-stream :base #x2F8 :irq 3))
 
 (defmethod sys.gray:stream-write-byte ((stream serial-stream) integer)
   (check-type integer (unsigned-byte 8))
