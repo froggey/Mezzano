@@ -23,6 +23,30 @@
 ;; A vector consisting entirely of integers.
 (defconstant +llf-integer-vector+ #x13)
 
+(defvar *noisy-load* nil)
+
+(defun llf-command-name (command)
+  (ecase command
+    (#.+llf-end-of-load+ 'end-of-load)
+    (#.+llf-backlink+ 'backlink)
+    (#.+llf-function+ 'function)
+    (#.+llf-cons+ 'cons)
+    (#.+llf-symbol+ 'symbol)
+    (#.+llf-uninterned-symbol+ 'uninterned-symbol)
+    (#.+llf-unbound+ 'unbound)
+    (#.+llf-string+ 'string)
+    (#.+llf-setf-symbol+ 'setf-symbol)
+    (#.+llf-integer+ 'integer)
+    (#.+llf-invoke+ 'invoke)
+    (#.+llf-setf-fdefinition+ 'setf-fdefinition)
+    (#.+llf-simple-vector+ 'simple-vector)
+    (#.+llf-character+ 'character)
+    (#.+llf-structure-definition+ 'structure-definition)
+    (#.+llf-single-float+ 'single-float)
+    (#.+llf-proper-list+ 'proper-list)
+    (#.+llf-package+ 'package)
+    (#.+llf-integer-vector+ 'integer-vector)))
+
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
                (eql (%read-byte stream) #x4C)
@@ -115,6 +139,8 @@
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
 (defun load-one-object (command stream stack)
+  (when *noisy-load*
+    (format t "~S~%" llf-command-name))
   (ecase command
     (#.+llf-function+
      (load-llf-function stream stack))
