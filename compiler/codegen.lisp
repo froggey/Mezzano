@@ -197,7 +197,8 @@ be generated instead.")
                            `(sys.lap-x86:mov64 (:rbx ,(+ 1 (* (- env-size (length (first *environment*))) 8)))
                                                :r8)))
                  (push arg (first *environment*)))
-                (t (return-from codegen-lambda
+                (t (warn "TODO: Special required variable ~S~%" arg)
+                   (return-from codegen-lambda
                      (sys.int::assemble-lap `((sys.lap-x86:push 0)
                                               (sys.lap-x86:mov64 :r13 (:constant error))
                                               (sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
