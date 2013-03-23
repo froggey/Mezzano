@@ -1062,6 +1062,10 @@
   (sys.int::process-enable *ethernet-process*))
 (sys.int::add-hook 'sys.int::*early-initialize-hook* 'ethernet-early-initialize)
 
+(defun format-mac (stream mac &optional colon-p at-sign-p)
+  (format stream "~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X"
+          (aref mac 0) (aref mac 1) (aref mac 2) (aref mac 3) (aref mac 4) (aref mac 5)))
+
 (defun format-tcp4-address (stream argument &optional colon-p at-sign-p)
   (format stream "~D.~D.~D.~D"
           (ldb (byte 8 24) argument)
