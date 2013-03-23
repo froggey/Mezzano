@@ -783,11 +783,11 @@ the header word. LENGTH is the number of elements in the array."
 (defun allocate-dma-buffer (length)
   (with-interrupts-disabled ()
     (unless (zerop (logand *bump-pointer* #xFFF))
-      (incf *bump-pointer* (logand *bump-pointer* #xFFF)))
+      (incf *bump-pointer* (- #x1000 (logand *bump-pointer* #xFFF))))
     (let ((address *bump-pointer*))
       (incf *bump-pointer* length)
       (unless (zerop (logand *bump-pointer* #xFFF))
-        (incf *bump-pointer* (logand *bump-pointer* #xFFF)))
+        (incf *bump-pointer* (- #x1000 (logand *bump-pointer* #xFFF))))
       (values (make-array length
                           :element-type '(unsigned-byte 8)
                           :memory address)
