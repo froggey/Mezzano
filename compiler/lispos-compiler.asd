@@ -17,5 +17,6 @@
                (:file "lift" :depends-on ("cross" "compiler"))
                (:file "simplify" :depends-on ("cross" "compiler"))
                (:file "constprop" :depends-on ("cross" "compiler"))
+               (:file "kill-temps" :depends-on ("cross" "compiler"))
                (:file "builtins" :depends-on ("cross" "cross-compile" "compiler" "codegen"))
                (:file "codegen" :depends-on ("cross" "cross-compile" "compiler"))))

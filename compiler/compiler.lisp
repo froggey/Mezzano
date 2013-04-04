@@ -101,6 +101,7 @@ A list of any declaration-specifiers."
       (setf form (lower-keyword-arguments form))
       (setf form (constprop (detect-uses form)))
       (setf form (simp-form (detect-uses form)))
+      (setf form (kt-form (detect-uses form)))
       (detect-uses form)
       (when (eql *change-count* 0)
 	(return form)))))
