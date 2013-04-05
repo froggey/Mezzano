@@ -45,6 +45,15 @@
              (sys.graphics::register-screen :cold-framebuffer buffer buffer
                                             (lambda ()
                                               (%bitblt height width buffer 0 0 (second *cold-stream-screen*) 0 0)))))
+          ((typep *terminal-io* 'framebuffer-stream)
+           (let ((fb (slot-value *terminal-io* 'framebuffer))
+                 (buffer (make-array (array-dimensions fb)
+                                     :element-type '(unsigned-byte 32)))
+                 (width (second (array-dimensions fb)))
+                 (height (first (array-dimensions fb))))
+             (sys.graphics::register-screen :framebuffer buffer buffer
+                                            (lambda ()
+                                              (%bitblt height width buffer 0 0 fb 0 0)))))
           (t (error "No screens."))))
   (sys.graphics::invoke-graphics))
 
