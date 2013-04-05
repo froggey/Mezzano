@@ -37,17 +37,6 @@ same characters in the corresponding positions; otherwise it returns false.")
   (def string-equal char-equal "Returns true if STRING1 and STRING2 are the same length and contain the
 same characters in the corresponding positions; otherwise it returns false."))
 
-;;; FIXME: should be in character.lisp (not written yet).
-(defun digit-char-p (char &optional (radix 10))
-  "Tests whether CHAR is a digit in the specified RADIX.
-If it is, then its weight is returned as an integer; otherwise, nil is returned."
-  (check-type char character)
-  (check-type radix (integer 2 36) "a radix")
-  (do ((weight 0 (1+ weight)))
-      ((>= weight radix))
-    (when (char= (char-upcase char) (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight))
-      (return weight))))
-
 (macrolet ((def (name modifier copy &optional documentation)
              `(defun ,name (string &key (start 0) end)
                 ,@(when documentation (list documentation))
@@ -68,3 +57,21 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
   (def string-downcase char-downcase t)
   (def nstring-upcase char-upcase nil)
   (def nstring-downcase char-downcase nil))
+
+(defun string< (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  (setf string1 (string string1))
+  (setf string2 (string string2))
+  (unless end1 (setf end1 (length string1)))
+  (unless end2 (setf end2 (length string2)))
+  (dotimes (i (min (- end1 start1)
+                   (- end2 start2))
+            (if (< (- end1 start1) (- end2 start2))
+                end1
+                nil))
+    ;; Compare prefix.
+    (unless (char= (char string1 (+ start1 i))
+                   (char string2 (+ start2 i)))
+      (return (if (char< (char string1 (+ start1 i))
+                         (char string2 (+ start2 i)))
+                  (+ start1 i)
+                  nil)))))

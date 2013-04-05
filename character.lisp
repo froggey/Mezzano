@@ -144,6 +144,12 @@
            (eql character c))
          more-characters))
 
+(defun char< (character &rest more-characters)
+  (dolist (c more-characters t)
+    (unless (< (char-int character) (char-int c))
+      (return nil))
+    (setf character c)))
+
 (defun char<= (character &rest more-characters)
   (declare (type character character)
 	   (dynamic-extent more-characters))
@@ -187,6 +193,16 @@
       ;; Assume all Unicode characters are alphabetic.
       ;; TODO.
       t))
+
+(defun digit-char-p (char &optional (radix 10))
+  "Tests whether CHAR is a digit in the specified RADIX.
+If it is, then its weight is returned as an integer; otherwise, nil is returned."
+  (check-type char character)
+  (check-type radix (integer 2 36) "a radix")
+  (do ((weight 0 (1+ weight)))
+      ((>= weight radix))
+    (when (char= (char-upcase char) (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight))
+      (return weight))))
 
 (defun alphanumericp (char)
   (or (digit-char-p char) (alpha-char-p char)))
