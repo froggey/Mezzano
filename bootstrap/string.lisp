@@ -16,32 +16,26 @@
                  (eql element-type 'base-char)
                  (eql element-type 'character))))))
 
-(declaim (inline compare-sequence))
-(defun compare-sequence (predicate seq1 seq2 &key (start1 0) end1 (start2 0) end2)
-  (unless end1 (setf end1 (length seq1)))
-  (when (or (< start1 0) (> end1 (length seq1)))
-    (error "Invalid bounding index (~S ~S) for ~S." start1 end1 seq1))
-  (unless end2 (setf end2 (length seq2)))
-  (when (or (< start2 0) (> end2 (length seq2)))
-    (error "Invalid bounding index (~S ~S) for ~S." start2 end2 seq2))
-  (when (= (- end1 start1) (- end2 start2))
-    (dotimes (i (- end1 start1) t)
-      (unless (funcall predicate (elt seq1 (+ start1 i)) (elt seq2 (+ start2 i)))
-	(return nil)))))
-
-(defun string= (string1 string2 &key (start1 0) end1 (start2 0) end2)
-    "Returns true if STRING1 and STRING2 are the same length and contain the
-same characters in the corresponding positions; otherwise it returns false."
-  (compare-sequence 'char= (string string1) (string string2)
-		    :start1 start1 :end1 end1
-		    :start2 start2 :end2 end2))
-
-(defun string-equal (string1 string2 &key (start1 0) end1 (start2 0) end2)
-  "Returns true if STRING1 and STRING2 are the same length and contain the
-same characters in the corresponding positions; otherwise it returns false."
-  (compare-sequence 'char-equal (string string1) (string string2)
-		    :start1 start1 :end1 end1
-		    :start2 start2 :end2 end2))
+(macrolet ((def (name comparator docstring)
+             `(defun ,name (string1 string2 &key (start1 0) end1 (start2 0) end2)
+                ,docstring
+                (setf string1 (string string1))
+                (setf string2 (string string2))
+                (unless end1 (setf end1 (length string1)))
+                (unless end2 (setf end2 (length string2)))
+                (when (or (< start1 0) (> end1 (length string1)))
+                  (error "Invalid bounding index (~S ~S) for ~S." start1 end1 string1))
+                (when (or (< start2 0) (> end2 (length string2)))
+                  (error "Invalid bounding index (~S ~S) for ~S." start2 end2 string2))
+                (when (eql (- end1 start1) (- end2 start2))
+                  (dotimes (i (- end1 start1) t)
+                    (unless (,comparator (char string1 (+ start1 i))
+                                         (char string2 (+ start2 i)))
+                      (return nil)))))))
+  (def string= char= "Returns true if STRING1 and STRING2 are the same length and contain the
+same characters in the corresponding positions; otherwise it returns false.")
+  (def string-equal char-equal "Returns true if STRING1 and STRING2 are the same length and contain the
+same characters in the corresponding positions; otherwise it returns false."))
 
 ;;; FIXME: should be in character.lisp (not written yet).
 (defun digit-char-p (char &optional (radix 10))
