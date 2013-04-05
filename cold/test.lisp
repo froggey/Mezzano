@@ -342,7 +342,7 @@
 
 (defun mumble (message)
   (mumble-string message)
-  (setf (io-port/8 #xE9) #x0A))
+  (mumble-char #\Newline))
 
 ;;; Used while the GC is copying, so no lookup tables.
 (defun hexify (nibble)
@@ -350,16 +350,23 @@
          (+ nibble (char-code #\0)))
         (t (+ (- nibble 10) (char-code #\A)))))
 
+(defun mumble-char (char &optional (position 0))
+  (let ((code (logand (char-code char) #xFF)))
+    (setf (io-port/8 #xE9) code)
+    (when (eql code #x0A)
+      (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
+      (setf (io-port/8 #x3F8) #x0D))
+    (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
+    (setf (io-port/8 #x3F8) code)
+    (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 position)
+          (logior code #x7000))))
+
 (defun mumble-string (message)
   (dotimes (i (%simple-array-length message))
-    (let ((code (logand (char-code (schar message i)) #xFF)))
-      (setf (io-port/8 #xE9) code)
-      (setf (io-port/8 #x3F8) code)
-      (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
-            (logior code #x7000)))))
+    (mumble-char (schar message i) i)))
 (defun mumble-hex (number)
   (dotimes (i 16)
-    (setf (io-port/8 #xE9) (hexify (logand (ash number (* -4 (- 15 i))) #b1111)))))
+    (mumble-char (code-char (hexify (logand (ash number (* -4 (- 15 i))) #b1111))) i)))
 
 (defun make-case-correcting-stream (stream case)
   stream)
