@@ -131,11 +131,14 @@
     (when (and x (eql (length (first x)) arg-count))
       (second x))))
 
-(defun constant-type-p (tag type)
+(defun quoted-constant-p (tag)
   (and (consp tag)
        (consp (cdr tag))
        (null (cddr tag))
-       (eql (first tag) 'quote)
+       (eql (first tag) 'quote)))
+
+(defun constant-type-p (tag type)
+  (and (quoted-constant-p tag)
        (typep (second tag) type)))
 
 (defbuiltin sys.int::memref-unsigned-byte-8 (base offset) ()
@@ -1302,16 +1305,44 @@
   (predicate-result :e))
 
 (defbuiltin eq (x y) ()
-  (load-in-reg :r9 y t)
-  (load-in-reg :r8 x t)
-  (emit `(sys.lap-x86:cmp64 :r8 :r9))
-  (predicate-result :e))
+  ;; Ensure constants are on the right-hand side.
+  (when (quoted-constant-p x)
+    (rotatef x y))
+  (cond ((quoted-constant-p y)
+         (let ((constant (second y)))
+           (load-in-reg :r8 x t)
+           ;; Should characters and single-floats be loaded into a register
+           ;; for comparison or should they be compared through the constant
+           ;; pool? Currently they go through the constant pool...
+           (etypecase constant
+             ((signed-byte 28) ; Must fit in an IMM32 after fixnumization.
+              (emit `(sys.lap-x86:cmp64 :r8 ,(* constant 8))))
+             (t (emit `(sys.lap-x86:cmp64 :r8 (:constant ,constant)))))
+           (predicate-result :e)))
+        (t (load-in-reg :r9 y t)
+           (load-in-reg :r8 x t)
+           (emit `(sys.lap-x86:cmp64 :r8 :r9))
+           (predicate-result :e))))
 
 (defbuiltin eql (x y) ()
-  (load-in-reg :r9 y t)
-  (load-in-reg :r8 x t)
-  (emit `(sys.lap-x86:cmp64 :r8 :r9))
-  (predicate-result :e))
+  ;; Ensure constants are on the right-hand side.
+  (when (quoted-constant-p x)
+    (rotatef x y))
+  (cond ((quoted-constant-p y)
+         (let ((constant (second y)))
+           (load-in-reg :r8 x t)
+           ;; Should characters and single-floats be loaded into a register
+           ;; for comparison or should they be compared through the constant
+           ;; pool? Currently they go through the constant pool...
+           (etypecase constant
+             ((signed-byte 28) ; Must fit in an IMM32 after fixnumization.
+              (emit `(sys.lap-x86:cmp64 :r8 ,(* constant 8))))
+             (t (emit `(sys.lap-x86:cmp64 :r8 (:constant ,constant)))))
+           (predicate-result :e)))
+        (t (load-in-reg :r9 y t)
+           (load-in-reg :r8 x t)
+           (emit `(sys.lap-x86:cmp64 :r8 :r9))
+           (predicate-result :e))))
 
 (defbuiltin system:io-port/8 (port) ()
   (smash-r8)
