@@ -57,7 +57,7 @@
 (defun simp-go (form)
   form)
 
-;;; Hoist BLOCK/LET/M-V-B/PROGN/PROGV forms out of IF tests.
+;;; Hoist LET/M-V-B/PROGN/PROGV forms out of IF tests.
 ;;;  (if (let bindings form1 ... formn) then else)
 ;;; =>
 ;;;  (let bindings form1 ... (if formn then else))
@@ -65,13 +65,12 @@
 (defun hoist-form-out-of-if (form)
   (when (and (eql (first form) 'if)
              (listp (second form))
-             (member (first (second form)) '(block let multiple-value-bind progn progv)))
+             (member (first (second form)) '(let multiple-value-bind progn progv)))
     (let* ((test-form (second form))
            (len (length test-form)))
       (multiple-value-bind (leading-forms bound-variables)
           (ecase (first test-form)
             ((progn) (values 1 '()))
-            ((block) (values 2 '()))
             ((let) (values 2 (mapcar #'first (second test-form))))
             ((multiple-value-bind) (values 3 (second test-form)))
             ((progv) (values 3 nil)))
