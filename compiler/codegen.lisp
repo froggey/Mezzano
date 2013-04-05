@@ -7,6 +7,7 @@
 (defparameter *suppress-builtins* nil
   "When T, the built-in functions will not be used and full calls will
 be generated instead.")
+(defparameter *enable-branch-tensioner* t)
 
 (defvar *run-counter* nil)
 (defvar *load-list* nil)
@@ -294,11 +295,14 @@ be generated instead.")
           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
         (emit-return-code)
         (emit `(sys.lap-x86:ret))))
-    (sys.int::assemble-lap (nconc
-			    (generate-entry-code lambda)
-			    (nreverse *code-accum*)
-			    (apply #'nconc *trailers*))
-                           *current-lambda-name*)))
+    (let ((final-code (nconc (generate-entry-code lambda)
+                             (nreverse *code-accum*)
+                             (apply #'nconc *trailers*))))
+      (sys.int::assemble-lap
+       (if *enable-branch-tensioner*
+           (tension-branches final-code)
+           final-code)
+       *current-lambda-name*))))
 
 (defun emit-return-code (&optional tail-call)
   (let* ((req-count (length (lambda-information-required-args *current-lambda*)))
