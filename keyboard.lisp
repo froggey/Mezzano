@@ -231,6 +231,7 @@
 (defconstant +ps/2-disable-scanning+ #xF5)
 (defconstant +ps/2-identify+ #xF2)
 (defconstant +ps/2-ack+ #xFA)
+(defconstant +ps/2-resend+ #xFE)
 (defconstant +ps/2-self-test-passed+ #xAA)
 
 (defun ps/2-input-wait (&optional (what "data"))
@@ -371,25 +372,33 @@
     (:key (loop (unless (ps/2-pop-fifo *ps/2-key-fifo*) (return))))
     (:aux (loop (unless (ps/2-pop-fifo *ps/2-aux-fifo*) (return))))))
 
+(defun ps/2-send-command (port byte)
+  "Send a PS/2 command and respond to resend replies."
+  (let ((attempts 10))
+    (loop
+       (when (<= (decf attempts) 0)
+         (warn "PS/2 send command #x~2,'0X failed, too many resends." byte)
+         (return (values nil :resend-limit-exceeded)))
+       (ps/2-write port byte)
+       (let ((reply (ps/2-read port t)))
+         (case reply
+           (#.+ps/2-ack+ (return t))
+           (#.+ps/2-resend+)
+           ((nil) (return (values nil :timeout)))
+           (t (warn "PS/2 send command #x~2,'0X got unknown response #x~2,'0X." byte reply)
+              (return (values nil byte))))))))
+
 (defun ps/2-identify (port)
-  (ps/2-write port +ps/2-disable-scanning+)
-  ;; Wait for success reply.
-  (let ((response (ps/2-read port t)))
-    (cond ((not response)
-           (warn "No response during PS/2 identify")
-           (return-from ps/2-identify nil))
-          ((not (eql response +ps/2-ack+))
-           (warn "PS/2 identify failed: ~2,'0X~%" response)
-           (return-from ps/2-identify nil))))
-  (ps/2-write port +ps/2-identify+)
-  ;; Wait for success reply.
-  (let ((response (ps/2-read port t)))
-    (cond ((not response)
-           (warn "No response during PS/2 identify")
-           (return-from ps/2-identify nil))
-          ((not (eql response +ps/2-ack+))
-           (warn "PS/2 identify failed: ~2,'0X~%" response)
-           (return-from ps/2-identify nil))))
+  (multiple-value-bind (successp reason)
+      (ps/2-send-command port +ps/2-disable-scanning+)
+    (unless successp
+      (warn "PS/2 identify failed: ~2,'0X~%" reason)
+      (return-from ps/2-identify nil)))
+  (multiple-value-bind (successp reason)
+      (ps/2-send-command port +ps/2-identify+)
+    (unless successp
+      (warn "PS/2 identify failed: ~2,'0X~%" reason)
+      (return-from ps/2-identify nil)))
   ;; Read up to two bytes.
   (let ((byte-one (ps/2-read port t)))
     (case byte-one
@@ -408,8 +417,7 @@
 (defun init-keyboard (port)
   (ps/2-flush-input port)
   ;; Expecting ACK followed by Self-Test-Passed.
-  (ps/2-write port +ps/2-reset+)
-  (unless (eql (ps/2-read port t) +ps/2-ack+)
+  (unless (ps/2-send-command port +ps/2-reset+)
     (warn "PS/2 keyboard reset failed.~%")
     (return-from init-keyboard))
   (unless (eql (ps/2-read port t) +ps/2-self-test-passed+)
@@ -417,19 +425,20 @@
     (return-from init-keyboard))
   (format t "Detected ~S on PS/2 ~S port.~%" (ps/2-identify port) port)
   ;; Switch to scancode set 1.
-  (ps/2-write port #xF0)
-  (unless (eql (ps/2-read port t) +ps/2-ack+)
+  (unless (ps/2-send-command port #xF0)
     (warn "PS/2 keyboard scancode change failed (1).~%")
     (return-from init-keyboard))
-  (ps/2-write port 1)
-  (unless (eql (ps/2-read port t) +ps/2-ack+)
+  (unless (ps/2-send-command port 1)
     (warn "PS/2 keyboard scancode change failed (2).~%")
+    (return-from init-keyboard))
+  (unless (ps/2-send-command port #xF4)
+    (warn "PS/2 keyboard start reporting failed.~%")
     (return-from init-keyboard)))
 
 (defun ps/2-mouse-command (port command)
-  (ps/2-write port command)
-  (let ((result (ps/2-read port t)))
-    (unless (eql result +ps/2-ack+)
+  (multiple-value-bind (successp result)
+      (ps/2-send-command port command)
+    (unless successp
       (warn "PS/2: Error controlling mouse, expected ACK(FA) got ~2,'0X~%" result))))
 
 (defun init-mouse (port)
