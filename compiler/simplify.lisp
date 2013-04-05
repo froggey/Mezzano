@@ -61,24 +61,30 @@
 ;;;  (if (let bindings form1 ... formn) then else)
 ;;; =>
 ;;;  (let bindings form1 ... (if formn then else))
+;;; Beware when hoisting LET/M-V-B, must not hoist special bindings.
 (defun hoist-form-out-of-if (form)
   (when (and (eql (first form) 'if)
              (listp (second form))
              (member (first (second form)) '(block let multiple-value-bind progn progv)))
     (let* ((test-form (second form))
-           (leading-forms (ecase (first test-form)
-                            ((progn) 1)
-                            ((block let) 2)
-                            ((multiple-value-bind progv) 3)))
            (len (length test-form)))
-      (append (subseq test-form 0 (max leading-forms (1- len)))
-              (if (<= len leading-forms)
-                  ;; No body forms, must evaluate to NIL!
-                  ;; Fold away the IF.
-                  (list (fourth form))
-                  (list `(if ,(first (last test-form))
-                             ,(third form)
-                             ,(fourth form))))))))
+      (multiple-value-bind (leading-forms bound-variables)
+          (ecase (first test-form)
+            ((progn) (values 1 '()))
+            ((block) (values 2 '()))
+            ((let) (values 2 (mapcar #'first (second test-form))))
+            ((multiple-value-bind) (values 3 (second test-form)))
+            ((progv) (values 3 nil)))
+        (when (find-if #'symbolp bound-variables)
+          (return-from hoist-form-out-of-if nil))
+        (append (subseq test-form 0 (max leading-forms (1- len)))
+                (if (<= len leading-forms)
+                    ;; No body forms, must evaluate to NIL!
+                    ;; Fold away the IF.
+                    (list (fourth form))
+                    (list `(if ,(first (last test-form))
+                               ,(third form)
+                               ,(fourth form)))))))))
 
 (defun simp-if (form)
   (let ((new-form (hoist-form-out-of-if form)))
