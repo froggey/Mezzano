@@ -1044,19 +1044,20 @@
                   (netmask (make-ipv4-address 255 255 255 0))
                   (gateway (make-ipv4-address 10 0 2 2))
                   (interface (first *cards*)))
-  (ifup interface local-ip)
-  ;; Default route.
-  (push (list nil gateway netmask interface)
-        *routing-table*)
-  ;; Local network.
-  (push (list (logand local-ip netmask)
-              nil
-              netmask
-              interface)
-        *routing-table*)
-  (push '(80 open-http-server) *server-alist*)
-  (push '(1138 open-eval-server) *server-alist*)
-  t)
+  (unless *routing-table*
+    (ifup interface local-ip)
+    ;; Default route.
+    (push (list nil gateway netmask interface)
+          *routing-table*)
+    ;; Local network.
+    (push (list (logand local-ip netmask)
+                nil
+                netmask
+                interface)
+          *routing-table*)
+    (push '(80 open-http-server) *server-alist*)
+    (push '(1138 open-eval-server) *server-alist*)
+    t))
 
 (defun resolve-address (address)
   (cond ((listp address)
