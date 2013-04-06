@@ -20,9 +20,16 @@
 (define-commutative-arithmetic-operator + binary-+ 0)
 (define-commutative-arithmetic-operator * binary-* 1)
 (define-commutative-arithmetic-operator logand binary-logand -1)
-(define-commutative-arithmetic-operator logeqv binary-logeqv -1)
 (define-commutative-arithmetic-operator logior binary-logior 0)
 (define-commutative-arithmetic-operator logxor binary-logxor 0)
+
+;;; LOGEQV is funny, it doesn't have a compiler builtin.
+(define-compiler-macro logeqv (&rest numbers)
+  `(lognot (logxor ,@numbers)))
+
+(defun logeqv (&rest numbers)
+  (declare (dynamic-extent numbers))
+  (lognot (apply #'logxor numbers)))
 
 ;;; - and / do not fit into the previous template, so have to be
 ;;; explicitly defined.

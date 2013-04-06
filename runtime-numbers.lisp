@@ -1572,3 +1572,64 @@
       ((zerop integer)
        len)
     (setf integer (ash integer -1))))
+
+(defun logandc1 (integer-1 integer-2)
+  "AND complement of INTEGER-1 with INTEGER-2."
+  (logand (lognot integer-1) integer-2))
+
+(defun logandc2 (integer-1 integer-2)
+  "AND INTEGER-1 with complement of INTEGER-2."
+  (logand integer-1 (lognot integer-2)))
+
+(defun lognand (integer-1 integer-2)
+  "Complement of INTEGER-1 AND INTEGER-2."
+  (lognot (logand integer-1 integer-2)))
+
+(defun lognor (integer-1 integer-2)
+  "Complement of INTEGER-1 OR INTEGER-2."
+  (lognot (logior integer-1 integer-2)))
+
+(defun logorc1 (integer-1 integer-2)
+  "OR complement of INTEGER-1 with INTEGER-2."
+  (logior (lognot integer-1) integer-2))
+
+(defun logorc2 (integer-1 integer-2)
+  "OR INTEGER-1 with complement of INTEGER-2."
+  (logior integer-1 (lognot integer-2)))
+
+(defconstant boole-1 'boole-1 "integer-1")
+(defconstant boole-2 'boole-2 "integer-2")
+(defconstant boole-andc1 'boole-andc1 "and complement of integer-1 with integer-2")
+(defconstant boole-andc2 'boole-andc2 "and integer-1 with complement of integer-2")
+(defconstant boole-and 'boole-and "and")
+(defconstant boole-c1 'boole-c1 "complement of integer-1")
+(defconstant boole-c2 'boole-c2 "complement of integer-2")
+(defconstant boole-clr 'boole-clr "always 0 (all zero bits)")
+(defconstant boole-eqv 'boole-eqv "equivalence (exclusive nor)")
+(defconstant boole-ior 'boole-ior "inclusive or")
+(defconstant boole-nand 'boole-nand "not-and")
+(defconstant boole-nor 'boole-nor "not-or")
+(defconstant boole-orc1 'boole-orc1 "or complement of integer-1 with integer-2")
+(defconstant boole-orc2 'boole-orc2 "or integer-1 with complement of integer-2")
+(defconstant boole-set 'boole-set "always -1 (all one bits)")
+(defconstant boole-xor 'boole-xor "exclusive or")
+
+(defun boole (op integer-1 integer-2)
+  "Perform bit-wise logical OP on INTEGER-1 and INTEGER-2."
+  (ecase op
+    (boole-1 integer-1)
+    (boole-2 integer-2)
+    (boole-andc1 (logandc1 integer-1 integer-2))
+    (boole-andc2 (logandc2 integer-1 integer-2))
+    (boole-and (logand integer-1 integer-2))
+    (boole-c1 (lognot integer-1))
+    (boole-c2 (lognot integer-2))
+    (boole-clr 0)
+    (boole-eqv (logeqv integer-1 integer-2))
+    (boole-ior (logior integer-1 integer-2))
+    (boole-nand (lognand integer-1 integer-2))
+    (boole-nor (lognor integer-1 integer-2))
+    (boole-orc1 (logorc1 integer-1 integer-2))
+    (boole-orc2 (logorc2 integer-1 integer-2))
+    (boole-set -1)
+    (boole-xor (logxor integer-1 integer-2))))

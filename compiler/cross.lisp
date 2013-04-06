@@ -16,7 +16,23 @@
            #:array-rank-limit
            #:array-dimension-limit
            #:array-total-size-limit
-           #:char-code-limit)
+           #:char-code-limit
+           #:boole-1
+           #:boole-2
+           #:boole-andc1
+           #:boole-andc2
+           #:boole-and
+           #:boole-c1
+           #:boole-c2
+           #:boole-clr
+           #:boole-eqv
+           #:boole-ior
+           #:boole-nand
+           #:boole-nor
+           #:boole-orc1
+           #:boole-orc2
+           #:boole-set
+           #:boole-xor)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
