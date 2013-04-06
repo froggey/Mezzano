@@ -52,7 +52,7 @@
 		  (setf n quot))))
 	  ;; TODO: count commas as well
 	  (dotimes (i (- mincol (+ (length buffer) (if (or negative at-sign) 1 0))))
-	    (vector-push-extend padchar buffer))
+	    (write-char padchar s))
 	  (if negative
 	      (write-char #\- s)
 	      (when at-sign
