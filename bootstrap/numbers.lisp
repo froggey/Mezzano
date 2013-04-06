@@ -212,22 +212,22 @@
       (get-setf-expansion int env);Get setf expansion for int.
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
-          (stemp (first stores))) ;Temp var for int to store.
+          (stemp (first stores)) ;Temp var for int to store.
+          (bs-size (gensym))   ; Temp var for byte specifier size.
+          (bs-position (gensym))) ; Temp var for byte specifier position.
       (when (cdr stores) (error "Can't expand this."))
-      ;; Generate (dpb ... (byte x y) ...) when the bytespec is
+      ;; Generate calls to %LDB and %DBP when the bytespec is
       ;; well-known.
       (if (and (listp bytespec)
                (eql (length bytespec) 3)
-               (eql (first bytespec) 'byte)
-               (integerp (second bytespec))
-               (integerp (third bytespec)))
-          (values temps       ;Temporary variables.
-                  vals     ;Value forms.
+               (eql (first bytespec) 'byte))
+          (values (list* bs-size bs-position temps)       ;Temporary variables.
+                  (list* (second bytespec) (third bytespec) vals)     ;Value forms.
                   (list store)             ;Store variables.
-                  `(let ((,stemp (dpb ,store ,bytespec ,access-form)))
+                  `(let ((,stemp (%dpb ,store ,bs-size ,bs-position ,access-form)))
                      ,store-form
                      ,store)               ;Storing form.
-                  `(ldb ,bytespec ,access-form) ;Accessing form.
+                  `(%ldb ,bs-size ,bs-position ,access-form) ;Accessing form.
                   )
           ;; Return the setf expansion for LDB as five values.
           (values (cons btemp temps)       ;Temporary variables.
@@ -240,29 +240,40 @@
                   )))))
 
 (define-compiler-macro ldb (&whole whole bytespec integer)
+  ;; Avoid creating a byte specifier.
+  ;; (LDB (BYTE size position) integer)
+  ;; => (%LDB size position integer)
   (cond ((and (listp bytespec)
               (= (length bytespec) 3)
-              (eql (first bytespec) 'byte)
-              (integerp (second bytespec))
-              (not (minusp (second bytespec)))
-              (integerp (third bytespec))
-              (not (minusp (third bytespec))))
-         `(logand (ash ,integer ,(- (third bytespec)))
-                  ,(1- (ash 1 (second bytespec)))))
+              (eql (first bytespec) 'byte))
+         `(%ldb ,(second bytespec)
+                ,(third bytespec)
+                ,integer))
         (t whole)))
 
 (define-compiler-macro dpb (&whole whole newbyte bytespec integer)
+  ;; Avoid creating a byte specifier.
+  ;; (DPB newbyte (BYTE size position) integer)
+  ;; => (%DPB newbyte size position integer)
   (cond ((and (listp bytespec)
               (= (length bytespec) 3)
-              (eql (first bytespec) 'byte)
-              (integerp (second bytespec))
-              (not (minusp (second bytespec)))
-              (integerp (third bytespec))
-              (not (minusp (third bytespec))))
-         ;; Maintain correct order of evaluation for NEWBYTE and INTEGER.
-         (let ((mask (1- (ash 1 (second bytespec)))))
-           `(logior (ash (logand ,newbyte ,mask) ,(third bytespec))
-                    (logand ,integer ,(lognot (ash mask (third bytespec)))))))
+              (eql (first bytespec) 'byte))
+         `(%dbp ,newbyte
+                ,(second bytespec)
+                ,(third bytespec)
+                ,integer))
+        (t whole)))
+
+(define-compiler-macro ldb-test (&whole whole bytespec integer)
+  ;; Avoid creating a byte specifier.
+  ;; (LDB-TEST (BYTE size position) integer)
+  ;; => (%LDB-TEST size position integer)
+  (cond ((and (listp bytespec)
+              (= (length bytespec) 3)
+              (eql (first bytespec) 'byte))
+         `(%ldb-test ,(second bytespec)
+                     ,(third bytespec)
+                     ,integer))
         (t whole)))
 
 (defun parse-integer (string &key (start 0) end (radix 10))

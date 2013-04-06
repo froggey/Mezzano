@@ -47,17 +47,27 @@
   (size 0 :type (integer 0) :read-only t)
   (position 0 :type (integer 0) :read-only t))
 
+(declaim (inline %ldb ldb %dbp dpb %ldb-test ldb-test logbitp))
+(defun %ldb (size position integer)
+  (logand (ash integer (- position))
+          (1- (ash 1 size))))
+
 (defun ldb (bytespec integer)
-  (logand (ash integer (- (byte-position bytespec)))
-          (1- (ash 1 (byte-size bytespec)))))
+  (%ldb (byte-size bytespec) (byte-position bytespec) integer))
+
+(defun %dpb (newbyte size position integer)
+  (let ((mask (1- (ash 1 size))))
+    (logior (ash (logand newbyte mask) position)
+            (logand integer (lognot (ash mask position))))))
 
 (defun dpb (newbyte bytespec integer)
-  (let ((mask (1- (ash 1 (byte-size bytespec)))))
-    (logior (ash (logand newbyte mask) (byte-position bytespec))
-            (logand integer (lognot (ash mask (byte-position bytespec)))))))
+  (%dpb newbyte (byte-size bytespec) (byte-position bytespec) integer))
+
+(defun %ldb-test (size position integer)
+  (not (eql 0 (%ldb size position integer))))
 
 (defun ldb-test (bytespec integer)
-  (not (zerop (ldb bytespec integer))))
+  (%ldb-test (byte-size bytespec) (byte-position bytespec) integer))
 
 (defun logbitp (index integer)
   (ldb-test (byte 1 index) integer))
