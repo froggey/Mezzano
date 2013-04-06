@@ -282,6 +282,7 @@
 	     (schar (simple-string fixnum))
 	     (1+ (number))
 	     (1- (number))
+	     (ash (integer integer))
 	     (+ :commutative-arithmetic)
 	     (* :commutative-arithmetic)
 	     (logand :commutative-arithmetic)
