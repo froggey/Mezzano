@@ -57,7 +57,7 @@
 (defun peek-network ()
   (format t "Network cards:~%")
   (dolist (card sys.net::*cards*)
-    (let ((address (sys.net::ipv4-interface-address card)))
+    (let ((address (sys.net::ipv4-interface-address card nil)))
       (format t " ~S~%" card)
       (when address
         (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))))
