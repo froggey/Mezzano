@@ -177,14 +177,16 @@
 
 (defun bsearch (item vector &optional (stride 1))
   "Locate ITEM using a binary search through VECTOR."
+  ;; IMIN/IMAX are inclusive indicies.
   (do ((imin 0)
-       (imax (length vector)))
-      ((< imax imin) nil)
-    (let* ((imid (* (truncate (truncate (+ imin imax) stride) 2) stride))
-           (elt (aref vector imid)))
+       (imax (1- (truncate (length vector) stride))))
+      ((< imax imin)
+       nil)
+    (let* ((imid (truncate (+ imin imax) 2))
+           (elt (aref vector (* imid stride))))
       (cond ((< elt item) (setf imin (1+ imid)))
             ((> elt item) (setf imax (1- imid)))
-            (t (return imid))))))
+            (t (return (* imid stride)))))))
 
 (defun pci-find-vendor (id &optional (ids *pci-ids*))
   (let ((position (bsearch id ids 3)))
