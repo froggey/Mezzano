@@ -54,6 +54,13 @@
   vendor-id
   device-id)
 
+(defmethod print-object ((object pci-device) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~2,'0X:~X:~X"
+            (pci-device-bus object)
+            (pci-device-device object)
+            (pci-device-function object))))
+
 (defun make-pci-config-address (bus device function register)
   (declare (type (integer 0 255) bus register)
 	   (type (integer 0 31) device)
