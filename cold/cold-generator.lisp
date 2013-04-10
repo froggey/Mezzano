@@ -71,6 +71,7 @@
     "bochs-vbe.lisp"
     "ethernet.lisp"
     "rtl8139.lisp"
+    "virtio-net.lisp"
     "graphics.lisp"
     "blit.lisp"
     "windows.lisp"
