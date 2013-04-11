@@ -674,6 +674,9 @@ CASE may be one of:
       (file-position (shadow-stream-primary stream) fp)
       (file-position (shadow-stream-primary stream))))
 
+(defmethod sys.gray:stream-line-column ((stream shadow-stream))
+  (sys.gray:stream-line-column (shadow-stream-primary stream)))
+
 (defmethod stream-element-type ((stream shadow-stream))
   (stream-element-type (shadow-stream-primary stream)))
 
@@ -813,6 +816,9 @@ CASE may be one of:
 
 (defmethod sys.gray:stream-line-column ((stream sys.gray:fundamental-character-output-stream))
   nil)
+
+(defmethod sys.gray:stream-line-column ((stream synonym-stream))
+  (sys.gray:stream-line-column (follow-synonym-stream stream)))
 
 (defmethod sys.gray:stream-start-line-p ((stream sys.gray:fundamental-character-output-stream))
   (let ((column (sys.gray:stream-line-column stream)))

@@ -274,6 +274,12 @@
 (defmethod sys.gray:stream-start-line-p ((stream text-window))
   (sys.gray:stream-start-line-p (text-window-display stream)))
 
+(defmethod sys.gray:stream-line-column ((stream text-widget))
+  (truncate (cursor-x stream) 8))
+
+(defmethod sys.gray:stream-line-column ((stream text-window))
+  (sys.gray:stream-line-column (text-window-display stream)))
+
 (defmethod sys.int::stream-cursor-pos ((stream text-widget))
   (values (cursor-x stream) (cursor-y stream)))
 

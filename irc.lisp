@@ -306,6 +306,8 @@
 (defmethod sys.int::stream-clear-between ((stream irc-client) start-x start-y end-x end-y)
   (sys.int::stream-clear-between (irc-input stream) start-x start-y end-x end-y)
   (setf sys.graphics::*refresh-required* t))
+(defmethod sys.gray:stream-line-column ((stream irc-client))
+  (sys.gray:stream-line-column (irc-input stream)))
 
 (defmethod sys.graphics::window-close-event ((irc irc-client))
   (sys.int::process-disable (irc-command-process irc))

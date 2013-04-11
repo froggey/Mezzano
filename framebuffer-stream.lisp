@@ -46,6 +46,9 @@
 (defmethod sys.gray:stream-start-line-p ((stream framebuffer-output-stream))
   (zerop (fbstream-x stream)))
 
+(defmethod sys.gray:stream-line-column ((stream framebuffer-output-stream))
+  (truncate (fbstream-x stream) 8))
+
 (defmethod stream-cursor-pos ((stream framebuffer-output-stream))
   (values (fbstream-x stream) (fbstream-y stream)))
 
