@@ -133,6 +133,81 @@
       (terpri s)))
   args)
 
+(defun format-page (s args params at-sign colon)
+  (when (cdr params)
+    (error "Expected 0 or 1 parameters."))
+  (let ((count (or (car params)
+		   1)))
+    (check-type count integer)
+    (dotimes (i count)
+      (write-char #\Page s)))
+  args)
+
+(defun format-write (s args params at-sign colon)
+  (when params
+    (error "~W takes no parameters."))
+  (cond
+    ((and at-sign colon)
+     (write (car args) :stream s :pretty t :level nil :length nil))
+    (at-sign
+     (write (car args) :stream s :level nil :length nil))
+    (colon
+     (write (car args) :stream s :pretty t))
+    (t (write (car args) :stream s)))
+  (cdr args))
+
+(defun format-conditional-newline (s args params at-sign colon)
+  (when params
+    (error "~_ takes no parameters."))
+  (cond
+    ((and at-sign colon)
+     (pprint-newline :mandatory s))
+    (at-sign
+     (pprint-newline :miser s))
+    (colon
+     (pprint-newline :fill s))
+    (t (pprint-newline :linear s)))
+  args)
+
+(defun format-indent (s args params at-sign colon)
+  (when (cdr params)
+    (error "Expected 0 or 1 parameters."))
+  (let ((count (or (car params) 1)))
+    (when at-sign
+      (error "~I does not take the at-sign modifier."))
+    (pprint-indent (if colon
+                       :current
+                       :block)
+                   count))
+  args)
+
+(defun format-tabulate (s args params at-sign colon)
+  (when (cddr params)
+    (error "Expected 0, 1 or 2 parameters."))
+  (let ((colnum (or (first params) 1))
+        (colinc (or (second params) 1)))
+    (cond (colon
+           (pprint-tab (if at-sign :section-relative :section)
+                       colnum colinc
+                       s))
+          (at-sign
+           (dotimes (i colnum)
+             (write-char #\Space s))
+           (let ((current (sys.gray:stream-line-column s)))
+             (when current
+               (dotimes (i (- colinc (rem current colinc)))
+                 (write-char #\Space s)))))
+          (t (let ((current (sys.gray:stream-line-column s)))
+               (cond ((not current)
+                      (write-string "  " s))
+                     ((< current colnum)
+                      (dotimes (i (- colnum current))
+                        (write-char #\Space s)))
+                     ((not (zerop colinc))
+                      (dotimes (i (- colinc (rem (- current colnum) colinc)))
+                        (write-char #\Space s))))))))
+  args)
+
 (defun format-ignore (s args params at-sign colon)
   (declare (ignore s params at-sign colon))
   args)
@@ -149,12 +224,15 @@
     (#\~ format-~)
     (#\% format-%)
     (#\& format-&)
+    (#\| format-page)
+    (#\W format-write)
+    (#\_ format-conditional-newline)
+    (#\I format-indent)
+    (#\T format-tabulate)
     (#\< format-ignore)
     (#\> format-ignore)
     (#\[ format-ignore)
     (#\] format-ignore)
-    (#\I format-ignore)
-    (#\_ format-ignore)
     (#\; format-ignore)
     (#\{ format-ignore)
     (#\} format-ignore)
