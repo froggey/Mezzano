@@ -54,7 +54,7 @@
   vendor-id
   device-id)
 
-(defmethod print-object ((object pci-device) stream)
+#+nil(defmethod print-object ((object pci-device) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~2,'0X:~X:~X"
             (pci-device-bus object)
