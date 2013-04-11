@@ -506,12 +506,12 @@ party to perform, the indicated option.")
                                      sys.int::+char-super-bit+
                                      sys.int::+char-hyper-bit+))
                     ;; Ignore weird characters.
-                    (stream-read-byte stream))
+                    (sys.gray:stream-read-byte stream))
                    ((logtest (system:char-bits ch) sys.int::+char-control-bit+)
                     ;; Control character. Translate to ASCII.
                     (if (<= #x40 (char-code ch) #x7E)
                         (logxor (logand (char-code ch) #b01011111) #b00100000)
-                        (stream-read-byte stream)))
+                        (sys.gray:stream-read-byte stream)))
                    (t ;; TODO: UTF-8 translation, etc.
                     (let ((translated (assoc ch *xterm-translations*)))
                       (cond (translated
