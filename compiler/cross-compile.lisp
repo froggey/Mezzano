@@ -274,14 +274,14 @@
   constants
   fixups)
 
-(defun sys.int::assemble-lap (code &optional name)
+(defun sys.int::assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants fixups)
       (sys.lap-x86:assemble code
         :base-address 12
         :initial-symbols '((nil . :fixup)
                            (t . :fixup)
                            (undefined-function . :fixup))
-        :info (list name))
+        :info (list name debug-info))
     (make-cross-function :mc mc
                          :constants constants
                          :fixups fixups)))

@@ -65,7 +65,9 @@ be generated instead.")
 (defun codegen-lambda (lambda)
   (let* ((*current-lambda* lambda)
          (*current-lambda-name* (or (lambda-information-name lambda)
-                                    (list 'lambda :in *current-lambda-name*)))
+                                    (list 'lambda :in (or *current-lambda-name*
+                                                          (when *compile-file-pathname*
+                                                            (princ-to-string *compile-file-pathname*))))))
          (*run-counter* 0)
          (*load-list* '())
          (*r8-value* nil)
@@ -297,12 +299,30 @@ be generated instead.")
         (emit `(sys.lap-x86:ret))))
     (let ((final-code (nconc (generate-entry-code lambda)
                              (nreverse *code-accum*)
-                             (apply #'nconc *trailers*))))
+                             (apply #'nconc *trailers*)))
+          (homes (loop for (var . loc) across *stack-values*
+                    for i from 0
+                    when (and (lexical-variable-p var)
+                              (eql loc :home))
+                    collect (list (lexical-variable-name var) i))))
       (sys.int::assemble-lap
        (if *enable-branch-tensioner*
            (tension-branches final-code)
            final-code)
-       *current-lambda-name*))))
+       *current-lambda-name*
+       (list :debug-info
+             *current-lambda-name*
+             homes
+             (first *environment-chain*)
+             (mapcar (lambda (vars)
+                       (mapcar (lambda (v)
+                                 (when (lexical-variable-p v)
+                                   (lexical-variable-name v)))
+                               vars))
+                     *environment*)
+             (when *compile-file-pathname*
+               (princ-to-string *compile-file-pathname*))
+             )))))
 
 (defun emit-return-code (&optional tail-call)
   (let* ((req-count (length (lambda-information-required-args *current-lambda*)))

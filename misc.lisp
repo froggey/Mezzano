@@ -178,14 +178,14 @@ BODY must not allocate!"
 (defun provide (module-name)
   (declare (ignore module-name)))
 
-(defun assemble-lap (code &optional name)
+(defun assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble code
         :base-address 12
         :initial-symbols (list (cons nil (lisp-object-address 'nil))
                                (cons t (lisp-object-address 't))
                                (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
-        :info (list name))
+        :info (list name debug-info))
     (make-function mc constants)))
 
 (setf (fdefinition 'delete) #'remove

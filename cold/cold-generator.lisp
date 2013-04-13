@@ -57,6 +57,7 @@
     "process.lisp"
     "lap.lisp"
     "lap-x86.lisp"
+    "ansi-loop.lisp"
     "compiler/package.lisp"
     "compiler/compiler.lisp"
     "compiler/pass1.lisp"
@@ -81,8 +82,7 @@
     #+nil"irc.lisp"
     "mandelbrot.lisp"
     "time.lisp"
-    "file.lisp"
-    "ansi-loop.lisp"))
+    "file.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
