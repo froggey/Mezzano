@@ -1070,6 +1070,8 @@
 (defun resolve-address (address)
   (cond ((listp address)
          (apply 'sys.net::make-ipv4-address address))
+        ((stringp address)
+         (parse-ipv4-address address))
         (t address)))
 
 (defun tcp-stream-connect (address port)
@@ -1095,9 +1097,62 @@
   (format stream "~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X"
           (aref mac 0) (aref mac 1) (aref mac 2) (aref mac 3) (aref mac 4) (aref mac 5)))
 
-(defun format-tcp4-address (stream argument &optional colon-p at-sign-p)
+(defun format-ipv4-address (stream argument &optional colon-p at-sign-p)
+  "Print the (UNSIGNED-BYTE 32) argument in dotted-decimal notation."
+  (check-type argument (unsigned-byte 32))
+  (assert (and (not colon-p)
+               (not at-sign-p)))
   (format stream "~D.~D.~D.~D"
           (ldb (byte 8 24) argument)
           (ldb (byte 8 16) argument)
           (ldb (byte 8 8) argument)
           (ldb (byte 8 0) argument)))
+
+(defun format-tcp4-address (stream argument &optional colon-p at-sign-p)
+  (format-ipv4-address stream argument colon-p at-sign-p))
+
+(define-condition invalid-ipv4-address (simple-error)
+  ((address :initarg :address
+            :reader invalid-ipv4-address-address)))
+
+(defun parse-ipv4-address (address &key (start 0) end)
+  "Interpret the string ADDRESS as an IPv4 address in dotted-decimal notation,
+ returning the parsed address as an (UNSIGNED-BYTE 32).
+If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is signalled."
+  (setf address (string address))
+  (unless end (setf end (length address)))
+  (let ((value 0)
+        (octet 0)
+        (seen-dots 0))
+    (dotimes (i (- end start))
+      (let* ((c (char address (+ start i)))
+             (weight (digit-char-p c)))
+        (cond ((char= c #\.)
+               (incf seen-dots)
+               (when (>= seen-dots 4)
+                 (error 'invalid-ipv4-address
+                        :address address
+                        :format-control "Too many dots."))
+               (when (>= octet 256)
+                 (error 'invalid-ipv4-address
+                        :address address
+                        :format-control "Part ~D too large."
+                        :format-arguments (list (1- seen-dots))))
+               (setf value (+ (ash value 8)
+                              octet)
+                     octet 0))
+              (weight
+               (setf octet (+ (* octet 10)
+                              weight)))
+              (t (error 'invalid-ipv4-address
+                        :address address
+                        :format-control "Invalid character ~C."
+                        :format-arguments (list c))))))
+    (when (>= octet (ash 1 (* (- 4 seen-dots) 8)))
+      (error 'invalid-ipv4-address
+             :address address
+             :format-control "Final part too large."))
+    (setf value (+ (ash value (* (- 4 seen-dots) 8))
+                   octet))
+    (check-type value (unsigned-byte 32))
+    value))
