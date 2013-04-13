@@ -388,6 +388,10 @@
   "3.1.2.1.2  Conses as forms"
   (let ((fn (gethash (first form) *special-forms*)))
     (cond (fn (funcall fn form env))
+          ((and (listp (first form))
+                (eql (first (first form)) 'lambda))
+           ;; Lambda form.
+           (eval-in-lexenv `(funcall #',(first form) ,@(rest form)) env))
           ((macro-function (first form) env)
            (eval-in-lexenv (macroexpand-1 form env) env))
           (t (apply (if (sys.int::lambda-expression-p (first form))
