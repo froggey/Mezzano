@@ -68,10 +68,9 @@
                         (eql (point-character) i)))
 	     (draw-cursor fb (+ x ofs) (+ y lines-written) (eql *buffer* buffer))))
 	(let* ((ch (char contents i))
-               (width (if (eql ch #\Space) 8 (sys.int::unifont-glyph-width ch))))
-          (when (and (< (+ ofs width) w)
-                     (not (eql ch #\Space)))
-            (let* ((glyph (sys.int::map-unifont-2d ch)))
+               (width (sys.int::unifont-glyph-width ch)))
+          (when (< (+ ofs width) w)
+            (let ((glyph (sys.int::map-unifont-2d ch)))
               (when glyph
                 (sys.graphics::bitset-argb-xrgb-mask-1 16 width text-colour
                                                        glyph 0 0
@@ -260,10 +259,9 @@
             (ofs left))
         (dotimes (i (length name))
           (let* ((ch (char name i))
-                 (char-width (if (eql ch #\Space) 8 (sys.int::unifont-glyph-width ch)))
+                 (char-width (sys.int::unifont-glyph-width ch))
                  (glyph (sys.int::map-unifont-2d ch)))
             (when (and (< (+ ofs char-width) width)
-                       (not (eql ch #\Space))
                        glyph)
               (sys.graphics::bitset-argb-xrgb-mask-1 16 char-width text-colour
                                                      glyph 0 0

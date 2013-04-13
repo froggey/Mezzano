@@ -34,15 +34,13 @@
   (cond
     ((eql character #\Newline)
      (framebuffer-newline stream))
-    (t (let ((width (if (eql character #\Space) 8 (unifont-glyph-width character)))
+    (t (let ((width (unifont-glyph-width character))
              (fb (fbstream-framebuffer stream)))
          (when (> (+ (fbstream-x stream) width) (array-dimension fb 1))
            (framebuffer-newline stream))
          (let ((x (fbstream-x stream))
                (y (fbstream-y stream)))
-           (if (eql character #\Space)
-               (%bitset 16 8 #xFF000000 fb y x)
-               (render-char-at character fb x y))
+           (render-char-at character fb x y)
            (incf x width)
            (setf (fbstream-x stream) x))))))
 
@@ -64,9 +62,7 @@
         (fbstream-y stream) (max (- y (fbstream-line stream)) 0)))
 
 (defmethod stream-character-width ((stream framebuffer-output-stream) character)
-  (if (eql character #\Space)
-      8
-      (unifont-glyph-width character)))
+  (unifont-glyph-width character))
 
 (defmethod stream-compute-motion ((stream framebuffer-output-stream) string &optional (start 0) end initial-x initial-y)
   (unless end (setf end (length string)))

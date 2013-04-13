@@ -56,16 +56,14 @@
   (let ((s (string string))
         (x 0))
     (dotimes (i (length s))
-      (let ((ch (char s i)))
-        (case ch
-          (#\Space (incf x 8))
-          (t (let ((glyph (sys.int::map-unifont-2d ch))
-                   (width (sys.int::unifont-glyph-width ch)))
-               (when glyph
-                 (bitset-argb-xrgb-mask-1 16 width colour
-                                          glyph 0 0
-                                          to-array to-row (+ to-col x)))
-               (incf x width))))))
+      (let* ((ch (char s i))
+             (glyph (sys.int::map-unifont-2d ch))
+             (width (sys.int::unifont-glyph-width ch)))
+        (when glyph
+          (bitset-argb-xrgb-mask-1 16 width colour
+                                   glyph 0 0
+                                   to-array to-row (+ to-col x)))
+        (incf x width)))
     x))
 
 (defmethod window-redraw :before ((window window-with-chrome))
@@ -243,7 +241,7 @@
                    (+ y 16))
              (cursor-y stream) y)
        (bitset 16 win-width (window-background-colour stream) fb (+ (widget-y stream) y) (widget-x stream)))
-      (t (let ((width (if (eql character #\Space) 8 (sys.int::unifont-glyph-width character))))
+      (t (let ((width (sys.int::unifont-glyph-width character)))
            (when (> (+ x width) win-width)
              ;; Advance to the next line.
              ;; Maybe should clear the end of the current line?
@@ -254,13 +252,11 @@
                    (cursor-y stream) y)
              (bitset 16 win-width (window-background-colour stream) fb (+ (widget-y stream) y) (widget-x stream)))
            (bitset 16 width (window-background-colour stream) fb (+ (widget-y stream) y) (+ (widget-x stream) x))
-           (unless (eql character #\Space)
-             (let* ((glyph (sys.int::map-unifont-2d character)))
-               (cond (glyph
-                      (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
-                                               glyph 0 0
-                                               fb (+ (widget-y stream) y) (+ (widget-x stream) x)))
-                     (t))))
+           (let ((glyph (sys.int::map-unifont-2d character)))
+             (when glyph
+               (bitset-argb-xrgb-mask-1 16 width (window-foreground-colour stream)
+                                        glyph 0 0
+                                        fb (+ (widget-y stream) y) (+ (widget-x stream) x))))
            (incf x width)
            (setf (cursor-x stream) x))))))
 
@@ -296,9 +292,7 @@
   (sys.int::stream-move-to (text-window-display stream) x y))
 
 (defmethod sys.int::stream-character-width ((stream text-widget) character)
-  (if (eql character #\Space)
-      8
-      (sys.int::unifont-glyph-width character)))
+  (sys.int::unifont-glyph-width character))
 
 (defmethod sys.int::stream-character-width ((stream text-window) character)
   (sys.int::stream-character-width (text-window-display stream) character))

@@ -90,7 +90,7 @@
                               (+ y 16))
                         (cdr *screen-offset*) y)
                   (%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
-                 (t (let ((width (if (eql c #\Space) 8 (unifont-glyph-width c))))
+                 (t (let ((width (unifont-glyph-width c)))
                       (when (> (+ x width) (array-dimension fb 1))
                         ;; Advance to the next line.
                         ;; Maybe should clear the end of the current line?
@@ -100,9 +100,7 @@
                                     (+ y 16))
                               (cdr *screen-offset*) y)
                         (%bitset 16 (array-dimension fb 1) #xFF000000 fb y 0))
-                      (if (eql c #\Space)
-                          (%bitset 16 8 #xFF000000 fb y x)
-                          (render-char-at c fb x y))
+                      (render-char-at c fb x y)
                       (incf x width)
                       (setf (car *screen-offset*) x))))))
         ((eql (first *cold-stream-screen*) :serial)
