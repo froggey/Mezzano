@@ -78,8 +78,8 @@
     "windows.lisp"
     "misc.lisp"
     "peek.lisp"
-    #+nil"telnet.lisp"
-    #+nil"irc.lisp"
+    "telnet.lisp"
+    "irc.lisp"
     "mandelbrot.lisp"
     "time.lisp"
     "file.lisp"))
