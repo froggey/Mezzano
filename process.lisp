@@ -4,71 +4,29 @@
 (defvar *current-process* nil)
 (defvar *active-processes* nil)
 
-(defclass base-process ()
-  ((name :initarg :name
-	 :reader process-name)
-   (run-reasons :initarg :run-reasons
-		:accessor process-run-reasons)
-   (arrest-reasons :initarg :arrest-reasons
-		   :accessor process-arrest-reasons)
-   (wait-function :initarg :wait-function
-		  :accessor process-wait-function)
-   (wait-argument-list :initarg :wait-argument-list
-		       :accessor process-wait-argument-list)
-   (whostate :initarg :whostate
-	     :accessor process-whostate)
-   (initial-form :initarg :initial-form
-		 :accessor process-initial-form))
-  (:default-initargs :run-reasons '() :arrest-reasons '()
-                     :wait-function (constantly 'nil)
-                     :wait-argument-list '()
-                     :whostate '()
-                     :initial-form nil))
+(defstruct (process
+             (:constructor %make-process))
+  name
+  (run-reasons '())
+  (arrest-reasons '())
+  (wait-function (constantly 'nil))
+  (wait-argument-list '())
+  (whostate '())
+  (initial-form nil)
+  stack-group
+  initial-stack-group)
 
-(defmethod print-object ((object base-process) stream)
+(defmethod print-object ((object process) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~A" (process-name object))))
 
-(defclass process (base-process)
-  ((stack-group :initarg :stack-group
-		:accessor process-stack-group)
-   (initial-stack-group :reader process-initial-stack-group))
-  (:default-initargs :initform nil))
-
-(defclass simple-process (base-process)
-  ())
-
-(defgeneric process-run-reason (process object)
-  (:documentation "Add OBJECT to PROCESS's run reasons."))
-(defgeneric process-revoke-run-reason (process object)
-  (:documentation "Remove OBJECT from PROCESS's run reasons."))
-
-(defgeneric process-arrest-reason (process object)
-  (:documentation "Add OBJECT to PROCESS's arrest reasons."))
-(defgeneric process-revoke-arrest-reason (process object)
-  (:documentation "Remove OBJECT from PROCESS's arrest reasons."))
-
-(defgeneric process-runnable-p (process)
-  (:documentation "Returns true when the process has at least one run reason and no arrest reasons."))
-
-(defgeneric process-preset (process function &rest arguments)
-  (:documentation "Sets the process's initial function and arguments, then resets the process."))
-
-(defgeneric process-reset (process)
-  (:documentation "Dump the process's current state. When it next runs, it will invoke the initial function."))
-
-(defmethod process-preset ((process base-process) function &rest arguments)
+(defun process-preset (process function &rest arguments)
   (setf (process-initial-form process) (cons function arguments))
   (process-reset process))
 
-(defmethod process-reset :before ((process base-process))
+(defun process-reset (process)
   (setf (process-wait-function process) nil
-	(process-wait-argument-list process) nil))
-
-(defmethod process-reset ((process simple-process))
-  nil)
-
-(defmethod process-reset ((process process))
+	(process-wait-argument-list process) nil)
   (setf (process-stack-group process) (process-initial-stack-group process))
   (stack-group-preset (process-initial-stack-group process)
                       (lambda ()
@@ -77,19 +35,19 @@
                         (process-disable process)
                         (stack-group-invoke *scheduler-stack-group*))))
 
-(defmethod process-run-reason ((process base-process) object)
+(defun process-run-reason (process object)
   (pushnew object (process-run-reasons process))
   (process-consider-runnability process))
 
-(defmethod process-revoke-run-reason ((process base-process) object)
+(defun process-revoke-run-reason (process object)
   (setf (process-run-reasons process) (remove object (process-run-reasons process)))
   (process-consider-runnability process))
 
-(defmethod process-arrest-reason ((process base-process) object)
+(defun process-arrest-reason (process object)
   (pushnew object (process-arrest-reasons process))
   (process-consider-runnability process))
 
-(defmethod process-revoke-arrest-reason ((process base-process) object)
+(defun process-revoke-arrest-reason (process object)
   (setf (process-run-reasons process) (remove object (process-arrest-reasons process)))
   (process-consider-runnability process))
 
@@ -115,22 +73,6 @@
 			     t
 			     (apply function arguments))))
   (<= timeout 0))
-
-(defmethod initialize-instance :after ((instance simple-process))
-  (process-consider-runnability instance))
-
-(defmethod initialize-instance :after ((instance process) &key name stack-group
-                                                            control-stack-size
-                                                            data-stack-size
-                                                            binding-stack-size
-                                                            &allow-other-keys)
-  (unless stack-group
-    (setf (slot-value instance 'stack-group) (make-stack-group name
-                                                               :control-stack-size control-stack-size
-                                                               :data-stack-size data-stack-size
-                                                               :binding-stack-size binding-stack-size)))
-  (setf (slot-value instance 'initial-stack-group) (slot-value instance 'stack-group))
-  (process-consider-runnability instance))
 
 (defun process-consider-runnability (process)
   (cond ((or (process-arrest-reasons process)
@@ -181,14 +123,8 @@
        (let ((next-process (get-next-process *current-process*)))
          (setf *current-process* next-process)
          (cond (next-process
-                (if (typep next-process 'simple-process)
-                    (with-simple-restart (abort "Return from ~S." next-process)
-                      (%sti)
-                      (apply (car (process-initial-form next-process))
-                             (cdr (process-initial-form next-process))))
-                    (progn
-                      (stack-group-resume (process-stack-group next-process) nil)
-                      (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))))
+                (stack-group-resume (process-stack-group next-process) nil)
+                (setf (process-stack-group next-process) (stack-group-resumer *scheduler-stack-group*)))
                (t (%stihlt)))))))
 
 (defun make-process (name &key stack-group
@@ -198,14 +134,19 @@
                             run-reasons
                             arrest-reasons
                             whostate)
-  (make-instance 'sys.int::process :name name
-                 :stack-group stack-group
-                 :control-stack-size control-stack-size
-                 :data-stack-size data-stack-size
-                 :binding-stack-size binding-stack-size
-                 :run-reasons run-reasons
-                 :arrest-reasons arrest-reasons
-                 :whostate whostate))
+  (unless stack-group
+    (setf stack-group (make-stack-group name
+                                        :control-stack-size control-stack-size
+                                        :data-stack-size data-stack-size
+                                        :binding-stack-size binding-stack-size)))
+  (let ((process (%make-process :name name
+                                :stack-group stack-group
+                                :initial-stack-group stack-group
+                                :run-reasons run-reasons
+                                :arrest-reasons arrest-reasons
+                                :whostate whostate)))
+    (process-consider-runnability process)
+    process))
 
 (defmacro with-process ((name function &rest arguments) &body body)
   (let ((x (gensym)))
