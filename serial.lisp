@@ -184,9 +184,66 @@
 (defvar *serial-two-char* (make-instance 'serial-character-stream :stream *serial-two*))
 
 (defmethod sys.gray:stream-read-char ((stream serial-character-stream))
-  (code-char (read-byte (serial-stream-stream stream))))
+  (let ((byte (read-byte (serial-stream-stream stream))))
+    (case byte
+      (#x0D #\Newline) ; CR -> Newline
+      (t (code-char byte)))))
 
 (defmethod sys.gray:stream-write-char ((stream serial-character-stream) character)
-  (write-byte (char-code character) (serial-stream-stream stream))
   (when (eql character #\Newline)
-    (write-byte #x0D (serial-stream-stream stream))))
+    (write-byte #x0D (serial-stream-stream stream)))
+  (write-byte (char-code character) (serial-stream-stream stream)))
+
+(defclass line-buffered-stream (sys.gray:fundamental-character-input-stream
+                                sys.gray:fundamental-character-output-stream
+                                sys.gray:unread-char-mixin)
+  ((stream :initarg :stream :reader inner-stream)
+   (line :initform nil :accessor line-buffered-stream-line)
+   (offset :initform nil :accessor line-buffered-stream-offset))
+  (:documentation "A line-oriented stream, with trivial line editing support."))
+
+(defmethod sys.gray:stream-read-char ((stream line-buffered-stream))
+  (when (null (line-buffered-stream-line stream))
+    ;; No line available, read one in (with line editing).
+    (setf (line-buffered-stream-line stream) (make-array 100
+                                                         :element-type 'character
+                                                         :fill-pointer 0)
+          (line-buffered-stream-offset stream) 0)
+    (loop (let ((c (read-char (inner-stream stream))))
+            (case c
+              (#\Newline
+               ;; Finish up.
+               (write-char c (inner-stream stream))
+               (vector-push-extend c (line-buffered-stream-line stream))
+               (return))
+              ((#\Backspace #\Rubout)
+               (unless (zerop (length (line-buffered-stream-line stream)))
+                 (vector-pop (line-buffered-stream-line stream))
+                 (write-char #\Backspace (inner-stream stream))
+                 (write-char #\Space (inner-stream stream))
+                 (write-char #\Backspace (inner-stream stream))))
+              (t (write-char c (inner-stream stream))
+                 (vector-push-extend c (line-buffered-stream-line stream)))))))
+  (let ((offset (line-buffered-stream-offset stream))
+        (buffer (line-buffered-stream-line stream)))
+    (prog1 (aref buffer offset)
+      (cond ((>= (1+ offset) (length buffer))
+             ;; End of line reached.
+             (setf (line-buffered-stream-line stream) nil))
+            (t (incf (line-buffered-stream-offset stream)))))))
+
+(defmethod sys.gray:stream-clear-input ((stream line-buffered-stream))
+  (setf (line-buffered-stream-line stream) nil))
+
+(defmethod sys.gray:stream-write-char ((stream line-buffered-stream) character)
+  (write-char character (inner-stream stream)))
+
+(defun run-serial-repl (port)
+  (let ((*terminal-io* (make-instance 'line-buffered-stream :stream port))
+        (*debug-io* (make-synonym-stream '*terminal-io*))
+        (*error-output* (make-synonym-stream '*terminal-io*))
+        (*standard-input* (make-synonym-stream '*terminal-io*))
+        (*standard-output* (make-synonym-stream '*terminal-io*))
+        (*trace-output* (make-synonym-stream '*terminal-io*)))
+    (handler-case (repl)
+      (quit-lisp ()))))
