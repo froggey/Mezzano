@@ -185,6 +185,8 @@
 
 (defvar *output-fasl*)
 (defvar *output-map*)
+(defvar *output-dry-run*)
+(defvar *pending-llf-commands*)
 
 (defun x-compile-top-level-implicit-progn (forms env mode)
   (dolist (f forms)
@@ -307,6 +309,7 @@
 (defconstant +llf-proper-list+ #x11)
 ;; A vector consisting entirely of integers.
 (defconstant +llf-integer-vector+ #x13)
+(defconstant +llf-add-backlink+ #x14)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -452,19 +455,23 @@
   (save-integer (%single-float-as-integer object) stream))
 
 (defun save-object (object omap stream)
-  #+nil(let ((id (gethash object omap)))
-    (when id
-      (write-byte +llf-backlink+ stream)
-      (save-integer id stream)
-      (return-from save-object))
-    (setf (gethash object omap) (hash-table-count omap))
-    (save-one-object object omap stream))
-  (save-one-object object omap stream))
+  (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
+    (cond (*output-dry-run*
+           (incf (second info))
+           (when (eql (second info) 1)
+             (save-one-object object omap stream)))
+          (t (when (not (third info))
+               (save-one-object object omap stream)
+               (setf (third info) t)
+               (unless (eql (second info) 1)
+                 (write-byte +llf-add-backlink+ stream)
+                 (save-integer (first info) stream)))
+             (unless (eql (second info) 1)
+                 (write-byte +llf-backlink+ stream)
+                 (save-integer (first info) stream))))))
 
 (defun add-to-llf (action &rest objects)
-  (dolist (o objects)
-    (save-object o *output-map* *output-fasl*))
-  (write-byte action *output-fasl*))
+  (push (list* action objects) *pending-llf-commands*))
 
 (defun x-compile (form env)
   ;; Special case (%defun 'name (lambda ...)) forms.
@@ -513,6 +520,7 @@
       (write-llf-header *output-fasl* input-file)
       (let* ((*readtable* (copy-readtable *cross-readtable*))
              (*output-map* (make-hash-table))
+             (*pending-llf-commands* nil)
              (*package* (find-package "CL-USER"))
              (*compile-print* print)
              (*compile-verbose* verbose)
@@ -529,6 +537,18 @@
                       (*print-level* 2))
                   (format t ";; X-compiling: ~S~%" form)))
               (x-compile-top-level form nil))
+        ;; Now write everything to the fasl.
+        ;; Do two passes to detect circularity.
+        (let ((commands (reverse *pending-llf-commands*)))
+          (let ((*output-dry-run* t))
+            (dolist (cmd commands)
+              (dolist (o (cdr cmd))
+                (save-object o *output-map* (make-broadcast-stream)))))
+          (let ((*output-dry-run* nil))
+            (dolist (cmd commands)
+              (dolist (o (cdr cmd))
+                (save-object o *output-map* *output-fasl*))
+              (write-byte (car cmd) *output-fasl*))))
         (write-byte +llf-end-of-load+ *output-fasl*))))
   output-file)
 
@@ -600,6 +620,7 @@ files will be compiled correctly.")
     (let* ((builtins (generate-builtin-functions))
            (*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
+           (*pending-llf-commands* nil)
            (*package* (find-package "CL-USER"))
            (*compile-print* *compile-print*)
            (*compile-verbose* *compile-verbose*)
@@ -612,6 +633,18 @@ files will be compiled correctly.")
                 (*print-level* 3))
             (format t ";; Compiling form ~S.~%" form))
           (x-compile form nil)))
+      ;; Now write everything to the fasl.
+      ;; Do two passes to detect circularity.
+      (let ((commands (reverse *pending-llf-commands*)))
+        (let ((*output-dry-run* t))
+          (dolist (cmd commands)
+            (dolist (o (cdr cmd))
+              (save-object o *output-map* (make-broadcast-stream)))))
+        (let ((*output-dry-run* nil))
+          (dolist (cmd commands)
+            (dolist (o (cdr cmd))
+              (save-object o *output-map* *output-fasl*))
+            (write-byte (car cmd) *output-fasl*))))
       (write-byte +llf-end-of-load+ *output-fasl*))))
 
 #+sbcl

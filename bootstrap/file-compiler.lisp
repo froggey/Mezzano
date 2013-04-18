@@ -128,6 +128,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defconstant +llf-proper-list+ #x11)
 (defconstant +llf-package+ #x12)
 
+(defvar *llf-forms*)
+(defvar *llf-dry-run*)
+
 (defun write-llf-header (output-stream input-file)
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x00) output-stream)) ; LLF\x00
@@ -277,14 +280,25 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       (save-character (char name i) stream))))
 
 (defun save-object (object omap stream)
-  (save-one-object object omap stream)
-  #+nil(let ((id (gethash object omap)))
-    (when id
-      (write-byte +llf-backlink+ stream)
-      (save-integer id stream)
-      (return-from save-object))
-    (setf (gethash object omap) (hash-table-count omap))
-    (save-one-object object omap stream)))
+  (when (null (gethash object omap))
+    (setf (gethash object omap) (list (hash-table-count omap) 0 nil)))
+  (let ((info (gethash object omap)))
+    (cond (*llf-dry-run*
+           (incf (second info))
+           (when (eql (second info) 1)
+             (save-one-object object omap stream)))
+          (t (when (not (third info))
+               (save-one-object object omap stream)
+               (setf (third info) t)
+               (unless (eql (second info) 1)
+                 (write-byte +llf-add-backlink+ stream)
+                 (save-integer (first info) stream)))
+             (unless (eql (second info) 1)
+                 (write-byte +llf-backlink+ stream)
+                 (save-integer (first info) stream))))))
+
+(defun add-to-llf (action &rest objects)
+  (push (list* action objects) *llf-forms*))
 
 (defun fastload-form (form omap stream)
   (cond ((and (listp form)
@@ -300,9 +314,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (= (list-length (fourth form)) 2)
               (eql (first (fourth form)) 'quote))
          ;; FORM looks like (FUNCALL #'(SETF FDEFINITION) #'(LAMBDA ...) 'name)
-         (save-object (compile nil (second (third form))) omap stream)
-         (save-object (second (fourth form)) omap stream)
-         (write-byte +llf-setf-fdefinition+ stream)
+         (add-to-llf +llf-setf-fdefinition+
+                     (compile nil (second (third form)))
+                     (second (fourth form)))
          t)
         ((and (listp form)
               (>= (list-length form) 3)
@@ -311,9 +325,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          ;; FORM looks like (DEFINE-LAP-FUNCTION name (options) code...)
          (unless (= (list-length (third form)) 0)
            (error "TODO: DEFINE-LAP-FUNCTION with options."))
-         (save-object (assemble-lap (cdddr form) (second form)) omap stream)
-         (save-object (second form) omap stream)
-         (write-byte +llf-setf-fdefinition+ stream)
+         (add-to-llf +llf-setf-fdefinition+
+                     (assemble-lap (cdddr form) (second form))
+                     (second form))
          t)
         ((and (listp form)
               (= (list-length form 2))
@@ -336,6 +350,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (*readtable* *readtable*)
             (*compile-verbose* verbose)
             (*compile-print* print)
+            (*llf-forms* nil)
             (omap (make-hash-table))
             (eof-marker (cons nil nil)))
         (do ((form (read input-stream nil eof-marker)
@@ -349,11 +364,22 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           (handle-top-level-form form
                                  (lambda (f env)
                                    (or (fastload-form f omap output-stream)
-                                       (progn (save-object (compile nil `(lambda () (progn ,f)))
-                                                           omap output-stream)
-                                              (write-byte +llf-invoke+ output-stream))))
+                                       (add-to-llf +llf-invoke+
+                                                   (compile nil `(lambda () (progn ,f))))))
                                  (lambda (f env)
                                    (sys.eval::eval-in-lexenv f env))))
+        ;; Now write everything to the fasl.
+        ;; Do two passes to detect circularity.
+        (let ((commands (reverse *llf-forms*)))
+          (let ((*llf-dry-run* t))
+            (dolist (cmd commands)
+              (dolist (o (cdr cmd))
+                (save-object o omap (make-broadcast-stream)))))
+          (let ((*llf-dry-run* nil))
+            (dolist (cmd commands)
+              (dolist (o (cdr cmd))
+                (save-object o omap output-file))
+              (write-byte (car cmd) output-file))))
         (write-byte +llf-end-of-load+ output-stream))
       (values (truename output-stream) nil nil))))
 

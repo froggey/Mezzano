@@ -1147,6 +1147,7 @@
 (defconstant +llf-proper-list+ #x11)
 (defconstant +llf-package+ #x12)
 (defconstant +llf-integer-vector+ #x13)
+(defconstant +llf-add-backlink+ #x14)
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
@@ -1447,12 +1448,21 @@
                (return))
               (#.+llf-backlink+
                (let ((id (load-integer stream)))
-                 (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
-                 (vector-push-extend (gethash id omap) stack)))
-              (t (let ((value (load-one-object command stream stack))
-                       (id (hash-table-count omap)))
+                 (multiple-value-bind (value value-p)
+                     (gethash id omap)
+                   (unless value-p
+                     (error "Unknown backlink ID ~D." id))
+                   (vector-push-extend value stack))))
+              (#.+llf-add-backlink+
+               (let ((id (load-integer stream)))
+                 (multiple-value-bind (existing-value existing-value-p)
+                     (gethash id omap)
+                   (declare (ignore existing-value))
+                   (when existing-value-p
+                     (error "Duplicate backlink ID ~D." id)))
+                 (setf (gethash id omap) (vector-pop stack))))
+              (t (let ((value (load-one-object command stream stack)))
                    (when value
-                     (setf (gethash id omap) value)
                      (vector-push-extend value stack)))))))))
 
 (defun resolve-function-name (value)

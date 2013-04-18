@@ -22,6 +22,7 @@
 (defconstant +llf-package+ #x12)
 ;; A vector consisting entirely of integers.
 (defconstant +llf-integer-vector+ #x13)
+(defconstant +llf-add-backlink+ #x14)
 
 (defvar *noisy-load* nil)
 
@@ -45,7 +46,8 @@
     (#.+llf-single-float+ 'single-float)
     (#.+llf-proper-list+ 'proper-list)
     (#.+llf-package+ 'package)
-    (#.+llf-integer-vector+ 'integer-vector)))
+    (#.+llf-integer-vector+ 'integer-vector)
+    (#.+llf-add-backlink+ 'add-backlink)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -214,10 +216,19 @@
                (return))
               (#.+llf-backlink+
                (let ((id (load-integer stream)))
-                 (assert (< id (hash-table-count omap)) () "Object id ~S out of bounds." id)
-                 (vector-push-extend (gethash id omap) stack)))
-              (t (let ((value (multiple-value-list (load-one-object command stream stack)))
-                       (id (hash-table-count omap)))
+                 (multiple-value-bind (value value-p)
+                     (gethash id omap)
+                   (unless value-p
+                     (error "Unknown backlink ID ~D." id))
+                   (vector-push-extend value stack))))
+              (#.+llf-add-backlink+
+               (let ((id (load-integer stream)))
+                 (multiple-value-bind (existing-value existing-value-p)
+                     (gethash id omap)
+                   (declare (ignore existing-value))
+                   (when existing-value-p
+                     (error "Duplicate backlink ID ~D." id)))
+                 (setf (gethash id omap) (vector-pop stack))))
+              (t (let ((value (multiple-value-list (load-one-object command stream stack))))
                    (when value
-                     (setf (gethash id omap) (first value))
                      (vector-push-extend (first value) stack)))))))))
