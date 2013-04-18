@@ -383,6 +383,7 @@
 (defvar *struct-table*)
 (defvar *undefined-function-address*)
 (defvar *load-time-evals*)
+(defvar *string-dedup-table*)
 
 (defvar *function-map*)
 (defvar *pending-fixups*)
@@ -937,8 +938,13 @@
 (defun save-object (object &optional (area :dynamic))
   (etypecase object
     ((signed-byte 61) (make-fixnum object))
-    (string (make-value (store-string object)
-                        +tag-array-like+))
+    (string
+     (let ((value (gethash object *string-dedup-table*)))
+       (unless value
+         (setf value (make-value (store-string object)
+                                 +tag-array-like+))
+         (setf (gethash object *string-dedup-table*) value))
+       value))
     (cons (vcons (save-object (car object))
                  (save-object (cdr object))))
     (symbol (make-value (symbol-address (symbol-name object)
@@ -981,6 +987,7 @@
         (*struct-table* (make-hash-table))
         (*undefined-function-address* nil)
         (*function-map* '())
+        (*string-dedup-table* (make-hash-table :test 'equal))
         (setup-fn nil)
         (kboot-entry-fn nil)
         (gdt nil)
