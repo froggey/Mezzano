@@ -378,8 +378,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
-                (save-object o omap output-file))
-              (write-byte (car cmd) output-file))))
+                (save-object o omap output-stream))
+              (write-byte (car cmd) output-stream))))
         (write-byte +llf-end-of-load+ output-stream))
       (values (truename output-stream) nil nil))))
 
