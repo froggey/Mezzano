@@ -433,12 +433,13 @@
 (defun make-broadcast-stream (&rest streams)
   (make-instance 'broadcast-stream :streams streams))
 
-(defun %broadcast-stream-write-char (character stream)
+(defmethod sys.gray:stream-write-char ((stream broadcast-stream) character)
   (dolist (s (broadcast-stream-streams stream))
     (write-char character s)))
 
-(defmethod sys.gray:stream-write-char ((stream broadcast-stream) character)
-  (%broadcast-stream-write-char character stream))
+(defmethod sys.gray:stream-write-byte ((stream broadcast-stream) byte)
+  (dolist (s (broadcast-stream-streams stream))
+    (write-byte byte s)))
 
 (defclass echo-stream (sys.gray:fundamental-character-output-stream
                        sys.gray:fundamental-character-input-stream
