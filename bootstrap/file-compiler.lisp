@@ -104,6 +104,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defvar *compile-verbose* t)
 (defvar *compile-print* t)
 
+(defvar *compile-file-pathname* nil)
+(defvar *compile-file-truename* nil)
+
 (defun compile-file-pathname (input-file &key output-file &allow-other-keys)
   (if output-file
       output-file
@@ -346,13 +349,15 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                      :direction :output)
       (format t ";; Compiling file ~S.~%" input-file)
       (write-llf-header output-stream input-file)
-      (let ((*package* *package*)
-            (*readtable* *readtable*)
-            (*compile-verbose* verbose)
-            (*compile-print* print)
-            (*llf-forms* nil)
-            (omap (make-hash-table))
-            (eof-marker (cons nil nil)))
+      (let* ((*package* *package*)
+             (*readtable* *readtable*)
+             (*compile-verbose* verbose)
+             (*compile-print* print)
+             (*llf-forms* nil)
+             (omap (make-hash-table))
+             (eof-marker (cons nil nil))
+             (*compile-file-pathname* (pathname (merge-pathnames input-file)))
+             (*compile-file-truename* (truename *compile-file-pathname*)))
         (do ((form (read input-stream nil eof-marker)
                    (read input-stream nil eof-marker)))
             ((eql form eof-marker))
