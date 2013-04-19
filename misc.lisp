@@ -126,8 +126,8 @@ BODY must not allocate!"
         (*load-pathname* stream)
         (eof (cons nil nil)))
     (loop (let ((form (read stream nil eof)))
-            (when *load-print* (format t ";; Loading ~S~%" form))
             (when (eql form eof) (return))
+            (when *load-print* (format t ";; Loading ~S~%" form))
             (eval form)))
     t))
 
