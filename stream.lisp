@@ -427,6 +427,48 @@
        (close ,var))
      (get-output-stream-string ,var)))
 
+(defun write-to-string (object &key
+                                 (array *print-array*)
+                                 (base *print-base*)
+                                 (case *print-case*)
+                                 (circle *print-circle*)
+                                 (escape *print-escape*)
+                                 (gensym *print-gensym*)
+                                 (length *print-length*)
+                                 (level *print-level*)
+                                 (lines *print-lines*)
+                                 (miser-width *print-miser-width*)
+                                 (pprint-dispatch *print-pprint-dispatch*)
+                                 (pretty *print-pretty*)
+                                 (radix *print-radix*)
+                                 (readably *print-readably*)
+                                 (right-margin *print-right-margin*))
+  (with-output-to-string (s)
+    (write object :stream s
+           :array array
+           :base base
+           :case case
+           :circle circle
+           :escape escape
+           :gensym gensym
+           :length length
+           :level level
+           :lines lines
+           :miser-width miser-width
+           :pprint-dispatch pprint-dispatch
+           :pretty pretty
+           :radix radix
+           :readably readably
+           :right-margin right-margin)))
+
+(defun princ-to-string (object)
+  (with-output-to-string (s)
+    (princ object s)))
+
+(defun prin1-to-string (object)
+  (with-output-to-string (s)
+    (prin1 object s)))
+
 (defclass broadcast-stream (sys.gray:fundamental-character-output-stream)
   ((streams :initarg :streams :reader broadcast-stream-streams)))
 
