@@ -17,63 +17,27 @@
 
 (defvar *gc-in-progress* nil)
 
-(defconstant +multiboot-flag-mem-info+     #b00000001)
-(defconstant +multiboot-flag-boot-device+  #b00000010)
-(defconstant +multiboot-flag-command-line+ #b00000100)
-(defconstant +multiboot-flag-modules+      #b00001000)
-(defconstant +multiboot-flag-aout-symbols+ #b00010000)
-(defconstant +multiboot-flag-elf-symbols+  #b00100000)
-(defconstant +multiboot-flag-memory-map+   #b01000000)
-
 (defun gc-init-system-memory ()
-  ;; Compute the true end of the image by examining the multiboot header.
-  ;; FIXME: This must be done as part of the initialization process.
-  ;; FIXME: Makes major assumptions regarding how modules are laid out in memory.
-  (when (and *multiboot-info*
-             (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+))
-    (let ((module-count (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5))
-          (module-base (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6))))
-      (unless (zerop module-count)
-        (setf *bump-pointer* (+ #x8000000000
-                                (memref-unsigned-byte-32 module-base (+ (* (1- module-count) 4) 1)))))))
-  ;; Allocate DMA memory from the largest free MEMORY region.
-  (when *kboot-tag-list*
-    (flet ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
-           (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
-           (p/32 (addr) (memref-unsigned-byte-32 (+ #x8000000000 addr) 0))
-           (p/64 (addr) (memref-unsigned-byte-64 (+ #x8000000000 addr) 0)))
-      (let ((addr *kboot-tag-list*)
-            ;; For sanity checking.
-            (max-addr (+ *kboot-tag-list* 1024))
-            (best-start nil)
-            (best-size 0))
-        (loop (when (>= addr max-addr) (return))
-           (let ((type (p/32 (+ addr 0)))
-                 (size (p/32 (+ addr 4))))
-             (when (and (eql addr *kboot-tag-list*)
-                        (not (eql type +kboot-tag-core+)))
-               (format t "CORE tag not first in the list?~%")
-               (return))
-             (case type
-               (#.+kboot-tag-none+ (return))
-               (#.+kboot-tag-core+
-                (unless (eql addr *kboot-tag-list*)
-                  (format t "CORE tag not first in the list?~%")
-                  (return))
-                (setf max-addr (+ *kboot-tag-list* (p/32 (+ addr 16)))))
-               (#.+kboot-tag-memory+
-                (let ((start (p/64 (+ addr 8)))
-                      (length (p/64 (+ addr 16)))
-                      (type (p/8 (+ addr 24))))
-                  (when (and (eql type +kboot-memory-free+)
-                             (> length best-size))
-                    (setf best-start start
-                          best-size length)))))
-             (incf addr (round-up size 8))))
-        (when best-start
-          (setf *bump-pointer* (+ best-start #x8000000000))))))
-  (when (logtest *bump-pointer* #xFFF)
-    (setf *bump-pointer* (+ (logand *bump-pointer* (lognot #xFFF)) #x1000))))
+  (setf *system-memory-map* (canonicalize-memory-map
+                             (cond (*multiboot-info*
+                                    (multiboot-mmap-add-reserved-regions
+                                     (multiboot-memory-map)))
+                                   (*kboot-tag-list*
+                                    (kboot-memory-map))
+                                   (t #()))))
+  ;; Allocate DMA memory from the largest :FREE region.
+  (let ((best-start nil)
+        (best-size 0))
+    (loop for entry across *system-memory-map* do
+         (when (and (eql (memory-map-entry-type entry) :free)
+                    (> (memory-map-entry-length entry) best-size))
+           (setf best-start (memory-map-entry-base entry)
+                 best-size (memory-map-entry-length entry))))
+    (cond (best-start
+           (setf *bump-pointer* (+ #x8000000000 best-start)
+                 *bump-pointer* (logand (+ *bump-pointer* #xFFF) (lognot #xFFF)))
+           (format t "DMA bump pointer at ~X, region length ~D.~%" *bump-pointer* best-size))
+          (t (format t "No free memory for DMA bump pointer???~%")))))
 
 #+nil(add-hook '*early-initialize-hook* 'gc-init-system-memory)
 

@@ -43,6 +43,12 @@
   "Memory allocated by the boot loader to conain the kernel image, stack, or other data.")
 (defconstant +kboot-memory-reclaimable+ 2
   "Memory that currently contains KBoot data.")
+(defconstant +kboot-memory-pagetables+ 3
+  "Memory that currently contains the KBoot boot pagetables.")
+(defconstant +kboot-memory-stack+ 4
+  "Memory that currently contains KBoot boot stack.")
+(defconstant +kboot-memory-modules+ 5
+  "Memory that currently contains KBoot modules.")
 
 ;;; VIDEO mode, also used by the kernel to signal supported modes.
 (defconstant +kboot-video-vga+ (ash 1 0))
@@ -288,3 +294,52 @@ immediately after the header."
     (loop for (data offset) in notes do
          (replace hdr data :start1 offset))
     hdr))
+
+(defun kboot-mmap-memory-type (type)
+  "Convert a multiboot memory map type to a normal memory type."
+  (case type
+    (#.+kboot-memory-free+ :free)
+    (#.+kboot-memory-allocated+ :reserved)
+    (#.+kboot-memory-reclaimable+ :kboot-reclaimable)
+    (#.+kboot-memory-pagetables+ :free)
+    (#.+kboot-memory-stack+ :free)
+    (#.+kboot-memory-modules+ :kboot-modules)
+    (t :unknown)))
+
+(defun kboot-memory-map ()
+  "Fetch the memory map from the KBoot tag list."
+  (flet ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
+         (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
+         (p/32 (addr) (memref-unsigned-byte-32 (+ #x8000000000 addr) 0))
+         (p/64 (addr) (memref-unsigned-byte-64 (+ #x8000000000 addr) 0)))
+    (let ((addr *kboot-tag-list*)
+          (mmap (make-array 32 :adjustable t :fill-pointer 0))
+          ;; For sanity checking.
+          (max-addr (+ *kboot-tag-list* 4096))
+          (best-start nil)
+          (best-size 0))
+      (loop (when (>= addr max-addr) (return))
+         (let ((type (p/32 (+ addr 0)))
+               (size (p/32 (+ addr 4))))
+           (when (and (eql addr *kboot-tag-list*)
+                      (not (eql type +kboot-tag-core+)))
+             (format t "CORE tag not first in the list?~%")
+             (return))
+           (case type
+             (#.+kboot-tag-none+ (return))
+             (#.+kboot-tag-core+
+              (unless (eql addr *kboot-tag-list*)
+                (format t "CORE tag not first in the list?~%")
+                (return))
+              (setf max-addr (+ *kboot-tag-list* (p/32 (+ addr 16)))))
+             (#.+kboot-tag-memory+
+              (let ((start (p/64 (+ addr 8)))
+                    (length (p/64 (+ addr 16)))
+                    (type (p/8 (+ addr 24))))
+                (vector-push-extend (make-memory-map-entry
+                                     :base start
+                                     :length length
+                                     :type (kboot-mmap-memory-type type))
+                                    mmap))))
+           (incf addr (round-up size 8))))
+      mmap)))

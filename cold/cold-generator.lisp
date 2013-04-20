@@ -31,6 +31,7 @@
     "format.lisp"
     "type.lisp"
     "interrupt.lisp"
+    "multiboot.lisp"
     "memory.lisp"
     "dump.lisp"
     "bootstrap/cons-compiler-macros.lisp"
