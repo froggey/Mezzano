@@ -389,8 +389,8 @@
 (defmethod window-close-event :before ((window lisp-listener))
   (sys.int::process-arrest-reason (lisp-listener-process window) :window-closed))
 
-(defun create-lisp-listener ()
-  (window-set-visibility (make-window "Lisp Listener" 640 400 'lisp-listener) t))
+(defun create-lisp-listener (&optional (width 640) (height 400))
+  (window-set-visibility (make-window "Lisp Listener" width height 'lisp-listener) t))
 
 (defvar *console-window* (make-window "Console" 640 400 'text-window-with-chrome :close-button nil))
 (window-set-visibility *console-window* t)
