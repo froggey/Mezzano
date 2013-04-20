@@ -136,21 +136,133 @@
 	(export-one-symbol symbols p)))
   t)
 
-;; Function FIND-ALL-SYMBOLS
 ;; Function RENAME-PACKAGE
 ;; Function SHADOW
 ;; Function SHADOWING-IMPORT
 ;; Function DELETE-PACKAGE
-;; Macro WITH-PACKAGE-ITERATOR
 ;; Function UNEXPORT
 ;; Function UNINTERN
 ;; Function UNUSE-PACKAGE
-;; Macro DO-SYMBOLS, DO-EXTERNAL-SYMBOLS, DO-ALL-SYMBOLS
 ;; Function PACKAGE-SHADOWING-SYMBOLS
 ;; Condition Type PACKAGE-ERROR
 ;; Function PACKAGE-ERROR-PACKAGE
 
-;;; This is the intern function, different name so it doesn't conflict with cold-intern.
+(defun make-package-iterator-find-symbols (package symbol-types)
+  "Find all the symbols in PACKAGE that match SYMBOL-TYPES."
+  (let ((symbols '()))
+    (when (member :internal symbol-types)
+      (maphash (lambda (k v)
+                 (declare (ignore k))
+                 (push (cons v :internal) symbols))
+               (package-internal-symbols package)))
+    (when (member :external symbol-types)
+      (maphash (lambda (k v)
+                 (declare (ignore k))
+                 (push (cons v :external) symbols))
+               (package-external-symbols package)))
+    (when (member :inherited symbol-types)
+      (dolist (p (package-use-list package))
+        (maphash (lambda (k v)
+                   (declare (ignore k))
+                   (push (cons v :inherited) symbols))
+                 (package-external-symbols p))))
+    symbols))
+
+(defun make-package-iterator (package-list symbol-types)
+  ;; Listify PACKAGE-LIST.
+  (unless (listp package-list)
+    (setf package-list (list package-list)))
+  ;; Convert package designators to packages.
+  (setf package-list (mapcar #'find-package-or-die package-list))
+  (let ((symbols nil)
+        (current-package nil))
+    (lambda ()
+      (declare (system:lambda-name w-p-i-iterator))
+      (when (endp symbols)
+        ;; Find a package with symbols that match.
+        (loop
+           (when (endp package-list) (return))
+           (setf current-package (pop package-list))
+           (setf symbols (make-package-iterator-find-symbols current-package symbol-types))
+           (when symbols (return))))
+      (when symbols
+        (let ((symbol (pop symbols)))
+          (values t
+                  (car symbol)
+                  current-package
+                  (cdr symbol)))))))
+
+(defun package-iterator-next (iterator)
+  (funcall iterator))
+
+(defmacro with-package-iterator ((name package-list-form &rest symbol-types) &body body)
+  (assert (every (lambda (x) (member x '(:internal :external :inherited))) symbol-types))
+  (let ((iterator (gensym "PACKAGE-ITERATOR")))
+    `(let ((,iterator (make-package-iterator ,package-list-form ',symbol-types)))
+       (macrolet ((,name ()
+                    `(package-iterator-next ,',iterator)))
+         ,@body))))
+
+(defun map-symbols (fn package)
+  (with-package-iterator (itr (list package) :internal :external :inherited)
+    (loop (multiple-value-bind (valid symbol)
+              (itr)
+            (when (not valid) (return))
+            (funcall fn symbol)))))
+
+;; FIXME: Declares
+(defmacro do-symbols ((var &optional (package '*package*) result-form) &body body)
+  `(block nil
+     (map-symbols (lambda (,var) (tagbody ,@body)) ,package)
+     (let ((,var nil))
+       (declare (ignorable ,var))
+       ,result-form)))
+
+(defun map-external-symbols (fn package)
+  (with-package-iterator (itr (list package) :external)
+    (loop (multiple-value-bind (valid symbol)
+              (itr)
+            (when (not valid) (return))
+            (funcall fn symbol)))))
+
+;; FIXME: Declares
+(defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
+  `(block nil
+     (map-external-symbols (lambda (,var) (tagbody ,@body)) ,package)
+     (let ((,var nil))
+       (declare (ignorable ,var))
+       ,result-form)))
+
+(defun map-all-symbols (fn)
+  (with-package-iterator (itr (list-all-packages) :internal :external)
+    (loop (multiple-value-bind (valid symbol)
+              (itr)
+            (when (not valid) (return))
+            (funcall fn symbol)))))
+
+;; FIXME: Declares
+(defmacro do-all-symbols ((var &optional result-form) &body body)
+  `(block nil
+     (map-all-symbols (lambda (,var) (tagbody ,@body)))
+     (let ((,var nil))
+       (declare (ignorable ,var))
+       ,result-form)))
+
+(defun find-all-symbols (string)
+  (setf string (string string))
+  (let ((symbols '()))
+    (dolist (p (list-all-packages))
+      (multiple-value-bind (sym foundp)
+          (gethash string (package-internal-symbols p))
+        (when foundp
+          (pushnew sym symbols)))
+      (multiple-value-bind (sym foundp)
+          (gethash string (package-external-symbols p))
+        (when foundp
+          (pushnew sym symbols))))
+    symbols))
+
+;;; This is the INTERN function, different name so it doesn't conflict with cold-intern.
 (defun package-intern (name &optional (package *package*))
   (let ((p (find-package-or-die package)))
     (multiple-value-bind (symbol status)
