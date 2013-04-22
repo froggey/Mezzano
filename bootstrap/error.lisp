@@ -166,7 +166,7 @@
 
 (defun assert-error (test-form datum &rest arguments)
   (let ((condition (if datum
-		       (coerce-to-condition 'error datum arguments)
+		       (coerce-to-condition 'simple-error datum arguments)
 		       (make-condition 'simple-error
 				       :format-control "Assertion failed: ~S."
 				       :format-arguments (list test-form)))))
