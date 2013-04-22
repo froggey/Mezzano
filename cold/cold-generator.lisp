@@ -124,7 +124,7 @@
     ;; Shuffle registers up.
     (sys.lap-x86:mov64 :r12 :r11)
     (sys.lap-x86:mov64 :r11 :r10)
-    (sys.lap-x86:mov64 :r10 :r8)
+    (sys.lap-x86:mov64 :r10 :r9)
     (sys.lap-x86:mov64 :r9 :r8)
     ;; Pass invoked-through as the first argument.
     (sys.lap-x86:mov64 :r8 :r13)
