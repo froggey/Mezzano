@@ -13,7 +13,7 @@
     (loop
        (with-simple-restart (abort "Return to READ-EVAL-PRINT loop.")
          (fresh-line)
-         (write-char #\>)
+         (format t "~A> " (package-shortest-name *package*))
          (let ((form (read)))
            (fresh-line)
            (let ((result (multiple-value-list (let ((- form))
@@ -233,6 +233,26 @@ BODY must not allocate!"
 
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
+;; missing function...
+(setf (fdefinition 'delete-duplicates) #'remove-duplicates)
+
+(defun string-left-trim (character-bag string)
+  (setf string (string string))
+  (let ((n-from-left (dotimes (i (length string)
+                               ;; All the characters must be trimmed!
+                               (return-from string-left-trim ""))
+                       (when (not (find (char string i) character-bag :test #'char=))
+                         (return i)))))
+    (if (zerop n-from-left)
+        string
+        (subseq string n-from-left))))
+
+(defun count (item sequence)
+  (let ((n 0))
+    (dotimes (i (length sequence))
+      (when (eql item (elt sequence i))
+        (incf n)))
+    n))
 
 (defvar *modules* '())
 (defvar *require-hooks* '())

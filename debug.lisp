@@ -41,6 +41,7 @@
     ;; Can't deal with the top-most frame.
     (decf n-frames)
     (pop frames)
+    ;; Remove a few more frames that're done.
     (setf *current-debug-frame* (first frames))
     (fresh-line)
     (write condition :escape nil :readably nil)

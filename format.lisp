@@ -43,6 +43,7 @@
 	    (setf negative t
 		  n (- n)))
 	  (unless mincol (setf mincol 0))
+          ;; Write the number backwards into the buffer, no commas or padding yet.
 	  (if (= n 0)
 	      (vector-push-extend #\0 buffer)
 	      (do () ((= n 0))
@@ -53,10 +54,11 @@
 	  ;; TODO: count commas as well
 	  (dotimes (i (- mincol (+ (length buffer) (if (or negative at-sign) 1 0))))
 	    (write-char padchar s))
-	  (if negative
-	      (write-char #\- s)
-	      (when at-sign
-		(write-char #\+ s)))
+          (cond
+            (negative
+             (write-char #\- s))
+            (at-sign
+             (write-char #\+ s)))
 	  (if colon
 	      (dotimes (i (length buffer))
 		(when (and (not (zerop i))
