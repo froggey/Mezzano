@@ -22,4 +22,6 @@
            (make-array (length object)
                        :element-type element-type
                        :initial-contents object)))
+        ((subtypep result-type 'float)
+         (float object))
         (t (error 'unknown-coercion :object object :type result-type))))
