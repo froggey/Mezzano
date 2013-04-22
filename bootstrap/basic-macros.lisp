@@ -62,38 +62,40 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun expand-do (varlist end-test result-forms body let-form set-form)
-  (let ((loop-head (gensym "HEAD")))
-    (labels ((hack-vars (list)
-	       (when list
-		 (cons (let* ((vardef (car list))
-			      (name (if (consp vardef)
-					(car vardef)
-					vardef)))
-			 (unless (symbolp name)
-			   (error "DO step variable is not a symbol: ~S." name))
-			 (list name (if (consp vardef)
-					(car (cdr vardef))
-					'nil)))
-		       (hack-vars (cdr list)))))
-	     (set-vars (list)
-	       (when list
-		 (if (and (consp (car list)) (cdr (cdr (car list))))
-		     (let ((name (car (car list)))
-			   (step-form (car (cdr (cdr (car list))))))
-		       (when (cdr (cdr (cdr (car list))))
-			 (error "Invalid form in DO variable list: ~S." (car list)))
-		       (list* name step-form
-			      (set-vars (cdr list))))
-		     (set-vars (cdr list))))))
-      `(block nil
-         (,let-form ,(hack-vars varlist)
-           (tagbody
-              ,loop-head
-              (if ,end-test (return-from nil (progn ,@result-forms)))
-              (tagbody ,@body)
-              (,set-form ,@(set-vars varlist))
-              (go ,loop-head)))))))
-
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    (let ((loop-head (gensym "HEAD")))
+      (labels ((hack-vars (list)
+                 (when list
+                   (cons (let* ((vardef (car list))
+                                (name (if (consp vardef)
+                                          (car vardef)
+                                          vardef)))
+                           (unless (symbolp name)
+                             (error "DO step variable is not a symbol: ~S." name))
+                           (list name (if (consp vardef)
+                                          (car (cdr vardef))
+                                          'nil)))
+                         (hack-vars (cdr list)))))
+               (set-vars (list)
+                 (when list
+                   (if (and (consp (car list)) (cdr (cdr (car list))))
+                       (let ((name (car (car list)))
+                             (step-form (car (cdr (cdr (car list))))))
+                         (when (cdr (cdr (cdr (car list))))
+                           (error "Invalid form in DO variable list: ~S." (car list)))
+                         (list* name step-form
+                                (set-vars (cdr list))))
+                       (set-vars (cdr list))))))
+        `(block nil
+           (,let-form ,(hack-vars varlist)
+              (declare ,@declares)
+              (tagbody
+                 ,loop-head
+                 (if ,end-test (return-from nil (progn ,@result-forms)))
+                 (tagbody ,@body-forms)
+                 (,set-form ,@(set-vars varlist))
+                 (go ,loop-head))))))))
 )
 
 (defmacro do (varlist end &body body)
@@ -103,17 +105,20 @@
   (expand-do varlist (car end) (cdr end) body 'let* 'setq))
 
 (defmacro dolist ((var list-form &optional result-form) &body body)
-  (let ((itr (gensym "ITERATOR"))
-        (head (gensym "HEAD")))
-    `(block nil
-       (let ((,itr ,list-form))
-         (tagbody ,head
-            (if (null ,itr)
-                (return ,result-form))
-            (let ((,var (car ,itr)))
-              (tagbody ,@body))
-            (setq ,itr (cdr ,itr))
-            (go ,head))))))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    (let ((itr (gensym "ITERATOR"))
+          (head (gensym "HEAD")))
+      `(block nil
+         (let ((,itr ,list-form))
+           (tagbody ,head
+              (if (null ,itr)
+                  (return ,result-form))
+              (let ((,var (car ,itr)))
+                (declare ,@declares)
+                (tagbody ,@body-forms))
+              (setq ,itr (cdr ,itr))
+              (go ,head)))))))
 
 (defmacro dotimes ((var count-form &optional result-form) &body body)
   (let ((count-val (gensym "COUNT")))
