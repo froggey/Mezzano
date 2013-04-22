@@ -96,6 +96,50 @@
   (terpri stream)
   string)
 
+(defun write-case-escaped-string (string stream)
+  "Print STRING while obeying readtable case, *PRINT-CASE* and *PRINT-BASE*."
+  (ecase *print-case*
+    (:upcase
+     (dotimes (i (length string))
+       (let ((c (char string i)))
+         (cond ((or (and (upper-case-p c)
+                         (digit-char-p c *print-base*))
+                    (member c '(#\| #\\))
+                    (lower-case-p c))
+                (write-char #\\ stream)
+                (write-char c stream))
+               (t (write-char c stream))))))
+    (:downcase
+     (dotimes (i (length string))
+       (let ((c (char string i)))
+         (cond ((or (and (upper-case-p c)
+                         (digit-char-p c *print-base*))
+                    (member c '(#\| #\\))
+                    (lower-case-p c))
+                (write-char #\\ stream)
+                (write-char c stream))
+               (t (write-char (char-downcase c) stream))))))))
+
+(defun write-symbol (object stream)
+  (cond ((or *print-escape* *print-readably*)
+         (cond ((null (symbol-package object))
+                (when *print-gensym*
+                  (write-string "#:" stream)))
+               ((keywordp object)
+                (write-char #\: stream))
+               (t (multiple-value-bind (symbol status)
+                      (find-symbol (symbol-name object) *package*)
+                    (unless (and status (eql symbol object))
+                      ;; Not accessible in the current package.
+                      (multiple-value-bind (symbol status)
+                          (find-symbol (symbol-name object) (symbol-package object))
+                        (write-case-escaped-string (package-name (symbol-package object)) stream)
+                        (write-char #\: stream)
+                        (when (not (eql status :external))
+                          (write-char #\: stream)))))))
+         (write-case-escaped-string (symbol-name object) stream))
+        (t (write-case-escaped-string (symbol-name object) stream))))
+
 (defun write-object (object stream)
   (typecase object
     (integer
@@ -124,24 +168,7 @@
        (write-char #\Space stream)
        (write (car i) :stream stream)))
     (symbol
-     (cond ((or *print-escape* *print-readably*)
-            (cond ((null (symbol-package object))
-                   (when *print-gensym*
-                     (write-string "#:" stream)))
-                  ((keywordp object)
-                   (write-char #\: stream))
-                  (t (multiple-value-bind (symbol status)
-                         (find-symbol (symbol-name object) *package*)
-                       (unless (and status (eql symbol object))
-                         ;; Not accessible in the current package.
-                         (multiple-value-bind (symbol status)
-                             (find-symbol (symbol-name object) (symbol-package object))
-                           (write-string (package-name (symbol-package object)) stream)
-                           (write-char #\: stream)
-                           (when (not (eql status :external))
-                             (write-char #\: stream)))))))
-            (write-string (symbol-name object) stream))
-           (t (write-string (symbol-name object) stream))))
+     (write-symbol object stream))
     (string
      (cond ((or *print-escape* *print-readably*)
             (write-char #\" stream)
