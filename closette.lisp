@@ -1358,8 +1358,9 @@ has only has class specializer."
         (remove method (generic-function-methods gf)))
   (setf (method-generic-function method) nil)
   (dolist (class (method-specializers method))
-    (setf (class-direct-methods class)
-          (remove method (class-direct-methods class))))
+    (when (typep class '(or standard-class funcallable-standard-class class))
+      (setf (class-direct-methods class)
+            (remove method (class-direct-methods class)))))
   (finalize-generic-function gf)
   method)
 
