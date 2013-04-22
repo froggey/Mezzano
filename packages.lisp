@@ -70,6 +70,7 @@
     package))
 
 (defun find-symbol (string &optional (package *package*))
+  (check-type string string)
   (let ((p (find-package-or-die package)))
     (multiple-value-bind (sym present-p)
         (gethash string (package-internal-symbols p))
@@ -100,9 +101,15 @@
 	((:internal :external)
 	 ;; TODO: Restarts unintern-old-symbol and don't import.
 	 (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol))))
-    (unless (eql symbol (gethash (symbol-name symbol) (package-external-symbols package)))
-      (unless (eql symbol (gethash (symbol-name symbol) (package-internal-symbols package)))
-        (setf (gethash (symbol-name symbol) (package-internal-symbols package)) symbol)))
+    (multiple-value-bind (existing-external-symbol external-symbol-presentp)
+        (gethash (symbol-name symbol) (package-external-symbols package))
+      (unless (and external-symbol-presentp
+                   (eql symbol existing-external-symbol))
+        (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
+            (gethash (symbol-name symbol) (package-internal-symbols package))
+          (unless (and internal-symbol-presentp
+                       (eql symbol existing-internal-symbol))
+            (setf (gethash (symbol-name symbol) (package-internal-symbols package)) symbol)))))
     (unless (symbol-package symbol)
       (setf (symbol-package symbol) package))))
 
@@ -136,12 +143,25 @@
 	(export-one-symbol symbols p)))
   t)
 
+(defun unintern (symbol &optional (package *package*))
+  (check-type symbol symbol)
+  (setf package (find-package-or-die package))
+  (when (eql (symbol-package symbol) package)
+    (setf (symbol-package symbol) nil))
+  (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
+      (gethash (symbol-name symbol) (package-internal-symbols package))
+    (when (and internal-symbol-presentp (eql existing-internal-symbol symbol))
+      (remhash (symbol-name symbol) (package-internal-symbols package))))
+  (multiple-value-bind (existing-external-symbol external-symbol-presentp)
+      (gethash (symbol-name symbol) (package-external-symbols package))
+    (when (and external-symbol-presentp (eql existing-external-symbol symbol))
+      (remhash (symbol-name symbol) (package-external-symbols package)))))
+
 ;; Function RENAME-PACKAGE
 ;; Function SHADOW
 ;; Function SHADOWING-IMPORT
 ;; Function DELETE-PACKAGE
 ;; Function UNEXPORT
-;; Function UNINTERN
 ;; Function UNUSE-PACKAGE
 ;; Function PACKAGE-SHADOWING-SYMBOLS
 ;; Condition Type PACKAGE-ERROR
@@ -403,6 +423,13 @@
   (dolist (symbol symbol-names)
     (shadow-one-symbol symbol package))
   t)
+
+(defun package-shortest-name (package)
+  (let ((name (package-name package)))
+    (dolist (nick (package-nicknames package))
+      (when (< (length nick) (length name))
+        (setf name nick)))
+    name))
 
 (defun initialize-package-system ()
   (write-line "Initializing package system.")
