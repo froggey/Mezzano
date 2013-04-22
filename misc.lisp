@@ -175,9 +175,6 @@ BODY must not allocate!"
        ,@(mapcar (lambda (var temp) (list 'setq var temp))
                  vars temps))))
 
-(defun provide (module-name)
-  (declare (ignore module-name)))
-
 (defun assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble code
@@ -236,3 +233,25 @@ BODY must not allocate!"
 
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
+
+(defvar *modules* '())
+(defvar *require-hooks* '())
+
+(defun provide (module-name)
+  (pushnew (string module-name) *modules*
+           :test #'string=)
+  (values))
+
+(defun require (module-name &optional pathname-list)
+  (unless (member (string module-name) *modules*
+                  :test #'string=)
+    (if pathname-list
+        (if (listp pathname-list)
+            (dolist (pathname pathname-list)
+              (load pathname))
+            (load pathname-list))
+        (dolist (hook *require-hooks*
+                 (error "Unable to REQUIRE module ~A." module-name))
+          (when (funcall hook module-name)
+            (return)))))
+  (values))
