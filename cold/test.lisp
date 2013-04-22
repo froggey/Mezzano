@@ -912,7 +912,16 @@
         *cold-stream-screen* nil
         *keyboard-shifted* nil
         *early-initialize-hook* '()
-        *initialize-hook* '())
+        *initialize-hook* '()
+        * nil
+        ** nil
+        *** nil
+        /// nil
+        // nil
+        / nil
+        +++ nil
+        ++ nil
+        + nil)
   (setf *print-base* 10.
         *print-escape* t
         *print-readably* nil
