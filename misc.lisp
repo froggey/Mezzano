@@ -255,3 +255,24 @@ BODY must not allocate!"
           (when (funcall hook module-name)
             (return)))))
   (values))
+
+(defmethod print-object ((c cell-error) s)
+  (print-unreadable-object (c s :type t)
+    (write (cell-error-name c) :stream s)))
+
+(defmethod print-object ((c simple-condition) s)
+  (print-unreadable-object (c s :type t)
+    (apply #'format s
+           (simple-condition-format-control c)
+           (simple-condition-format-arguments c))))
+
+(defmethod print-object ((object package) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~:(~S~)" (package-shortest-name object))))
+
+(defmethod print-object ((object pci-device) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~2,'0X:~X:~X"
+            (pci-device-bus object)
+            (pci-device-device object)
+            (pci-device-function object))))
