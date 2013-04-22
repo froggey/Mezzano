@@ -151,11 +151,17 @@
 
 (defun frob-flet-function (definition env)
   (destructuring-bind (name lambda-list &body body) definition
-    (values name
-            ;; FIXME: create a named block.
-            (eval-lambda `(lambda ,lambda-list
-                            ,@body)
-                         env))))
+    (multiple-value-bind (body-forms declares docstring)
+        (sys.int::parse-declares body :permit-docstring t)
+      (values name
+              (eval-lambda `(lambda ,lambda-list
+                              (declare ,@declares)
+                              ,docstring
+                              (block ,(if (symbolp name)
+                                          name
+                                          (second name))
+                                ,@body-forms))
+                         env)))))
 
 (defspecial block (&environment env name &body body)
   (let ((env (cons (list :block name (lambda (values)
