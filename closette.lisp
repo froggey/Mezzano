@@ -99,6 +99,8 @@
           metaobject specializer class
           structure-class structure-object
           intern-eql-specializer eql-specializer eql-specializer-object
+
+          with-slots
           ))
 
 (export exports)
@@ -2201,3 +2203,15 @@ Dispatching on class ~S." gf class))
                            :object object))))
 
 (values)) ;end progn
+
+(defmacro with-slots (slot-entries instance-form &body body)
+  (let ((in (gensym)))
+    `(let ((,in ,instance-form))
+       (symbol-macrolet ,(mapcar (lambda (slot)
+                                   (if (symbolp slot)
+                                       `(,slot (slot-value ,in ',slot))
+                                       (destructuring-bind (variable-name slot-name)
+                                           slot
+                                         `(,variable-name (slot-value ,in ',slot-name)))))
+                                 slot-entries)
+         ,@body))))
