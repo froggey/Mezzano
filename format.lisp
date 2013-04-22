@@ -208,6 +208,19 @@
                         (write-char #\Space s))))))))
   args)
 
+(defun format-recurse (s args params at-sign colon)
+  (when colon
+    (error "~? does not take the colon modifier."))
+  (when params
+    (error "~? takes no parameters."))
+  (cond (at-sign
+         (multiple-value-bind (offset remaining-args)
+             (interpret-format-substring s (pop args) 0 nil args)
+           (declare (ignore offset))
+           remaining-args))
+        (t (interpret-format-substring s (pop args) 0 nil (pop args))
+           args)))
+
 (defun format-ignore (s args params at-sign colon)
   (declare (ignore s params at-sign colon))
   args)
@@ -229,6 +242,7 @@
     (#\_ format-conditional-newline)
     (#\I format-indent)
     (#\T format-tabulate)
+    (#\? format-recurse)
     (#\< format-ignore)
     (#\> format-ignore)
     (#\[ format-ignore)
