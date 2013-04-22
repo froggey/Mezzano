@@ -428,8 +428,15 @@
           object (lisp-object-address object)))
 
 (defun describe-structure (object stream)
-  (format stream "~S is a structure, with address ~X~%"
-          object (lisp-object-address object)))
+  (format stream "~S is a structure of type ~:(~S~), with address ~X~%"
+          object (type-of object) (lisp-object-address object))
+  (let ((type (%struct-slot object 0)))
+    (loop
+       for i from 1
+       for slot in (structure-slots type) do
+         (let ((*print-level* 3)
+               (*print-length* 5))
+           (format t "  ~S: ~S~%" (first slot) (%struct-slot object i))))))
 
 (defun describe-stack-group (object stream)
   (format stream "~S is a stack-group, with address ~X~%"
