@@ -32,7 +32,8 @@
            #:boole-orc1
            #:boole-orc2
            #:boole-set
-           #:boole-xor)
+           #:boole-xor
+           #:internal-time-units-per-second)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

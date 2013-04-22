@@ -175,3 +175,11 @@ It should be the current year, or earlier."
   (let ((start-time (get-universal-time)))
     (multiple-value-prog1 (funcall fn)
       (format *trace-output* "; Execution took ~D seconds.~%" (- (get-universal-time) start-time)))))
+
+(defconstant internal-time-units-per-second 1)
+
+(defun get-internal-real-time ()
+  (get-universal-time))
+
+(defun get-internal-run-time ()
+  (get-universal-time))
