@@ -147,6 +147,8 @@
 ;;; Will be overriden later in the init process.
 (defun funcallable-instance-lambda-expression (function)
   (values nil t nil))
+(defun funcallable-instance-debug-info (function)
+  nil)
 
 (defun function-name (function)
   (check-type function function)
@@ -174,6 +176,18 @@
        (values nil t (function-name (memref-t address 4))))
       (#.+function-type-funcallable-instance+
        (funcallable-instance-lambda-expression function)))))
+
+(defun function-debug-info (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (ecase (logand info #xFF)
+      (#.+function-type-function+ ;; Regular function. second entry in the constant pool.
+       (memref-t address (1+ (* (logand (ash info -16) #xFFFF) 2))))
+      (#.+function-type-closure+ ;; Closure.
+       (function-debug-info (memref-t address 4)))
+      (#.+function-type-funcallable-instance+
+       (funcallable-instance-debug-info function)))))
 
 (defun funcallable-std-instance-p (object)
   (when (functionp object)

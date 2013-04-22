@@ -183,7 +183,8 @@
     ((t) "SYSTEM")
     ((:keyword) "KEYWORD")))
 
-(defun %defmacro (name function)
+(defun %defmacro (name function &optional lambda-list)
+  (setf (get name 'macro-lambda-list) lambda-list)
   (funcall #'(setf macro-function) function name))
 
 (defun %compiler-defun (name source-lambda)

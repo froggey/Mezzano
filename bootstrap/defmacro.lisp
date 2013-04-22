@@ -245,7 +245,8 @@ the environment variable (or a gensym if it was not specified)."
                         ,(expand-destructuring-lambda-list new-lambda-list name body
                                                            whole `(cdr ,whole)
                                                            (when env-binding
-                                                             (list `(,env-binding ,env))))))))))
+                                                             (list `(,env-binding ,env)))))
+                    ',lambda-list)))))
 
 (defmacro define-compiler-macro (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))

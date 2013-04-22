@@ -322,6 +322,7 @@ be generated instead.")
                      *environment*)
              (when *compile-file-pathname*
                (princ-to-string *compile-file-pathname*))
+             (lambda-information-lambda-list lambda)
              )))))
 
 (defun emit-return-code (&optional tail-call)

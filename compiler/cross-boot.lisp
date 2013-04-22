@@ -50,7 +50,8 @@
                                       (destructuring-bind ,fixed-lambda-list (cdr ,whole-sym)
                                         (block ,name ,@body))))))))
 
-(defun sys.int::%defmacro (name lambda)
+(defun sys.int::%defmacro (name lambda &optional lambda-list)
+  (declare (ignore lambda-list))
   (unless (cl:macro-function name)
     (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))

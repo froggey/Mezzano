@@ -60,6 +60,15 @@
           (interpreted-function-environment function)
           (interpreted-function-name function)))
 
+(defmethod sys.int::funcallable-instance-debug-info ((function interpreted-function))
+  (list :debug-info
+        (slot-value function 'name)
+        nil
+        nil
+        nil
+        nil
+        (second (slot-value function 'lambda))))
+
 (defmethod print-object ((object interpreted-function) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (when (interpreted-function-name object)
