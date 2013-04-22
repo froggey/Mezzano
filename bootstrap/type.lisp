@@ -346,8 +346,13 @@
   (when (symbolp type-specifier)
     (let ((struct-type (get type-specifier 'structure-type)))
       (when struct-type
-	(return-from typep (and (structure-object-p object)
-				(eq (%struct-slot object 0) struct-type)))))
+        (return-from typep
+          (and (structure-object-p object)
+               (do ((type (%struct-slot object 0) (structure-parent type)))
+                   ((null type)
+                    nil)
+                 (when (eq type struct-type)
+                   (return t)))))))
     (when (or (std-instance-p object)
               (funcallable-std-instance-p object))
       (let ((class (find-class type-specifier nil)))
