@@ -2081,7 +2081,8 @@ Dispatching on class ~S." gf class))
   (print-unreadable-object (method stream :identity t)
     (format stream "~:(~S~) ~S ~S ~S"
 	    (class-name (class-of method))
-	    (generic-function-name (method-generic-function method))
+	    (when (method-generic-function method)
+              (generic-function-name (method-generic-function method)))
 	    (method-qualifiers method)
 	    (mapcar (lambda (x) (typecase x
                                   ((or standard-class funcallable-standard-class class)
