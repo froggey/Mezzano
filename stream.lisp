@@ -137,7 +137,7 @@
  (slot-value stream 'unread-char))
 
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
-  (setf (slot-value s 'unread-char) nil))
+  (setf (slot-value stream 'unread-char) nil))
 
 (in-package #:sys.int)
 
