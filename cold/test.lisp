@@ -145,7 +145,15 @@
                 (dotimes (i (array-total-size x) t)
                   (when (not (equalp (row-major-aref x i) (row-major-aref y i)))
                     (return nil)))))
-    ;; TODO: structures and hash-tables.
+    (structure-object
+     (and (typep y 'structure-object)
+          (eq (%struct-slot x 0) (%struct-slot y 0))
+          (dotimes (slot (length (structure-slots (%struct-slot x 0)))
+                    t)
+            (when (not (equalp (%struct-slot x (1+ slot))
+                               (%struct-slot y (1+ slot))))
+              (return nil)))))
+    ;; TODO: hash-tables.
     (t (eq x y))))
 
 (defun %with-stream-editor (stream recursive-p function)
