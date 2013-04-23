@@ -582,7 +582,6 @@
     "defmacro.lisp"
     "backquote.lisp"
     "setf.lisp"
-    "setf-full.lisp"
     "defstruct.lisp"
     "cons-compiler-macros.lisp"
     "condition.lisp"

@@ -12,7 +12,6 @@
     "runtime-support.lisp"
     "stack-group.lisp"
     "setf.lisp"
-    "setf-full.lisp"
     "string.lisp"
     "type.lisp"
     "sequence.lisp"
