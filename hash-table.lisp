@@ -134,7 +134,7 @@ Requires at least one completely unbound slot to terminate."
 	(setf free-slot offset))
       (when (eq slot-key *hash-table-unbound-value*)
 	;; Unbound value marks the end of this run.
-	(return (values nil free-slot)))
+        (return (values nil free-slot)))
       (when (funcall test key slot-key)
 	(return (values offset free-slot))))))
 

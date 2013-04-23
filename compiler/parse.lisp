@@ -1,1 +1,1 @@
-../bootstrap/parse.lisp
+../parse.lisp
