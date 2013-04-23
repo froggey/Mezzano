@@ -1,4 +1,4 @@
-(in-package #:system.internals)
+(in-package :sys.int)
 
 (defparameter *active-restarts* nil)
 

@@ -1,7 +1,7 @@
 ;;;; The CL package system.
 ;;;; This file must be loaded last during system bootstrapping.
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (declaim (special *package*))
 

@@ -1,4 +1,4 @@
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defvar *should-inline-functions* t)
 

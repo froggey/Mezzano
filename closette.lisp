@@ -32,19 +32,19 @@
 
 ;;; This is the file closette.lisp
 
-(defpackage #:system.closette
-  (:nicknames #:sys.clos #:clos)
-  (:use #:cl)
-  (:import-from "SYS.INT"
-		#:allocate-std-instance
-		#:std-instance-p
-		#:std-instance-class
-		#:std-instance-slots
-                #:allocate-funcallable-std-instance
-                #:funcallable-std-instance-p
-                #:funcallable-std-instance-function
-                #:funcallable-std-instance-class
-                #:funcallable-std-instance-slots))
+(defpackage :system.closette
+  (:nicknames :sys.clos :clos)
+  (:use :cl)
+  (:import-from :sys.int
+		:allocate-std-instance
+		:std-instance-p
+		:std-instance-class
+		:std-instance-slots
+                :allocate-funcallable-std-instance
+                :funcallable-std-instance-p
+                :funcallable-std-instance-function
+                :funcallable-std-instance-class
+                :funcallable-std-instance-slots))
 
 (in-package #:system.closette)
 

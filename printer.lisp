@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defvar *print-array* t)
 (defvar *print-base* 10)

@@ -1,6 +1,6 @@
 ;;; The condition/error system.
 
-(in-package #:system.internals)
+(in-package :sys.int)
 
 (defparameter *break-on-signals* nil)
 (defparameter *active-handlers* nil)

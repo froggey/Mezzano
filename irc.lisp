@@ -1,8 +1,8 @@
-(defpackage #:irc-client
-  (:use #:cl #:sys.net)
-  (:export lrssl))
+(defpackage :irc-client
+  (:use :cl :sys.net)
+  (:export :lrssl))
 
-(in-package #:irc-client)
+(in-package :irc-client)
 
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)

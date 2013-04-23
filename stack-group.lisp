@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 ;;;; Bits in the stack-group control status field.
 ;;; The state field.

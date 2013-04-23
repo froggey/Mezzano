@@ -1,9 +1,9 @@
-(defpackage #:sys.lap-x86
+(defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
-  (:use #:cl #:sys.lap)
-  (:export #:assemble))
+  (:use :cl :sys.lap)
+  (:export :assemble))
 
-(in-package #:sys.lap-x86)
+(in-package :sys.lap-x86)
 
 (defparameter *instruction-assemblers* (make-hash-table))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")

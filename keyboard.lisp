@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defstruct (ps/2-fifo (:area :static))
   (head 0 :type fixnum)

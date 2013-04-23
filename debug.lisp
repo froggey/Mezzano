@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (declaim (special *debug-io*
                   *standard-input*

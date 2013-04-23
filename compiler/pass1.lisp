@@ -1,4 +1,4 @@
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defun parse-lambda (lambda)
   "Parse a lambda expression, extracting the body, lambda-list, declare expressions, any name declared with lambda-name and a docstring."

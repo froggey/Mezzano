@@ -1,6 +1,6 @@
 (cl:defpackage :png2lisp
-  (:use #:cl #:iterate)
-  (:export convert))
+  (:use :cl :iterate)
+  (:export :convert))
 
 (in-package :png2lisp)
 

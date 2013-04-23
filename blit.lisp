@@ -7,7 +7,7 @@
 ;;;; All other registers are callee save.
 ;;;; Higher-level line blenders must be called with the GC deferred.
 
-(in-package #:sys.graphics)
+(in-package :sys.graphics)
 
 (defun compute-blit-info-dest-src (nrows ncols from-array from-row from-col to-array to-row to-col)
   "Clamp parameters to array boundaries, return the stride of both arrays and their undisplaced base arrays."

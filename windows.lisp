@@ -1,6 +1,6 @@
 ;;;; Window-related classes & methods.
 
-(in-package #:sys.graphics)
+(in-package :sys.graphics)
 
 (defclass window-with-chrome (window)
   ((chrome-drag-state :initform '())

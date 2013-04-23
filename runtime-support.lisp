@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)

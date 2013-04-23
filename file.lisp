@@ -1,9 +1,9 @@
 ;;; Simple remote file protocol client.
 
-(defpackage #:simple-file-client
-  (:use #:cl))
+(defpackage :simple-file-client
+  (:use :cl))
 
-(in-package #:simple-file-client)
+(in-package :simple-file-client)
 
 (defvar *default-simple-file-port* 2599)
 

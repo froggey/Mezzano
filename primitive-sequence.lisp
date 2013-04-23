@@ -2,6 +2,8 @@
 ;;;; operate on lists. It is loaded during bootstrap and the functions
 ;;;; are replaced with the full versions later.
 
+(in-package :sys.int)
+
 (defun some (predicate list)
   (dolist (i list)
     (let ((result (funcall predicate i)))

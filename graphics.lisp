@@ -1,8 +1,8 @@
-(defpackage #:sys.graphics
-  (:use #:cl)
-  (:export #:register-screen))
+(defpackage :sys.graphics
+  (:use :cl)
+  (:export :register-screen))
 
-(in-package #:sys.graphics)
+(in-package :sys.graphics)
 
 ;;; Colours from Zenburn.
 (defvar *default-foreground-colour* '(0.863 0.863 0.8))

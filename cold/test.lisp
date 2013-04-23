@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (declaim (special *cold-toplevel-forms*
                   *package-system*

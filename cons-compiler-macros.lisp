@@ -1,4 +1,4 @@
-(in-package "SYSTEM.INTERNALS")
+(in-package :sys.int)
 
 (define-compiler-macro mapcar (function list &rest more-lists)
   (let* ((fn-sym (gensym "FN"))

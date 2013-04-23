@@ -1,6 +1,6 @@
 ;;;; Bootstrap macros and functions for the cross-compiler.
 
-(in-package #:sys.c)
+(in-package :sys.c)
 
 (def-x-macro in-package (name)
   `(eval-when (:compile-toplevel :load-toplevel :execute)

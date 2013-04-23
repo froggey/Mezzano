@@ -1,10 +1,10 @@
-(defpackage #:sys.lap
+(defpackage :sys.lap
   (:documentation "The system assembler.")
-  (:use #:cl)
-  (:export #:perform-assembly #:emit #:immediatep #:resolve-immediate #:*current-address*
-           #:note-fixup))
+  (:use :cl)
+  (:export :perform-assembly :emit :immediatep :resolve-immediate :*current-address*
+           :note-fixup))
 
-(in-package #:sys.lap)
+(in-package :sys.lap)
 
 (defvar *current-address* nil
   "Address of the current instruction.")

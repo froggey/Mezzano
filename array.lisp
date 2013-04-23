@@ -1,6 +1,6 @@
 ;;;; array.lisp
 
-(in-package "SYSTEM.INTERNALS")
+(in-package :sys.int)
 
 (deftype simple-vector (&optional size)
   `(simple-array t (,size)))

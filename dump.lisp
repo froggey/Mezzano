@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defconstant +ata-status-err+ #b00000001)
 (defconstant +ata-status-drq+ #b00001000)

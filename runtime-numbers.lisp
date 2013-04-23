@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (declaim (inline integerp))
 (defun integerp (object)

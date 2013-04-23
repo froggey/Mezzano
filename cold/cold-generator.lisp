@@ -1,7 +1,7 @@
-(defpackage #:cold-generator
-  (:use #:cl #:iterate #:nibbles))
+(defpackage :cold-generator
+  (:use :cl :iterate :nibbles))
 
-(in-package #:cold-generator)
+(in-package :cold-generator)
 
 (defparameter *source-files*
   '("kboot.lisp" ; ### must be before test.lisp, for the constants.

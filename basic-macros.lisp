@@ -2,7 +2,7 @@
 ;;;; It should be loaded during bootstrap after the full defmacro
 ;;;; is installed.
 
-(in-package "SYSTEM.INTERNALS")
+(in-package :sys.int)
 
 (defmacro lambda (lambda-list &body body)
   `#'(lambda ,lambda-list ,@body))

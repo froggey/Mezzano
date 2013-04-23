@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defclass framebuffer-output-stream (sys.gray:fundamental-character-output-stream)
   ((framebuffer :initarg :framebuffer :accessor fbstream-framebuffer)

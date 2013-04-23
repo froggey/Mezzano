@@ -1,3 +1,3 @@
-(defpackage #:system.compiler
-  (:nicknames #:sys.c)
-  (:use #:cl))
+(defpackage :system.compiler
+  (:nicknames :sys.c)
+  (:use :cl))

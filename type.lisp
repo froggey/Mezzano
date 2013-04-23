@@ -1,6 +1,6 @@
 ;;;; type.lisp - Type management.
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defmacro deftype (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))

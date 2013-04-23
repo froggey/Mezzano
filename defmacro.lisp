@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 

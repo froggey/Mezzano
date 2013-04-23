@@ -1,7 +1,7 @@
-(defpackage #:peek
-  (:use #:cl))
+(defpackage :peek
+  (:use :cl))
 
-(in-package #:peek)
+(in-package :peek)
 
 (defclass peek-window (sys.graphics::text-window-with-chrome)
   ((process :reader window-process)))

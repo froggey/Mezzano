@@ -1,9 +1,9 @@
-(defpackage #:build-unicode
-  (:export #:decode-glyph #:generate-unifont-table
-	   #:read-unicode-data #:generate-unicode-data-tables)
-  (:use #:cl))
+(defpackage :build-unicode
+  (:export :decode-glyph :generate-unifont-table
+	   :read-unicode-data :generate-unicode-data-tables)
+  (:use :cl))
 
-(in-package #:build-unicode)
+(in-package :build-unicode)
 
 (defun decode-glyph (glyph)
   "Generate a simple-bit-vector from GLYPH."

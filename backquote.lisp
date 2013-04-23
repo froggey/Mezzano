@@ -3,10 +3,10 @@
 ;;; Tested under Symbolics Common Lisp and Lucid Common Lisp.
 ;;; This software is in the public domain.
 
+(in-package :sys.int)
+
 ;;; The following are unique tokens used during processing.
 ;;; They need not be symbols; they need not even be atoms.
-
-(in-package #:sys.int)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 

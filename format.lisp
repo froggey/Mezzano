@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defun format-c (s args params at-sign colon)
   (when params (error "Expected 0 parameters."))

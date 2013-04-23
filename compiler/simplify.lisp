@@ -1,6 +1,6 @@
 ;;;; Simplifiy the ast by removing empty nodes and unused variables.
 
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defun simp-form (form)
   (etypecase form

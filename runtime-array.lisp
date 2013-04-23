@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 ;;; (type tag size-in-bits 16-byte-aligned-p)
 (defvar *array-info*

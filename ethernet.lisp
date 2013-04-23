@@ -1,14 +1,14 @@
-(defpackage #:system.networking
-  (:use #:cl #:sys.int)
-  (:nicknames #:sys.net)
-  (:export register-nic
-           ethernet-mac
-           transmit-packet
-           receive-packet
-           arp-lookup
-           copy-packet packet-length))
+(defpackage :system.networking
+  (:use :cl :sys.int)
+  (:nicknames :sys.net)
+  (:export :register-nic
+           :ethernet-mac
+           :transmit-packet
+           :receive-packet
+           :arp-lookup
+           :copy-packet :packet-length))
 
-(in-package #:sys.net)
+(in-package :sys.net)
 
 (defvar *cards* '())
 

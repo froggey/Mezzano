@@ -1,9 +1,9 @@
 ;;;; Mandelbrot viewer written by Mike "scgtrp" Smith, IPhD.
 
-(defpackage #:mandelbrot
-  (:use #:cl))
+(defpackage :mandelbrot
+  (:use :cl))
 
-(in-package #:mandelbrot)
+(in-package :mandelbrot)
 
 (defclass mandelbrot-window (sys.graphics::window-with-chrome)
   ())

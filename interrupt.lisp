@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defvar *isa-pic-shadow-mask* #xFFFF)
 

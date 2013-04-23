@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defmacro with-profiling (options &body body)
   `(%with-profiling (lambda () ,@body) ,@options))

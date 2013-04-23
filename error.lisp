@@ -1,6 +1,6 @@
 ;;; ERROR and the debugger.
 
-(in-package #:system.internals)
+(in-package :sys.int)
 
 (declaim (special *error-output* *debug-io*))
 (defparameter *infinite-error-protect* 0)

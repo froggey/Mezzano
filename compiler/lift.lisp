@@ -1,6 +1,6 @@
 ;;; This is the compiler pass that performs lambda-lifting.
 
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defun ll-form (form)
   (etypecase form

@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defstruct cold-stream)
 (defvar *screen-offset* (cons 0 0))

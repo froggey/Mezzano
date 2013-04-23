@@ -1,7 +1,7 @@
-(defpackage #:telnet
-  (:use #:cl))
+(defpackage :telnet
+  (:use :cl))
 
-(in-package #:telnet)
+(in-package :telnet)
 
 (defconstant +command-se+ 240
   "End of subnegotiation parameters.")

@@ -1,6 +1,6 @@
 ;;;; John McCarthy 1927-2011
 
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defparameter *perform-tce* nil
   "When true, attempt to eliminate tail calls.")

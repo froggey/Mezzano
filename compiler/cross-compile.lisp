@@ -1,6 +1,6 @@
 ;;;; Support functions for cross-compilation.
 
-(in-package #:sys.c)
+(in-package :sys.c)
 
 (define-condition sys.int::simple-style-warning (style-warning simple-condition) ())
 

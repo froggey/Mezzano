@@ -1,6 +1,6 @@
 ;;;; Definitions and helper functions for KBoot.
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defmacro sys.int::define-constant (name initial-value &key (test ''eql) documentation)
   `(defconstant ,name (let ((val ,initial-value))

@@ -1,53 +1,53 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 ;;; TODO: Call write-string, terpri, start-line-p(?), fresh-line, advance-to-column, listen, read-line, read-char-no-hang, peek-char
 
-(defpackage #:sys.gray
-  (:use #:cl)
+(defpackage :sys.gray
+  (:use :cl)
   (:export
    ;; Gray Streams classes.
-   #:fundamental-stream
-   #:fundamental-input-stream
-   #:fundamental-output-stream
-   #:fundamental-binary-stream
-   #:fundamental-character-stream
-   #:fundamental-binary-input-stream
-   #:fundamental-binary-output-stream
-   #:fundamental-character-input-stream
-   #:fundamental-character-output-stream
+   :fundamental-stream
+   :fundamental-input-stream
+   :fundamental-output-stream
+   :fundamental-binary-stream
+   :fundamental-character-stream
+   :fundamental-binary-input-stream
+   :fundamental-binary-output-stream
+   :fundamental-character-input-stream
+   :fundamental-character-output-stream
    ;; Methods common to all streams.
-   #:stream-element-type
-   #:close
-   #:stream-file-position
+   :stream-element-type
+   :close
+   :stream-file-position
    ;; Input stream methods.
-   #:stream-clear-input
-   #:stream-read-sequence
+   :stream-clear-input
+   :stream-read-sequence
    ;; Output stream methods.
-   #:stream-clear-output
-   #:stream-finish-output
-   #:stream-force-output
-   #:stream-write-sequence
+   :stream-clear-output
+   :stream-finish-output
+   :stream-force-output
+   :stream-write-sequence
    ;;; Binary stream methods.
-   #:stream-read-byte
-   #:stream-write-byte
+   :stream-read-byte
+   :stream-write-byte
    ;;; Character input stream methods.
-   #:stream-peek-char
-   #:stream-read-char-no-hang
-   #:stream-read-char
-   #:stream-read-line
-   #:stream-listen
-   #:stream-unread-char
+   :stream-peek-char
+   :stream-read-char-no-hang
+   :stream-read-char
+   :stream-read-line
+   :stream-listen
+   :stream-unread-char
    ;;; Character output stream methods.
-   #:stream-advance-to-column
-   #:stream-fresh-line
-   #:stream-line-column
-   #:stream-line-length
-   #:stream-start-line-p
-   #:stream-terpri
-   #:stream-write-char
-   #:stream-write-string
+   :stream-advance-to-column
+   :stream-fresh-line
+   :stream-line-column
+   :stream-line-length
+   :stream-start-line-p
+   :stream-terpri
+   :stream-write-char
+   :stream-write-string
    ;; Extensions.
-   #:unread-char-mixin
+   :unread-char-mixin
    ))
 
 (in-package :sys.gray)
@@ -139,7 +139,7 @@
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
   (setf (slot-value stream 'unread-char) nil))
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defclass file-stream (stream) ())
 

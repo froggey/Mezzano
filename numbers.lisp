@@ -1,4 +1,4 @@
-(in-package "SYSTEM.INTERNALS")
+(in-package :sys.int)
 
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)

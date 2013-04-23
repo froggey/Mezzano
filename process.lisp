@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defvar *scheduler-stack-group* nil)
 (defvar *current-process* nil)

@@ -1,6 +1,6 @@
 ;;;; Function inlining.
 
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defun il-form (form)
   (etypecase form

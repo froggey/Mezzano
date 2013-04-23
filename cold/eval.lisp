@@ -1,6 +1,6 @@
 ;;;; Simple EVAL for use in cold images.
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defun eval-cons (form)
   (case (first form)

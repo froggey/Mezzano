@@ -1,6 +1,6 @@
 ;;;; Constant folding & propagation.
 
-(in-package #:system.compiler)
+(in-package :sys.c)
 
 (defvar *known-variables* nil
   "An alist mapping lexical-variables to their values, if known.")

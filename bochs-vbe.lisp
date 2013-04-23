@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defconstant +vbe-dispi-max-xres+              1600)
 (defconstant +vbe-dispi-max-yres+              1200)

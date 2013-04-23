@@ -5,7 +5,7 @@
 ;; |E| Reserved |    Bus   |  Device  |Function |Register|0|0|
 ;; E = Enable bit
 
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (declaim (special *pci-ids*))
 

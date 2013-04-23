@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defconstant +fixnum-tag-mask+ #b111)
 (defconstant +array-type-shift+ 3)

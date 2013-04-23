@@ -1,8 +1,8 @@
-(defpackage #:system.eval
-  (:nicknames #:sys.eval)
-  (:use #:cl))
+(defpackage :system.eval
+  (:nicknames :sys.eval)
+  (:use :cl))
 
-(in-package #:sys.eval)
+(in-package :sys.eval)
 
 (defparameter *special-forms* (make-hash-table))
 

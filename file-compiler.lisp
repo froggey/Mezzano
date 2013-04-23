@@ -1,4 +1,4 @@
-(in-package #:system.internals)
+(in-package :sys.int)
 
 (defun expand-macrolet-function (function)
   (destructuring-bind (name lambda-list &body body) function

@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defclass serial-stream (sys.gray:fundamental-binary-input-stream
                          sys.gray:fundamental-binary-output-stream)

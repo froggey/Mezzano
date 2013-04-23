@@ -1,9 +1,9 @@
 ;;; RTL8139 driver.
 
-(defpackage #:system.rtl8139
-  (:use #:cl #:sys.net #:system))
+(defpackage :system.rtl8139
+  (:use :cl :sys.net :system))
 
-(in-package #:system.rtl8139)
+(in-package :system.rtl8139)
 
 (defconstant +rtl8139-id0+        #x00 "ID/MAC register (0 of 6).")
 (defconstant +rtl8139-multicast0+ #x08 "Multicast register (0 of 8).")

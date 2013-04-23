@@ -1,4 +1,4 @@
-(in-package #:sys.int)
+(in-package :sys.int)
 
 (defgeneric funcallable-instance-lambda-expression (function)
   (:method ((function function))
