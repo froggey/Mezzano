@@ -255,21 +255,20 @@ the environment variable (or a gensym if it was not specified)."
     (multiple-value-bind (new-lambda-list env-binding)
 	(fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
-	 (funcall #'(setf compiler-macro-function)
-		  #'(lambda (,whole ,env)
-		      (declare (lambda-name (compiler-macro-function ,name))
-			       (ignorable ,whole ,env))
-		      (let ((,args (if (eql (car ,whole) 'funcall)
-				       (cddr ,whole)
-				       (cdr ,whole))))
-			,(expand-destructuring-lambda-list new-lambda-list
-                                                           (if (symbolp name)
-                                                               name
-                                                               (second name))
-                                                           body whole args
-							   (when env-binding
-							     (list `(,env-binding ,env))))))
-		  ',name)
+         (setf (compiler-macro-function ',name)
+               #'(lambda (,whole ,env)
+                   (declare (lambda-name (compiler-macro-function ,name))
+                            (ignorable ,whole ,env))
+                   (let ((,args (if (eql (car ,whole) 'funcall)
+                                    (cddr ,whole)
+                                    (cdr ,whole))))
+                     ,(expand-destructuring-lambda-list new-lambda-list
+                                                        (if (symbolp name)
+                                                            name
+                                                            (second name))
+                                                        body whole args
+                                                        (when env-binding
+                                                          (list `(,env-binding ,env)))))))
 	 ',name))))
 
 (defmacro destructuring-bind (lambda-list expression &body body)

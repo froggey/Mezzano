@@ -193,7 +193,7 @@
 
 (defun %defmacro (name function &optional lambda-list)
   (setf (get name 'macro-lambda-list) lambda-list)
-  (funcall #'(setf macro-function) function name))
+  (setf (macro-function name) function))
 
 (defun %compiler-defun (name source-lambda)
   (let ((sym (function-symbol name)))

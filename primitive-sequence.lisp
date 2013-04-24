@@ -28,14 +28,14 @@
   (let ((result '()))
     (dolist (e list-1)
       (when (not (member e list-2))
-	(setq result (cons e result))))
+	(setf result (cons e result))))
     result))
 
 (defun union (list-1 list-2)
   (let ((result (copy-list list-1)))
     (dolist (e list-2)
       (when (not (member e list-1))
-	(setq result (cons e result))))
+	(setf result (cons e result))))
     result))
 
 (defun intersection (list-1 list-2)
@@ -48,11 +48,11 @@
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
-    (setq test (complement test)))
+    (setf test (complement test)))
   (unless test
-    (setq test #'eql))
+    (setf test #'eql))
   (unless key
-    (setq key #'identity))
+    (setf key #'identity))
   (dolist (i list)
     (when (funcall test item (funcall key i))
       (return i))))
@@ -61,17 +61,17 @@
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
-    (setq test (complement test)))
+    (setf test (complement test)))
   (unless test
-    (setq test #'eql))
+    (setf test #'eql))
   (unless key
-    (setq key #'identity))
+    (setf key #'identity))
   (let* ((new-list (cons nil nil))
 	 (tail new-list))
     (dolist (i list (cdr new-list))
       (unless (funcall test item (funcall key i))
-	(funcall #'(setf cdr) (cons i nil) tail)
-	(setq tail (cdr tail))))))
+	(setf (cdr tail) (cons i nil))
+	(setf tail (cdr tail))))))
 
 (defun remove-if (test sequence &key key)
   (unless key (setf key #'identity))
@@ -79,8 +79,8 @@
 	 (tail list))
     (dolist (e sequence (cdr list))
       (when (not (funcall test (funcall key e)))
-	(funcall #'(setf cdr) (cons e nil) tail)
-	(setq tail (cdr tail))))))
+	(setf (cdr tail) (cons e nil))
+	(setf tail (cdr tail))))))
 
 (defun delete (item sequence &key key test test-not)
   (remove item sequence :key key :test test :test-not test-not))
