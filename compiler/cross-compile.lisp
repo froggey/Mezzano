@@ -604,6 +604,7 @@
     "gc.lisp"
     "process.lisp"
     "interrupt.lisp"
+    "cold-start.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")

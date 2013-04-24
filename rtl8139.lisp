@@ -248,10 +248,6 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
   ;; Write #xFFFF to ISR to clear the interrupt state.
   (setf (io-port/16 (+ io-base +rtl8139-isr+)) #xFFFF))
 
-(defun ub16ref/le (vector index)
-  (logior (aref vector index)
-	  (ash (aref vector (1+ index)) 8)))
-
 (defun rtl8139-process (card)
   (let ((signal-cons (slot-value card 'signal-cons)))
     (loop (sys.int::process-wait "RTL8139 interrupt"
@@ -277,9 +273,9 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
            ((logtest (rtl8139-reg/8 card +rtl8139-command+) +command-bufe+))
          (let* ((rx-buffer (slot-value card 'rx-buffer))
                 (rx-offset (slot-value card 'rx-offset))
-                (header (ub16ref/le rx-buffer (+ rx-offset 0)))
+                (header (sys.int::ub16ref/le rx-buffer (+ rx-offset 0)))
                 ;; Includes the trailing CRC32.
-                (total-length (ub16ref/le rx-buffer (+ rx-offset 2)))
+                (total-length (sys.int::ub16ref/le rx-buffer (+ rx-offset 2)))
                 (length (- total-length 4)))
            ;; Check the ROK bit in the header and make sure that the packet isn't
            ;; longer than the maximum ethernet length.
