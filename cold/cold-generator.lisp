@@ -38,7 +38,8 @@
     "data-types.lisp"
     "parse.lisp"
     "pci.lisp"
-    "framebuffer.lisp"))
+    "framebuffer.lisp"
+    "describe.lisp"))
 
 (defparameter *special-source-files*
   '(("packages.lisp" *package-system*)))
