@@ -1,5 +1,7 @@
 (in-package :sys.int)
 
+(defvar *top-level-form-number* nil)
+
 (defun expand-macrolet-function (function)
   (destructuring-bind (name lambda-list &body body) function
     (let ((whole (gensym "WHOLE"))
@@ -357,7 +359,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
              (omap (make-hash-table))
              (eof-marker (cons nil nil))
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
-             (*compile-file-truename* (truename *compile-file-pathname*)))
+             (*compile-file-truename* (truename *compile-file-pathname*))
+             (*top-level-form-number* 0))
         (do ((form (read input-stream nil eof-marker)
                    (read input-stream nil eof-marker)))
             ((eql form eof-marker))
@@ -372,7 +375,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                        (add-to-llf +llf-invoke+
                                                    (compile nil `(lambda () (progn ,f))))))
                                  (lambda (f env)
-                                   (sys.eval::eval-in-lexenv f env))))
+                                   (sys.eval::eval-in-lexenv f env)))
+          (incf *top-level-form-number*))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *llf-forms*)))

@@ -526,7 +526,8 @@
              (*compile-verbose* verbose)
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
              (*compile-file-truename* (truename *compile-file-pathname*))
-             (*gensym-counter* 0))
+             (*gensym-counter* 0)
+             (sys.int::*top-level-form-number* 0))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
         (iter:iter (iter:for form = (read input nil input))
@@ -536,7 +537,8 @@
                 (let ((*print-length* 3)
                       (*print-level* 2))
                   (format t ";; X-compiling: ~S~%" form)))
-              (x-compile-top-level form nil))
+              (x-compile-top-level form nil)
+              (incf sys.int::*top-level-form-number*))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *pending-llf-commands*)))

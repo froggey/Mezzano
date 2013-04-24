@@ -322,7 +322,9 @@ be generated instead.")
                      *environment*)
              (when *compile-file-pathname*
                (princ-to-string *compile-file-pathname*))
+             sys.int::*top-level-form-number*
              (lambda-information-lambda-list lambda)
+             (lambda-information-docstring lambda)
              )))))
 
 (defun emit-return-code (&optional tail-call)
