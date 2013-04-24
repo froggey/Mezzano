@@ -15,6 +15,10 @@
 (setf *objects-copied* 0
       *words-copied* 0)
 
+(defconstant +static-header-mark-bit+ 0)
+(defconstant +static-header-used-bit+ 1)
+(defconstant +static-header-end-bit+ 2)
+
 (defvar *gc-in-progress* nil)
 
 (defun gc-init-system-memory ()
@@ -89,11 +93,11 @@
       (loop (let ((size (memref-unsigned-byte-64 space offset))
                   (info (memref-unsigned-byte-64 space (+ offset 1))))
               (incf total-words (+ size 2))
-              (cond ((logtest info #b010)
+              (cond ((logbitp +static-header-used-bit+ info)
                      (incf allocated-words (+ size 2)))
                     (t ; free block.
                      (setf largest-free-space (max largest-free-space size))))
-              (when (logtest info #b100)
+              (when (logbitp +static-header-end-bit+ info)
                 (return))
               (incf offset (+ size 2)))))
     (values allocated-words total-words largest-free-space)))
@@ -246,8 +250,8 @@
 (defun scan-array-like (object)
   (let* ((address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 address 0))
-         (length (ldb (byte 56 8) header))
-         (type (ldb (byte 5 3) header)))
+         (length (ldb (byte +array-length-size+ +array-length-shift+) header))
+         (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
     ;; Dispatch again based on the type.
     (cond ((member type '(#.+array-type-t+
                           #.+array-type-std-instance+
@@ -324,8 +328,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun transport-array-like (object)
   (let* ((address (ash (%pointer-field object) 4))
          (header (memref-unsigned-byte-64 address 0))
-         (type (ldb (byte 5 3) header))
-         (length (ldb (byte 56 8) header)))
+         (length (ldb (byte +array-length-size+ +array-length-shift+) header))
+         (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
     ;; Check for a forwarding pointer before the type check.
     ;; This test is duplicated from transport-generic.
     (when (eql (ldb (byte 4 0) header) +tag-gc-forward+)
@@ -361,13 +365,17 @@ Leaves pointer fields unchanged and returns the new object."
 
 (defun mark-static-object (object)
   (let ((address (ash (%pointer-field object) 4)))
-    (when (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 address -1)))
+    (when (not (logbitp +static-header-used-bit+ (memref-unsigned-byte-64 address -1)))
       (mumble-hex object)
       (emergency-halt "Marking free static object."))
-    (when (eql (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+    (when (eql (ldb (byte 1 +static-header-mark-bit+)
+                    (memref-unsigned-byte-64 address -1))
+               *static-mark-bit*)
       ;; Object has already been marked.
       (return-from mark-static-object))
-    (setf (ldb (byte 1 0) (memref-unsigned-byte-64 address -1)) *static-mark-bit*)
+    (setf (ldb (byte 1 +static-header-mark-bit+)
+               (memref-unsigned-byte-64 address -1))
+          *static-mark-bit*)
     (with-gc-trace (object #\s)
       (scan-object object))))
 
@@ -377,24 +385,27 @@ Leaves pointer fields unchanged and returns the new object."
         (last-free-tag nil))
     (loop (let ((size (memref-unsigned-byte-64 space offset))
                 (info (memref-unsigned-byte-64 space (+ offset 1))))
-            (when (and (logtest info #b010)
-                       (not (eql (ldb (byte 1 0) info) *static-mark-bit*)))
+            (when (and (logbitp +static-header-used-bit+ info)
+                       (not (eql (ldb (byte 1 +static-header-mark-bit+) info)
+                                 *static-mark-bit*)))
               ;; Allocated, but not marked. Must not be reachable.
-              (setf (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ offset 1))) 0))
-            (if (zerop (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ offset 1))))
+              (setf (ldb (byte 1 +static-header-used-bit+) (memref-unsigned-byte-64 space (+ offset 1))) 0))
+            (if (not (logbitp +static-header-used-bit+ (memref-unsigned-byte-64 space (+ offset 1))))
                 ;; Free tag.
                 (cond (last-free-tag
                        ;; Merge adjacent free tags.
                        (incf (memref-unsigned-byte-64 space last-free-tag) (+ size 2))
-                       (when (logtest info #b100)
+                       (when (logbitp +static-header-end-bit+ info)
                          ;; Last tag.
-                         (setf (ldb (byte 1 2) (memref-unsigned-byte-64 space (1+ last-free-tag))) 1)
+                         (setf (ldb (byte 1 +static-header-end-bit+)
+                                    (memref-unsigned-byte-64 space (1+ last-free-tag)))
+                               1)
                          (return)))
                       (t ;; Previous free tag.
                        (setf last-free-tag offset)))
                 ;; Allocated tag.
                 (setf last-free-tag nil))
-            (when (logtest info #b100)
+            (when (logbitp +static-header-end-bit+ info)
               (return))
             (incf offset (+ size 2))))))
 
@@ -485,17 +496,17 @@ Leaves pointer fields unchanged and returns the new object."
      (let ((size (memref-unsigned-byte-64 space hint))
            (info (memref-unsigned-byte-64 space (+ hint 1))))
        (when (and (>= size words)
-                  (not (logtest info #b010)))
+                  (not (logbitp +static-header-used-bit+ info)))
          ;; Large enough to satisfy and free.
          (unless (= size words)
            ;; Larger than required. Split it.
            (setf (memref-unsigned-byte-64 space (+ hint 2 words)) (- size words 2)
-                 (memref-unsigned-byte-64 space (+ hint 3 words)) (logand info #b100)
+                 (memref-unsigned-byte-64 space (+ hint 3 words)) (logand info (ash 1 +static-header-end-bit+))
                  (memref-unsigned-byte-64 space hint) words
-                 (ldb (byte 1 2) (memref-unsigned-byte-64 space (+ hint 1))) 0))
+                 (ldb (byte 1 +static-header-end-bit+) (memref-unsigned-byte-64 space (+ hint 1))) 0))
          ;; Initialize the static header words.
-         (setf (ldb (byte 1 0) (memref-unsigned-byte-64 space (+ hint 1))) *static-mark-bit*
-               (ldb (byte 1 1) (memref-unsigned-byte-64 space (+ hint 1))) 1)
+         (setf (ldb (byte 1 +static-header-mark-bit+) (memref-unsigned-byte-64 space (+ hint 1))) *static-mark-bit*
+               (ldb (byte 1 +static-header-used-bit+) (memref-unsigned-byte-64 space (+ hint 1))) 1)
          ;; Update the hint value, be careful to avoid running past the end of static space.
          (let ((new-hint (if (logtest (memref-unsigned-byte-64 space (+ hint 1)) #b100)
                              0
@@ -507,7 +518,7 @@ Leaves pointer fields unchanged and returns the new object."
                   (setf *large-static-area-hint* new-hint))
                  (t (error "Unknown space ~X??" space))))
          (return (+ space (* hint 8) 16)))
-       (when (logtest info #b100)
+       (when (logbitp +static-header-end-bit+ info)
          ;; Last tag.
          (return nil))
        (incf hint (+ size 2)))))
@@ -537,7 +548,8 @@ the header word. LENGTH is the number of elements in the array."
         (setf (memref-unsigned-byte-64 address i) 0))
       ;; Set header word.
       (setf (memref-unsigned-byte-64 address 0)
-            (logior (ash length 8) (ash tag +array-type-shift+)))
+            (logior (ash length +array-length-shift+)
+                    (ash tag +array-type-shift+)))
       ;; Return value.
       (%%assemble-value address +tag-array-like+))))
 
@@ -712,7 +724,8 @@ the header word. LENGTH is the number of elements in the array."
   ;; fixnum to pointer.
   (sys.lap-x86:sar64 :r8 3)
   ;; Set the header.
-  (sys.lap-x86:mov64 (:r8) #.(logior (ash 1 8) (ash +array-type-bignum+ +array-type-shift+)))
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 1 +array-length-shift+)
+                                     (ash +array-type-bignum+ +array-type-shift+)))
   ;; Set values.
   (sys.lap-x86:pop (:r8 8))
   ;; realign stack.
@@ -731,7 +744,11 @@ the header word. LENGTH is the number of elements in the array."
 (defun %make-bignum-from-fixnum (n)
   (with-interrupts-disabled ()
     (let* ((address (%raw-allocate 2 :static)))
-      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 8) (ash +array-type-bignum+ +array-type-shift+))
+      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 +array-length-shift+)
+                                                        (ash +array-type-bignum+ +array-type-shift+))
+            ;; This is pretty sketchy...
+            ;; It works correctly for negative fixnums (producing a negative fixnum),
+            ;; but probably shouldn't.
             (memref-unsigned-byte-64 address 1) n)
       (%%assemble-value address +tag-array-like+))))
 

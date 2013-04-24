@@ -3,6 +3,8 @@
 (defconstant +fixnum-tag-mask+ #b111)
 (defconstant +array-type-shift+ 3)
 (defconstant +array-type-size+ 5)
+(defconstant +array-length-shift+ 8)
+(defconstant +array-length-size+ 56)
 
 (defconstant +tag-even-fixnum+   #b0000)
 (defconstant +tag-cons+          #b0001)
