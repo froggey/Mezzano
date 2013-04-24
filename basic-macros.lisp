@@ -264,10 +264,3 @@
            (%compiler-defun ',name ',the-lambda))
          (%defun ',name ,the-lambda)
          ',name)))))
-
-(defmacro loop (&body body)
-  (let ((head (gensym)))
-    `(block nil
-       (tagbody ,head
-	  (progn ,@body)
-	  (go ,head)))))
