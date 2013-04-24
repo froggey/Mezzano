@@ -123,6 +123,12 @@
 (defun remove-if-not (test sequence &key key); from-end (start 0) end count
   (remove-if (complement test) sequence :key key))
 
+(defun delete (item sequence &key key test test-not)
+  (remove item sequence :key key :test test :test-not test-not))
+
+(defun delete-if (test sequence &key key)
+  (remove-if test sequence :key key))
+
 (defun remove-duplicates (sequence &key from-end test test-not key) ; (start 0) end
   (when (and test test-not)
     (error "Both :test and :test-not specified"))
@@ -432,3 +438,28 @@
                                 (funcall key
                                          (elt sequence (+ i 2))))))
              x))))
+
+(defun set-difference (list-1 list-2)
+  (let ((result '()))
+    (dolist (e list-1)
+      (when (not (member e list-2))
+	(setf result (cons e result))))
+    result))
+
+(defun union (list-1 list-2)
+  (let ((result (copy-list list-1)))
+    (dolist (e list-2)
+      (when (not (member e list-1))
+	(setf result (cons e result))))
+    result))
+
+(defun intersection (list-1 list-2)
+  (when list-1
+    (if (member (first list-1) list-2)
+        (cons (first list-1) (intersection (rest list-1) list-2))
+        (intersection (rest list-1) list-2))))
+
+;; I sure hope so...
+(setf (fdefinition 'stable-sort) #'sort)
+;; missing function...
+(setf (fdefinition 'delete-duplicates) #'remove-duplicates)

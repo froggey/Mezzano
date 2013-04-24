@@ -185,9 +185,6 @@ BODY must not allocate!"
         :info (list name debug-info))
     (make-function mc constants)))
 
-(setf (fdefinition 'delete) #'remove
-      (fdefinition 'delete-if) #'remove-if)
-
 (defun special-operator-p (symbol)
   (check-type symbol symbol)
   (member symbol '(block catch eval-when flet function go if labels
@@ -230,11 +227,6 @@ BODY must not allocate!"
 (defconstant array-total-size-limit (ash 1 48))
 
 (defconstant char-code-limit #x110000)
-
-;; I sure hope so...
-(setf (fdefinition 'stable-sort) #'sort)
-;; missing function...
-(setf (fdefinition 'delete-duplicates) #'remove-duplicates)
 
 (defun string-left-trim (character-bag string)
   (setf string (string string))
