@@ -5,7 +5,7 @@
 
 (defparameter *source-files*
   '("kboot.lisp" ; ### must be before test.lisp, for the constants.
-    "cold/test.lisp"
+    "cold-start.lisp"
     "gc.lisp"
     "runtime-array.lisp"
     "runtime-numbers.lisp"
