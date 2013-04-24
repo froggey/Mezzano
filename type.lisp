@@ -22,6 +22,12 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %deftype (name expander)
   (setf (get name 'type-expander) expander))
+(defun %define-compound-type (name function)
+  (setf (get name 'compound-type) function))
+(defun %define-compound-type-optimizer (name function)
+  (setf (get name 'compound-type-optimizer) function))
+(defun %define-type-symbol (name function)
+  (setf (get name 'type-symbol) function))
 )
 
 (deftype bit ()
@@ -94,13 +100,13 @@
   (destructuring-bind (function) (cdr type)
     (funcall function object)))
 
-(setf (get 'satisfies 'compound-type) 'satisfies-type-p)
+(%define-compound-type 'satisfies 'satisfies-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-satisfies-type (object type)
   (destructuring-bind (predicate-name) (rest type)
     `(,predicate-name ,object)))
-(setf (get 'satisfies 'compound-type-optimizer) 'compile-satisfies-type)
+(%define-compound-type-optimizer 'satisfies 'compile-satisfies-type)
 )
 
 (defun integer-type-p (object type)
@@ -112,8 +118,8 @@
 	 (or (eql max '*)
 	     (<= object max)))))
 
-(setf (get 'integer 'compound-type) 'integer-type-p)
-(setf (get 'rational 'compound-type) 'integer-type-p) ; ###
+(%define-compound-type 'integer 'integer-type-p)
+(%define-compound-type 'rational 'integer-type-p) ; ###
 
 (defun real-type-p (object type)
   (multiple-value-bind (min max)
@@ -123,7 +129,7 @@
 	     (>= object min))
 	 (or (eql max '*)
 	     (<= object max)))))
-(setf (get 'real 'compound-type) 'real-type-p)
+(%define-compound-type 'real 'real-type-p)
 
 (defun float-type-p (object type)
   (multiple-value-bind (min max)
@@ -133,7 +139,7 @@
 	     (>= object min))
 	 (or (eql max '*)
 	     (<= object max)))))
-(setf (get 'float 'compound-type) 'float-type-p)
+(%define-compound-type 'float 'float-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-rational-type (object type)
@@ -168,11 +174,11 @@
                                       type base))
                              `(<= ,object ',max))))))))
 
-(setf (get 'real 'compound-type-optimizer) 'compile-rational-type)
-(setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
-(setf (get 'integer 'compound-type-optimizer) 'compile-rational-type)
-(setf (get 'rational 'compound-type-optimizer) 'compile-rational-type)
-(setf (get 'float 'compound-type-optimizer) 'compile-rational-type)
+(%define-compound-type-optimizer 'real 'compile-rational-type)
+(%define-compound-type-optimizer 'rational 'compile-rational-type)
+(%define-compound-type-optimizer 'integer 'compile-rational-type)
+(%define-compound-type-optimizer 'rational 'compile-rational-type)
+(%define-compound-type-optimizer 'float 'compile-rational-type)
 )
 
 (defun cons-type-p (object type)
@@ -187,63 +193,67 @@
 	     (typep (car object) car-type))
 	 (or (eql cdr-type 't)
 	     (typep (cdr object) cdr-type)))))
-(setf (get 'cons 'compound-type) 'cons-type-p)
+(%define-compound-type 'cons 'cons-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(setf (get 'null 'type-symbol) 'null)
-(setf (get 'list 'type-symbol) 'listp)
-(setf (get 'cons 'type-symbol) 'consp)
-(setf (get 'symbol 'type-symbol) 'symbolp)
-(setf (get 'number 'type-symbol) 'numberp)
-(setf (get 'real 'type-symbol) 'realp)
-(setf (get 'complex 'type-symbol) 'complexp)
-(setf (get 'integer 'type-symbol) 'integerp)
-(setf (get 'rational 'type-symbol) 'integerp) ; ###
-(setf (get 'float 'type-symbol) 'floatp)
-(setf (get 'character 'type-symbol) 'characterp)
-(setf (get 'string 'type-symbol) 'stringp)
-(setf (get 'function 'type-symbol) 'functionp)
-(setf (get 'structure-object 'type-symbol) 'structure-object-p)
-(setf (get 'keyword 'type-symbol) 'keywordp)
+(%define-type-symbol 'null 'null)
+(%define-type-symbol 'list 'listp)
+(%define-type-symbol 'cons 'consp)
+(%define-type-symbol 'symbol 'symbolp)
+(%define-type-symbol 'number 'numberp)
+(%define-type-symbol 'real 'realp)
+(%define-type-symbol 'complex 'complexp)
+(%define-type-symbol 'integer 'integerp)
+(%define-type-symbol 'rational 'integerp) ; ###
+(%define-type-symbol 'float 'floatp)
+(%define-type-symbol 'character 'characterp)
+(%define-type-symbol 'string 'stringp)
+(%define-type-symbol 'function 'functionp)
+(%define-type-symbol 'structure-object 'structure-object-p)
+(%define-type-symbol 'keyword 'keywordp)
 )
-(setf (get 't 'type-symbol) #'(lambda (x) (declare (ignore x)) t))
+(%define-type-symbol 't #'(lambda (x) (declare (ignore x)) t))
 
 (defun or-type (object type)
   (dolist (elt (cdr type))
     (when (typep object elt)
       (return elt))))
-(setf (get 'or 'compound-type) 'or-type)
+(%define-compound-type 'or 'or-type)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-or-type (object type)
   `(or ,@(mapcar (lambda (x) `(typep ,object ',x)) (rest type))))
-(setf (get 'or 'compound-type-optimizer) 'compile-or-type)
+(%define-compound-type-optimizer 'or 'compile-or-type)
 )
 
 (defun member-type (object type)
   (dolist (o (cdr type))
     (when (eql object o)
       (return t))))
-(setf (get 'member 'compound-type) 'member-type)
+(%define-compound-type 'member 'member-type)
 
 (defun eql-type (object type)
   (destructuring-bind (other-object) (rest type)
     (eql object other-object)))
-(setf (get 'eql 'compound-type) 'eql-type)
+(%define-compound-type 'eql 'eql-type)
 
-(setf (get 'fixnum 'numeric-supertype) 'integer
-      (get 'bignum 'numeric-supertype) 'integer
-      (get 'integer 'numeric-supertype) 'rational
-      (get 'ratio 'numeric-supertype) 'rational
-      (get 'rational 'numeric-supertype) 'real
-      (get 'short-float 'numeric-supertype) 'float
-      (get 'single-float 'numeric-supertype) 'float
-      (get 'double-float 'numeric-supertype) 'float
-      (get 'long-float 'numeric-supertype) 'float
-      (get 'float 'numeric-supertype) 'real
-      (get 'real 'numeric-supertype) 'number
-      (get 'complex 'numeric-supertype) 'number
-      (get 'number 'numeric-supertype) 't)
+(defun set-numeric-supertype (type supertype)
+  "Set the supertype of a numeric type."
+  (setf (get type 'numeric-supertype) supertype))
+
+(set-numeric-supertype 'fixnum 'integer)
+(set-numeric-supertype 'bignum 'integer)
+(set-numeric-supertype 'integer 'rational)
+(set-numeric-supertype 'ratio 'rational)
+(set-numeric-supertype 'rational 'real)
+(set-numeric-supertype 'short-float 'float)
+(set-numeric-supertype 'single-float 'float)
+(set-numeric-supertype 'double-float 'float)
+(set-numeric-supertype 'long-float 'float)
+(set-numeric-supertype 'float 'real)
+(set-numeric-supertype 'real 'number)
+(set-numeric-supertype 'complex 'number)
+(set-numeric-supertype 'number 't)
 
 (defun numeric-subtypep (t1 t2)
   (and (symbolp t1) (symbolp t2)

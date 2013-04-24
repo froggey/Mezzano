@@ -648,10 +648,3 @@ files will be compiled correctly.")
               (save-object o *output-map* *output-fasl*))
             (write-byte (car cmd) *output-fasl*))))
       (write-byte +llf-end-of-load+ *output-fasl*))))
-
-#+sbcl
-(sb-ext:with-unlocked-packages (#:cl)
-(defun (setf get) (value symbol indicator &optional default)
-  (declare (ignore default))
-  (setf (get symbol indicator) value))
-)
