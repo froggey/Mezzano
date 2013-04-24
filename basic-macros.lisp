@@ -251,26 +251,19 @@
 (defmacro defun (name lambda-list &body body)
   (let ((base-name (if (consp name)
 		       (second name)
-		       name))
-	(declares '()))
-    (do ()
-	((not (and body
-		   (or (and (consp (first body))
-			    (eql (first (first body)) 'declare))
-		       (and (stringp (first body))
-			    (rest body))))))
-      (if (consp (first body))
-	  (push (pop body) declares)
-	  (pop body)))
+		       name)))
+  (multiple-value-bind (body-forms declares docstring)
+      (parse-declares body :permit-docstring t)
     (let ((the-lambda `(lambda ,lambda-list
-                         ,@(nreverse declares)
-                         (declare (lambda-name ,name))
-                         (block ,base-name ,@body))))
+                         (declare ,@declares
+                                  (lambda-name ,name))
+                         ,docstring
+                         (block ,base-name ,@body-forms))))
       `(progn
          (eval-when (:compile-toplevel :load-toplevel :execute)
            (%compiler-defun ',name ',the-lambda))
          (%defun ',name ,the-lambda)
-         ',name))))
+         ',name)))))
 
 (defmacro loop (&body body)
   (let ((head (gensym)))
