@@ -48,16 +48,11 @@
 	  `(or ,(first c)
 	       (cond ,@(rest clauses)))))))
 
-;;; TODO: Complete psetq. Has to work with setf & symbol-macros.
 (defmacro psetq (&rest pairs)
-  (when pairs
-    (when (null (cdr pairs))
-      (error "Odd number of arguments to PSETQ"))
-    (let ((value (gensym)))
-      `(let ((,value ,(cadr pairs)))
-	 (psetq ,@(cddr pairs))
-	 (setq ,(car pairs) ,value)
-	 nil))))
+  ;; Make sure all variables are symbols, then hand off to PSETF.
+  (loop for var in pairs by #'cddr
+     do (check-type var symbol))
+  `(psetf ,@pairs))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
