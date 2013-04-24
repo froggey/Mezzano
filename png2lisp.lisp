@@ -4,11 +4,13 @@
 
 (in-package :png2lisp)
 
+(require :png-read)
+
 (defun png-colour (png y x)
   (logior (ash (aref png x y 0) 16)
           (ash (aref png x y 1) 8)
           (aref png x y 2)
-          (ash (aref png x y 3) 24)))
+          (ash #xFF #+nil(aref png x y 3) 24)))
 
 (defun convert (path name &optional
                        (output-path (make-pathname :type "lisp" :defaults path)))
