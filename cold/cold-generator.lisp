@@ -25,7 +25,6 @@
     "character.lisp"
     "printer.lisp"
     "cold-stream.lisp"
-    "cold/eval.lisp"
     "cold/load.lisp"
     "format.lisp"
     "interrupt.lisp"
