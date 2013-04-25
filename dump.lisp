@@ -10,7 +10,6 @@ Returns number of sectors written."
   (let ((count (truncate (- end start) 512)))
     (dotimes (sector count)
       (setf (io-port/8 #x1F6) (logior #xE0 (ldb (byte 4 24) (+ start-sector sector)));drive and high bits of the lba
-            (io-port/8 #x1F1) 0 ; ???
             (io-port/8 #x1F2) 1 ; sector count
             (io-port/8 #x1F3) (ldb (byte 8 0) (+ start-sector sector))
             (io-port/8 #x1F4) (ldb (byte 8 8) (+ start-sector sector))
@@ -29,7 +28,14 @@ Returns number of sectors written."
       (dotimes (i 256)
         (setf (io-port/16 #x1F0) (memref-unsigned-byte-16 (+ #x8000000000 start
                                                              (* sector 512))
-                                                          i))))
+                                                          i)))
+      ;; Wait for BSY to clear.
+      (tagbody
+       top (let ((status (io-port/8 #x1F7)))
+             (when (logtest status +ata-status-bsy+)
+               (go top))
+             (when (logtest status +ata-status-err+)  ;ERR set.
+               (error "Failed write command for sector ~S. Status: ~X." (+ start-sector sector) status)))))
     count))
 
 (defun dump-virtual-range (start end start-sector)
