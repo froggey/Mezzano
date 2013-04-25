@@ -23,6 +23,10 @@ be generated instead.")
 (defvar *current-lambda-name* nil)
 (defvar *control-stack-depth* nil)
 
+(defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-array-like+))
+(defconstant +tls-base-offset+ (- sys.int::+tag-array-like+))
+(defconstant +tls-offset-shift+ (+ 8 3))
+
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (push i *code-accum*)))
@@ -856,10 +860,6 @@ be generated instead.")
   (or (null (lexical-variable-used-in var))
       (and (null (cdr (lexical-variable-used-in var)))
 	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
-
-(defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-array-like+))
-(defconstant +tls-base-offset+ (- sys.int::+tag-array-like+))
-(defconstant +tls-offset-shift+ (+ 8 3))
 
 (defun bind (sym tag)
   (push (cons sym :symbol) *special-bindings*)

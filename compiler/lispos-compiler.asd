@@ -7,7 +7,7 @@
   :licence "None"
   :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2 #:nibbles)
   :components ((:file "cross")
-               #+nil(:file "../bootstrap/data-types.lisp")
+               (:file "data-types" :depends-on ("cross"))
                (:file "cross-compile" :depends-on ("cross"))
                (:file "cross-boot" :depends-on ("cross" "cross-compile"))
                (:file "parse" :depends-on ("cross"))
@@ -18,7 +18,7 @@
                (:file "simplify" :depends-on ("cross" "compiler"))
                (:file "constprop" :depends-on ("cross" "compiler"))
                (:file "kill-temps" :depends-on ("cross" "compiler"))
-               (:file "builtins" :depends-on ("cross" "cross-compile" "compiler" "codegen"))
-               (:file "codegen" :depends-on ("cross" "cross-compile" "compiler"))
+               (:file "builtins" :depends-on ("cross" "cross-compile" "compiler" "codegen" "data-types"))
+               (:file "codegen" :depends-on ("cross" "cross-compile" "compiler" "data-types"))
                (:file "branch-tension" :depends-on ("cross" "compiler" "codegen"))
 ))
