@@ -459,6 +459,8 @@
         (cons (first list-1) (intersection (rest list-1) list-2))
         (intersection (rest list-1) list-2))))
 
+(defun copy-seq (x) (subseq x 0))
+
 ;; I sure hope so...
 (setf (fdefinition 'stable-sort) #'sort)
 ;; missing function...

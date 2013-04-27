@@ -1639,6 +1639,27 @@
       number
       (/ number (abs number))))
 
+;; From SBCL 1.0.55
+(defun round (number &optional (divisor 1))
+  "Rounds number (or number/divisor) to nearest integer.
+  The second returned value is the remainder."
+  (multiple-value-bind (tru rem) (truncate number divisor)
+    (if (zerop rem)
+        (values tru rem)
+        (let ((thresh (/ (abs divisor) 2)))
+          (cond ((or (> rem thresh)
+                     (and (= rem thresh) (oddp tru)))
+                 (if (minusp divisor)
+                     (values (- tru 1) (+ rem divisor))
+                     (values (+ tru 1) (- rem divisor))))
+                ((let ((-thresh (- thresh)))
+                   (or (< rem -thresh)
+                       (and (= rem -thresh) (oddp tru))))
+                 (if (minusp divisor)
+                     (values (+ tru 1) (- rem divisor))
+                     (values (- tru 1) (+ rem divisor))))
+                (t (values tru rem)))))))
+
 ;;; Mathematical horrors!
 
 (defconstant pi 3.14159265359)
