@@ -196,10 +196,10 @@
 (defun warn (datum &rest arguments)
   (let ((condition (coerce-to-condition 'simple-warning datum arguments)))
     (restart-case (signal condition)
-      ((muffle-warning ()
+      (muffle-warning ()
 	:report "Ignore this warning."
 	:test (lambda (c) (eq c condition))
-	(return-from warn nil))))
+	(return-from warn nil)))
     (if (typep condition 'style-warning)
 	(format *error-output* "~&Style-Warning: ~A~%" condition)
 	(format *error-output* "~&Warning: ~A~%" condition))
