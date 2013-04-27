@@ -304,7 +304,7 @@
               (setf (cdr tail) (cons (apply function (cdr call-list)) nil)))
 	  (when (null (car itr))
 	    (return-from mapcar (cdr result)))
-          (setf (cdr tail) (cons (caar itr) nil)
+          (setf (cdr call-tail) (cons (caar itr) nil)
                 (car itr) (cdar itr))))
       (single-mapcar function list)))
 
