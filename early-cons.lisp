@@ -271,7 +271,10 @@
       (setf result (cons elt result)))))
 
 (defun nreverse (sequence)
-  (reverse sequence))
+  (if (vectorp sequence)
+      (dotimes (i (truncate (length sequence) 2) sequence)
+             (rotatef (aref sequence i) (aref sequence (- (length sequence) i))))
+      (reverse sequence)))
 
 ;; The following functional equivalences are true, although good implementations
 ;; will typically use a faster algorithm for achieving the same effect:
