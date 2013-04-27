@@ -38,7 +38,7 @@
       0))
 
 (defun expt (base power)
-  (check-type power integer)
+  (check-type power (integer 0))
   (let ((accum 1))
     (dotimes (i power accum)
       (setf accum (* accum base)))))
@@ -1633,3 +1633,79 @@
     (boole-orc2 (logorc2 integer-1 integer-2))
     (boole-set -1)
     (boole-xor (logxor integer-1 integer-2))))
+
+(defun signum (number)
+  (if (zerop number)
+      number
+      (/ number (abs number))))
+
+;;; Mathematical horrors!
+
+(defconstant pi 3.14159265359)
+
+;;; http://devmaster.net/forums/topic/4648-fast-and-accurate-sinecosine/
+(defun sin (x)
+  (setf x (- (mod (+ x pi) (* 2 pi)) pi))
+  (let* ((b (/ 4 (float pi 0.0)))
+         (c (/ -4 (* (float pi 0.0) (float pi 0.0))))
+         (y (+ (* b x) (* c x (abs x))))
+         (p 0.225))
+    (+ (* p (- (* y (abs y)) y)) y)))
+
+(defun cos (x)
+  (sin (+ x (/ pi 2))))
+
+;;; http://en.literateprograms.org/Logarithm_Function_(Python)
+(defun log-e (x)
+  (let ((base 2.71828)
+        (epsilon 0.000000000001)
+        (integer 0)
+        (partial 0.5)
+        (decimal 0.0))
+    (loop (when (>= x 1) (return))
+       (decf integer)
+       (setf x (* x base)))
+    (loop (when (< x base) (return))
+       (incf integer)
+       (setf x (/ x base)))
+    (setf x (* x x))
+    (loop (when (<= partial epsilon) (return))
+       (when (>= x base) ;If X >= base then a_k is 1
+         (incf decimal partial) ;Insert partial to the front of the list
+         (setf x (/ x base))) ;Since a_k is 1, we divide the number by the base
+       (setf partial (* partial 0.5))
+       (setf x (* x x)))
+    (+ integer decimal)))
+
+(defun log (number &optional base)
+  (if base
+      (/ (log number) (log base))
+      (log-e number)))
+
+;;; http://forums.devshed.com/c-programming-42/implementing-an-atan-function-200106.html
+(defun atan (number1 &optional number2)
+  (if number2
+      (atan2 number1 number2)
+      (let ((x number1)
+            (y 0.0))
+        (when (zerop number1)
+          (return-from atan 0))
+        (when (< x 0)
+          (return-from atan (- (atan (- x)))))
+        (setf x (/ (- x 1.0) (+ x 1.0))
+              y (* x x))
+        (setf x (* (+ (* (- (* (+ (* (- (* (+ (* (- (* (+ (* (- (* 0.0028662257 y) 0.0161657367) y) 0.0429096138) y) 0.0752896400) y) 0.1065626393) y) 0.1420889944) y) 0.1999355085) y) 0.3333314528) y) 1) x))
+        (setf x (+ 0.785398163397 x))
+        x)))
+
+(defun atan2 (y x)
+  (cond ((> x 0) (atan (/ y x)))
+        ((and (>= y 0) (< x 0))
+         (+ (atan (/ y x)) pi))
+        ((and (< y 0) (< x 0))
+         (- (atan (/ y x)) pi))
+        ((and (> y 0) (zerop x))
+         (/ pi 2))
+        ((and (< y 0) (zerop x))
+         (- (/ pi 2)))
+        (t 0)))

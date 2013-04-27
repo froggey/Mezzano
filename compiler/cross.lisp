@@ -33,7 +33,8 @@
            :boole-orc2
            :boole-set
            :boole-xor
-           :internal-time-units-per-second)
+           :internal-time-units-per-second
+           :pi)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
