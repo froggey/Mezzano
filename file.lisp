@@ -509,7 +509,7 @@
 
 (defmethod sys.gray:stream-file-position ((stream simple-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
-         (when (eql new-position :end)
+         (when (eql position-spec :end)
            (with-connection (con (host stream))
              (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
              (let ((id (read-preserving-whitespace con)))
@@ -519,9 +519,9 @@
                (let ((file-size (read-preserving-whitespace con)))
                  (unless (integerp file-size)
                    (error "Read error! ~S" file-size))
-                 (setf new-position file-size)))))
+                 (setf position-spec file-size)))))
          (setf (read-buffer stream) nil)
-         (setf (sf-position stream) new-position))
+         (setf (sf-position stream) position-spec))
         (t (sf-position stream))))
 
 (defun merge-pathnames (pathname &optional
