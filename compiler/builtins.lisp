@@ -742,7 +742,7 @@
       (emit `(sys.lap-x86:mov32 :ecx 16)
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::generic-truncate))
             `(sys.lap-x86:call (:symbol-function :r13)))
-      (unless (eql *for-value* :multiple)
+      (unless (member *for-value* '(:multiple :tail))
         (emit `(sys.lap-x86:mov64 :lsp :rbx)))
       (emit `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r9 divisor t)
@@ -764,7 +764,7 @@
           ;; :rdx holds the remainder as a fixnum.
           `(sys.lap-x86:shl64 :rax 3)
           `(sys.lap-x86:mov64 :r8 :rax))
-    (prog1 (cond ((eql *for-value* :multiple)
+    (prog1 (cond ((member *for-value* '(:multiple :tail))
                   (emit `(sys.lap-x86:mov64 :r9 :rdx)
                         `(sys.lap-x86:mov64 :rbx :lsp))
                   (load-constant :rcx 2)
@@ -1833,7 +1833,7 @@
           function-label
           `(sys.lap-x86:call :r13)
           out-label)
-    (cond ((eql *for-value* :multiple)
+    (cond ((member *for-value* '(:multiple :tail))
            :multiple)
           (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
              (setf *r8-value* (list (gensym)))))))
@@ -1862,7 +1862,7 @@
     (load-in-r8 list t)
     (smash-r8)
     (cond
-      ((eql *for-value* :multiple)
+      ((member *for-value* '(:multiple :tail))
        (emit `(sys.lap-x86:xor32 :ecx :ecx)
              ;; Save the stack pointer.
              `(sys.lap-x86:mov64 :rbx :lsp)
