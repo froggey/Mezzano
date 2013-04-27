@@ -132,6 +132,9 @@
 (defmacro multiple-value-list (value-form)
   `(multiple-value-call #'list ,value-form))
 
+(defmacro nth-value (n form)
+  `(nth ,n (multiple-value-list ,form)))
+
 (defmacro case (keyform &body cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
