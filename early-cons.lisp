@@ -273,7 +273,7 @@
 (defun nreverse (sequence)
   (if (vectorp sequence)
       (dotimes (i (truncate (length sequence) 2) sequence)
-             (rotatef (aref sequence i) (aref sequence (- (length sequence) i))))
+             (rotatef (aref sequence i) (aref sequence (- (length sequence) 1 i))))
       (reverse sequence)))
 
 ;; The following functional equivalences are true, although good implementations
