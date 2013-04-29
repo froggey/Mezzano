@@ -1176,9 +1176,11 @@
 (define-simd-integer-op psubb (#x0F #xF8))
 (define-simd-integer-op punpcklbw (#x0F #x60))
 (define-simd-integer-op pmulhuw (#x0F #xE4))
+(define-simd-integer-op pmulhw (#x0F #xE5))
 (define-simd-integer-op pmullw (#x0F #xD5))
 (define-simd-integer-op pmuludq (#x0F #xF4))
 (define-simd-integer-op paddw (#x0F #xFD))
+(define-simd-integer-op paddusw (#x0F #xDD))
 (define-simd-integer-op packsswb (#x0F #x63))
 (define-simd-integer-op packuswb (#x0F #x67))
 

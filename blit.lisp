@@ -66,6 +66,79 @@
     (setf array (+ (sys.int::lisp-object-address array) (- sys.int::+tag-array-like+) 8)))
   array)
 
+;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+0) TO-OFFSET(+8)
+(sys.int::define-lap-function %bitset-mask-8-line ()
+  (sys.lap-x86:mov64 :rsi :r11)
+  (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
+  (sys.lap-x86:mov64 :rdi (:lsp 0))
+  (sys.lap-x86:sar64 :rdi 3) ; RDI = TO address (byte address)
+  (sys.lap-x86:sar64 (:lsp 8) 1) ; (:lsp 8) = TO-OFFSET (*4)
+  (sys.lap-x86:add64 :rdi (:lsp 8)) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
+  (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
+  (sys.lap-x86:add64 :rsi :r12) ; RSI = MASK + MASK-OFFSET, first pixel in the mask line.
+  (sys.lap-x86:test64 :r9 :r9) ; R9(NCOLS) == 0?
+  (sys.lap-x86:jz out) ; true, goto out.
+  head
+  (sys.lap-x86:mov8 :al (:rsi)) ; AL = MASK-PIXEL
+  (sys.lap-x86:test8 :al :al) ; MASK-CURRENT == 0?
+  (sys.lap-x86:jz next) ; true, skip pixel.
+  (sys.lap-x86:cmp8 :al #xFF) ; MASK-CURRENT == #xFF?
+  (sys.lap-x86:jne blend-alpha) ; true, do full blend.
+  (sys.lap-x86:mov32 :eax :r10d) ; EAX = COLOUR.
+  invoke-setter
+  (sys.lap-x86:call :r8) ; Call SETTER.
+  next
+  (sys.lap-x86:add64 :rdi 4) ; Advance TO address.
+  (sys.lap-x86:add64 :rsi 1) ; Advance MASK address.
+  (sys.lap-x86:sub64 :r9 8) ; Decrement NCOLS, set ZF when zero.
+  (sys.lap-x86:jnz head) ; loop when stuff left to do.
+  out
+  ;; Clear the two data registers that got smashed.
+  (sys.lap-x86:xor32 :r10d :r10d)
+  (sys.lap-x86:xor32 :r12d :r12d)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:lea64 :rbx (:lsp 16))
+  (sys.lap-x86:ret)
+  blend-alpha
+  ;; ARGB888 colour in R10, A8 alpha in AL.
+  (sys.lap-x86:and32 :eax #x000000FF)
+  (sys.lap-x86:movd :mm0 :eax) ; MM0 = mask (0000000M)
+  (sys.lap-x86:movd :mm1 :r10d) ; MM1 = colour (0000ARGB)
+  (sys.lap-x86:pxor :mm3 :mm3) ; MM3 = 0
+  (sys.lap-x86:pmuludq :mm0 (:rip alpha-shuffle)) ; MM0 = mask (0000MMMM)
+  (sys.lap-x86:punpcklbw :mm1 :mm3) ; MM1 = colour (0A0R0G0B)
+  (sys.lap-x86:punpcklbw :mm0 :mm3) ; MM0 = mask (0M0M0M0M)
+  (sys.lap-x86:pmullw :mm1 :mm0) ; MM1 = result (AxRxGxBx)
+  (sys.lap-x86:paddusw :mm1 (:rip round-thingy))
+  (sys.lap-x86:pmulhuw :mm1 (:rip mul-thingy))
+  ;(sys.lap-x86:psrlw :mm1 8) ; MM1 = result (0A0R0G0B)
+  (sys.lap-x86:packuswb :mm1 :mm3) ; MM1 = result (0000ARGB)
+  (sys.lap-x86:movd :eax :mm1)
+  (sys.lap-x86:jmp invoke-setter)
+  alpha-shuffle
+  (:d64/le #x0000000001010101)
+  round-thingy
+  (:d64/le #x0080008000800080)
+  mul-thingy
+  (:d64/le #x0101010101010101))
+
+(defun bitset-argb-xrgb-mask-8 (nrows ncols colour mask-array mask-row mask-col to-array to-row to-col)
+  "Fill a rectangle with COLOUR using an 8-bit mask."
+  (multiple-value-bind (nrows ncols mask mask-offset mask-stride to to-offset to-stride)
+      (compute-blit-info-dest-src nrows ncols mask-array mask-row mask-col to-array to-row to-col)
+    (assert (equal (array-element-type mask) '(unsigned-byte 8)))
+    (assert (equal (array-element-type to) '(unsigned-byte 32)))
+    ;; Stop early for 100% transparent colours.
+    (unless (zerop (ldb (byte 8 24) colour))
+      (sys.int::with-deferred-gc ()
+        (setf to (%simple-array-data-pointer to))
+        (setf mask (%simple-array-data-pointer mask))
+        (dotimes (y nrows)
+          (%bitset-mask-8-line #'%%alpha-blend-one-argb8888-xrgb8888 ncols colour mask mask-offset to to-offset)
+          (incf mask-offset mask-stride)
+          (incf to-offset to-stride))))))
+
 ;;; SETTER NCOLS COLOUR MASK MASK-OFFSET TO TO-OFFSET
 (sys.int::define-lap-function %bitset-mask-1-line ()
   (sys.lap-x86:mov64 :rsi :r11)
