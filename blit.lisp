@@ -226,28 +226,30 @@
   ;; RAX = Source pixel.
   ;; RCX = Alpha channel of source pixel at (byte 8 24).
   ;; RDX = Dest pixel.
+  (sys.lap-x86:shr32 :ebx 24) ; EBX = alpha (000A)
   (sys.lap-x86:movd :mm0 :eax) ; MM0 = source (0000ARGB)
-  (sys.lap-x86:movd :mm1 :ebx) ; MM1 = source alpha (0000A000)
+  (sys.lap-x86:movd :mm1 :ebx) ; MM1 = source alpha (0000000A)
   (sys.lap-x86:movd :mm2 :edx) ; MM2 = dest (0000XRGB)
   (sys.lap-x86:pxor :mm3 :mm3) ; MM3 = 0
   ;; Swizzle alpha.
-  ;; need ssse3 (sys.lap-x86:pshufb :mm1 (:rip alpha-shuffle)) ; MM1 = source alpha (0A0A0A0A)
-  (sys.lap-x86:psrld :mm1 24) ; MM1 = source alpha (0000000A)
   (sys.lap-x86:pmuludq :mm1 (:rip alpha-shuffle)) ; MM1 = source alpha (0000AAAA)
   (sys.lap-x86:punpcklbw :mm1 :mm3) ; MM1 = source alpha (0A0A0A0A)
-  (sys.lap-x86:movq :mm4 (:rip inverse-alpha))
   ;; Compute inverse alpha.
+  (sys.lap-x86:movq :mm4 (:rip inverse-alpha))
   (sys.lap-x86:psubb :mm4 :mm1) ; MM4 = (- 255 alpha)
   ;; Unpack pixels.
   (sys.lap-x86:punpcklbw :mm0 :mm3) ; MM0 = source (0A0R0G0B)
   (sys.lap-x86:punpcklbw :mm2 :mm3) ; MM2 = dest (0A0R0G0B)
   ;; Multiply by alpha.
   (sys.lap-x86:pmullw :mm0 :mm1) ; MM0 = source * alpha
-  (sys.lap-x86:pmullw :mm2 :mm4) ; MM0 = dest * inverse-alpha
+  (sys.lap-x86:pmullw :mm2 :mm4) ; MM2 = dest * inverse-alpha
+  (sys.lap-x86:paddusw :mm0 (:rip round-thingy))
+  (sys.lap-x86:paddusw :mm2 (:rip round-thingy))
+  (sys.lap-x86:pmulhuw :mm0 (:rip mul-thingy))
+  (sys.lap-x86:pmulhuw :mm2 (:rip mul-thingy))
   ;; Blend.
-  (sys.lap-x86:paddw :mm0 :mm2) ; MM0 = final pixel (A0R0G0B0)
+  (sys.lap-x86:paddusw :mm0 :mm2) ; MM0 = final pixel (0A0R0G0B)
   ;; Renormalize.
-  (sys.lap-x86:psrlw :mm0 8) ; MM0 = final pixel (0A0R0G0B)
   (sys.lap-x86:packuswb :mm0 :mm3) ; MM0 = final pixel (0000ARGB)
   (sys.lap-x86:movd :eax :mm0)
   ;; EAX = Final pixel.
@@ -258,9 +260,12 @@
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle
   (:d64/le #x0000000001010101)
-  ;(:d64/le #x8003800380038003)
   inverse-alpha
-  (:d64/le #x00FF00FF00FF00FF))
+  (:d64/le #x00FF00FF00FF00FF)
+  round-thingy
+  (:d64/le #x0080008000800080)
+  mul-thingy
+  (:d64/le #x0101010101010101))
 
 ;;; NCOLS FROM FROM-OFFSET TO TO-OFFSET
 (sys.int::define-lap-function %bitblt-argb-xrgb-line ()
