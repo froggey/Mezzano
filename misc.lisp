@@ -362,3 +362,18 @@ BODY must not allocate!"
 (defun circlep (object)
   (declare (ignore object))
   nil)
+
+(defstruct (random-state
+             (:constructor %make-random-state (bits)))
+  bits)
+
+(defvar *random-state* (%make-random-state 0))
+
+(defun make-random-state (&optional state)
+  (case state
+    ((t) (%make-random-state 0))
+    ((nil) (copy-random-state *random-state*))
+    (otherwise (copy-random-state state))))
+
+(defun random (limit &optional (random-state *random-state*))
+  (rem (incf (random-state-bits random-state)) limit))

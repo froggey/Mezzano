@@ -501,10 +501,6 @@
 	(push port *allocated-tcp-ports*)
 	(return port)))))
 
-(defvar *random-state* (list 0))
-(defun random (limit &optional random-state)
-  (rem (incf (first (or random-state *random-state*))) limit))
-
 (defun tcp-connect (ip port)
   (let* ((source-port (allocate-local-tcp-port))
 	 (seq (random #x100000000))
