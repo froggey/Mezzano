@@ -267,3 +267,19 @@
            (%compiler-defun ',name ',the-lambda))
          (%defun ',name ,the-lambda)
          ',name)))))
+
+(defmacro prog (variables &body body)
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (let ,variables
+         (declare ,@declares)
+         (tagbody ,@body-forms)))))
+
+(defmacro prog* (variables &body body)
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    `(block nil
+       (let* ,variables
+         (declare ,@declares)
+         (tagbody ,@body-forms)))))
