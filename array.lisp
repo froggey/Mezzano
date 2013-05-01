@@ -243,9 +243,6 @@ This must be sorted from most-specific to least-specific.")
          (unless displaced-index-offset
            (setf displaced-index-offset 0))
          (%make-array-header dimensions fill-pointer displaced-index-offset displaced-to area))
-	((and (not (integerp dimensions))
-	      (endp dimensions))
-	 (error "TODO: 0D arrays."))
         (memory
          ;; Element types must be exact matches.
          (when (not (member element-type *specialized-array-types*
