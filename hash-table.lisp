@@ -209,20 +209,24 @@ is below the rehash-threshold."
   ;; TODO: special-case for bignums, ratios and the various complex types.
   (eq-hash object))
 
-;; FIXME: must deal with circularities.
+(defun sxhash-1 (object depth)
+  (if (zerop depth)
+      #x12345678
+      (typecase object
+        (bit-vector 0) ; TODO
+        (cons (logxor (sxhash-1 (car object) (1- depth))
+                      (sxhash-1 (cdr object) (1- depth))))
+        ;;(pathname ...)
+        (string
+         ;; djb2 string hash
+         ;; We use 25-bit characters (unicode+bucky bits), instead of 8-bit chars.
+         ;; I'm unsure how that'll change the behaviour of the hash function
+         (let ((hash 5381))
+           (dotimes (i (length object) hash)
+             (setf hash (logand #xFFFFFFFF (+ (logand #xFFFFFFFF (* hash 33))
+                                              (char-int (char object i))))))))
+        ;; EQL-HASH also works for characters, numbers and symbols.
+        (t (eql-hash object)))))
+
 (defun sxhash (object)
-  (typecase object
-    (bit-vector 0) ; TODO
-    (cons (logxor (sxhash (car object))
-		  (sxhash (cdr object))))
-    ;;(pathname ...)
-    (string
-     ;; djb2 string hash
-     ;; We use 25-bit characters (unicode+bucky bits), instead of 8-bit chars.
-     ;; I'm unsure how that'll change the behaviour of the hash function
-     (let ((hash 5381))
-       (dotimes (i (length object) hash)
-	 (setf hash (logand #xFFFFFFFF (+ (logand #xFFFFFFFF (* hash 33))
-					  (char-int (char object i))))))))
-    ;; EQL-HASH also works for characters, numbers and symbols.
-    (t (eql-hash object))))
+  (sxhash-1 object 10))
