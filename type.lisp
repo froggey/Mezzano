@@ -206,6 +206,8 @@
 (%define-type-symbol 'integer 'integerp)
 (%define-type-symbol 'rational 'integerp) ; ###
 (%define-type-symbol 'float 'floatp)
+(%define-type-symbol 'standard-char 'standard-char-p)
+(%define-type-symbol 'base-char 'base-char-p)
 (%define-type-symbol 'character 'characterp)
 (%define-type-symbol 'string 'stringp)
 (%define-type-symbol 'function 'functionp)
@@ -224,6 +226,32 @@
 (defun compile-or-type (object type)
   `(or ,@(mapcar (lambda (x) `(typep ,object ',x)) (rest type))))
 (%define-compound-type-optimizer 'or 'compile-or-type)
+)
+
+(defun and-type (object type)
+  (dolist (elt (cdr type) t)
+    (when (not (typep object elt))
+      (return nil))))
+(%define-compound-type 'and 'and-type)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-and-type (object type)
+  `(and ,@(mapcar (lambda (x) `(typep ,object ',x)) (rest type))))
+(%define-compound-type-optimizer 'and 'compile-and-type)
+)
+
+(defun not-type (object type)
+  (destructuring-bind (_ inner-type) type
+    (declare (ignore _))
+    (not (typep object inner-type))))
+(%define-compound-type 'not 'not-type)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-not-type (object type)
+  (destructuring-bind (_ inner-type) type
+    (declare (ignore _))
+    `(not (typep ,object ',inner-type))))
+(%define-compound-type-optimizer 'not 'compile-not-type)
 )
 
 (defun member-type (object type)
@@ -336,6 +364,11 @@
            (dolist (type (rest t1) (values t t))
              (unless (subtypep type t2)
                (return (values nil t)))))
+          ((and (consp t2)
+                (eql (first t2) 'or))
+           (dolist (type (rest t2) (values nil t))
+             (when (subtypep t1 type)
+               (return (values t t)))))
 	  (t (values nil t)))))
 
 (defun subclassp (class-1 class-2)
