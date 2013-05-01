@@ -416,12 +416,23 @@
                 (package-external-symbols (find-package-or-die ,package)))
        ,result-form)))
 
+(defun shadow-one-symbol (symbol-name package)
+  (multiple-value-bind (symbol presentp)
+      (gethash symbol-name (package-internal-symbols package))
+    (when presentp (return-from shadow-one-symbol)))
+  (multiple-value-bind (symbol presentp)
+      (gethash symbol-name (package-external-symbols package))
+    (when presentp (return-from shadow-one-symbol)))
+  (let ((new-symbol (make-symbol symbol-name)))
+    (setf (symbol-package new-symbol) package
+          (gethash symbol-name (package-internal-symbols package)) new-symbol)))
+
 (defun shadow (symbol-names &optional (package *package*))
   (unless (listp symbol-names)
     (setf symbol-names (list symbol-names)))
   (setf package (find-package-or-die package))
   (dolist (symbol symbol-names)
-    (shadow-one-symbol symbol package))
+    (shadow-one-symbol (string symbol) package))
   t)
 
 (defun package-shortest-name (package)
