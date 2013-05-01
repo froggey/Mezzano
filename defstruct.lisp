@@ -217,9 +217,10 @@
                  (error "Invalid :TYPE option ~S.%" option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
-            (when conc-namep
-              (intern (string (or conc-name
-                                  (concat-symbols name '-)))))
+            (if conc-namep
+                (intern (string (or conc-name
+                                    (concat-symbols name '-))))
+                (make-symbol ""))
 	    (cond
 	      ;; No constructor.
 	      (suppress-constructors
