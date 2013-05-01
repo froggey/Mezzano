@@ -133,7 +133,6 @@
 (define-condition simple-storage-condition (simple-condition storage-condition) ())
 
 (defun error (datum &rest arguments)
-  (declare (dynamic-extent arguments))
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))
       (cond ((<= *infinite-error-protect* 10)
