@@ -289,6 +289,10 @@ BODY must not allocate!"
             (pci-device-device object)
             (pci-device-function object))))
 
+(defmethod print-object ((o structure-definition) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (write (structure-name o) :stream stream)))
+
 (defun pprint-indent (relative-to n &optional stream)
   (check-type relative-to (member :block :current))
   (check-type n real)
