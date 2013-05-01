@@ -24,6 +24,7 @@
                               sys.gray:fundamental-binary-output-stream
                               file-stream)
   ((path :initarg :path :reader path)
+   (pathname :initarg :pathname :reader file-stream-pathname)
    (host :initarg :host :reader host)
    (position :initarg :position :accessor sf-position)
    (direction :initarg :direction :reader direction)
@@ -283,7 +284,7 @@
   (cond ((pathnamep pathname)
          pathname)
         ((typep pathname 'file-stream)
-         (path pathname))
+         (pathname (file-stream-pathname pathname)))
         (t (parse-simple-file-path (pathname-host *default-pathname-defaults*) pathname))))
 
 (defun truename (pathname)
@@ -351,6 +352,7 @@
                            (assert (eql external-format :default) (external-format))
                            (make-instance 'simple-file-character-stream
                                           :path path
+                                          :pathname pathname
                                           :host host
                                           :direction direction))
                           ((and (subtypep element-type '(unsigned-byte 8))
@@ -358,6 +360,7 @@
                            (assert (eql external-format :default) (external-format))
                            (make-instance 'simple-file-stream
                                           :path path
+                                          :pathname pathname
                                           :host host
                                           :direction direction))
                           (t (error "Unsupported element-type ~S." element-type)))))
@@ -632,7 +635,7 @@
   (pathname thing))
 
 (defun directory (pathspec &key)
-  (let ((path (pathname pathspec)))
+  (let ((path (merge-pathnames pathspec)))
     (directory* (pathname-host path) path)))
 
 (defgeneric directory* (host path))
