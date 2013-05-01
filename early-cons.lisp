@@ -266,9 +266,13 @@
 	(setf (cdr list) (car i))))))
 
 (defun reverse (sequence)
-  (let ((result '()))
-    (dolist (elt sequence result)
-      (setf result (cons elt result)))))
+  (if (listp sequence)
+      (let ((result '()))
+        (dolist (elt sequence result)
+          (setf result (cons elt result))))
+      (nreverse (make-array (length sequence)
+                            :element-type (array-element-type sequence)
+                            :initial-contents sequence))))
 
 (defun nreverse (sequence)
   (if (vectorp sequence)
