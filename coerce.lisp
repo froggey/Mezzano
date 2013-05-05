@@ -22,7 +22,7 @@
     ((or (subtypep type 'bit-vector)
          (subtypep type 'simple-bit-vector))
      'bit)
-    (t (let ((expanded-type (typeexpand result-type)))
+    (t (let ((expanded-type (typeexpand type)))
          (if (and (consp expanded-type)
                   (member (first expanded-type) '(array simple-array)))
              (parse-array-type expanded-type)
