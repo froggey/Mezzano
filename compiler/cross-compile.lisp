@@ -4,6 +4,8 @@
 
 (define-condition sys.int::simple-style-warning (style-warning simple-condition) ())
 
+(defvar sys.int::*top-level-form-number* nil)
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
@@ -455,7 +457,13 @@
         ;; Convert other forms to zero-argument functions and
         ;; add it to the fasl as an eval node.
         ;; Progn to avoid problems with DECLARE.
-        (t (let ((fn (compile-lambda `(lambda () (progn ,form)) (cons env nil))))
+        (t (let ((fn (compile-lambda `(lambda ()
+                                        (declare (system:lambda-name
+                                                  (sys.int::toplevel ,(when *compile-file-pathname*
+                                                                        (princ-to-string *compile-file-pathname*))
+                                                                     ,sys.int::*top-level-form-number*)))
+                                        (progn ,form))
+                                     (cons env nil))))
              (add-to-llf +llf-funcall+ fn)))))
 
 (defun cross-compile-file (input-file &key

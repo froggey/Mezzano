@@ -179,8 +179,6 @@
       (+ n boundary (- (rem n boundary)))))
 
 
-(defvar sys.int::*top-level-form-number* nil)
-
 (macrolet ((x (nib int)
              `(progn (defun ,int (vec index) (,nib vec index))
                      (defun (setf ,int) (val vec index) (setf (,nib vec index) val)))))
