@@ -157,7 +157,9 @@
                          ,@body)
          (sys.int::process-disable ,x)))))
 
-(setf *scheduler-stack-group* (make-stack-group "scheduler" :safe nil))
+(setf *scheduler-stack-group* (make-stack-group "scheduler"
+                                                :safe nil
+                                                :interruptable nil))
 (stack-group-preset *scheduler-stack-group* #'process-scheduler)
 (setf *current-process* (make-process "Initial Process"
                                       :stack-group (current-stack-group)

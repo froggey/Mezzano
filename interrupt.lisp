@@ -296,3 +296,61 @@
                     (make-array (length the-env)
                                 :initial-contents the-env
                                 :area :static)))))
+
+(define-lap-function %%interrupt-break-thunk ()
+  ;; Control will return to the common PIC code.
+  ;; All registers can be smashed here, aside from the stack regs.
+  ;; Align the control stack
+  (sys.lap-x86:mov64 :rax :csp)
+  (sys.lap-x86:test64 :csp 8)
+  (sys.lap-x86:jz over-align)
+  (sys.lap-x86:add64 :csp 8)
+  over-align
+  ;; Save the old CSP and CFP.
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :cfp)
+  ;; Skip one control frame. The debugger can't handle frames created
+  ;; by interrupt handlers.
+  (sys.lap-x86:mov64 :cfp (:cfp))
+  ;; Call break.
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:mov64 :r13 (:constant break))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; Restore stack regs.
+  (sys.lap-x86:pop :cfp)
+  (sys.lap-x86:pop :rax)
+  (sys.lap-x86:mov64 :csp :rax)
+  ;; All done.
+  (sys.lap-x86:ret))
+
+(defun signal-break-from-interrupt ()
+  "Configure the resumer stack group so it will call BREAK when resumed."
+  (let* ((target (stack-group-resumer (current-stack-group)))
+         (sg-pointer (ash (%pointer-field target) 4))
+         (state (memref-t sg-pointer 2))
+         (csp (memref-unsigned-byte-64 sg-pointer 3))
+         (original-csp csp))
+    (when (not (logtest state +stack-group-uninterruptable+))
+      ;; TARGET's control stack looks like:
+      ;;  +0 CFP
+      ;;  +8 LFP
+      ;; +16 LSP
+      ;; +24 RFlags
+      ;; +32 RIP
+      ;; 16 byte alignment not guaranteed.
+      ;; Rewrite it so it looks like:
+      ;;  +0 CFP
+      ;;  +8 LFP
+      ;; +16 LSP
+      ;; +24 RFlags (with IF set)
+      ;; +32 break-thunk
+      ;; +40 RIP
+      ;; and is aligned.
+      (decf csp 8)
+      (setf (memref-unsigned-byte-64 csp 0) (memref-unsigned-byte-64 original-csp 0)) ; CFP
+      (setf (memref-unsigned-byte-64 csp 1) (memref-unsigned-byte-64 original-csp 1)) ; LFP
+      (setf (memref-unsigned-byte-64 csp 2) (memref-unsigned-byte-64 original-csp 2)) ; LSP
+      (setf (memref-unsigned-byte-64 csp 3) (logior (memref-unsigned-byte-64 original-csp 3) #x200)) ; RFlags
+      (setf (memref-t csp 4) #'%%interrupt-break-thunk) ; thunk
+      (setf (memref-unsigned-byte-64 sg-pointer 3) csp))))

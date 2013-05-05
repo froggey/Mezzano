@@ -10,6 +10,7 @@
 (defconstant +stack-group-exhausted+ #b0100)
 ;;; Safe bit.
 (defconstant +stack-group-safe+ #b10000)
+(defconstant +stack-group-uninterruptable+ #b100000)
 
 (defun %array-like-p (object)
   (eql (%tag-field object) +tag-array-like+))
@@ -26,10 +27,11 @@
        (eql (%array-like-type object) +array-type-stack-group+)))
 
 (defun make-stack-group (name &key
-                         control-stack-size
-			 data-stack-size
-			 binding-stack-size
-			 (safe t))
+                                control-stack-size
+                                data-stack-size
+                                binding-stack-size
+                                (safe t)
+                                (interruptable t))
   (unless control-stack-size (setf control-stack-size 8192))
   (unless data-stack-size (setf data-stack-size 8192))
   (unless binding-stack-size (setf binding-stack-size 512))
@@ -42,7 +44,9 @@
 	 (ds-pointer (%allocate-stack data-stack-size))
 	 (bs-pointer (%allocate-stack binding-stack-size)))
     ;; Set state.
-    (setf (memref-t sg-pointer 2) (logior (if safe +stack-group-safe+ 0) +stack-group-exhausted+))
+    (setf (memref-t sg-pointer 2) (logior (if safe +stack-group-safe+ 0)
+                                          (if interruptable 0 +stack-group-uninterruptable+)
+                                          +stack-group-exhausted+))
     ;; Set name.
     (setf (memref-t sg-pointer 4) (string name))
     ;; Control stack base/size.

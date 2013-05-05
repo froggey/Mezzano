@@ -11,8 +11,20 @@
 (defconstant +ps/2-key-irq+ 1)
 (defconstant +ps/2-aux-irq+ 12)
 
-(define-interrupt-handler ps/2-interrupt (fifo &aux data x)
+(define-interrupt-handler ps/2-interrupt (fifo break-state &aux data x)
   (setf data (io-port/8 +ps/2-data-port+))
+  (when break-state
+    ;; Signal a break in the current stack-group when C-Esc is pressed.
+    (case (car break-state)
+      (nil) ; off
+      (0 ; looking for #x1D (left ctrl)
+       (if (eql data #x1D)
+           (incf (car break-state))
+           (setf (car break-state) 0)))
+      (1 ; looking for #x01 (escape)
+       (setf (car break-state) 0)
+       (when (eql data #x01)
+         (signal-break-from-interrupt)))))
   (setf x (1+ (ps/2-fifo-tail fifo)))
   (when (>= x (length (ps/2-fifo-buffer fifo)))
     (setf x 0))
@@ -26,6 +38,7 @@
 (defvar *ps/2-aux-fifo*)
 (defvar *ps/2-key-port-working* nil)
 (defvar *ps/2-aux-port-working* nil)
+(defvar *ps/2-break-control* nil)
 
 (defun ps/2-fifo-empty (fifo)
   (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo)))
@@ -460,10 +473,15 @@
 
 (defun init-ps/2 ()
   ;; Install IRQ handlers.
-  (setf *ps/2-key-fifo* (make-ps/2-fifo)
-        (isa-pic-interrupt-handler +ps/2-key-irq+) (make-interrupt-handler 'ps/2-interrupt *ps/2-key-fifo*)
+  (setf *ps/2-break-control* (cons-in-area 0 nil :static)
+        *ps/2-key-fifo* (make-ps/2-fifo)
+        (isa-pic-interrupt-handler +ps/2-key-irq+) (make-interrupt-handler 'ps/2-interrupt
+                                                                           *ps/2-key-fifo*
+                                                                           *ps/2-break-control*)
         *ps/2-aux-fifo* (make-ps/2-fifo)
-        (isa-pic-interrupt-handler +ps/2-aux-irq+) (make-interrupt-handler 'ps/2-interrupt *ps/2-aux-fifo*))
+        (isa-pic-interrupt-handler +ps/2-aux-irq+) (make-interrupt-handler 'ps/2-interrupt
+                                                                           *ps/2-aux-fifo*
+                                                                           nil))
   ;; Reset keyboard state.
   (setf *ps/2-keyboard-extended-key* nil
         *ps/2-keyboard-shifted* nil
