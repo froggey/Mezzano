@@ -219,10 +219,12 @@
 (defstruct cross-function
   mc
   constants
-  fixups)
+  fixups
+  gc-info
+  gc-info-length)
 
-(defun sys.int::assemble-lap (code &optional name debug-info)
-  (multiple-value-bind (mc constants fixups)
+(defun sys.int::assemble-lap (code &optional name debug-info gc-info (gc-info-length 0))
+  (multiple-value-bind (mc constants fixups symbols)
       (sys.lap-x86:assemble code
         :base-address 12
         :initial-symbols '((nil . :fixup)
@@ -231,7 +233,11 @@
         :info (list name debug-info))
     (make-cross-function :mc mc
                          :constants constants
-                         :fixups fixups)))
+                         :fixups fixups
+                         :gc-info (when gc-info
+                                    (cdr (or (assoc gc-info symbols)
+                                             (error "Missing GC-INFO?"))))
+                         :gc-info-length gc-info-length)))
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
