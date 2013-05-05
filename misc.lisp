@@ -175,7 +175,8 @@ BODY must not allocate!"
        ,@(mapcar (lambda (var temp) (list 'setq var temp))
                  vars temps))))
 
-(defun assemble-lap (code &optional name debug-info)
+(defun assemble-lap (code &optional name debug-info gc-info-offset gc-info-size)
+  (declare (ignore gc-info-offset gc-info-size))
   (multiple-value-bind (mc constants)
       (sys.lap-x86:assemble code
         :base-address 12
