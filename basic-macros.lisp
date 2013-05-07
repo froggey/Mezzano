@@ -143,7 +143,8 @@
 	 ,@(mapcar (lambda (clause)
 		     (declare (type cons clause))
 		     (let ((keys (car clause))
-			   (body (cdr clause)))
+                           ;; Empty body should evaluate to nil.
+			   (body (or (cdr clause) '(nil))))
 		       (cond
 			 ((or (eq keys 't)
 			      (eq keys 'otherwise))
@@ -165,7 +166,8 @@
 	 ,@(mapcar (lambda (clause)
 		     (declare (type cons clause))
 		     (let ((keys (car clause))
-			   (body (cdr clause)))
+                           ;; Empty body should evaluate to nil.
+			   (body (or (cdr clause) '(nil))))
 		       (cond
 			 ((listp keys)
 			  `((or ,@(mapcar (lambda (key)
@@ -205,7 +207,11 @@
 			   (body (cdr clause)))
                        `((typep ,test-key ',key) ,@body)))
 		   cases)
-	 (t (error "~S fell through ETYPECASE expression." ,test-key))))))
+	 (t (error 'simple-type-error
+                   :expected-type '(or ,@(mapcar #'first cases))
+                   :datum ,test-key
+                   :format-control "~S fell through ETYPECASE form"
+                   :format-arguments (list ,test-key)))))))
 
 (defmacro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)

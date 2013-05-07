@@ -285,7 +285,7 @@
           ',name))
 
 (defun make-interrupt-handler (name &rest arguments)
-  (setf argument (copy-list arguments :static))
+  (setf argument (copy-list-in-area arguments :static))
   (let* ((fn (get name 'interrupt-handler))
          (thunk (lambda () (apply fn arguments))))
     ;; Grovel inside the closure and move the environment

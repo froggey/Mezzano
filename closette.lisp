@@ -1065,6 +1065,22 @@
         &key (generic-function-class the-class-standard-gf)
              (method-class the-class-standard-method)
         &allow-other-keys)
+  (cond ((and (symbolp function-name)
+              (special-operator-p function-name))
+         ;; Can't override special operators.
+         (error "~S names a special operator" function-name))
+        ((or (and (fboundp function-name)
+                  (not (find-generic-function function-name nil)))
+             (and (symbolp function-name)
+                  (macro-function function-name)))
+         (cerror "Clobber it" 'simple-error
+                 :format-control "~S is already defined as a non-generic function or macro."
+                 :format-arguments (list function-name))
+         ;; Make sure it is well and truely clobbered.
+         (when (symbolp function-name)
+           (setf (macro-function function-name) nil))
+         (when (fboundp function-name)
+           (fmakunbound function-name))))
   (if (find-generic-function function-name nil)
       (find-generic-function function-name)
       (let ((gf (apply (if (eq generic-function-class the-class-standard-gf)
@@ -1837,6 +1853,7 @@ Dispatching on class ~S." gf class))
 (format t "Class hierarchy created.")
 ;; (It's now okay to define generic functions and methods.)
 
+(fmakunbound 'print-object)
 (defgeneric print-object (instance stream))
 
 (defmethod print-object ((instance t) stream)

@@ -128,7 +128,8 @@
   (error 'type-error :datum datum :expected-type expected-type))
 
 (defun %invalid-argument-error (&rest args)
-  (error "Invalid arguments to function."))
+  (declare (ignore args))
+  (error 'invalid-arguments))
 
 (defun endp (list)
   (cond ((null list) t)
@@ -140,9 +141,17 @@
 (defun list (&rest args)
   args)
 
-(defun copy-list (list &optional area)
-  (when list
-    (cons-in-area (car list) (copy-list (cdr list)) area)))
+(defun copy-list-in-area (list &optional area)
+  (do* ((result (cons nil nil))
+        (tail result)
+        (l list (cdr l)))
+       ((null l)
+        (cdr result))
+    (setf (cdr tail) (cons-in-area (car l) nil area)
+          tail (cdr tail))))
+
+(defun copy-list (list)
+  (copy-list-in-area list))
 
 ;;; Will be overriden later in the init process.
 (defun funcallable-instance-lambda-expression (function)
@@ -231,7 +240,11 @@
 
 (defvar *gensym-counter* 0)
 (defun gensym (&optional (thing "G"))
-  (make-symbol (format nil "~A~D" thing (prog1 *gensym-counter* (incf *gensym-counter*)))))
+  (check-type thing (or string (integer 0)))
+  (if (integerp thing)
+      (make-symbol (format nil "G~D" thing))
+      (prog1 (make-symbol (format nil "~A~D" thing *gensym-counter*))
+        (incf *gensym-counter*))))
 
 ;;; TODO: Expand this so it knows about the compiler's constant folders.
 (defun constantp (form &optional environment)
@@ -352,9 +365,18 @@
 (defvar *gentemp-counter* 0)
 
 (defun gentemp (&optional (prefix "T") (package *package*))
+  (check-type prefix string)
   (do () (nil)
     (let ((name (format nil "~A~D" prefix (incf *gentemp-counter*))))
       (multiple-value-bind (x status)
           (find-symbol name package)
         (declare (ignore x))
         (unless status (return (intern name package)))))))
+
+(defun special-operator-p (symbol)
+  (check-type symbol symbol)
+  (member symbol '(block catch eval-when flet function go if labels
+                   let let* load-time-value locally macrolet
+                   multiple-value-call multiple-value-prog1
+                   progn progv quote return-from setq symbol-macrolet
+                   tagbody the throw unwind-protect)))

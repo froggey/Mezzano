@@ -188,7 +188,7 @@
                         (not (eql object #\Newline))
                         (standard-char-p object))
                    (write-char object stream))
-                  (t (write-string (char-name object)))))
+                  (t (write-string (char-name object) stream))))
            (t (write-char object stream))))
     (function
      (cond ((and (not *print-safe*)

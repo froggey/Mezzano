@@ -665,7 +665,7 @@ the header word. LENGTH is the number of elements in the array."
             (%array-header-storage value) storage)
       value)))
 
-(defun make-symbol (name &optional area)
+(defun make-symbol-in-area (name &optional area)
   (check-type name string)
   (with-interrupts-disabled ()
     (let* ((simp-name (sys.int::simplify-string name))
@@ -681,6 +681,10 @@ the header word. LENGTH is the number of elements in the array."
       (setf (symbol-plist symbol) nil
             (symbol-package symbol) nil)
       symbol)))
+
+(defun make-symbol (name)
+  (check-type name string)
+  (make-symbol-in-area name nil))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
   (sys.lap-x86:pushf)

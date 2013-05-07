@@ -78,6 +78,9 @@
 (define-condition program-error (error)
   ())
 
+(define-condition invalid-arguments (program-error)
+  ())
+
 (define-condition simple-program-error (program-error simple-error)
   ())
 

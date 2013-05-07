@@ -258,10 +258,10 @@
   (setf (symbol-function (function-symbol name)) value))
 
 (defun compiler-macro-function (name &optional environment)
-  (get (function-symbol name) 'compiler-macro-function))
+  (get (function-symbol name) '%compiler-macro-function))
 
 (defun (setf compiler-macro-function) (value name &optional environment)
-  (setf (get (function-symbol name) 'compiler-macro-function) value))
+  (setf (get (function-symbol name) '%compiler-macro-function) value))
 
 (defun simplify-string (string)
   (if (simple-string-p string)

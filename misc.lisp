@@ -186,14 +186,6 @@ BODY must not allocate!"
         :info (list name debug-info))
     (make-function mc constants)))
 
-(defun special-operator-p (symbol)
-  (check-type symbol symbol)
-  (member symbol '(block catch eval-when flet function go if labels
-                   let let* load-time-value locally macrolet
-                   multiple-value-call multiple-value-prog1
-                   progn progv quote return-from setq symbol-macrolet
-                   tagbody the throw unwind-protect)))
-
 (defun lisp-implementation-type ()
   "LispOS")
 
@@ -382,3 +374,9 @@ BODY must not allocate!"
 
 (defun random (limit &optional (random-state *random-state*))
   (rem (incf (random-state-bits random-state)) limit))
+
+(defun set (symbol value)
+  (setf (symbol-value symbol) value))
+
+(defun remprop (symbol indicator)
+  (remf (symbol-plist symbol) indicator))
