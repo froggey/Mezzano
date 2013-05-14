@@ -8,6 +8,7 @@
   "When T, the built-in functions will not be used and full calls will
 be generated instead.")
 (defparameter *enable-branch-tensioner* t)
+(defparameter *trace-asm* nil)
 
 (defvar *run-counter* nil)
 (defvar *load-list* nil)
@@ -204,10 +205,12 @@ be generated instead.")
                                (eql loc :home))
                      collect (list (lexical-variable-name var) i))))
       (setf (get gc-info 'pinned-label) t)
+      (when *enable-branch-tensioner*
+        (setf final-code (tension-branches final-code)))
+      (when *trace-asm*
+        (format t "~{~S~%~}" final-code))
       (sys.int::assemble-lap
-       (if *enable-branch-tensioner*
-           (tension-branches final-code)
-           final-code)
+       final-code
        *current-lambda-name*
        (list :debug-info
              *current-lambda-name*
@@ -1712,7 +1715,7 @@ only R8 will be preserved."
        (<= (length args) 5)))
 
 (defun emit-tail-call (where &optional what)
-  (format t "Performing tail call to ~S in ~S~%"
+  #+nil(format t "Performing tail call to ~S in ~S~%"
           what (lambda-information-name *current-lambda*))
   (emit-return-code t)
   (emit `(sys.lap-x86:jmp ,where)))
