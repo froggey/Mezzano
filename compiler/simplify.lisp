@@ -119,9 +119,9 @@
                                         (go ,then-tag)
                                         (go ,else-tag))))
                    ,then-tag
-                   (return-from ,new-block ,(simp-form (third form)))
+                   (return-from ,new-block ,(simp-form (third form)) ,new-block)
                    ,else-tag
-                   (return-from ,new-block ,(simp-form (fourth form)))))))
+                   (return-from ,new-block ,(simp-form (fourth form)) ,new-block)))))
           (t
            (setf (second form) (simp-form (second form))
                  (third form) (simp-form (third form))
@@ -213,6 +213,7 @@
 
 (defun simp-return-from (form)
   (setf (third form) (simp-form (third form)))
+  (setf (fourth form) (simp-form (fourth form)))
   form)
 
 (defun simp-setq (form)

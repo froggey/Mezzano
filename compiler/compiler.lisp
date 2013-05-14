@@ -22,7 +22,17 @@ A list of any declaration-specifiers."
 
 (defun compile-lambda (lambda &optional env)
   (let ((*environment* (cdr env)))
-    (codegen-lambda (detect-uses (run-optimizers (pass1-lambda lambda (car env)))))))
+    (codegen-lambda
+     ;; Run a final simplify pass to kill off any useless bindings.
+     (detect-uses
+      (simp-form
+       (detect-uses
+        (lower-environment
+         (detect-uses
+          (lower-arguments
+           (detect-uses
+            (run-optimizers
+             (pass1-lambda lambda (car env)))))))))))))
 
 (defun compile (name &optional definition)
   (unless definition
@@ -60,7 +70,8 @@ A list of any declaration-specifiers."
   rest-arg
   enable-keys
   key-args
-  allow-other-keys)
+  allow-other-keys
+  environment-arg)
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
 (defstruct lexical-variable
@@ -75,11 +86,15 @@ A list of any declaration-specifiers."
 (defstruct (block-information
              (:include lexical-variable))
   return-mode
-  count)
+  count
+  env-var
+  env-offset)
 
-(defstruct tagbody-information
-  definition-point
-  go-tags)
+(defstruct (tagbody-information
+             (:include lexical-variable))
+  go-tags
+  env-var
+  env-offset)
 
 (defstruct go-tag
   name
@@ -114,7 +129,9 @@ A list of any declaration-specifiers."
     (etypecase form
       (cons (case (first form)
 	      ((block) (implicit-progn (cddr form)))
-	      ((go) (decf (go-tag-use-count (second form))))
+	      ((go)
+               (decf (go-tag-use-count (second form)))
+               (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
 	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
@@ -129,7 +146,8 @@ A list of any declaration-specifiers."
 	      ((quote))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
-	       (flush-form (third form)))
+	       (flush-form (third form))
+	       (flush-form (fourth form)))
 	      ((setq)
 	       (decf (lexical-variable-use-count (second form)))
 	       (decf (lexical-variable-write-count (second form)))
@@ -180,7 +198,9 @@ A list of any declaration-specifiers."
 	       (let ((tag (fix (second form))))
 		 (incf (go-tag-use-count tag))
 		 (pushnew *current-lambda* (go-tag-used-in tag))
-		 `(go ,tag)))
+		 (incf (lexical-variable-use-count (go-tag-tagbody tag)))
+		 (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
+		 `(go ,tag ,(go-tag-tagbody tag))))
 	      ((if) `(if ,@(implicit-progn (cdr form))))
 	      ((let)
 	       ;; So that labels works correctly, this must create the variables and then
@@ -205,7 +225,7 @@ A list of any declaration-specifiers."
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
 		 (pushnew *current-lambda* (lexical-variable-used-in var))
-		 `(return-from ,var ,(copy-form (third form) replacements))))
+		 `(return-from ,var ,(copy-form (third form) replacements) ,(copy-form (fourth form) replacements))))
 	      ((setq)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -254,7 +274,7 @@ A list of any declaration-specifiers."
 	 (when (lambda-information-rest-arg form)
 	   (setf (lambda-information-rest-arg info)
 		 (copy-variable (lambda-information-rest-arg form))))
-         (setf (lambda-information-key-args info)
+	 (setf (lambda-information-key-args info)
 	       (mapcar (lambda (x)
 			 (list (list (first (first x))
                                      (copy-variable (second (first x))))
@@ -262,6 +282,9 @@ A list of any declaration-specifiers."
 			       (when (third x)
 				 (copy-form (third x)))))
 		       (lambda-information-key-args form)))
+         (when (lambda-information-environment-arg form)
+	   (setf (lambda-information-environment-arg info)
+		 (copy-variable (lambda-information-environment-arg form))))
 	 (setf (lambda-information-body info)
 	       (implicit-progn (lambda-information-body form)))
 	 info)))))
@@ -283,7 +306,9 @@ A list of any declaration-specifiers."
 	       (implicit-progn (cddr form)))
 	      ((go)
 	       (incf (go-tag-use-count (second form)))
-	       (pushnew *current-lambda* (go-tag-used-in (second form))))
+	       (pushnew *current-lambda* (go-tag-used-in (second form)))
+               (incf (lexical-variable-use-count (go-tag-tagbody (second form))))
+               (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody (second form)))))
 	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
@@ -302,15 +327,16 @@ A list of any declaration-specifiers."
 	      ((progv) (implicit-progn (cdr form)))
 	      ((quote))
 	      ((return-from)
-	       (pushnew *current-lambda* (lexical-variable-used-in (second form)))
 	       (incf (lexical-variable-use-count (second form)))
-	       (detect-uses (third form)))
+	       (detect-uses (third form))
+	       (detect-uses (fourth form)))
 	      ((setq)
 	       (pushnew *current-lambda* (lexical-variable-used-in (second form)))
 	       (incf (lexical-variable-use-count (second form)))
 	       (incf (lexical-variable-write-count (second form)))
 	       (detect-uses (third form)))
 	      ((tagbody)
+               (reset-var (second form))
 	       (dolist (tag (tagbody-information-go-tags (second form)))
 		 (setf (go-tag-use-count tag) 0
 		       (go-tag-used-in tag) '()))
@@ -339,6 +365,8 @@ A list of any declaration-specifiers."
 	 (detect-uses (second arg))
 	 (when (third arg)
 	   (reset-var (third arg))))
+       (when (lambda-information-environment-arg form)
+	 (reset-var (lambda-information-environment-arg form)))
        (implicit-progn (lambda-information-body form))))))
   form)
 
@@ -429,7 +457,9 @@ A list of any declaration-specifiers."
 	      ((progn) (implicit-progn (cdr form)))
 	      ((progv) (implicit-progn (cdr form)))
 	      ((quote))
-	      ((return-from) (lower-keyword-arguments (third form)))
+	      ((return-from)
+               (lower-keyword-arguments (third form))
+               (lower-keyword-arguments (fourth form)))
 	      ((setq) (lower-keyword-arguments (third form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
@@ -464,6 +494,102 @@ A list of any declaration-specifiers."
        (implicit-progn (lambda-information-body form))))))
   form)
 
+(defun lower-arguments (form)
+  "Simplify lambda lists so that no lambda argument is special and
+so that no &OPTIONAL argument has a non-constant init-form.
+Must be run after keywords have been lowered."
+  (flet ((implicit-progn (forms)
+	   (dolist (i forms)
+	     (lower-arguments i)))
+         (new-var (name)
+           (make-lexical-variable :name (gensym name)
+                                  :definition-point *current-lambda*)))
+    (etypecase form
+      (cons (case (first form)
+	      ((block) (implicit-progn (cddr form)))
+	      ((go))
+	      ((if) (implicit-progn (cdr form)))
+	      ((let)
+	       (dolist (b (second form))
+		 (lower-arguments (second b)))
+	       (implicit-progn (cddr form)))
+	      ((load-time-value) (error "TODO: load-time-value"))
+	      ((multiple-value-bind) (implicit-progn (cddr form)))
+	      ((multiple-value-call) (implicit-progn (cdr form)))
+	      ((multiple-value-prog1) (implicit-progn (cdr form)))
+	      ((progn) (implicit-progn (cdr form)))
+	      ((progv) (implicit-progn (cdr form)))
+	      ((quote))
+	      ((return-from)
+               (lower-arguments (third form))
+               (lower-arguments (fourth form)))
+	      ((setq) (lower-arguments (third form)))
+	      ((tagbody)
+	       (dolist (i (cddr form))
+		 (unless (go-tag-p i)
+		   (lower-arguments i))))
+	      ((the) (lower-arguments (third form)))
+	      ((unwind-protect) (implicit-progn (cdr form)))
+              (t (implicit-progn (cdr form)))))
+    (lexical-variable)
+    (lambda-information
+     (let* ((*current-lambda* form)
+            (extra-bindings '()))
+       (when (lambda-information-enable-keys form)
+         (error "Keyword arguments not lowered!"))
+       ;; Eliminate special required arguments.
+       (setf (lambda-information-required-args form)
+             (loop for arg in (lambda-information-required-args form)
+                collect (if (symbolp arg)
+                            (let ((temp (new-var (string arg))))
+                              (push (list arg temp) extra-bindings)
+                              temp)
+                            arg)))
+       ;; Eliminate special optional arguments & non-constant init-forms.
+       (setf (lambda-information-optional-args form)
+             (loop for (arg init-form suppliedp) in (lambda-information-optional-args form)
+                collect (let* ((new-suppliedp (cond ((null suppliedp)
+                                                     (new-var (format nil "~S-suppliedp" arg)))
+                                                    ((symbolp suppliedp)
+                                                     (new-var (string suppliedp)))
+                                                    (t suppliedp)))
+                               (trivial-init-form (and (listp init-form)
+                                                       (= (length init-form) 2)
+                                                       (eql (first init-form) 'quote)))
+                               (new-arg (cond ((symbolp arg)
+                                               (new-var (string arg)))
+                                              ((not trivial-init-form)
+                                               (new-var (string (lexical-variable-name arg))))
+                                              (t arg)))
+                               (new-init-form (if trivial-init-form
+                                                  init-form
+                                                  ''nil)))
+                          (when (or (not trivial-init-form)
+                                    (symbolp arg))
+                            (push (list arg `(if ,new-suppliedp
+                                                 ,new-arg
+                                                 ,init-form))
+                                  extra-bindings))
+                          (when (and (not (null suppliedp))
+                                     (symbolp suppliedp))
+                            (push (list suppliedp new-suppliedp)
+                                  extra-bindings))
+                          (list new-arg new-init-form new-suppliedp))))
+       ;; And eliminate special rest args.
+       (when (and (lambda-information-rest-arg form)
+                  (symbolp (lambda-information-rest-arg form)))
+         (let ((new-rest (new-var (string (lambda-information-rest-arg form)))))
+           (push (list (lambda-information-rest-arg form) new-rest)
+                 extra-bindings)
+           (setf (lambda-information-rest-arg form) new-rest)))
+       (when extra-bindings
+         ;; Bindings were added.
+         (setf (lambda-information-body form)
+               `((let ,(reverse extra-bindings)
+                   ,@(lambda-information-body form)))))
+       (implicit-progn (lambda-information-body form))))))
+  form)
+
 (defun unparse-compiler-form (form)
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
@@ -495,7 +621,7 @@ A list of any declaration-specifiers."
                `(progv ,@(implicit-progn (cdr form))))
 	      ((quote) form)
 	      ((return-from)
-               `(return-from ,(lexical-variable-name (second form))
+               `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
 	      ((setq)
                `(setq ,(if (lexical-variable-p (second form))

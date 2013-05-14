@@ -162,8 +162,8 @@
 
 (defun kt-return-from (form target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
-      (kt-form (third form) target-variable replacement-form)
-    (setf (third form) new-form)
+      (kt-implicit-progn (cddr form) target-variable replacement-form)
+    (setf (cddr form) new-form)
     (values form did-replace)))
 
 (defun kt-setq (form target-variable replacement-form)

@@ -151,6 +151,7 @@
 
 (defun cp-return-from (form)
   (setf (third form) (cp-form (third form)))
+  (setf (fourth form) (cp-form (fourth form)))
   form)
 
 (defun cp-setq (form)

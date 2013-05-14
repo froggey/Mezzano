@@ -375,7 +375,7 @@
 	  (when x
 	    (incf (go-tag-use-count (cdr x)))
 	    (pushnew *current-lambda* (go-tag-used-in (cdr x)))
-	    (return `(go ,(cdr x)))))))))
+	    (return `(go ,(cdr x) ,(go-tag-tagbody (cdr x))))))))))
 
 (defun pass1-if (form env)
   (destructuring-bind (test then &optional else) (cdr form)
@@ -519,7 +519,7 @@
 		 (eq (second e) name))
 	(incf (lexical-variable-use-count (third e)))
 	(pushnew *current-lambda* (lexical-variable-used-in (third e)))
-	(return `(return-from ,(third e) ,(pass1-form result env)))))))
+	(return `(return-from ,(third e) ,(pass1-form result env) ,(third e)))))))
 
 (defun pass1-setq (form env)
   (do ((i (cdr form) (cddr i))

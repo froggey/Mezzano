@@ -75,6 +75,7 @@
 
 (defun il-return-from (form)
   (setf (third form) (il-form (third form)))
+  (setf (fourth form) (il-form (fourth form)))
   form)
 
 (defun il-setq (form)

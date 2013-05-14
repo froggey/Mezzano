@@ -77,6 +77,7 @@
               (null (lambda-information-required-args (second form)))
               (lambda-information-rest-arg (second form))
               (not (lambda-information-enable-keys (second form)))
+              (not (lambda-information-environment-arg (second form)))
               (every (lambda (x)
                        (and (equal ''nil (second x)) ; An init-form of NIL.
                             (eql (third x) nil)))    ; No suppliedp arg.
@@ -109,6 +110,7 @@
 
 (defun ll-return-from (form)
   (setf (third form) (ll-form (third form)))
+  (setf (fourth form) (ll-form (fourth form)))
   form)
 
 (defun ll-setq (form)
@@ -160,6 +162,11 @@
 	(optional-args (lambda-information-optional-args lambda))
 	(rest-arg (lambda-information-rest-arg lambda))
         (key-args (lambda-information-key-args lambda)))
+    (when (lambda-information-environment-arg lambda)
+      (warn 'sys.int::simple-style-warning
+            :format-control "Not inlining ~S, has environment arg."
+            :format-arguments (list name))
+      (return-from lift-lambda))
     ;; Attempt to match the argument list with the function's lambda list.
     (when (or optional-args rest-arg)
       ;; Bail out.
