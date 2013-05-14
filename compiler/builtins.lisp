@@ -1558,6 +1558,16 @@
           `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
+(defbuiltin sys.int::%svref (simple-vector index) ()
+  "Fast SVREF. No type check or bounds check."
+  (load-in-r8 simple-vector t)
+  (smash-r8)
+  (cond ((quoted-constant-p index)
+         (emit `(sys.lap-x86:mov64 :r8 (:r8 ,(+ 1 (* (second index) 8))))))
+        (t (load-in-reg :r9 index t)
+           (emit `(sys.lap-x86:mov64 :r8 (:r8 1 :r9)))))
+  (setf *r8-value* (list (gensym))))
+
 (defbuiltin (setf svref) (value simple-vector index) ()
   (let ((type-error-label (gensym))
         (bounds-error-label (gensym)))
@@ -1590,6 +1600,16 @@
           ;; Store!
           `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
     (setf *r8-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::%svref) (value simple-vector index) ()
+  "Fast SVREF. No type check or bounds check."
+  (load-in-reg :r8 value t)
+  (load-in-reg :r9 simple-vector t)
+  (cond ((quoted-constant-p index)
+         (emit `(sys.lap-x86:mov64 (:r9 ,(+ 1 (* (second index) 8))) :r8)))
+        (t (load-in-reg :r10 index t)
+           (emit `(sys.lap-x86:mov64 (:r9 1 :r10) :r8))))
+  (setf *r8-value* (list (gensym))))
 
 (define-tag-type-predicate characterp sys.int::+tag-character+)
 
