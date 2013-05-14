@@ -1717,51 +1717,12 @@ only R8 will be preserved."
   (emit-return-code t)
   (emit `(sys.lap-x86:jmp ,where)))
 
-;;; Locate a variable in the environment.
-(defun find-var (var env chain)
-  (assert chain (var env chain) "No environment chain?")
-  (assert env (var env chain) "No environment?")
-  (cond ((member var (first env))
-         (values (first chain) 0 (position var (first env))))
-        ((rest chain)
-         (find-var var (rest env) (rest chain)))
-        (t ;; Walk the environment using the current chain as a root.
-         (let ((depth 0))
-           (dolist (e (rest env)
-                    (error "~S not found in environment?" var))
-             (incf depth)
-             (when (member var e)
-               (return (values (first chain) depth
-                               (position var e)))))))))
-
 (defun cg-variable (form)
-  (cond
-    ((localp form)
-     (cons form (incf *run-counter*)))
-    (t ;; Non-local variable, requires an environment lookup.
-     (multiple-value-bind (stack-slot depth offset)
-         (find-var form *environment* *environment-chain*)
-       (smash-r8)
-       (emit `(sys.lap-x86:mov64 :r8 (:stack ,stack-slot)))
-       (dotimes (n depth)
-         (emit `(sys.lap-x86:mov64 :r8 (:r8 1))))
-       (emit `(sys.lap-x86:mov64 :r8 (:r8 ,(1+ (* (1+ offset) 8)))))
-       (setf *r8-value* (list (gensym)))))))
+  (assert (localp form))
+  (cons form (incf *run-counter*)))
 
 (defun cg-lambda (form)
-  (let ((lap-code (codegen-lambda form)))
-    (cond (*environment*
-           ;; Allocate a closure using MAKE-CLOSURE.
-           ;; TODO: Escape analysis for stack-allocated closures.
-           (smash-r8)
-           (load-constant :r8 lap-code)
-           (load-constant :r13 'sys.int::make-closure)
-           (emit `(sys.lap-x86:mov64 :r9 (:stack ,(first *environment-chain*)))
-                 `(sys.lap-x86:mov32 :ecx 16)
-                 `(sys.lap-x86:call (:symbol-function :r13))
-                 `(sys.lap-x86:mov64 :lsp :rbx))
-           (setf *r8-value* (list (gensym))))
-          (t (list 'quote lap-code)))))
+  (list 'quote (codegen-lambda form)))
 
 (defun raise-type-error (reg typespec)
   (unless (eql reg :r8)
