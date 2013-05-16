@@ -281,17 +281,18 @@ of statements opens a new contour."
           (mapcar #'lower-env-form (cddr form))))
 
 (defun le-setq (form)
-  (if (localp (second form))
-      form
-      (dolist (e *environment*
-               (error "Can't find variable ~S in environment." (second form)))
-        (let* ((layout (gethash e *environment-layout*))
-               (offset (position (second form) layout)))
-          (when offset
-            (return (list (sys.int::function-symbol '(setf sys.int::%svref))
-                          (lower-env-form (third form))
-                          (get-env-vector e)
-                          `',(1+ offset))))))))
+  (cond ((localp (second form))
+         (setf (third form) (lower-env-form (third form)))
+         form)
+        (t (dolist (e *environment*
+                    (error "Can't find variable ~S in environment." (second form)))
+             (let* ((layout (gethash e *environment-layout*))
+                    (offset (position (second form) layout)))
+               (when offset
+                 (return (list (sys.int::function-symbol '(setf sys.int::%svref))
+                               (lower-env-form (third form))
+                               (get-env-vector e)
+                               `',(1+ offset)))))))))
 
 (defun le-multiple-value-bind (form)
   `(multiple-value-bind ,(second form)
@@ -338,7 +339,13 @@ of statements opens a new contour."
                                    `',env-offset))))
                  ,@(let ((info (assoc (second form) new-envs)))
                      (when info
-                       (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info))))))))
+                       (if *environment*
+                           (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))
+                                 (list (sys.int::function-symbol '(setf sys.int::%svref))
+                                       (second (first *environment-chain*))
+                                       (second info)
+                                       ''0))
+                           (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))))))
                  ,@(frob-inner (second form))))
              (frob-inner (current-env)
                (loop for stmt in (cddr form)
@@ -362,8 +369,8 @@ of statements opens a new contour."
                                          (list (lower-env-form stmt)))))))))
       (if (endp new-envs)
           (frob-outer)
-          `(let ,(loop for (stmt . env) in new-envs
-                    collect (list env nil))
+          `(let ,(loop for (stmt env layout) in new-envs
+                    collect (list env ''nil))
              ,(frob-outer))))))
 
 (defun le-return-from (form)
