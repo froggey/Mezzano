@@ -94,10 +94,15 @@
     (compute-environment-layout `(progn ,@(lambda-information-body lambda)))))
 
 (defun compute-tagbody-environment-layout (form)
-  "TAGBODY defines a single variable in the enclosing environment and opens a new contour."
+  "TAGBODY defines a single variable in the enclosing environment and each group
+of statements opens a new contour."
   (maybe-add-environment-variable (second form))
-  (let ((*active-environment-vector* form))
-    (mapc #'compute-environment-layout (remove-if #'go-tag-p (cddr form)))))
+  (let ((last-tag (second form)))
+    (dolist (stmt (cddr form))
+      (cond ((go-tag-p stmt)
+             (setf last-tag stmt))
+            (t (let ((*active-environment-vector* last-tag))
+                 (compute-environment-layout stmt)))))))
 
 (defun compute-block-environment-layout (form)
   "BLOCK defines one variable."
@@ -310,9 +315,15 @@
   form)
 
 (defun le-tagbody (form)
-  (let ((local-env (gethash form *environment-layout*))
-        (new-env (make-lexical-variable :name (gensym "Environment")
-                                        :definition-point *current-lambda*)))
+  (let* ((possible-env-vector-heads (list* (second form)
+                                           (remove-if-not #'go-tag-p (cddr form))))
+         (env-vector-heads (remove-if (lambda (x) (endp (gethash x *environment-layout*)))
+                                      possible-env-vector-heads))
+         (new-envs (loop for i in env-vector-heads
+                      collect (list i
+                                    (make-lexical-variable :name (gensym "Environment")
+                                                           :definition-point *current-lambda*)
+                                    (gethash i *environment-layout*)))))
     (labels ((frob-outer ()
              `(tagbody ,(second form)
                  ;; Save the tagbody info.
@@ -325,27 +336,34 @@
                                    (second form)
                                    env-var
                                    `',env-offset))))
-                 ,@(if (endp local-env)
-                       (frob-inner)
-                       (let ((*environment-chain* (list* (list form new-env)
-                                                         *environment-chain*))
-                             (*environment* (list* form *environment*)))
-                         (if (rest *environment-chain*)
-                             (list* (list (sys.int::function-symbol '(setf sys.int::%svref))
-                                          (second (second *environment-chain*))
-                                          new-env
-                                          ''0)
-                                    (frob-inner))
-                             (frob-inner))))))
-             (frob-inner ()
-               (mapcar (lambda (x)
-                         (if (go-tag-p x)
-                             x
-                             (lower-env-form x)))
-                       (cddr form))))
-      (if (endp local-env)
+                 ,@(let ((info (assoc (second form) new-envs)))
+                     (when info
+                       (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info))))))))
+                 ,@(frob-inner (second form))))
+             (frob-inner (current-env)
+               (loop for stmt in (cddr form)
+                  append (cond ((go-tag-p stmt)
+                                (setf current-env stmt)
+                                (let ((info (assoc current-env new-envs)))
+                                  (append (list stmt)
+                                          (when info
+                                            (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))))
+                                          (when (and info *environment*)
+                                            (list (list (sys.int::function-symbol '(setf sys.int::%svref))
+                                                        (second (first *environment-chain*))
+                                                        (second info)
+                                                        ''0))))))
+                                (t (let ((info (assoc current-env new-envs)))
+                                     (if info
+                                         (let ((*environment-chain* (list* (list current-env (second info))
+                                                                           *environment-chain*))
+                                               (*environment* (list* current-env *environment*)))
+                                           (list (lower-env-form stmt)))
+                                         (list (lower-env-form stmt)))))))))
+      (if (endp new-envs)
           (frob-outer)
-          `(let ((,new-env (sys.int::make-simple-vector ',(1+ (length local-env)))))
+          `(let ,(loop for (stmt . env) in new-envs
+                    collect (list env nil))
              ,(frob-outer))))))
 
 (defun le-return-from (form)
