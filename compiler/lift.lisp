@@ -32,7 +32,7 @@
 
 (defun ll-block (form)
   (unless (eql (lexical-variable-definition-point (second form)) *current-lambda*)
-    (incf *change-count*)
+    (change-made)
     ;; Update the definition point.
     (setf (lexical-variable-definition-point (second form)) *current-lambda*))
   (ll-implicit-progn (cddr form))
@@ -52,7 +52,7 @@
   (dolist (binding (second form))
     (when (and (lexical-variable-p (first binding))
 	       (not (eql (lexical-variable-definition-point (first binding)) *current-lambda*)))
-      (incf *change-count*)
+      (change-made)
       (setf (lexical-variable-definition-point (first binding)) *current-lambda*))
     (setf (second binding) (ll-form (second binding))))
   (ll-implicit-progn (cddr form))
@@ -65,7 +65,7 @@
   (dolist (var (second form))
     (when (and (lexical-variable-p var)
 	       (not (eql (lexical-variable-definition-point var) *current-lambda*)))
-      (incf *change-count*)
+      (change-made)
       (setf (lexical-variable-definition-point var) *current-lambda*)))
   (ll-implicit-progn (cddr form))
   form)
@@ -85,7 +85,7 @@
               (lexical-variable-p (lambda-information-rest-arg (second form)))
               (zerop (lexical-variable-use-count (lambda-information-rest-arg (second form))))
               (= (length form) 3))
-         (incf *change-count*)
+         (change-made)
          ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
          (ll-form `(multiple-value-bind ,(mapcar 'first (lambda-information-optional-args (second form)))
                        ,(third form)
@@ -119,7 +119,7 @@
 
 (defun ll-tagbody (form)
   (unless (eq (tagbody-information-definition-point (second form)) *current-lambda*)
-    (incf *change-count*)
+    (change-made)
     (setf (tagbody-information-definition-point (second form)) *current-lambda*))
   (do ((i (cddr form) (cdr i)))
       ((endp i))
@@ -180,7 +180,7 @@
 	    :format-control "Not inlining ~S, arguments do not match."
 	    :format-arguments (list name))
       (return-from lift-lambda))
-    (incf *change-count*)
+    (change-made)
     ;; Fix argument definition points.
     (dolist (arg required-args)
       (when (lexical-variable-p arg)

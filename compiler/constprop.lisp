@@ -90,7 +90,7 @@
       (if (and value
                (not (lexical-variable-p value)))
 	  (progn
-	    (incf *change-count*)
+	    (change-made)
 	    (if (eql (or (not (consp value)) (second value)) 'nil)
 		;; Use the else branch.
 		(pick-branch (fourth form) (third form))
@@ -165,7 +165,7 @@
                ;; original binding.
                (cond ((zerop (third info))
                       ;; Send it back, and remove this form.
-                      (incf *change-count*)
+                      (change-made)
                       (setf (second (fourth info)) (third form))
                       ''nil)
                      (t ;; Just propagate forward.
@@ -257,7 +257,7 @@
   (let ((val (assoc form *known-variables*)))
     (if val
 	(progn
-	  (incf *change-count*)
+	  (change-made)
 	  (decf (lexical-variable-use-count form))
           (incf (third val))
 	  (copy-form (second val)))

@@ -60,6 +60,11 @@ A list of any declaration-specifiers."
 (defvar *change-count* nil
   "Number of changes made by the optimizer passes.")
 
+(defun change-made ()
+  (when (and (boundp '*change-count*)
+             *change-count*)
+    (incf *change-count*)))
+
 (defstruct lambda-information
   name
   docstring

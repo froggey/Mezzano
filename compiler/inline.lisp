@@ -113,7 +113,7 @@
   (il-implicit-progn (cdr form))
   (let ((inlined-form (expand-inline-function (first form) (rest form))))
     (cond (inlined-form
-           (incf *change-count*)
+           (change-made)
            inlined-form)
           (t form))))
 

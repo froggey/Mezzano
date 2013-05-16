@@ -29,7 +29,7 @@
 	    (t (kt-function-form form target-variable replacement-form))))
     (lexical-variable
      (cond ((eql form target-variable)
-            (incf *change-count*)
+            (change-made)
             (values replacement-form t))
            (t (values form nil t))))
     (lambda-information
