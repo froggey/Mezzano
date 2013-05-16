@@ -107,6 +107,14 @@ A list of any declaration-specifiers."
   (use-count 0)
   used-in)
 
+(defmethod print-object ((object go-tag) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~S" (go-tag-name object))))
+
+(defmethod print-object ((object lexical-variable) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~S" (lexical-variable-name object))))
+
 (defun run-optimizers (form)
   (dotimes (i 5 (progn (warn 'sys.int::simple-style-warning
 			      :format-control "Possible optimizer infinite loop."
