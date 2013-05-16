@@ -9,6 +9,7 @@
 
 (in-package :sys.c)
 
+(defvar *environment-chain*)
 (defvar *environment-layout*)
 (defvar *active-environment-vector*)
 
