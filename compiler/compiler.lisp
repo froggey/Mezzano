@@ -435,7 +435,7 @@ A list of any declaration-specifiers."
                       (mapcar (lambda (x) (list x ''nil)) suppliedp)
                       (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
           (tagbody ,tb
-             (go ,test-tag)
+             (go ,test-tag ,(go-tag-tagbody test-tag))
              ,head-tag
              (if (null (cdr ,itr))
                  (error '"Odd number of &KEY arguments.")
@@ -445,7 +445,7 @@ A list of any declaration-specifiers."
              (setq ,itr (cddr ,itr))
              ,test-tag
              (if ,itr
-                 (go ,head-tag)
+                 (go ,head-tag ,(go-tag-tagbody head-tag))
                  'nil))
           ,(create-key-let-body keys values suppliedp))))))
 
