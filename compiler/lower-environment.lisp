@@ -350,5 +350,5 @@
 
 (defun le-return-from (form)
   (setf (third form) (lower-env-form (third form)))
-  (setf (fourth form) (lower-env-form (third form)))
+  (setf (fourth form) (lower-env-form (fourth form)))
   form)
