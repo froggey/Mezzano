@@ -178,6 +178,33 @@
                 (second form))
          (change-made)
          (simp-form `(progn ,@(cddr form))))
+        ;; M-V-B forms with only one variable can be lowered to LET.
+        ((and (second form)
+              (every (lambda (var)
+                       (and (lexical-variable-p var)
+                            (zerop (lexical-variable-use-count var))))
+                     (rest (second form))))
+         (change-made)
+         (simp-form `(let ((,(first (second form))
+                            ,(third form)))
+                       ,@(cdddr form))))
+        ;; Use an inner LET form to bind any special variables.
+        ((some #'symbolp (second form))
+         (change-made)
+         (let* ((specials (remove-if-not #'symbolp (second form)))
+                (replacements (loop for s in specials
+                                 collect (make-lexical-variable :name s
+                                                                :definition-point *current-lambda*)))
+                ;; Also doubles up as an alist mapping specials to replacements.
+                (bindings (mapcar #'list specials replacements)))
+           `(multiple-value-bind ,(mapcar (lambda (var)
+                                            (if (symbolp var)
+                                                (second (assoc var bindings))
+                                                var))
+                                          (second form))
+                ,(simp-form (third form))
+              (let ,bindings
+                ,@(simp-implicit-progn (cdddr form) t)))))
         (t (simp-implicit-progn (cddr form) t)
            form)))
 
