@@ -483,8 +483,18 @@
 
 (defun pass1-multiple-value-call (form env)
   (destructuring-bind (function-form &rest forms) (cdr form)
-    `(multiple-value-call ,(pass1-form function-form env)
-       ,@(pass1-implicit-progn forms env))))
+    ;; Simplify M-V-CALL based on the number of forms.
+    (case (length forms)
+      (0 ; No forms, convert to funcall.
+       `(funcall ,(pass1-form function-form env)))
+      (1 ; One form, transform as-is.
+       `(multiple-value-call ,(pass1-form function-form env)
+          ,(pass1-form (first forms) env)))
+      (t ; Many forms, simplify.
+       (pass1-form `(apply ,function-form
+                           (append ,@(loop for f in forms
+                                        collect `(multiple-value-call #'list ,f))))
+                   env)))))
 
 (defun pass1-multiple-value-prog1 (form env)
   (destructuring-bind (first-form &body forms) (cdr form)
