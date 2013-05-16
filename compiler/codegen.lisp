@@ -341,20 +341,12 @@ be generated instead.")
 	  (list
 	   ;; Number of arguments processed.
 	   `(sys.lap-x86:mov64 (:cfp -32) ,(fixnum-to-raw regular-argument-count)))
-	   ;; Create the result cell.
-          (cond
-            (dx-rest
-             (list `(sys.lap-x86:sub64 :csp 16)
-                   `(sys.lap-x86:mov64 (:csp 0) nil)
-                   `(sys.lap-x86:mov64 (:csp 8) nil)
-                   `(sys.lap-x86:lea64 :r8 (:csp 1))))
-            (t
-             (list `(sys.lap-x86:mov64 :r8 nil)
-                   `(sys.lap-x86:mov64 :r9 :r8)
-                   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-                   `(sys.lap-x86:mov64 :r13 (:constant cons))
-                   `(sys.lap-x86:call (:symbol-function :r13))
-                   `(sys.lap-x86:mov64 :lsp :rbx))))
+          ;; Create the result cell. Always create this as dynamic-extent, it
+          ;; is only used during rest-list creation.
+          (list `(sys.lap-x86:sub64 :csp 16)
+                `(sys.lap-x86:mov64 (:csp 0) nil)
+                `(sys.lap-x86:mov64 (:csp 8) nil)
+                `(sys.lap-x86:lea64 :r8 (:csp 1)))
           (list
            ;; Stash in the result slot and the scratch slot.
            `(sys.lap-x86:mov64 (:lsp) :r8)
