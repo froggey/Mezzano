@@ -27,6 +27,8 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/kill-temps"
                       :depends-on ("compiler/cross" "compiler/compiler"))
+               (:file "compiler/lower-environment"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
                                    "compiler/codegen" "data-types"))
