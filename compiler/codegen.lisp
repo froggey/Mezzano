@@ -597,12 +597,12 @@ be generated instead.")
                      `(sys.lap-x86:mov64 :lsp (:r8 32))
                      `(sys.lap-x86:mov64 :lfp (:r8 40))
                      ;; GO GO GO!
-                     `(sys.lap-x86:mov64 :r8 (:r8 0))
-                     `(sys.lap-x86:add64 :r8 (:r8 ,(* (position (second form)
-                                                                (tagbody-information-go-tags
-                                                                 (go-tag-tagbody (second form))))
-                                                      8)))
-                     `(sys.lap-x86:jmp :r8))))))
+                     `(sys.lap-x86:mov64 :rax (:r8 0))
+                     `(sys.lap-x86:add64 :rax (:rax ,(* (position (second form)
+                                                                  (tagbody-information-go-tags
+                                                                   (go-tag-tagbody (second form))))
+                                                        8)))
+                     `(sys.lap-x86:jmp :rax))))))
     'nil))
 
 (defun branch-to (label))
