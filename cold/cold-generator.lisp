@@ -68,6 +68,7 @@
     "compiler/codegen.lisp"
     "compiler/builtins.lisp"
     "compiler/branch-tension.lisp"
+    "compiler/lower-environment.lisp"
     "keyboard.lisp"
     "framebuffer-stream.lisp"
     "bochs-vbe.lisp"
