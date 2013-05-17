@@ -13,7 +13,7 @@
   (when (symbol-mode object)
     (format stream "  ~A is declared ~A~%" object (symbol-mode object)))
   (when (symbol-tls-slot object)
-    (format stream "  ~A uses the TLS slot ~D~%" (symbol-tls-slot object))))
+    (format stream "  ~A uses the TLS slot ~D~%" object (symbol-tls-slot object))))
 
 (defun describe-character (object stream)
   (format stream "~S is a ~S~%" object (type-of object)))
