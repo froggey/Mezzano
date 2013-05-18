@@ -103,7 +103,11 @@
        (equal (pathname-directory x) (pathname-directory y))
        (equal (pathname-name x) (pathname-name y))
        (equal (pathname-type x) (pathname-type y))
-       (equal (pathname-version x) (pathname-version y))))
+       (or (and (null (pathname-version x))
+                (eql (pathname-version y) :newest))
+           (and (null (pathname-version y))
+                (eql (pathname-version x) :newest))
+           (equal (pathname-version x) (pathname-version y)))))
 
 (defun pathname-match-directory (p w)
   (let ((p-dir (pathname-directory p))
@@ -220,8 +224,11 @@
         (if (eql type :wild)
             (write-char #\* s)
             (write-string type s)))
-      (when (eql version :backup)
-        (write-char #\~ s)))))
+      (case version
+        ((nil :newest))
+        (:backup
+         (write-char #\~ s))
+        (t (format s ".~~~D~~" version))))))
 
 (defgeneric unparse-pathname (path host))
 
