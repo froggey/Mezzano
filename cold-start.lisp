@@ -90,17 +90,6 @@
         (write-char #\Space)
         (write name)))))
 
-(defun raise-overflow (&optional lhs rhs what)
-  (write-char #\!)
-  (write-char #\%)
-  (write what)
-  (write-char #\Space)
-  (write lhs)
-  (write-char #\Space)
-  (write rhs)
-  (backtrace)
-  (loop (%hlt)))
-
 (defun error (datum &rest arguments)
   (write-char #\!)
   (write datum)
