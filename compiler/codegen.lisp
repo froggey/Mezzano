@@ -216,8 +216,8 @@ be generated instead.")
              *current-lambda-name*
              homes
              ;; FIXME: Get the env layout from somewhere.
-             #+(or)(first *environment-chain*)
-             #+(or)(mapcar (lambda (vars)
+             nil #+(or)(first *environment-chain*)
+             nil #+(or)(mapcar (lambda (vars)
                        (mapcar (lambda (v)
                                  (when (lexical-variable-p v)
                                    (lexical-variable-name v)))
