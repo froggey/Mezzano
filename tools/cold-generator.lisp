@@ -4,59 +4,59 @@
 (in-package :cold-generator)
 
 (defparameter *source-files*
-  '("kboot.lisp" ; ### must be before test.lisp, for the constants.
+  '("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
     "cold-start.lisp"
-    "gc.lisp"
-    "runtime-array.lisp"
-    "runtime-numbers.lisp"
-    "runtime-support.lisp"
-    "stack-group.lisp"
-    "setf.lisp"
-    "string.lisp"
-    "type.lisp"
-    "sequence.lisp"
-    "array.lisp"
-    "numbers.lisp"
-    "defstruct.lisp"
-    "hash-table.lisp"
-    "early-cons.lisp"
-    "reader.lisp"
-    "backquote.lisp"
-    "character.lisp"
-    "printer.lisp"
+    "system/gc.lisp"
+    "system/runtime-array.lisp"
+    "system/runtime-numbers.lisp"
+    "system/runtime-support.lisp"
+    "system/stack-group.lisp"
+    "system/setf.lisp"
+    "system/string.lisp"
+    "system/type.lisp"
+    "system/sequence.lisp"
+    "system/array.lisp"
+    "system/numbers.lisp"
+    "system/defstruct.lisp"
+    "system/hash-table.lisp"
+    "system/early-cons.lisp"
+    "system/reader.lisp"
+    "system/backquote.lisp"
+    "system/character.lisp"
+    "system/printer.lisp"
     "cold-stream.lisp"
-    "cold/load.lisp"
-    "format.lisp"
-    "interrupt.lisp"
+    "system/load.lisp"
+    "system/format.lisp"
+    "system/interrupt.lisp"
     "multiboot.lisp"
     "memory.lisp"
     "dump.lisp"
-    "cons-compiler-macros.lisp"
-    "defmacro.lisp"
-    "basic-macros.lisp"
-    "data-types.lisp"
-    "parse.lisp"
+    "system/cons-compiler-macros.lisp"
+    "system/defmacro.lisp"
+    "system/basic-macros.lisp"
+    "system/data-types.lisp"
+    "system/parse.lisp"
     "pci.lisp"
     "framebuffer.lisp"
-    "describe.lisp"))
+    "system/describe.lisp"))
 
 (defparameter *special-source-files*
-  '(("packages.lisp" *package-system*)))
+  '(("system/packages.lisp" *package-system*)))
 
 (defparameter *warm-source-files*
-  '("closette.lisp"
-    "runtime-misc.lisp"
-    "condition.lisp"
-    "restarts.lisp"
-    "error.lisp"
-    "coerce.lisp"
-    "debug.lisp"
-    "eval.lisp"
-    "stream.lisp"
+  '("system/closette.lisp"
+    "system/runtime-misc.lisp"
+    "system/condition.lisp"
+    "system/restarts.lisp"
+    "system/error.lisp"
+    "system/coerce.lisp"
+    "system/debug.lisp"
+    "system/eval.lisp"
+    "system/stream.lisp"
     "process.lisp"
     "lap.lisp"
     "lap-x86.lisp"
-    "ansi-loop.lisp"
+    "system/ansi-loop.lisp"
     "compiler/package.lisp"
     "compiler/compiler.lisp"
     "compiler/pass1.lisp"
@@ -69,12 +69,12 @@
     "compiler/builtins.lisp"
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
-    "keyboard.lisp"
+    "drivers/keyboard.lisp"
     "framebuffer-stream.lisp"
-    "bochs-vbe.lisp"
+    "drivers/bochs-vbe.lisp"
     "ethernet.lisp"
-    "rtl8139.lisp"
-    "virtio-net.lisp"
+    "drivers/rtl8139.lisp"
+    "drivers/virtio-net.lisp"
     "graphics.lisp"
     "blit.lisp"
     "windows.lisp"
@@ -83,8 +83,9 @@
     "telnet.lisp"
     "irc.lisp"
     "mandelbrot.lisp"
-    "time.lisp"
-    "file.lisp"))
+    "system/time.lisp"
+    "file.lisp"
+    "system/file-compiler.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
@@ -991,16 +992,16 @@
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) '*additional-cold-toplevel-forms*))
     (format t "Saving Unifont...~%")
-    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "unifont-5.1.20080820.hex" :static))
+    (setf (cold-symbol-value '*unifont-bmp*) (save-unifont-data "tools/unifont-5.1.20080820.hex" :static))
     (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
-        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "UnicodeData.txt"))
+        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "tools/UnicodeData.txt"))
       (setf (cold-symbol-value '*unicode-info*) (save-object planes :static)
             (cold-symbol-value '*unicode-name-store*) (save-ub8-vector name-store :static)
             (cold-symbol-value '*unicode-encoding-table*) (save-object encoding-table :static)
             (cold-symbol-value '*unicode-name-trie*) (save-object name-trie :static)))
     (format t "Saving PCI IDs...~%")
-    (let* ((pci-ids (build-pci-ids:build-pci-ids "pci.ids"))
+    (let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value '*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.

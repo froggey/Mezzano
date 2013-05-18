@@ -8,10 +8,10 @@
   :depends-on ("lispos-lap" "lispos-compiler"
                #:nibbles #:cl-ppcre #:iterate
                #:alexandria)
-  :components ((:file "build-unicode")
-               (:file "build-pci-ids")
+  :components ((:file "tools/build-unicode")
+               (:file "tools/build-pci-ids")
                (:file "kboot")
-               (:file "cold/cold-generator"
-                :depends-on ("build-unicode"
-                             "build-pci-ids"
+               (:file "tools/cold-generator"
+                :depends-on ("tools/build-unicode"
+                             "tools/build-pci-ids"
                              "kboot"))))

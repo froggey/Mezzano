@@ -7,8 +7,8 @@
   :licence "None"
   :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2 #:nibbles)
   :components ((:file "compiler/cross")
-               (:file "data-types" :depends-on ("compiler/cross"))
-               (:file "parse" :depends-on ("compiler/cross"))
+               (:file "system/data-types" :depends-on ("compiler/cross"))
+               (:file "system/parse" :depends-on ("compiler/cross"))
                (:file "compiler/cross-compile"
                       :depends-on ("compiler/cross"))
                (:file "compiler/compiler"
@@ -31,10 +31,10 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "compiler/codegen" "data-types"))
+                                   "compiler/codegen" "system/data-types"))
                (:file "compiler/codegen"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "data-types"))
+                                   "system/data-types"))
                (:file "compiler/branch-tension"
                       :depends-on ("compiler/cross" "compiler/compiler" "compiler/codegen"))
 ))

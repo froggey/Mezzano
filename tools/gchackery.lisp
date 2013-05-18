@@ -1,3 +1,8 @@
+(in-package :cl-user)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (use-package :iter))
+
 (defun indent-log (file)
   (with-open-file (output (make-pathname :type "logout" :defaults file)
                           :direction :output)
@@ -151,16 +156,16 @@ Assumes that everything can be reached from NIL."
 (defun extract-image-object (image value)
   (let ((address (logand value (lognot #b1111))))
     (ecase (ldb (byte 4 0) value)
-      ((#.+tag-even-fixnum+
-        #.+tag-odd-fixnum+)
+      ((#.sys.int::+tag-even-fixnum+
+        #.sys.int::+tag-odd-fixnum+)
        ;; Make sure negative numbers are negative.
        (if (ldb-test (byte 1 63) value)
            (ash (logior (lognot (ldb (byte 64 0) -1)) value) -3)
            (ash value -3)))
-      (#.+tag-cons+
+      (#.sys.int::+tag-cons+
        (cons (extract-image-object image (image-word image address))
              (extract-image-object image (image-word image (+ address 8)))))
-      (#.+tag-symbol+
+      (#.sys.int::+tag-symbol+
        (when (eql value (image-nil image))
          (return-from extract-image-object nil))
        (let ((name (extract-image-object image (image-word image address)))
@@ -175,11 +180,11 @@ Assumes that everything can be reached from NIL."
                               :image image
                               :name name
                               :package-name package-name))))
-      (#.+tag-array-like+
+      (#.sys.int::+tag-array-like+
        (ecase (ldb (byte 5 3) (image-word image address))
-         (#.+array-type-base-char+
+         (#.sys.int::+array-type-base-char+
           (map 'simple-string 'code-char (extract-image-array image address 8)))
-         (#.+array-type-character+
+         (#.sys.int::+array-type-character+
           (map 'simple-string 'code-char (extract-image-array image address 32)))
          (#.sys.int::+array-type-std-instance+
           (cons (extract-image-object image (image-word image (+ address 8)))
@@ -189,7 +194,7 @@ Assumes that everything can be reached from NIL."
   "Detect all symbols in IMAGE, returning a list of (symbol-name address)."
   (let ((symbols '()))
     (map-objects (lambda (value)
-                   (when (eql (logand value #b1111) +tag-symbol+)
+                   (when (eql (logand value #b1111) sys.int::+tag-symbol+)
                      (push (list (extract-image-object image (image-word image (logand value (lognot #b1111))))
                                  value)
                            symbols)))
@@ -199,7 +204,7 @@ Assumes that everything can be reached from NIL."
 (defun build-map-file (image)
   (map-objects (lambda (value)
                  (with-simple-restart (continue "Ignore value ~X" value)
-                   (when (eql (logand value #b1111) +tag-function+)
+                   (when (eql (logand value #b1111) sys.int::+tag-function+)
                      (let* ((address (logand value (lognot #b1111)))
                             (header (image-word image address))
                             (tag (ldb (byte 16 0) header))
