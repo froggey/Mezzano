@@ -1202,14 +1202,57 @@
     (imm :xmm lhs rhs '(#x0F #x72) 2)
     (modrm :xmm rhs lhs '(#x0F #xD2))))
 
-(defmacro modrm-imm8 (class r/m reg imm8 opc)
+(defmacro modrm-two-classes (class r/m-class r/m reg opc)
   `(when (and (eql ,class (reg-class ,reg))
-	      (or (eql (reg-class ,r/m) ,class)
+	      (or (eql (reg-class ,r/m) ,r/m-class)
 		  (consp ,r/m))
-	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't)
-              (immediatep ,imm8))
-     (let ((value (resolve-immediate ,imm8)))
-       (when value
-         (generate-modrm ,class ,r/m ,reg ,opc)
-         (emit-imm 1 value))
-       (return-from instruction t))))
+	      ,(if (eql class :gpr-64) '(= *cpu-mode* 64) 't))
+     (return-from instruction
+       (generate-modrm ,class ,r/m ,reg ,opc))))
+
+(define-instruction movsx8 (dst src)
+  (when (or (consp src)
+            (eql (reg-class src) :gpr-8))
+    (ecase (reg-class dst)
+      (:gpr-16
+       (modrm-two-classes :gpr-16 :gpr-8 src dst '(#x0F #xBE)))
+      (:gpr-32
+       (modrm-two-classes :gpr-32 :gpr-8 src dst '(#x0F #xBE)))
+      (:gpr-64
+       (modrm-two-classes :gpr-64 :gpr-8 src dst '(#x0F #xBE))))))
+
+(define-instruction movsx16 (dst src)
+  (when (or (consp src)
+            (eql (reg-class src) :gpr-16))
+    (ecase (reg-class dst)
+      (:gpr-32
+       (modrm-two-classes :gpr-32 :gpr-16 src dst '(#x0F #xBF)))
+      (:gpr-64
+       (modrm-two-classes :gpr-64 :gpr-16 src dst '(#x0F #xBF))))))
+
+(define-instruction movsx32 (dst src)
+  (when (or (consp src)
+            (eql (reg-class src) :gpr-32))
+    (ecase (reg-class dst)
+      (:gpr-64
+       (modrm-two-classes :gpr-64 :gpr-32 src dst '#x63)))))
+
+(define-instruction movzx8 (dst src)
+  (when (or (consp src)
+            (eql (reg-class src) :gpr-8))
+    (ecase (reg-class dst)
+      (:gpr-16
+       (modrm-two-classes :gpr-16 :gpr-8 src dst '(#x0F #xB6)))
+      (:gpr-32
+       (modrm-two-classes :gpr-32 :gpr-8 src dst '(#x0F #xB6)))
+      (:gpr-64
+       (modrm-two-classes :gpr-64 :gpr-8 src dst '(#x0F #xB6))))))
+
+(define-instruction movzx16 (dst src)
+  (when (or (consp src)
+            (eql (reg-class src) :gpr-16))
+    (ecase (reg-class dst)
+      (:gpr-32
+       (modrm-two-classes :gpr-32 :gpr-16 src dst '(#x0F #xB7)))
+      (:gpr-64
+       (modrm-two-classes :gpr-64 :gpr-16 src dst '(#x0F #xB7))))))
