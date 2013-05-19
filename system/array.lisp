@@ -2,6 +2,9 @@
 
 (in-package :sys.int)
 
+(deftype array-axis ()
+  `(integer 0 (,array-rank-limit)))
+
 (deftype simple-vector (&optional size)
   `(simple-array t (,size)))
 
