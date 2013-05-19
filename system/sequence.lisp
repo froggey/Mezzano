@@ -79,6 +79,14 @@
 	    (incf n))))
     n))
 
+(defun count (item sequence &key key)
+  (setf key (or key #'identity))
+  (let ((n 0))
+    (dotimes (i (length sequence))
+      (when (eql item (funcall key (elt sequence i)))
+        (incf n)))
+    n))
+
 (defun count-if-not (predicate sequence &key key);from-end start end
   (count-if (complement predicate) sequence :key key))
 

@@ -456,3 +456,19 @@
        ((atom list) (eql list object))
       (if (eql object list)
           (return t))))
+
+(defun adjoin (item list &key key test test-not)
+  (if (member item list :key key :test test :test-not test-not)
+      list
+      (cons item list)))
+
+(defun subst (old new tree)
+  (cond ((eql old tree)
+         new)
+        ((atom tree) tree)
+        (t (let ((a (subst old new (car tree)))
+                 (d (subst old new (cdr tree))))
+             (if (and (eql a (car tree))
+                      (eql d (cdr tree)))
+                 tree
+                 (cons a d))))))
