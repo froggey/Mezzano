@@ -417,8 +417,11 @@
       object))
 
 (defun make-list (size &key initial-element)
-  (unless (zerop size)
-    (cons initial-element (make-list (1- size)))))
+  (check-type size (integer 0))
+  (let ((result '()))
+    (dotimes (i size)
+      (push initial-element result))
+    result))
 
 (defun acons (key datum alist)
   (cons (cons key datum) alist))
