@@ -641,6 +641,19 @@ then return NIL."
       (error "Invalid complex number ~S" number))
     (complex (first number) (second number))))
 
+(defun read-#-array (stream ch n-dimensions)
+  (declare (ignore ch))
+  (check-type n-dimensions array-axis)
+  (let* ((object (read stream t nil t))
+         (current-dim object)
+         (dimensions (make-list n-dimensions :initial-element 0)))
+    (dotimes (i n-dimensions)
+      (let ((len (length current-dim)))
+        (setf (elt dimensions i) len)
+        (when (zerop len) (return))
+        (setf current-dim (elt current-dim 0))))
+    (make-array dimensions :initial-contents object)))
+
 (defun read-#-pathname (stream ch p)
   (ignore-#-argument ch p)
   (cond (*read-suppress*
