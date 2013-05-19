@@ -2,6 +2,9 @@
 
 (defvar *should-inline-functions* t)
 
+(defvar *jump-table-size-min* 4)
+(defvar *jump-table-size-max* 64)
+
 (defun parse-declares (forms)
   "Extract any leading declare forms.
 Returns 2 values:

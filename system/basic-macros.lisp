@@ -180,6 +180,52 @@
 		   cases)
 	 (t (error "~S fell through ECASE expression. Wanted one of ~S" ,test-key ',all-keys))))))
 
+;;; Generate a jump table for all-integer key sets.
+(define-compiler-macro ecase (&whole whole keyform &body cases)
+  (let ((keys (loop for (keys . forms) in cases
+                 when (listp keys) append keys
+                 else collect keys)))
+    (if (every #'integerp keys)
+        (let* ((unique-keys (remove-duplicates keys))
+               (n-keys (length unique-keys))
+               (min-key (apply #'min unique-keys))
+               (max-key (apply #'max unique-keys))
+               (range (- max-key min-key)))
+          (if (and (>= n-keys sys.c::*jump-table-size-min*)
+                   (< range sys.c::*jump-table-size-max*))
+              (let ((default-label (gensym "ecase-default"))
+                    (block-name (gensym "ecase-block"))
+                    (key-sym (gensym "ecase-key"))
+                    (key-labels nil)
+                    (form-and-labels nil))
+                (loop for (keys . forms) in cases do
+                     (let ((form-sym (gensym (format nil "ecase-~S" keys))))
+                       (push (list form-sym `(return-from ,block-name (progn ,@forms))) form-and-labels)
+                       (dolist (key (if (listp keys) keys (list keys)))
+                         (unless (assoc key key-labels)
+                           (push (list key form-sym) key-labels)))))
+                `(block ,block-name
+                   (let ((,key-sym ,keyform))
+                     (tagbody
+                        (if (and (,(if (typep range '(signed-byte 61))
+                                       'fixnump
+                                       'integerp)
+                                   ,key-sym)
+                                 (<= ',min-key ,key-sym)
+                                 (<= ,key-sym ',(1- max-key)))
+                            (%jump-table (- ,key-sym ',min-key)
+                                         ,@(loop for i below range
+                                              collect (let ((label (assoc i key-labels)))
+                                                        (if label
+                                                            `(go ,(second label))
+                                                            `(go ,default-label)))))
+                            (go ,default-label))
+                        ,default-label
+                        (error "~S fell through ECASE expression. Wanted one of ~S" ,key-sym ',keys)
+                        ,@(apply #'append form-and-labels)))))
+              whole))
+        whole)))
+
 (defmacro typecase (keyform &rest cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))

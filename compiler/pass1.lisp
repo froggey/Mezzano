@@ -209,8 +209,9 @@
 	       (compiler-macro-function name env))))
     (when fn
       (let ((expansion (funcall *macroexpand-hook* fn form env)))
-	(return-from compiler-macroexpand-1
-	  (values expansion (not (eq expansion form)))))))
+        (when (not (eq expansion form))
+          (return-from compiler-macroexpand-1
+            (values expansion t))))))
   (let ((fn (macro-function (first form) env)))
     (if fn
 	(values (funcall *macroexpand-hook* fn form env) t)

@@ -429,6 +429,7 @@ be generated instead.")
 	      ((tagbody) (cg-tagbody form))
 	      ((the) (cg-the form))
 	      ((unwind-protect) (cg-unwind-protect form))
+              ((sys.int::%jump-table) (cg-jump-table form))
 	      (t (save-tag (cg-function-form form)))))
       (lexical-variable
        (save-tag (cg-variable form)))
@@ -1735,3 +1736,25 @@ only R8 will be preserved."
       (raise-type-error reg typespec))
     (emit `(sys.lap-x86:test64 ,reg #b111)
 	  `(sys.lap-x86:jnz ,type-error-label))))
+
+(defun cg-jump-table (form)
+  (destructuring-bind (value &rest jumps) (cdr form)
+    (let ((tag (let ((*for-value* t))
+                 (cg-form value)))
+          (jump-table (gensym "jump-table")))
+      ;; Build the jump table.
+      ;; Every jump entry must be a local GO with no special bindings.
+      (emit-trailer (jump-table)
+        (dolist (j jumps)
+          (assert (and (listp j) (eql (first j) 'go)))
+          (let ((go-tag (assoc (second j) *rename-list*)))
+            (assert go-tag () "GO tag not local")
+            (assert (eql *special-bindings* (third go-tag)))
+            (emit `(:d64/le (- ,(second go-tag) ,jump-table))))))
+      ;; Jump.
+      (load-in-r8 tag t)
+      (smash-r8)
+      (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
+            `(sys.lap-x86:add64 :rax (:rax :r8))
+            `(sys.lap-x86:jmp :rax))
+      nil)))
