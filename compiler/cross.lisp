@@ -17,6 +17,17 @@
            :array-dimension-limit
            :array-total-size-limit
            :char-code-limit
+           :call-arguments-limit
+           :lambda-parameters-limit
+           :multiple-values-limit
+           :most-negative-short-float
+           :most-negative-single-float
+           :most-negative-double-float
+           :most-negative-long-float
+           :most-positive-short-float
+           :most-positive-single-float
+           :most-positive-double-float
+           :most-positive-long-float
            :boole-1
            :boole-2
            :boole-andc1

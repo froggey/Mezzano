@@ -221,6 +221,19 @@ BODY must not allocate!"
 
 (defconstant char-code-limit #x110000)
 
+(defconstant call-arguments-limit 500)
+(defconstant lambda-parameters-limit 500)
+(defconstant multiple-values-limit 500)
+
+(defconstant most-negative-short-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-double-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-long-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-positive-short-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-single-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-double-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-long-float (%integer-as-single-float #x7F7FFFFF))
+
 (defun string-left-trim (character-bag string)
   (setf string (string string))
   (let ((n-from-left (dotimes (i (length string)

@@ -178,6 +178,12 @@
       n
       (+ n boundary (- (rem n boundary)))))
 
+(defun sys.int::%integer-as-single-float (integer)
+  (check-type integer (unsigned-byte 32))
+  #+sbcl (sb-kernel:make-single-float (if (logtest integer #x80000000)
+                                          (logior integer (lognot #x7FFFFFFF))
+                                          integer))
+  #-sbcl (error "Not supported on this platform."))
 
 (macrolet ((x (nib int)
              `(progn (defun ,int (vec index) (,nib vec index))
