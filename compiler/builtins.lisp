@@ -141,122 +141,55 @@
   (and (quoted-constant-p tag)
        (typep (second tag) type)))
 
-(defbuiltin sys.int::memref-unsigned-byte-8 (base offset) ()
-  (load-in-reg :rax base t)
-  (fixnum-check :rax)
-  (load-in-reg :rcx offset t)
-  (fixnum-check :rcx)
-  (smash-r8)
-  (emit ;; Convert to raw integers, leaving offset correctly scaled (* 1).
-   `(sys.lap-x86:sar64 :rax 3)
-   `(sys.lap-x86:sar64 :rcx 3)
-   ;; Read.
-   `(sys.lap-x86:mov8 :dl (:rax :rcx))
-   ;; Convert to fixnum.
-   `(sys.lap-x86:and32 :edx #xFF)
-   `(sys.lap-x86:shl32 :edx 3)
-   `(sys.lap-x86:mov32 :r8d :edx))
-  (setf *r8-value* (list (gensym))))
+(defmacro define-u-b-memref (name shift mask op register size)
+  `(progn
+     (defbuiltin ,name (base offset) ()
+       (load-in-reg :r9 base t)
+       (fixnum-check :r9)
+       (emit `(sys.lap-x86:mov64 :rdx :r9))
+       (load-in-reg :r9 offset t)
+       (fixnum-check :r9)
+       (emit `(sys.lap-x86:mov64 :rcx :r9))
+       (smash-r8)
+       ;; BASE to raw integer.
+       (emit '(sys.lap-x86:sar64 :rdx 3))
+       ;; Convert OFFSET to a scaled raw integer & read it.
+       (emit '(sys.lap-x86:sar64 :rcx ,shift)
+             '(,op ,register (:rdx :rcx)))
+       ;; Wipe the bits that didn't get loaded.
+       ,@(when mask
+           `((emit '(sys.lap-x86:and32 :eax ,mask))))
+       ;; Convert to fixnum.
+       (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
+       (setf *r8-value* (list (gensym))))
+     (defbuiltin (setf ,name) (new-value base offset) ()
+       (let ((type-error-label (gensym)))
+         (emit-trailer (type-error-label)
+           (raise-type-error :r8 '(unsigned-byte ,size)))
+         (load-in-reg :r9 base t)
+         (fixnum-check :r9)
+         (emit `(sys.lap-x86:mov64 :rdx :r9))
+         (load-in-reg :r9 offset t)
+         (fixnum-check :r9)
+         (emit `(sys.lap-x86:mov64 :rcx :r9))
+         (load-in-r8 new-value t)
+         (emit '(sys.lap-x86:mov64 :rax :r8)
+               '(sys.lap-x86:test64 :rax #b111)
+               `(sys.lap-x86:jnz ,type-error-label)
+               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 size)))
+               '(sys.lap-x86:cmp64 :rax :rsi)
+               `(sys.lap-x86:jae ,type-error-label)
+               ;; Convert to raw integers, leaving offset correctly scaled.
+               '(sys.lap-x86:sar64 :rdx 3)
+               '(sys.lap-x86:sar64 :rcx ,shift)
+               '(sys.lap-x86:sar64 :rax 3)
+               ;; Write.
+               '(,op (:rdx :rcx) ,register))
+         *r8-value*))))
 
-(defbuiltin sys.int::memref-unsigned-byte-16 (base offset) ()
-  (load-in-reg :rax base t)
-  (fixnum-check :rax)
-  (load-in-reg :rcx offset t)
-  (fixnum-check :rcx)
-  (smash-r8)
-  (emit ;; Convert to raw integers, leaving offset correctly scaled (* 2).
-   `(sys.lap-x86:sar64 :rax 3)
-   `(sys.lap-x86:sar64 :rcx 2)
-   ;; Read.
-   `(sys.lap-x86:mov16 :dx (:rax :rcx))
-   ;; Convert to fixnum.
-   `(sys.lap-x86:and32 :edx #xFFFF)
-   `(sys.lap-x86:shl32 :edx 3)
-   `(sys.lap-x86:mov32 :r8d :edx))
-  (setf *r8-value* (list (gensym))))
-
-(defbuiltin sys.int::memref-unsigned-byte-32 (base offset) ()
-  (load-in-reg :rax base t)
-  (fixnum-check :rax)
-  (load-in-reg :rcx offset t)
-  (fixnum-check :rcx)
-  (smash-r8)
-  (emit ;; Convert to raw integers, leaving offset correctly scaled (* 4).
-   `(sys.lap-x86:sar64 :rax 3)
-   `(sys.lap-x86:sar64 :rcx 1)
-   ;; Read.
-   `(sys.lap-x86:mov32 :edx (:rax :rcx))
-   ;; Convert to fixnum.
-   `(sys.lap-x86:shl64 :rdx 3)
-   `(sys.lap-x86:mov64 :r8 :rdx))
-  (setf *r8-value* (list (gensym))))
-
-(defbuiltin (setf sys.int::memref-unsigned-byte-8) (new-value base offset) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :rdx '(unsigned-byte 8)))
-    (load-in-reg :rax base t)
-    (fixnum-check :rax)
-    (load-in-reg :rcx offset t)
-    (fixnum-check :rcx)
-    (load-in-r8 new-value t)
-    (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
-	  `(sys.lap-x86:jnz ,type-error-label)
-	  `(sys.lap-x86:cmp64 :rdx ,(* #x100 8))
-	  `(sys.lap-x86:jae ,type-error-label)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 1).
-	  `(sys.lap-x86:sar64 :rax 3)
-	  `(sys.lap-x86:sar64 :rcx 3)
-	  `(sys.lap-x86:sar64 :rdx 3)
-	  ;; Write.
-	  `(sys.lap-x86:mov8 (:rax :rcx) :dl))
-    *r8-value*))
-
-(defbuiltin (setf sys.int::memref-unsigned-byte-16) (new-value base offset) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :rdx '(unsigned-byte 16)))
-    (load-in-reg :rax base t)
-    (fixnum-check :rax)
-    (load-in-reg :rcx offset t)
-    (fixnum-check :rcx)
-    (load-in-r8 new-value t)
-    (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
-	  `(sys.lap-x86:jnz ,type-error-label)
-	  `(sys.lap-x86:cmp64 :rdx ,(* #x10000 8))
-	  `(sys.lap-x86:jae ,type-error-label)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 2).
-	  `(sys.lap-x86:sar64 :rax 3)
-	  `(sys.lap-x86:sar64 :rcx 2)
-	  `(sys.lap-x86:sar64 :rdx 3)
-	  ;; Write.
-	  `(sys.lap-x86:mov16 (:rax :rcx) :dx))
-    *r8-value*))
-
-(defbuiltin (setf sys.int::memref-unsigned-byte-32) (new-value base offset) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :rdx '(unsigned-byte 32)))
-    (load-in-reg :rax base t)
-    (fixnum-check :rax)
-    (load-in-reg :rcx offset t)
-    (fixnum-check :rcx)
-    (load-in-r8 new-value t)
-    (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
-	  `(sys.lap-x86:jnz ,type-error-label)
-          `(sys.lap-x86:mov64 :rsi ,(* #x100000000 8))
-	  `(sys.lap-x86:cmp64 :rdx :rsi)
-	  `(sys.lap-x86:jae ,type-error-label)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 2).
-	  `(sys.lap-x86:sar64 :rax 3)
-	  `(sys.lap-x86:sar64 :rcx 1)
-	  `(sys.lap-x86:sar64 :rdx 3)
-	  ;; Write.
-	  `(sys.lap-x86:mov32 (:rax :rcx) :edx))
-    *r8-value*))
+(define-u-b-memref sys.int::memref-unsigned-byte-8 3 #xFF sys.lap-x86:mov8 :al 8)
+(define-u-b-memref sys.int::memref-unsigned-byte-16 2 #xFFFF sys.lap-x86:mov16 :ax 16)
+(define-u-b-memref sys.int::memref-unsigned-byte-32 1 nil sys.lap-x86:mov32 :eax 32)
 
 (defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
   (let ((overflow-error-label (gensym))
@@ -264,6 +197,12 @@
         (resume (gensym)))
     (emit-trailer (overflow-error-label)
       (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:xor32 :edx :edx)
+            ;; CL holds the high 4 bits of the word.
+            ;; If bit 3 is non-zero, then the sign bit of word was set & a 128-bit bignum
+            ;; is required.
+            `(sys.lap-x86:test8 :cl #b1000)
+            `(sys.lap-x86:cmov64nz :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
             `(sys.lap-x86:call (:symbol-function :r13))
             `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r8 base t)
@@ -277,12 +216,10 @@
 	  `(sys.lap-x86:sar64 :rax 3)
           ;; Read.
           `(sys.lap-x86:mov64 :rax (:rax :rcx))
-          ;; Check for overflow. Top 3 bits must be all 0 or all 1.
-          `(sys.lap-x86:mov64 :rdx :rax)
-          `(sys.lap-x86:sar64 :rdx 61)
-          `(sys.lap-x86:jz ,ok-label)
-          `(sys.lap-x86:cmp8 :dl -1)
-          `(sys.lap-x86:jne ,overflow-error-label)
+          ;; Check for overflow. Top 4 bits must be all 0.
+          `(sys.lap-x86:mov64 :rcx :rax)
+          `(sys.lap-x86:sar64 :rcx 60)
+          `(sys.lap-x86:jnz ,overflow-error-label)
           ok-label
           ;; Convert to fixnum.
           `(sys.lap-x86:shl64 :rax 3)
@@ -290,22 +227,54 @@
           resume)
     (setf *r8-value* (list (gensym)))))
 
-;;; TODO: bignums.
 (defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
+  (let ((type-error-label (gensym))
+        (bignum-path (gensym "mr-ub64-bignum"))
+        (len-2-bignum (gensym "mr-ub64-len-2-bignum"))
+        (value-extracted (gensym "mr-ub64-value-extracted")))
+    (emit-trailer (bignum-path)
+      ;; Check for bignumness.
+      (emit `(sys.lap-x86:and8 :dl #b1111)
+            `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+            `(sys.lap-x86:jne ,type-error-label)
+            `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
+            `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+            `(sys.lap-x86:jne ,type-error-label)
+            `(sys.lap-x86:shr64 :rdx 8)
+            ;; RDX = bignum length.
+            `(sys.lap-x86:cmp64 :rdx 2)
+            `(sys.lap-x86:je ,len-2-bignum)
+            ;; Not length 2, must be length 1.
+            `(sys.lap-x86:cmp64 :rdx 1)
+            `(sys.lap-x86:jne ,type-error-label)
+            ;; And the sign bit must be clear.
+            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:shl64 :rdx 1)
+            `(sys.lap-x86:jc ,type-error-label)
+            `(sys.lap-x86:rcr64 :rdx 1)
+            `(sys.lap-x86:jmp ,value-extracted)
+            len-2-bignum
+            ;; Length 2 bignums must have the high word be 0.
+            `(sys.lap-x86:cmp64 (:r8 #.(+ (- sys.int::+tag-array-like+) 16)) 0)
+            `(sys.lap-x86:jne ,type-error-label)
+            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:jmp ,value-extracted)
+            type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
-    (load-in-reg :rax base t)
-    (fixnum-check :rax)
-    (load-in-reg :rcx offset t)
-    (fixnum-check :rcx)
+    (load-in-reg :r9 base t)
+    (fixnum-check :r9)
+    (emit `(sys.lap-x86:mov64 :rax :r9))
+    (load-in-reg :r9 offset t)
+    (fixnum-check :r9)
+    (emit `(sys.lap-x86:mov64 :rcx :r9))
     (load-in-r8 new-value t)
-    (emit `(sys.lap-x86:mov64 :rdx :r8)
+    (emit `(sys.lap-x86:sar64 :rax 3)
+          `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx #b111)
-	  `(sys.lap-x86:jnz ,type-error-label)
+	  `(sys.lap-x86:jnz ,bignum-path)
 	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rax 3)
 	  `(sys.lap-x86:sar64 :rdx 3)
+          value-extracted
 	  ;; Write.
 	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
     *r8-value*))
