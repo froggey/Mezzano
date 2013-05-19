@@ -53,6 +53,12 @@ Equivalent to (make-array length). Used by the compiler to
 allocate environment frames."
   (%allocate-array-like +array-type-t+ length length area))
 
+(defun signify (value width)
+  "Convert an unsigned integer to a signed value."
+  (if (logbitp (1- width) value)
+      (logior value (lognot (1- (ash 1 width))))
+      value))
+
 ;;; FIXME: some parts must run with the GC off.
 (defun %simple-array-aref (array index)
   (ecase (%simple-array-type array)
@@ -64,6 +70,18 @@ allocate environment frames."
      (multiple-value-bind (offset bit)
          (truncate index 8)
        (ldb (byte 1 bit)
+            (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                    offset))))
+    (#.+array-type-unsigned-byte-2+
+     (multiple-value-bind (offset bit)
+         (truncate index 4)
+       (ldb (byte 2 bit)
+            (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                    offset))))
+    (#.+array-type-unsigned-byte-4+
+     (multiple-value-bind (offset bit)
+         (truncate index 2)
+       (ldb (byte 4 bit)
             (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                                     offset))))
     (#.+array-type-unsigned-byte-8+
@@ -78,6 +96,36 @@ allocate environment frames."
     (#.+array-type-unsigned-byte-64+
      (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                               index))
+    (#.+array-type-signed-byte-1+
+     (multiple-value-bind (offset bit)
+         (truncate index 8)
+       (signify (ldb (byte 1 bit)
+                     (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                             offset))
+                1)))
+    (#.+array-type-signed-byte-2+
+     (multiple-value-bind (offset bit)
+         (truncate index 4)
+       (signify (ldb (byte 2 bit)
+                     (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                             offset))
+                2)))
+    (#.+array-type-signed-byte-4+
+     (multiple-value-bind (offset bit)
+         (truncate index 2)
+       (signify (ldb (byte 4 bit)
+                     (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                             offset))
+                4)))
+    (#.+array-type-signed-byte-8+
+     (memref-signed-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                           index))
+    (#.+array-type-signed-byte-16+
+     (memref-signed-byte-16 (+ (logand (lisp-object-address array) -16) 8)
+                            index))
+    (#.+array-type-signed-byte-32+
+     (memref-signed-byte-32 (+ (logand (lisp-object-address array) -16) 8)
+                            index))
     (#.+array-type-signed-byte-64+
      (memref-signed-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                             index))))
@@ -89,9 +137,26 @@ allocate environment frames."
     ((#.+array-type-base-char+ #.+array-type-character+)
      (setf (schar array index) value))
     (#.+array-type-bit+
+     (check-type value bit)
      (multiple-value-bind (offset bit)
          (truncate index 8)
        (setf (ldb (byte 1 bit)
+                  (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                          offset))
+             value)))
+    (#.+array-type-unsigned-byte-2+
+     (check-type value (unsigned-byte 2))
+     (multiple-value-bind (offset bit)
+         (truncate index 4)
+       (setf (ldb (byte 2 bit)
+                  (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                          offset))
+             value)))
+    (#.+array-type-unsigned-byte-4+
+     (check-type value (unsigned-byte 4))
+     (multiple-value-bind (offset bit)
+         (truncate index 2)
+       (setf (ldb (byte 4 bit)
                   (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
                                           offset))
              value)))
@@ -110,6 +175,45 @@ allocate environment frames."
     (#.+array-type-unsigned-byte-64+
      (setf (memref-unsigned-byte-64 (+ (logand (lisp-object-address array) -16) 8)
                                     index)
+           value))
+    (#.+array-type-signed-byte-1+
+     (check-type value (signed-byte 1))
+     (multiple-value-bind (offset bit)
+         (truncate index 8)
+       (setf (ldb (byte 1 bit)
+                  (ldb (byte 1 0)
+                       (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                               offset)))
+             value)))
+    (#.+array-type-signed-byte-2+
+     (check-type value (signed-byte 2))
+     (multiple-value-bind (offset bit)
+         (truncate index 4)
+       (setf (ldb (byte 2 bit)
+                  (ldb (byte 2 0)
+                       (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                               offset)))
+             value)))
+    (#.+array-type-signed-byte-4+
+     (check-type value (signed-byte 4))
+     (multiple-value-bind (offset bit)
+         (truncate index 2)
+       (setf (ldb (byte 4 bit)
+                  (ldb (byte 4 0)
+                       (memref-unsigned-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                               offset)))
+             value)))
+    (#.+array-type-signed-byte-8+
+     (setf (memref-signed-byte-8 (+ (logand (lisp-object-address array) -16) 8)
+                                 index)
+           value))
+    (#.+array-type-signed-byte-16+
+     (setf (memref-signed-byte-16 (+ (logand (lisp-object-address array) -16) 8)
+                                  index)
+           value))
+    (#.+array-type-signed-byte-32+
+     (setf (memref-signed-byte-32 (+ (logand (lisp-object-address array) -16) 8)
+                                  index)
            value))
     (#.+array-type-signed-byte-64+
      (setf (memref-signed-byte-64 (+ (logand (lisp-object-address array) -16) 8)
