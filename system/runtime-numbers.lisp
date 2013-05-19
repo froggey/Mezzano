@@ -5,13 +5,33 @@
   (or (system:fixnump object)
       (bignump object)))
 
-(defun realp (object)
+(defun rationalp (object)
   (or (integerp object)
+      (ratiop object)))
+
+(defun realp (object)
+  (or (rationalp object)
       (floatp object)))
 
 (defun numberp (object)
   (or (realp object)
       (complexp object)))
+
+(defstruct (ratio
+             (:constructor make-ratio (numerator denominator))
+             (:predicate ratiop))
+  numerator
+  denominator)
+
+(defun numerator (rational)
+  (etypecase rational
+    (ratio (ratio-numerator rational))
+    (integer rational)))
+
+(defun denominator (rational)
+  (etypecase rational
+    (ratio (ratio-denominator rational))
+    (integer 1)))
 
 (defstruct (complex
              (:constructor make-complex (realpart imagpart))
@@ -241,7 +261,11 @@
                    (float y x)
                    y)))
        (%%float-< x* y*)))
-    (t (error "TODO... Argument combination not supported."))))
+    ((or (ratiop x)
+         (ratiop y))
+       (< (* (numerator x) (denominator y))
+          (* (numerator y) (denominator x))))
+    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
 
 ;; Implement these in terms of <.
 (defun generic->= (x y)
@@ -325,7 +349,11 @@
     ((and (bignump x)
           (bignump y))
      (or (eq x y) (%%bignum-= x y)))
-    (t (error "TODO... Argument combination not supported."))))
+    ((or (ratiop x)
+         (ratiop y))
+     (and (= (numerator x) (numerator y))
+          (= (denominator x) (denominator y))))
+    (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-truncate ()
   ;; Read headers.
@@ -448,9 +476,15 @@
                                       (integer-decode-float val)
                                     (ash significand exponent)))))
            (values integer-part (* (- val integer-part) divisor))))
+        ((or (ratiop number)
+             (ratiop divisor))
+         (let ((val (/ number divisor)))
+           (multiple-value-bind (quot rem)
+               (truncate (numerator val) (denominator val))
+             (values quot (/ rem (denominator val))))))
         (t (check-type number number)
            (check-type divisor number)
-           (error "Argument combination not supported."))))
+           (error "Argument combination ~S and ~S not supported." number divisor))))
 
 (defun generic-rem (number divisor)
   (multiple-value-bind (quot rem)
@@ -501,9 +535,18 @@
               (typep y 'integer))
          (multiple-value-bind (quot rem)
              (truncate x y)
-           (if (zerop rem)
-               quot
-               (%%float-/ (float x) (float y)))))
+           (cond ((zerop rem)
+                  ;; Remainder is zero, result is an integer.
+                  quot)
+                 (t ;; Remainder is non-zero, produce a ratio.
+                  (let ((negative (if (minusp x)
+                                      (not (minusp y))
+                                      (minusp y)))
+                        (gcd (gcd x y)))
+                    (make-ratio (if negative
+                                    (- (/ (abs x) gcd))
+                                    (/ (abs x) gcd))
+                                (/ (abs y) gcd)))))))
         ((or (complexp x)
              (complexp y))
          (complex (/ (+ (* (realpart x) (realpart y))
@@ -514,7 +557,12 @@
                         (* (realpart x) (imagpart y)))
                      (+ (expt (realpart y) 2)
                         (expt (imagpart y) 2)))))
-        (t (%%float-/ (float x) (float y)))))
+        ((or (floatp x) (floatp y))
+         (%%float-/ (float x) (float y)))
+        ((or (ratiop x) (ratiop y))
+         (/ (* (numerator x) (denominator y))
+            (* (denominator x) (numerator y))))
+        (t (error "Argument complex ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-+ ()
   ;; Save on the lisp stack.
@@ -677,9 +725,14 @@
                        (float y x)
                        y)))
            (%%float-+ x* y*)))
+        ((or (ratiop x)
+             (ratiop y))
+         (/ (+ (* (numerator x) (denominator y))
+               (* (numerator y) (denominator x)))
+            (* (denominator x) (denominator y))))
         (t (check-type x number)
            (check-type y number)
-           (error "Argument combination not supported."))))
+           (error "Argument combination ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-- ()
   ;; Save on the lisp stack.
@@ -843,9 +896,14 @@
                        (float y x)
                        y)))
            (%%float-- x* y*)))
+        ((or (ratiop x)
+             (ratiop y))
+         (/ (- (* (numerator x) (denominator y))
+               (* (numerator y) (denominator x)))
+            (* (denominator x) (denominator y))))
         (t (check-type x number)
            (check-type y number)
-           (error "Argument combination not supported."))))
+           (error "Argument combination ~S and ~S not supported." x y))))
 
 ;; Cheating here as well... Only deals with 1 word bignums.
 (define-lap-function %%bignum-* ()
@@ -953,9 +1011,13 @@
                        (float y x)
                        y)))
            (%%float-* x* y*)))
+        ((or (ratiop x)
+             (ratiop y))
+         (/ (* (numerator x) (numerator y))
+            (* (denominator x) (denominator y))))
         (t (check-type x number)
            (check-type y number)
-           (error "Argument combination not supported."))))
+           (error "Argument combination ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-logand ()
   ;; Save on the lisp stack.
@@ -1730,3 +1792,22 @@
         ((and (< y 0) (zerop x))
          (- (/ pi 2)))
         (t 0)))
+
+(defun two-arg-gcd (a b)
+  (check-type a integer)
+  (check-type b integer)
+  (setf a (abs a))
+  (setf b (abs b))
+  (loop (when (zerop b)
+          (return a))
+     (psetf b (mod a b)
+            a b)))
+
+(defun gcd (&rest integers)
+  (declare (dynamic-extent integers))
+  (cond
+    ((endp integers) 0)
+    ((endp (rest integers))
+     (check-type (first integers) integer)
+     (abs (first integers)))
+    (t (reduce #'two-arg-gcd integers))))

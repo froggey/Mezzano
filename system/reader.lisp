@@ -298,7 +298,60 @@
        (intern token))
       ;; Attempt to parse a number.
       (t (or (maybe-parse-number token)
+             (parse-ratio token)
              (intern token))))))
+
+(defun parse-ratio (string)
+  ;; ratio = sign? digits+ slash digits+
+  (let ((numerator nil)
+        (denominator nil)
+        (negativep nil)
+        (start 0)
+        (len (length string)))
+    (when (zerop (length string))
+      (return-from parse-ratio))
+    ;; Check for a leading sign.
+    (case (char string 0)
+      (#\- (incf start)
+           (setf negativep t))
+      (#\+ (incf start)))
+    ;; Ensure at least one numerator digit.
+    (when (>= start len)
+      (return-from parse-ratio))
+    (setf numerator (digit-char-p (char string start) *read-base*))
+    (when (not numerator)
+      (return-from parse-ratio))
+    (loop
+       (incf start)
+       (when (>= start len)
+         (return-from parse-ratio))
+       (let ((ch (char string start)))
+         ;; Numerator is terminated by a slash.
+         (when (eql ch #\/)
+           (return))
+         (let ((weight (digit-char-p ch *read-base*)))
+           (when (not weight)
+             (return-from parse-ratio))
+           (setf numerator (+ (* numerator *read-base*)
+                              weight)))))
+    ;; Skip over the slash.
+    (incf start)
+    ;; Ensure at least one denominator digit.
+    (when (>= start len)
+      (return-from parse-ratio))
+    (setf denominator (digit-char-p (char string start) *read-base*))
+    (when (not denominator)
+      (return-from parse-ratio))
+    (loop
+       (incf start)
+       (when (>= start len)
+         (return))
+       (let ((weight (digit-char-p (char string start) *read-base*)))
+         (when (not weight)
+           (return-from parse-ratio))
+         (setf denominator (+ (* denominator *read-base*)
+                              weight))))
+    (/ numerator denominator)))
 
 (defun parse-float (string)
   (let ((integer-part 0)

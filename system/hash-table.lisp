@@ -69,7 +69,7 @@
 	;; Adding a new entry.
 	((or (and (eq (hash-table-key-at hash-table free-slot) *hash-table-unbound-value*)
                   (= (1+ (hash-table-used hash-table)) (hash-table-size hash-table)))
-             (>= (/ (hash-table-count hash-table) (hash-table-size hash-table))
+             (>= (/ (float (hash-table-count hash-table)) (float (hash-table-size hash-table)))
                  (hash-table-rehash-threshold hash-table)))
 	 ;; There must always be at least one unbound slot in the hash table.
 	 (hash-table-rehash hash-table t)

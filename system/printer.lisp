@@ -140,6 +140,23 @@
          (write-case-escaped-string (symbol-name object) stream))
         (t (write-case-escaped-string (symbol-name object) stream))))
 
+(defun write-ratio (object stream)
+  (when *print-radix*
+    (case *print-base*
+      (2 (write-string "#b" stream))
+      (8 (write-string "#o" stream))
+      (16 (write-string "#x" stream))
+      (t (write-char #\# stream)
+         (write-integer *print-base* 10 stream)
+         (write-char #\r stream))))
+  (let ((numerator (numerator object)))
+    (when (minusp numerator)
+      (write-char #\- stream)
+      (setf numerator (- numerator)))
+    (write-integer numerator *print-base* stream))
+  (write-char #\/ stream)
+  (write-integer (denominator object) *print-base* stream))
+
 (defun write-object (object stream)
   (typecase object
     (integer
@@ -156,6 +173,8 @@
      (when (and *print-radix* (eql *print-base* 10))
        (write-char #\. stream)))
     (float (write-float object stream))
+    (ratio
+     (write-ratio object stream))
     (cons
      (write-char #\( stream)
      (write (car object) :stream stream)

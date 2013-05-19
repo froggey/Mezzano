@@ -117,9 +117,17 @@
 	     (>= object min))
 	 (or (eql max '*)
 	     (<= object max)))))
-
 (%define-compound-type 'integer 'integer-type-p)
-(%define-compound-type 'rational 'integer-type-p) ; ###
+
+(defun rational-type-p (object type)
+  (multiple-value-bind (min max)
+      (canonicalize-real-type type 'rational)
+    (and (rationalp object)
+	 (or (eql min '*)
+	     (>= object min))
+	 (or (eql max '*)
+	     (<= object max)))))
+(%define-compound-type 'rational 'rational-type-p)
 
 (defun real-type-p (object type)
   (multiple-value-bind (min max)
@@ -204,7 +212,7 @@
 (%define-type-symbol 'real 'realp)
 (%define-type-symbol 'complex 'complexp)
 (%define-type-symbol 'integer 'integerp)
-(%define-type-symbol 'rational 'integerp) ; ###
+(%define-type-symbol 'rational 'rationalp)
 (%define-type-symbol 'float 'floatp)
 (%define-type-symbol 'standard-char 'standard-char-p)
 (%define-type-symbol 'base-char 'base-char-p)
