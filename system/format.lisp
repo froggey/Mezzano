@@ -223,6 +223,20 @@
         (t (interpret-format-substring s (pop args) 0 nil (pop args))
            args)))
 
+(defun format-plural (s args params at-sign colon)
+  (let ((arg (if colon
+                 ;; FIXME: Should back up by one.
+                 (first args)
+                 (pop args))))
+    (if (and (numberp arg)
+             (= arg 1))
+        (if at-sign
+            (write-string "y" s))
+        (if at-sign
+            (write-string "ies" s)
+            (write-string "s" s))))
+  args)
+
 (defun format-ignore (s args params at-sign colon)
   (declare (ignore s params at-sign colon))
   args)
@@ -245,6 +259,7 @@
     (#\I format-indent)
     (#\T format-tabulate)
     (#\? format-recurse)
+    (#\P format-plural)
     (#\< format-ignore)
     (#\> format-ignore)
     (#\[ format-ignore)
