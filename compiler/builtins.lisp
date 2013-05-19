@@ -141,7 +141,7 @@
   (and (quoted-constant-p tag)
        (typep (second tag) type)))
 
-(defmacro define-u-b-memref (name shift mask op register size)
+(defmacro define-u-b-memref (name shift read-op write-op register size)
   `(progn
      (defbuiltin ,name (base offset) ()
        (load-in-reg :r9 base t)
@@ -155,10 +155,7 @@
        (emit '(sys.lap-x86:sar64 :rdx 3))
        ;; Convert OFFSET to a scaled raw integer & read it.
        (emit '(sys.lap-x86:sar64 :rcx ,shift)
-             '(,op ,register (:rdx :rcx)))
-       ;; Wipe the bits that didn't get loaded.
-       ,@(when mask
-           `((emit '(sys.lap-x86:and32 :eax ,mask))))
+             '(,read-op :eax (:rdx :rcx)))
        ;; Convert to fixnum.
        (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
        (setf *r8-value* (list (gensym))))
@@ -184,12 +181,12 @@
                '(sys.lap-x86:sar64 :rcx ,shift)
                '(sys.lap-x86:sar64 :rax 3)
                ;; Write.
-               '(,op (:rdx :rcx) ,register))
+               '(,write-op (:rdx :rcx) ,register))
          *r8-value*))))
 
-(define-u-b-memref sys.int::memref-unsigned-byte-8 3 #xFF sys.lap-x86:mov8 :al 8)
-(define-u-b-memref sys.int::memref-unsigned-byte-16 2 #xFFFF sys.lap-x86:mov16 :ax 16)
-(define-u-b-memref sys.int::memref-unsigned-byte-32 1 nil sys.lap-x86:mov32 :eax 32)
+(define-u-b-memref sys.int::memref-unsigned-byte-8 3 sys.lap-x86:movzx8 sys.lap-x86:mov8 :al 8)
+(define-u-b-memref sys.int::memref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax 16)
+(define-u-b-memref sys.int::memref-unsigned-byte-32 1 sys.lap-x86:mov32 sys.lap-x86:mov32 :eax 32)
 
 (defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
   (let ((overflow-error-label (gensym))
