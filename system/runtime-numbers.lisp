@@ -120,7 +120,9 @@
   (declare (ignore prototype))
   (etypecase number
     (float number)
-    (fixnum (%%coerce-fixnum-to-float number))))
+    (fixnum (%%coerce-fixnum-to-float number))
+    (ratio (/ (float (numerator number) prototype)
+              (float (denominator number) prototype)))))
 
 (define-lap-function %single-float-as-integer ()
   (sys.lap-x86:mov64 :rax :r8)
