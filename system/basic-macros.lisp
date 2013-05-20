@@ -190,7 +190,7 @@
                (n-keys (length unique-keys))
                (min-key (apply #'min unique-keys))
                (max-key (apply #'max unique-keys))
-               (range (- max-key min-key)))
+               (range (- (1+ max-key) min-key)))
           (if (and (>= n-keys sys.c::*jump-table-size-min*)
                    (< range sys.c::*jump-table-size-max*))
               (let ((default-label (gensym "ecase-default"))
@@ -212,10 +212,10 @@
                                        'integerp)
                                    ,key-sym)
                                  (<= ',min-key ,key-sym)
-                                 (<= ,key-sym ',(1- max-key)))
+                                 (<= ,key-sym ',max-key))
                             (%jump-table (- ,key-sym ',min-key)
                                          ,@(loop for i below range
-                                              collect (let ((label (assoc i key-labels)))
+                                              collect (let ((label (assoc (+ i min-key) key-labels)))
                                                         (if label
                                                             `(go ,(second label))
                                                             `(go ,default-label)))))
