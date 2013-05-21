@@ -24,100 +24,40 @@ an offset into the buffer. Should be allocated in static space.")
     (setf (cdr *profile-buffer*) 0))
   t)
 
+(define-interrupt-handler profile-timer-interrupt (buffer)
+  (let* ((sg (stack-group-resumer (current-stack-group)))
+         (buffer-array (car buffer))
+         (buffer-size (%simple-array-length buffer-array))
+         (start (cdr buffer))
+         (position start)
+         (sg-pointer (ash (%pointer-field sg) 4))
+         (csp (memref-unsigned-byte-64 sg-pointer 3))
+         (cfp (memref-unsigned-byte-64 csp 0)))
+    ;; Skip the stack frame created by the interrupt handler.
+    (setf cfp (memref-unsigned-byte-64 cfp 0))
+    ;; Must have room for at least one buffer entry.
+    (when (< start buffer-size)
+      ;; Set the first value to the entry length.
+      (setf (svref buffer-array position) 0)
+      (incf position)
+      (flet ((push-value (value)
+               (when (< position buffer-size)
+                 (setf (svref buffer-array position) value)
+                 (incf (cdr buffer))
+                 (incf (svref buffer-array start))
+                 (incf position))))
+        (push-value sg)
+        ;; Iterate over the stack.
+        (do ((i 0 (1+ i))
+             (fp cfp (memref-unsigned-byte-64 fp 0)))
+            ((= fp 0))
+          (push-value (memref-t fp -2)))
+        ;; Push NIL to terminate.
+        (push-value nil)))))
+
 (defun install-profile-handler (buffer)
-  (multiple-value-bind (mc pool)
-      (sys.lap-x86:assemble
-          ;; (car rbx)  buffer storage
-          ;; (cdr rbx)  buffer fill
-          `((sys.lap-x86:push :rbx)
-            (sys.lap-x86:mov64 :rbx (:constant ,buffer))
-            ;; Start with the current stack group.
-            (sys.lap-x86:mov32 :ecx #xC0000101) ; IA32_GS_BASE
-            (sys.lap-x86:rdmsr)
-            (sys.lap-x86:shl64 :rdx 32)
-            (sys.lap-x86:or64 :rax :rdx)
-            ;; Mangle the control stack and the stack-group so it looks
-            ;; like a suspended stack group.
-            ;; Stack alignment is probably violated here.
-            (sys.lap-x86:push (:rbp 8)) ; Interrupt RIP.
-            (sys.lap-x86:push 0) ; RFLAGS.
-            (sys.lap-x86:push :lsp)
-            (sys.lap-x86:push :lfp)
-            (sys.lap-x86:push (:rbp)) ; Interrupt CFP.
-            ;; Update the saved CSP in the stack group.
-            (sys.lap-x86:mov64 (:rax (- (* 3 8) #b0111)) :csp)
-            ;; Current stack group now looks like a suspended stack group.
-            ;; See if there's enough room in the buffer to push at least one word.
-            (sys.lap-x86:mov64 :rdx (:car :rbx))
-            (sys.lap-x86:mov64 :rcx (:simple-array-header :rdx))
-            (sys.lap-x86:shr64 :rcx 8)
-            (sys.lap-x86:shl64 :rcx 3)
-            ;; rcx  buffer size (fixnum)
-            (sys.lap-x86:cmp64 (:cdr :rbx) :rcx)
-            (sys.lap-x86:jge give-up-early)
-            ;; Push the profile entry size.
-            (sys.lap-x86:mov64 :rdi (:cdr :rbx))
-            (sys.lap-x86:mov64 (:rdx 1 :rdi) 0)
-            (sys.lap-x86:push :rdi)
-            (sys.lap-x86:add64 (:cdr :rbx) 8)
-            (sys.lap-x86:push :rax)
-            ;; (:csp 8) holds the offset of the profile entry size cell.
-            ;; (:csp 0) holds the current stack group being processed.
-            ;; Start processing stack groups.
-            ;; Push the stack group pointer.
-            (sys.lap-x86:mov64 :rax (:csp))
-            (sys.lap-x86:call push-value)
-            ;; Fetch the saved control stack frame pointer.
-            (sys.lap-x86:mov64 :rax (:csp))
-            (sys.lap-x86:mov64 :rdi (:rax (- (* 3 8) #b0111)))
-            (sys.lap-x86:mov64 :rdi (:rdi))
-            (sys.lap-x86:jmp scan-stack-test)
-            scan-stack-loop
-            ;; Pull the saved function object.
-            (sys.lap-x86:mov64 :rax (:rdi -16))
-            ;; Small sanity check
-            (sys.lap-x86:mov8 :dl :al)
-            (sys.lap-x86:and8 :dl #b1111)
-            (sys.lap-x86:cmp8 :dl #b1100)
-            (sys.lap-x86:jne not-function)
-            (sys.lap-x86:call push-value)
-            not-function
-            ;; Advance frame pointer.
-            (sys.lap-x86:mov64 :rdi (:rdi))
-            scan-stack-test
-            (sys.lap-x86:test64 :rdi :rdi)
-            (sys.lap-x86:jnz scan-stack-loop)
-            ;; Terminate this run.
-            (sys.lap-x86:mov64 :rax nil)
-            (sys.lap-x86:call push-value)
-            ;; Switch to the next stack group (TODO).
-            ;; Finish up.
-            ;; Unmangle the control stack.
-            (sys.lap-x86:add64 :csp ,(* 2 8))
-            give-up-early
-            (sys.lap-x86:add64 :csp ,(* 5 8))
-            (sys.lap-x86:pop :rbx)
-            (sys.lap-x86:ret)
-            ;; Subroutine: Push a value on the buffer.
-            ;; Value in RAX. Buffer cons in RBX. Buffer length in RCX.
-            ;; Profile entry size offset at (:csp 16)  (+ 8 for the return address)
-            ;; Clobbers RAX, RDX, RSI
-            push-value
-            (sys.lap-x86:cmp64 (:cdr :rbx) :rcx)
-            (sys.lap-x86:jge pv-ret)
-            (sys.lap-x86:mov64 :rdx (:car :rbx))
-            (sys.lap-x86:mov64 :rsi (:cdr :rbx))
-            (sys.lap-x86:mov64 (:rdx 1 :rsi) :rax)
-            (sys.lap-x86:mov64 :rsi (:csp 16))
-            (sys.lap-x86:add64 (:rdx 1 :rsi) 8)
-            (sys.lap-x86:add64 (:cdr :rbx) 8)
-            pv-ret
-            (sys.lap-x86:ret))
-        :base-address 12
-        :initial-symbols (list (cons nil (lisp-object-address nil)))
-        :info (list 'profiler-interrupt))
-    ;; PC PIT.
-    (setf (isa-pic-interrupt-handler 0) (make-function mc pool))))
+  ;; PC PIT.
+  (setf (isa-pic-interrupt-handler 0) (make-interrupt-handler 'profile-timer-interrupt buffer)))
 
 (defun %with-profiling (fn)
   (unless *profile-buffer*
@@ -198,3 +138,51 @@ an offset into the buffer. Should be allocated in static space.")
             (integer (write value :stream stream))
             (t (write (format nil "~S" value) :stream stream)))
           (terpri stream))))))
+
+(defun read-profile (path)
+  (let ((output '())
+        (current '()))
+    (with-open-file (file path)
+      (loop (let ((thing (read file nil)))
+              (etypecase thing
+                (null (return))
+                (integer
+                 ;; Start a new entry.
+                 (when current
+                   (push current output)
+                   (setf current '()))
+                 ;; First entry is the stack group, skip it.
+                 (read file))
+                (string
+                 (push thing current))))))
+    (when current (push current output))
+    (nreverse output)))
+
+(defun profile-caller-to-callees (prof)
+  (let ((info (make-hash-table :test 'equal)))
+    (dolist (entry prof)
+      (do ((i entry (cdr i)))
+          ((null (cdr i)))
+        (pushnew (second i) (gethash (first i) info) :test #'string=)))
+    info))
+
+(defun profiler-caller-callee-edge-weights (prof)
+  (let ((info (make-hash-table :test 'equal)))
+    (dolist (entry prof)
+      (do ((i entry (cdr i)))
+          ((null (cdr i)))
+        (incf (gethash (cons (first i) (second i)) info 0))))
+    info))
+
+(defun profiler-call-counts (prof)
+  (let ((info (make-hash-table :test 'equal)))
+    (dolist (entry prof)
+      (dolist (subentry entry)
+        (incf (gethash subentry info 0))))
+    info))
+
+(defun profiler-leaf-call-counts (prof)
+  (let ((info (make-hash-table :test 'equal)))
+    (dolist (entry prof)
+      (incf (gethash (first (last entry)) info 0)))
+    info))
