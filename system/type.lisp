@@ -443,7 +443,7 @@
   (let ((value (gensym)))
     `(do ((,value ,place ,place))
 	 ((typep ,value ',typespec))
-       (setf ,value (check-type-error ',place ,value ',typespec ,string)))))
+       (setf ,place (check-type-error ',place ,value ',typespec ,string)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
