@@ -142,7 +142,7 @@
 
 (defun load-one-object (command stream stack)
   (when *noisy-load*
-    (format t "~S~%" llf-command-name))
+    (format t "~S~%" (llf-command-name command)))
   (ecase command
     (#.+llf-function+
      (load-llf-function stream stack))
