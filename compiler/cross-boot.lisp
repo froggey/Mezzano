@@ -112,8 +112,10 @@
     (setf (symbol-function predicate) (lambda (x)
                                         (and (cross-struct-p x)
                                              (eql (sys.int::%struct-slot x 0) def))))
-    (unless (eql (symbol-package (structure-type-name def))
-                 (find-package "CL"))
+    (unless (or (eql (symbol-package (structure-type-name def))
+                     (find-package "CL"))
+                (eql (symbol-package (structure-type-name def))
+                     (find-package "SYS.C")))
       (eval `(cl:deftype ,(structure-type-name def) () '(satisfies ,predicate))))
     (setf (gethash (structure-type-name def) *structure-types*) def)))
 
