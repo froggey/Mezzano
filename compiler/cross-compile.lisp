@@ -486,6 +486,7 @@
              (*compile-file-pathname* (pathname (merge-pathnames input-file)))
              (*compile-file-truename* (truename *compile-file-pathname*))
              (*gensym-counter* 0)
+             (cl:*features* *features*)
              (sys.int::*top-level-form-number* 0))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
