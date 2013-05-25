@@ -122,6 +122,8 @@ Requires at least one completely unbound slot to terminate."
         (size (hash-table-size hash-table))
         (test (hash-table-test hash-table))
         (storage (hash-table-storage hash-table))
+        (unbound-marker *hash-table-unbound-value*)
+        (tombstone *hash-table-tombstone*)
 	;; This hash implementation is inspired by the Python dict implementation.
 	;; FIXME: Check if this really does hit all the entries in the table.
 	(slot (logand hash #xffffffff) (logand #xffffffff (+ (* slot 5) perturb 1)))
@@ -129,10 +131,10 @@ Requires at least one completely unbound slot to terminate."
        (nil)
     (let* ((offset (rem slot size))
            (slot-key (svref storage (ash offset 1)))) ; hash-table-key-at
-      (when (and (null free-slot) (or (eql slot-key *hash-table-unbound-value*)
-				      (eql slot-key *hash-table-tombstone*)))
+      (when (and (null free-slot) (or (eq slot-key unbound-marker)
+				      (eq slot-key tombstone)))
 	(setf free-slot offset))
-      (when (eq slot-key *hash-table-unbound-value*)
+      (when (eq slot-key unbound-marker)
 	;; Unbound value marks the end of this run.
         (return (values nil free-slot)))
       (when (funcall test key slot-key)
