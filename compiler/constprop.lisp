@@ -291,6 +291,7 @@
 	     (logior :commutative-arithmetic)
 	     (logxor :commutative-arithmetic)
              (sys.int::binary-+ :commutative-arithmetic)
+             (sys.int::binary-- (number number))
 	     (sys.int::binary-* :commutative-arithmetic)
 	     (sys.int::binary-logand :commutative-arithmetic)
 	     (sys.int::binary-logeqv :commutative-arithmetic)

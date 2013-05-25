@@ -191,3 +191,11 @@
    (x nibbles:ub16ref/le sys.int::ub16ref/le)
    (x nibbles:ub32ref/le sys.int::ub32ref/le)
    (x nibbles:ub64ref/le sys.int::ub64ref/le))
+
+(defun sys.int::binary-+ (x y) (+ x y))
+(defun sys.int::binary-- (x y) (- x y))
+(defun sys.int::binary-* (x y) (* x y))
+(defun sys.int::binary-logand (x y) (logand x y))
+(defun sys.int::binary-logeqv (x y) (logeqv x y))
+(defun sys.int::binary-logior (x y) (logior x y))
+(defun sys.int::binary-logxor (x y) (logxor x y))
