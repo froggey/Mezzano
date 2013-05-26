@@ -269,6 +269,8 @@
           `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx #b111)
 	  `(sys.lap-x86:jnz ,bignum-path)
+          `(sys.lap-x86:cmp64 :r8 0)
+          `(sys.lap-x86:jl ,type-error-label)
 	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
 	  `(sys.lap-x86:sar64 :rdx 3)
           value-extracted
@@ -541,6 +543,8 @@
     (emit `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx #b111)
 	  `(sys.lap-x86:jnz ,bignum-path)
+          `(sys.lap-x86:cmp64 :r8 0)
+          `(sys.lap-x86:jl ,type-error-label)
 	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
 	  `(sys.lap-x86:sar64 :rdx 3)
           value-extracted

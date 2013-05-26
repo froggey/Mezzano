@@ -751,10 +751,8 @@ the header word. LENGTH is the number of elements in the array."
     (let* ((address (%raw-allocate 2 :static)))
       (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 +array-length-shift+)
                                                         (ash +array-type-bignum+ +array-type-shift+))
-            ;; This is pretty sketchy...
-            ;; It works correctly for negative fixnums (producing a negative fixnum),
-            ;; but probably shouldn't.
-            (memref-unsigned-byte-64 address 1) n)
+            (memref-signed-byte-64 address 1) n)
+      (%%assemble-value address +tag-array-like+))))
       (%%assemble-value address +tag-array-like+))))
 
 (defun %allocate-stack (length)
