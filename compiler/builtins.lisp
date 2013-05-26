@@ -2294,3 +2294,20 @@
 
 (define-array-like-predicate sys.int::bignump sys.int::+array-type-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)
+
+(defbuiltin sys.int::%array-like-length (thing) ()
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r8 '%array-like))
+    (load-in-r8 thing t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov8 :al :r8l)
+	  `(sys.lap-x86:and8 :al #b1111)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+	  `(sys.lap-x86:jne ,type-error-label)
+          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+	  ;; Convert length to fixnum.
+	  `(sys.lap-x86:shr64 :rax 5)
+	  `(sys.lap-x86:and64 :rax -8)
+	  `(sys.lap-x86:mov64 :r8 :rax))
+    (setf *r8-value* (list (gensym)))))
