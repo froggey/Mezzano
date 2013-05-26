@@ -753,6 +753,12 @@ the header word. LENGTH is the number of elements in the array."
                                                         (ash +array-type-bignum+ +array-type-shift+))
             (memref-signed-byte-64 address 1) n)
       (%%assemble-value address +tag-array-like+))))
+
+(defun %make-bignum-of-length (words)
+  (with-interrupts-disabled ()
+    (let* ((address (%raw-allocate (+ 1 words (if (logtest words 1) 0 1)) :static)))
+      (setf (memref-unsigned-byte-64 address 0) (logior (ash words +array-length-shift+)
+                                                        (ash +array-type-bignum+ +array-type-shift+)))
       (%%assemble-value address +tag-array-like+))))
 
 (defun %allocate-stack (length)
