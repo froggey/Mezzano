@@ -907,63 +907,104 @@
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
 
-;; Cheating here as well... Only deals with 1 word bignums.
-(define-lap-function %%bignum-* ()
-  ;; Read headers.
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; TODO: Full multiplication...
-  (sys.lap-x86:cmp64 :rax 1)
-  (sys.lap-x86:jne not-simple)
-  (sys.lap-x86:cmp64 :rdx 1)
-  (sys.lap-x86:jne not-implemented)
-  ;; 64-bit multiply.
-  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:imul64 :rcx)
-  (sys.lap-x86:jo 128-bit-result)
-  ;; One-word result. Attempt to convert it to a fixnum.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:imul64 :rcx 8)
-  (sys.lap-x86:jo 64-bit-result)
-  ;; Fixnum result
-  (sys.lap-x86:mov64 :r8 :rcx)
-  done
-  (sys.lap-x86:mov32 :ecx 8)
+;;; Unsigned multiply X & Y, must be of type (UNSIGNED-BYTE 64)
+;;; This can be either a fixnum, a length-one bignum or a length-two bignum.
+;;; Always returns an (UNSIGNED-BYTE 128) in a length-three bignum.
+(define-lap-function %%bignum-multiply-step ()
+  ;; Read X.
+  (sys.lap-x86:test64 :r8 7)
+  (sys.lap-x86:jnz read-bignum-x)
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax 3)
+  ;; Read Y.
+  read-y
+  (sys.lap-x86:test64 :r9 7)
+  (sys.lap-x86:jnz read-bignum-y)
+  (sys.lap-x86:mov64 :rcx :r9)
+  (sys.lap-x86:shr64 :rcx 3)
+  perform-multiply
+  (sys.lap-x86:mul64 :rcx)
+  ;; RDX:RAX holds the 128-bit result.
+  ;; Prepare to allocate the result.
+  (sys.lap-x86:push :rax) ; Low half.
+  (sys.lap-x86:push :rdx) ; High half.
+  (sys.lap-x86:pushf) ; Flags, also aligns stack correctly
+  (sys.lap-x86:cli)
+  ;; Allocate a 3 word bignum.
+  (sys.lap-x86:mov64 :rcx 16)
+  (sys.lap-x86:mov64 :r8 32) ; fixnum 4 (ugh)
+  (sys.lap-x86:mov64 :r9 (:constant :static))
+  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; fixnum to pointer.
+  (sys.lap-x86:sar64 :r8 3)
+  ;; Set the header.
+  (sys.lap-x86:mov64 (:r8) #.(logior (ash 3 8) (ash +array-type-bignum+ +array-type-shift+)))
+  ;; pointer to value.
+  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
+  ;; GC back on.
+  (sys.lap-x86:popf)
+  ;; Set values.
+  (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 24)) 0)
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
+  ;; Single value return
   (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  64-bit-result
-  ;; Value in RAX.
-  (sys.lap-x86:mov64 :r13 (:constant %%make-bignum-64-rax))
-  (sys.lap-x86:jmp (:symbol-function :r13))
-  128-bit-result
-  ;; Value in RDX:RAX.
-  (sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
-  (sys.lap-x86:jmp (:symbol-function :r13))
-  ;; Special hack for unsigned 64-bit values.
-  not-simple
-  (sys.lap-x86:cmp64 :rax 2)
-  (sys.lap-x86:jne not-implemented)
-  (sys.lap-x86:cmp64 (:r8 #.(+ (- +tag-array-like+) 16)) 0)
-  (sys.lap-x86:jne not-implemented)
-  (sys.lap-x86:mov64 :rax (:r9 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:cqo)
-  (sys.lap-x86:test64 :rdx :rdx)
-  (sys.lap-x86:jnz not-implemented)
-  ;; Unsigned multiply.
-  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mul64 :rdx)
-  ;; FIXME: Can this set the sign bit?
-  (sys.lap-x86:jmp 128-bit-result)
-  not-implemented
-  (sys.lap-x86:mov64 :r8 (:constant "Full bignum * not implemented."))
-  (sys.lap-x86:mov64 :r13 (:constant error))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:call (:symbol-function :r13)))
+  (sys.lap-x86:ret)
+  read-bignum-x
+  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:jmp read-y)
+  read-bignum-y
+  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:jmp perform-multiply))
+
+(defun %%bignum-multiply-unsigned (a b)
+  (assert (bignump a))
+  (assert (bignump b))
+  (let* ((digs (+ (%array-like-length a)
+                  (%array-like-length b)
+                  1))
+         (c (%make-bignum-of-length digs)))
+    (dotimes (i digs)
+      (setf (%array-like-ref-unsigned-byte-64 c i) 0))
+    (loop for ix from 0 below (%array-like-length a) do
+         (let ((u 0)
+               (pb (min (%array-like-length b)
+                        (- digs ix))))
+           (when (< pb 1)
+             (return))
+           (loop for iy from 0 to (1- pb) do
+                (let ((r-hat (+ (%array-like-ref-unsigned-byte-64 c (+ iy ix))
+                                (%%bignum-multiply-step
+                                 (%array-like-ref-unsigned-byte-64 a ix)
+                                 (%array-like-ref-unsigned-byte-64 b iy))
+                                u)))
+                  (setf (%array-like-ref-unsigned-byte-64 c (+ iy ix))
+                        (ldb (byte 64 0) r-hat))
+                  (setf u (ash r-hat -64))))
+           (when (< (+ ix pb) digs)
+             (setf (%array-like-ref-unsigned-byte-64 c (+ ix pb)) u))))
+    (%%canonicalize-bignum c)))
+
+(defun %%bignum-multiply-signed (a b)
+  "Multiply two integers together. A and B can be bignums or fixnums."
+  (let ((a-negative (< a 0))
+        (b-negative (< b 0))
+        (c nil))
+    (when a-negative
+      (setf a (- a)))
+    (when b-negative
+      (setf b (- b)))
+    (when (fixnump a)
+      (setf a (%make-bignum-from-fixnum a)))
+    (when (fixnump b)
+      (setf b (%make-bignum-from-fixnum b)))
+    (setf c (%%bignum-multiply-unsigned a b))
+    (when (not (eql a-negative b-negative))
+      (setf c (- c)))
+    c))
 
 (define-lap-function %%float-* ()
   ;; Unbox the floats.
@@ -990,13 +1031,13 @@
          (error "FIXNUM/FIXNUM case hit GENERIC-*"))
         ((and (fixnump x)
               (bignump y))
-         (%%bignum-* (%make-bignum-from-fixnum x) y))
+         (%%bignum-multiply-signed x y))
         ((and (bignump x)
               (fixnump y))
-         (%%bignum-* x (%make-bignum-from-fixnum y)))
+         (%%bignum-multiply-signed x y))
         ((and (bignump x)
               (bignump y))
-         (%%bignum-* x y))
+         (%%bignum-multiply-signed x y))
         ((or (complexp x)
              (complexp y))
          (complex (- (* (realpart x) (realpart y))
