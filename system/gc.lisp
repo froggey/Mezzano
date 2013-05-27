@@ -62,28 +62,41 @@
 ;;; Suppress preemption (SBCL pseudo-atomic-like operation).
 
 (defun room (&optional (verbosity :default))
-  (fresh-line)
-  (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
-          *newspace-offset* *semispace-size*
-          (truncate (* *newspace-offset* 100) *semispace-size*))
-  (multiple-value-bind (allocated-words total-words largest-free-space)
-      (static-area-info *small-static-area*)
-    (format t "Small static space: ~:D/~:D words allocated (~D%).~%"
-            allocated-words total-words
-            (truncate (* allocated-words 100) total-words))
-    (format t "  Largest free area: ~:D words.~%" largest-free-space))
-  (multiple-value-bind (allocated-words total-words largest-free-space)
-      (static-area-info *large-static-area*)
-    (format t "Large static space: ~:D/~:D words allocated (~D%).~%"
-            allocated-words total-words
-            (truncate (* allocated-words 100) total-words))
-    (format t "  Largest free area: ~:D words.~%" largest-free-space))
-  (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
-          (truncate (- *stack-bump-pointer* #x100000000) 8)
-          (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
-          (truncate (* (- *stack-bump-pointer* #x100000000) 100)
-                    (- *stack-bump-pointer-limit* #x100000000)))
-  (values))
+  (let ((total-used 0)
+        (total 0))
+    (fresh-line)
+    (format t "Dynamic space: ~:D/~:D words allocated (~D%).~%"
+            *newspace-offset* *semispace-size*
+            (truncate (* *newspace-offset* 100) *semispace-size*))
+    (incf total-used *newspace-offset*)
+    (incf total *semispace-size*)
+    (multiple-value-bind (allocated-words total-words largest-free-space)
+        (static-area-info *small-static-area*)
+      (format t "Small static space: ~:D/~:D words allocated (~D%).~%"
+              allocated-words total-words
+              (truncate (* allocated-words 100) total-words))
+      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total-used allocated-words)
+      (incf total total-words))
+    (multiple-value-bind (allocated-words total-words largest-free-space)
+        (static-area-info *large-static-area*)
+      (format t "Large static space: ~:D/~:D words allocated (~D%).~%"
+              allocated-words total-words
+              (truncate (* allocated-words 100) total-words))
+      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total-used allocated-words)
+      (incf total total-words))
+    (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
+            (truncate (- *stack-bump-pointer* #x100000000) 8)
+            (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
+            (truncate (* (- *stack-bump-pointer* #x100000000) 100)
+                      (- *stack-bump-pointer-limit* #x100000000)))
+    (incf total-used (truncate (- *stack-bump-pointer* #x100000000) 8))
+    (incf total (truncate (- *stack-bump-pointer-limit* #x100000000) 8))
+    (format t "Total ~:D/~:D words used (~D%).~%"
+            total-used total
+            (truncate (* total-used 100) total))
+    (values)))
 
 (defun static-area-info (space)
   (let ((allocated-words 0)
