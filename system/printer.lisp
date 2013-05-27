@@ -18,6 +18,7 @@
 
 (defvar *print-safe* nil)
 (defvar *print-space-char-ansi* nil)
+(defvar *print-bignums-safely* nil)
 
 (defun write-unsigned-integer (x base stream)
   (unless (= x 0)
@@ -27,7 +28,16 @@
                 stream)))
 
 (defun write-integer (x &optional (base 10) stream)
-  (cond ((= x 0)
+  (cond ((and *print-bignums-safely*
+              (bignump x)
+              (>= (%array-like-length x) 2))
+         ;; Very large bignum.
+         (write-string "#<Bignum" stream)
+         (dotimes (i (%array-like-length x))
+           (format stream " ~16,'0X"
+                   (%array-like-ref-unsigned-byte-64 x (- (%array-like-length x) i 1))))
+         (write-char #\> stream))
+        ((= x 0)
          (write-char #\0 stream))
         ((< x 0)
          (write-char #\- stream)
