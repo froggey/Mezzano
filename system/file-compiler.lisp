@@ -114,25 +114,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       output-file
       (make-pathname :type "llf" :defaults input-file)))
 
-(defconstant +llf-end-of-load+ #xFF)
-(defconstant +llf-backlink+ #x01)
-(defconstant +llf-function+ #x02)
-(defconstant +llf-cons+ #x03)
-(defconstant +llf-symbol+ #x04)
-(defconstant +llf-uninterned-symbol+ #x05)
-(defconstant +llf-unbound+ #x06)
-(defconstant +llf-string+ #x07)
-(defconstant +llf-setf-symbol+ #x08)
-(defconstant +llf-integer+ #x09)
-(defconstant +llf-invoke+ #x0A)
-(defconstant +llf-setf-fdefinition+ #x0B)
-(defconstant +llf-simple-vector+ #x0C)
-(defconstant +llf-character+ #x0D)
-(defconstant +llf-structure-definition+ #x0E)
-(defconstant +llf-single-float+ #x10)
-(defconstant +llf-proper-list+ #x11)
-(defconstant +llf-package+ #x12)
-
 (defvar *llf-forms*)
 (defvar *llf-dry-run*)
 
@@ -283,6 +264,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (save-integer (length name) stream)
     (dotimes (i (length name))
       (save-character (char name i) stream))))
+
+(defmethod save-one-object ((object ratio) omap stream)
+  (write-byte +llf-ratio+ stream)
+  (save-integer (numerator object) stream)
+  (save-integer (denominator object) stream))
 
 (defun save-object (object omap stream)
   (when (null (gethash object omap))

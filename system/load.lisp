@@ -23,6 +23,7 @@
 ;; A vector consisting entirely of integers.
 (defconstant +llf-integer-vector+ #x13)
 (defconstant +llf-add-backlink+ #x14)
+(defconstant +llf-ratio+ #x15)
 
 (defvar *noisy-load* nil)
 
@@ -47,7 +48,8 @@
     (#.+llf-proper-list+ 'proper-list)
     (#.+llf-package+ 'package)
     (#.+llf-integer-vector+ 'integer-vector)
-    (#.+llf-add-backlink+ 'add-backlink)))
+    (#.+llf-add-backlink+ 'add-backlink)
+    (#.+llf-ratio+ 'ratio)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -203,7 +205,10 @@
             (vec (make-array len)))
        (dotimes (i len)
          (setf (aref vec i) (load-integer stream)))
-       vec))))
+       vec))
+    (#.+llf-ratio+
+     (/ (load-integer stream)
+        (load-integer stream)))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)
