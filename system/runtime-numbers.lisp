@@ -357,75 +357,38 @@
           (= (denominator x) (denominator y))))
     (t (error "TODO... Argument combination ~S and ~S not supported." x y))))
 
-(define-lap-function %%bignum-truncate ()
-  ;; Read headers.
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; TODO: Full division...
-  (sys.lap-x86:cmp64 :rdx 1)
-  (sys.lap-x86:jne not-implemented)
-  (sys.lap-x86:cmp64 :rax 2)
-  (sys.lap-x86:je 128-bit-number)
-  (sys.lap-x86:cmp64 :rax 1)
-  (sys.lap-x86:jne not-implemented)
-  ;; 64-bit divide.
-  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:cqo)
-  ;; Quotient in RAX, remainder in RDX.
-  do-divide
-  (sys.lap-x86:idiv64 :rcx)
-  (sys.lap-x86:push :rdx)
-  ;; Attempt to convert quotient to a fixnum.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo quotient-bignum)
-  (sys.lap-x86:mov64 :r8 :rax)
-  done-quotient
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:sub64 :lsp 8)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  ;; Attempt to convert remainder to a fixnum.
-  (sys.lap-x86:mov64 :rax (:csp))
-  (sys.lap-x86:imul64 :rax 8)
-  (sys.lap-x86:jo remainder-bignum)
-  (sys.lap-x86:mov64 :r9 :rax)
-  done-remainder
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:add64 :lsp 8)
-  (sys.lap-x86:mov32 :ecx 16)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:ret)
-  ;; Allocate a bignum for the quotient in RCX.
-  quotient-bignum
-  (sys.lap-x86:mov64 :rax :rcx)
-  (sys.lap-x86:mov64 :r13 (:constant %%make-bignum-64-rax))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  (sys.lap-x86:jmp done-quotient)
-  ;; Allocate a bignum for the quotient in RCX.
-  remainder-bignum
-  (sys.lap-x86:mov64 :rax (:csp))
-  (sys.lap-x86:mov64 :r13 (:constant %%make-bignum-64-rax))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  (sys.lap-x86:mov64 :r9 :r8)
-  (sys.lap-x86:jmp done-remainder)
-  128-bit-number
-  ;; 128 bit number, 64 bit quotient.
-  (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mov64 :rdx (:r8 #.(+ (- +tag-array-like+) 16)))
-  (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:jmp do-divide)
-  not-implemented
-  (sys.lap-x86:mov64 :r8 (:constant "Full bignum TRUNCATE not implemented."))
-  (sys.lap-x86:mov64 :r13 (:constant error))
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:call (:symbol-function :r13)))
+(defun %%bignum-truncate (a b)
+  "Divide two integers.
+Implements the dumb mp_div algorithm from BigNum Math."
+  (when (eql b 0)
+    (error 'division-by-zero
+           :operands (list a b)
+           :operation 'truncate))
+  (let ((ta (abs a))
+        (tb (abs b))
+        (tq 1)
+        (q 0))
+    ;; Check for the easy case. |a| < |b| => 0, a
+    (when (< ta tb)
+      (return-from %%bignum-truncate
+        (values 0 a)))
+    (setf n (- (integer-length ta) (integer-length tb)))
+    (setf tb (ash tb n))
+    (setf tq (ash tq n))
+    ;; Divide bit-by-bit.
+    (dotimes (i (1+ n))
+      (when (not (> tb ta))
+        (setf ta (- ta tb))
+        (setf q (+ tq q)))
+      (setf tb (ash tb -1)
+            tq (ash tq -1)))
+    ;; Quotient in Q, remainder in TA.
+    ;; Correct sign.
+    (when (not (eql (minusp a) (minusp b)))
+      (setf q (- q)))
+    (when (minusp a)
+      (setf ta (- ta)))
+    (values q ta)))
 
 (define-lap-function %%truncate-float ()
   ;; Unbox the float.
@@ -445,23 +408,17 @@
   (check-type number real)
   (check-type divisor real)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
-  ;; Avoid overflow when doing fixnum arithmetic.
-  ;; ????
-  (when (and (eq divisor -1)
-             (integerp number))
-    (return-from generic-truncate
-      (values (- number) 0)))
   (cond ((and (fixnump number)
               (fixnump divisor))
          (error "FIXNUM/FIXNUM case hit GENERIC-TRUNCATE"))
         ((and (fixnump number)
               (bignump divisor))
-         (%%bignum-truncate (%make-bignum-from-fixnum number)
+         (%%bignum-truncate number
                             divisor))
         ((and (bignump number)
               (fixnump divisor))
          (%%bignum-truncate number
-                            (%make-bignum-from-fixnum divisor)))
+                            divisor))
         ((and (bignump number)
               (bignump divisor))
          (%%bignum-truncate number divisor))
