@@ -20,12 +20,28 @@
 (defvar *print-space-char-ansi* nil)
 (defvar *print-bignums-safely* nil)
 
-(defun write-unsigned-integer (x base stream)
+(defun write-unsigned-integer-inner (x base stream)
   (unless (= x 0)
-    (write-unsigned-integer (truncate x base) base stream)
-    (write-char (schar "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                       (rem x base))
-                stream)))
+    (multiple-value-bind (quot rem)
+        (truncate x base)
+      (write-unsigned-integer quot base stream)
+      (write-char (schar "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" rem)
+                  stream))))
+
+(defun write-unsigned-integer-outer (x base base-divisor stream)
+  (unless (= x 0)
+    (multiple-value-bind (quot rem)
+        (truncate x base-divisor)
+      (write-unsigned-integer-outer quot base base-divisor stream)
+      (write-unsigned-integer-inner rem base stream))))
+
+(defun write-unsigned-integer (x base stream)
+  (cond ((fixnump x)
+         (write-unsigned-integer-inner x base stream))
+        (t
+         (write-unsigned-integer-outer x base
+                                       (expt base (floor (log most-positive-fixnum base)))
+                                       stream))))
 
 (defun write-integer (x &optional (base 10) stream)
   (cond ((and *print-bignums-safely*
