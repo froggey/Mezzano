@@ -365,9 +365,8 @@ This must be sorted from most-specific to least-specific.")
 (defun array-element-type (array)
   (check-type array array)
   (if (%array-header-p array)
-      (cond ((or (null (%array-header-dimensions array))
-		 (integerp (%array-header-storage array)))
-	     ;; 0D and memory arrays store the type in the info slot.
+      (cond ((integerp (%array-header-storage array))
+	     ;; Memory arrays store the type in the info slot.
 	     (%array-header-info array))
 	    ((%array-header-info array)
 	     ;; Displaced arrays inherit the type of the array they displace on.
@@ -428,10 +427,7 @@ This must be sorted from most-specific to least-specific.")
 (defun %row-major-aref (array index)
   "ROW-MAJOR-AREF with no bounds check."
   (if (%array-header-p array)
-      (cond ((null (%array-header-dimensions array))
-	     ;; 0D array, value is stored in the storage slot.
-	     (%array-header-storage array))
-	    ((null (%array-header-info array))
+      (cond ((null (%array-header-info array))
 	     ;; Normal array, must be backed by a simple array.
 	     (%simple-array-aref (%array-header-storage array) index))
 	    ((fixnump (%array-header-info array))
@@ -444,14 +440,7 @@ This must be sorted from most-specific to least-specific.")
 (defun (setf %row-major-aref) (value array index)
   "(SETF ROW-MAJOR-AREF) with no bounds check."
   (if (%array-header-p array)
-      (cond ((null (%array-header-dimensions array))
-	     ;; 0D array, value is stored in the storage slot.
-	     (unless (typep value (%array-header-info array))
-	       (error 'type-error
-		      :expected-type (%array-header-info array)
-		      :datum value))
-	     (setf (%array-header-storage array) value))
-	    ((null (%array-header-info array))
+      (cond ((null (%array-header-info array))
 	     ;; Normal array, must be backed by a simple array.
 	     (setf (%simple-array-aref (%array-header-storage array) index) value))
 	    ((fixnump (%array-header-info array))
