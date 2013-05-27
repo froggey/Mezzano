@@ -297,11 +297,12 @@
       (seen-escape
        (intern token))
       ;; Attempt to parse a number.
-      (t (or (maybe-parse-number token)
-             (parse-ratio token)
+      (t (or (read-integer token)
+             (read-float token)
+             (read-ratio token)
              (intern token))))))
 
-(defun parse-ratio (string)
+(defun read-ratio (string)
   ;; ratio = sign? digits+ slash digits+
   (let ((numerator nil)
         (denominator nil)
@@ -309,7 +310,7 @@
         (start 0)
         (len (length string)))
     (when (zerop (length string))
-      (return-from parse-ratio))
+      (return-from read-ratio))
     ;; Check for a leading sign.
     (case (char string 0)
       (#\- (incf start)
@@ -317,89 +318,141 @@
       (#\+ (incf start)))
     ;; Ensure at least one numerator digit.
     (when (>= start len)
-      (return-from parse-ratio))
+      (return-from read-ratio))
     (setf numerator (digit-char-p (char string start) *read-base*))
     (when (not numerator)
-      (return-from parse-ratio))
+      (return-from read-ratio))
     (loop
        (incf start)
        (when (>= start len)
-         (return-from parse-ratio))
+         (return-from read-ratio))
        (let ((ch (char string start)))
          ;; Numerator is terminated by a slash.
          (when (eql ch #\/)
            (return))
          (let ((weight (digit-char-p ch *read-base*)))
            (when (not weight)
-             (return-from parse-ratio))
+             (return-from read-ratio))
            (setf numerator (+ (* numerator *read-base*)
                               weight)))))
     ;; Skip over the slash.
     (incf start)
     ;; Ensure at least one denominator digit.
     (when (>= start len)
-      (return-from parse-ratio))
+      (return-from read-ratio))
     (setf denominator (digit-char-p (char string start) *read-base*))
     (when (not denominator)
-      (return-from parse-ratio))
+      (return-from read-ratio))
     (loop
        (incf start)
        (when (>= start len)
          (return))
        (let ((weight (digit-char-p (char string start) *read-base*)))
          (when (not weight)
-           (return-from parse-ratio))
+           (return-from read-ratio))
          (setf denominator (+ (* denominator *read-base*)
                               weight))))
     (/ numerator denominator)))
 
-(defun parse-float (string)
+(defvar *exponent-markers* "DdEeFfLlSs")
+(defvar *decimal-digits* "0123456789")
+
+(defun read-float (string)
+  ;; float    = sign? decimal-digit* decimal-point decimal-digit+
+  ;;          = sign? decimal-digit+ [decimal-point decimal-digit*] exponent
+  ;; exponent = exponent-marker [sign] decimal-digit+
+  ;; exponent-marker = d | D | e | E | f | F | l | L | s | S
   (let ((integer-part 0)
         (decimal-part 0.0)
-        (negativep nil)
-        (start 0))
-    ;; Check for a leading sign.
-    (case (char string 0)
-      (#\- (incf start)
-           (setf negativep t))
-      (#\+ (incf start)))
-    ;; Parse the integer portion.
-    (loop
-       (when (or (>= start (length string))
-                 (eql (char string start) #\.))
-         (return))
-       (setf integer-part (+ (* integer-part 10)
-                             (digit-char-p (char string start))))
-       (incf start))
-    ;; Parse the decimal portion.
-    (when (eql (char string start) #\.)
-      (let ((end (length string)))
-        (loop
-           (decf end)
-           (when (<= end start) (return))
-           (incf decimal-part (digit-char-p (char string end)))
-           (setf decimal-part (/ decimal-part 10)))))
-    ;; Mash together and apply the sign.
-    (* (+ integer-part decimal-part)
-       (if negativep -1 1))))
+        (saw-integer-digits nil)
+        (saw-decimal-digits nil)
+        (saw-decimal-point nil)
+        (exponent #\F)
+        (exponent-sign 1)
+        (exponent-value 0)
+        (sign 1)
+        (position 0))
+    (flet ((peek ()
+             (when (< position (length string))
+               (char string position)))
+           (consume ()
+             (prog1 (char string position)
+               (incf position))))
+      ;; Check for a leading sign.
+      (case (peek)
+        (#\- (consume)
+             (setf sign -1))
+        (#\+ (consume)))
+      ;; Remaining string must not be empty.
+      (when (null (peek))
+        (return-from read-float))
+      ;; Parse the integer portion.
+      (loop
+         (let ((weight (position (peek) *decimal-digits*)))
+           (when (not weight) (return))
+           (consume)
+           (setf saw-integer-digits t)
+           (setf integer-part (+ (* integer-part 10) weight))))
+      ;; Parse the decimal portion.
+      (when (decimal-point-p (peek))
+        (setf saw-decimal-point t)
+        (consume)
+        ;; If there was an integer part, then the next character
+        ;; must be either a decimal-digit or an exponent marker.
+        ;; If there was no integer part, it must be a decimal-digit.
+        (when (and (not (or (not saw-integer-digits)
+                            (find (peek) *exponent-markers*)))
+                   (not (find (peek) *decimal-digits*)))
+          (return-from read-float))
+        ;; Accumulate decimal digits.
+        (let ((first-decimal position))
+          (loop
+             (when (not (find (peek) *decimal-digits*))
+               (return))
+             (setf saw-decimal-digits t)
+             (consume))
+          ;; Now works backwards and build the decimal part.
+          (dotimes (i (- position first-decimal))
+            (incf decimal-part (digit-char-p (char string (- position i 1))))
+            (setf decimal-part (/ decimal-part 10)))))
+      ;; And look for an exponent.
+      (when (find (peek) *exponent-markers*)
+        (setf exponent (consume))
+        (case (peek)
+          (#\- (consume)
+               (setf exponent-sign -1))
+          (#\+ (consume)))
+        ;; Must be at least one digit in the exponent
+        ;; and one digit in the integer part
+        (when (or (not (find (peek) *decimal-digits*))
+                  (not saw-integer-digits))
+          (return-from read-float))
+        ;; Read exponent part.
+        (loop (when (not (find (peek) *decimal-digits*))
+                (return))
+           (setf exponent-value (+ (* exponent-value 10)
+                                   (digit-char-p (consume))))))
+      ;; Must be at the end.
+      (when (peek)
+        (return-from read-float))
+      ;; TODO, deal with float type selection correctly.
+      (* sign
+         (+ integer-part decimal-part)
+         (expt 10 (* exponent-sign exponent-value))))))
 
-(defun maybe-parse-number (token)
-  "Attempt to parse TOKEN as a number, if it can't be parsed as a number,
-then return NIL."
+(defun read-integer (token)
+  "Attempt to parse TOKEN as an integer. Return false if it can't be parsed as an integer."
   ;; integer = sign? decimal-digit+ decimal-point
   ;;         = sign? digit+
-  ;; float   = sign? decimal-digit+ decimal-point decimal-digit+
   (let ((read-base *read-base*)
 	(negative nil)
 	(saw-sign nil)
-	(saw-point nil)
 	(number 0)
 	(start 0)
 	(end (length token)))
     ;; Check for a trailing decimal point, identifying a decimal integer
     (when (decimal-point-p (char token (1- (length token))))
       (setf read-base 10
-	    saw-point t
 	    end (1- end)))
     ;; Check for a leading sign.
     (when (or (plus-sign-p (char token 0))
@@ -407,35 +460,20 @@ then return NIL."
       (setf saw-sign t
 	    negative (minus-sign-p (char token 0))
 	    start (1+ start)))
-    ;; If the token contains no digits then it isn't a number.
-    (when (= 0 (- end start))
-      (return-from maybe-parse-number nil))
-    ;; Scan ahead to detect floats.
-    (unless saw-point
-      (do ((i start (1+ i))
-           (saw-point nil))
-          ((>= i end)
-           (when saw-point
-             ;; It's a float.
-             (return-from maybe-parse-number
-               (parse-float token))))
-        (unless (digit-char-p (char token i) 10)
-          (if (or saw-point
-                  (not (eql (char token i) #\.)))
-              (return)
-              (setf saw-point t)))))
-    ;; Main digit-reading loop for integers.
-    (do ((offset start (1+ offset)))
-	((>= offset end))
-      (let ((weight (digit-char-p (char token offset) read-base)))
-	(when (not weight)
-	  ;; This character is not a digit in the current base.
-	  (return-from maybe-parse-number nil))
-	(setf number (+ (* number read-base) weight))))
-    ;; Successfully parsed an integer!
-    (if negative
-	(- number)
-	number)))
+    ;; If the token is empty, aside from the sign, then it isn't a number.
+    (when (not (= (- end start) 0))
+      ;; Main digit-reading loop for integers.
+      (do ((offset start (1+ offset)))
+          ((>= offset end)
+           ;; Successfully parsed an integer!
+           (if negative
+               (- number)
+               number))
+        (let ((weight (digit-char-p (char token offset) read-base)))
+          (when (not weight)
+            ;; This character is not a digit in the current base.
+            (return))
+          (setf number (+ (* number read-base) weight)))))))
 
 (defun read-maybe-nothing (stream char)
   (let ((retval (multiple-value-list
