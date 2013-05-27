@@ -321,7 +321,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                      (second form))
          t)
         ((and (listp form)
-              (= (list-length form 2))
+              (= (list-length form) 2)
               (eql (first form) 'quote))
          t)))
 
