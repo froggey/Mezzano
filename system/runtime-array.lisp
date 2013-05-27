@@ -179,16 +179,16 @@ allocate environment frames."
                        (%array-like-ref-unsigned-byte-8 array offset)))
              value)))
     (#.+array-type-signed-byte-8+
-     (setf (%array-like-ref-unsigned-byte-8 array index)
+     (setf (%array-like-ref-signed-byte-8 array index)
            value))
     (#.+array-type-signed-byte-16+
-     (setf (%array-like-ref-unsigned-byte-16 array index)
+     (setf (%array-like-ref-signed-byte-16 array index)
            value))
     (#.+array-type-signed-byte-32+
-     (setf (%array-like-ref-unsigned-byte-32 array index)
+     (setf (%array-like-ref-signed-byte-32 array index)
            value))
     (#.+array-type-signed-byte-64+
-     (setf (%array-like-ref-unsigned-byte-64 array index)
+     (setf (%array-like-ref-signed-byte-64 array index)
            value))))
 
 (defun %memory-aref (type address index)
