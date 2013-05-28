@@ -113,7 +113,9 @@ allocate environment frames."
     (#.+array-type-signed-byte-32+
      (%array-like-ref-signed-byte-32 array index))
     (#.+array-type-signed-byte-64+
-     (%array-like-ref-signed-byte-64 array index))))
+     (%array-like-ref-signed-byte-64 array index))
+    (#.+array-type-single-float+
+     (%integer-as-single-float (%array-like-ref-unsigned-byte-32 array index)))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%simple-array-type array)
@@ -189,7 +191,11 @@ allocate environment frames."
            value))
     (#.+array-type-signed-byte-64+
      (setf (%array-like-ref-signed-byte-64 array index)
-           value))))
+           value))
+    (#.+array-type-single-float+
+     (check-type value single-float)
+     (setf (%array-like-ref-unsigned-byte-32 array index)
+           (%single-float-as-integer value)))))
 
 (defun %memory-aref (type address index)
   (cond
