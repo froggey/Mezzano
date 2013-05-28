@@ -17,6 +17,11 @@
   (or (realp object)
       (complexp object)))
 
+(deftype short-float () 'float)
+(deftype single-float () 'float)
+(deftype double-float () 'float)
+(deftype long-float () 'float)
+
 (defstruct (ratio
              (:constructor make-ratio (numerator denominator))
              (:predicate ratiop))
