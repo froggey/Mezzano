@@ -215,14 +215,11 @@ be generated instead.")
        (list :debug-info
              *current-lambda-name*
              homes
-             ;; FIXME: Get the env layout from somewhere.
-             nil #+(or)(first *environment-chain*)
-             nil #+(or)(mapcar (lambda (vars)
-                       (mapcar (lambda (v)
-                                 (when (lexical-variable-p v)
-                                   (lexical-variable-name v)))
-                               vars))
-                     *environment*)
+             (when (lambda-information-environment-layout lambda)
+               (position (first (lambda-information-environment-layout lambda))
+                         *stack-values*
+                         :key #'car))
+             (second (lambda-information-environment-layout lambda))
              (when *compile-file-pathname*
                (princ-to-string *compile-file-pathname*))
              sys.int::*top-level-form-number*

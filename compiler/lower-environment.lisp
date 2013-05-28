@@ -151,6 +151,18 @@ of statements opens a new contour."
 (defvar *environment-chain* nil
   "The directly accessible environment vectors in this function.")
 
+(defun compute-environment-layout-debug-info ()
+  (when *environment*
+    (list (second (first *environment-chain*))
+          (mapcar (lambda (env)
+                    (mapcar (lambda (x)
+                              (if (or (tagbody-information-p x)
+                                      (block-information-p x))
+                                  nil
+                                  (lexical-variable-name x)))
+                            (gethash env *environment-layout*)))
+                  *environment*))))
+
 (defun le-lambda (lambda)
   (let ((*environment-chain* '())
         (*environment* *environment*)
@@ -168,6 +180,7 @@ of statements opens a new contour."
                                                  :definition-point lambda)))
              (push (list lambda new-env) *environment-chain*)
              (push lambda *environment*)
+             (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
              (setf (lambda-information-body lambda)
                    `((let ((,new-env (sys.int::make-simple-vector ',(1+ (length local-env)))))
                        ,@(when (rest *environment-chain*)
@@ -203,7 +216,8 @@ of statements opens a new contour."
                                            new-env
                                            `',(1+ (position (lambda-information-rest-arg lambda) local-env)))))
                        ,@(mapcar #'lower-env-form (lambda-information-body lambda)))))))
-          (t (setf (lambda-information-body lambda) (mapcar #'lower-env-form (lambda-information-body lambda)))))
+          (t (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
+             (setf (lambda-information-body lambda) (mapcar #'lower-env-form (lambda-information-body lambda)))))
     lambda))
 
 (defun le-let (form)

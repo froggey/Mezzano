@@ -79,7 +79,8 @@ A list of any declaration-specifiers."
   enable-keys
   key-args
   allow-other-keys
-  environment-arg)
+  environment-arg
+  environment-layout)
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
 (defstruct lexical-variable
