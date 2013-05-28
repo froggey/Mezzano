@@ -245,13 +245,6 @@ BODY must not allocate!"
         string
         (subseq string n-from-left))))
 
-(defun count (item sequence)
-  (let ((n 0))
-    (dotimes (i (length sequence))
-      (when (eql item (elt sequence i))
-        (incf n)))
-    n))
-
 (defvar *modules* '())
 (defvar *require-hooks* '())
 
