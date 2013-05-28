@@ -438,7 +438,8 @@
       ;; TODO, deal with float type selection correctly.
       (* sign
          (+ integer-part decimal-part)
-         (expt 10 (* exponent-sign exponent-value))))))
+         ;; ### 10.0 to work around a missing feature in FLOAT. No bignum support.
+         (expt 10.0 (* exponent-sign exponent-value))))))
 
 (defun read-integer (token)
   "Attempt to parse TOKEN as an integer. Return false if it can't be parsed as an integer."
