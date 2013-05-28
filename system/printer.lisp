@@ -20,28 +20,40 @@
 (defvar *print-space-char-ansi* nil)
 (defvar *print-bignums-safely* nil)
 
-(defun write-unsigned-integer-inner (x base stream)
-  (unless (= x 0)
+(defun write-unsigned-integer-inner (x base n-digits stream)
+  (unless (zerop n-digits)
     (multiple-value-bind (quot rem)
         (truncate x base)
-      (write-unsigned-integer quot base stream)
+      (write-unsigned-integer-inner quot base (1- n-digits) stream)
       (write-char (schar "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" rem)
                   stream))))
 
-(defun write-unsigned-integer-outer (x base base-divisor stream)
-  (unless (= x 0)
+(defun write-unsigned-integer-outer (x base base-divisor base-digits stream)
+  (unless (zerop x)
     (multiple-value-bind (quot rem)
         (truncate x base-divisor)
-      (write-unsigned-integer-outer quot base base-divisor stream)
-      (write-unsigned-integer-inner rem base stream))))
+      (write-unsigned-integer-outer quot base base-divisor base-digits stream)
+      (if (zerop quot)
+          (write-unsigned-integer-simple rem base stream)
+          (write-unsigned-integer-inner rem base base-digits stream)))))
+
+(defun write-unsigned-integer-simple (x base stream)
+  (unless (zerop x)
+    (multiple-value-bind (quot rem)
+        (truncate x base)
+      (write-unsigned-integer-simple quot base stream)
+      (write-char (schar "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" rem)
+                  stream))))
 
 (defun write-unsigned-integer (x base stream)
   (cond ((fixnump x)
-         (write-unsigned-integer-inner x base stream))
+         (write-unsigned-integer-simple x base stream))
         (t
-         (write-unsigned-integer-outer x base
-                                       (expt base (floor (log most-positive-fixnum base)))
-                                       stream))))
+         (let ((digits (floor (log most-positive-fixnum base))))
+           (write-unsigned-integer-outer x base
+                                         (expt base digits)
+                                         digits
+                                         stream)))))
 
 (defun write-integer (x &optional (base 10) stream)
   (cond ((and *print-bignums-safely*
