@@ -58,10 +58,12 @@
       0))
 
 (defun expt (base power)
-  (check-type power (integer 0))
-  (let ((accum 1))
-    (dotimes (i power accum)
-      (setf accum (* accum base)))))
+  (check-type power integer)
+  (cond ((minusp power)
+         (/ (expt base (- power))))
+        (t (let ((accum 1))
+             (dotimes (i power accum)
+               (setf accum (* accum base)))))))
 
 (defstruct (byte (:constructor byte (size position)))
   (size 0 :type (integer 0) :read-only t)
