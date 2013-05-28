@@ -115,7 +115,7 @@
       (setf (memref-t bs-base i) 0))
     ;; Clear the TLS slots.
     (dotimes (i (- 512 12 64))
-      (setf (memref-unsigned-byte-64 sg-pointer (+ 12 i)) -2))
+      (setf (memref-signed-byte-64 sg-pointer (+ 12 i)) -2))
     ;; Initialize the FXSAVE save area.
     (dotimes (i 64)
       (setf (memref-unsigned-byte-64 sg-pointer (+ 448 i)) 0))
