@@ -21,6 +21,7 @@
 (deftype single-float () 'float)
 (deftype double-float () 'float)
 (deftype long-float () 'float)
+(deftype bignum () '(satisfies bignump))
 
 (defstruct (ratio
              (:constructor make-ratio (numerator denominator))
