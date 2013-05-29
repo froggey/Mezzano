@@ -436,7 +436,14 @@
 (defun structure-type-p (object struct-type)
   (when (structure-object-p object)
     (do ((object-type (%struct-slot object 0) (structure-parent object-type)))
-        ((null object-type) nil)
+        ;; Stop when the object-type stops being a structure-definition, not
+        ;; when it becomes NIL.
+        ;; This avoids a race condition in the GC when it is
+        ;; scavenging a partially initialized structure.
+        ((not (and (structure-object-p object-type)
+                   (eql (%struct-slot object-type 0)
+                        *structure-type-type*)))
+         nil)
       (when (eq object-type struct-type)
         (return t)))))
 
