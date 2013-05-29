@@ -109,9 +109,15 @@
      (and (stringp y)
           (string= x y)))
     ((consp x)
-     (and (consp y)
-	  (equal (car x) (car y))
-	  (equal (cdr x) (cdr y))))
+     (loop
+        (when (not (consp y))
+          (return nil))
+        (when (not (equal (car x) (car y)))
+          (return nil))
+        (setf x (cdr x)
+              y (cdr y))
+        (when (not (consp x))
+          (return (equal x y)))))
     ((and (pathnamep x) (pathnamep y))
      (pathnames-equal x y))))
 
