@@ -14,7 +14,6 @@
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((progn) (ll-progn form))
-	    ((progv) (ll-progv form))
 	    ((quote) (ll-quote form))
 	    ((return-from) (ll-return-from form))
 	    ((setq) (ll-setq form))
@@ -98,10 +97,6 @@
   form)
 
 (defun ll-progn (form)
-  (ll-implicit-progn (cdr form))
-  form)
-
-(defun ll-progv (form)
   (ll-implicit-progn (cdr form))
   form)
 

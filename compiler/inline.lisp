@@ -14,7 +14,6 @@
 	    ((multiple-value-call) (il-multiple-value-call form))
 	    ((multiple-value-prog1) (il-multiple-value-prog1 form))
 	    ((progn) (il-progn form))
-	    ((progv) (il-progv form))
 	    ((quote) (il-quote form))
 	    ((return-from) (il-return-from form))
 	    ((setq) (il-setq form))
@@ -63,10 +62,6 @@
   form)
 
 (defun il-progn (form)
-  (il-implicit-progn (cdr form))
-  form)
-
-(defun il-progv (form)
   (il-implicit-progn (cdr form))
   form)
 

@@ -14,7 +14,6 @@
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
 	    ((progn) (simp-progn form))
-	    ((progv) (simp-progv form))
 	    ((quote) (simp-quote form))
 	    ((return-from) (simp-return-from form))
 	    ((setq) (simp-setq form))
@@ -57,7 +56,7 @@
 (defun simp-go (form)
   form)
 
-;;; Hoist LET/M-V-B/PROGN/PROGV forms out of IF tests.
+;;; Hoist LET/M-V-B/PROGN forms out of IF tests.
 ;;;  (if (let bindings form1 ... formn) then else)
 ;;; =>
 ;;;  (let bindings form1 ... (if formn then else))
@@ -65,15 +64,14 @@
 (defun hoist-form-out-of-if (form)
   (when (and (eql (first form) 'if)
              (listp (second form))
-             (member (first (second form)) '(let multiple-value-bind progn progv)))
+             (member (first (second form)) '(let multiple-value-bind progn)))
     (let* ((test-form (second form))
            (len (length test-form)))
       (multiple-value-bind (leading-forms bound-variables)
           (ecase (first test-form)
             ((progn) (values 1 '()))
             ((let) (values 2 (mapcar #'first (second test-form))))
-            ((multiple-value-bind) (values 3 (second test-form)))
-            ((progv) (values 3 nil)))
+            ((multiple-value-bind) (values 3 (second test-form))))
         (when (find-if #'symbolp bound-variables)
           (return-from hoist-form-out-of-if nil))
         (append (subseq test-form 0 (max leading-forms (1- len)))
@@ -228,12 +226,6 @@
 	 (simp-form (second form)))
 	(t (simp-implicit-progn (cdr form) t)
 	   form)))
-
-(defun simp-progv (form)
-  (setf (second form) (simp-form (second form))
-	(third form) (simp-form (third form)))
-  (simp-implicit-progn (cdddr form) t)
-  form)
 
 (defun simp-quote (form)
   form)

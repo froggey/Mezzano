@@ -512,10 +512,11 @@
 	 (pass1-form (cadr form) env))
 	(t `(progn ,@(pass1-implicit-progn (rest form) env)))))
 
+;; Turn PROGV into a call to %PROGV.
 (defun pass1-progv (form env)
   (destructuring-bind (symbols values &body forms) (cdr form)
-    `(progv ,(pass1-form symbols env) ,(pass1-form values env)
-       ,@(pass1-implicit-progn forms env))))
+    (pass1-form `(%progv ,symbols ,values #'(lambda () (progn ,@forms)))
+                env)))
 
 (defun pass1-quote (form env)
   (declare (ignore env))
