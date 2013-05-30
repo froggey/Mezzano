@@ -1,6 +1,6 @@
 (in-package :sys.int)
 
-(define-condition unknown-coercion ()
+(define-condition unknown-coercion (type-error)
   ((object :initarg :object
            :reader unknown-coercion-object)
    (type :initarg :type
