@@ -10,14 +10,19 @@
 (defmacro defcommand (name lambda-list &body body)
   (let ((args (gensym)))
     `(setf (gethash ',name *commands*)
-           (alexandria:named-lambda ,name (,args)
-             (destructuring-bind ,lambda-list (rest ,args)
-               ,@body)))))
+           #-lisp-os(alexandria:named-lambda ,name (,args)
+                      (destructuring-bind ,lambda-list (rest ,args)
+                        ,@body))
+           #+lisp-os(lambda (,args)
+                      (declare (system:lambda-name ,name))
+                      (destructuring-bind ,lambda-list (rest ,args)
+                        ,@body)))))
 
 (defcommand :open (path &rest keys &key &allow-other-keys)
-  (let ((fid (iter (for i from 0)
-                   (for entry in-sequence *file-table*)
-                   (when (eql entry nil)
+  (let ((fid (loop
+                for i from 0
+                for entry across *file-table*
+                do (when (eql entry nil)
                      (return i)))))
     (format t "Keys ~S~%" keys)
     (unless fid
@@ -93,7 +98,7 @@
       (format *client* ":ok~%")
       (format *client* "(:error \"???\")~%")))
 
-(defcommand :backup (path)
+#-lisp-os(defcommand :backup (path)
   (when (open path :direction :probe)
     (cl-fad:copy-file path (format nil "~A~~" path)
                       :overwrite t))
@@ -143,11 +148,12 @@
                                      (format nil "~A" c))))
                          (format *client* "(:invalid-command \"Invalid command\")"))))))
             (finish-output *client*))
-      (iter
-        (for file in-sequence *file-table*)
-        (when file (close file)))
+      (loop for file across *file-table*
+         do (when file (close file)))
       (finish-output *client*))))
 
+#-lisp-os
+(progn
 (defun run-file-server (&key (port 2599))
   (iolib:with-open-socket (server :connect :passive
                                   :address-family :internet
@@ -158,12 +164,13 @@
                         :reuse-addr t)
     (iolib:listen-on server :backlog 5)
     (loop
-       (iolib:with-accept-connection (client server :wait t)
-         (multiple-value-bind (who rport)
-             (iolib:remote-name client)
-           (format t "Got a connection from ~A:~A!~%" who rport))
-         (handler-case (handle-client client)
-           (end-of-file ()))))
+       (with-simple-restart (continue "Close connection.")
+         (iolib:with-accept-connection (client server :wait t)
+           (multiple-value-bind (who rport)
+               (iolib:remote-name client)
+             (format t "Got a connection from ~A:~A!~%" who rport))
+           (handler-case (handle-client client)
+             (end-of-file ())))))
     (finish-output)
     t))
 
@@ -172,3 +179,25 @@
 
 (defun kill-server (thread)
   (bordeaux-threads:interrupt-thread thread (lambda () (throw 'finished nil))))
+)
+
+#+lisp-os
+(progn
+(defvar *pending-file-connections* '())
+(defun handle-file-server-connection (connection)
+  (push connection *pending-file-connections*))
+
+(defun run-file-server ()
+  (loop
+     (sys.int::process-wait "Awaiting connection"
+                            (lambda ()
+                              (not (endp *pending-file-connections*))))
+     (let ((connection (pop *pending-file-connections*)))
+       (format t "Got a connection from ~/sys.net::format-tcp4-address/:~D on port ~D~%"
+               (sys.net::tcp-connection-remote-ip connection)
+               (sys.net::tcp-connection-remote-port connection)
+               (sys.net::tcp-connection-local-port connection))
+       (handler-case (handle-client (make-instance 'sys.net::tcp-stream
+                                                   :connection connection))
+         (end-of-file ())))))
+)
