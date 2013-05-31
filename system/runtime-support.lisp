@@ -282,14 +282,15 @@
                             (%%assemble-value 0 +tag-unbound-value+))))
     (multiple-value-prog1 (funcall fn)
       ;; Now pop the special stack. This is not done with unwind-protect,
-      ;; because a non-local exit with unwind the stack anyway.
+      ;; because a non-local exit will unwind the stack anyway.
       (%%unwind-to special-stack))))
 
 (defun %%unwind-to (target-special-stack-pointer)
   (declare (suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
           (return))
-     (etypecase (memref-t (ash (%%special-stack-pointer) 3) 0)
+     (assert (< (%%special-stack-pointer) target-special-stack-pointer))
+     (etypecase (memref-t 0 (%%special-stack-pointer))
        (symbol
         (%%unbind))
        (simple-vector
