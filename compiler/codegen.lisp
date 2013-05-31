@@ -962,9 +962,6 @@ be generated instead.")
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-info) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-              ;; Ensure that the info does not get invalidated by a GO to
-              ;; this tagbody.
-              `(sys.lap-x86:sub64 :rax 16)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 1)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 2)) :csp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 3)) :cfp)
