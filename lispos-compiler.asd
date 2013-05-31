@@ -29,6 +29,8 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/lower-environment"
                       :depends-on ("compiler/cross" "compiler/compiler"))
+               (:file "compiler/lower-special-bindings"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
                                    "compiler/codegen" "system/data-types"))
