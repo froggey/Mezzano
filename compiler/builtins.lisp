@@ -2274,6 +2274,7 @@
   (predicate-result :nz))
 
 (defbuiltin sys.int::%cr3 () ()
+  (smash-r8)
   (emit `(sys.lap-x86:movcr :rax :cr3)
         `(sys.lap-x86:shl64 :rax 3)
         `(sys.lap-x86:mov64 :r8 :rax))
