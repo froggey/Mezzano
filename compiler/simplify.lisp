@@ -54,6 +54,9 @@
 	form)))
 
 (defun simp-go (form)
+  ;; HACK: Update the tagbody location part after tagbodies have merged.
+  (when (tagbody-information-p (third form))
+    (setf (third form) (go-tag-tagbody (second form))))
   form)
 
 ;;; Hoist LET/M-V-B/PROGN forms out of IF tests.

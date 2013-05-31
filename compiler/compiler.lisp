@@ -326,6 +326,8 @@ A list of any declaration-specifiers."
 	       (reset-var (second form))
 	       (implicit-progn (cddr form)))
 	      ((go)
+               (assert (or (not (tagbody-information-p (third form)))
+                           (eql (go-tag-tagbody (second form)) (third form))))
                (detect-uses (third form))
 	       (incf (go-tag-use-count (second form)))
 	       (pushnew *current-lambda* (go-tag-used-in (second form)))
