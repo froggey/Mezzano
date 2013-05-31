@@ -166,15 +166,14 @@
            ;; Non-local RETURN-FROM, do the full unwind.
            (let ((info (make-lexical-variable :name (gensym "return-from-info")
                                               :definition-point *current-lambda*)))
-             `(progn
-                (let ((,info ,(lsb-form location)))
+             `(let ((,info ,(lsb-form location)))
                   (if ,info
                     'nil
                     (sys.int::raise-bad-block ',(block-information-name tag)))
                   (return-from ,tag
                     (multiple-value-prog1 ,(lsb-form value-form)
                       (sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
-                    ,info)))))
+                    ,info))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
            ;; Note: Unwinding one-past the location so as to pop the block as well.
