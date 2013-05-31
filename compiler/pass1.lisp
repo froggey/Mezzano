@@ -98,7 +98,8 @@
 					    :docstring docstring
 					    :lambda-list lambda-list
                                             :enable-keys enable-keys
-                                            :allow-other-keys allow-other-keys))
+                                            :allow-other-keys allow-other-keys
+                                            :plist (list :declares declares)))
 	     (*current-lambda* info)
 	     (bindings (list :bindings))
 	     (env (list* bindings env)))

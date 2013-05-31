@@ -3,6 +3,7 @@
 (in-package :sys.c)
 
 (defvar *special-bindings*)
+(defvar *verify-special-stack* nil)
 
 (defun lsb-lambda (lambda)
   (let ((*current-lambda* lambda)
@@ -28,6 +29,19 @@
             (lambda) "Special rest argument did not get lowered!")
     (setf (lambda-information-body lambda)
           (mapcar #'lsb-form (lambda-information-body lambda)))
+    (when (and *verify-special-stack*
+               (not (find 'sys.int::suppress-ssp-checking
+                          (getf (lambda-information-plist lambda) :declares)
+                          :key #'first)))
+      (let ((ssp (make-lexical-variable :name (gensym "ssp")
+                                        :definition-point lambda)))
+        (setf (lambda-information-body lambda)
+              `((let ((,ssp (sys.int::%%special-stack-pointer)))
+                  (multiple-value-prog1
+                      (progn ,@(lambda-information-body lambda))
+                    (if (eq ,ssp (sys.int::%%special-stack-pointer))
+                        'nil
+                        (error '"SSP mismatch"))))))))
     lambda))
 
 (defun lsb-form (form)

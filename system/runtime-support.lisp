@@ -286,6 +286,7 @@
       (%%unwind-to special-stack))))
 
 (defun %%unwind-to (target-special-stack-pointer)
+  (declare (suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
           (return))
      (etypecase (memref-t (ash (%%special-stack-pointer) 3) 0)

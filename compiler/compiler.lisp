@@ -86,7 +86,8 @@ A list of any declaration-specifiers."
   key-args
   allow-other-keys
   environment-arg
-  environment-layout)
+  environment-layout
+  (plist '()))
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
 (defstruct lexical-variable
@@ -96,7 +97,8 @@ A list of any declaration-specifiers."
   dynamic-extent
   (use-count 0)
   (write-count 0)
-  used-in)
+  used-in
+  (plist '()))
 
 (defstruct (block-information
              (:include lexical-variable))
@@ -280,7 +282,8 @@ A list of any declaration-specifiers."
 					     :docstring (lambda-information-docstring form)
 					     :lambda-list (lambda-information-lambda-list form)
                                              :enable-keys (lambda-information-enable-keys form)
-                                             :allow-other-keys (lambda-information-allow-other-keys form)))
+                                             :allow-other-keys (lambda-information-allow-other-keys form)
+                                             :plist (copy-list (lambda-information-plist form))))
 	      (*current-lambda* info))
 	 (push (cons form info) replacements)
 	 (setf (lambda-information-required-args info)
