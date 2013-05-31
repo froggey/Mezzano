@@ -2311,3 +2311,131 @@
 	  `(sys.lap-x86:and64 :rax -8)
 	  `(sys.lap-x86:mov64 :r8 :rax))
     (setf *r8-value* (list (gensym)))))
+
+(defbuiltin sys.int::%%special-stack-pointer () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+)))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) (nil)
+  ;; Read the saved binding stack pointer from a block-info.
+  (load-in-r8 block-info t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) (nil)
+  ;; Read the saved binding stack pointer from a tagbody-info.
+  (load-in-r8 tagbody-info t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
+  (setf *r8-value* (list (gensym))))
+
+;;; TODO: Check for constants here.
+(defbuiltin sys.int::%%bind (symbol value) ()
+  ;; Don't kill here, going to reload & kill later in the function.
+  (load-in-reg :r9 symbol)
+  (smash-r8)
+  (let ((has-tls-slot (gensym)))
+    ;; Ensure there is a TLS slot.
+    (emit `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jnz ,has-tls-slot)
+          ;; Nope, allocate a new one.
+          `(sys.lap-x86:mov64 :r13 (:constant sys.int::%allocate-tls-slot))
+          `(sys.lap-x86:mov32 :ecx 8)
+          `(sys.lap-x86:mov64 :r8 :r9)
+          `(sys.lap-x86:call (:symbol-function :r13))
+          `(sys.lap-x86:mov64 :lsp :rbx))
+    (load-in-reg :r9 symbol t)
+    (emit `(sys.lap-x86:mov64 :rax :r8)
+          `(sys.lap-x86:shr32 :eax 3)
+          has-tls-slot
+          ;; Save the old value on the binding stack.
+          ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
+          ;; Bump binding stack.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
+          ;; Load binding stack pointer into RDX.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :rdx (,+binding-stack-gs-offset+))
+          ;; Read the old symbol value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+))
+          ;; Store the old value on the stack.
+          `(sys.lap-x86:mov64 (:rdx 8) :r10)
+          ;; Store the symbol.
+          `(sys.lap-x86:mov64 (:rdx) :r9)))
+  ;; Store new value.
+  (load-in-r8 value t)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8))
+  ''nil)
+
+;;; TODO: Check for constants here.
+(defbuiltin sys.int::%%push-special-stack (a b) (nil)
+  (load-in-reg :r9 b t)
+  (load-in-reg :r8 a t)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 (:rax 8) :r9)
+        `(sys.lap-x86:mov64 (:rax 0) :r8))
+  ''nil)
+
+(defbuiltin sys.int::%%unbind () ()
+  ;; Top entry in the binding stack is a special variable binding.
+  ;; It's a symbol and the old value.
+  ;; Pop the stack & restore the old value.
+  (smash-r8)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 (:rax))
+        `(sys.lap-x86:mov64 :r9 (:rax 8))
+        `(sys.lap-x86:mov32 :edx (:symbol-flags :r8))
+        `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
+        `(sys.lap-x86:and32 :edx #xFFFF)
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r9)
+        `(sys.lap-x86:mov64 (:rax 0) 0)
+        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
+  ''nil)
+
+(defbuiltin sys.int::%%disestablish-block-or-tagbody () ()
+  ;; Top entry in the binding stack is a block or tagbody entry.
+  ;; It's a environment simple-vector & an offset.
+  ;; Pop the stack & set env[offset] = NIL.
+  (smash-r8)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 (:rax 0))
+        `(sys.lap-x86:mov64 :rcx (:rax 8))
+        `(sys.lap-x86:mov64 (:r8 :rcx ,(+ (- sys.int::+tag-array-like+) 8)) nil)
+        `(sys.lap-x86:mov64 (:rax 0) 0)
+        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
+  ''nil)
+
+(defbuiltin sys.int::%%disestablish-unwind-protect () ()
+  ;; Top entry in the binding stack is an unwind-protect entry.
+  ;; It's a function and environment object.
+  ;; Pop the stack & call the function with the environment object.
+  (smash-r8)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r13 (:rax 0))
+        `(sys.lap-x86:mov64 :rbx (:rax 8))
+        `(sys.lap-x86:mov64 (:rax 0) 0)
+        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:gs)
+        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
+        `(sys.lap-x86:xor32 :ecx :ecx)
+        `(sys.lap-x86:call :r13)
+        `(sys.lap-x86:mov64 :lsp :rbx))
+  ''nil)
