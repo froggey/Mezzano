@@ -69,6 +69,7 @@
     "compiler/builtins.lisp"
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
+    "compiler/lower-special-bindings.lisp"
     "drivers/keyboard.lisp"
     "framebuffer-stream.lisp"
     "drivers/bochs-vbe.lisp"
