@@ -193,6 +193,8 @@
   (sys.lap-x86:push :r13)
   (sys.lap-x86:push :r14)
   (sys.lap-x86:push :r15)
+  (sys.lap-x86:movcr :rax :cr2)
+  (sys.lap-x86:push :rax)
   (sys.lap-x86:mov64 :r8 :rsp)
   (sys.lap-x86:shl64 :r8 3)
   (sys.lap-x86:test64 :rsp #b1000)
