@@ -515,7 +515,8 @@
 ;; Turn PROGV into a call to %PROGV.
 (defun pass1-progv (form env)
   (destructuring-bind (symbols values &body forms) (cdr form)
-    (pass1-form `(%progv ,symbols ,values #'(lambda () (progn ,@forms)))
+    (pass1-form `(sys.int::%progv ,symbols ,values
+                                  #'(lambda () (progn ,@forms)))
                 env)))
 
 (defun pass1-quote (form env)
