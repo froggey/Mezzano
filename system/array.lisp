@@ -8,6 +8,17 @@
 (deftype simple-vector (&optional size)
   `(simple-array t (,size)))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-simple-vector-type (object type)
+  (destructuring-bind (&optional (size '*)) (rest type)
+    (if (eql size '*)
+        `(simple-vector-p ,object)
+        `(and (simple-vector-p ,object)
+              (eq (%simple-array-length ,object) ',size)))))
+(%define-compound-type-optimizer 'simple-vector 'compile-simple-vector-type)
+(%define-type-symbol 'simple-vector 'simple-vector-p)
+)
+
 (deftype vector (&optional element-type size)
   `(array ,element-type (,size)))
 
