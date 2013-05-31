@@ -901,8 +901,16 @@
   (let ((*package* *package*))
     (dotimes (i (length *additional-cold-toplevel-forms*))
       (eval (svref *additional-cold-toplevel-forms* i))))
-  (gc)
+  ;; Flush the bootstrap stuff.
+  (makunbound '*initial-obarray*)
+  (makunbound '*initial-keyword-obarray*)
+  (makunbound '*package-system*)
+  (makunbound '*additional-cold-toplevel-forms*)
+  (makunbound '*cold-toplevel-forms*)
+  (makunbound '*initial-setf-obarray*)
+  (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
+  (gc)
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()
