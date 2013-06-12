@@ -534,6 +534,18 @@
          (setf (sf-position stream) position-spec))
         (t (sf-position stream))))
 
+(defmethod sys.gray:stream-file-length ((stream simple-file-stream))
+  (with-connection (con (host stream))
+    (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
+    (let ((id (read-preserving-whitespace con)))
+      (unless (integerp id)
+        (error "Read error! ~S" id))
+      (buffered-format con "(:SIZE ~D)~%" id)
+      (let ((file-size (read-preserving-whitespace con)))
+        (unless (integerp file-size)
+          (error "Read error! ~S" file-size))
+        file-size))))
+
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)
                         (default-version :newest))

@@ -19,6 +19,7 @@
    :stream-element-type
    :close
    :stream-file-position
+   :stream-file-length
    ;; Input stream methods.
    :stream-clear-input
    :stream-read-sequence
@@ -95,6 +96,7 @@
 (defgeneric stream-element-type (stream))
 (defgeneric close (stream &key abort))
 (defgeneric stream-file-position (stream &optional position-spec))
+(defgeneric stream-file-length (stream))
 (defgeneric stream-clear-input (stream))
 (defgeneric stream-read-sequence (stream seq &optional start end))
 (defgeneric stream-clear-output (stream))
@@ -277,6 +279,9 @@
            (setf position-spec 0))
          (sys.gray:stream-file-position (follow-synonym-stream stream) position-spec))
         (t (sys.gray:stream-file-position (follow-synonym-stream stream)))))
+
+(defun file-length (stream)
+  (sys.gray:stream-file-length (follow-synonym-stream stream)))
 
 (defmacro with-stream-editor ((stream recursive-p) &body body)
   "Activate the stream editor functionality for STREAM."
