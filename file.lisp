@@ -61,6 +61,11 @@
                                   :port port))
         *host-alist*))
 
+(defun find-host (name &optional errorp)
+  (or (second (assoc name *host-alist*))
+      (when errorp
+        (error "Unknown simple-file host ~S." name))))
+
 (defstruct (pathname (:predicate pathnamep) (:constructor %make-pathname))
   %host %device %directory %name %type %version)
 
@@ -96,6 +101,15 @@
   (pathname-%type (pathname pathname)))
 (defun pathname-version (pathname &key (case :local))
   (pathname-%version (pathname pathname)))
+
+(defmethod make-load-form ((object pathname) &optional environment)
+  `(let ((host (find-host ',(host-name (pathname-host object)) t)))
+     (make-pathname :host host
+                    :device ',(pathname-device object)
+                    :directory ',(pathname-directory object)
+                    :name ',(pathname-name object)
+                    :type ',(pathname-type object)
+                    :version ',(pathname-version object))))
 
 (defun sys.int::pathnames-equal (x y)
   (and (equal (pathname-host x) (pathname-host y))
