@@ -1209,7 +1209,7 @@ has only has class specializer."
 
 (defun compute-method-lambda (lambda-list qualifiers specializers body fn-spec)
   (multiple-value-bind (forms declares docstring)
-      (sys.int::parse-declares body)
+      (sys.int::parse-declares body :permit-docstring t)
     (let ((form (list* 'block
                        (if (consp fn-spec)
                            (cadr fn-spec)
