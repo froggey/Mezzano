@@ -75,7 +75,7 @@
   (size 0 :type (integer 0) :read-only t)
   (position 0 :type (integer 0) :read-only t))
 
-(declaim (inline %ldb ldb %dbp dpb %ldb-test ldb-test logbitp))
+(declaim (inline %ldb ldb %dpb dpb %ldb-test ldb-test logbitp))
 (defun %ldb (size position integer)
   (logand (ash integer (- position))
           (1- (ash 1 size))))

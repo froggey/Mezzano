@@ -232,7 +232,7 @@
           (bs-size (gensym))   ; Temp var for byte specifier size.
           (bs-position (gensym))) ; Temp var for byte specifier position.
       (when (cdr stores) (error "Can't expand this."))
-      ;; Generate calls to %LDB and %DBP when the bytespec is
+      ;; Generate calls to %LDB and %DPB when the bytespec is
       ;; well-known.
       (if (and (listp bytespec)
                (eql (length bytespec) 3)
@@ -274,7 +274,7 @@
   (cond ((and (listp bytespec)
               (= (length bytespec) 3)
               (eql (first bytespec) 'byte))
-         `(%dbp ,newbyte
+         `(%dpb ,newbyte
                 ,(second bytespec)
                 ,(third bytespec)
                 ,integer))
