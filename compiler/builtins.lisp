@@ -4,14 +4,17 @@
 
 (defparameter *builtins* (make-hash-table))
 
-(defmacro defbuiltin (name lambda-list (&optional (emit-function t)) &body body)
+(defmacro defbuiltin (name lambda-list (&optional (emit-function t) suppress-binding-stack-check) &body body)
   `(progn (setf (gethash (sys.int::function-symbol ',name) *builtins*)
 		(list ',lambda-list
 		      (lambda ,lambda-list
-			(declare (system:lambda-name ,name))
+			(declare (system:lambda-name ,name)
+                                 ,@(when suppress-binding-stack-check
+                                     '((sys.int::suppress-ssp-checking))))
 			,@body)
                       ',emit-function
-                      ',name))
+                      ',name
+                      ',suppress-binding-stack-check))
 	  ',name))
 
 (defmacro define-reader (name type tag slot)
@@ -2319,14 +2322,14 @@
         `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+)))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) (nil)
+(defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) ()
   ;; Read the saved binding stack pointer from a block-info.
   (load-in-r8 block-info t)
   (smash-r8)
   (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) (nil)
+(defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) ()
   ;; Read the saved binding stack pointer from a tagbody-info.
   (load-in-r8 tagbody-info t)
   (smash-r8)
@@ -2334,7 +2337,7 @@
   (setf *r8-value* (list (gensym))))
 
 ;;; TODO: Check for constants here.
-(defbuiltin sys.int::%%bind (symbol value) ()
+(defbuiltin sys.int::%%bind (symbol value) (t nil)
   ;; Don't kill here, going to reload & kill later in the function.
   (load-in-reg :r9 symbol)
   (smash-r8)
@@ -2376,7 +2379,7 @@
   ''nil)
 
 ;;; TODO: Check for constants here.
-(defbuiltin sys.int::%%push-special-stack (a b) (nil)
+(defbuiltin sys.int::%%push-special-stack (a b) (t nil)
   (load-in-reg :r9 b t)
   (load-in-reg :r8 a t)
   (emit `(sys.lap-x86:gs)
@@ -2387,7 +2390,7 @@
         `(sys.lap-x86:mov64 (:rax 0) :r8))
   ''nil)
 
-(defbuiltin sys.int::%%unbind () ()
+(defbuiltin sys.int::%%unbind () (t nil)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the old value.
   ;; Pop the stack & restore the old value.
@@ -2407,7 +2410,7 @@
         `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
   ''nil)
 
-(defbuiltin sys.int::%%disestablish-block-or-tagbody () ()
+(defbuiltin sys.int::%%disestablish-block-or-tagbody () (t nil)
   ;; Top entry in the binding stack is a block or tagbody entry.
   ;; It's a environment simple-vector & an offset.
   ;; Pop the stack & set env[offset] = NIL.
@@ -2423,7 +2426,7 @@
         `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
   ''nil)
 
-(defbuiltin sys.int::%%disestablish-unwind-protect () ()
+(defbuiltin sys.int::%%disestablish-unwind-protect () (t nil)
   ;; Top entry in the binding stack is an unwind-protect entry.
   ;; It's a function and environment object.
   ;; Pop the stack & call the function with the environment object.
