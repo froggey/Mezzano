@@ -271,8 +271,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer (denominator object) stream))
 
 (defmethod save-one-object ((object array) omap stream)
-  (dotimes (i (array-total-size array))
-    (save-object (row-major-aref array i) omap stream))
+  (dotimes (i (array-total-size object))
+    (save-object (row-major-aref object i) omap stream))
   (write-byte +llf-array+ stream)
   (save-integer (array-rank object) stream)
   (dolist (dim (array-dimensions object))
