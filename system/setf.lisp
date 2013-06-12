@@ -7,27 +7,44 @@
 (defun get-setf-expansion (place &optional environment)
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-			   (get (car place) 'setf-expander))))
-	(if expander
-	    ;; Invoke the exansion function.
-	    (funcall expander place environment)
-	    (multiple-value-bind (expansion expanded-p)
-		(macroexpand-1 place environment)
-	      (if expanded-p
-		  ;; Expand one level of macros.
-		  (get-setf-expansion expansion environment)
-		  ;; Generate an expansion for a function call form place.
-		  (let ((vars '())
-			(vals '())
-			(store-sym (gensym)))
-		    (dolist (arg (cdr place))
-		      (setf vars (cons (gensym) vars)
-			    vals (cons arg vals)))
-		    (setf vars (nreverse vars)
-			  vals (nreverse vals))
-		    (values vars vals (list store-sym)
-			    `(funcall #'(setf ,(car place)) ,store-sym ,@vars)
-			    (list* (car place) vars)))))))
+			   (get (car place) 'setf-expander)))
+            (update-fn (and (symbolp (car place))
+                            (get (car place) 'setf-update-fn))))
+        (cond
+          (expander
+           ;; Invoke the exansion function.
+           (funcall expander place environment))
+          (update-fn
+           (let ((vars '())
+                 (vals '())
+                 (store-sym (gensym)))
+             (dolist (arg (cdr place))
+               (setf vars (cons (gensym) vars)
+                     vals (cons arg vals)))
+             (setf vars (nreverse vars)
+                   vals (nreverse vals))
+             (values vars vals (list store-sym)
+                     (append (list update-fn)
+                             vars
+                             (list store-sym))
+                     (list* (car place) vars))))
+          (t (multiple-value-bind (expansion expanded-p)
+                 (macroexpand-1 place environment)
+               (if expanded-p
+                   ;; Expand one level of macros.
+                   (get-setf-expansion expansion environment)
+                   ;; Generate an expansion for a function call form place.
+                   (let ((vars '())
+                         (vals '())
+                         (store-sym (gensym)))
+                     (dolist (arg (cdr place))
+                       (setf vars (cons (gensym) vars)
+                             vals (cons arg vals)))
+                     (setf vars (nreverse vars)
+                           vals (nreverse vals))
+                     (values vars vals (list store-sym)
+                             `(funcall #'(setf ,(car place)) ,store-sym ,@vars)
+                             (list* (car place) vars))))))))
       (multiple-value-bind (expansion expanded-p)
 	  (macroexpand-1 place environment)
 	(if expanded-p
@@ -139,7 +156,8 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander)
-  (setf (get access-fn 'setf-expander) expander))
+  (setf (get access-fn 'setf-expander) expander
+        (get access-fn 'setf-update-fn) nil))
 )
 
 (define-modify-macro incf (&optional (delta 1)) +)
@@ -194,7 +212,14 @@
       (setf (first results) 'psetf)
       `(progn ,results 'nil))))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun %defsetf-short-form (access-fn update-fn documentation)
+  (declare (ignore documentation))
+  (setf (get access-fn 'setf-expander) nil
+        (get access-fn 'setf-update-fn) update-fn)
+  access-fn)
+)
+
 (defmacro defsetf (access-fn update-fn &optional documentation)
-  `(defun (setf ,access-fn) (&rest args)
-     ,documentation
-     (apply #',update-fn args)))
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (%defsetf-short-form ',access-fn ',update-fn ',documentation)))
