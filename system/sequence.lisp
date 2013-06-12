@@ -143,23 +143,40 @@
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
   (unless key (setf key 'identity))
-  (if from-end
-      (do* ((result (cons nil nil))
-            (tail result)
-            (i sequence (cdr i)))
-           ((null i)
-            (cdr result))
-        (unless (member (car i) (cdr result) :test test :key key)
-          (setf (cdr tail) (cons (car i) nil)
-                tail (cdr tail))))
-      (do* ((result (cons nil nil))
-            (tail result)
-            (i sequence (cdr i)))
-           ((null i)
-            (cdr result))
-        (unless (member (car i) (cdr i) :test test :key key)
-          (setf (cdr tail) (cons (car i) nil)
-                tail (cdr tail))))))
+  (etypecase sequence
+    (list (if from-end
+              (do* ((result (cons nil nil))
+                    (tail result)
+                    (i sequence (cdr i)))
+                   ((null i)
+                    (cdr result))
+                (unless (member (car i) (cdr result) :test test :key key)
+                  (setf (cdr tail) (cons (car i) nil)
+                        tail (cdr tail))))
+              (do* ((result (cons nil nil))
+                    (tail result)
+                    (i sequence (cdr i)))
+                   ((null i)
+                    (cdr result))
+                (unless (member (car i) (cdr i) :test test :key key)
+                  (setf (cdr tail) (cons (car i) nil)
+                        tail (cdr tail))))))
+    (vector
+     (when from-end
+       (setf sequence (reverse sequence)))
+     (let ((result (make-array (length sequence)
+                               :element-type (array-element-type sequence)
+                               :fill-pointer 0)))
+       (dotimes (i (length sequence))
+         (unless (find (funcall key (aref sequence i))
+                       result
+                       :key key
+                       :test test)
+           (vector-push (aref sequence i) result)))
+       (when from-end
+         (setf result (nreverse result)))
+       ;; Simplify result.
+       (subseq result 0)))))
 
 (defun subseq-list (sequence start end)
   ;; Seek in sequence
