@@ -530,9 +530,9 @@
           (code-char #xFFFE)
           (code-char code-point)))))
 
-
 (defmethod sys.gray:stream-file-position ((stream simple-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
+         (flush-write-buffer stream)
          (when (eql position-spec :end)
            (with-connection (con (host stream))
              (buffered-format con "(:OPEN ~S :DIRECTION :INPUT)~%" (path stream))
