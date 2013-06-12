@@ -6,11 +6,13 @@
   `(integer 0 (,array-rank-limit)))
 
 (deftype simple-vector (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(simple-array t (,size)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun compile-simple-vector-type (object type)
   (destructuring-bind (&optional (size '*)) (rest type)
+    (check-type size (or non-negative-fixnum (eql *)))
     (if (eql size '*)
         `(simple-vector-p ,object)
         `(and (simple-vector-p ,object)
@@ -20,29 +22,36 @@
 )
 
 (deftype vector (&optional element-type size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(array ,element-type (,size)))
 
 (deftype simple-bit-vector (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(simple-array bit (,size)))
 
 (deftype bit-vector (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(vector bit ,size))
 
 (deftype simple-base-string (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(simple-array base-char (,size)))
 
 (deftype base-string (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(vector base-char ,size))
 
 (deftype simple-string (&optional size)
+  (check-type size (or non-negative-fixnum (eql *)))
   `(or (simple-array nil (,size))
        (simple-array base-char (,size))
        (simple-array character (,size))))
 
 (deftype string (&optional size)
-  `(or (vector nil (,size))
-       (vector base-char (,size))
-       (vector character (,size))))
+  (check-type size (or non-negative-fixnum (eql *)))
+  `(or (vector nil ,size)
+       (vector base-char ,size)
+       (vector character ,size)))
 
 (defun simple-array-type-p (object type)
   (and (%simple-array-p object)
@@ -56,7 +65,9 @@
 (defun parse-array-type (type)
   (destructuring-bind (&optional (element-type '*) (dimension-spec '*))
       (cdr type)
-    (assert (or (listp dimension-spec)
+    (assert (or (and (listp dimension-spec)
+                     (every (lambda (x) (typep x 'non-negative-fixnum))
+                            dimension-spec))
                 (eql dimension-spec '*))
             (dimension-spec))
     (values element-type dimension-spec)))

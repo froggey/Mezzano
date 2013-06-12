@@ -55,6 +55,18 @@
 (deftype fixnum ()
   `(integer ,most-negative-fixnum ,most-positive-fixnum))
 
+(deftype positive-fixnum ()
+  `(integer 1 ,most-positive-fixnum))
+
+(deftype non-negative-fixnum ()
+  `(integer 0 ,most-positive-fixnum))
+
+(deftype negative-fixnum ()
+  `(integer ,most-negative-fixnum -1))
+
+(deftype non-positive-fixnum ()
+  `(integer ,most-negative-fixnum 0))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun typeexpand-1 (type &optional environment)
   (let ((expander (get (if (symbolp type)
