@@ -367,7 +367,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                  (lambda (f env)
                                    (or (fastload-form f omap output-stream)
                                        (add-to-llf +llf-invoke+
-                                                   (compile nil `(lambda () (progn ,f))))))
+                                                   (sys.c::compile-lambda `(lambda () (progn ,f))
+                                                                          (cons env nil)))))
                                  (lambda (f env)
                                    (sys.eval::eval-in-lexenv f env)))
           (incf *top-level-form-number*))
