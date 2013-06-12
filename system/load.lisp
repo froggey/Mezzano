@@ -12,6 +12,7 @@
 (defconstant +llf-string+ #x07)
 (defconstant +llf-setf-symbol+ #x08)
 (defconstant +llf-integer+ #x09)
+;; Call a function, ignore the result.
 (defconstant +llf-invoke+ #x0A)
 (defconstant +llf-setf-fdefinition+ #x0B)
 (defconstant +llf-simple-vector+ #x0C)
@@ -25,6 +26,8 @@
 (defconstant +llf-add-backlink+ #x14)
 (defconstant +llf-ratio+ #x15)
 (defconstant +llf-array+ #x16)
+;; Call a function, push the result.
+(defconstant +llf-funcall+ #x17)
 
 (defvar *noisy-load* nil)
 
@@ -51,7 +54,8 @@
     (#.+llf-integer-vector+ 'integer-vector)
     (#.+llf-add-backlink+ 'add-backlink)
     (#.+llf-ratio+ 'ratio)
-    (#.+llf-array+ 'array)))
+    (#.+llf-array+ 'array)
+    (#.+llf-funcall+ 'funcall)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -224,7 +228,9 @@
      (/ (load-integer stream)
         (load-integer stream)))
     (#.+llf-array+
-     (load-llf-array stream stack))))
+     (load-llf-array stream stack))
+    (#.+llf-funcall+
+     (values (funcall (vector-pop stack))))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)

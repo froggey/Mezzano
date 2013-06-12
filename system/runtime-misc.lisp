@@ -11,3 +11,5 @@
   (:method ((function function))
     (declare (ignore function))
     nil))
+
+(defgeneric make-load-form (object &optional environment))

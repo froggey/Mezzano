@@ -278,6 +278,17 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (dolist (dim (array-dimensions object))
     (save-integer dim stream)))
 
+(defmethod save-one-object (object omap stream)
+  (multiple-value-bind (creation-form initialization-form)
+      (make-load-form object)
+    (when initialization-form
+      (error "Initialization-forms from MAKE-LOAD-FORM not supported."))
+    (save-object (compile nil `(lambda ()
+                                 (declare (system:lambda-name load-form))
+                                 (progn ,creation-form)))
+                 omap stream)
+    (write-byte +llf-funcall+ stream)))
+
 (defun save-object (object omap stream)
   (when (null (gethash object omap))
     (setf (gethash object omap) (list (hash-table-count omap) 0 nil)))
