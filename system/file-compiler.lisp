@@ -270,6 +270,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer (numerator object) stream)
   (save-integer (denominator object) stream))
 
+(defmethod save-one-object ((object array) omap stream)
+  (dotimes (i (array-total-size array))
+    (save-object (row-major-aref array i) omap stream))
+  (write-byte +llf-array+ stream)
+  (save-integer (array-rank object) stream)
+  (dolist (dim (array-dimensions object))
+    (save-integer dim stream)))
+
 (defun save-object (object omap stream)
   (when (null (gethash object omap))
     (setf (gethash object omap) (list (hash-table-count omap) 0 nil)))

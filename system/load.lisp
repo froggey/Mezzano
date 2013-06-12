@@ -24,6 +24,7 @@
 (defconstant +llf-integer-vector+ #x13)
 (defconstant +llf-add-backlink+ #x14)
 (defconstant +llf-ratio+ #x15)
+(defconstant +llf-array+ #x16)
 
 (defvar *noisy-load* nil)
 
@@ -49,7 +50,8 @@
     (#.+llf-package+ 'package)
     (#.+llf-integer-vector+ 'integer-vector)
     (#.+llf-add-backlink+ 'add-backlink)
-    (#.+llf-ratio+ 'ratio)))
+    (#.+llf-ratio+ 'ratio)
+    (#.+llf-array+ 'array)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -140,6 +142,18 @@
            definition)
           (t (make-struct-type name slots parent area)))))
 
+(defun load-llf-array (stream stack)
+  (let* ((n-dimensions (load-integer stream))
+         (dimensions (loop for i from 0 below n-dimensions
+                        collect (load-integer stream)))
+         (array (make-array dimensions))
+         (n-elements (array-total-size array))
+         (start (- (length stack) n-elements)))
+    (dotimes (i n-elements)
+      (setf (row-major-aref array i) (aref stack (+ start i))))
+    (decf (fill-pointer stack) n-elements)
+    array))
+
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
 (defun load-one-object (command stream stack)
@@ -208,7 +222,9 @@
        vec))
     (#.+llf-ratio+
      (/ (load-integer stream)
-        (load-integer stream)))))
+        (load-integer stream)))
+    (#.+llf-array+
+     (load-llf-array stream stack))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)
