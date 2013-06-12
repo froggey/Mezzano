@@ -210,10 +210,7 @@
                (unless (or (eql type 'list) (eql type 'vector)
                            (and (consp type)
                                 (eql (first type) 'vector)
-                                (= (length type) 2)
-                                (or (and (integerp (second type))
-                                         (<= 0 (second type) array-dimension-limit))
-                                    (eql (second type) '*))))
+                                (= (length type) 2)))
                  (error "Invalid :TYPE option ~S.%" option)))
 	      (t (error "Unsupported DEFSTRUCT option ~S" option))))))
     (values name
@@ -332,6 +329,34 @@
                                (first s)))
                          slots))))))
 
+(defun generate-simple-defstruct-vector-constructor (leader-name slots name area)
+  `(defun ,name (&key ,@(mapcar (lambda (slot)
+                                  (list (first slot) (third slot)))
+                                slots))
+     (vector ,@(when leader-name (list `',leader-name))
+             ,@(mapcar 'first slots))))
+
+(defun generate-defstruct-vector-constructor (leader-name slots name lambda-list area)
+  (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
+      (parse-ordinary-lambda-list lambda-list)
+    (declare (ignore enable-keys allow-other-keys))
+    ;; Pick out the slot names and compute the slots without a lambda variable
+    (let* ((assigned-slots (append required
+				   (mapcar #'first optional)
+				   (remove 'nil (mapcar #'third optional))
+				   (when rest (list rest))
+				   (mapcar #'cadar keys)
+				   (remove 'nil (mapcar #'third keys))
+				   (mapcar #'first aux)))
+	   (default-slots (set-difference (mapcar #'first slots) assigned-slots)))
+      `(defun ,name ,lambda-list
+         (vector ,@(when leader-name (list `',leader-name))
+                 ,@(mapcar (lambda (s)
+                             (if (member (first s) default-slots)
+                                 (third s)
+                                 (first s)))
+                           slots))))))
+
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
   (when included-slot-descriptions
     (error "Included slot-descriptions not supported yet."))
@@ -431,6 +456,53 @@
                        (generate-defstruct-list-constructor (when named name) slots (first x) (second x) area)))
                  constructors)
        ',name)))
+
+(defun generate-vector-defstruct (name slot-descriptions conc-name constructors predicate area copier
+                                  included-structure-name included-slot-descriptions
+                                  print-object print-function print-object-specializer
+                                  named inner-type)
+  (when (and named (not (eql inner-type 't)))
+    (error "Named VECTOR struct with non-T type."))
+  (when (or included-structure-name included-slot-descriptions)
+    (error "Included VECTOR structures not supported yet."))
+  (when (and predicate (not named))
+    (error "Predicate with unnamed VECTOR structure."))
+  (when (or print-object print-function print-object-specializer)
+    (error "PRINT-OBJECT and PRINT-FUNCTION with VECTOR structure not supported yet."))
+  (let ((slots (compute-defstruct-slots conc-name
+                                        slot-descriptions
+                                        nil
+                                        included-slot-descriptions)))
+    `(progn
+       ,@(when predicate
+           (list `(defun ,predicate (object)
+                    (and (vectorp object)
+                         (eql (aref object 0) ',name)))))
+       ,@(when copier
+           (list `(defun ,copier (object)
+                    (make-array (length object)
+                                :element-type ',inner-type
+                                :initial-contents object))))
+       ,@(let ((n (if named 0 -1)))
+           (mapcar (lambda (s)
+                     (incf n)
+                     `(progn
+                        (defun ,(second s) (object)
+                          ,@(when (and named predicate)
+                              (list `(check-type object (satisfies ,predicate))))
+                          (aref object ,n))
+                        ,@(unless (fifth s)
+                            (list `(defun (setf ,(second s)) (new-value object)
+                                     ,@(when (and named predicate)
+                                         (list `(check-type object (satisfies ,predicate))))
+                                     (setf (aref object ,n) (the ,(fourth s) new-value)))))))
+                   slots))
+       ,@(mapcar (lambda (x)
+                   (if (symbolp x)
+                       (generate-simple-defstruct-vector-constructor (when named name) slots x area)
+                       (generate-defstruct-vector-constructor (when named name) slots (first x) (second x) area)))
+                 constructors)
+       ',name)))
 )
 
 (defun structure-type-p (object struct-type)
@@ -474,4 +546,13 @@
                                  included-structure-name included-slot-descriptions
                                  print-object print-function print-object-specializer
                                  named))
+      ((or (eql type 'vector)
+           (and (listp type)
+                (eql (first type) 'vector)))
+       (generate-vector-defstruct name slot-descriptions conc-name constructors predicate area copier
+                                  included-structure-name included-slot-descriptions
+                                  print-object print-function print-object-specializer
+                                  named (if (listp type)
+                                            (second type)
+                                            't)))
       (t (error "Currently unsupported defstruct type ~S." type)))))
