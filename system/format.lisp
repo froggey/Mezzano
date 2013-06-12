@@ -73,12 +73,87 @@
 	  (write n :stream s :escape nil :radix nil :base base :readably nil))))
   (cdr args))
 
+(defvar *cardinal-names-1*
+  '("zero" "one" "two" "three" "four" "five" "six" "seven" "eight" "nine"
+    "ten" "eleven" "twelve" "thirteen" "fourteen" "fifteen" "sixteen" "seventeen" "eighteen" "nineteen"))
+(defvar *cardinal-names-10*
+  '("zero" "ten" "twenty" "thirty" "forty" "fifty" "sixty" "seventy" "eighty" "ninety"))
+(defvar *ordinal-names-1*
+  '("zeroth" "first" "second" "third" "fourth" "fifth" "sixth" "seventh" "eighth" "ninth"
+    "tenth" "eleventh" "twelveth" "thirteenth" "fourteenth" "fifteenth" "sixteenth" "seventeenth" "eighteenth" "nineteenth"))
+(defvar *ordinal-names-10*
+  '("zeroth" "tenth" "twenieth" "thirtieth" "fortieth" "fiftieth" "sixtieth" "seventieth" "eightieth" "ninetieth"))
+(defvar *radix-powers*
+  '((1000000 "million" "millionth") (1000 "thousand" "thousandth") (100 "hundred" "hundredth")))
+
+(defun print-cardinal (integer stream)
+  (when (minusp integer)
+    (write-string "negative " stream)
+    (setf integer (- integer)))
+  (cond ((< integer 20)
+         (write-string (elt *cardinal-names-1* integer) stream))
+        ((< integer 100)
+         (multiple-value-bind (quot rem)
+             (truncate integer 10)
+           (write-string (elt *cardinal-names-10* quot) stream)
+           (unless (zerop rem)
+             (write-char #\- stream)
+             (cardinal rem stream))))
+        (t (loop for (power cardinal ordinal) in *radix-powers*
+              when (>= integer power) do
+                (multiple-value-bind (quot rem)
+                    (truncate integer power)
+                  (cardinal quot stream)
+                  (write-char #\Space stream)
+                  (write-string cardinal stream)
+                  (unless (zerop rem)
+                    (write-char #\Space stream)
+                    (cardinal rem stream)))
+                (return)
+              finally (error "Number ~:D too large to be printed as a cardinal number." integer)))))
+
+(defun print-ordinal (integer stream)
+  (when (minusp integer)
+    (write-string "negative " stream)
+    (setf integer (- integer)))
+  (cond ((< integer 20)
+         (write-string (elt *ordinal-names-1* integer) stream))
+        ((< integer 100)
+         (multiple-value-bind (quot rem)
+             (truncate integer 10)
+           (cond ((zerop rem)
+                  (write-string (elt *ordinal-names-10* quot) stream))
+                 (t (write-string (elt *cardinal-names-10* quot) stream)
+                    (write-char #\- stream)
+                    (ordinal rem stream)))))
+        (t (loop for (power cardinal ordinal) in *radix-powers*
+              when (>= integer power) do
+                (multiple-value-bind (quot rem)
+                    (truncate integer power)
+                  (cardinal quot stream)
+                  (write-char #\Space stream)
+                  (cond ((zerop rem)
+                         (write-string ordinal stream))
+                        (t (write-string cardinal stream)
+                           (write-char #\Space stream)
+                           (ordinal rem stream))))
+                (return)
+              finally (error "Number ~:D too large to be printed as an ordinal number." integer)))))
+
 (defun format-r (s args params at-sign colon)
-  (if params
-      (let ((base (or (car params) 10)))
-	(check-type base integer)
-	(format-integer s args base (cdr params) at-sign colon))
-      (error "TODO: Fancy ~~R")))
+  (cond
+    (params
+     (let ((base (or (car params) 10)))
+       (check-type base integer)
+       (format-integer s args base (cdr params) at-sign colon)))
+    (at-sign
+     (error "TODO: Roman numerals."))
+    (colon
+     (print-ordinal (car args) s)
+     (cdr args))
+    (t
+     (print-cardinal (car args) s)
+     (cdr args))))
 
 (defun format-b (s args params at-sign colon)
   (format-integer s args 2 params at-sign colon))
