@@ -323,13 +323,15 @@
        (eq (symbol-package object) *keyword-package*)))
 
 ;;; TODO: shadowing symbols.
-(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list)
+(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list)
   (let ((p (or (find-package name)
 	       (make-package name :nicknames nicknames))))
     (use-package use-list p)
     (import import-list p)
     (dolist (s intern-list)
       (intern s p))
+    (dolist (s shadow-list)
+      (shadow-one-symbol (string s) p))
     (dolist (s export-list)
       (export-one-symbol (intern (string s) p) p))
     p))
@@ -340,7 +342,8 @@
 	(use-list '())
 	(import-list '())
 	(export-list '())
-	(intern-list '()))
+	(intern-list '())
+        (shadow-list '()))
     (dolist (o options)
       (ecase (first o)
 	(:nicknames
@@ -372,6 +375,9 @@
 	(:intern
 	 (dolist (name (cdr o))
 	   (pushnew name intern-list)))
+        (:shadow
+         (dolist (name (cdr o))
+	   (pushnew name shadow-list)))
 	(:size)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(string defined-package-name)
@@ -380,7 +386,8 @@
 		    ',use-list
 		    ',import-list
 		    ',export-list
-		    ',intern-list))))
+		    ',intern-list
+                    ',shadow-list))))
 
 (defun rename-package (package new-name &optional new-nicknames)
   (setf package (find-package-or-die package))

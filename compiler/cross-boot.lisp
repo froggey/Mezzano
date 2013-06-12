@@ -149,7 +149,7 @@
   :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp))
 
-(defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list)
+(defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list)
   (eval `(cl:defpackage ,name
            (:nicknames ,@nicknames)
            ,@(mapcar (lambda (symbol)
@@ -157,6 +157,7 @@
                      import-list)
            (:export ,@export-list)
            (:intern ,@intern-list)
+           (:shadow ,@shadow-list)
            ,@(when documentation
                `((:documentation ,documentation)))
            (:use ,@(mapcar (lambda (package)
