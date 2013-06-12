@@ -193,3 +193,8 @@
       (setf results (nreverse results))
       (setf (first results) 'psetf)
       `(progn ,results 'nil))))
+
+(defmacro defsetf (access-fn update-fn &optional documentation)
+  `(defun (setf ,access-fn) (&rest args)
+     ,documentation
+     (apply #',update-fn args)))
