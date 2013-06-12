@@ -27,7 +27,9 @@
     (when (or confirm verbose)
       (format t "Staging path: ~A~%" stage)
       (format t "Image path: ~A~%" image-path)
-      (format t "Base path: ~A~%" base-path))
+      (format t "Base path: ~A~%" base-path)
+      (format t "Kernel: ~A~%" kernel)
+      (format t "Modules: ~S~%" modules))
     (when confirm
       (when (not (y-or-n-p "Ok?"))
         (return-from build-image nil)))
