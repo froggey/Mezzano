@@ -100,6 +100,7 @@
 
 (defun set-dispatch-macro-character (disp-char sub-char new-function &optional (readtable *readtable*))
   (check-type sub-char character)
+  (setf sub-char (char-upcase sub-char))
   (when (and (null readtable) *protect-the-standard-readtable*)
     (cerror "Carry on!" "This would modify the standard readtable."))
   (check-type new-function (or symbol function) "a function designator")
