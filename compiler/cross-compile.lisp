@@ -608,3 +608,6 @@ files will be compiled correctly.")
               (save-object o *output-map* *output-fasl*))
             (write-byte (car cmd) *output-fasl*))))
       (write-byte +llf-end-of-load+ *output-fasl*))))
+
+(deftype sys.int::non-negative-fixnum ()
+  `(integer 0 ,most-positive-fixnum))
