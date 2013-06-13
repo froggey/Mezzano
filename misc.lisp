@@ -173,7 +173,8 @@ BODY must not allocate!"
     `(multiple-value-bind ,temps
          ,form
        ,@(mapcar (lambda (var temp) (list 'setq var temp))
-                 vars temps))))
+                 vars temps)
+       ,(first temps))))
 
 (defun assemble-lap (code &optional name debug-info gc-info-offset gc-info-size)
   (declare (ignore gc-info-offset gc-info-size))
