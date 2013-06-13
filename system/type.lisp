@@ -311,6 +311,7 @@
            (numeric-subtypep (get t1 'numeric-supertype) t2))))
 
 (defun real-type-p (type) (numeric-subtypep type 'real))
+(defun number-type-p (type) (numeric-subtypep type 'number))
 
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
@@ -337,6 +338,14 @@
 			    (or (eql max-2 '*)
 				(and (not (eql max-1 '*)) (>= max-2 max-1))))
 		       t))))
+          ((and (or (number-type-p t2)
+                    (and (consp t2)
+                         (number-type-p (first t2))))
+                (or (number-type-p t1)
+                    (and (consp t1)
+                         (number-type-p (first t1))))
+                (numeric-subtypep (if (consp t1) (first t1) t1) (if (consp t2) (first t2) t2)))
+           (values t t))
 	  ((eql t2 'character)
 	   (values (or (eql t1 'standard-char)
 		       (eql t1 'base-char)
