@@ -75,7 +75,8 @@
   (size 0 :type (integer 0) :read-only t)
   (position 0 :type (integer 0) :read-only t))
 
-(declaim (inline %ldb ldb %dpb dpb %ldb-test ldb-test logbitp))
+(declaim (inline %ldb ldb %dpb dpb %ldb-test ldb-test logbitp
+                 %mask-field mask-field %deposit-field deposit-field))
 (defun %ldb (size position integer)
   (logand (ash integer (- position))
           (1- (ash 1 size))))
@@ -99,6 +100,20 @@
 
 (defun logbitp (index integer)
   (ldb-test (byte 1 index) integer))
+
+(defun %mask-field (size position integer)
+  (logand integer (%dpb -1 size position 0)))
+
+(defun mask-field (bytespec integer)
+  (%mask-field (byte-size bytespec) (byte-position bytespec) integer))
+
+(defun %deposit-field (newbyte size position integer)
+  (let ((mask (%dpb -1 size position 0)))
+    (logior (logand integer (lognot mask))
+            (logand newbyte mask))))
+
+(defun deposit-field (newbyte bytespec integer)
+  (%deposit-field newbyte (byte-size bytespec) (byte-position bytespec) integer))
 
 ;;; From SBCL 1.0.55
 (defun ceiling (number &optional (divisor 1))

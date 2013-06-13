@@ -255,6 +255,38 @@
                   `(ldb ,btemp ,access-form) ;Accessing form.
                   )))))
 
+(define-setf-expander mask-field (bytespec integer &environment env)
+  (multiple-value-bind (temps vals stores store-form access-form)
+      (get-setf-expansion int env);Get setf expansion for int.
+    (let ((btemp (gensym))     ;Temp var for byte specifier.
+          (store (gensym))     ;Temp var for byte to store.
+          (stemp (first stores)) ;Temp var for int to store.
+          (bs-size (gensym))   ; Temp var for byte specifier size.
+          (bs-position (gensym))) ; Temp var for byte specifier position.
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Generate calls to %MASK-FIELD and %DEPOSIT-FIELD when the bytespec is
+      ;; well-known.
+      (if (and (listp bytespec)
+               (eql (length bytespec) 3)
+               (eql (first bytespec) 'byte))
+          (values (list* bs-size bs-position temps)       ;Temporary variables.
+                  (list* (second bytespec) (third bytespec) vals)     ;Value forms.
+                  (list store)             ;Store variables.
+                  `(let ((,stemp (%deposit-field ,store ,bs-size ,bs-position ,access-form)))
+                     ,store-form
+                     ,store)               ;Storing form.
+                  `(%mask-field ,bs-size ,bs-position ,access-form) ;Accessing form.
+                  )
+          ;; Return the setf expansion for LDB as five values.
+          (values (cons btemp temps)       ;Temporary variables.
+                  (cons bytespec vals)     ;Value forms.
+                  (list store)             ;Store variables.
+                  `(let ((,stemp (deposit-field ,store ,btemp ,access-form)))
+                     ,store-form
+                     ,store)               ;Storing form.
+                  `(mask-field ,btemp ,access-form) ;Accessing form.
+                  )))))
+
 (define-compiler-macro ldb (&whole whole bytespec integer)
   ;; Avoid creating a byte specifier.
   ;; (LDB (BYTE size position) integer)
@@ -278,6 +310,31 @@
                 ,(second bytespec)
                 ,(third bytespec)
                 ,integer))
+        (t whole)))
+
+(define-compiler-macro mask-field (&whole whole bytespec integer)
+  ;; Avoid creating a byte specifier.
+  ;; (MASK-FIELD (BYTE size position) integer)
+  ;; => (%MASK-FIELD size position integer)
+  (cond ((and (listp bytespec)
+              (= (length bytespec) 3)
+              (eql (first bytespec) 'byte))
+         `(%mask-field ,(second bytespec)
+                       ,(third bytespec)
+                       ,integer))
+        (t whole)))
+
+(define-compiler-macro deposit-field (&whole whole newbyte bytespec integer)
+  ;; Avoid creating a byte specifier.
+  ;; (DEPOSIT-FIELD newbyte (BYTE size position) integer)
+  ;; => (%DEPOSIT-FIELD newbyte size position integer)
+  (cond ((and (listp bytespec)
+              (= (length bytespec) 3)
+              (eql (first bytespec) 'byte))
+         `(%deposit-field ,newbyte
+                          ,(second bytespec)
+                          ,(third bytespec)
+                          ,integer))
         (t whole)))
 
 (define-compiler-macro ldb-test (&whole whole bytespec integer)
