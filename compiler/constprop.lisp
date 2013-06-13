@@ -107,7 +107,7 @@
       (let ((var (first b))
 	    (val (second b)))
 	;; Run on the init-form.
-	(setf (second b) (cp-form (second b)))
+	(setf val (setf (second b) (cp-form val)))
 	;; Add variables to the new constants list.
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
@@ -156,15 +156,17 @@
     (if info
         (cond ((or (lambda-information-p (third form))
                    (and (consp (third form)) (eq (first (third form)) 'quote)))
+               ;; Always propagate the new value forward.
+               (setf (second info) (third form))
                ;; The value is constant. Attempt to push it back to the
                ;; original binding.
                (cond ((zerop (third info))
                       ;; Send it back, and remove this form.
                       (change-made)
+                      (setf (second info) (third form))
                       (setf (second (fourth info)) (third form))
                       ''nil)
-                     (t ;; Just propagate forward.
-                      (setf (second info) (third form))
+                     (t ;; Leave this form alone.
                       form)))
               (t ;; Non-constant, flush.
                (flush-mutable-variable (second form))
