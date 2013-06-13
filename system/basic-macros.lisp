@@ -303,7 +303,7 @@
      (%defconstant ',name ,initial-value
                    ,@(when docstring `(',docstring)))))
 
-(defmacro defun (name lambda-list &body body)
+(defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
 		       (second name)
 		       name)))
@@ -316,7 +316,9 @@
                          (block ,base-name ,@body-forms))))
       `(progn
          (eval-when (:compile-toplevel :load-toplevel :execute)
-           (%compiler-defun ',name ',the-lambda))
+           ;; Don't emit source information if there's an environment.
+           ;; Currently inlining a DEFUN defined in a macrolet doesn't work.
+           (%compiler-defun ',name ',(if env 'nil the-lambda)))
          (%defun ',name ,the-lambda)
          ',name)))))
 
