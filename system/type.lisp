@@ -285,6 +285,9 @@
     (eql object other-object)))
 (%define-compound-type 'eql 'eql-type)
 
+(deftype boolean ()
+  '(member t nil))
+
 (defun set-numeric-supertype (type supertype)
   "Set the supertype of a numeric type."
   (setf (get type 'numeric-supertype) supertype))
