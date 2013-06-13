@@ -20,6 +20,47 @@
           (second *current-debug-frame*)
           (function-from-frame *current-debug-frame*)))
 
+(defun debugger-show-variables (frame)
+  (let* ((fn (function-from-frame frame))
+         (info (function-pool-object fn 1))
+         (var-id 0))
+    (when (and (listp info) (eql (first info) :debug-info))
+      (format t "Locals:~%")
+      (dolist (var (third info))
+        (format t "  ~D ~S: ~S~%" (incf var-id) (first var) (read-frame-slot frame (second var))))
+      (when (fourth info)
+        (format t "Closed-over variables:~%")
+        (let ((env-object (read-frame-slot frame (fourth info))))
+          (dolist (level (fifth info))
+            (do ((i 1 (1+ i))
+                 (var level (cdr var)))
+                ((null var))
+              (when (car var)
+                (format t "  ~D ~S: ~S~%" (incf var-id) (car var) (svref env-object i))))
+            (setf env-object (svref env-object 0))))))))
+
+(defun debugger-read-variable (frame id)
+  (let* ((fn (function-from-frame frame))
+         (info (function-pool-object fn 1))
+         (var-id 0))
+    (when (and (listp info) (eql (first info) :debug-info))
+      (dolist (var (third info))
+        (when (eql (incf var-id) id)
+          (return-from debugger-read-variable
+            (values (read-frame-slot frame (second var)) (first var)))))
+      (when (fourth info)
+        (let ((env-object (read-frame-slot frame (fourth info))))
+          (dolist (level (fifth info))
+            (do ((i 1 (1+ i))
+                 (var level (cdr var)))
+                ((null var))
+              (when (and (car var)
+                         (eql (incf var-id) id))
+                (return-from debugger-read-variable
+                  (values (svref env-object i) (car var)))))
+            (setf env-object (svref env-object 0)))))))
+  (format t "Unknown variable id ~S." id))
+
 (defun enter-debugger (condition)
   (let* ((*standard-input* *debug-io*)
 	 (*standard-output* *debug-io*)
@@ -60,6 +101,7 @@
             (with-simple-restart (abort "Return to debugger top level.")
               (fresh-line)
               (format t "~D] " debug-level)
+              (finish-output)
               (let ((form (read)))
                 (fresh-line)
                 (typecase form
@@ -82,22 +124,24 @@
                      (:current (show-debug-frame))
                      (:vars
                       (show-debug-frame)
-                      (let* ((fn (function-from-frame *current-debug-frame*))
-                             (info (function-pool-object fn 1)))
-                        (when (and (listp info) (eql (first info) :debug-info))
-                          (format t "Locals:~%")
-                          (dolist (var (third info))
-                            (format t "  ~S: ~S~%" (first var) (read-frame-slot *current-debug-frame* (second var))))
-                          (when (fourth info)
-                            (format t "Closed-over variables:~%")
-                            (let ((env-object (read-frame-slot *current-debug-frame* (fourth info))))
-                              (dolist (level (fifth info))
-                                (do ((i 1 (1+ i))
-                                     (var level (cdr var)))
-                                    ((null var))
-                                  (when (car var)
-                                    (format t "  ~S: ~S~%" (car var) (svref env-object i))))
-                                (setf env-object (svref env-object 0))))))))
+                      (debugger-show-variables *current-debug-frame*))
+                     (:read
+                      (format t "~&ID: ")
+                      (finish-output)
+                      (let ((result (multiple-value-list (debugger-read-variable *current-debug-frame* (read)))))
+                        (setf *** **
+                              ** *
+                              * (first result)
+                              /// //
+                              // /
+                              / result
+                              +++ ++
+                              ++ +
+                              + form)
+                        (when result
+                          (dolist (v result)
+                            (fresh-line)
+                            (write v)))))
                      (t (format t "Unknown command ~S~%" form))))
                   (t (let ((result (multiple-value-list (let ((- form))
                                                           (eval form)))))
