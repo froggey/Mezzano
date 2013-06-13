@@ -81,6 +81,7 @@
     "windows.lisp"
     "misc.lisp"
     "peek.lisp"
+    "xterm.lisp"
     "telnet.lisp"
     "irc.lisp"
     "mandelbrot.lisp"
