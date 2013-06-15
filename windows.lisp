@@ -4,17 +4,18 @@
 
 (defclass window-with-chrome (window)
   ((chrome-drag-state :initform '())
-   (has-close-button :initarg :close-button :initform 't)))
+   (has-close-button :initarg :close-button))
+  (:default-initargs :close-button t))
 
 (defmethod compute-window-margins ((window window-with-chrome))
   (values 1 1 19 1))
 
 (defvar *corner-mask*
-  (2d-array '((0.0 0.0 0.0 0.2 0.5)
-              (0.0 0.0 0.5 1.0 1.0)
-              (0.0 0.5 1.0 1.0 1.0)
-              (0.2 1.0 1.0 1.0 1.0)
-              (0.5 1.0 1.0 1.0 1.0)))
+  #2A((0.0 0.0 0.0 0.2 0.5)
+      (0.0 0.0 0.5 1.0 1.0)
+      (0.0 0.5 1.0 1.0 1.0)
+      (0.2 1.0 1.0 1.0 1.0)
+      (0.5 1.0 1.0 1.0 1.0))
   "Alpha values for the rounded window corners.")
 
 (defvar *title-top-colour* :silver)

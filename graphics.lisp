@@ -105,11 +105,11 @@
            (height (first dims)))
       (values width height))))
 
-(defmacro with-window ((window title width height &optional (class ''window)) &body body)
+(defmacro with-window ((window title width height &optional (class ''window) &rest initargs) &body body)
   `(let ((,window nil))
      (unwind-protect
          (progn
-           (setf ,window (make-window ,title ,width ,height ,class))
+           (setf ,window (make-window ,title ,width ,height ,class ,@initargs))
            ,@body)
        (when ,window
          (close-window ,window)))))
@@ -125,6 +125,12 @@
 
 (defun fifo-emptyp (fifo)
   (eql (fifo-head fifo) (fifo-tail fifo)))
+
+(defun fifo-fullp (fifo)
+  (let ((next (1+ (fifo-tail fifo))))
+    (when (>= next (length (fifo-buffer fifo)))
+      (setf next 0))
+    (eql next (fifo-head fifo))))
 
 (defun fifo-push (value fifo)
   (let ((x (1+ (fifo-tail fifo))))
@@ -563,3 +569,7 @@ reverse Z-order."
 
 (define-condition sys.int::quit-lisp () ())
 (defun sys.int::quit () (signal 'sys.int::quit-lisp))
+
+(defun update-window (window)
+  "Notify the compositor that WINDOW's front buffer has changed and the screen should be updated."
+  (setf *refresh-required* t))
