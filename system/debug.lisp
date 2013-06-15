@@ -61,103 +61,105 @@
             (setf env-object (svref env-object 0)))))))
   (format t "Unknown variable id ~S." id))
 
+
 (defun enter-debugger (condition)
-  (let* ((*standard-input* *debug-io*)
-	 (*standard-output* *debug-io*)
-	 (debug-level *debugger-depth*)
-	 (*debugger-depth* (1+ *debugger-depth*))
-	 (restarts (compute-restarts))
-	 (restart-count (length restarts))
-         (*debugger-condition* condition)
-         (frames nil)
-         (n-frames 0)
-         (*current-debug-frame*))
-    (let ((prev-fp nil))
-      (map-backtrace
-       (lambda (i fp)
-         (incf n-frames)
-         (push (list (1- i) fp prev-fp) frames)
-         (setf prev-fp fp))))
-    (setf frames (nreverse frames))
-    ;; Can't deal with the top-most frame.
-    (decf n-frames)
-    (pop frames)
-    ;; Remove a few more frames that're done.
-    (setf *current-debug-frame* (first frames))
-    (fresh-line)
-    (write condition :escape nil :readably nil)
-    (fresh-line)
-    (show-restarts restarts)
-    (fresh-line)
-    (backtrace 15)
-    (fresh-line)
-    (write-line "Enter a restart number or evaluate a form.")
-    (loop
-       (let ((* nil) (** nil) (*** nil)
-             (/ nil) (// nil) (/// nil)
-             (+ nil) (++ nil) (+++ nil)
-             (- nil))
-         (loop
-            (with-simple-restart (abort "Return to debugger top level.")
-              (fresh-line)
-              (format t "~D] " debug-level)
-              (finish-output)
-              (let ((form (read)))
+  (with-standard-io-syntax
+    (let* ((*standard-input* *debug-io*)
+           (*standard-output* *debug-io*)
+           (debug-level *debugger-depth*)
+           (*debugger-depth* (1+ *debugger-depth*))
+           (restarts (compute-restarts))
+           (restart-count (length restarts))
+           (*debugger-condition* condition)
+           (frames nil)
+           (n-frames 0)
+           (*current-debug-frame*))
+      (let ((prev-fp nil))
+        (map-backtrace
+         (lambda (i fp)
+           (incf n-frames)
+           (push (list (1- i) fp prev-fp) frames)
+           (setf prev-fp fp))))
+      (setf frames (nreverse frames))
+      ;; Can't deal with the top-most frame.
+      (decf n-frames)
+      (pop frames)
+      ;; Remove a few more frames that're done.
+      (setf *current-debug-frame* (first frames))
+      (fresh-line)
+      (write condition :escape nil :readably nil)
+      (fresh-line)
+      (show-restarts restarts)
+      (fresh-line)
+      (backtrace 15)
+      (fresh-line)
+      (write-line "Enter a restart number or evaluate a form.")
+      (loop
+         (let ((* nil) (** nil) (*** nil)
+               (/ nil) (// nil) (/// nil)
+               (+ nil) (++ nil) (+++ nil)
+               (- nil))
+           (loop
+              (with-simple-restart (abort "Return to debugger top level.")
                 (fresh-line)
-                (typecase form
-                  (integer
-                   (if (and (>= form 0) (< form restart-count))
-                       (invoke-restart-interactively (nth (- restart-count form 1) restarts))
-                       (format t "Restart number ~D out of bounds.~%" form)))
-                  (keyword
-                   (case form
-                     (:up
-                      (if (>= (first *current-debug-frame*) n-frames)
-                          (format t "At innermost frame!~%")
-                          (setf *current-debug-frame* (nth (1+ (first *current-debug-frame*)) frames)))
-                      (show-debug-frame))
-                     (:down
-                      (if (zerop (first *current-debug-frame*))
-                          (format t "At outermost frame!~%")
-                          (setf *current-debug-frame* (nth (1- (first *current-debug-frame*)) frames)))
-                      (show-debug-frame))
-                     (:current (show-debug-frame))
-                     (:vars
-                      (show-debug-frame)
-                      (debugger-show-variables *current-debug-frame*))
-                     (:read
-                      (format t "~&ID: ")
-                      (finish-output)
-                      (let ((result (multiple-value-list (debugger-read-variable *current-debug-frame* (read)))))
-                        (setf *** **
-                              ** *
-                              * (first result)
-                              /// //
-                              // /
-                              / result
-                              +++ ++
-                              ++ +
-                              + form)
-                        (when result
-                          (dolist (v result)
-                            (fresh-line)
-                            (write v)))))
-                     (t (format t "Unknown command ~S~%" form))))
-                  (t (let ((result (multiple-value-list (let ((- form))
-                                                          (eval form)))))
-                       (setf *** **
-                             ** *
-                             * (first result)
-                             /// //
-                             // /
-                             / result
-                             +++ ++
-                             ++ +
-                             + form)
-                       (when result
-                         (dolist (v result)
-                           (fresh-line)
-                           (write v)))))))))))))
+                (format t "~D] " debug-level)
+                (finish-output)
+                (let ((form (read)))
+                  (fresh-line)
+                  (typecase form
+                    (integer
+                     (if (and (>= form 0) (< form restart-count))
+                         (invoke-restart-interactively (nth (- restart-count form 1) restarts))
+                         (format t "Restart number ~D out of bounds.~%" form)))
+                    (keyword
+                     (case form
+                       (:up
+                        (if (>= (first *current-debug-frame*) n-frames)
+                            (format t "At innermost frame!~%")
+                            (setf *current-debug-frame* (nth (1+ (first *current-debug-frame*)) frames)))
+                        (show-debug-frame))
+                       (:down
+                        (if (zerop (first *current-debug-frame*))
+                            (format t "At outermost frame!~%")
+                            (setf *current-debug-frame* (nth (1- (first *current-debug-frame*)) frames)))
+                        (show-debug-frame))
+                       (:current (show-debug-frame))
+                       (:vars
+                        (show-debug-frame)
+                        (debugger-show-variables *current-debug-frame*))
+                       (:read
+                        (format t "~&ID: ")
+                        (finish-output)
+                        (let ((result (multiple-value-list (debugger-read-variable *current-debug-frame* (read)))))
+                          (setf *** **
+                                ** *
+                                * (first result)
+                                /// //
+                                // /
+                                / result
+                                +++ ++
+                                ++ +
+                                + form)
+                          (when result
+                            (dolist (v result)
+                              (fresh-line)
+                              (write v)))))
+                       (t (format t "Unknown command ~S~%" form))))
+                    (t (let ((result (multiple-value-list (let ((- form))
+                                                            (eval form)))))
+                         (setf *** **
+                               ** *
+                               * (first result)
+                               /// //
+                               // /
+                               / result
+                               +++ ++
+                               ++ +
+                               + form)
+                         (when result
+                           (dolist (v result)
+                             (fresh-line)
+                             (write v))))))))))))))
 
 (defun show-restarts (restarts)
   (let ((restart-count (length restarts)))

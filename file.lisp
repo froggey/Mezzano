@@ -316,7 +316,8 @@
 
 (defmacro with-connection ((var host) &body body)
   `(sys.net::with-open-network-stream (,var (host-address ,host) (host-port ,host))
-     ,@body))
+     (with-standard-io-syntax
+       ,@body)))
 
 (defgeneric open-file (host pathname &key direction element-type if-exists if-does-not-exist external-format))
 
