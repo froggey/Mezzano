@@ -30,8 +30,9 @@
   (setf (process-stack-group process) (process-initial-stack-group process))
   (stack-group-preset (process-initial-stack-group process)
                       (lambda ()
-                        (apply (first (process-initial-form process))
-                               (rest (process-initial-form process)))
+                        (with-simple-restart (abort "Terminate process ~S." (process-name process))
+                          (apply (first (process-initial-form process))
+                                 (rest (process-initial-form process))))
                         (process-disable process)
                         (stack-group-invoke *scheduler-stack-group*))))
 
