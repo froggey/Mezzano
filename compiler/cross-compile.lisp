@@ -263,6 +263,7 @@
 ;; A vector consisting entirely of integers.
 (defconstant +llf-integer-vector+ #x13)
 (defconstant +llf-add-backlink+ #x14)
+(defconstant +llf-array+ #x16)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -406,6 +407,14 @@
 (defmethod save-one-object ((object float) omap stream)
   (write-byte +llf-single-float+ stream)
   (save-integer (%single-float-as-integer object) stream))
+
+(defmethod save-one-object ((object array) omap stream)
+  (dotimes (i (array-total-size object))
+    (save-object (row-major-aref object i) omap stream))
+  (write-byte +llf-array+ stream)
+  (save-integer (array-rank object) stream)
+  (dolist (dim (array-dimensions object))
+    (save-integer dim stream)))
 
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
