@@ -165,7 +165,7 @@ party to perform, the indicated option.")
                          (when (eql byte +command-iac+)
                            (write-byte +command-iac+ connection))
                          (write-byte byte connection)))
-               (terminal-interrupt ()))))
+               (sys.xterm:terminal-interrupt ()))))
       (sys.graphics::close-window window)
       (sys.int::process-disable (receive-process window)))))
 
