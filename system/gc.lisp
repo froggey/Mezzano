@@ -783,7 +783,8 @@ the header word. LENGTH is the number of elements in the array."
       (when (> *stack-bump-pointer* *stack-bump-pointer-limit*)
         (error "No more space for stacks!")))))
 
-(defun allocate-dma-buffer (length)
+(defun allocate-dma-buffer (length &optional (bitsize 8) signedp)
+  (check-type bitsize (member 8 16 32 64))
   (with-interrupts-disabled ()
     (unless (zerop (logand *bump-pointer* #xFFF))
       (incf *bump-pointer* (- #x1000 (logand *bump-pointer* #xFFF))))
@@ -791,7 +792,10 @@ the header word. LENGTH is the number of elements in the array."
       (incf *bump-pointer* length)
       (unless (zerop (logand *bump-pointer* #xFFF))
         (incf *bump-pointer* (- #x1000 (logand *bump-pointer* #xFFF))))
-      (values (make-array length
-                          :element-type '(unsigned-byte 8)
+      (values (make-array (truncate length (truncate bitsize 8))
+                          :element-type (list (if signedp
+                                                  'signed-byte
+                                                  'unsigned-byte)
+                                              bitsize)
                           :memory address)
               (- address #x8000000000)))))
