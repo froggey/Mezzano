@@ -223,7 +223,10 @@
   corbsize
   rirbsize
   rirb-read-pointer
-  )
+  (codecs (make-array 15 :initial-element nil)))
+
+(defmethod print-object ((o hda) s)
+  (print-unreadable-object (o s :type t :identity t)))
 
 (defconstant +maximum-n-streams+ 16)
 
@@ -414,7 +417,7 @@
   (starting-node (8 16 :ro "Starting Node Number."))
   (total (8 0 :ro "Total Number of Nodes.")))
 
-(define-register parameter-function-group (4 5) ; 5? It's what the spec says...
+(define-register parameter-function-group (4 5)
   "Function Group Type."
   (unsol-capable (1 8 :ro "Node is capable of generating unsolicited responses."))
   (node-type (8 0 :ro)
@@ -540,7 +543,12 @@
 
 (defun command (hda cad nid command)
   (send-corb hda (make-command cad nid command))
-  (poll-rirb hda))
+  (loop with time = (1+ (get-universal-time))
+     until (> (get-universal-time) time)
+     do (multiple-value-bind (x y)
+            (poll-rirb hda)
+          (when x
+            (return (values x y))))))
 
 (defclass node ()
   ((nid :initarg :nid :reader nid)
@@ -554,21 +562,32 @@
    (function-groups :initarg :function-groups :reader function-groups)))
 
 (defclass function-group (node)
-  (widgets :initarg :widgets :reader widgets))
+  ((root :initarg :root :reader root)
+   (widgets :initarg :widgets :reader widgets)))
 
 (defclass audio-function-group (function-group)
-  ())
+  ((outputs :initarg :outputs :reader outputs)
+   (inputs :initarg :inputs :reader inputs))
+  (:default-initargs :outputs '() :inputs '()))
 
 (defclass widget (node)
-  (function-group :initarg :function-group :reader function-group))
+  ((function-group :initarg :function-group :reader function-group)))
 
 (defclass widget-connections-mixin ()
-  (connections :initarg :connections :reader connections))
+  ((connections :initarg :connections :reader connections)))
+(defgeneric widget-connection-direction (widget)
+  (:documentation "Directionality of this widget's connections.
+One of :SINK, :SOURCE, :BIDIRECTIONAL, or :UNDIRECTED."))
 
 (defclass output-amp-mixin () ())
 (defclass input-amp-mixin () ())
 
 (defclass audio-widget (widget) ())
+
+;; Most audio widgets are sinks.
+(defmethod widget-connection-direction (audio-widget)
+  (declare (ignore widget))
+  :sink)
 
 (defclass audio-output-converter (audio-widget output-amp-mixin)
   ())
@@ -588,6 +607,9 @@
   ())
 (defclass audio-volume-knob (audio-widget widget-connections-mixin)
   ())
+(defmethod widget-connection-direction ((widget audio-volume-knob))
+  (declare (ignore widget))
+  :undirected)
 (defclass audio-beep-generator (audio-widget)
   ())
 (defclass audio-vendor-defined (audio-widget)
@@ -600,39 +622,35 @@
 (defmethod function-group-class ((type (eql #.+parameter-function-group-node-type-audio+)))
   'audio-function-group)
 
-(defgeneric widget-class (function-group type))
-(defmethod widget-class (function-group type)
+(defgeneric widget-class (function-group nid))
+(defmethod widget-class (function-group nid)
   'widget)
 
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-output+)))
-  'audio-output-converter)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-input+)))
-  'audio-input-converter)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-mixer+)))
-  'audio-mixer)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-selector+)))
-  'audio-selector)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-pin-complex+)))
-  'audio-pin-complex)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-power+)))
-  'audio-power-control)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-volume-knob+)))
-  'audio-volume-knob)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-beep-generator+)))
-  'audio-beep-generator)
-(defmethod widget-class ((function-group audio-widget)
-                         (type (eql #.+parameter-audio-widget-capabilities-type-vendor-defined+)))
-  'audio-vendor-defined)
+(defmethod widget-class ((function-group audio-function-group) nid)
+  (let ((caps (command (hda function-group) (cad function-group) nid
+                       (make-parameter +parameter-audio-widget-capabilities+))))
+    (case (parameter-audio-widget-capabilities-type caps)
+      (#.+parameter-audio-widget-capabilities-type-output+
+       'audio-output-converter)
+      (#.+parameter-audio-widget-capabilities-type-input+
+       'audio-input-converter)
+      (#.+parameter-audio-widget-capabilities-type-mixer+
+       'audio-mixer)
+      (#.+parameter-audio-widget-capabilities-type-selector+
+       'audio-selector)
+      (#.+parameter-audio-widget-capabilities-type-pin-complex+
+       'audio-pin-complex)
+      (#.+parameter-audio-widget-capabilities-type-power+
+       'audio-power-control)
+      (#.+parameter-audio-widget-capabilities-type-volume-knob+
+       'audio-volume-knob)
+      (#.+parameter-audio-widget-capabilities-type-beep-generator+
+       'audio-beep-generator)
+      (#.+parameter-audio-widget-capabilities-type-vendor-defined+
+       'audio-vendor-defined)
+      (t (call-next-method)))))
 
-(defun pin-location (location)
+(defun decode-pin-location (location)
   "Decode a pin location byte."
   (case location
     (#x00 "External")
@@ -662,13 +680,13 @@
     (t (format nil "Unknown ~2,'0X" location))))
 
 (defparameter *pin-default-device*
-  #("Line Out" "Speaker" "HP Out" "CD" "SPDIF Out" "Digital Other Out" "Modem Line Side" "Modem Handset Side"
-    "Line In" "AUX" "Mic In" "Telephony" "SPDIF In" "Digital Other In" "Reserved" "Other"))
+  #(:line-out :speaker :headphones-out :cd :spdif-out :digital-other-out :modem-line-side :modem-handset-side
+    :line-in :aux :mic-in :telephony :spdif-in :digital-other-in :reserved :other))
 
 (defparameter *pin-connection-type*
   #("Unknown"
-    "1/8\" stereo/mono"
-    "1/4\" stereo/mono"
+    "1/8\'' stereo/mono"
+    "1/4\'' stereo/mono"
     "ATAPI internal"
     "RCA"
     "Optical"
@@ -701,6 +719,9 @@
     "White"
     "Other"))
 
+(defun parameter (node parameter)
+  (command (hda node) (cad node) (nid node) (make-parameter parameter)))
+
 (defmethod initialize-instance :after ((node root-node) &rest initargs)
   (let* ((subs (parameter node +parameter-subordinates+))
          (viddid (parameter node +parameter-viddid+))
@@ -712,44 +733,28 @@
                                                (parameter-revision-vendor revision)
                                                (parameter-revision-stepping revision)))))
 
-(defun enumerate-codec (hda cad)
-  (let ((root-subs (command hda cad +root-nid+ (make-parameter +parameter-subordinates+)))
-        (viddid (command hda cad +root-nid+ (make-parameter +parameter-viddid+))))
-    (format t "ROOT ~D: ~4,'0X ~4,'0X~%" cad
-            (parameter-viddid-vendor viddid)
-            (parameter-viddid-device viddid))
-    (loop for function-nid from (parameter-subordinates-starting-node root-subs)
-       below (+ (parameter-subordinates-starting-node root-subs)
-                (parameter-subordinates-total root-subs))
-       do (let ((subs (command hda cad function-nid (make-parameter +parameter-subordinates+)))
-                (type (command hda cad function-nid (make-parameter +parameter-function-group+))))
-            (format t "  ~D ~A:~%"
-                    function-nid
-                    (case (parameter-function-group-node-type type)
-                      (#.+parameter-function-group-node-type-audio+ 'audio)
-                      (#.+parameter-function-group-node-type-vendor-defined-modem+ 'modem)
-                      (t (parameter-function-group-node-type type))))
-            (when (eql (parameter-function-group-node-type type) +parameter-function-group-node-type-audio+)
-              (loop for widget-nid from (parameter-subordinates-starting-node subs)
-                 below (+ (parameter-subordinates-starting-node subs)
-                          (parameter-subordinates-total subs))
-                 do (let ((caps (command hda cad widget-nid (make-parameter +parameter-audio-widget-capabilities+))))
-                      (format t "    ~D ~A. Connected to: ~S~%" widget-nid
-                              (case (parameter-audio-widget-capabilities-type caps)
-                                (#.+parameter-audio-widget-capabilities-type-output+ 'output)
-                                (#.+parameter-audio-widget-capabilities-type-input+ 'input)
-                                (#.+parameter-audio-widget-capabilities-type-mixer+ 'mixer)
-                                (#.+parameter-audio-widget-capabilities-type-selector+ 'selector)
-                                (#.+parameter-audio-widget-capabilities-type-pin-complex+ 'pin-complex)
-                                (#.+parameter-audio-widget-capabilities-type-power+ 'power)
-                                (#.+parameter-audio-widget-capabilities-type-volume-knob+ 'volume-knob)
-                                (#.+parameter-audio-widget-capabilities-type-beep-generator+ 'beep-generator)
-                                (#.+parameter-audio-widget-capabilities-type-vendor-defined+ 'vendor-defined)
-                                (t (parameter-audio-widget-capabilities-type caps)))
-                              (get-connections hda cad widget-nid)))))))))
 
-(defun get-connections (hda cad nid)
-  (let* ((len (command hda cad nid (make-parameter +parameter-connection-list-length+)))
+(defgeneric enumerate-widget (widget))
+
+(defmethod enumerate-widget ((widget widget)))
+
+(defmethod enumerate-widget :after ((widget widget-connections-mixin))
+  (setf (slot-value widget 'connections)
+        (loop for c in (get-connections widget)
+           collect (find c (widgets (function-group widget)) :key #'nid))))
+
+(defmethod enumerate-widget :after ((widget audio-pin-complex))
+  (let ((config (command (hda widget) (cad widget) (nid widget) #xF1C00)))
+    (setf (slot-value widget 'pin-location) (decode-pin-location (ldb (byte 6 24) config))
+          (slot-value widget 'pin-default-device) (aref *pin-default-device* (ldb (byte 4 20) config))
+          (slot-value widget 'pin-connection-type) (aref *pin-connection-type* (ldb (byte 4 16) config))
+          (slot-value widget 'pin-colour) (aref *pin-colour* (ldb (byte 4 12) config)))))
+
+(defun get-connections (widget)
+  (let* ((hda (hda widget))
+         (cad (cad widget))
+         (nid (nid widget))
+         (len (parameter widget +parameter-connection-list-length+))
          (n-entries (parameter-connection-list-length-length len))
          (entries (if (not (zerop (parameter-connection-list-length-long-form len)))
                       (loop for i from 0 below (ceiling n-entries 2)
@@ -762,49 +767,84 @@
                                         (ldb (byte 8 8) x)
                                         (ldb (byte 8 16) x)
                                         (ldb (byte 8 24) x)))))))
-    (sort (subseq entries 0 n-entries) #'<)))
+    (subseq entries 0 n-entries)))
 
-(defun graph-connections (hda cad)
+(defgeneric enumerate-function-group (function-group))
+
+(defmethod enumerate-function-group ((function-group function-group))
+  (let ((subs (parameter function-group +parameter-subordinates+)))
+    (setf (slot-value function-group 'widgets)
+          (loop for widget-nid from (parameter-subordinates-starting-node subs)
+             below (+ (parameter-subordinates-starting-node subs)
+                      (parameter-subordinates-total subs))
+             collect (make-instance (widget-class function-group widget-nid)
+                                    :nid widget-nid
+                                    :cad (cad function-group)
+                                    :hda (hda function-group)
+                                    :function-group function-group))))
+  (dolist (widget (widgets function-group))
+    (enumerate-widget widget))
+  function-group)
+
+(defmethod enumerate-function-group :after ((function-group audio-function-group))
+  ;; Discover interesting pins.
+  ;; "Interesting" is entirely arbitrary and consists of headphones,
+  ;; line-in, line-out and mic pins.
+  (dolist (widget (widgets function-group))
+    (when (typep widget 'audio-pin-complex)
+      (case (pin-default-device widget)
+        ((:line-out :headphones-out)
+         (push widget (slot-value function-group 'outputs)))
+        ((:line-in :mic-in)
+         (push widget (slot-value function-group 'inputs)))))))
+
+(defun enumerate-codec (hda cad)
+  (let* ((root (make-instance 'root-node :nid +root-nid+ :cad cad :hda hda))
+         (root-subs (parameter root +parameter-subordinates+)))
+    (setf (slot-value root 'function-groups)
+          (loop for function-nid from (parameter-subordinates-starting-node root-subs)
+             below (+ (parameter-subordinates-starting-node root-subs)
+                      (parameter-subordinates-total root-subs))
+             collect (let* ((type (command hda cad function-nid (make-parameter +parameter-function-group+))))
+                       (make-instance (function-group-class (parameter-function-group-node-type type))
+                                      :nid function-nid
+                                      :cad cad
+                                      :hda hda
+                                      :root root))))
+    (dolist (fgroup (function-groups root))
+      (enumerate-function-group fgroup))
+    root))
+
+(defgeneric graph-widget (widget))
+
+(defmethod graph-widget ((widget widget))
+  (format t "~D [label=\"~:(~A~) (~D)\"];~%"
+          (nid widget) (type-of widget) (nid widget)))
+
+(defmethod graph-widget :after ((widget widget-connections-mixin))
+  (dolist (connection (connections widget))
+    (ecase (widget-connection-direction widget)
+      (:bidirectional
+       (format t "~D -> ~D;~%" (nid connection) (nid widget))
+       (format t "~D -> ~D;~%" (nid widget) (nid connection)))
+      (:sink (format t "~D -> ~D;~%" (nid connection) (nid widget)))
+      (:source (format t "~D -> ~D;~%" (nid widget) (nid connection)))
+      (:undirected (format t "~D -> ~D [dir=\"none\"];~%" (nid widget) (nid connection))))))
+
+(defmethod graph-widget ((widget audio-pin-complex))
+  (format t "~D [label=\"~:(~A~) (~D)\\n~A\\n~:(~A)\\n~A\\n~A\"];~%"
+          (nid widget) (type-of widget) (nid widget)
+          (pin-location widget)
+          (pin-default-device widget)
+          (pin-connection-type widget)
+          (pin-colour widget)))
+
+(defun graph-connections (root-node)
   (format t "digraph G {~%")
-  (let ((root-subs (command hda cad +root-nid+ (make-parameter +parameter-subordinates+))))
-    (loop for function-nid from (parameter-subordinates-starting-node root-subs)
-       below (+ (parameter-subordinates-starting-node root-subs)
-                (parameter-subordinates-total root-subs))
-       do (let ((subs (command hda cad function-nid (make-parameter +parameter-subordinates+)))
-                (type (command hda cad function-nid (make-parameter +parameter-function-group+))))
-            (when (eql (parameter-function-group-node-type type) +parameter-function-group-node-type-audio+)
-              (loop for widget-nid from (parameter-subordinates-starting-node subs)
-                 below (+ (parameter-subordinates-starting-node subs)
-                          (parameter-subordinates-total subs))
-                 do (let* ((caps (command hda cad widget-nid (make-parameter +parameter-audio-widget-capabilities+)))
-                           (connections (get-connections hda cad widget-nid))
-                           (type (parameter-audio-widget-capabilities-type caps)))
-                      (if (eql type +parameter-audio-widget-capabilities-type-pin-complex+)
-                          (let ((config (command hda cad widget-nid #xF1C00)))
-                            (format t "  ~D [label=\"Pin-Complex\\n~A\\n~A\\n~A\\n~A\"];~%"
-                                    widget-nid
-                                    (pin-location (ldb (byte 6 24) config))
-                                    (aref *pin-default-device* (ldb (byte 4 20) config))
-                                    (aref *pin-connection-type* (ldb (byte 4 16) config))
-                                    (aref *pin-colour* (ldb (byte 4 12) config))))
-                          (format t "  ~D [label=\"~:(~A~)\"];~%" widget-nid
-                                  (case type
-                                    (#.+parameter-audio-widget-capabilities-type-output+ 'output)
-                                    (#.+parameter-audio-widget-capabilities-type-input+ 'input)
-                                    (#.+parameter-audio-widget-capabilities-type-mixer+ 'mixer)
-                                    (#.+parameter-audio-widget-capabilities-type-selector+ 'selector)
-                                    (#.+parameter-audio-widget-capabilities-type-pin-complex+ 'pin-complex)
-                                    (#.+parameter-audio-widget-capabilities-type-power+ 'power)
-                                    (#.+parameter-audio-widget-capabilities-type-volume-knob+ 'volume-knob)
-                                    (#.+parameter-audio-widget-capabilities-type-beep-generator+ 'beep-generator)
-                                    (#.+parameter-audio-widget-capabilities-type-vendor-defined+ 'vendor-defined)
-                                    (t (parameter-audio-widget-capabilities-type caps)))))
-                      (if (eql type +parameter-audio-widget-capabilities-type-volume-knob+)
-                          (dolist (input connections)
-                            (format t "  ~D -> ~D;~%" widget-nid input))
-                          (dolist (input connections)
-                            (format t "  ~D -> ~D;~%" input widget-nid)))))))))
-    (format t "}~%"))
+  (dolist (function-group (function-groups root-node))
+    (dolist (widget (widgets function-group))
+      (graph-widget widget)))
+  (format t "}~%"))
 
 (defvar *cards* '())
 (setf *cards* '())
@@ -816,11 +856,15 @@
          (hda (make-hda :pci-device pci-device :register-set bar0)))
     (format t "Found Intel HDA controller at ~S.~%" pci-device)
     ;; Perform a controller reset by pulsing crst to 0.
-    (setf (reg/32 bar0 +gctl+) 0
+    (setf (reg/32 bar0 +gctl+) 0)
+    (format t "Begin reset.~%")
     ;; Wait for it to read back 0.
-          (reg/32 bar0 +gctl+) (mask-field +gctl-crst+ -1))
+    (loop while (not (zerop (gctl-crst (reg/32 bar0 +gctl+)))))
+    (format t "Leaving reset.~%")
+    (setf (reg/32 bar0 +gctl+) (mask-field +gctl-crst+ -1))
     ;; Wait for it to read 1. FIXME: Timeouts...
     (loop while (zerop (gctl-crst (reg/32 bar0 +gctl+))))
+    (format t "Waiting for codecs.~%")
     ;; Wait for the codecs to report in. 521µs.
     (loop while (< (reg/32 bar0 +walclk+) 14000))
     (format t "HDA version ~D.~D~%" (reg/8 bar0 +vmaj+) (reg/8 bar0 +vmin+))
@@ -844,7 +888,10 @@
           (reg/32 bar0 +dplbase+) (logior (+ (hda-corb/rirb/dmap-physical hda) +dmap-offset+)
                                           (mask-field +dplbase-enable+ -1)))
     (push hda *cards*)
-    (poll-rirb hda)
+    (loop with statest = (reg/16 bar0 +statest+)
+       for i from 0 to 14
+       when (logbitp i statest)
+       do (setf (aref (hda-codecs hda) i) (enumerate-codec hda i)))
     ))
 
 (defparameter *hda-pci-ids*
@@ -853,3 +900,60 @@
 
 (sys.int::pci-register-driver *hda-pci-ids* 'probe)
 (setf c (first *cards*))
+
+(defun write-bdl (hda entry base length)
+  (let ((array (hda-corb/rirb/dmap hda))
+        (offset (+ (/ +bdl-offset+ 4) (* entry 4))))
+    (setf (aref array (+ offset 0)) (ldb (byte 32 0) base)
+          (aref array (+ offset 1)) (ldb (byte 32 32) base)
+          (aref array (+ offset 2)) length
+          (aref array (+ offset 3)) 0)))
+
+(defun read-bdl (hda entry)
+  (let ((array (hda-corb/rirb/dmap hda))
+        (offset (+ (/ +bdl-offset+ 4) (* entry 4))))
+    (values (logior (aref array (+ offset 0))
+                    (ash (aref array (+ offset 0)) 32))
+            (aref array (+ offset 2))
+            (aref array (+ offset 3)))))
+
+(defun prep-stream (hda stream-id bdl-base bdl-length)
+  (let ((r (hda-register-set hda))
+        (r-base (+ #x80 (* stream-id #x20))))
+    (setf (reg/32 r (+ r-base +sdnbdpl+)) (+ (hda-corb/rirb/dmap-physical c) +bdl-offset+ (* bdl-base 16))
+          (reg/16 r (+ r-base +sdnfmt+)) #x4011
+          (reg/16 r (+ r-base +sdnlvi+)) bdl-length
+          (reg/32 r (+ r-base +sdncbl+)) #x100000)))
+
+(defun stream-reset (hda stream-id)
+  ;; Clear the run bit before doing anything.
+  (setf (reg/32 (hda-register-set hda)
+                (+ #x80 (* stream-id #x20) +sdnctlsts+))
+        (logand (reg/32 (hda-register-set hda)
+                        (+ #x80 (* stream-id #x20) +sdnctlsts+))
+                (lognot 2)))
+  (setf (reg/32 (hda-register-set hda)
+                (+ #x80 (* stream-id #x20) +sdnctlsts+))
+        1)
+  (setf (reg/32 (hda-register-set hda)
+                (+ #x80 (* stream-id #x20) +sdnctlsts+))
+        0))
+
+(defun stream-go (hda stream-id)
+  (setf (reg/32 (hda-register-set hda)
+                (+ #x80 (* stream-id #x20) +sdnctlsts+))
+        #x00100002))
+
+(defun test (codec dac pin &optional mixer)
+  (stream-reset c 4)
+  (write-bdl c 0 #x200000 #x80000)
+  (write-bdl c 1 #x400000 #x80000)
+  (prep-stream c 4 0 1)
+  (when mixer
+    (command c codec mixer #x3F07F)) ; unmute L/R out/in
+  (command c codec dac #x70610) ; stream=1
+  (command c codec dac #x24011) ; format
+  (command c codec dac #x3b07f) ; unmute L/R out
+  (command c codec pin #x3b07f) ; unmute L/R out
+  (command c codec pin #x70740) ; enable output
+  (stream-go c 4))
