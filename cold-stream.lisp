@@ -2,6 +2,7 @@
 
 (defstruct cold-stream)
 (defvar *screen-offset* (cons 0 0))
+(defvar *bootlog*)
 
 (defvar *cold-stream-screen*)
 
@@ -62,6 +63,8 @@
 #+nil(add-hook '*early-initialize-hook* 'cold-stream-init)
 
 (defun cold-write-char (c stream)
+  (when (and (boundp '*cold-stream-log*) *cold-stream-log*)
+    (vector-push-extend c *cold-stream-log*))
   (setf (system:io-port/8 #xE9) (logand (char-code c) #xFF))
   (cond ((eql (first *cold-stream-screen*) :vga)
          (cond ((eql c #\Newline)
