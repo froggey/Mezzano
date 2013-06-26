@@ -2085,10 +2085,13 @@
     (load-in-reg :r13 function t)
     (load-in-reg :r8 arguments t)
     (smash-r8)
+    ;; Check for no args.
+    (emit `(sys.lap-x86:xor32 :ecx :ecx)
+          `(sys.lap-x86:cmp64 :r8 nil)
+          `(sys.lap-x86:je ,arg-done))
     ;; Unpack the argument list on the stack in reverse and count
     ;; the number of arguments.
-    (emit `(sys.lap-x86:xor32 :ecx :ecx)
-          `(sys.lap-x86:jmp ,loop-test)
+    (emit `(sys.lap-x86:jmp ,loop-test)
           loop-head
           `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
