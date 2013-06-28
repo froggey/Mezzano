@@ -110,9 +110,13 @@
   ;; list of fixups on stack.
   ;; +llf-function+
   ;; tag. (byte)
+  ;; gc-info-offset. (integer)
+  ;; gc-info-length. (integer)
   ;; mc size in bytes. (integer)
   ;; number of constants. (integer)
   (let* ((tag (%read-byte stream))
+         (gc-info-offset (load-integer stream))
+         (gc-info-length (load-integer stream))
          (mc-length (load-integer stream))
          (mc (make-array mc-length
                          :element-type '(unsigned-byte 8)
@@ -125,7 +129,7 @@
     (decf (fill-pointer stack) n-constants)
     ;; Read mc bytes.
     (%read-sequence mc stream)
-    (make-function-with-fixups tag mc fixups constants)))
+    (make-function-with-fixups tag mc fixups constants gc-info-offset gc-info-length)))
 
 (defun load-llf-vector (stream stack)
   (let* ((len (load-integer stream))

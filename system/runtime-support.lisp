@@ -329,6 +329,23 @@
          (info (memref-unsigned-byte-64 address 0)))
     (memref-unsigned-byte-8 address offset)))
 
+(defun function-gc-info (function)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (info (memref-unsigned-byte-64 address 0)))
+    (values (ldb (byte 16 48) info)
+            (memref-unsigned-byte-32 address 2))))
+
+(defun function-gc-info-entry (function entry-number)
+  (check-type function function)
+  (let* ((address (logand (lisp-object-address function) -16))
+         (length (memref-unsigned-byte-16 address 3))
+         (offset (memref-unsigned-byte-32 address 2)))
+    (check-type entry-number (integer 0))
+    (assert (< entry-number length))
+    (values (memref-unsigned-byte-32 (+ address offset) (* entry-number 2))
+            (memref-unsigned-byte-32 (+ address offset) (1+ (* entry-number 2))))))
+
 (defun get-structure-type (name &optional (errorp t))
   (or (get name 'structure-type)
       (and errorp

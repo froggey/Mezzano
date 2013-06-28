@@ -82,11 +82,11 @@
     "misc.lisp"
     "peek.lisp"
     "xterm.lisp"
+    "system/time.lisp"
+    "file.lisp"
     "telnet.lisp"
     "irc.lisp"
     "mandelbrot.lisp"
-    "system/time.lisp"
-    "file.lisp"
     "system/file-compiler.lisp"))
 
 (defun compile-warm-source (&optional force)
@@ -1263,9 +1263,13 @@
   ;; list of fixups on stack.
   ;; +llf-function+
   ;; tag. (byte)
+  ;; gc-info-offset. (integer)
+  ;; gc-info-length. (integer)
   ;; mc size in bytes. (integer)
   ;; number of constants. (integer)
   (let* ((tag (read-byte stream))
+         (gc-info-offset (load-integer stream))
+         (gc-info-length (load-integer stream))
          (mc-length (load-integer stream))
          ;; mc-length does not include the 12 byte function header.
          (mc (make-array (* (ceiling (+ mc-length 12) 8) 8)
@@ -1289,7 +1293,9 @@
     (setf (word address) 0)
     (setf (ldb (byte 16 0) (word address)) tag
           (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 12) 16)
-          (ldb (byte 16 32) (word address)) n-constants)
+          (ldb (byte 16 32) (word address)) n-constants
+          (ldb (byte 16 48) (word address)) gc-info-length
+          (ldb (byte 32 0) (word (1+ address))) gc-info-offset)
     ;; Set constant pool.
     (dotimes (i (length constants))
       (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i))

@@ -317,6 +317,11 @@
     (save-object (cross-function-fixups object) omap stream)
     (write-byte +llf-function+ stream)
     (write-byte 0 stream) ; tag, normal function.
+    (cond ((cross-function-gc-info object)
+           (save-integer (cross-function-gc-info object) stream)
+           (save-integer (cross-function-gc-info-length object) stream))
+          (t (save-integer 0 stream)
+             (save-integer 0 stream)))
     (save-integer (length (cross-function-mc object)) stream)
     (save-integer (length constants) stream)
     (write-sequence (cross-function-mc object) stream)))

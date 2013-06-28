@@ -582,7 +582,7 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
-(defun make-function-with-fixups (tag machine-code fixups constants)
+(defun make-function-with-fixups (tag machine-code fixups constants gc-info-offset gc-info-length)
   (with-interrupts-disabled ()
     (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
            (pool-size (length constants))
@@ -597,7 +597,9 @@ the header word. LENGTH is the number of elements in the array."
         (setf (memref-unsigned-byte-64 address 0) 0
               (memref-unsigned-byte-16 address 0) tag
               (memref-unsigned-byte-16 address 1) mc-size
-              (memref-unsigned-byte-16 address 2) pool-size)
+              (memref-unsigned-byte-16 address 2) pool-size
+              (memref-unsigned-byte-16 address 3) gc-info-length
+              (memref-unsigned-byte-32 address 2) gc-info-offset)
         ;; Initialize code.
         (dotimes (i (length machine-code))
           (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
@@ -616,8 +618,8 @@ the header word. LENGTH is the number of elements in the array."
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
         (%%assemble-value address +tag-function+)))))
 
-(defun make-function (machine-code constants)
-  (make-function-with-fixups +function-type-function+ machine-code '() constants))
+(defun make-function (machine-code constants gc-info-offset gc-info-length)
+  (make-function-with-fixups +function-type-function+ machine-code '() constants gc-info-offset gc-info-length))
 
 (defun make-closure (function environment)
   "Allocate a closure object."
