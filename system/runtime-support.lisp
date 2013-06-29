@@ -372,3 +372,13 @@
                    multiple-value-call multiple-value-prog1
                    progn progv quote return-from setq symbol-macrolet
                    tagbody the throw unwind-protect)))
+
+(defun %array-like-p (object)
+  (eql (%tag-field object) +tag-array-like+))
+
+(defun %array-like-header (object)
+  (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+
+(defun %array-like-type (object)
+  (logand (1- (ash 1 +array-type-size+))
+          (ash (%array-like-header object) (- +array-type-shift+))))

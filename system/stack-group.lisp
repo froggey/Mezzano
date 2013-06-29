@@ -1,90 +1,124 @@
 (in-package :sys.int)
 
+;;; Possible stack group states:
+;;; Active       Running on some CPU.
+;;;               Stack state is not valid.
+;;; Exhausted    Task has finished and is no longer runnable. It must be preset before use.
+;;;               Stack state is not valid.
+;;; Yielded      Task has voluntarily stopped running for some reason (blocking, not yet started, etc).
+;;;               Stack contains the saved CFP, LFP, LSP, RFlags and RIP.
+;;; Interrupted  Task has been asynchronously interrupted.
+;;;               Stack contains yield frame followed by an interrupt frame.
+
+;;; Stack-group object layout. Offsets for %array-like-ref.
+;;;       0 Binding stack pointer (ub64)
+;;;       1 Flags (fixnum)
+;;;       2 Name
+;;;       3 Control stack pointer (ub64)
+;;;       4 CS base (ub64)
+;;;       5 CS size in bytes (ub64)
+;;;       6 DS base (ub64)
+;;;       7 DS size in bytes (ub64)
+;;;       8 BS base (ub64)
+;;;       9 BS size in bytes (ub64)
+;;;  10-447 TLS slots.
+;;; 447-511 FXSAVE area.
+;;; Stack bases and sizes must be aligned so they can be treated as fixnums by the GC.
+
 ;;;; Bits in the stack-group control status field.
 ;;; The state field.
-(defconstant +stack-group-state-mask+ #b1111)
-(defconstant +stack-group-active+ #b0000)
-(defconstant +stack-group-resumable+ #b0001)
-(defconstant +stack-group-awaiting-return+ #b0010)
-(defconstant +stack-group-awaiting-initial-call+ #b0011)
-(defconstant +stack-group-exhausted+ #b0100)
-;;; Safe bit.
-(defconstant +stack-group-safe+ #b10000)
-(defconstant +stack-group-uninterruptable+ #b100000)
+(defconstant +stack-group-state-size+ 2)
+(defconstant +stack-group-state-position+ 0)
+(defconstant +stack-group-active+       #b00 "Task is running.")
+(defconstant +stack-group-exhausted+    #b01 "Task is no longer runnable.")
+(defconstant +stack-group-yielded+      #b10 "Task has yielded to another task.")
+(defconstant +stack-group-interrupted+  #b11 "Task has been interrupted.")
 
-(defun %array-like-p (object)
-  (eql (%tag-field object) +tag-array-like+))
+(defparameter +stack-group-state-names+ #(:active :exhausted :yielded :interrupted))
 
-(defun %array-like-header (object)
-  (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
+;;; Stack group can't be interrupted. "Interrupted" means the ctrl-esc break.
+(defconstant +stack-group-uninterruptable+ #b100)
 
-(defun %array-like-type (object)
-  (logand (1- (ash 1 +array-type-size+))
-          (ash (%array-like-header object) (- +array-type-shift+))))
+;;; 512 less a word for the array header.
+(defconstant +stack-group-size+ 511)
+(defconstant +stack-group-fxsave-area-size+ 64) ; 64 words, 512 octets.
+
+;;; Offsets of various stack group fields.
+(defconstant +stack-group-offset-binding-stack-pointer+ 0)
+(defconstant +stack-group-offset-flags+                 1)
+(defconstant +stack-group-offset-control-stack-pointer+ 2)
+(defconstant +stack-group-offset-name+                  3)
+(defconstant +stack-group-offset-control-stack-base+    4)
+(defconstant +stack-group-offset-control-stack-size+    5)
+(defconstant +stack-group-offset-data-stack-base+       6)
+(defconstant +stack-group-offset-data-stack-size+       7)
+(defconstant +stack-group-offset-binding-stack-base+    8)
+(defconstant +stack-group-offset-binding-stack-size+    9)
+(defconstant +stack-group-offset-tls-slots+            10)
+;; FXSAVE area must be at the end, GC doesn't scan it.
+(defconstant +stack-group-offset-fxsave-area+ (- +stack-group-size+
+                                                 +stack-group-fxsave-area-size+))
+
+(defconstant +stack-group-tls-slots-size+ (- +stack-group-offset-fxsave-area+
+                                             +stack-group-offset-tls-slots+))
+
+(defvar *default-control-stack-size* 8192)
+(defvar *default-data-stack-size* 8192)
+(defvar *default-binding-stack-size* 512)
 
 (defun stack-group-p (object)
   (and (%array-like-p object)
        (eql (%array-like-type object) +array-type-stack-group+)))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (%define-type-symbol 'stack-group 'stack-group-p))
 
 (defun make-stack-group (name &key
                                 control-stack-size
                                 data-stack-size
                                 binding-stack-size
-                                (safe t)
                                 (interruptable t))
-  (unless control-stack-size (setf control-stack-size 8192))
-  (unless data-stack-size (setf data-stack-size 8192))
-  (unless binding-stack-size (setf binding-stack-size 512))
+  (unless control-stack-size (setf control-stack-size *default-control-stack-size*))
+  (unless data-stack-size (setf data-stack-size *default-data-stack-size*))
+  (unless binding-stack-size (setf binding-stack-size *default-binding-stack-size*))
   (when (oddp binding-stack-size)
     (decf binding-stack-size))
   ;; Allocate stack and the stack-group object.
-  (let* ((sg (%allocate-array-like +array-type-stack-group+ 511 511 :static))
-         (sg-pointer (ash (%pointer-field sg) 4))
+  (let* ((sg (%allocate-array-like +array-type-stack-group+ +stack-group-size+ +stack-group-size+ :static))
 	 (cs-pointer (%allocate-stack control-stack-size))
 	 (ds-pointer (%allocate-stack data-stack-size))
 	 (bs-pointer (%allocate-stack binding-stack-size)))
     ;; Set state.
-    (setf (memref-t sg-pointer 2) (logior (if safe +stack-group-safe+ 0)
-                                          (if interruptable 0 +stack-group-uninterruptable+)
-                                          +stack-group-exhausted+))
+    (setf (%array-like-ref-t sg +stack-group-offset-flags+)
+          (logior (if interruptable 0 +stack-group-uninterruptable+)
+                  +stack-group-exhausted+))
     ;; Set name.
-    (setf (memref-t sg-pointer 4) (string name))
+    (setf (%array-like-ref-t sg +stack-group-offset-name+) (string name))
     ;; Control stack base/size.
-    (setf (memref-unsigned-byte-64 sg-pointer 5) cs-pointer
-	  (memref-t sg-pointer 6) control-stack-size)
+    (setf (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-control-stack-base+) cs-pointer
+	  (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-control-stack-size+) (* control-stack-size 8))
     ;; Data stack base/size.
-    (setf (memref-unsigned-byte-64 sg-pointer 7) ds-pointer
-	  (memref-t sg-pointer 8) data-stack-size)
+    (setf (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-data-stack-base+) ds-pointer
+	  (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-data-stack-size+) (* data-stack-size 8))
     ;; Binding stack base/size.
-    (setf (memref-unsigned-byte-64 sg-pointer 9) bs-pointer
-          (memref-t sg-pointer 10) binding-stack-size)
-    ;; Resumer.
-    (setf (memref-t sg-pointer 11) nil)
+    (setf (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-binding-stack-base+) bs-pointer
+	  (%array-like-ref-unsigned-byte-64 sg-pointer +stack-group-offset-binding-stack-size+) (* binding-stack-size 8))
     sg))
 
-(defun stack-group-state (sg)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (let* ((control (memref-t (ash (%pointer-field sg) 4) 2))
-         (state (logand control +stack-group-state-mask+)))
-    (svref #(:active
-             :resumable
-             :awaiting-return
-             :awaiting-initial-call
-             :exhausted)
-           state)))
+(defun stack-group-flags (stack-group)
+  "Read the stack-group flags slot."
+  (check-type stack-group stack-group)
+  (%array-like-ref-t stack-group +stack-group-offset-flags+))
 
-(defun stack-group-name (sg)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (memref-t (ash (%pointer-field sg) 4) 4))
+(defun stack-group-state (stack-group)
+  "Return the current state of STACK-GROUP."
+  (svref +stack-group-state-names+
+         (ldb (byte +stack-group-state-size+ +stack-group-state-position+)
+              (stack-group-flags stack-group))))
 
-(defun stack-group-resumer (sg)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (memref-t (ash (%pointer-field sg) 4) 11))
-
-(defun (setf stack-group-resumer) (value sg)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (check-type value (or null (satisfies stack-group-p)))
-  (setf (memref-t (ash (%pointer-field sg) 4) 11) value))
+(defun stack-group-name (stack-group)
+  "Return STACK-GROUP's name."
+  (check-type stack-group stack-group)
+  (%array-like-ref-t stack-group +stack-group-offset-name+))
 
 (defun stack-group-preset (stack-group function &rest arguments)
   (declare (dynamic-extent arguments))
@@ -95,70 +129,73 @@
   (stack-group-preset-common stack-group #x2 function arguments))
 
 (defun stack-group-preset-common (stack-group initial-flags function arguments)
-  (declare (dynamic-extent arguments))
+  (check-type stack-group stack-group)
   (check-type function function)
-  (when (eq (stack-group-state stack-group) :active)
-    (error "Cannot preset an active stack-group."))
+  (when (eq (stack-group-state stack-group) :exhausted)
+    (error "Attempting to preset a non-exhausted stack-group."))
   ;; FIXME: should be done with gc defered.
   (let* ((sg-pointer (ash (%pointer-field stack-group) 4))
-         (cs-base (memref-unsigned-byte-64 sg-pointer 5))
-	 (cs-size (memref-t sg-pointer 6))
-	 (cs-pointer (+ cs-base (* cs-size 8)))
-	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
-	 (ds-size (memref-t sg-pointer 8))
-	 (ds-pointer (+ ds-base (* ds-size 8)))
-	 (bs-base (memref-unsigned-byte-64 sg-pointer 9))
-	 (bs-size (memref-t sg-pointer 10))
+         (cs-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-base+))
+	 (cs-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-size+))
+	 (cs-pointer (+ cs-base cs-size))
+         (ds-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-base+))
+	 (ds-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-size+))
+	 (ds-pointer (+ ds-base ds-size))
+         (bs-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-base+))
+	 (bs-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-size+))
+         (bs-pointer (+ bs-base bs-size))
          (arg-count (length arguments)))
-    ;; Clear the binding stack.
-    (dotimes (i bs-size)
-      (setf (memref-t bs-base i) 0))
-    ;; Clear the TLS slots.
-    (dotimes (i (- 512 12 64))
-      (setf (memref-signed-byte-64 sg-pointer (+ 12 i)) -2))
-    ;; Initialize the FXSAVE save area.
-    (dotimes (i 64)
-      (setf (memref-unsigned-byte-64 sg-pointer (+ 448 i)) 0))
-    (setf (ldb (byte 32 0) (memref-unsigned-byte-64 sg-pointer (+ 448 3))) #x1F80)
-    ;; Copy arguments to the data stack.
-    (dolist (arg (nreverse arguments))
-      (setf (memref-t (decf ds-pointer 8) 0) arg))
-    ;; Push the function on the data stack.
-    (setf (memref-t (decf ds-pointer 8) 0) function)
-    ;; And the number of arguments.
-    (setf (memref-t (decf ds-pointer 8) 0) arg-count)
-    ;; Clear resumer.
-    (setf (stack-group-resumer stack-group) nil)
-    ;; Initialize the binding stack pointer.
-    (setf (memref-unsigned-byte-64 sg-pointer 1) (+ bs-base (* bs-size 8)))
-    ;; Push initial stuff on the control stack.
-    ;; Must match the frame %%stack-group-resume expects!
-    (setf (memref-t (decf cs-pointer 8) 0) #'%%initial-stack-group-function)
-    ;; Initial EFLAGS, interrupts enabled.
-    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) initial-flags)
-    ;; Data stack pointer.
-    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) ds-pointer)
-    ;; Data stack frame pointer.
-    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) 0)
-    ;; Control stack frame pointer.
-    (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) 0)
-    (setf (memref-unsigned-byte-64 sg-pointer 3) cs-pointer)
-    ;; Mark the SG as ready to go.
-    (setf (memref-t sg-pointer 2) (logior (logand (memref-t sg-pointer 2)
-                                                  (lognot +stack-group-state-mask+))
-                                          +stack-group-awaiting-initial-call+)))
+    (flet ((ds-push (value)
+             (setf (memref-t (decf ds-pointer 8) 0) value))
+           (cs-push (value)
+             (setf (memref-unsigned-byte-64 (decf cs-pointer 8) 0) value)))
+      ;; Clear the binding stack.
+      (dotimes (i (truncate bs-size 8))
+        (setf (memref-t bs-base i) 0))
+      ;; Clear the TLS slots.
+      (dotimes (i +stack-group-tls-slots-size+)
+        (setf (%array-like-ref-signed-byte-64 stack-group (+ +stack-group-offset-tls-slots+ i)) -2))
+      ;; Initialize the FXSAVE save area.
+      (dotimes (i 64)
+        (setf (%array-like-ref-unsigned-byte-64 stack-group (+ +stack-group-offset-fxsave-area+ i)) 0))
+      ;; Configure the MXCSR correctly. No interrupts!
+      (setf (ldb (byte 32 0)
+                 (%array-like-ref-unsigned-byte-64 stack-group
+                                                   (+ +stack-group-offset-fxsave-area+ 3)))
+            #x1F80)
+      ;; Copy arguments to the data stack.
+      (dolist (arg (reverse arguments))
+        (ds-push arg))
+      ;; Push the function on the data stack.
+      (ds-push function)
+      ;; And the number of arguments.
+      (ds-push arg-count)
+      ;; Initialize the binding stack pointer.
+      (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-pointer+) bs-pointer)
+      ;; Push initial stuff on the control stack.
+      ;; Must match the frame %%stack-group-resume expects!
+      (cs-push (lisp-object-address #'%%initial-stack-group-function))
+      ;; Initial EFLAGS.
+      (cs-push initial-flags)
+      ;; Data stack pointer.
+      (cs-push ds-pointer)
+      ;; Data stack frame pointer.
+      (cs-push 0)
+      ;; Control stack frame pointer.
+      (cs-push 0)
+      ;; Set saved CSP.
+      (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+) cs-pointer)
+      ;; Mark the SG as ready to go.
+      (setf (ldb (byte +stack-group-state-size+ +stack-group-state-position+)
+                 (%array-like-ref-t stack-group +stack-group-offset-flags+))
+            +stack-group-yielded+)))
   ;; Done!
   stack-group)
 
-(define-lap-function current-stack-group ()
-  (sys.lap-x86:mov32 :ecx #xC0000101) ; IA32_GS_BASE
-  (sys.lap-x86:rdmsr)
-  (sys.lap-x86:shl64 :rdx 32)
-  (sys.lap-x86:or64 :rax :rdx)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
-  (sys.lap-x86:ret))
+(defconstant +msr-ia32-gs-base+ #xC0000101)
+
+(defun current-stack-group ()
+  (%%assemble-value (msr +msr-ia32-gs-base+) 0))
 
 (define-lap-function %%initial-stack-group-function ()
   ;; Initialize the FPU.
@@ -168,6 +205,7 @@
   (sys.lap-x86:mov64 :rcx (:lsp))
   (sys.lap-x86:mov64 :r13 (:lsp 8))
   (sys.lap-x86:add64 :lsp 16)
+  ;; Pop arguments into registers.
   (sys.lap-x86:test64 :rcx :rcx)
   (sys.lap-x86:jz do-call)
   ;; One+ arguments.
@@ -197,18 +235,17 @@
   do-call
   (sys.lap-x86:call :r13)
   (sys.lap-x86:mov64 :lsp :rbx)
-  ;; Mark the current stack group as exhausted and return to the invoking SG.
-  ;; The current stack group is already marked as active, so no need to clear
-  ;; the state bits.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:or64 ((- (* 2 8) #b0111)) #b0100000)
-  ;; Call stack-group-return.
-  (sys.lap-x86:mov64 :r13 (:constant stack-group-return))
-  (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  ;; Function has returned.
+  (sys.lap-x86:mov64 :r13 (:constant %stack-group-exhausted))
+  (sys.lap-x86:mov32 :ecx 0) ; fixnum 0
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:ud2))
 
-(define-lap-function %%stack-group-resume ()
+(defun %stack-group-exhausted ()
+  "Called when the stack group's function returns."
+  (error "Stack group exhausted."))
+
+(define-lap-function %%switch-to-stack-group ()
   ;; Save the current state.
   (sys.lap-x86:pushf)
   (sys.lap-x86:cli)
@@ -216,52 +253,55 @@
   (sys.lap-x86:push :lfp)
   (sys.lap-x86:push :cfp)
   (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (#.(- 4096 512 +tag-array-like+)))
-  ;; Mark this stack group as :resumable.
-  ;; FIXME: This probably shouldn't change the stack-group state.
-  ;; %%i-s-g-f has to change it to exhausted, but this overwrites it.
+  (sys.lap-x86:fxsave (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-fxsave-area+) 8))))
+  ;; Mark this stack group as :yielded.
   (sys.lap-x86:gs)
-  (sys.lap-x86:and64 ((- (* 2 8) #b0111)) -121) ; (lognot #b1111000)
+  (sys.lap-x86:and64 (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-flags+) 8)))
+                     #.(ash (1- (ash 1 +stack-group-state-size+))
+                            (+ +stack-group-state-position+ 3)))
   (sys.lap-x86:gs)
-  (sys.lap-x86:or64 ((- (* 2 8) #b0111)) #b0001000)
+  (sys.lap-x86:or64 (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-flags+) 8)))
+                    #.(ash +stack-group-yielded+ (+ +stack-group-state-position+ 3)))
   ;; Save CSP to the current stack group.
   (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 ((- (* 3 8) #b0111)) :csp)
+  (sys.lap-x86:mov64 (#.(+ (- +tag-array-like+)
+                           (* (1+ +stack-group-offset-control-stack-pointer+) 8)))
+                     :csp)
   ;; Switch to the new stack group.
-  (sys.lap-x86:mov64 :csp (:r8 (- (* 3 8) #b0111)))
-  (sys.lap-x86:mov32 :ecx #xC0000101) ; IA32_GS_BASE
+  (sys.lap-x86:mov64 :csp (#.(+ (- +tag-array-like+)
+                                (* (1+ +stack-group-offset-control-stack-pointer+) 8))
+                           :r8))
+  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:mov64 :rdx :r8)
   (sys.lap-x86:shr64 :rdx 32)
   (sys.lap-x86:wrmsr)
   ;; Mark this stack group as :active.
   (sys.lap-x86:gs)
-  (sys.lap-x86:and64 ((- (* 2 8) #b0111)) -121) ; (lognot #b1111000)
+  (sys.lap-x86:and64 (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-flags+) 8)))
+                     #.(ash (1- (ash 1 +stack-group-state-size+))
+                            (+ +stack-group-state-position+ 3)))
   ;; Restore state.
   (sys.lap-x86:gs)
-  (sys.lap-x86:fxrstor (#.(- 4096 512 +tag-array-like+)))
+  (sys.lap-x86:fxrstor (#.(+ (- +tag-array-like+)
+                             (* (1+ +stack-group-offset-fxsave-area+) 8))))
   (sys.lap-x86:pop :cfp)
   (sys.lap-x86:pop :lfp)
   (sys.lap-x86:pop :lsp)
   (sys.lap-x86:popf)
   (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:mov64 :r8 :r9)
-  (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:mov32 :ecx 0) ; fixnum 0
   (sys.lap-x86:ret))
 
-(defun stack-group-resume (sg &optional value)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (%%stack-group-resume sg value))
-
-(defun stack-group-return (&optional value)
-  "Return to the invoking stack group."
-  (let ((resumer (stack-group-resumer (current-stack-group))))
-    (unless resumer
-      (error "No invoking stack group!"))
-    (stack-group-resume resumer value)))
-
-;;; TODO: Enforce SAFE.
-(defun stack-group-invoke (sg &optional value)
-  (check-type sg (satisfies stack-group-p) "a stack-group")
-  (setf (stack-group-resumer sg) (current-stack-group))
-  (%%stack-group-resume sg value))
+;;; ### Need to lock the sg.
+(defun switch-to-stack-group (stack-group)
+  (check-type stack-group stack-group)
+  (ecase (stack-group-state stack-group)
+    (:active (error "Stack group ~S is already active." stack-group))
+    (:exhausted (error "Stack group ~S is exhausted." stack-group))
+    ((:yielded :interrupted)
+     (%%switch-to-stack-group stack-group))))
