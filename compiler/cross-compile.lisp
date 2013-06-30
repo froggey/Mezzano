@@ -577,6 +577,7 @@
     "system/data-types.lisp"
     "system/gc.lisp"
     "process.lisp"
+    "system/stack-group.lisp"
     "system/interrupt.lisp"
     "cold-start.lisp"
 )

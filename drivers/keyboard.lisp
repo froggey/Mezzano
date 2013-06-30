@@ -24,7 +24,8 @@
       (1 ; looking for #x01 (escape)
        (setf (car break-state) 0)
        (when (eql data #x01)
-         (signal-break-from-interrupt)))))
+         (signal-break-from-interrupt
+          *isa-pic-interrupted-stack-group*)))))
   (setf x (1+ (ps/2-fifo-tail fifo)))
   (when (>= x (length (ps/2-fifo-buffer fifo)))
     (setf x 0))

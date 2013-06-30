@@ -857,7 +857,10 @@
         / nil
         +++ nil
         ++ nil
-        + nil)
+        + nil
+        *default-control-stack-size* 8192
+        *default-data-stack-size* 8192
+        *default-binding-stack-size* 512)
   (setf *print-base* 10.
         *print-escape* t
         *print-readably* nil

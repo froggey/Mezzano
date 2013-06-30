@@ -150,7 +150,13 @@ Fix the xcompiler package problems. (done?)
 EQL specializers (done!)
 classes for structs (done!)
 escaping blocks (sigh.) (done!)
-processes as structs, not classes
+processes as structs, not classes (done!)
 preemtive multitasking (aiee)
-hw interrupts switch to another stack group
+hw interrupts switch to another stack group (done!)
 smp (double aiee)
+
+
+Dump the binding stack, replace it with a dx list.
+  (stack-group-bindings foo) => '((*some-special* . #\snowman) ; binding
+                                  (#<function 123> . #(env-object)) ; unwind-protect
+                                  (#(env-object) . 456)) ; tagbody/block

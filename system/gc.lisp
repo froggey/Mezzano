@@ -184,12 +184,12 @@
 ;;; stack-group object is done by scan-stack-group, assuming the
 ;;; current stack-group is actually reachable.
 (defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
-  (let* ((sg-pointer (ash (%pointer-field (current-stack-group)) 4))
-	 (ds-base (memref-unsigned-byte-64 sg-pointer 7))
-	 (ds-size (memref-unsigned-byte-64 sg-pointer 8))
-	 (bs-base (memref-unsigned-byte-64 sg-pointer 9))
-	 (bs-size (memref-unsigned-byte-64 sg-pointer 10))
-         (binding-stack-pointer (memref-unsigned-byte-64 sg-pointer 1))
+  (let* ((stack-group (current-stack-group))
+         (ds-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-base+))
+	 (ds-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-size+))
+         (bs-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-base+))
+	 (bs-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-size+))
+         (binding-stack-pointer (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-pointer+))
          (data-stack-pointer (ash (%%get-data-stack-pointer) 3)))
     (mumble "Scav control stack")
     (do ((fp (read-frame-pointer)
@@ -205,7 +205,7 @@
   (values a1 a2 a3 a4 a5))
 
 (defun scavenge-object (object)
-  "Scavange one object, returning an updated pointer."
+  "Scavenge one object, returning an updated pointer."
   (when (immediatep object)
     ;; Don't care about immediate objects, return them unchanged.
     (return-from scavenge-object object))
@@ -241,16 +241,19 @@
 
 (defun scan-stack-group (object)
   (let ((address (ash (%pointer-field object) 4)))
-    (scavenge-many address (- 512 64)) ; skip the fxsave area at the end.
+    ;; Jump over the array-like header word and skip the fxsave area at the end.
+    (scavenge-many (+ address 8)
+                   (- +stack-group-size+
+                      +stack-group-fxsave-area-size+))
     ;; Scan the data/binding stacks only when the sg is not active.
-    (when (not (eql (logand (memref-t address 2) +stack-group-state-mask+) +stack-group-active+))
+    (when (not (stack-group-active-p object))
       ;; FIXME: Need to scan the saved RIP, or at least the function associated with it.
-      (let* ((ds-base (memref-unsigned-byte-64 address 7))
-             (ds-size (memref-unsigned-byte-64 address 8))
-             (bs-base (memref-unsigned-byte-64 address 9))
-             (bs-size (memref-unsigned-byte-64 address 10))
-             (binding-stack-pointer (memref-unsigned-byte-64 address 1))
-             (control-stack-pointer (memref-unsigned-byte-64 address 3))
+      (let* ((ds-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-data-stack-base+))
+             (ds-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-data-stack-size+))
+             (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
+             (bs-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-size+))
+             (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
+             (control-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-control-stack-pointer+))
              (data-stack-pointer (memref-unsigned-byte-64 control-stack-pointer 2)))
         (do ((fp (memref-unsigned-byte-64 control-stack-pointer 0)
                  (memref-unsigned-byte-64 fp 0)))
@@ -423,48 +426,51 @@ Leaves pointer fields unchanged and returns the new object."
               (return))
             (incf offset (+ size 2))))))
 
+(defun gc-cycle ()
+  (let ((old-offset *newspace-offset*))
+    (set-gc-light)
+    (mumble "GC in progress...")
+    ;; Allow access to the soon-to-be-newspace.
+    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
+    ;; Clear per-cycle meters
+    (setf *objects-copied* 0
+          *words-copied* 0)
+    ;; Flip.
+    (psetf *oldspace* *newspace*
+           *newspace* *oldspace*
+           *oldspace-paging-bits* *newspace-paging-bits*
+           *newspace-paging-bits* *oldspace-paging-bits*
+           *newspace-offset* 0
+           *static-mark-bit* (logxor *static-mark-bit* 1))
+    ;; Scavenge NIL to start things off.
+    (scavenge-object 'nil)
+    ;; And scavenge the current registers and stacks.
+    (scavenge-current-stack-group 1 2 3 4 5)
+    ;; Now do the bulk of the work by scavenging newspace.
+    (scavenge-newspace)
+    ;; Make oldspace inaccessible.
+    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
+    ;; Flush TLB.
+    (setf (%cr3) (%cr3))
+    ;; Sweep static space.
+    (sweep-static-space *small-static-area*)
+    (setf *small-static-area-hint* 0)
+    (sweep-static-space *large-static-area*)
+    (setf *large-static-area-hint* 0)
+    (mumble "complete")
+    (clear-gc-light)))
+
 (defun gc-task ()
   (loop
-     (let ((old-offset *newspace-offset*))
-       (set-gc-light)
-       (mumble "GC in progress...")
-       ;; Allow access to the soon-to-be-newspace.
-       (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
-       ;; Clear per-cycle meters
-       (setf *objects-copied* 0
-             *words-copied* 0)
-       ;; Flip.
-       (psetf *oldspace* *newspace*
-              *newspace* *oldspace*
-              *oldspace-paging-bits* *newspace-paging-bits*
-              *newspace-paging-bits* *oldspace-paging-bits*
-              *newspace-offset* 0
-              *static-mark-bit* (logxor *static-mark-bit* 1))
-       ;; Scavenge NIL to start things off.
-       (scavenge-object 'nil)
-       ;; And scavenge the current registers and stacks.
-       (scavenge-current-stack-group 1 2 3 4 5)
-       ;; Now do the bulk of the work by scavenging newspace.
-       (scavenge-newspace)
-       ;; Make oldspace inaccessible.
-       (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
-       ;; Flush TLB.
-       (setf (%cr3) (%cr3))
-       ;; Sweep static space.
-       (sweep-static-space *small-static-area*)
-       (setf *small-static-area-hint* 0)
-       (sweep-static-space *large-static-area*)
-       (setf *large-static-area-hint* 0)
-       (mumble "complete")
-       (clear-gc-light)
-       (stack-group-return t))))
+     (gc-cycle)
+     (switch-to-stack-group *gc-in-progress*)))
 
 (defun %gc ()
   (when *gc-in-progress*
     (error "Nested GC?!"))
   (unwind-protect
-       (progn (setf *gc-in-progress* t)
-              (stack-group-invoke *gc-stack-group*))
+       (progn (setf *gc-in-progress* (current-stack-group))
+              (switch-to-stack-group *gc-stack-group*))
     (setf *gc-in-progress* nil)))
 
 ;;; This is the fundamental dynamic allocation function.

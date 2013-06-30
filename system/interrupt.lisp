@@ -21,6 +21,10 @@
 (defvar *isa-pic-stack-groups* (make-array 16 :initial-element nil :area :static))
 (defvar *isa-pic-base-handlers* (make-array 16 :initial-element nil))
 
+(defvar *isa-pic-interrupted-stack-group*)
+;; Ensure it has a TLS slot.
+(%allocate-tls-slot '*isa-pic-interrupted-stack-group*)
+
 ;;; RBP, RAX, RCX pushed on stack.
 ;;; RCX = IRQ number as fixnum.
 (define-lap-function %%isa-pic-common ()
@@ -47,14 +51,24 @@
   (sys.lap-x86:mov64 :r8 (:constant *isa-pic-stack-groups*))
   (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
   (sys.lap-x86:mov64 :r8 (:r8 :rcx #.(+ 8 (- +tag-array-like+))))
-  ;; Set the stack-group resumer field.
-  (sys.lap-x86:mov32 :ecx #xC0000101) ; IA32_GS_BASE
+  ;; Bind the current stack group to *ISA-PIC-INTERRUPTED-STACK-GROUP*.
+  (sys.lap-x86:mov64 :r9 (:constant *isa-pic-interrupted-stack-group*))
+  (sys.lap-x86:mov32 :edi (:symbol-flags :r9))
+  (sys.lap-x86:shr32 :edi #.sys.c::+tls-offset-shift+)
+  (sys.lap-x86:and32 :edi #xFFFF)
+  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
   (sys.lap-x86:rdmsr)
   (sys.lap-x86:shl64 :rdx 32)
   (sys.lap-x86:or64 :rax :rdx)
-  (sys.lap-x86:mov64 (:r8 #.(+ (* 11 8) (- +tag-array-like+))) :rax)
+  (sys.lap-x86:mov64 (:r8 (:rdi 8) #.sys.c::+tls-base-offset+) :rax)
+  ;; ### lock stack groups.
+  ;; Mark the current stack group as interrupted.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:or64 (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-flags+) 8)))
+                    #.(ash +stack-group-interrupted+ (+ +stack-group-state-position+ 3)))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant %%stack-group-resume))
+  (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :r8 (:lsp 0))
   (sys.lap-x86:mov64 :r9 (:lsp 8))
@@ -76,7 +90,6 @@
   (sys.lap-x86:pop :rdx)
   (sys.lap-x86:pop :rcx)
   (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rbp)
   (sys.lap-x86:iret))
 
 (defun isa-pic-common (irq)
@@ -87,7 +100,7 @@
      (setf (io-port/8 #x20) #x20)
      (when (>= irq 8)
        (setf (io-port/8 #xA0) #x20))
-     (stack-group-return)))
+     (switch-to-stack-group *isa-pic-interrupted-stack-group*)))
 
 (macrolet ((doit ()
              (let ((forms '(progn)))
@@ -98,8 +111,6 @@
              (let ((sym (intern (format nil "%%IRQ~D-thunk" n))))
                `(progn
                   (define-lap-function ,sym ()
-                    (sys.lap-x86:push :rbp)
-                    (sys.lap-x86:mov64 :rbp :rsp)
                     (sys.lap-x86:push :rax)
                     (sys.lap-x86:push :rcx)
                     (sys.lap-x86:mov32 :ecx ,(* n 8))
@@ -311,9 +322,6 @@
   ;; Save the old CSP and CFP.
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push :cfp)
-  ;; Skip one control frame. The debugger can't handle frames created
-  ;; by interrupt handlers.
-  (sys.lap-x86:mov64 :cfp (:cfp))
   ;; Call break.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r13 (:constant break))
@@ -326,19 +334,19 @@
   ;; All done.
   (sys.lap-x86:ret))
 
-(defun signal-break-from-interrupt ()
+(defun signal-break-from-interrupt (stack-group)
   "Configure the resumer stack group so it will call BREAK when resumed."
-  (let* ((target (stack-group-resumer (current-stack-group)))
-         (sg-pointer (ash (%pointer-field target) 4))
-         (state (memref-t sg-pointer 2))
-         (csp (memref-unsigned-byte-64 sg-pointer 3))
+  (let* ((target stack-group)
+         (csp (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+))
          (original-csp csp))
-    (when (not (logtest state +stack-group-uninterruptable+))
+    (when (and (stack-group-interruptable-p target)
+               ;; Only works with an interrupted stack layout. :(
+               (eql (stack-group-state target) :interrupted))
       ;; TARGET's control stack looks like:
       ;;  +0 CFP
       ;;  +8 LFP
       ;; +16 LSP
-      ;; +24 RFlags
+      ;; +24 RFlags (with IF cleared due to the interrupt)
       ;; +32 RIP
       ;; 16 byte alignment not guaranteed.
       ;; Rewrite it so it looks like:
@@ -348,11 +356,11 @@
       ;; +24 RFlags (with IF set)
       ;; +32 break-thunk
       ;; +40 RIP
-      ;; and is aligned.
+      ;; break-thunk will align the stack before invoking BREAK.
       (decf csp 8)
       (setf (memref-unsigned-byte-64 csp 0) (memref-unsigned-byte-64 original-csp 0)) ; CFP
       (setf (memref-unsigned-byte-64 csp 1) (memref-unsigned-byte-64 original-csp 1)) ; LFP
       (setf (memref-unsigned-byte-64 csp 2) (memref-unsigned-byte-64 original-csp 2)) ; LSP
       (setf (memref-unsigned-byte-64 csp 3) (logior (memref-unsigned-byte-64 original-csp 3) #x200)) ; RFlags
       (setf (memref-t csp 4) #'%%interrupt-break-thunk) ; thunk
-      (setf (memref-unsigned-byte-64 sg-pointer 3) csp))))
+      (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+) csp))))
