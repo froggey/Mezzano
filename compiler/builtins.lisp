@@ -679,7 +679,7 @@
   (emit `(sys.lap-x86:mov64 :rcx :r10))
   (load-in-r8 new-value t)
   ;; Write. Offset is prescaled.
-  (emit `(sys.lap-x86:mov64 (:r8 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) :r8))
+  (emit `(sys.lap-x86:mov64 (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) :r8))
   *r8-value*)
 
 (defbuiltin sys.int::%simple-array-p (object) ()
