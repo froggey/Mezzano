@@ -105,14 +105,7 @@
   (when (and (symbolp invoked-through)
              (get invoked-through 'setf-symbol-backlink))
     (setf invoked-through `(setf ,(get invoked-through 'setf-symbol-backlink))))
-  ;; Allow restarting.
-  (restart-case (error 'undefined-function :name invoked-through)
-    (use-value (v)
-      :interactive (lambda ()
-                     (format t "Enter a new value (evaluated): ")
-                     (list (eval (read))))
-      :report (lambda (s) (format s "Input a value to be used in place of ~S." `(fdefinition ',invoked-through)))
-      (apply v args))))
+  (error 'undefined-function :name invoked-through))
 
 (defun raise-undefined-function-via-%symbol-function (invoked-through)
   ;; Convert setf-symbols back to (setf foo).
