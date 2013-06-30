@@ -1004,7 +1004,10 @@
         (initial-pml4)
         (data-pml3)
         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
-        (system-symbol-names (with-open-file (s "system-symbols.lisp-expr") (read s))))
+        (system-symbol-names (remove-duplicates
+                              (iter (for sym in-package :system external-only t)
+                                    (collect (symbol-name sym)))
+                              :test #'string=)))
     (create-support-objects)
     (setf multiboot (allocate 5 :static)
           initial-stack (allocate 8 :static)

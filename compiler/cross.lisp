@@ -67,13 +67,18 @@
 (in-package :system.compiler)
 
 (defpackage :system
-  (:export :lambda-name
+  (:export :dotted-list-length
+           :parse-ordinary-lambda-list
+           :lambda-name
+           :proclaimed-special-p
+           :symbol-macro-function
+           :variable-information
+           :symbol-mode
            :io-port/8
            :io-port/16
            :io-port/32
-           :fixnump
            :char-bits
-           :symbol-mode))
+           :fixnump))
 
 (declaim (declaration system:lambda-name))
 
