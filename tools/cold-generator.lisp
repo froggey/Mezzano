@@ -1076,8 +1076,11 @@
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
-    (generate-string-array cl-symbol-names 'sys.int::*cl-symbols*)
-    (generate-string-array system-symbol-names 'sys.int::*system-symbols*)
+    ;; Poke all the CL & SYSTEM symbols
+    (dolist (name cl-symbol-names)
+      (symbol-address name "COMMON-LISP"))
+    (dolist (name system-symbol-names)
+      (symbol-address name "SYSTEM"))
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-setf-obarray *setf-table* 'sys.int::*initial-setf-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
