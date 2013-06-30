@@ -285,7 +285,9 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
              ;; FIXME: should reset the card.
              (setf (rtl8139-reg/16 card +rtl8139-capr+) #xFFF0)
              (return))
-           (let ((packet (make-array length :element-type '(unsigned-byte 8))))
+           (let ((packet (make-array length
+                                     :element-type '(unsigned-byte 8)
+                                     :area :static)))
              (cond ((>= (+ rx-offset 4 length) (- +rtl8139-rx-buffer-size+ 16))
                     ;; Packet wraps, fall back on the slow code.
                     (do ((i 0 (1+ i))

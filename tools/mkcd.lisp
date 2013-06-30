@@ -50,7 +50,7 @@
                                          :direction :output
                                          :if-does-not-exist :create)
                         (format s "default 0~%")
-                        (format s "timeout 0~%")
+                        (format s "timeout 1~%")
                         (format s "title LispOS - ~A~%" image-name)
                         (format s "kernel /~A~%" (pathname-file-part kernel))
                         (dolist (f modules)

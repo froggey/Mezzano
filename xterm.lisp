@@ -41,7 +41,7 @@
    (utf-8-accumulator :initform nil :accessor utf-8-accumulator)
 
    (autowrap :initarg :autowrap :accessor autowrap) ; DECAWM (7)
-)
+   )
   (:default-initargs
    :interrupt-character nil
    :queued-bytes '()

@@ -125,7 +125,6 @@ Requires at least one completely unbound slot to terminate."
         (unbound-marker *hash-table-unbound-value*)
         (tombstone *hash-table-tombstone*)
 	;; This hash implementation is inspired by the Python dict implementation.
-	;; FIXME: Check if this really does hit all the entries in the table.
 	(slot (logand hash #xffffffff) (logand #xffffffff (+ (* slot 5) perturb 1)))
 	(perturb hash (ash perturb -5)))
        (nil)
