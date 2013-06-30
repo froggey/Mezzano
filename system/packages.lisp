@@ -282,13 +282,13 @@
           (pushnew sym symbols))))
     symbols))
 
-;;; This is the INTERN function, different name so it doesn't conflict with cold-intern.
-(defun package-intern (name &optional (package *package*))
+(defun intern (name &optional (package *package*))
+  (assert *package-list* () "Package system not initialized?")
   (let ((p (find-package-or-die package)))
     (multiple-value-bind (symbol status)
         (find-symbol name p)
       (when status
-        (return-from package-intern (values symbol status))))
+        (return-from intern (values symbol status))))
     (let ((symbol (make-symbol name)))
       (import (list symbol) p)
       (when (eql p *keyword-package*)
@@ -480,5 +480,4 @@
           (import-one-symbol sym package)
           (when (member package-keyword '(:common-lisp :keyword :system))
             (export-one-symbol sym package))))))
-  (setf (symbol-function 'intern) #'package-intern)
   (values))
