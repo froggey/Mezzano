@@ -798,8 +798,9 @@
   (with-open-file (s (format nil "~A.map" image-name)
                      :direction :output
                      :if-exists :supersede)
-    (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
-          (format s "~X ~A~%" (make-value addr sys.int::+tag-function+) name))))
+    (let ((*print-right-margin* 10000))
+      (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
+            (format s "~X ~A~%" (make-value addr sys.int::+tag-function+) name)))))
 
 ;; Ugh.
 (defun load-compiler-builtins ()
