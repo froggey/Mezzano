@@ -89,11 +89,7 @@
            :funcallable-std-instance-function
            :funcallable-std-instance-class
            :funcallable-std-instance-slots
-           :class-precedence-list
            :funcallable-standard-object))
 
 (defpackage :system.closette
-  (:nicknames :sys.clos)
-  (:import-from :sys.int
-                :class-precedence-list
-                :funcallable-standard-object))
+  (:nicknames :sys.clos))
