@@ -257,7 +257,7 @@
 
 (define-setf-expander mask-field (bytespec integer &environment env)
   (multiple-value-bind (temps vals stores store-form access-form)
-      (get-setf-expansion int env);Get setf expansion for int.
+      (get-setf-expansion integer env);Get setf expansion for int.
     (let ((btemp (gensym))     ;Temp var for byte specifier.
           (store (gensym))     ;Temp var for byte to store.
           (stemp (first stores)) ;Temp var for int to store.
