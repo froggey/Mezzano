@@ -53,6 +53,21 @@
       (incf offset))
     (values request (nreverse path) get-parameters (subseq line offset))))
 
+(defun convert-newlines (string)
+  (let ((doing-indentation t))
+    (dotimes (i (length string))
+      (case (char string i)
+        (#\Newline
+         (setf doing-indentation t)
+         (write-string "<BR>")
+         (terpri))
+        (#\Space
+         (if doing-indentation
+             (write-string "&nbsp;")
+             (write-char #\Space)))
+        (t (setf doing-indentation nil)
+           (write-char (char string i)))))))
+
 (defun demo-file (stream)
   (let ((*standard-output* stream))
     (format t "HTTP/1.0 200 OK~%")
@@ -61,7 +76,9 @@
     (format t "\"http://www.w3.org/TR/html4/loose.dtd\">~%")
     (format t "<HTML><HEAD><TITLE>(LISP OS)</TITLE></HEAD>~%")
     (format t "<BODY><H1>Hello, World!</H1><BR>~%")
-    (room)
+    (convert-newlines
+     (with-output-to-string (*standard-output*)
+       (room)))
     (format t "<BR>~%")
     (format t "<BR>~%Running on ~A ~S<BR>~%"
             (lisp-implementation-type)
