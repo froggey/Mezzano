@@ -974,10 +974,12 @@
     ((vector t)
      (save-simple-vector object area))))
 
-(defun save-unifont-data (path area)
-  (let ((unifont-data (with-open-file (s path)
-                        (build-unicode:generate-unifont-table s))))
-    (save-object unifont-data area)))
+(defun save-unifont-data (path)
+  (multiple-value-bind (tree data)
+      (with-open-file (s path)
+        (build-unicode:generate-unifont-table s))
+    (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-object tree :static))
+    (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :static))))
 
 (defun make-image (image-name &key extra-source-files)
   (let ((*support-offset* 0)
@@ -1045,7 +1047,7 @@
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*additional-cold-toplevel-forms*))
     (format t "Saving Unifont...~%")
-    (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-unifont-data "tools/unifont-5.1.20080820.hex" :static))
+    (save-unifont-data "tools/unifont-5.1.20080820.hex")
     (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "tools/UnicodeData.txt"))
@@ -1068,7 +1070,7 @@
             sys.int::*oldspace-paging-bits* sys.int::*newspace-paging-bits*
             sys.int::*stack-bump-pointer*
             sys.int::*static-area* sys.int::*static-area-hint*
-            sys.int::*unifont-bmp*
+            sys.int::*unifont-bmp* sys.int::*unifont-bmp-data*
             sys.int::*unicode-info* sys.int::*unicode-name-store*
             sys.int::*unicode-encoding-table* sys.int::*unicode-name-trie*
             sys.int::*%kboot-entry* sys.int::*kboot-tag-list*

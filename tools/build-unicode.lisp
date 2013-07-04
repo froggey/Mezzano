@@ -23,9 +23,15 @@
 (defun generate-unifont-table (unifont)
   "Generate a radix tree of glyphs from a stream of unifont entries."
   (do ((unifont-table (make-array 256 :initial-element nil))
+       (unifont-data (make-array (* (expt 2 16) (* 16 16))
+                                 :element-type 'bit
+                                 :fill-pointer 0))
        (line (read-line unifont nil) (read-line unifont nil)))
       ((null line)
-       unifont-table)
+       (values unifont-table
+               (make-array (length unifont-data)
+                           :element-type 'bit
+                           :initial-contents unifont-data)))
     (with-simple-restart (continue "Skip this entry.")
       (let* ((codepoint (parse-integer line :end 4 :radix 16))
 	     (row (ldb (byte 8 8) codepoint))
@@ -34,10 +40,18 @@
 	;; Strip out non-printing glyphs, the private use area and surrogate forms.
 	(when (not (or (string= "00542A542A542A542A542A542A542A00" glyph)
 		       (<= #xD800 codepoint #xF8FF)))
-	  (let ((decoded-glyph (decode-glyph glyph)))
-	    (unless (aref unifont-table row)
-	      (setf (aref unifont-table row) (make-array 256 :initial-element nil)))
-	    (setf (aref (aref unifont-table row) cell) decoded-glyph)))))))
+          (unless (aref unifont-table row)
+            (setf (aref unifont-table row) (make-array 256 :element-type '(unsigned-byte 32) :initial-element 0)))
+	  (let ((decoded-glyph (decode-glyph glyph))
+                (current (length unifont-data))
+                (row-vec (aref unifont-table row)))
+            (dotimes (i (length decoded-glyph))
+              (vector-push (bit decoded-glyph i) unifont-data))
+	    (setf (aref row-vec cell) (logior #x80000000
+                                              (ecase (length glyph)
+                                                (32 0)
+                                                (64 #x40000000))
+                                              current))))))))
 
 (defun explode-line (line seperator)
   "Break a line of text apart into a list using SEPERATOR as
