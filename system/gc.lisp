@@ -807,3 +807,22 @@ the header word. LENGTH is the number of elements in the array."
                                               bitsize)
                           :memory address)
               (- address #x8000000000)))))
+
+(defun base-address-of-internal-pointer (address)
+  "Find the base address of the object pointed to be ADDRESS.
+Address should be an internal pointer to a live object in static space.
+No type information will be provided."
+  (flet ((search (space)
+           (let ((offset 0))
+             (with-interrupts-disabled ()
+               (loop (let ((size (memref-unsigned-byte-64 space offset))
+                           (info (memref-unsigned-byte-64 space (+ offset 1))))
+                       (when (and (<= (+ space (* (+ offset 2) 8)) address)
+                                  (< address (+ space (* (+ offset size 2) 8))))
+                         (return-from base-address-of-internal-pointer
+                           (values (+ space (* (+ offset 2) 8)) t)))
+                       (when (logbitp +static-header-end-bit+ info)
+                         (return))
+                       (incf offset (+ size 2))))))))
+    (search *large-static-area*)
+    (search *small-static-area*)))

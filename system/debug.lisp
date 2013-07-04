@@ -9,7 +9,7 @@
 (defvar *current-debug-frame* nil)
 
 (defun function-from-frame (frame)
-  (memref-t (second frame) -2))
+  (%frame-function (second frame)))
 
 (defun read-frame-slot (frame slot)
   (memref-t (memref-unsigned-byte-64 (third frame) -1) (- (1+ slot))))

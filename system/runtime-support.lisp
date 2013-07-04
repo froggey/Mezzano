@@ -326,8 +326,8 @@
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
-    (values (ldb (byte 16 48) info)
-            (memref-unsigned-byte-32 address 2))))
+    (values (ldb (byte 16 48) info) ; length
+            (memref-unsigned-byte-32 address 2)))) ; offset
 
 (defun function-gc-info-entry (function entry-number)
   (check-type function function)

@@ -179,6 +179,79 @@
 #+nil(add-hook '*early-initialize-hook* 'init-isa-pic)
 (init-isa-pic)
 
+(defvar *debug-trap-stack-group* nil
+  "Switch to this stack group on a #DB or #BP. Will enter LDB if NIL.")
+
+(define-lap-function %%db/bp-exception ()
+  ;; Save the current state (interrupted stack group frame).
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rcx)
+  (sys.lap-x86:push :rdx)
+  (sys.lap-x86:push :rsi)
+  (sys.lap-x86:push :rdi)
+  (sys.lap-x86:mov64 (:lsp -8) nil)
+  (sys.lap-x86:mov64 (:lsp -16) nil)
+  (sys.lap-x86:mov64 (:lsp -24) nil)
+  (sys.lap-x86:mov64 (:lsp -32) nil)
+  (sys.lap-x86:mov64 (:lsp -40) nil)
+  (sys.lap-x86:mov64 (:lsp -48) nil)
+  (sys.lap-x86:mov64 (:lsp -56) nil)
+  (sys.lap-x86:sub64 :lsp 56)
+  (sys.lap-x86:mov64 (:lsp 0) :r8)
+  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:mov64 (:lsp 16) :r10)
+  (sys.lap-x86:mov64 (:lsp 24) :r11)
+  (sys.lap-x86:mov64 (:lsp 32) :r12)
+  (sys.lap-x86:mov64 (:lsp 40) :r13)
+  (sys.lap-x86:mov64 (:lsp 48) :rbx)
+  ;; Load the target stack-group.
+  (sys.lap-x86:mov64 :r8 (:constant *debug-trap-stack-group*))
+  (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
+  (sys.lap-x86:cmp64 :r8 nil)
+  (sys.lap-x86:jmp no-debug-trap-handler)
+  ;; ### lock stack groups.
+  ;; Mark the current stack group as interrupted.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:or64 (#.(+ (- +tag-array-like+)
+                            (* (1+ +stack-group-offset-flags+) 8)))
+                    #.(ash +stack-group-interrupted+ (+ +stack-group-state-position+ 3)))
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov64 :lsp :rbx)
+  ;; Restore state.
+  (sys.lap-x86:mov64 :r8 (:lsp 0))
+  (sys.lap-x86:mov64 :r9 (:lsp 8))
+  (sys.lap-x86:mov64 :r10 (:lsp 16))
+  (sys.lap-x86:mov64 :r11 (:lsp 24))
+  (sys.lap-x86:mov64 :r12 (:lsp 32))
+  (sys.lap-x86:mov64 :r13 (:lsp 40))
+  (sys.lap-x86:mov64 :rbx (:lsp 48))
+  (sys.lap-x86:add64 :lsp 56)
+  (sys.lap-x86:mov64 (:lsp -8) nil)
+  (sys.lap-x86:mov64 (:lsp -16) nil)
+  (sys.lap-x86:mov64 (:lsp -24) nil)
+  (sys.lap-x86:mov64 (:lsp -32) nil)
+  (sys.lap-x86:mov64 (:lsp -40) nil)
+  (sys.lap-x86:mov64 (:lsp -48) nil)
+  (sys.lap-x86:mov64 (:lsp -56) nil)
+  (sys.lap-x86:pop :rdi)
+  (sys.lap-x86:pop :rsi)
+  (sys.lap-x86:pop :rdx)
+  (sys.lap-x86:pop :rcx)
+  (sys.lap-x86:pop :rax)
+  (sys.lap-x86:iret)
+  no-debug-trap-handler
+  (sys.lap-x86:mov64 :r8 :rsp)
+  (sys.lap-x86:shl64 :r8 3)
+  (sys.lap-x86:test64 :rsp #b1000)
+  (sys.lap-x86:jz already-aligned)
+  (sys.lap-x86:push 0)
+  already-aligned
+  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
+  (sys.lap-x86:call (:symbol-function :r13)))
+
 (defun ldb-exception (stack-frame)
   (mumble-string "In LDB.")
   (dotimes (i 32)
@@ -289,6 +362,8 @@
                   (setf (aref *exception-base-handlers* ,n) #',sym)
                   (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
   (doit))
+(set-idt-entry 1 :offset (lisp-object-address #'%%db/bp-exception))
+(set-idt-entry 3 :offset (lisp-object-address #'%%db/bp-exception))
 
 (defmacro define-interrupt-handler (name lambda-list &body body)
   `(progn (setf (get ',name 'interrupt-handler)
@@ -342,6 +417,7 @@
     (when (and (stack-group-interruptable-p target)
                ;; Only works with an interrupted stack layout. :(
                (eql (stack-group-state target) :interrupted))
+      (normalize-stack-group stack-group)
       ;; TARGET's control stack looks like:
       ;;  +0 CFP
       ;;  +8 LFP
