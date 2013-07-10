@@ -98,22 +98,11 @@
         (format t "~A is out of date will be recompiled.~%" llf-path)
         (sys.c::cross-compile-file file)))))
 
+;; FIXME! Save args.
 (defparameter *undefined-function-thunk*
-  `((sys.lap-x86:cmp64 :rcx ,(* 5 8))
-    (sys.lap-x86:jl register-args-only)
-    ;; Have to spill R12 on the stack.
-    (sys.lap-x86:mov64 (:lsp -8) nil)
-    (sys.lap-x86:sub64 :lsp 8)
-    (sys.lap-x86:mov64 (:lsp) :r12)
-    register-args-only
-    ;; Shuffle registers up.
-    (sys.lap-x86:mov64 :r12 :r11)
-    (sys.lap-x86:mov64 :r11 :r10)
-    (sys.lap-x86:mov64 :r10 :r9)
-    (sys.lap-x86:mov64 :r9 :r8)
-    ;; Pass invoked-through as the first argument.
+  `(;; Pass invoked-through as the first argument.
     (sys.lap-x86:mov64 :r8 :r13)
-    (sys.lap-x86:add64 :rcx ,(* 1 8))
+    (sys.lap-x86:mov32 :ecx ,(* 1 8))
     ;; Tail call through to RAISE-UNDEFINED-FUNCTION and let that
     ;; handle the heavy work.
     (sys.lap-x86:mov64 :r13 (:constant sys.int::raise-undefined-function))
@@ -182,11 +171,9 @@
     (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
     (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) sys.int::+tag-array-like+)))
     (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
     ;; Clear binding stack.
-    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 9 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 10 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
     (sys.lap-x86:sar64 :rcx 3)
     (sys.lap-x86:xor32 :eax :eax)
     (sys.lap-x86:rep)
@@ -207,9 +194,8 @@
     (sys.lap-x86:sar64 :rdx 32)
     (sys.lap-x86:mov64 :rcx #xC0000101)
     (sys.lap-x86:wrmsr)
-    ;; Clear frame pointers.
+    ;; Clear frame pointer.
     (sys.lap-x86:mov64 :cfp 0)
-    (sys.lap-x86:mov64 :lfp 0)
     ;; Clear data registers.
     (sys.lap-x86:xor32 :r8d :r8d)
     (sys.lap-x86:xor32 :r9d :r9d)
@@ -275,12 +261,10 @@
     (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
     (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) sys.int::+tag-array-like+)))
     (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :lsp (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:add64 :lsp (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
     ;; !!! Stacks are valid again.
     ;; Clear binding stack.
-    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 9 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 10 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
     (sys.lap-x86:sar64 :rcx 3)
     (sys.lap-x86:xor32 :eax :eax)
     (sys.lap-x86:rep)
@@ -318,7 +302,6 @@
     (sys.lap-x86:fninit)
     ;; Clear frame pointers.
     (sys.lap-x86:mov64 :cfp 0)
-    (sys.lap-x86:mov64 :lfp 0)
     ;; Clear data registers.
     (sys.lap-x86:xor32 :r8d :r8d)
     (sys.lap-x86:xor32 :r9d :r9d)
@@ -744,10 +727,8 @@
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
-         (control-stack-size 8192)
+         (control-stack-size 16384)
          (control-stack (allocate-stack control-stack-size :control))
-         (data-stack-size 8192)
-         (data-stack (allocate-stack data-stack-size :data))
          (binding-stack-size 1024)
          (binding-stack (allocate-stack binding-stack-size :binding)))
     ;; Array tag.
@@ -764,19 +745,13 @@
     (setf (word (+ address 5)) (make-fixnum control-stack))
     ;; Control stack size.
     (setf (word (+ address 6)) (make-fixnum control-stack-size))
-    ;; Data stack base.
-    (setf (word (+ address 7)) (make-fixnum data-stack))
-    ;; Data stack size.
-    (setf (word (+ address 8)) (make-fixnum data-stack-size))
     ;; Binding stack base.
-    (setf (word (+ address 9)) (make-fixnum binding-stack))
+    (setf (word (+ address 7)) (make-fixnum binding-stack))
     ;; Binding stack size.
-    (setf (word (+ address 10)) (make-fixnum binding-stack-size))
-    ;; Resumer.
-    (setf (word (+ address 12)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+))
+    (setf (word (+ address 8)) (make-fixnum binding-stack-size))
     ;; Start of TLS slots.
-    (dotimes (i (- 512 13))
-      (setf (word (+ address 13 i)) #xFFFFFFFFFFFFFFFE))
+    (dotimes (i (- 512 9))
+      (setf (word (+ address 9 i)) #xFFFFFFFFFFFFFFFE))
     (setf (word (+ (symbol-address "*INITIAL-STACK-GROUP*" "SYSTEM.INTERNALS") 2))
           (make-value address sys.int::+tag-array-like+))))
 

@@ -38,7 +38,7 @@
 
 (defun reg-class (reg)
   (case reg
-    ((:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15 :csp :cfp :lsp :lfp) :gpr-64)
+    ((:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15 :csp :cfp) :gpr-64)
     ((:eax :ecx :edx :ebx :esp :ebp :esi :edi :r8d :r9d :r10d :r11d :r12d :r13d :r14d :r15d) :gpr-32)
     ((:ax :cx :dx :bx :sp :bp :si :di :r8w :r9w :r10w :r11w :r12w :r13w :r14w :r15w) :gpr-16)
     ((:al :cl :dl :bl :spl :bpl :sil :dil :r8l :r9l :r10l :r11l :r12l :r13l :r14l :r15l :ah :ch :dh :bh) :gpr-8)
@@ -64,8 +64,8 @@
     ((:r11 :r11d :r11w :r11l      :xmm11                       ) 11)
     ((:r12 :r12d :r12w :r12l      :xmm12                       ) 12)
     ((:r13 :r13d :r13w :r13l      :xmm13                       ) 13)
-    ((:r14 :r14d :r14w :r14l      :xmm14                   :lsp) 14)
-    ((:r15 :r15d :r15w :r15l      :xmm15                   :lfp) 15)))
+    ((:r14 :r14d :r14w :r14l      :xmm14                       ) 14)
+    ((:r15 :r15d :r15w :r15l      :xmm15                       ) 15)))
 
 (defun is-bp (reg) (find reg '(:bpl :bp :ebp :rbp :cfp)))
 (defun is-sp (reg) (find reg '(:spl :sp :esp :rsp :csp)))
@@ -357,8 +357,8 @@
 	((and (= (length form) 2)
 	      (eql (first form) :stack)
 	      (integerp (second form)))
-	 ;; Transform (:stack n) into (:lfp (- (* (1+ n) 8))).
-	 (values nil :lfp nil nil (- (* (1+ (second form)) 8)) nil))
+	 ;; Transform (:stack n) into (:rbp (- (* (1+ n) 8))).
+	 (values nil :rbp nil nil (- (* (1+ (second form)) 8)) nil))
 	((and (= (length form) 2)
 	      (keywordp (first form))
 	      (not (reg-class (first form)))

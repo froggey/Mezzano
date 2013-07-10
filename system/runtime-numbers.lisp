@@ -136,7 +136,6 @@
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun float (number &optional prototype)
@@ -153,7 +152,6 @@
   (sys.lap-x86:shl64 :rax 3)
   (sys.lap-x86:mov64 :r8 :rax)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (define-lap-function %integer-as-single-float ()
@@ -162,7 +160,6 @@
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun float-nan-p (float)
@@ -188,7 +185,8 @@
          (zerop sig))))
 
 (define-lap-function %%bignum-< ()
-  (sys.lap-x86:push 0) ; align
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
@@ -227,8 +225,7 @@
   (sys.lap-x86:mov64 :r9 t)
   (sys.lap-x86:cmov64l :r8 :r9)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
-  (sys.lap-x86:add64 :csp 8)
+  (sys.lap-x86:leave)
   (sys.lap-x86:ret)
   sx-left
   ;; Sign extend the left argument.
@@ -256,7 +253,6 @@
   (sys.lap-x86:mov64 :r9 t)
   (sys.lap-x86:cmov64b :r8 :r9)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-< (x y)
@@ -302,7 +298,7 @@
 (defun generic-<= (x y)
   (not (generic-< y x)))
 
-(define-lap-function %%bignum-= ()
+#+nil(define-lap-function %%bignum-= ()
   (sys.lap-x86:push 0) ; align
   ;; Read headers.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
@@ -346,7 +342,6 @@
   (sys.lap-x86:cmov64p :r8 :r9)
   (sys.lap-x86:cmov64ne :r8 :r9)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-= (x y)
@@ -424,7 +419,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; Box fixnum.
   (sys.lap-x86:lea64 :r8 ((:rax 8)))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-truncate (number divisor)
@@ -509,7 +503,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun binary-/ (x y)
@@ -547,54 +540,28 @@ Implements the dumb mp_div algorithm from BigNum Math."
         (t (error "Argument complex ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-+ ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (sys.lap-x86:push :r8)
+  (sys.lap-x86:push :r9)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
   (sys.lap-x86:shr64 :rdx 8)
   ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
   (sys.lap-x86:cmp32 :eax :edx)
   (sys.lap-x86:cmov32na :eax :edx)
   (sys.lap-x86:add32 :eax 1)
   (sys.lap-x86:jc bignum-overflow)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:lea64 :r8 ((:rax 8))) ; fixnumize
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
-  (sys.lap-x86:popf)
+  (sys.lap-x86:mov64 :r10 :r8)
   ;; Reread lengths.
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:add64 :lsp 16)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:pop :r8)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -639,6 +606,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r8 :r10)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
   (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
@@ -659,7 +627,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r8 (:constant "Aiee! Bignum overflow."))
   (sys.lap-x86:mov64 :r13 (:constant error))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:call (:symbol-function :r13)))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2))
 
 (define-lap-function %%float-+ ()
   ;; Unbox the floats.
@@ -677,7 +646,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-+ (x y)
@@ -717,54 +685,28 @@ Implements the dumb mp_div algorithm from BigNum Math."
            (error "Argument combination ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-- ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (sys.lap-x86:push :r8)
+  (sys.lap-x86:push :r9)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
   (sys.lap-x86:shr64 :rdx 8)
   ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
   (sys.lap-x86:cmp64 :rax :rdx)
   (sys.lap-x86:cmov64ng :rax :rdx)
   (sys.lap-x86:add32 :eax 1)
   (sys.lap-x86:jc bignum-overflow)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:lea64 :r8 ((:rax 8))) ; fixnumize
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
-  (sys.lap-x86:popf)
+  (sys.lap-x86:mov64 :r10 :r8)
   ;; Reread lengths.
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:add64 :lsp 16)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:pop :r8)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -809,6 +751,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r8 :r10)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
   (sys.lap-x86:jmp (:symbol-function :r13))
   sx-left
   ;; Sign extend the left argument.
@@ -826,11 +769,11 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:sar64 :rsi 63)
   (sys.lap-x86:jmp sign-fixed)
   bignum-overflow
-  (sys.lap-x86:push 0) ; align
   (sys.lap-x86:mov64 :r8 (:constant "Aiee! Bignum overflow."))
   (sys.lap-x86:mov64 :r13 (:constant error))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:call (:symbol-function :r13)))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2))
 
 (define-lap-function %%float-- ()
   ;; Unbox the floats.
@@ -848,7 +791,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-- (x y)
@@ -891,6 +833,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
 ;;; This can be either a fixnum, a length-one bignum or a length-two bignum.
 ;;; Always returns an (UNSIGNED-BYTE 128) in a length-three bignum.
 (define-lap-function %%bignum-multiply-step ()
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
   ;; Read X.
   (sys.lap-x86:test64 :r8 7)
   (sys.lap-x86:jnz read-bignum-x)
@@ -906,32 +850,18 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mul64 :rcx)
   ;; RDX:RAX holds the 128-bit result.
   ;; Prepare to allocate the result.
-  (sys.lap-x86:push :rax) ; Low half.
   (sys.lap-x86:push :rdx) ; High half.
-  (sys.lap-x86:pushf) ; Flags, also aligns stack correctly
-  (sys.lap-x86:cli)
-  ;; Allocate a 3 word bignum.
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r8 32) ; fixnum 4 (ugh)
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:push :rax) ; Low half.
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 24) ; fixnum 3
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:mov64 (:r8) #.(logior (ash 3 8) (ash +array-type-bignum+ +array-type-shift+)))
-  ;; pointer to value.
-  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
-  ;; GC back on.
-  (sys.lap-x86:popf)
-  ;; Set values.
-  (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 24)) 0)
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
+  (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 24)) 0)
   ;; Single value return
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:leave)
   (sys.lap-x86:ret)
   read-bignum-x
   (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
@@ -1002,7 +932,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun generic-* (x y)
@@ -1042,376 +971,115 @@ Implements the dumb mp_div algorithm from BigNum Math."
            (check-type y number)
            (error "Argument combination ~S and ~S not supported." x y))))
 
-(define-lap-function %%bignum-logand ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
-  ;; Read lengths.
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:push :rcx)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
-  (sys.lap-x86:popf)
-  ;; Reread lengths.
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:add64 :lsp 16)
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; X in r8. Y in r9. Result in r10.
-  ;; Pick the longest length.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:xor64 :rbx :rbx) ; offset
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:shl64 :rdx 3)
-  loop
-  (sys.lap-x86:cmp64 :rbx :rax)
-  (sys.lap-x86:jae sx-left)
-  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-left-resume
-  (sys.lap-x86:cmp64 :rbx :rdx)
-  (sys.lap-x86:jae sx-right)
-  (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-right-resume
-  (sys.lap-x86:add64 :rbx 8)
-  (sys.lap-x86:sub64 :rcx 1)
-  (sys.lap-x86:jz last)
-  (sys.lap-x86:and64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:jmp loop)
-  last
-  (sys.lap-x86:and64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:mov64 :r8 :r10)
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
-  (sys.lap-x86:jmp (:symbol-function :r13))
-  sx-left
-  ;; Sign extend the left argument.
-  ;; Previous value is not in RSI. Pull from the last word in the bignum.
-  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
-  (sys.lap-x86:sar64 :rsi 63)
-  (sys.lap-x86:jmp sx-left-resume)
-  sx-right
-  ;; Sign extend the right argument (previous value in RDI).
-  (sys.lap-x86:sar64 :rdi 63)
-  (sys.lap-x86:jmp sx-right-resume))
-
-(defun generic-logand (x y)
-  (cond ((and (fixnump x)
-              (fixnump y))
-         (error "FIXNUM/FIXNUM case hit GENERIC-LOGAND"))
-        ((and (fixnump x)
-              (bignump y))
-         (%%bignum-logand (%make-bignum-from-fixnum x) y))
-        ((and (bignump x)
-              (fixnump y))
-         (%%bignum-logand x (%make-bignum-from-fixnum y)))
-        ((and (bignump x)
-              (bignump y))
-         (%%bignum-logand x y))
-        (t (check-type x number)
-           (check-type y number)
-           (error "Argument combination not supported."))))
-
-(define-lap-function %%bignum-logior ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
-  ;; Read lengths.
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  (sys.lap-x86:mov64 :rcx :rax) ; rcx = len1
-  (sys.lap-x86:cmp64 :rax :rdx) ; rdx = len2
-  (sys.lap-x86:cmov64ng :rcx :rdx) ; rcx = !(len1 > len2) ? len2 : len1
-  (sys.lap-x86:push :rcx)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
-  (sys.lap-x86:popf)
-  ;; Reread lengths.
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:add64 :lsp 16)
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; X in r8. Y in r9. Result in r10.
-  ;; Pick the longest length.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:xor64 :rbx :rbx) ; offset
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:shl64 :rdx 3)
-  loop
-  (sys.lap-x86:cmp64 :rbx :rax)
-  (sys.lap-x86:jae sx-left)
-  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-left-resume
-  (sys.lap-x86:cmp64 :rbx :rdx)
-  (sys.lap-x86:jae sx-right)
-  (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-right-resume
-  (sys.lap-x86:add64 :rbx 8)
-  (sys.lap-x86:sub64 :rcx 1)
-  (sys.lap-x86:jz last)
-  (sys.lap-x86:or64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:jmp loop)
-  last
-  (sys.lap-x86:or64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:mov64 :r8 :r10)
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
-  (sys.lap-x86:jmp (:symbol-function :r13))
-  sx-left
-  ;; Sign extend the left argument.
-  ;; Previous value is not in RSI. Pull from the last word in the bignum.
-  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
-  (sys.lap-x86:sar64 :rsi 63)
-  (sys.lap-x86:jmp sx-left-resume)
-  sx-right
-  ;; Sign extend the right argument (previous value in RDI).
-  (sys.lap-x86:sar64 :rdi 63)
-  (sys.lap-x86:jmp sx-right-resume))
-
-(defun generic-logior (x y)
-  (cond ((and (fixnump x)
-              (fixnump y))
-         (error "FIXNUM/FIXNUM case hit GENERIC-LOGIOR"))
-        ((and (fixnump x)
-              (bignump y))
-         (%%bignum-logior (%make-bignum-from-fixnum x) y))
-        ((and (bignump x)
-              (fixnump y))
-         (%%bignum-logior x (%make-bignum-from-fixnum y)))
-        ((and (bignump x)
-              (bignump y))
-         (%%bignum-logior x y))
-        (t (check-type x number)
-           (check-type y number)
-           (error "Argument combination not supported."))))
-
-
-(define-lap-function %%bignum-logxor ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
-  ;; Read lengths.
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:push :rcx)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:lea64 :r8 ((:rcx 8)))
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ +array-type-shift+))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:lea64 :r10 (:r8 #.+tag-array-like+))
-  (sys.lap-x86:popf)
-  ;; Reread lengths.
-  (sys.lap-x86:mov64 :r8 (:lsp))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:add64 :lsp 16)
-  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:shr64 :rax 8)
-  (sys.lap-x86:shr64 :rdx 8)
-  ;; X in r8. Y in r9. Result in r10.
-  ;; Pick the longest length.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:cmp64 :rax :rdx)
-  (sys.lap-x86:cmov64ng :rcx :rdx)
-  (sys.lap-x86:xor64 :rbx :rbx) ; offset
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:shl64 :rdx 3)
-  loop
-  (sys.lap-x86:cmp64 :rbx :rax)
-  (sys.lap-x86:jae sx-left)
-  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-left-resume
-  (sys.lap-x86:cmp64 :rbx :rdx)
-  (sys.lap-x86:jae sx-right)
-  (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-array-like+) 8) :rbx))
-  sx-right-resume
-  (sys.lap-x86:add64 :rbx 8)
-  (sys.lap-x86:sub64 :rcx 1)
-  (sys.lap-x86:jz last)
-  (sys.lap-x86:xor64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:jmp loop)
-  last
-  (sys.lap-x86:xor64 :rsi :rdi)
-  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
-  (sys.lap-x86:mov64 :r8 :r10)
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
-  (sys.lap-x86:jmp (:symbol-function :r13))
-  sx-left
-  ;; Sign extend the left argument.
-  ;; Previous value is not in RSI. Pull from the last word in the bignum.
-  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
-  (sys.lap-x86:sar64 :rsi 63)
-  (sys.lap-x86:jmp sx-left-resume)
-  sx-right
-  ;; Sign extend the right argument (previous value in RDI).
-  (sys.lap-x86:sar64 :rdi 63)
-  (sys.lap-x86:jmp sx-right-resume))
-
-(defun generic-logxor (x y)
-  (cond ((and (fixnump x)
-              (fixnump y))
-         (error "FIXNUM/FIXNUM case hit GENERIC-LOGXOR"))
-        ((and (fixnump x)
-              (bignump y))
-         (%%bignum-logxor (%make-bignum-from-fixnum x) y))
-        ((and (bignump x)
-              (fixnump y))
-         (%%bignum-logxor x (%make-bignum-from-fixnum y)))
-        ((and (bignump x)
-              (bignump y))
-         (%%bignum-logxor x y))
-        (t (check-type x number)
-           (check-type y number)
-           (error "Argument combination not supported."))))
+(macrolet ((def (name bignum-name op)
+             `(progn
+                (define-lap-function ,bignum-name ()
+                  (sys.lap-x86:push :rbp)
+                  (sys.lap-x86:mov64 :rbp :rsp)
+                  ;; Save objects.
+                  (sys.lap-x86:push :r8)
+                  (sys.lap-x86:push :r9)
+                  ;; Read lengths.
+                  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
+                  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
+                  (sys.lap-x86:shr64 :rax 8)
+                  (sys.lap-x86:shr64 :rdx 8)
+                  ;; Allocate a new bignum large enough to hold the result.
+                  (sys.lap-x86:cmp32 :eax :edx)
+                  (sys.lap-x86:cmov32na :eax :edx)
+                  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+                  (sys.lap-x86:lea64 :r8 ((:rax 8))) ; fixnumize
+                  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
+                  (sys.lap-x86:call (:symbol-function :r13))
+                  (sys.lap-x86:mov64 :r10 :r8)
+                  ;; Reread lengths.
+                  (sys.lap-x86:pop :r9)
+                  (sys.lap-x86:pop :r8)
+                  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
+                  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
+                  (sys.lap-x86:shr64 :rax 8)
+                  (sys.lap-x86:shr64 :rdx 8)
+                  ;; X in r8. Y in r9. Result in r10.
+                  ;; Pick the longest length.
+                  (sys.lap-x86:mov64 :rcx :rax)
+                  (sys.lap-x86:cmp64 :rax :rdx)
+                  (sys.lap-x86:cmov64ng :rcx :rdx)
+                  (sys.lap-x86:xor64 :rbx :rbx) ; offset
+                  (sys.lap-x86:shl64 :rax 3)
+                  (sys.lap-x86:shl64 :rdx 3)
+                  loop
+                  (sys.lap-x86:cmp64 :rbx :rax)
+                  (sys.lap-x86:jae sx-left)
+                  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-array-like+) 8) :rbx))
+                  sx-left-resume
+                  (sys.lap-x86:cmp64 :rbx :rdx)
+                  (sys.lap-x86:jae sx-right)
+                  (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-array-like+) 8) :rbx))
+                  sx-right-resume
+                  (sys.lap-x86:add64 :rbx 8)
+                  (sys.lap-x86:sub64 :rcx 1)
+                  (sys.lap-x86:jz last)
+                  (,op :rsi :rdi)
+                  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
+                  (sys.lap-x86:jmp loop)
+                  last
+                  (,op :rsi :rdi)
+                  (sys.lap-x86:mov64 (:r10 #.(- +tag-array-like+) :rbx) :rsi)
+                  (sys.lap-x86:mov64 :r8 :r10)
+                  (sys.lap-x86:mov32 :ecx 8)
+                  (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+                  (sys.lap-x86:leave)
+                  (sys.lap-x86:jmp (:symbol-function :r13))
+                  sx-left
+                  ;; Sign extend the left argument.
+                  ;; Previous value is not in RSI. Pull from the last word in the bignum.
+                  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-array-like+) :rax))
+                  (sys.lap-x86:sar64 :rsi 63)
+                  (sys.lap-x86:jmp sx-left-resume)
+                  sx-right
+                  ;; Sign extend the right argument (previous value in RDI).
+                  (sys.lap-x86:sar64 :rdi 63)
+                  (sys.lap-x86:jmp sx-right-resume))
+                (defun ,name (x y)
+                  (cond ((and (fixnump x)
+                              (fixnump y))
+                         (error "FIXNUM/FIXNUM case hit ~S." ',name))
+                        ((and (fixnump x)
+                              (bignump y))
+                         (,bignum-name (%make-bignum-from-fixnum x) y))
+                        ((and (bignump x)
+                              (fixnump y))
+                         (,bignum-name x (%make-bignum-from-fixnum y)))
+                        ((and (bignump x)
+                              (bignump y))
+                         (,bignum-name x y))
+                        (t (check-type x number)
+                           (check-type y number)
+                           (error "Argument combination not supported.")))))))
+  (def generic-logand %%bignum-logand sys.lap-x86:and64)
+  (def generic-logior %%bignum-logior sys.lap-x86:or64)
+  (def generic-logxor %%bignum-logxor sys.lap-x86:xor64))
 
 (define-lap-function %%bignum-left-shift ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  ;; Save objects.
+  (sys.lap-x86:push :r8) ; src
+  (sys.lap-x86:push :r9) ; count
+  ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
-    ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 24) ; one word for the header, one extra, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 32) ; one word for the header, one extra, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:lea64 :r8 ((:rax 8) 8)) ; fixnumize +1
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:mov64 :r9 (:lsp))
-  (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:add64 :rbx #.(ash 1 8))
-  (sys.lap-x86:mov64 (:r8) :rbx)
-  (sys.lap-x86:sub64 :rbx #.(ash 1 8))
-  (sys.lap-x86:add64 :r8 #.+tag-array-like+)
-  (sys.lap-x86:popf)
   ;; R8: dest
   ;; R9: src
   ;; CL: count
   ;; RBX: n words.
   ;; R10: current word.
-  (sys.lap-x86:mov64 :rcx (:lsp 8))
+  (sys.lap-x86:pop :rcx)
+  (sys.lap-x86:pop :r9)
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:shr64 :rbx 8)
   (sys.lap-x86:mov32 :r10d 1)
@@ -1434,48 +1102,29 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 8)) :rax)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
   (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (define-lap-function %%bignum-right-shift ()
-  ;; Save on the lisp stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:sub64 :lsp 16)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  ;; Save objects.
+  (sys.lap-x86:push :r8) ; src
+  (sys.lap-x86:push :r9) ; count
+  ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
-    ;; Allocate a new bignum large enough to hold the result.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  (sys.lap-x86:shl64 :rax 3)
-  (sys.lap-x86:mov64 :r8 :rax)
-  (sys.lap-x86:test64 :r8 8)
-  (sys.lap-x86:jz count-even)
-  (sys.lap-x86:add64 :r8 8) ; one word for the header, no alignment.
-  (sys.lap-x86:jmp do-allocate)
-  count-even
-  (sys.lap-x86:add64 :r8 16) ; one word for the header, one word for alignment.
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov64 :rcx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:lea64 :r8 ((:rax 8))) ; fixnumize
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Set the header.
-  (sys.lap-x86:mov64 :r9 (:lsp))
-  (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-array-like+)))
-  (sys.lap-x86:mov64 (:r8) :rbx)
-  (sys.lap-x86:add64 :r8 #.+tag-array-like+)
-  (sys.lap-x86:popf)
   ;; R8: dest
   ;; R9: src
   ;; CL: count (raw)
   ;; RBX: n words. (fixnum)
   ;; R10: current word. (fixnum)
-  (sys.lap-x86:mov64 :rcx (:lsp 8))
+  (sys.lap-x86:pop :rcx)
+  (sys.lap-x86:pop :r9)
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:and64 :rbx #.(lognot #xFF))
   (sys.lap-x86:shr64 :rbx 5)
@@ -1497,6 +1146,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) :rbx) :rax)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
   (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (defun %ash (integer count)
@@ -1547,7 +1197,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:shl64 :rax 32)
   (sys.lap-x86:lea64 :r8 (:rax #.+tag-single-float+))
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun sqrt (number)
@@ -1560,6 +1209,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
 ;;; otherwise it is converted to the shortest possible bignum
 ;;; by removing redundant sign-extension bits.
 (define-lap-function %%canonicalize-bignum ()
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8) ; RAX = number of fragments (raw).
   ;; Zero-size bignums are zero.
@@ -1596,45 +1247,18 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; bignum objects, this'll have to allocate anyway...
   (sys.lap-x86:je do-return)
   ;; Resizing.
-  (sys.lap-x86:pushf)
-  (sys.lap-x86:cli)
-  ;; Align control stack and save the new size.
+  ;; Save original bignum.
+  (sys.lap-x86:push :r8)
+  ;; Save new size.
   (sys.lap-x86:push :rax)
-  (sys.lap-x86:push 0)
-  ;; Save the original bignum on the data stack.
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:sub64 :lsp 8)
-  (sys.lap-x86:mov64 (:lsp) :r8)
-  ;; Convert new size (in rax) to fixnum.
-  (sys.lap-x86:shl64 :rax 3)
-  ;; Add in the header and any alignment required.
-  (sys.lap-x86:test64 :rax 8)
-  (sys.lap-x86:jz adjust-even)
-  (sys.lap-x86:lea64 :r8 (:rax 8))
-  (sys.lap-x86:jmp do-allocate)
-  adjust-even
-  (sys.lap-x86:lea64 :r8 (:rax 16))
-  do-allocate
-  (sys.lap-x86:mov64 :r9 (:constant :static))
-  (sys.lap-x86:mov32 :ecx 16)
-  (sys.lap-x86:mov64 :r13 (:constant %raw-allocate))
+  ;; RAX = new size.
+  (sys.lap-x86:lea64 :r8 ((:rax 8)))
+  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; fixnum to pointer.
-  (sys.lap-x86:sar64 :r8 3)
-  ;; Restore new size.
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rax)
-  ;; Set the header.
-  (sys.lap-x86:mov64 :rcx :rax)
-  (sys.lap-x86:shl64 :rax 8)
-  (sys.lap-x86:or64 :rax #.(ash +array-type-bignum+ 3))
-  (sys.lap-x86:mov64 (:r8) :rax)
-  (sys.lap-x86:or64 :r8 #.+tag-array-like+)
-  (sys.lap-x86:popf)
   ;; Fetch the original bignum.
-  (sys.lap-x86:mov64 :r9 (:lsp))
-  (sys.lap-x86:add64 :lsp 8)
+  (sys.lap-x86:mov64 :rcx (:rsp))
+  (sys.lap-x86:mov64 :r9 (:rsp 8))
   ;; Copy words, we know there will always be at least one.
   copy-loop
   (sys.lap-x86:mov64 :rax (:r9 #.(- +tag-array-like+) (:rcx 8)))
@@ -1643,7 +1267,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:jnz copy-loop)
   do-return
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
+  (sys.lap-x86:leave)
   (sys.lap-x86:ret)
   ;; Attempt to convert a size-1 bignum to a fixnum.
   maybe-fixnumize

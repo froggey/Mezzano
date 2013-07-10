@@ -19,9 +19,6 @@ be generated instead.")
 (defvar *code-accum* nil)
 (defvar *trailers* nil)
 (defvar *current-lambda-name* nil)
-(defvar *control-stack-depth* nil)
-(defvar *stack-adjustments* nil)
-(defvar *multiple-value-status* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-array-like+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-array-like+))
@@ -49,49 +46,26 @@ be generated instead.")
 
 (defun control-stack-frame-offset (slot)
   "Convert a control stack slot number to an offset."
-  (- (* (+ slot 4) 8)))
+  (- (* (1+ slot) 8)))
 
 (defun control-stack-slot-ea (slot)
   "Return an effective address for a control stack slot."
-  `(:cfp ,(control-stack-frame-offset slot)))
+  `(:stack ,slot))
 
 ;;; TODO: This should work on a stack-like system so that slots can be
 ;;; reused when the allocation is no longer needed.
 (defun allocate-control-stack-slots (count)
   (when (oddp count) (incf count))
-  (incf *control-stack-depth* count))
+  (when (oddp (length *stack-values*))
+    (vector-push-extend nil *stack-values*))
+  (prog1 (length *stack-values*)
+    (dotimes (i count)
+      (vector-push-extend '(:unboxed . :home) *stack-values*))))
 
 (defun no-tail (value-mode)
   (ecase value-mode
     ((:multiple :predicate t nil) value-mode)
     (:tail :multiple)))
-
-(defmacro with-lisp-stack-adjustment ((n-slots) &body body)
-  (let ((sym (gensym "n-slots")))
-    `(let ((,sym ,n-slots))
-       (unwind-protect
-            (progn (adjust-lisp-stack ,sym)
-                   ,@body)
-         (adjust-lisp-stack (- ,sym))))))
-
-(defun adjust-lisp-stack (n-slots)
-  (cond
-    ((plusp n-slots)
-     ;; Creating slots on the stack.
-     (let ((start-adjust (gensym "stack-adjust-start"))
-           (end-adjust (gensym "stack-adjust-end")))
-       ;; Make sure the labels don't get eaten by the branch tensioner.
-       (setf (get start-adjust 'pinned-label) t
-             (get end-adjust 'pinned-label) t)
-       (emit start-adjust)
-       (dotimes (i n-slots)
-         (emit `(sys.lap-x86:mov64 (:lsp ,(- (* (1+ i) 8))) nil)))
-       (emit `(sys.lap-x86:sub64 :lsp ,(* n-slots 8))
-             end-adjust)
-       (push (cons start-adjust end-adjust) *stack-adjustments*)))
-    ((minusp n-slots)
-     ;; Dropping slots.
-     (emit `(sys.lap-x86:add64 :lsp ,(* (- n-slots) 8))))))
 
 (defun codegen-lambda (lambda)
   (let* ((*current-lambda* lambda)
@@ -107,10 +81,7 @@ be generated instead.")
          (*rename-list* '())
          (*code-accum* '())
          (*trailers* '())
-         (arg-registers '(:r8 :r9 :r10 :r11 :r12))
-         (*control-stack-depth* 0)
-         (*stack-adjustments* '())
-         (*multiple-value-status* nil))
+         (arg-registers '(:r8 :r9 :r10 :r11 :r12)))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -133,16 +104,6 @@ be generated instead.")
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons env-arg :home))
           (emit `(sys.lap-x86:mov64 (:stack ,ofs) :rbx)))))
-    ;; Store &REST arg before doing &OPTIONAL arguments to free up R13.
-    ;; R13 will have to be spilled and reloaded when &REST is special.
-    (let ((rest-arg (lambda-information-rest-arg lambda)))
-      (when (and rest-arg
-                 ;; Avoid generating code &REST code when the variable isn't used.
-                 (not (and (lexical-variable-p rest-arg)
-                           (zerop (lexical-variable-use-count rest-arg)))))
-        (let ((ofs (find-stack-slot)))
-          (setf (aref *stack-values* ofs) (cons rest-arg :home))
-          (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13)))))
     ;; Compile argument setup code.
     (let ((current-arg-index 0))
       (dolist (arg (lambda-information-required-args lambda))
@@ -151,7 +112,7 @@ be generated instead.")
           (setf (aref *stack-values* ofs) (cons arg :home))
           (if arg-registers
               (emit `(sys.lap-x86:mov64 (:stack ,ofs) ,(pop arg-registers)))
-              (emit `(sys.lap-x86:mov64 :r8 (:lfp ,(* (- current-arg-index 6) 8)))
+              (emit `(sys.lap-x86:mov64 :r8 (:cfp ,(* (+ (- current-arg-index 6) 2) 8)))
                     `(sys.lap-x86:mov64 (:stack ,ofs) :r8)))))
       (dolist (arg (lambda-information-optional-args lambda))
         (let ((mid-label (gensym))
@@ -159,18 +120,19 @@ be generated instead.")
               (var-ofs (find-stack-slot))
               (sup-ofs nil))
           (setf (aref *stack-values* var-ofs) (cons (first arg) :home))
-          (when (third arg)
+          (when (and (third arg)
+                     (not (zerop (lexical-variable-use-count (third arg)))))
             (setf sup-ofs (find-stack-slot))
             (setf (aref *stack-values* sup-ofs) (cons (third arg) :home)))
           ;; Check if this argument was supplied.
-          (emit `(sys.lap-x86:cmp64 (:cfp -24) ,(fixnum-to-raw current-arg-index))
+          (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw current-arg-index))
                 `(sys.lap-x86:jle ,mid-label))
           ;; Argument supplied, stash wherever.
           (if arg-registers
               (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers)))
-              (emit `(sys.lap-x86:mov64 :r8 (:lfp ,(* (- current-arg-index 5) 8)))
+              (emit `(sys.lap-x86:mov64 :r8 (:cfp ,(* (+ (- current-arg-index 5) 2) 8)))
                     `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8)))
-          (when (third arg)
+          (when sup-ofs
             (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) t)))
           (emit `(sys.lap-x86:jmp ,end-label)
                 mid-label)
@@ -179,36 +141,37 @@ be generated instead.")
             (load-in-r8 tag t)
             (setf *r8-value* nil)
             (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8))
-            (when (third arg)
+            (when sup-ofs
               (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) nil))))
           (emit end-label)
           (incf current-arg-index))))
-    ;; ### Suppress TCE when binding special variables.
+    ;; Deal with &REST late to avoid excess register spilling.
+    (let ((rest-arg (lambda-information-rest-arg lambda)))
+      (when (and rest-arg
+                 ;; Avoid generating code &REST code when the variable isn't used.
+                 (not (zerop (lexical-variable-use-count rest-arg))))
+        (emit-rest-list lambda arg-registers)))
     (let* ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
                        (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
         (unless (eql code-tag :multiple)
           (load-in-r8 code-tag t)
           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
-        (emit-return-code)
-        (emit `(sys.lap-x86:ret))
-        (finish-mv-region)))
-    (let* ((gc-info (gensym "gc-info"))
-           (final-code (nconc (generate-entry-code lambda)
+        (emit `(sys.lap-x86:leave)
+              `(sys.lap-x86:ret))))
+    (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
-                              (apply #'nconc *trailers*)
-                              (list gc-info)
-                              (loop for (start . end) in *stack-adjustments*
-                                 nconc (list `(:d32/le ,start) `(:d32/le ,end)))))
+                              (apply #'nconc *trailers*)))
            (homes (loop for (var . loc) across *stack-values*
                      for i from 0
                      when (and (lexical-variable-p var)
                                (eql loc :home))
                      collect (list (lexical-variable-name var) i))))
-      (setf (get gc-info 'pinned-label) t)
       (when *enable-branch-tensioner*
         (setf final-code (tension-branches final-code)))
       (when *trace-asm*
+        (format t "~S:~%" *current-lambda-name*)
+        (format t "Final values: ~S~%" *stack-values*)
         (format t "~{~S~%~}" final-code))
       (sys.int::assemble-lap
        final-code
@@ -225,63 +188,30 @@ be generated instead.")
                (princ-to-string *compile-file-pathname*))
              sys.int::*top-level-form-number*
              (lambda-information-lambda-list lambda)
-             (lambda-information-docstring lambda)
-             )
-       gc-info (length *stack-adjustments*)))))
-
-(defun emit-return-code (&optional tail-call)
-  (let* ((req-count (length (lambda-information-required-args *current-lambda*)))
-         (opt-count (length (lambda-information-optional-args *current-lambda*)))
-         (arg-count (+ req-count opt-count))
-         (stack-arg-count (max 0 (- arg-count 5))))
-    (cond ((and (plusp stack-arg-count)
-                (zerop opt-count)
-                (not (lambda-information-rest-arg *current-lambda*)))
-           ;; More than 5 required arguments, no &OPTIONAL or &REST.
-           (emit `(sys.lap-x86:lea64 :rbx (:lfp ,(* stack-arg-count 8)))))
-          ((or (and (plusp stack-arg-count)
-                    (plusp opt-count))
-               (lambda-information-rest-arg *current-lambda*))
-           ;; Many &OPTIONAL args or a &REST arg supplied. Do the full-fat pop.
-           (emit `(sys.lap-x86:mov64 :rax (:cfp -24))
-                 `(sys.lap-x86:xor32 :edx :edx)
-                 `(sys.lap-x86:sub64 :rax ,(* 8 5))
-                 `(sys.lap-x86:cmov64ng :rax :rdx)
-                 `(sys.lap-x86:lea64 :rbx (:lfp :rax))))
-          (t ;; 5 or fewer arguments, no &REST.
-           (emit `(sys.lap-x86:mov64 :rbx :lfp))))
-    (emit `(sys.lap-x86:mov64 :lfp (:cfp -8)))
-    (when tail-call
-      (emit `(sys.lap-x86:mov64 :lsp :rbx)))
-    (emit `(sys.lap-x86:leave))))
+             (lambda-information-docstring lambda))))))
 
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
-	(invalid-arguments-label (gensym "BADARGS"))
-        (start-adjust (gensym "stack-adjust-start"))
-        (end-adjust (gensym "stack-adjust-end")))
-    (setf (get start-adjust 'pinned-label) t
-          (get end-adjust 'pinned-label) t)
-    (push (list `(sys.lap-x86:ud2)
-                invalid-arguments-label
-		`(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
-		`(sys.lap-x86:call (:symbol-function :r13)))
-	  *trailers*)
-    (push (cons start-adjust end-adjust) *stack-adjustments*)
+	(invalid-arguments-label (gensym "BADARGS")))
+    (emit-trailer (invalid-arguments-label)
+      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
+            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:ud2)))
     (nconc
      (list entry-label
 	   ;; Create control stack frame.
 	   `(sys.lap-x86:push :cfp)
-	   `(sys.lap-x86:mov64 :cfp :csp)
-	   ;; Save old LFP.
-	   `(sys.lap-x86:push :lfp)
-	   ;; Function object.
-	   `(sys.lap-x86:lea64 :rax (:rip ,entry-label))
-	   `(sys.lap-x86:push :rax)
-	   ;; Saved argument count.
-	   `(sys.lap-x86:push :rcx)
-	   ;; Adjust CSP. 1+ for alignment (also used by the rest code).
-           `(sys.lap-x86:sub64 :csp ,(* (1+ *control-stack-depth*) 8)))
+	   `(sys.lap-x86:mov64 :cfp :csp))
+     (let ((n-slots (length *stack-values*)))
+       (when (oddp n-slots) (incf n-slots))
+       ;; Adjust stack.
+       (list `(sys.lap-x86:sub64 :rsp ,(* n-slots 8))))
+     ;; Flush stack slots.
+     (loop for value across *stack-values*
+        for i from 0
+        unless (equal value '(:unboxed . :home))
+        collect `(sys.lap-x86:mov64 (:stack ,i) nil))
+     ;; ## Set GC flags here.
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
 	    ;; If there are no required parameters, then don't generate a lower-bound check.
@@ -292,8 +222,9 @@ be generated instead.")
 	   ((and (lambda-information-required-args lambda)
 		 (lambda-information-optional-args lambda))
 	    ;; A range.
-	    (list `(sys.lap-x86:sub32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
-		  `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
+	    (list `(sys.lap-x86:mov32 :eax :ecx)
+                  `(sys.lap-x86:sub32 :eax ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+		  `(sys.lap-x86:cmp32 :eax ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
 		  `(sys.lap-x86:ja ,invalid-arguments-label)))
 	   ((lambda-information-optional-args lambda)
 	    ;; Maximum number of arguments.
@@ -305,104 +236,119 @@ be generated instead.")
 		  `(sys.lap-x86:jne ,invalid-arguments-label)))
 	   ;; No arguments
 	   (t (list `(sys.lap-x86:test32 :ecx :ecx)
-		    `(sys.lap-x86:jnz ,invalid-arguments-label))))
-     (when (and (lambda-information-rest-arg lambda)
-                ;; Avoid generating code &REST code when the variable isn't used.
-                (not (and (lexical-variable-p (lambda-information-rest-arg lambda))
-                          (zerop (lexical-variable-use-count (lambda-information-rest-arg lambda))))))
-       (let ((regular-argument-count (+ (length (lambda-information-required-args lambda))
-					(length (lambda-information-optional-args lambda))))
-	     (rest-loop-head (gensym "REST-LOOP-HEAD"))
-	     (rest-loop-test (gensym "REST-LOOP-TEST"))
-             (rest-stack-adjust-start (gensym "rest-stack-adjust-start"))
-             (rest-stack-adjust-end (gensym "rest-stack-adjust-end"))
-             (dx-rest (lexical-variable-dynamic-extent (lambda-information-rest-arg lambda))))
-         (setf (get rest-stack-adjust-start 'pinned-label) t
-               (get rest-stack-adjust-end 'pinned-label) t)
-         (push (cons rest-stack-adjust-start rest-stack-adjust-end) *stack-adjustments*)
-	 ;; Assemble the rest list into r13.
-	 (nconc
-	  ;; Push all argument registers and create two scratch stack slots.
-	  ;; Eight total slots.
-	  ;; This should be clamped to the actual number of arguments
-	  ;; but it doesn't really matter.
-          (list rest-stack-adjust-start)
-	  (let ((result '()))
-	    (dotimes (i 8 result)
-	      (push `(sys.lap-x86:mov64 (:lsp ,(- (* (1+ i) 8))) nil) result)))
-	  (list `(sys.lap-x86:sub64 :lsp ,(* 8 8))
-                rest-stack-adjust-end)
-	  (let ((i 1))
-	    (mapcar #'(lambda (x)
-			`(sys.lap-x86:mov64 (:lsp ,(* (incf i) 8)) ,x))
-		    '(:rbx :r8 :r9 :r10 :r11 :r12)))
-	  (list
-	   ;; Number of arguments processed.
-	   `(sys.lap-x86:mov64 (:cfp -32) ,(fixnum-to-raw regular-argument-count)))
-          ;; Create the result cell. Always create this as dynamic-extent, it
-          ;; is only used during rest-list creation.
-          (list `(sys.lap-x86:sub64 :csp 16)
-                `(sys.lap-x86:mov64 (:csp 0) nil)
-                `(sys.lap-x86:mov64 (:csp 8) nil)
-                `(sys.lap-x86:lea64 :r8 (:csp 1)))
-          (list
-           ;; Stash in the result slot and the scratch slot.
-           `(sys.lap-x86:mov64 (:lsp) :r8)
-	   `(sys.lap-x86:mov64 (:lsp 8) :r8)
-	   ;; Now walk the arguments, adding to the list.
-	   `(sys.lap-x86:mov64 :rax (:cfp -32))
-	   `(sys.lap-x86:jmp ,rest-loop-test)
-	   rest-loop-head)
-          ;; Create a new cons.
-          (cond
-            (dx-rest
-             (list `(sys.lap-x86:sub64 :csp 16)
+		    `(sys.lap-x86:jnz ,invalid-arguments-label)))))))
+
+(defun emit-rest-list (lambda arg-registers)
+  (let* ((rest-arg (lambda-information-rest-arg lambda))
+         (regular-argument-count (+ (length (lambda-information-required-args lambda))
+                                    (length (lambda-information-optional-args lambda))))
+         (rest-loop-head (gensym "REST-LOOP-HEAD"))
+         (rest-loop-test (gensym "REST-LOOP-TEST"))
+         (rest-loop-end (gensym "REST-LOOP-END"))
+         (dx-rest (lexical-variable-dynamic-extent rest-arg))
+         (reg-arg-tags (loop for reg in arg-registers collect (list (gensym))))
+         (control-slots (allocate-control-stack-slots 4))
+         (rest-head nil)
+         (rest-tail nil))
+    (setf rest-head (find-stack-slot)
+          (aref *stack-values* rest-head) (cons :rest-head :home))
+    (setf rest-tail (find-stack-slot)
+          (aref *stack-values* rest-tail) (cons :rest-tail :home))
+    ;; Assemble the rest list into R13.
+    ;; RCX holds the argument count.
+    ;; RBX and R13 are free. Argument registers may or may not be free
+    ;; depending on the number of required/optional arguments.
+    (unless dx-rest
+      ;; Only save the arg registers when creating a full cons.
+      (loop for slot = (find-stack-slot)
+         for tag in reg-arg-tags
+         for reg in arg-registers
+         do
+           (setf (aref *stack-values* slot) tag)
+           (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
+           (push tag *load-list*)))
+    ;; Number of arguments processed. Skip register arguments.
+    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw (max regular-argument-count 5))))
+    ;; Number of supplied arguments
+    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 1)) :rcx))
+    ;; Create the result cell. Always create this as dynamic-extent, it
+    ;; is only used during rest-list creation.
+    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 2)) nil)
+          `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 3)) nil)
+          `(sys.lap-x86:lea64 :rbx (:cfp ,(+ (control-stack-frame-offset (+ control-slots 3)) sys.int::+tag-cons+))))
+    ;; Stash in the result slot and the tail slot.
+    (emit `(sys.lap-x86:mov64 (:stack ,rest-head) :rbx)
+          `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))
+    ;; Add register arguments to the list.
+    (cond
+      (dx-rest
+       (loop for i from regular-argument-count
+          for reg in arg-registers
+          do (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
+                   `(sys.lap-x86:jle ,rest-loop-end)
+                   `(sys.lap-x86:sub64 :csp 16)
                    `(sys.lap-x86:mov64 (:csp 0) nil)
                    `(sys.lap-x86:mov64 (:csp 8) nil)
-                   `(sys.lap-x86:lea64 :r8 (:csp 1))
-                   `(sys.lap-x86:mov64 :r9 (:lsp :rax 24))
-                   `(sys.lap-x86:add64 :rax ,(fixnum-to-raw 1))
-                   `(sys.lap-x86:mov64 (:cfp -32) :rax)
-                   `(sys.lap-x86:mov64 (:car :r8) :r9)))
-            (t
-             (list `(sys.lap-x86:mov64 :r8 (:lsp :rax 24))
-                   `(sys.lap-x86:mov64 :r9 nil)
-                   `(sys.lap-x86:add64 :rax ,(fixnum-to-raw 1))
-                   `(sys.lap-x86:mov64 (:cfp -32) :rax)
-                   `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-                   `(sys.lap-x86:mov64 :r13 (:constant cons))
-                   `(sys.lap-x86:call (:symbol-function :r13))
-                   `(sys.lap-x86:mov64 :lsp :rbx))))
-          (list
-	   `(sys.lap-x86:mov64 :r9 (:lsp))
-	   `(sys.lap-x86:mov64 (:cdr :r9) :r8)
-	   `(sys.lap-x86:mov64 (:lsp) :r8)
-	   `(sys.lap-x86:mov64 :rax (:cfp -32))
-	   rest-loop-test
-	   `(sys.lap-x86:cmp64 :rax (:cfp -24))
-	   `(sys.lap-x86:jl ,rest-loop-head)
-	   ;; The rest list has been created!
-	   ;; Now store it in R13 and restore the other registers.
-	   `(sys.lap-x86:mov64 :r13 (:lsp 8))
-	   `(sys.lap-x86:mov64 :r13 (:cdr :r13))
-	   `(sys.lap-x86:mov64 :rbx (:lsp 16))
-	   `(sys.lap-x86:mov64 :r8 (:lsp 24))
-	   `(sys.lap-x86:mov64 :r9 (:lsp 32))
-	   `(sys.lap-x86:mov64 :r10 (:lsp 40))
-	   `(sys.lap-x86:mov64 :r11 (:lsp 48))
-	   `(sys.lap-x86:mov64 :r12 (:lsp 56))
-	   ;; Pop all the arguments off and the two scrach slots.
-	   `(sys.lap-x86:add64 :lsp ,(* 8 8))))))
-     ;; No arguments on the stack at this point.
-     (list `(sys.lap-x86:mov64 :lfp :lsp))
-     ;; Flush stack slots.
-     (list start-adjust)
-     (let ((result '()))
-       (dotimes (i (length *stack-values*) result)
-	 (push `(sys.lap-x86:mov64 (:lfp ,(- (* (1+ i) 8))) nil) result)))
-     (unless (zerop (length *stack-values*))
-       (list `(sys.lap-x86:sub64 :lsp ,(* (length *stack-values*) 8))))
-     (list end-adjust))))
+                   `(sys.lap-x86:lea64 :rbx (:csp #.sys.int::+tag-cons+))
+                   `(sys.lap-x86:mov64 (:car :rbx) ,reg)
+                   `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
+                   `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
+                   `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))))
+      (t
+       (loop for i from regular-argument-count
+          for tag in reg-arg-tags do
+            (emit `(sys.lap-x86:cmp64 ,(control-stack-slot-ea (+ control-slots 1)) ,(fixnum-to-raw i))
+                  `(sys.lap-x86:jle ,rest-loop-end))
+            (load-in-r8 tag t)
+            (emit `(sys.lap-x86:mov64 :r9 nil)
+                  `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+                  `(sys.lap-x86:mov64 :r13 (:constant cons))
+                  `(sys.lap-x86:call (:symbol-function :r13))
+                  `(sys.lap-x86:mov64 :rbx (:stack ,rest-tail))
+                  `(sys.lap-x86:mov64 (:cdr :rbx) :r8)
+                  `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8)))))
+    ;; All register arguments are in the list.
+    ;; Now add the stack arguments.
+    (emit `(sys.lap-x86:mov64 :rax ,(control-stack-slot-ea control-slots))
+          `(sys.lap-x86:jmp ,rest-loop-test)
+          rest-loop-head)
+    ;; Load current value. -5 + 2. Skip registers, return address & fp.
+    (emit `(sys.lap-x86:mov64 :r8 (:cfp :rax -24)))
+    ;; Create a new cons.
+    (cond
+      (dx-rest
+       (emit `(sys.lap-x86:sub64 :csp 16)
+             `(sys.lap-x86:mov64 (:csp 0) nil)
+             `(sys.lap-x86:mov64 (:csp 8) nil)
+             `(sys.lap-x86:lea64 :rbx (:csp #.sys.int::+tag-cons+))
+             `(sys.lap-x86:mov64 (:car :rbx) :r8)
+             `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
+             `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
+             `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx)))
+      (t
+       (emit `(sys.lap-x86:mov64 :r9 nil)
+             `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+             `(sys.lap-x86:mov64 :r13 (:constant cons))
+             `(sys.lap-x86:call (:symbol-function :r13))
+             `(sys.lap-x86:mov64 :r9 (:stack ,rest-tail))
+             `(sys.lap-x86:mov64 (:cdr :r9) :r8)
+             `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8))))
+    ;; Advance processed count & test for end.
+    (emit `(sys.lap-x86:add64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw 1))
+          `(sys.lap-x86:mov64 :rax ,(control-stack-slot-ea control-slots))
+          rest-loop-test
+          `(sys.lap-x86:cmp64 :rax ,(control-stack-slot-ea (+ control-slots 1)))
+          `(sys.lap-x86:jl ,rest-loop-head)
+          rest-loop-end)
+    ;; The rest list has been created!
+    (let ((ofs (find-stack-slot)))
+      (setf (aref *stack-values* ofs) (cons rest-arg :home))
+      (emit `(sys.lap-x86:mov64 :r8 (:stack ,rest-head))
+            `(sys.lap-x86:mov64 :r8 (:cdr :r8))
+            `(sys.lap-x86:mov64 (:stack ,ofs) :r8)))
+    ;; Flush the two temps.
+    (setf (aref *stack-values* rest-head) nil
+          (aref *stack-values* rest-tail) nil)))
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
@@ -457,20 +403,18 @@ be generated instead.")
     (when escapes
       (smash-r8)
       (let ((slot (find-stack-slot))
-            (control-info (allocate-control-stack-slots 6)))
+            (control-info (allocate-control-stack-slots 4)))
         (setf (aref *stack-values* slot) (cons info :home))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,exit-label))
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-info) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 1)) :rax)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 2)) :csp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 3)) :cfp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 4)) :lsp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 5)) :lfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
               ;; Save pointer to info
-              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea control-info))
+              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax))))
     (let* ((*rename-list* (cons (list (second form) exit-label) *rename-list*))
            (stack-slots (set-up-for-branch))
@@ -497,8 +441,6 @@ be generated instead.")
              ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
              (smash-r8)
              (emit exit-label)
-             (when (member *for-value* '(:multiple :tail))
-               (enter-mv-region :full))
              (setf *stack-values* (copy-stack-values stack-slots)
                    *r8-value* (if (member *for-value* '(:multiple :tail))
                                   :multiple
@@ -525,8 +467,6 @@ be generated instead.")
              (emit ;; Restore registers.
                    `(sys.lap-x86:mov64 :csp (:r8 16))
                    `(sys.lap-x86:mov64 :cfp (:r8 24))
-                   `(sys.lap-x86:mov64 :lsp (:r8 32))
-                   `(sys.lap-x86:mov64 :lfp (:r8 40))
                    ;; GO GO GO!
                    `(sys.lap-x86:mov64 :rax (:r8 0))
                    `(sys.lap-x86:add64 :rax (:rax ,(* (position (second form)
@@ -663,8 +603,7 @@ be generated instead.")
               (t (load-in-r8 tag t))))
 	  (emit `(sys.lap-x86:jmp ,end-label))
 	  (incf branch-count)
-	  (branch-to end-label))
-        (finish-mv-region))
+	  (branch-to end-label)))
       (setf *r8-value* r8-at-cond
 	    *stack-values* (copy-stack-values stack-at-cond))
       (emit-label else-label)
@@ -678,13 +617,11 @@ be generated instead.")
                               (load-in-r8 tag t)))
               (t (load-in-r8 tag t))))
 	  (incf branch-count)
-	  (branch-to end-label))
-        (finish-mv-region))
+	  (branch-to end-label)))
       (emit-label end-label)
       (setf *stack-values* (copy-stack-values stack-slots))
       (unless (zerop branch-count)
         (cond ((member *for-value* '(:multiple :tail))
-               (enter-mv-region :full)
                (setf *r8-value* :multiple))
               (t (setf *r8-value* (list (gensym)))))))))
 
@@ -718,6 +655,9 @@ be generated instead.")
                    (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))))))))
     (cg-form `(progn ,@body))))
 
+(defun gensym-many (things)
+  (loop for x in things collect (gensym)))
+
 (defun cg-multiple-value-bind (form)
   (let ((variables (second form))
         (value-form (third form))
@@ -729,19 +669,16 @@ be generated instead.")
                    variables))
     ;; Initialize local variables to NIL.
     (dolist (var variables)
-      (cond ((zerop (lexical-variable-use-count var)))
-            (t (let ((slot (find-stack-slot)))
-                 (setf (aref *stack-values* slot) (cons var :home))
-                 (emit `(sys.lap-x86:mov64 (:stack ,slot) nil))))))
+      (when (not (zerop (lexical-variable-use-count var)))
+        (let ((slot (find-stack-slot)))
+          (setf (aref *stack-values* slot) (cons var :home))
+          (emit `(sys.lap-x86:mov64 (:stack ,slot) nil)))))
     ;; Compile the value-form.
     (let ((value-tag (let ((*for-value* :multiple))
                        (cg-form value-form))))
       (load-multiple-values value-tag))
     ;; Bind variables.
-    (let* ((jump-targets (mapcar (lambda (x)
-                                   (declare (ignore x))
-                                   (gensym))
-                                 variables))
+    (let* ((jump-targets (gensym-many variables))
            (no-vals-label (gensym))
            (var-count (length variables))
            (value-locations (nreverse (subseq '(:r8 :r9 :r10 :r11 :r12) 0 (min 5 var-count)))))
@@ -751,22 +688,23 @@ be generated instead.")
         (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw (- var-count i)))
               `(sys.lap-x86:jae ,(nth i jump-targets))))
       (emit `(sys.lap-x86:jmp ,no-vals-label))
-      (mapc (lambda (var label)
-              (emit label)
-              (cond ((zerop (lexical-variable-use-count var))
-                     (pop value-locations))
-                    (t (let ((register (cond ((integerp (first value-locations))
-                                              (emit `(sys.lap-x86:mov64 :r13 (:lsp ,(* (pop value-locations) 8))))
-                                              :r13)
-                                             (t (pop value-locations)))))
-                         (emit `(sys.lap-x86:mov64 (:stack ,(position (cons var :home)
-                                                                      *stack-values*
-                                                                      :test 'equal))
-                                                   ,register))))))
-            (reverse variables)
-            jump-targets)
+      (loop for var in (reverse variables)
+         for label in jump-targets do
+           (emit label)
+           (cond ((zerop (lexical-variable-use-count var))
+                  (pop value-locations))
+                 (t (let ((register (cond ((integerp (first value-locations))
+                                           (emit `(sys.lap-x86:gs)
+                                                 `(sys.lap-x86:mov64 :r13 (,(+ (- 8 sys.int::+tag-array-like+)
+                                                                               (* (+ sys.int::+stack-group-offset-mv-slots+
+                                                                                     (first value-locations)) 8)))))
+                                           :r13)
+                                          (t (pop value-locations)))))
+                      (emit `(sys.lap-x86:mov64 (:stack ,(position (cons var :home)
+                                                                   *stack-values*
+                                                                   :test 'equal))
+                                                ,register))))))
       (emit no-vals-label))
-    (finish-mv-region)
     (cg-form `(progn ,@body))))
 
 (defun cg-multiple-value-call (form)
@@ -786,11 +724,10 @@ be generated instead.")
                (when (not value-tag)
                  (return-from cg-multiple-value-call nil))
                (load-multiple-values value-tag)
-               (localize-multiple-values)
-               (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rbx))
+               (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rsp))
+               (multiple-values-to-stack)
                (smash-r8)
                (load-in-reg :r13 fn-tag t)
-               ;; ### TCO here
                (let ((type-error-label (gensym))
                      (function-label (gensym))
                      (out-label (gensym)))
@@ -803,19 +740,14 @@ be generated instead.")
                        `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
                        `(sys.lap-x86:jne ,type-error-label)
                        `(sys.lap-x86:call (:symbol-function :r13)))
-                 (enter-mv-region :full)
                  (emit `(sys.lap-x86:jmp ,out-label))
-                 (finish-mv-region)
                  (emit function-label
                        `(sys.lap-x86:call :r13))
-                 (enter-mv-region :full)
                  (emit out-label)
+                 (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area)))
                  (cond ((member *for-value* '(:multiple :tail))
-                        (emit `(sys.lap-x86:mov64 :rbx ,(control-stack-slot-ea stack-pointer-save-area)))
                         :multiple)
-                       (t (emit `(sys.lap-x86:mov64 :lsp ,(control-stack-slot-ea stack-pointer-save-area)))
-                          (finish-mv-region)
-                          (setf *r8-value* (list (gensym)))))))))
+                       (t (setf *r8-value* (list (gensym)))))))))
           (t (error "M-V-CALL with >1 form not lowered")))))
 
 (defun cg-multiple-value-prog1 (form)
@@ -827,19 +759,21 @@ be generated instead.")
                                        (:predicate t)
                                        (:tail :multiple)
                                        (t *for-value*))))
-                    (cg-form (second form)))))
+                    (cg-form (second form))))
+             (save-area (allocate-control-stack-slots 2))
+             (reg-arg-tags (loop for reg in '(:r8 :r9 :r10 :r11 :r12) collect (list (gensym)))))
          (smash-r8)
          (when (eql tag :multiple)
-           (localize-multiple-values)
-           ;; Save MV registers.
-           (adjust-lisp-stack 7)
-           (emit `(sys.lap-x86:mov64 (:lsp 0) :r8)
-                 `(sys.lap-x86:mov64 (:lsp 8) :r9)
-                 `(sys.lap-x86:mov64 (:lsp 16) :r10)
-                 `(sys.lap-x86:mov64 (:lsp 24) :r11)
-                 `(sys.lap-x86:mov64 (:lsp 32) :r12)
-                 `(sys.lap-x86:mov64 (:lsp 40) :rbx)
-                 `(sys.lap-x86:mov64 (:lsp 48) :rcx)))
+           (loop for slot = (find-stack-slot)
+              for tag in reg-arg-tags
+              for reg in '(:r8 :r9 :r10 :r11 :r12)
+              do
+                (setf (aref *stack-values* slot) tag)
+                (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
+                (push tag *load-list*))
+           (multiple-values-to-stack)
+           (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea save-area) :rcx)
+                 `(sys.lap-x86:mov64 ,(control-stack-slot-ea (1+ save-area)) :rsp)))
          (let ((*for-value* nil))
            (when (not (cg-progn `(progn ,@(cddr form))))
              ;; No return.
@@ -849,16 +783,12 @@ be generated instead.")
          ;; Drop the tag from the load-list to prevent duplicates caused by cg-form
          (setf *load-list* (delete tag *load-list*))
          (when (eql tag :multiple)
-           ;; Restore MV registers.
-           (emit `(sys.lap-x86:mov64 :r8 (:lsp 0))
-                 `(sys.lap-x86:mov64 :r9 (:lsp 8))
-                 `(sys.lap-x86:mov64 :r10 (:lsp 16))
-                 `(sys.lap-x86:mov64 :r11 (:lsp 24))
-                 `(sys.lap-x86:mov64 :r12 (:lsp 32))
-                 `(sys.lap-x86:mov64 :rbx (:lsp 40))
-                 `(sys.lap-x86:mov64 :rcx (:lsp 48)))
-           (adjust-lisp-stack -7)
-           (enter-mv-region :local))
+           (emit `(sys.lap-x86:mov64 :rcx ,(control-stack-slot-ea save-area))
+                 `(sys.lap-x86:mov64 :rsi ,(control-stack-slot-ea (1+ save-area))))
+           (stack-to-multiple-values)
+           (loop for reg in '(:r8 :r9 :r10 :r11 :r12)
+              for tag in reg-arg-tags
+              do (load-in-reg reg tag t)))
          tag))))
 
 (defun cg-progn (form)
@@ -890,29 +820,14 @@ be generated instead.")
     (incf (block-information-count (second form)))
     (smash-r8)
     (cond (local-info ;; Local jump.
-           (emit `(sys.lap-x86:jmp ,(second local-info)))
-           (finish-mv-region))
+           (emit `(sys.lap-x86:jmp ,(second local-info))))
           (t ;; Non-local exit.
-           (when *for-value*
-             ;; Save R8 (first value).
-             (adjust-lisp-stack 1)
-             (emit `(sys.lap-x86:mov64 (:lsp 0) :r8)))
-           (load-in-r8 target-tag t)
-           (smash-r8)
-           ;; Block info is just a fixnum, so can go in an arbitrary register.
-           (emit `(sys.lap-x86:mov64 :rax :r8))
-           ;; Restore first value.
-           (when *for-value*
-             (emit `(sys.lap-x86:mov64 :r8 (:lsp 0)))
-             (adjust-lisp-stack -1))
+           (load-in-reg :rax target-tag t)
            ;; Restore registers.
            (emit `(sys.lap-x86:mov64 :csp (:rax 16))
                  `(sys.lap-x86:mov64 :cfp (:rax 24))
-                 `(sys.lap-x86:mov64 :lsp (:rax 32))
-                 `(sys.lap-x86:mov64 :lfp (:rax 40))
                  ;; GO GO GO!
-                 `(sys.lap-x86:jmp (:rax 0)))
-           (finish-mv-region)))
+                 `(sys.lap-x86:jmp (:rax 0)))))
     'nil))
 
 (defun find-variable-home (var)
@@ -975,16 +890,14 @@ be generated instead.")
             (control-info (allocate-control-stack-slots 6)))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-info) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 1)) :rax)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 2)) :csp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 3)) :cfp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 4)) :lsp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (- control-info 5)) :lfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
               ;; Save in the environment.
-              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea control-info))
+              `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax))
         (setf (aref *stack-values* slot) (cons (second form) :home))))
     (setf stack-slots (set-up-for-branch))
@@ -1120,9 +1033,7 @@ be generated instead.")
 (defun load-multiple-values (tag)
   (cond ((eql tag :multiple))
         (t (load-in-r8 tag t)
-           (enter-mv-region :local-registers-only)
-           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
-                 `(sys.lap-x86:mov64 :rbx :lsp)))))
+           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))))
 
 (defun load-in-r8 (tag &optional kill)
   (multiple-value-bind (loc true-tag)
@@ -1149,6 +1060,12 @@ be generated instead.")
 	(when kill
 	  (setf *load-list* (delete tag *load-list*))))))
 
+(defun flush-arguments-from-stack (arg-forms)
+  (let ((stack-count (max 0 (- (length arg-forms) 5))))
+    (when (plusp stack-count)
+      (when (oddp stack-count) (incf stack-count))
+      (emit `(sys.lap-x86:add64 :csp ,(* stack-count 8))))))
+
 (defun prep-arguments-for-call (arg-forms)
   (when arg-forms
     (let ((args '())
@@ -1167,14 +1084,16 @@ be generated instead.")
       ;; They switch stack groups and don't touch the Lisp stack.
       (let ((stack-count (- arg-count 5)))
 	(when (plusp stack-count)
-          (adjust-lisp-stack stack-count)
+          (when (oddp stack-count)
+            (incf stack-count))
+          (emit `(sys.lap-x86:sub64 :csp ,(* stack-count 8)))
 	  ;; Load values on the stack.
 	  ;; Use r13 here to preserve whatever is in r8.
-	  (do ((i 0 (1+ i))
-	       (j (nthcdr 5 args) (cdr j)))
-	      ((null j))
-	    (load-in-reg :r13 (car j) t)
-	    (emit `(sys.lap-x86:mov64 (:lsp ,(* i 8)) :r13)))))
+          ;; ### GC stuff here.
+          (loop for i from 0
+             for j in (nthcdr 5 args) do
+               (load-in-reg :r13 j t)
+               (emit `(sys.lap-x86:mov64 (:csp ,(* i 8)) :r13)))))
       ;; Load other values in registers.
       (when (> arg-count 4)
 	(load-in-reg :r12 (nth 4 args) t))
@@ -1195,9 +1114,7 @@ be generated instead.")
          (cond ((member *for-value* '(:multiple :tail))
                 ;; R8 must hold NIL.
                 (load-in-r8 ''nil)
-                (emit `(sys.lap-x86:xor32 :ecx :ecx)
-                      `(sys.lap-x86:mov64 :rbx :lsp))
-                (enter-mv-region :no-values)
+                (emit `(sys.lap-x86:xor32 :ecx :ecx))
                 :multiple)
                (t (cg-form ''nil))))
         ((null (rest forms))
@@ -1210,12 +1127,9 @@ be generated instead.")
                 ;; to the standard calling convention!
                 (when (prep-arguments-for-call forms)
                   (load-constant :rcx (length forms))
-                  (let ((stack-count (- (length forms) 5)))
-                    (cond ((> stack-count 0)
-                           (emit `(sys.lap-x86:lea64 :rbx (:lsp ,(* stack-count 8))))
-                           (enter-mv-region :local))
-                          (t (emit `(sys.lap-x86:mov64 :rbx :lsp))
-                             (enter-mv-region :local-registers-only))))
+                  (when (> (length forms) 5)
+                    (emit `(sys.lap-x86:mov64 :rsi :rsp))
+                    (stack-to-multiple-values))
                   :multiple))
                (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
                 (let ((tag (cg-form (first forms))))
@@ -1283,21 +1197,17 @@ be generated instead.")
                       (cond ((can-tail-call (cddr form))
                              (emit-tail-call '(:symbol-function :r13) (second form)))
                             (t (emit `(sys.lap-x86:call (:symbol-function :r13)))
-                               (enter-mv-region :full)
-                               (emit `(sys.lap-x86:jmp ,out-label))
-                               (finish-mv-region))))
+                               (emit `(sys.lap-x86:jmp ,out-label)))))
                     (emit function-label)
                     (cond ((can-tail-call (cddr form))
                            (emit-tail-call :r13 (second form)))
-                          (t (emit `(sys.lap-x86:call :r13))
-                             (enter-mv-region :full)))
+                          (t (emit `(sys.lap-x86:call :r13))))
                     (emit out-label)
+                    (flush-arguments-from-stack (cddr form))
                     (cond ((can-tail-call (cddr form)) nil)
                           ((member *for-value* '(:multiple :tail))
                            :multiple)
-                          (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
-                             (finish-mv-region)
-                             (setf *r8-value* (list (gensym))))))
+                          (t (setf *r8-value* (list (gensym))))))
 		   (t ;; Flush the unused function.
 		    (setf *load-list* (delete fn-tag *load-list*))))))
           ((eql (first form) 'values)
@@ -1310,12 +1220,10 @@ be generated instead.")
                       (emit-tail-call '(:symbol-function :r13) (first form))
                       nil)
                      (t (emit `(sys.lap-x86:call (:symbol-function :r13)))
-                        (enter-mv-region :full)
+                        (flush-arguments-from-stack (cdr form))
                         (cond ((member *for-value* '(:multiple :tail))
                                :multiple)
-                              (t (emit `(sys.lap-x86:mov64 :lsp :rbx))
-                                 (finish-mv-region)
-                                 (setf *r8-value* (list (gensym))))))))))))
+                              (t (setf *r8-value* (list (gensym))))))))))))
 
 (defun can-tail-call (args)
   (and (eql *for-value* :tail)
@@ -1326,8 +1234,7 @@ be generated instead.")
   #+nil(format t "Performing tail call to ~S in ~S~%"
           what (lambda-information-name *current-lambda*))
   (emit-return-code t)
-  (emit `(sys.lap-x86:jmp ,where))
-  (finish-mv-region))
+  (emit `(sys.lap-x86:jmp ,where)))
 
 (defun cg-variable (form)
   (assert (localp form))
@@ -1374,50 +1281,45 @@ be generated instead.")
             `(sys.lap-x86:jmp :rax))
       nil)))
 
-(defun enter-mv-region (mode)
-  "Notify the GC that the MV stack layout is active from this point.
-MODE must be one of:
- :FULL
-    Full MV stack layout, gap may be present.
- :LOCAL
-    No gap, values may be on stack.
- :LOCAL-REGISTERS-ONLY
-    No gap, no stack values.
- :NO-VALUES
-    No gap, no stack values, no register values (:R8 = NIL, :RCX = 0)."
-  (check-type mode (member :full :local :local-registers-only :no-values))
-  (assert (not *multiple-value-status*))
-  (let ((sym (gensym "mv-region-start")))
-    (setf *multiple-value-status* (list mode sym))
-    (emit sym)))
+(defun multiple-values-to-stack ()
+  "Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5."
+  (let ((loop-head (gensym))
+        (loop-exit (gensym)))
+    ;; RAX = n values to copy (fixnum).
+    (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
+          `(sys.lap-x86:cmp64 :rax 0)
+          `(sys.lap-x86:jle ,loop-exit)
+          `(sys.lap-x86:sub64 :rsp :rax)
+          `(sys.lap-x86:mov64 :rdi :rsp)
+          `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-array-like+)
+                                       (* sys.int::+stack-group-offset-mv-slots+ 8)))
+          loop-head
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :rbx (:rsi))
+          `(sys.lap-x86:mov64 (:rdi) :rbx)
+          `(sys.lap-x86:add64 :rdi 8)
+          `(sys.lap-x86:add64 :rsi 8)
+          `(sys.lap-x86:sub64 :rax 8)
+          `(sys.lap-x86:jae ,loop-head)
+          loop-exit)))
 
-(defun finish-mv-region ()
-  (when *multiple-value-status*
-    (let ((end-sym (gensym "mv-region-end"))
-          (start-sym (second *multiple-value-status*)))
-      (emit end-sym)
-      ;; GC only needs to be defered when there's a gap.
-      (when (eql (first *multiple-value-status*) :full)
-        (setf (get start-sym 'pinned-label) t
-              (get end-sym 'pinned-label) t)
-        (push (cons start-sym end-sym) *stack-adjustments*))
-      (setf *multiple-value-status* nil))))
-
-(defun localize-multiple-values ()
-  "Shuffle multiple values up so there is no stack gap. Finishes the MV region."
-  (when *multiple-value-status*
-    (when (eql (first *multiple-value-status*) :full)
-      (emit `(sys.lap-x86:std)
-            `(sys.lap-x86:lea64 :rdi (:rbx -8))
-            `(sys.lap-x86:mov32 :edx :ecx)
-            `(sys.lap-x86:xor32 :eax :eax)
-            `(sys.lap-x86:sub32 :ecx ,(* 8 5))
-            `(sys.lap-x86:cmov32ng :ecx :eax)
-            `(sys.lap-x86:lea64 :rsi (:lsp :rcx -8))
-            `(sys.lap-x86:shr32 :ecx 3)
-            `(sys.lap-x86:rep)
-            `(sys.lap-x86:movs64)
-            `(sys.lap-x86:mov32 :ecx :edx)
-            `(sys.lap-x86:cld)
-            `(sys.lap-x86:lea64 :lsp (:rdi 8))))
-    (finish-mv-region)))
+(defun stack-to-multiple-values ()
+  "Copy RCX-5 values from :RSI to the sg-mv area. Uses RAX, RDI & RSI."
+  (let ((loop-head (gensym))
+        (loop-exit (gensym)))
+    ;; RAX = n values to copy (fixnum).
+    (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
+          `(sys.lap-x86:cmp64 :rax 0)
+          `(sys.lap-x86:jle ,loop-exit)
+          `(sys.lap-x86:sub64 :rsp :rax)
+          `(sys.lap-x86:mov32 :edi ,(+ (- 8 sys.int::+tag-array-like+)
+                                       (* sys.int::+stack-group-offset-mv-slots+ 8)))
+          loop-head
+          `(sys.lap-x86:mov64 :rbx (:rsi))
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 (:rdi) :rbx)
+          `(sys.lap-x86:add64 :rdi 8)
+          `(sys.lap-x86:add64 :rsi 8)
+          `(sys.lap-x86:sub64 :rax 8)
+          `(sys.lap-x86:jae ,loop-head)
+          loop-exit)))

@@ -160,6 +160,10 @@ Dump the binding stack, replace it with a dx list.
   (stack-group-bindings foo) => '((*some-special* . #\snowman) ; binding
                                   (#<function 123> . #(env-object)) ; unwind-protect
                                   (#(env-object) . 456)) ; tagbody/block
+or maybe use dx simple-vectors instead... Same size, less pointer traversal
+  (stack-group-bindings foo) => #(*some-special* #\snowman ; binding
+                                  #(#<function 123> #(env-object) ; unwind-protect
+                                    #(#(env-object) 456 nil))) ; tagbody/block
 
 Fix the cold package system.
  Set (symbol-package foo) to the package name as a keyword. :common-lisp, :keyword, :system

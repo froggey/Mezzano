@@ -127,14 +127,12 @@
 
 (defun make-process (name &key
                             control-stack-size
-                            data-stack-size
                             binding-stack-size
                             run-reasons
                             arrest-reasons
                             whostate)
   (let* ((stack-group (make-stack-group name
                                         :control-stack-size control-stack-size
-                                        :data-stack-size data-stack-size
                                         :binding-stack-size binding-stack-size))
          (process (%make-process :name name
                                  :stack-group stack-group

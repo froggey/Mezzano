@@ -275,8 +275,6 @@ allocate environment frames."
   (sys.lap-x86:and32 :ecx 7)
   (sys.lap-x86:rep)
   (sys.lap-x86:movs8)
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 ;; (to-storage from-storage bytes-per-col to-stride from-stride nrows)
@@ -285,7 +283,7 @@ allocate environment frames."
   (sys.lap-x86:mov64 :rsi :r9) ; from-storage
   (sys.lap-x86:sar64 :rsi 3)
   (sys.lap-x86:sar64 :rdi 3)
-  (sys.lap-x86:mov64 :r8 (:lsp)) ; nrows
+  (sys.lap-x86:mov64 :r8 (:rsp 8)) ; nrows
   (sys.lap-x86:sub64 :r11 :r10)
   (sys.lap-x86:sub64 :r12 :r10)
   (sys.lap-x86:jmp loop-test)
@@ -308,8 +306,8 @@ allocate environment frames."
   loop-test
   (sys.lap-x86:sub64 :r8 8)
   (sys.lap-x86:jge loop-head)
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:lea64 :rbx (:lsp 8))
+  (sys.lap-x86:mov32 :ecx 0)
+  (sys.lap-x86:mov64 :r8 nil)
   (sys.lap-x86:ret))
 
 (defun %bitblt (nrows ncols from-array from-row from-col to-array to-row to-col)
@@ -354,7 +352,6 @@ allocate environment frames."
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (define-lap-function %fast-set-16 ()
@@ -366,7 +363,6 @@ allocate environment frames."
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos16)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (define-lap-function %fast-set-32 ()
@@ -378,7 +374,6 @@ allocate environment frames."
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos32)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (define-lap-function %fast-set-64 ()
@@ -393,7 +388,6 @@ allocate environment frames."
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret)
   load-bignum
   (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))

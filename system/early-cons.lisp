@@ -359,7 +359,7 @@
 
 ;; Note - can't use setf of getf because setf hasn't been loaded yet.
 (defun (setf get) (new-value symbol indicator &optional default)
-  ;;(declare (ignore default))
+  (declare (ignore default))
   (do ((i (symbol-plist symbol) (cddr i)))
       ((null i)
        (setf (symbol-plist symbol) (list* indicator new-value (symbol-plist symbol)))
@@ -405,6 +405,7 @@
       (return (values (first i) (second i) i)))))
 
 (defun list* (object &rest objects)
+  (declare (dynamic-extent object))
   (if objects
       (do* ((i objects (cdr i))
 	    (result (cons object nil))

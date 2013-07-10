@@ -83,9 +83,10 @@
     (write-char #\Newline)
     (write-integer fp 16)
     (write-char #\Space)
-    (let* ((fn (memref-t fp -2))
+    (let* ((ret-addr (memref-unsigned-byte-64 fp 1))
+           (fn (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-function+))
            (name (when (functionp fn) (function-name fn))))
-      (write-integer (lisp-object-address fn) 16)
+      (write-integer (lisp-object-address ret-addr) 16)
       (when name
         (write-char #\Space)
         (write name)))))
@@ -783,7 +784,7 @@
            (incf addr (round-up size 8))))))))
 
 (defun initialize-lisp ()
-  (setf *next-symbol-tls-slot* 12
+  (setf *next-symbol-tls-slot* 256
         *array-types* #(t
                         base-char
                         character
@@ -830,8 +831,7 @@
         +++ nil
         ++ nil
         + nil
-        *default-control-stack-size* 8192
-        *default-data-stack-size* 8192
+        *default-control-stack-size* 16384
         *default-binding-stack-size* 512)
   (setf *print-base* 10.
         *print-escape* t
@@ -878,7 +878,7 @@
   (makunbound '*initial-setf-obarray*)
   (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
-  (gc)
+  #+nil(gc)
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()

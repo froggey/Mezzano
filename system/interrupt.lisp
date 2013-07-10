@@ -32,21 +32,13 @@
   (sys.lap-x86:push :rdx)
   (sys.lap-x86:push :rsi)
   (sys.lap-x86:push :rdi)
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:mov64 (:lsp -24) nil)
-  (sys.lap-x86:mov64 (:lsp -32) nil)
-  (sys.lap-x86:mov64 (:lsp -40) nil)
-  (sys.lap-x86:mov64 (:lsp -48) nil)
-  (sys.lap-x86:mov64 (:lsp -56) nil)
-  (sys.lap-x86:sub64 :lsp 56)
-  (sys.lap-x86:mov64 (:lsp 0) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
-  (sys.lap-x86:mov64 (:lsp 16) :r10)
-  (sys.lap-x86:mov64 (:lsp 24) :r11)
-  (sys.lap-x86:mov64 (:lsp 32) :r12)
-  (sys.lap-x86:mov64 (:lsp 40) :r13)
-  (sys.lap-x86:mov64 (:lsp 48) :rbx)
+  (sys.lap-x86:push :rbx)
+  (sys.lap-x86:push :r13)
+  (sys.lap-x86:push :r12)
+  (sys.lap-x86:push :r11)
+  (sys.lap-x86:push :r10)
+  (sys.lap-x86:push :r9)
+  (sys.lap-x86:push :r8)
   ;; Load the target stack-group.
   (sys.lap-x86:mov64 :r8 (:constant *isa-pic-stack-groups*))
   (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
@@ -70,21 +62,13 @@
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :r8 (:lsp 0))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:mov64 :r10 (:lsp 16))
-  (sys.lap-x86:mov64 :r11 (:lsp 24))
-  (sys.lap-x86:mov64 :r12 (:lsp 32))
-  (sys.lap-x86:mov64 :r13 (:lsp 40))
-  (sys.lap-x86:mov64 :rbx (:lsp 48))
-  (sys.lap-x86:add64 :lsp 56)
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:mov64 (:lsp -24) nil)
-  (sys.lap-x86:mov64 (:lsp -32) nil)
-  (sys.lap-x86:mov64 (:lsp -40) nil)
-  (sys.lap-x86:mov64 (:lsp -48) nil)
-  (sys.lap-x86:mov64 (:lsp -56) nil)
+  (sys.lap-x86:pop :r8)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:pop :r10)
+  (sys.lap-x86:pop :r11)
+  (sys.lap-x86:pop :r12)
+  (sys.lap-x86:pop :r13)
+  (sys.lap-x86:pop :rbx)
   (sys.lap-x86:pop :rdi)
   (sys.lap-x86:pop :rsi)
   (sys.lap-x86:pop :rdx)
@@ -119,7 +103,6 @@
                   (setf (aref *isa-pic-base-handlers* ,n) #',sym)
                   (setf (aref *isa-pic-stack-groups* ,n) (make-stack-group ,(format nil "IRQ~D" n)
                                                                            :control-stack-size 512
-                                                                           :data-stack-size 512
                                                                            :binding-stack-size 32))
                   (stack-group-preset-no-interrupts (aref *isa-pic-stack-groups* ,n) #'isa-pic-common ,n)))))
   (doit))
@@ -182,7 +165,7 @@
 (defvar *debug-trap-stack-group* nil
   "Switch to this stack group on a #DB or #BP. Will enter LDB if NIL.")
 
-(define-lap-function %%db/bp-exception ()
+#+nil(define-lap-function %%db/bp-exception ()
   ;; Save the current state (interrupted stack group frame).
   (sys.lap-x86:push :rax)
   (sys.lap-x86:push :rcx)
@@ -342,7 +325,7 @@
       "Exception-29"
       "Exception-30"
       "Exception-31")))
-
+#+nil(progn
 (macrolet ((doit ()
              (let ((forms '(progn)))
                (dotimes (i 32)
@@ -363,7 +346,7 @@
                   (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
   (doit))
 (set-idt-entry 1 :offset (lisp-object-address #'%%db/bp-exception))
-(set-idt-entry 3 :offset (lisp-object-address #'%%db/bp-exception))
+(set-idt-entry 3 :offset (lisp-object-address #'%%db/bp-exception)))
 
 (defmacro define-interrupt-handler (name lambda-list &body body)
   `(progn (setf (get ',name 'interrupt-handler)
@@ -385,7 +368,7 @@
                                 :initial-contents the-env
                                 :area :static)))))
 
-(define-lap-function %%interrupt-break-thunk ()
+#+nil(define-lap-function %%interrupt-break-thunk ()
   ;; Control will return to the common PIC code.
   ;; All registers can be smashed here, aside from the stack regs.
   ;; Align the control stack
@@ -409,7 +392,7 @@
   ;; All done.
   (sys.lap-x86:ret))
 
-(defun signal-break-from-interrupt (stack-group)
+#+nil(defun signal-break-from-interrupt (stack-group)
   "Configure the resumer stack group so it will call BREAK when resumed."
   (let* ((target stack-group)
          (csp (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+))

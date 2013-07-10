@@ -31,22 +31,119 @@
 (defun variable-information (symbol)
   (symbol-mode symbol))
 
-;;; The compiler can only handle (apply function arg-list).
 (defun apply (function arg &rest more-args)
   (declare (dynamic-extent more-args))
+  (check-type function (or function symbol) "a function-designator")
+  (when (symbolp function)
+    (setf function (symbol-function function)))
   (cond (more-args
          ;; Convert (... (final-list ...)) to (... final-list...)
          (do* ((arg-list (cons arg more-args))
                (i arg-list (cdr i)))
               ((null (cddr i))
                (setf (cdr i) (cadr i))
-               (apply function arg-list))))
-        (t (apply function arg))))
+               (%apply function arg-list))))
+        (t (%apply function arg))))
+
+;;; Support function for APPLY.
+;;; Takes a function & a list of arguments.
+;;; The function must be a function, but type-checking
+;;; will be performed on the argument list.
+;;; FIXME: should enforce CALL-ARGUMENTS-LIMIT.
+(define-lap-function %apply ()
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  ;; Function goes in R13.
+  (sys.lap-x86:mov64 :r13 :r8)
+  ;; Argument count.
+  (sys.lap-x86:xor32 :ecx :ecx)
+  ;; Check for no arguments.
+  (sys.lap-x86:cmp64 :r9 nil)
+  (sys.lap-x86:je do-call)
+  ;; Unpack the list.
+  (sys.lap-x86:mov64 :rbx :r9)
+  (sys.lap-x86:jmp unpack-test)
+  unpack-loop
+  ;; Typecheck list, part 2. consp
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne list-type-error)
+  ;; Push car & increment arg count
+  (sys.lap-x86:push (:car :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Advance.
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  unpack-test
+  ;; Typecheck list, part 1. null
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:jne unpack-loop)
+  ;; Arguments have been pushed on the stack in reverse.
+  ;; RCX = n arguments.
+  ;; RDX = left offset, RAX = right offset.
+  (sys.lap-x86:lea64 :rax (:rcx -8))
+  (sys.lap-x86:xor32 :edx :edx)
+  ;; Ensure the stack is misaligned.
+  ;; Misalign because 5 registers will be popped off, leaving
+  ;; the stack correctly aligned.
+  (sys.lap-x86:test64 :rsp 8)
+  (sys.lap-x86:jnz reverse-test)
+  ;; Don't push anything extra if there are 5 or fewer args.
+  ;; They will all be popped off.
+  (sys.lap-x86:cmp64 :rcx #.(* 5 8)) ; fixnum 5
+  (sys.lap-x86:jbe reverse-test)
+  ;; Reversing will put this at the end of the stack, out of the way.
+  (sys.lap-x86:push 0)
+  (sys.lap-x86:add64 :rax 8)
+  (sys.lap-x86:jmp reverse-test)
+  reverse-loop
+  ;; Swap stack+rax & stack+rdx
+  (sys.lap-x86:mov64 :r8 (:rsp :rax))
+  (sys.lap-x86:mov64 :r9 (:rsp :rdx))
+  (sys.lap-x86:mov64 (:rsp :rax) :r9)
+  (sys.lap-x86:mov64 (:rsp :rdx) :r8)
+  ;; Advance offsets.
+  (sys.lap-x86:add64 :rdx 8)
+  (sys.lap-x86:sub64 :rax 8)
+  reverse-test
+  ;; Stop when RDX > RAX
+  (sys.lap-x86:cmp64 :rax :rdx)
+  (sys.lap-x86:ja reverse-loop)
+  ;; Put arguments into registers.
+  ;; Always at least one argument by this point.
+  (sys.lap-x86:pop :r8)
+  (sys.lap-x86:cmp64 :rcx 8)
+  (sys.lap-x86:je do-call)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:cmp64 :rcx 16)
+  (sys.lap-x86:je do-call)
+  (sys.lap-x86:pop :r10)
+  (sys.lap-x86:cmp64 :rcx 24)
+  (sys.lap-x86:je do-call)
+  (sys.lap-x86:pop :r11)
+  (sys.lap-x86:cmp64 :rcx 32)
+  (sys.lap-x86:je do-call)
+  (sys.lap-x86:pop :r12)
+  ;; Everything is ready. Call the function!
+  do-call
+  (sys.lap-x86:call :r13)
+  ;; Finish up & return.
+  (sys.lap-x86:leave)
+  (sys.lap-x86:ret)
+  ;; R8 = function, R9 = arg-list.
+  ;; (raise-type-error arg-list 'proper-list)
+  list-type-error
+  (sys.lap-x86:mov64 :r8 :r9)
+  (sys.lap-x86:mov64 :r9 (:constant proper-list))
+  (sys.lap-x86:mov64 :r13 (:constant raise-type-error))
+  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
 ;;; 12 is where the TLS slots in a stack group start.
 ;;; NOTE: Is set by initialize-lisp during cold boot.
-(defvar *next-symbol-tls-slot* 12)
+(defvar *next-symbol-tls-slot*)
 (defconstant +maximum-tls-slot+ 512)
 (defun %allocate-tls-slot (symbol)
   (when (>= *next-symbol-tls-slot* +maximum-tls-slot+)
@@ -375,3 +472,107 @@
 (defun %array-like-type (object)
   (logand (1- (ash 1 +array-type-size+))
           (ash (%array-like-header object) (- +array-type-shift+))))
+
+(define-lap-function values-list ()
+  (sys.lap-x86:push :rbp)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (sys.lap-x86:sub64 :rsp 16) ; 2 slots
+  (sys.lap-x86:cmp32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:jne bad-arguments)
+  ;; RBX = iterator, (:stack 1) = list.
+  (sys.lap-x86:mov64 :rbx :r8)
+  (sys.lap-x86:mov64 (:stack 1) :r8)
+  ;; ECX = value count.
+  (sys.lap-x86:xor32 :ecx :ecx)
+  ;; Pop into R8.
+  ;; If LIST is NIL, then R8 must be NIL, so no need to
+  ;; set R8 to NIL in the 0-values case.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r8 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Pop into R9.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r9 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Pop into R10.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r10 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Pop into R11.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r11 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Pop into R12.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r12 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  ;; Registers are populated, now unpack into the MV-area
+  (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-array-like+)
+                               (* +stack-group-offset-mv-slots+ 8)))
+  unpack-loop
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:cmp32 :ecx #.(* (+ +stack-group-mv-slots-size+ 5) 8))
+  (sys.lap-x86:jae too-many-values)
+  (sys.lap-x86:mov64 :r13 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:rdi) :r13)
+  (sys.lap-x86:add64 :rdi 8)
+  (sys.lap-x86:jmp unpack-loop)
+  done
+  (sys.lap-x86:leave)
+  (sys.lap-x86:ret)
+  type-error
+  (sys.lap-x86:mov64 :r8 (:stack 1))
+  (sys.lap-x86:mov64 :r9 (:constant proper-list))
+  (sys.lap-x86:mov64 :r13 (:constant raise-type-error))
+  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2)
+  too-many-values
+  (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
+  (sys.lap-x86:mov64 :r9 (:stack 1))
+  (sys.lap-x86:mov64 :r13 (:constant error))
+  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2)
+  bad-arguments
+  (sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
+  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:ud2))
