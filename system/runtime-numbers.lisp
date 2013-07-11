@@ -623,7 +623,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:sar64 :rsi 63)
   (sys.lap-x86:jmp sign-fixed)
   bignum-overflow
-  (sys.lap-x86:push 0) ; align
   (sys.lap-x86:mov64 :r8 (:constant "Aiee! Bignum overflow."))
   (sys.lap-x86:mov64 :r13 (:constant error))
   (sys.lap-x86:mov32 :ecx 8)

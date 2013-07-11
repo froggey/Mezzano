@@ -25,7 +25,7 @@
 ;; Ensure it has a TLS slot.
 (%allocate-tls-slot '*isa-pic-interrupted-stack-group*)
 
-;;; RBP, RAX, RCX pushed on stack.
+;;; RAX, RCX pushed on stack.
 ;;; RCX = IRQ number as fixnum.
 (define-lap-function %%isa-pic-common ()
   ;; Save the current state.
@@ -60,6 +60,7 @@
                             (* (1+ +stack-group-offset-flags+) 8)))
                     #.(ash +stack-group-interrupted+ (+ +stack-group-state-position+ 3)))
   (sys.lap-x86:mov32 :ecx 8)
+  ;; %%SWITCH-TO-STACK-GROUP can be called with the stack misaligned.
   (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop :r8)
@@ -269,7 +270,6 @@
   (sys.lap-x86:push 0)
   already-aligned
   (sys.lap-x86:mov32 :ecx 8)
-  ;; FIXME: Should switch to a secondary data stack.
   (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :rsp :r8)
@@ -325,7 +325,7 @@
       "Exception-29"
       "Exception-30"
       "Exception-31")))
-#+nil(progn
+
 (macrolet ((doit ()
              (let ((forms '(progn)))
                (dotimes (i 32)
@@ -345,6 +345,7 @@
                   (setf (aref *exception-base-handlers* ,n) #',sym)
                   (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
   (doit))
+#+nil(progn
 (set-idt-entry 1 :offset (lisp-object-address #'%%db/bp-exception))
 (set-idt-entry 3 :offset (lisp-object-address #'%%db/bp-exception)))
 

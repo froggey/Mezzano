@@ -67,13 +67,14 @@
   array)
 
 ;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+0) TO-OFFSET(+8)
+;;; TO and TO-OFFSET are fixnums, no GC info required.
 (sys.int::define-lap-function %bitset-mask-8-line ()
   (sys.lap-x86:mov64 :rsi :r11)
   (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
-  (sys.lap-x86:mov64 :rdi (:lsp 0))
+  (sys.lap-x86:mov64 :rdi (:rsp 8))
   (sys.lap-x86:sar64 :rdi 3) ; RDI = TO address (byte address)
-  (sys.lap-x86:sar64 (:lsp 8) 1) ; (:lsp 8) = TO-OFFSET (*4)
-  (sys.lap-x86:add64 :rdi (:lsp 8)) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 (:rsp 16) 1) ; (:lsp 8) = TO-OFFSET (*4)
+  (sys.lap-x86:add64 :rdi (:rsp 16)) ; RDI = TO + TO-OFFSET, first pixel on the line.
   (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
   (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
   (sys.lap-x86:add64 :rsi :r12) ; RSI = MASK + MASK-OFFSET, first pixel in the mask line.
@@ -98,7 +99,6 @@
   (sys.lap-x86:xor32 :r10d :r10d)
   (sys.lap-x86:xor32 :r12d :r12d)
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:lea64 :rbx (:lsp 16))
   (sys.lap-x86:ret)
   blend-alpha
   ;; ARGB888 colour in R10, A8 alpha in AL.
