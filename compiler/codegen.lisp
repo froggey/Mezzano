@@ -202,16 +202,6 @@ be generated instead.")
 	   ;; Create control stack frame.
 	   `(sys.lap-x86:push :cfp)
 	   `(sys.lap-x86:mov64 :cfp :csp))
-     (let ((n-slots (length *stack-values*)))
-       (when (oddp n-slots) (incf n-slots))
-       ;; Adjust stack.
-       (list `(sys.lap-x86:sub64 :rsp ,(* n-slots 8))))
-     ;; Flush stack slots.
-     (loop for value across *stack-values*
-        for i from 0
-        unless (equal value '(:unboxed . :home))
-        collect `(sys.lap-x86:mov64 (:stack ,i) nil))
-     ;; ## Set GC flags here.
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
 	    ;; If there are no required parameters, then don't generate a lower-bound check.
@@ -236,7 +226,16 @@ be generated instead.")
 		  `(sys.lap-x86:jne ,invalid-arguments-label)))
 	   ;; No arguments
 	   (t (list `(sys.lap-x86:test32 :ecx :ecx)
-		    `(sys.lap-x86:jnz ,invalid-arguments-label)))))))
+		    `(sys.lap-x86:jnz ,invalid-arguments-label))))
+     (let ((n-slots (length *stack-values*)))
+       (when (oddp n-slots) (incf n-slots))
+       ;; Adjust stack.
+       (list `(sys.lap-x86:sub64 :rsp ,(* n-slots 8))))
+     ;; Flush stack slots.
+     (loop for value across *stack-values*
+        for i from 0
+        unless (equal value '(:unboxed . :home))
+        collect `(sys.lap-x86:mov64 (:stack ,i) nil)))))
 
 (defun emit-rest-list (lambda arg-registers)
   (let* ((rest-arg (lambda-information-rest-arg lambda))
@@ -388,6 +387,7 @@ be generated instead.")
 (defun cg-block (form)
   (let* ((info (second form))
          (exit-label (gensym "block"))
+         (thunk-label (gensym "block-thunk"))
          (escapes (block-information-env-var info))
          (*for-value* *for-value*))
     ;; Allowing predicate values here is too complicated.
@@ -406,7 +406,7 @@ be generated instead.")
             (control-info (allocate-control-stack-slots 4)))
         (setf (aref *stack-values* slot) (cons info :home))
         ;; Construct jump info.
-        (emit `(sys.lap-x86:lea64 :rax (:rip ,exit-label))
+        (emit `(sys.lap-x86:lea64 :rax (:rip ,thunk-label))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
@@ -415,12 +415,17 @@ be generated instead.")
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
               ;; Save pointer to info
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
-              `(sys.lap-x86:mov64 (:stack ,slot) :rax))))
+              `(sys.lap-x86:mov64 (:stack ,slot) :rax)))
+      (emit-trailer (thunk-label)
+        (emit `(sys.lap-x86:mov64 :csp (:rax 16))
+              `(sys.lap-x86:mov64 :cfp (:rax 24))
+              `(sys.lap-x86:jmp ,exit-label))))
     (let* ((*rename-list* (cons (list (second form) exit-label) *rename-list*))
            (stack-slots (set-up-for-branch))
            (tag (cg-form `(progn ,@(cddr form)))))
       (cond ((and *for-value* tag (/= (block-information-count info) 0))
              ;; Returning a value, exit is reached normally and there were return-from forms reached.
+             ;; Unify the results, so :MULTIPLE is always returned.
              (let ((return-mode nil))
                (ecase *for-value*
                  ((:multiple :tail)
@@ -462,18 +467,15 @@ be generated instead.")
           (t ;; Non-local exit.
            (let ((tagbody-tag (let ((*for-value* t))
                                 (cg-form (third form)))))
-             (load-in-r8 tagbody-tag t)
-             ;; R8 holds the tagbody info.
-             (emit ;; Restore registers.
-                   `(sys.lap-x86:mov64 :csp (:r8 16))
-                   `(sys.lap-x86:mov64 :cfp (:r8 24))
-                   ;; GO GO GO!
-                   `(sys.lap-x86:mov64 :rax (:r8 0))
-                   `(sys.lap-x86:add64 :rax (:rax ,(* (position (second form)
+             (load-in-reg :rax tagbody-tag t)
+             ;; RAX holds the tagbody info.
+             (emit ;; GO GO GO!
+                   `(sys.lap-x86:mov64 :rdx (:rax 0))
+                   `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (second form)
                                                                 (tagbody-information-go-tags
                                                                  (go-tag-tagbody (second form))))
                                                       8)))
-                   `(sys.lap-x86:jmp :rax)))))
+                   `(sys.lap-x86:jmp :rdx)))))
     'nil))
 
 (defun branch-to (label))
@@ -697,7 +699,7 @@ be generated instead.")
                                            (emit `(sys.lap-x86:gs)
                                                  `(sys.lap-x86:mov64 :r13 (,(+ (- 8 sys.int::+tag-array-like+)
                                                                                (* (+ sys.int::+stack-group-offset-mv-slots+
-                                                                                     (first value-locations)) 8)))))
+                                                                                     (pop value-locations)) 8)))))
                                            :r13)
                                           (t (pop value-locations)))))
                       (emit `(sys.lap-x86:mov64 (:stack ,(position (cons var :home)
@@ -707,6 +709,30 @@ be generated instead.")
       (emit no-vals-label))
     (cg-form `(progn ,@body))))
 
+(defun emit-funcall-common ()
+  "Emit the common code for funcall, argument registers must
+be set up and the function must be in R13.
+Returns an appropriate tag."
+  (let ((type-error-label (gensym))
+        (function-label (gensym))
+        (out-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error :r13 '(or function symbol)))
+    (emit `(sys.lap-x86:mov8 :al :r13l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
+          `(sys.lap-x86:je ,function-label)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
+          `(sys.lap-x86:jne ,type-error-label)
+          `(sys.lap-x86:call (:symbol-function :r13)))
+    (emit `(sys.lap-x86:jmp ,out-label))
+    (emit function-label
+          `(sys.lap-x86:call :r13))
+    (emit out-label)
+    (cond ((member *for-value* '(:multiple :tail))
+           :multiple)
+          (t (setf *r8-value* (list (gensym)))))))
+
 (defun cg-multiple-value-call (form)
   (let ((function (second form))
         (value-forms (cddr form)))
@@ -715,39 +741,54 @@ be generated instead.")
            (cg-function-form `(funcall ,function)))
           ((null (cdr value-forms))
            ;; Single value form.
-           (let ((fn-tag (let ((*for-value* t)) (cg-form function)))
-                 (stack-pointer-save-area (allocate-control-stack-slots 1)))
+           (let ((fn-tag (let ((*for-value* t)) (cg-form function))))
              (when (not fn-tag)
                (return-from cg-multiple-value-call nil))
              (let ((value-tag (let ((*for-value* :multiple))
                                 (cg-form (first value-forms)))))
-               (when (not value-tag)
-                 (return-from cg-multiple-value-call nil))
-               (load-multiple-values value-tag)
-               (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rsp))
-               (multiple-values-to-stack)
-               (smash-r8)
-               (load-in-reg :r13 fn-tag t)
-               (let ((type-error-label (gensym))
-                     (function-label (gensym))
-                     (out-label (gensym)))
-                 (emit-trailer (type-error-label)
-                   (raise-type-error :r13 '(or function symbol)))
-                 (emit `(sys.lap-x86:mov8 :al :r13l)
-                       `(sys.lap-x86:and8 :al #b1111)
-                       `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
-                       `(sys.lap-x86:je ,function-label)
-                       `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-                       `(sys.lap-x86:jne ,type-error-label)
-                       `(sys.lap-x86:call (:symbol-function :r13)))
-                 (emit `(sys.lap-x86:jmp ,out-label))
-                 (emit function-label
-                       `(sys.lap-x86:call :r13))
-                 (emit out-label)
-                 (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area)))
-                 (cond ((member *for-value* '(:multiple :tail))
-                        :multiple)
-                       (t (setf *r8-value* (list (gensym)))))))))
+               (case value-tag
+                 ((nil) (return-from cg-multiple-value-call nil))
+                 ((:multiple)
+                  (let ((stack-pointer-save-area (allocate-control-stack-slots 1)))
+                    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rsp))
+                    ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
+                    (let ((loop-head (gensym))
+                          (loop-exit (gensym))
+                          (clear-loop-head (gensym)))
+                      ;; RAX = n values to copy (fixnum).
+                      (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
+                            `(sys.lap-x86:cmp64 :rax 0)
+                            `(sys.lap-x86:jle ,loop-exit)
+                            `(sys.lap-x86:sub64 :rsp :rax)
+                            `(sys.lap-x86:and64 :rsp ,(lognot 8))
+                            ;; Clear stack slots.
+                            `(sys.lap-x86:mov64 :rdx :rax)
+                            clear-loop-head
+                            `(sys.lap-x86:mov64 (:rsp :rdx -8) 0)
+                            `(sys.lap-x86:sub64 :rdx 8)
+                            `(sys.lap-x86:jnz ,clear-loop-head)
+                            ;; Copy values.
+                            `(sys.lap-x86:mov64 :rdi :rsp)
+                            `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-array-like+)
+                                                         (* sys.int::+stack-group-offset-mv-slots+ 8))))
+                      (emit loop-head
+                            `(sys.lap-x86:gs)
+                            `(sys.lap-x86:mov64 :rbx (:rsi))
+                            `(sys.lap-x86:mov64 (:rdi) :rbx)
+                            `(sys.lap-x86:add64 :rdi 8)
+                            `(sys.lap-x86:add64 :rsi 8)
+                            `(sys.lap-x86:sub64 :rax 8)
+                            `(sys.lap-x86:jae ,loop-head)
+                            loop-exit))
+                    (smash-r8)
+                    (load-in-reg :r13 fn-tag t)
+                    (prog1 (emit-funcall-common)
+                      (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area))))))
+                 (t ;; Single value.
+                  (load-in-reg :r13 fn-tag t)
+                  (load-constant :rcx 1)
+                  (load-in-reg :r8 value-tag t)
+                  (emit-funcall-common))))))
           (t (error "M-V-CALL with >1 form not lowered")))))
 
 (defun cg-multiple-value-prog1 (form)
@@ -760,8 +801,9 @@ be generated instead.")
                                        (:tail :multiple)
                                        (t *for-value*))))
                     (cg-form (second form))))
-             (save-area (allocate-control-stack-slots 2))
-             (reg-arg-tags (loop for reg in '(:r8 :r9 :r10 :r11 :r12) collect (list (gensym)))))
+             (reg-arg-tags (loop for reg in '(:r8 :r9 :r10 :r11 :r12) collect (list (gensym))))
+             (sv-save-area-tag (list (gensym)))
+             (sv-count-tag (list (gensym))))
          (smash-r8)
          (when (eql tag :multiple)
            (loop for slot = (find-stack-slot)
@@ -771,9 +813,61 @@ be generated instead.")
                 (setf (aref *stack-values* slot) tag)
                 (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
                 (push tag *load-list*))
-           (multiple-values-to-stack)
-           (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea save-area) :rcx)
-                 `(sys.lap-x86:mov64 ,(control-stack-slot-ea (1+ save-area)) :rsp)))
+           ;; Save the count.
+           (let ((slot (find-stack-slot)))
+             (setf (aref *stack-values* slot) sv-count-tag)
+             (push sv-count-tag *load-list*)
+             (emit `(sys.lap-x86:mov64 (:stack ,slot) :rcx)))
+           ;; Save the values into a simple-vector.
+           (let ((slot (find-stack-slot))
+                 (no-values (gensym "NO-VALUES"))
+                 (clear-loop-head (gensym "VALUES-CLEAR-LOOP"))
+                 (save-loop-head (gensym "VALUES-SAVE-LOOP"))
+                 (save-done (gensym "VALUES-SAVE-DONE")))
+             (setf (aref *stack-values* slot) sv-save-area-tag)
+             (push sv-save-area-tag *load-list*)
+             (smash-r8)
+             (emit-trailer (no-values)
+               (load-constant :r8 nil)
+               (emit `(sys.lap-x86:jmp ,save-done)))
+             (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
+                   `(sys.lap-x86:cmp64 :rax 0)
+                   `(sys.lap-x86:jle ,no-values)
+                   ;; Space for the values.
+                   `(sys.lap-x86:sub64 :rsp :rax)
+                   ;; Space for the header.
+                   `(sys.lap-x86:sub64 :rsp 8)
+                   ;; Realign.
+                   `(sys.lap-x86:and64 :rsp ,(lognot 8))
+                   ;; Set header. SV header type = 0.
+                   `(sys.lap-x86:mov64 :rdx :rax)
+                   `(sys.lap-x86:shl64 :rdx ,(- 8 3))
+                   `(sys.lap-x86:mov64 (:rsp) :rdx)
+                   ;; Clear values. RDX is N+1 non-register values, skipping the header.
+                   ;; Required for GC safety!
+                   `(sys.lap-x86:mov64 :rdx :rax)
+                   clear-loop-head
+                   `(sys.lap-x86:mov64 (:rsp :rdx) 0)
+                   `(sys.lap-x86:sub64 :rdx 8)
+                   `(sys.lap-x86:jnz ,clear-loop-head)
+                   ;; Create pointer.
+                   `(sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-array-like+))
+                   ;; Copy values out of the MV area.
+                   `(sys.lap-x86:lea64 :rdi (:rsp 8))
+                   `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-array-like+)
+                                                (* sys.int::+stack-group-offset-mv-slots+ 8)))
+                   save-loop-head
+                   `(sys.lap-x86:gs)
+                   `(sys.lap-x86:mov64 :rbx (:rsi))
+                   `(sys.lap-x86:mov64 (:rdi) :rbx)
+                   `(sys.lap-x86:add64 :rdi 8)
+                   `(sys.lap-x86:add64 :rsi 8)
+                   `(sys.lap-x86:sub64 :rax 8)
+                   `(sys.lap-x86:ja ,save-loop-head)
+                   save-done
+                   ;; Values are saved to a SV pointed to by R8.
+                   ;; If there were no values, then R8 is NIL.
+                   `(sys.lap-x86:mov64 (:stack ,slot) :r8))))
          (let ((*for-value* nil))
            (when (not (cg-progn `(progn ,@(cddr form))))
              ;; No return.
@@ -783,12 +877,29 @@ be generated instead.")
          ;; Drop the tag from the load-list to prevent duplicates caused by cg-form
          (setf *load-list* (delete tag *load-list*))
          (when (eql tag :multiple)
-           (emit `(sys.lap-x86:mov64 :rcx ,(control-stack-slot-ea save-area))
-                 `(sys.lap-x86:mov64 :rsi ,(control-stack-slot-ea (1+ save-area))))
-           (stack-to-multiple-values)
-           (loop for reg in '(:r8 :r9 :r10 :r11 :r12)
-              for tag in reg-arg-tags
-              do (load-in-reg reg tag t)))
+           (let ((no-extra-values (gensym "NO-EXTRA-VALUES"))
+                 (loop-head (gensym "VALUE-LOAD-LOOP")))
+             (load-in-reg :rcx sv-count-tag t)
+             (load-in-r8 sv-save-area-tag)
+             (emit `(sys.lap-x86:cmp64 :r8 nil)
+                   `(sys.lap-x86:je ,no-extra-values)
+                   `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+                   `(sys.lap-x86:shr64 :rax ,(- 8 3))
+                   `(sys.lap-x86:mov32 :edi ,(+ (- 8 sys.int::+tag-array-like+)
+                                                (* sys.int::+stack-group-offset-mv-slots+ 8)))
+                   `(sys.lap-x86:lea64 :rsi (:r8 ,(+ (- sys.int::+tag-array-like+) 8)))
+                   loop-head
+                   `(sys.lap-x86:mov64 :rbx (:rsi))
+                   `(sys.lap-x86:gs)
+                   `(sys.lap-x86:mov64 (:rdi) :rbx)
+                   `(sys.lap-x86:add64 :rdi 8)
+                   `(sys.lap-x86:add64 :rsi 8)
+                   `(sys.lap-x86:sub64 :rax 8)
+                   `(sys.lap-x86:jae ,loop-head)
+                   no-extra-values)
+             (loop for reg in '(:r8 :r9 :r10 :r11 :r12)
+                for tag in reg-arg-tags
+                do (load-in-reg reg tag t))))
          tag))))
 
 (defun cg-progn (form)
@@ -878,13 +989,24 @@ be generated instead.")
         (tag-labels (mapcar (lambda (tag)
                               (declare (ignore tag))
                               (gensym))
-                            (tagbody-information-go-tags (second form)))))
+                            (tagbody-information-go-tags (second form))))
+        (thunk-labels (mapcar (lambda (tag)
+                                (declare (ignore tag))
+                                (gensym))
+                              (tagbody-information-go-tags (second form)))))
     (when escapes
       ;; Emit the jump-table.
       ;; TODO: Prune local labels out.
       (emit-trailer (jump-table)
-        (dolist (i tag-labels)
+        (dolist (i thunk-labels)
           (emit `(:d64/le (- ,i ,jump-table)))))
+      ;; And the all the thunks.
+      (loop for thunk in thunk-labels
+         for label in tag-labels do
+           (emit-trailer (thunk)
+             (emit `(sys.lap-x86:mov64 :csp (:rax 16))
+                   `(sys.lap-x86:mov64 :cfp (:rax 24))
+                   `(sys.lap-x86:jmp ,label))))
       (smash-r8)
       (let ((slot (find-stack-slot))
             (control-info (allocate-control-stack-slots 6)))
@@ -1080,8 +1202,6 @@ be generated instead.")
 	      (setf *load-list* (delete i *load-list*)))
 	    (return-from prep-arguments-for-call nil))))
       (setf args (nreverse args))
-      ;; Interrupts are not a problem here.
-      ;; They switch stack groups and don't touch the Lisp stack.
       (let ((stack-count (- arg-count 5)))
 	(when (plusp stack-count)
           (when (oddp stack-count)
@@ -1089,7 +1209,7 @@ be generated instead.")
           (emit `(sys.lap-x86:sub64 :csp ,(* stack-count 8)))
 	  ;; Load values on the stack.
 	  ;; Use r13 here to preserve whatever is in r8.
-          ;; ### GC stuff here.
+          ;; Must load first values first, so the GC can track properly.
           (loop for i from 0
              for j in (nthcdr 5 args) do
                (load-in-reg :r13 j t)
@@ -1121,25 +1241,54 @@ be generated instead.")
          ;; Single value.
          (let ((*for-value* t))
            (cg-form (first forms))))
-        (t ;; Multiple-values
-         (cond ((member *for-value* '(:multiple :tail))
-                ;; The MV return convention happens to be almost identical
-                ;; to the standard calling convention!
-                (when (prep-arguments-for-call forms)
-                  (load-constant :rcx (length forms))
-                  (when (> (length forms) 5)
-                    (emit `(sys.lap-x86:mov64 :rsi :rsp))
-                    (stack-to-multiple-values))
-                  :multiple))
-               (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
-                (let ((tag (cg-form (first forms))))
-                  (unless tag (return-from cg-values nil))
-                  (let ((*for-value* nil))
-                    (dolist (f (rest forms))
-                      (when (not (cg-form f))
-                        (setf *load-list* (delete tag *load-list*))
-                        (return-from cg-values nil))))
-                  tag))))))
+        ((member *for-value* '(:multiple :tail))
+         ;; Multiple-values and compiling for multiple values.
+         (let ((args '())
+               (arg-count 0))
+           ;; Compile arguments.
+           (let ((*for-value* t))
+             (dolist (f forms)
+               (push (cg-form f) args)
+               (incf arg-count)
+               (when (null (first args))
+                 ;; Non-local control transfer, don't actually need those results now.
+                 (dolist (i (rest args))
+                   (setf *load-list* (delete i *load-list*)))
+                 (return-from cg-values nil))))
+           (setf args (nreverse args))
+           ;; Load the first values in registers.
+           (when (> arg-count 4)
+             (load-in-reg :r12 (nth 4 args) t))
+           (when (> arg-count 3)
+             (load-in-reg :r11 (nth 3 args) t))
+           (when (> arg-count 2)
+             (load-in-reg :r10 (nth 2 args) t))
+           (when (> arg-count 1)
+             (load-in-reg :r9 (nth 1 args) t))
+           (when (> arg-count 0)
+             (load-in-r8 (nth 0 args) t))
+           ;; Only the register values.
+           (load-constant :rcx (min (length args) 5))
+           ;; Now add MVs to the stack one by one.
+           (loop for i from 0
+              for value in (nthcdr 5 args) do
+                (load-in-reg :r13 value t)
+                (emit `(sys.lap-x86:gs)
+                      `(sys.lap-x86:mov64 (,(+ (- 8 sys.int::+tag-array-like+)
+                                               (* sys.int::+stack-group-offset-mv-slots+ 8)
+                                               (* i 8)))
+                                          :r13))
+                (emit `(sys.lap-x86:add64 :rcx 8)))
+           :multiple))
+        (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
+         (let ((tag (cg-form (first forms))))
+           (unless tag (return-from cg-values nil))
+           (let ((*for-value* nil))
+             (dolist (f (rest forms))
+               (when (not (cg-form f))
+                 (setf *load-list* (delete tag *load-list*))
+                 (return-from cg-values nil))))
+           tag))))
 
 ;; ### TCE here
 (defun cg-function-form (form)
@@ -1280,46 +1429,3 @@ be generated instead.")
             `(sys.lap-x86:add64 :rax (:rax :r8))
             `(sys.lap-x86:jmp :rax))
       nil)))
-
-(defun multiple-values-to-stack ()
-  "Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5."
-  (let ((loop-head (gensym))
-        (loop-exit (gensym)))
-    ;; RAX = n values to copy (fixnum).
-    (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
-          `(sys.lap-x86:cmp64 :rax 0)
-          `(sys.lap-x86:jle ,loop-exit)
-          `(sys.lap-x86:sub64 :rsp :rax)
-          `(sys.lap-x86:mov64 :rdi :rsp)
-          `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-array-like+)
-                                       (* sys.int::+stack-group-offset-mv-slots+ 8)))
-          loop-head
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :rbx (:rsi))
-          `(sys.lap-x86:mov64 (:rdi) :rbx)
-          `(sys.lap-x86:add64 :rdi 8)
-          `(sys.lap-x86:add64 :rsi 8)
-          `(sys.lap-x86:sub64 :rax 8)
-          `(sys.lap-x86:jae ,loop-head)
-          loop-exit)))
-
-(defun stack-to-multiple-values ()
-  "Copy RCX-5 values from :RSI to the sg-mv area. Uses RAX, RDI & RSI."
-  (let ((loop-head (gensym))
-        (loop-exit (gensym)))
-    ;; RAX = n values to copy (fixnum).
-    (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (* 5 8))))
-          `(sys.lap-x86:cmp64 :rax 0)
-          `(sys.lap-x86:jle ,loop-exit)
-          `(sys.lap-x86:sub64 :rsp :rax)
-          `(sys.lap-x86:mov32 :edi ,(+ (- 8 sys.int::+tag-array-like+)
-                                       (* sys.int::+stack-group-offset-mv-slots+ 8)))
-          loop-head
-          `(sys.lap-x86:mov64 :rbx (:rsi))
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (:rdi) :rbx)
-          `(sys.lap-x86:add64 :rdi 8)
-          `(sys.lap-x86:add64 :rsi 8)
-          `(sys.lap-x86:sub64 :rax 8)
-          `(sys.lap-x86:jae ,loop-head)
-          loop-exit)))
