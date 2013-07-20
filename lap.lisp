@@ -19,6 +19,7 @@
 (defvar *missing-symbols* nil)
 (defvar *bytes-emitted* nil)
 (defvar *fixups* nil)
+(defvar *gc-data* nil)
 
 (defun emit (&rest bytes)
   "Emit bytes to the output stream."
@@ -47,11 +48,20 @@ a vector of constants and an alist of symbols & addresses."
        (*symbol-table* nil)
        (*prev-symbol-table* (make-hash-table) *symbol-table*)
        (*fixups* '())
+       (*gc-data* '())
        (attempt 0 (1+ attempt)))
       ((and (eql prev-bytes-emitted *bytes-emitted*)
             (equalp prev-mc *machine-code*))
        (when *missing-symbols*
 	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
+       (setf *gc-data* (reverse *gc-data*))
+       ;; Flush identical GC info entries.
+       (setf *gc-data* (loop for entry in *gc-data*
+                          with prev = nil
+                          unless (equal (rest prev) (rest entry))
+                          collect entry
+                          do (setf prev entry)))
+       (format t "GC data: ~:<~/PPRINT-LINEAR/~>~%" *gc-data*)
        (values *machine-code*
 	       *constant-pool*
                *fixups*
@@ -59,9 +69,11 @@ a vector of constants and an alist of symbols & addresses."
 		 (maphash (lambda (k v)
 			    (push (cons k v) alist))
 			  *symbol-table*)
-		 alist)))
+		 alist)
+               (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
+                      (mapcar 'encode-gc-info *gc-data*))))
     (when (> attempt 50)
-      (error "Internal assembler error. Code has not settled after 10 iterations."))
+      (error "Internal assembler error. Code has not settled after 50 iterations."))
     (setf prev-bytes-emitted *bytes-emitted*
 	  *bytes-emitted* 0
           prev-mc *machine-code*
@@ -74,7 +86,8 @@ a vector of constants and an alist of symbols & addresses."
 			     (setf (gethash (first x) hash-table) (rest x)))
 			   hash-table)
 	  *missing-symbols* '()
-          *fixups* '())
+          *fixups* '()
+          *gc-data* '())
     (dolist (i code-list)
       (etypecase i
 	(symbol (when (gethash i *symbol-table*)
@@ -86,7 +99,8 @@ a vector of constants and an alist of symbols & addresses."
 		      (:d8 (apply 'emit-d8 (rest i)))
 		      (:d16/le (apply 'emit-d16/le (rest i)))
 		      (:d32/le (apply 'emit-d32/le (rest i)))
-		      (:d64/le (apply 'emit-d64/le (rest i))))
+		      (:d64/le (apply 'emit-d64/le (rest i)))
+                      (:gc (apply 'emit-gc (rest i))))
 		    (let ((handler (gethash (first i) instruction-set)))
 		      (if handler
 			  (unless (funcall handler i)
@@ -155,3 +169,111 @@ a vector of constants and an alist of symbols & addresses."
 
 (defun note-fixup (name)
   (push (cons name *current-address*) *fixups*))
+
+(defun emit-gc (&rest args)
+  (destructuring-bind (frame-mode &key (layout #*) (pushed-values 0) incoming-arguments interrupt multiple-values pushed-values-register block-or-tagbody-thunk)
+      args
+    (check-type frame-mode (member :frame :no-frame))
+    (check-type layout bit-vector)
+    (check-type pushed-values (signed-byte 32))
+    (check-type incoming-arguments (or null
+                                       (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)
+                                       (cons (eql :stack)
+                                             (cons (integer 0 14)
+                                                   null))))
+    (check-type interrupt boolean)
+    (check-type multiple-values (or null (unsigned-byte 4)))
+    (check-type pushed-values-register (or null
+                                           (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)))
+    (check-type block-or-tagbody-thunk (or null
+                                           (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)))
+    (when (and incoming-arguments block-or-tagbody-thunk)
+      (error "Incoming-Arguments and Block-Or-Tagbody-Thunk conflict."))
+    ;; Canonicalise keyword order, so EQUAL can be used to strip duplicates.
+    (let ((gc-keys '()))
+      (when block-or-tagbody-thunk
+        (setf (getf gc-keys :block-or-tagbody-thunk) block-or-tagbody-thunk))
+      (when pushed-values-register
+        (setf (getf gc-keys :pushed-values-register) pushed-values-register))
+      (when multiple-values
+        (setf (getf gc-keys :multiple-values) multiple-values))
+      (when interrupt
+        (setf (getf gc-keys :interrupt) interrupt))
+      (when incoming-arguments
+        (setf (getf gc-keys :incoming-arguments) incoming-arguments))
+      (when (not (zerop pushed-values))
+        (setf (getf gc-keys :pushed-values) pushed-values))
+      (when (not (zerop (length layout)))
+        (setf (getf gc-keys :layout) layout))
+      ;; Most recent takes priority.
+      (if (eql (first (first *gc-data*)) *current-address*)
+          (setf (first *gc-data*) (list* *current-address*
+                                         frame-mode
+                                         gc-keys))
+          (push (list* *current-address*
+                       frame-mode
+                       gc-keys)
+                *gc-data*)))))
+
+(defun append-vu32 (value vector)
+  (let ((low-bits (ldb (byte 7 0) value))
+        (high-bits (ash value -7)))
+    (cond ((zerop high-bits)
+           (vector-push-extend low-bits vector))
+          (t (vector-push-extend (logior low-bits #x80) vector)
+             (append-vu32 high-bits vector)))))
+
+(defun append-vs32 (integer vector)
+  (let ((negativep (minusp integer)))
+    (when negativep (setf integer (- integer)))
+    (do ()
+        ((zerop (logand integer (lognot #x3F)))
+         (vector-push-extend (logior integer (if negativep #x40 0))
+                             vector))
+      (vector-push-extend (logior #x80 (logand integer #x7F))
+                          vector)
+      (setf integer (ash integer -7)))))
+
+(defun encode-gc-info (info)
+  (destructuring-bind (address frame-mode &key (layout #*) (pushed-values 0) incoming-arguments interrupt multiple-values pushed-values-register block-or-tagbody-thunk)
+      info
+    (let ((bytes (make-array 10 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
+      (append-vu32 address bytes)
+      (vector-push-extend (logior (ecase frame-mode
+                                    (:frame 1)
+                                    (:no-frame 0))
+                                  (if interrupt 2 0)
+                                  (cond
+                                    ((keywordp incoming-arguments)
+                                     #b1000)
+                                    (incoming-arguments
+                                     #b1100)
+                                    (block-or-tagbody-thunk
+                                     #b0100)
+                                    (t 0))
+                                  (ash (if pushed-values-register
+                                           ;; ehhhh
+                                           (funcall (intern "REG-NUMBER" :sys.lap-x86) pushed-values-register)
+                                           4)
+                                       4))
+                          bytes)
+      (vector-push-extend (logior (or multiple-values #b1111)
+                                  (ash (cond ((keywordp incoming-arguments)
+                                              (funcall (intern "REG-NUMBER" :sys.lap-x86) incoming-arguments))
+                                             (incoming-arguments
+                                              (second incoming-arguments))
+                                             (block-or-tagbody-thunk
+                                              (funcall (intern "REG-NUMBER" :sys.lap-x86) block-or-tagbody-thunk))
+                                             (t 0))
+                                       4))
+                          bytes)
+      (append-vs32 pushed-values bytes)
+      (append-vu32 (length layout) bytes)
+      (dotimes (i (ceiling (length layout) 8))
+        (let ((byte 0))
+          (dotimes (bit 8)
+            (let ((offs (+ (* i 8) bit)))
+              (when (< offs (length layout))
+                (setf (ldb (byte 1 bit) byte) (bit layout offs)))))
+          (vector-push-extend byte bytes)))
+      bytes)))

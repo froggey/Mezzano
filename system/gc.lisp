@@ -586,11 +586,12 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:xchg16 :cx :cx)
   (sys.lap-x86:ret))
 
-(defun make-function-with-fixups (tag machine-code fixups constants gc-info-offset gc-info-length)
+(defun make-function-with-fixups (tag machine-code fixups constants gc-info)
   (with-interrupts-disabled ()
     (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
+           (gc-info-size (ceiling (length gc-info) 8))
            (pool-size (length constants))
-           (total (+ (* mc-size 2) pool-size)))
+           (total (+ (* mc-size 2) pool-size gc-info-size)))
       (when (oddp total)
         (incf total))
       (let ((address (%raw-allocate total :static)))
@@ -602,8 +603,7 @@ the header word. LENGTH is the number of elements in the array."
               (memref-unsigned-byte-16 address 0) tag
               (memref-unsigned-byte-16 address 1) mc-size
               (memref-unsigned-byte-16 address 2) pool-size
-              (memref-unsigned-byte-16 address 3) gc-info-length
-              (memref-unsigned-byte-32 address 2) gc-info-offset)
+              (memref-unsigned-byte-16 address 3) gc-info-size)
         ;; Initialize code.
         (dotimes (i (length machine-code))
           (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
@@ -620,10 +620,14 @@ the header word. LENGTH is the number of elements in the array."
         ;; Initialize constant pool.
         (dotimes (i (length constants))
           (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+        ;; Initialize GC info.
+        (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
+          (dotimes (i (length gc-info))
+            (setf (memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
         (%%assemble-value address +tag-function+)))))
 
-(defun make-function (machine-code constants gc-info-offset gc-info-length)
-  (make-function-with-fixups +function-type-function+ machine-code '() constants gc-info-offset gc-info-length))
+(defun make-function (machine-code constants gc-info)
+  (make-function-with-fixups +function-type-function+ machine-code '() constants gc-info))
 
 (defun make-closure (function environment)
   "Allocate a closure object."
@@ -706,32 +710,35 @@ the header word. LENGTH is the number of elements in the array."
   (make-symbol-in-area name nil))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
-  (sys.lap-x86:push :rbp)
-  (sys.lap-x86:mov64 :rbp :rsp)
   (sys.lap-x86:push :rdx)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:push :rax)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
   (sys.lap-x86:mov64 :r8 16) ; fixnum 2
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
+  (:gc :no-frame)
   (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
-  (sys.lap-x86:leave)
   (sys.lap-x86:ret))
 
 (define-lap-function %%make-bignum-64-rax ()
-  (sys.lap-x86:push :rbp)
-  (sys.lap-x86:mov64 :rbp :rsp)
   (sys.lap-x86:push :rax)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:push :rax)
+  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
   (sys.lap-x86:mov64 :r8 8) ; fixnum 1
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:pop :rax)
+  (:gc :no-frame)
   (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
-  (sys.lap-x86:leave)
   (sys.lap-x86:ret))
 
 ;;; This is used by the bignum code so that bignums and fixnums don't have

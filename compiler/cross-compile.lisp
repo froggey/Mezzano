@@ -222,11 +222,10 @@
   mc
   constants
   fixups
-  gc-info
-  gc-info-length)
+  gc-info)
 
-(defun sys.int::assemble-lap (code &optional name debug-info gc-info (gc-info-length 0))
-  (multiple-value-bind (mc constants fixups symbols)
+(defun sys.int::assemble-lap (code &optional name debug-info)
+  (multiple-value-bind (mc constants fixups symbols gc-data)
       (sys.lap-x86:assemble code
         :base-address 12
         :initial-symbols '((nil . :fixup)
@@ -236,10 +235,7 @@
     (make-cross-function :mc mc
                          :constants constants
                          :fixups fixups
-                         :gc-info (when gc-info
-                                    (cdr (or (assoc gc-info symbols)
-                                             (error "Missing GC-INFO?"))))
-                         :gc-info-length gc-info-length)))
+                         :gc-info gc-data)))
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
@@ -317,14 +313,11 @@
     (save-object (cross-function-fixups object) omap stream)
     (write-byte +llf-function+ stream)
     (write-byte 0 stream) ; tag, normal function.
-    (cond ((cross-function-gc-info object)
-           (save-integer (cross-function-gc-info object) stream)
-           (save-integer (cross-function-gc-info-length object) stream))
-          (t (save-integer 0 stream)
-             (save-integer 0 stream)))
     (save-integer (length (cross-function-mc object)) stream)
     (save-integer (length constants) stream)
-    (write-sequence (cross-function-mc object) stream)))
+    (save-integer (length (cross-function-gc-info object)) stream)
+    (write-sequence (cross-function-mc object) stream)
+    (write-sequence (cross-function-gc-info object) stream)))
 
 (defmethod save-one-object ((object cons) omap stream)
   (cond ((alexandria:proper-list-p object)

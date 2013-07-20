@@ -1298,24 +1298,27 @@
   ;; list of fixups on stack.
   ;; +llf-function+
   ;; tag. (byte)
-  ;; gc-info-offset. (integer)
-  ;; gc-info-length. (integer)
   ;; mc size in bytes. (integer)
   ;; number of constants. (integer)
+  ;; gc-info-length in bytes. (integer)
+  ;; mc
+  ;; gc-info
   (let* ((tag (read-byte stream))
-         (gc-info-offset (load-integer stream))
-         (gc-info-length (load-integer stream))
          (mc-length (load-integer stream))
          ;; mc-length does not include the 12 byte function header.
          (mc (make-array (* (ceiling (+ mc-length 12) 8) 8)
                          :element-type '(unsigned-byte 8)
                          :initial-element 0))
          (n-constants (load-integer stream))
+         (gc-info-length (load-integer stream))
+         (gc-info (make-array (* (ceiling gc-info-length 8) 8)
+                              :element-type '(unsigned-byte 8)))
          (fixups (vector-pop stack))
          ;; Pull n constants off the value stack.
          (constants (subseq stack (- (length stack) n-constants)))
          (total-size (+ (* (ceiling (+ mc-length 12) 16) 2)
-                        n-constants))
+                        n-constants
+                        (ceiling gc-info-length 8)))
          (address (allocate total-size :static)))
     ;; Pop constants off.
     (decf (fill-pointer stack) n-constants)
@@ -1324,13 +1327,21 @@
     ;; Copy machine code bytes.
     (dotimes (i (ceiling (+ mc-length 12) 8))
       (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
+    ;; Read GC bytes.
+    (read-sequence gc-info stream :end gc-info-length)
+    ;; Copy GC bytes.
+    (dotimes (i (ceiling gc-info-length 8))
+      (setf (word (+ address
+                     (* (ceiling (+ mc-length 12) 16) 2)
+                     n-constants
+                     i))
+            (nibbles:ub64ref/le gc-info (* i 8))))
     ;; Set function header.
     (setf (word address) 0)
     (setf (ldb (byte 16 0) (word address)) tag
           (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 12) 16)
           (ldb (byte 16 32) (word address)) n-constants
-          (ldb (byte 16 48) (word address)) gc-info-length
-          (ldb (byte 32 0) (word (1+ address))) gc-info-offset)
+          (ldb (byte 16 48) (word address)) gc-info-length)
     ;; Set constant pool.
     (dotimes (i (length constants))
       (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i))

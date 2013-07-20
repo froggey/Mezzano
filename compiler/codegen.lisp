@@ -19,6 +19,7 @@ be generated instead.")
 (defvar *code-accum* nil)
 (defvar *trailers* nil)
 (defvar *current-lambda-name* nil)
+(defvar *gc-info-fixups* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-array-like+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-array-like+))
@@ -81,7 +82,8 @@ be generated instead.")
          (*rename-list* '())
          (*code-accum* '())
          (*trailers* '())
-         (arg-registers '(:r8 :r9 :r10 :r11 :r12)))
+         (arg-registers '(:r8 :r9 :r10 :r11 :r12))
+         (*gc-info-fixups* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -151,6 +153,8 @@ be generated instead.")
                  ;; Avoid generating code &REST code when the variable isn't used.
                  (not (zerop (lexical-variable-use-count rest-arg))))
         (emit-rest-list lambda arg-registers)))
+    ;; No longer in argument setup mode, switch over to normal GC info.
+    (emit-gc-info)
     (let* ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
                        (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
@@ -158,6 +162,7 @@ be generated instead.")
           (load-in-r8 code-tag t)
           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
         (emit `(sys.lap-x86:leave)
+              `(:gc :no-frame)
               `(sys.lap-x86:ret))))
     (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
@@ -167,6 +172,13 @@ be generated instead.")
                      when (and (lexical-variable-p var)
                                (eql loc :home))
                      collect (list (lexical-variable-name var) i))))
+      ;; Fix all the GC instructions.
+      (dolist (inst *gc-info-fixups*)
+        (setf (rest (last inst)) (list :layout (coerce (loop for value across *stack-values*
+                                                          collect (if (equal value '(:unboxed . :home))
+                                                                      0
+                                                                      1))
+                                                       'bit-vector))))
       (when *enable-branch-tensioner*
         (setf final-code (tension-branches final-code)))
       (when *trace-asm*
@@ -190,18 +202,27 @@ be generated instead.")
              (lambda-information-lambda-list lambda)
              (lambda-information-docstring lambda))))))
 
+(defun emit-gc-info (&rest extra-stuff)
+  (let ((thing (list* :gc :frame extra-stuff)))
+    (push thing *gc-info-fixups*)
+    (emit thing)))
+
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
 	(invalid-arguments-label (gensym "BADARGS")))
     (emit-trailer (invalid-arguments-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
+      (emit `(:gc :frame :incoming-arguments :rcx)
+            `(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
             `(sys.lap-x86:call (:symbol-function :r13))
             `(sys.lap-x86:ud2)))
     (nconc
      (list entry-label
 	   ;; Create control stack frame.
+           `(:gc :no-frame :incoming-arguments :rcx)
 	   `(sys.lap-x86:push :cfp)
-	   `(sys.lap-x86:mov64 :cfp :csp))
+           `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+	   `(sys.lap-x86:mov64 :cfp :csp)
+           `(:gc :frame :incoming-arguments :rcx))
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
 	    ;; If there are no required parameters, then don't generate a lower-bound check.
@@ -235,7 +256,13 @@ be generated instead.")
      (loop for value across *stack-values*
         for i from 0
         unless (equal value '(:unboxed . :home))
-        collect `(sys.lap-x86:mov64 (:stack ,i) nil)))))
+        collect `(sys.lap-x86:mov64 (:stack ,i) nil))
+     (list `(:gc :frame :incoming-arguments :rcx
+                 :layout ,(coerce (loop for value across *stack-values*
+                                     collect (if (equal value '(:unboxed . :home))
+                                                 0
+                                                 1))
+                                  'bit-vector))))))
 
 (defun emit-rest-list (lambda arg-registers)
   (let* ((rest-arg (lambda-information-rest-arg lambda))
@@ -270,6 +297,8 @@ be generated instead.")
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw (max regular-argument-count 5))))
     ;; Number of supplied arguments
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 1)) :rcx))
+    (unless dx-rest
+      (emit-gc-info :incoming-arguments (control-stack-slot-ea (+ control-slots 1))))
     ;; Create the result cell. Always create this as dynamic-extent, it
     ;; is only used during rest-list creation.
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 2)) nil)
@@ -417,6 +446,10 @@ be generated instead.")
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax)))
       (emit-trailer (thunk-label)
+        (case *for-value*
+          ((:multiple :tail)
+           (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0))
+          (t (emit-gc-info :block-or-tagbody-thunk :rax)))
         (emit `(sys.lap-x86:mov64 :csp (:rax 16))
               `(sys.lap-x86:mov64 :cfp (:rax 24))
               `(sys.lap-x86:jmp ,exit-label))))
@@ -437,6 +470,8 @@ be generated instead.")
                     (smash-r8)
                     (setf return-mode (list (gensym)))))
                (emit exit-label)
+               (when (member *for-value* '(:multiple :tail))
+                 (emit-gc-info :multiple-values 0))
                (setf *stack-values* (copy-stack-values stack-slots)
                      *r8-value* return-mode)))
             ((and *for-value* tag)
@@ -446,6 +481,8 @@ be generated instead.")
              ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
              (smash-r8)
              (emit exit-label)
+             (when (member *for-value* '(:multiple :tail))
+               (emit-gc-info :multiple-values 0))
              (setf *stack-values* (copy-stack-values stack-slots)
                    *r8-value* (if (member *for-value* '(:multiple :tail))
                                   :multiple
@@ -609,6 +646,7 @@ be generated instead.")
       (setf *r8-value* r8-at-cond
 	    *stack-values* (copy-stack-values stack-at-cond))
       (emit-label else-label)
+      (emit-gc-info)
       (let ((tag (cg-form (fourth form))))
 	(when tag
 	  (when *for-value*
@@ -624,8 +662,10 @@ be generated instead.")
       (setf *stack-values* (copy-stack-values stack-slots))
       (unless (zerop branch-count)
         (cond ((member *for-value* '(:multiple :tail))
+               (emit-gc-info :multiple-values 0)
                (setf *r8-value* :multiple))
-              (t (setf *r8-value* (list (gensym)))))))))
+              (t (emit-gc-info)
+                 (setf *r8-value* (list (gensym)))))))))
 
 (defun localp (var)
   (or (null (lexical-variable-used-in var))
@@ -707,6 +747,7 @@ be generated instead.")
                                                                    :test 'equal))
                                                 ,register))))))
       (emit no-vals-label))
+    (emit-gc-info)
     (cg-form `(progn ,@body))))
 
 (defun emit-funcall-common ()
@@ -730,8 +771,10 @@ Returns an appropriate tag."
           `(sys.lap-x86:call :r13))
     (emit out-label)
     (cond ((member *for-value* '(:multiple :tail))
+           (emit-gc-info :multiple-values 0)
            :multiple)
-          (t (setf *r8-value* (list (gensym)))))))
+          (t (emit-gc-info)
+             (setf *r8-value* (list (gensym)))))))
 
 (defun cg-multiple-value-call (form)
   (let ((function (second form))
@@ -771,6 +814,8 @@ Returns an appropriate tag."
                             `(sys.lap-x86:mov64 :rdi :rsp)
                             `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-array-like+)
                                                          (* sys.int::+stack-group-offset-mv-slots+ 8))))
+                      ;; Switch to the right GC mode.
+                      (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
                       (emit loop-head
                             `(sys.lap-x86:gs)
                             `(sys.lap-x86:mov64 :rbx (:rsi))
@@ -779,7 +824,9 @@ Returns an appropriate tag."
                             `(sys.lap-x86:add64 :rsi 8)
                             `(sys.lap-x86:sub64 :rax 8)
                             `(sys.lap-x86:jae ,loop-head)
-                            loop-exit))
+                            loop-exit)
+                      ;; All done with the MV area.
+                      (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
                     (smash-r8)
                     (load-in-reg :r13 fn-tag t)
                     (prog1 (emit-funcall-common)
@@ -867,7 +914,8 @@ Returns an appropriate tag."
                    save-done
                    ;; Values are saved to a SV pointed to by R8.
                    ;; If there were no values, then R8 is NIL.
-                   `(sys.lap-x86:mov64 (:stack ,slot) :r8))))
+                   `(sys.lap-x86:mov64 (:stack ,slot) :r8)))
+           (emit-gc-info))
          (let ((*for-value* nil))
            (when (not (cg-progn `(progn ,@(cddr form))))
              ;; No return.
@@ -899,7 +947,8 @@ Returns an appropriate tag."
                    no-extra-values)
              (loop for reg in '(:r8 :r9 :r10 :r11 :r12)
                 for tag in reg-arg-tags
-                do (load-in-reg reg tag t))))
+                do (load-in-reg reg tag t)))
+           (emit-gc-info :multiple-values 0))
          tag))))
 
 (defun cg-progn (form)
@@ -1004,6 +1053,7 @@ Returns an appropriate tag."
       (loop for thunk in thunk-labels
          for label in tag-labels do
            (emit-trailer (thunk)
+             (emit-gc-info :block-or-tagbody-thunk :rax)
              (emit `(sys.lap-x86:mov64 :csp (:rax 16))
                    `(sys.lap-x86:mov64 :cfp (:rax 24))
                    `(sys.lap-x86:jmp ,label))))
@@ -1213,7 +1263,8 @@ Returns an appropriate tag."
           (loop for i from 0
              for j in (nthcdr 5 args) do
                (load-in-reg :r13 j t)
-               (emit `(sys.lap-x86:mov64 (:csp ,(* i 8)) :r13)))))
+               (emit `(sys.lap-x86:mov64 (:csp ,(* i 8)) :r13))
+               (emit-gc-info :pushed-values (1+ i)))))
       ;; Load other values in registers.
       (when (> arg-count 4)
 	(load-in-reg :r12 (nth 4 args) t))
@@ -1278,7 +1329,9 @@ Returns an appropriate tag."
                                                (* sys.int::+stack-group-offset-mv-slots+ 8)
                                                (* i 8)))
                                           :r13))
-                (emit `(sys.lap-x86:add64 :rcx 8)))
+                (emit-gc-info :multiple-values 1)
+                (emit `(sys.lap-x86:add64 :rcx 8))
+                (emit-gc-info :multiple-values 0))
            :multiple))
         (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
          (let ((tag (cg-form (first forms))))
@@ -1346,12 +1399,21 @@ Returns an appropriate tag."
                       (cond ((can-tail-call (cddr form))
                              (emit-tail-call '(:symbol-function :r13) (second form)))
                             (t (emit `(sys.lap-x86:call (:symbol-function :r13)))
+                               (if (member *for-value* '(:multiple :tail))
+                                   (emit-gc-info :multiple-values 0)
+                                   (emit-gc-info))
                                (emit `(sys.lap-x86:jmp ,out-label)))))
                     (emit function-label)
+                    (if (zerop (max 0 (- (length form) 6)))
+                        (emit-gc-info)
+                        (emit-gc-info :pushed-values (max 0 (- (length form) 6))))
                     (cond ((can-tail-call (cddr form))
                            (emit-tail-call :r13 (second form)))
                           (t (emit `(sys.lap-x86:call :r13))))
                     (emit out-label)
+                    (if (member *for-value* '(:multiple :tail))
+                        (emit-gc-info :multiple-values 0)
+                        (emit-gc-info))
                     (flush-arguments-from-stack (cddr form))
                     (cond ((can-tail-call (cddr form)) nil)
                           ((member *for-value* '(:multiple :tail))
@@ -1369,6 +1431,9 @@ Returns an appropriate tag."
                       (emit-tail-call '(:symbol-function :r13) (first form))
                       nil)
                      (t (emit `(sys.lap-x86:call (:symbol-function :r13)))
+                        (if (member *for-value* '(:multiple :tail))
+                            (emit-gc-info :multiple-values 0)
+                            (emit-gc-info))
                         (flush-arguments-from-stack (cdr form))
                         (cond ((member *for-value* '(:multiple :tail))
                                :multiple)
