@@ -183,24 +183,24 @@
 ;;; stack-group object is done by scan-stack-group, assuming the
 ;;; current stack-group is actually reachable.
 (defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
-  (let* ((stack-group (current-stack-group))
-         (ds-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-base+))
-	 (ds-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-data-stack-size+))
-         (bs-base (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-base+))
-	 (bs-size (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-size+))
-         (binding-stack-pointer (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-pointer+))
-         (data-stack-pointer (ash (%%get-data-stack-pointer) 3)))
-    (mumble "Scav control stack")
-    (do ((fp (read-frame-pointer)
-             (memref-unsigned-byte-64 fp 0)))
-        ((= fp 0))
-      (setf (memref-t fp -2) (scavenge-object (memref-t fp -2))))
-    (mumble "Scav data stack")
-    (scavenge-many data-stack-pointer
-                   (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
-    (mumble "Scav binding stack")
+  (let* ((object (current-stack-group))
+         (address (ash (%pointer-field object) 4))
+         (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
+         (bs-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-size+))
+         (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
+         ;; Grovel around in the current stack frame to grab needed stuff.
+         (frame-pointer (read-frame-pointer))
+         (return-address (memref-unsigned-byte-64 frame-pointer 1))
+         (stack-pointer (+ frame-pointer 16)))
+    ;; Unconditonally scavenge the TLS area and the binding stack.
+    (mumble "Scav GC TLS")
+    (scavenge-many (+ address 8 (* +stack-group-offset-tls-slots+ 8))
+                   +stack-group-tls-slots-size+)
+    (mumble "Scav GC binding stack")
     (scavenge-many binding-stack-pointer
-                   (ash (- (+ bs-base bs-size) binding-stack-pointer) -3)))
+                   (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
+    (mumble "Scav GC control stack")
+    (scavenge-stack stack-pointer (memref-unsigned-byte-64 frame-pointer 0) return-address))
   (values a1 a2 a3 a4 a5))
 
 (defun scavenge-object (object)
@@ -238,30 +238,206 @@
   "Scavenge SIZE words pointed to by OBJECT."
   (scavenge-many (ash (%pointer-field object) 4) size))
 
+(defun scavenge-stack (stack-pointer frame-pointer return-address)
+  (loop
+     #+(or)(progn
+     (mumble-hex stack-pointer "SP: " t)
+     (mumble-hex frame-pointer "FP: " t)
+     (mumble-hex return-address "RA: " t))
+     (let* ((fn-address (base-address-of-internal-pointer return-address))
+            (fn-offset (- return-address fn-address))
+            (fn (%%assemble-value fn-address +tag-function+)))
+       #+(or)(progn
+         (mumble-hex fn-address "fn: " t)
+         (mumble-hex fn-offset "fnoffs: " t))
+       (scavenge-object fn)
+       (multiple-value-bind (framep interruptp pushed-values pushed-values-register
+                                    layout-address layout-length
+                                    multiple-values incoming-arguments block-or-tagbody-thunk)
+           (gc-info-for-function-offset fn fn-offset)
+         #+(or)(progn
+         (if framep
+             (mumble "frame")
+             (mumble "no-frame"))
+         (if interruptp
+             (mumble "interrupt")
+             (mumble "no-interrupt"))
+         (mumble-hex pushed-values "pv: " t)
+         (mumble-hex (lisp-object-address pushed-values-register) "pvr: " t)
+         (if multiple-values
+             (mumble-hex multiple-values "mv: " t)
+             (mumble "no-multiple-values"))
+         (mumble-hex layout-address "Layout addr: ")
+         (mumble-hex layout-length "  Layout len: " t)
+         (cond ((integerp incoming-arguments)
+                (mumble-hex incoming-arguments "ia: " t))
+               (incoming-arguments
+                (mumble-hex (lisp-object-address incoming-arguments) "ia: " t))
+               (t (mumble "no-incoming-arguments")))
+         (if block-or-tagbody-thunk
+             (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
+             (mumble "no-btt")))
+         (when (or (and (not framep) (not (zerop layout-length)))
+                   interruptp (not (eql pushed-values 0)) pushed-values-register
+                   (and multiple-values (not (eql multiple-values 0)))
+                   incoming-arguments block-or-tagbody-thunk)
+           (emergency-halt "TODO! GC SG stuff."))
+         ;; Scan stack slots.
+         (dotimes (slot layout-length)
+           (multiple-value-bind (offset bit)
+               (%truncate slot 8) ; ### FIXME: compiler refuses to inline truncate.
+             #+(or)(progn
+               (mumble-hex slot "ss: ")
+               (mumble-hex offset " ")
+               (mumble-hex bit ":")
+               (mumble-hex (memref-unsigned-byte-8 layout-address offset) "  " t))
+             (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
+               #+(or)(progn
+                 (mumble-hex (- -1 slot) "Scav stack slot ")
+                 (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
+               (setf (memref-t frame-pointer (- -1 slot))
+                     (scavenge-object (memref-t frame-pointer (- -1 slot)))))))
+         ;; Stop after seeing a zerop frame pointer.
+         (when (eql frame-pointer 0)
+           (return))
+         (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
+                stack-pointer (+ frame-pointer 16)
+                frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))))
+
 (defun scan-stack-group (object)
-  (let ((address (ash (%pointer-field object) 4)))
-    ;; Jump over the array-like header word and skip the fxsave area at the end.
-    (scavenge-many (+ address 8)
-                   (- +stack-group-size+
-                      +stack-group-fxsave-area-size+))
-    ;; Scan the data/binding stacks only when the sg is not active.
-    (when (not (stack-group-active-p object))
-      ;; FIXME: Need to scan the saved RIP, or at least the function associated with it.
-      (let* ((ds-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-data-stack-base+))
-             (ds-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-data-stack-size+))
-             (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
-             (bs-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-size+))
-             (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
-             (control-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-control-stack-pointer+))
-             (data-stack-pointer (memref-unsigned-byte-64 control-stack-pointer 2)))
-        (do ((fp (memref-unsigned-byte-64 control-stack-pointer 0)
-                 (memref-unsigned-byte-64 fp 0)))
-            ((= fp 0))
-          (setf (memref-t fp -2) (scavenge-object (memref-t fp -2))))
-        (scavenge-many data-stack-pointer
-                       (ash (- (+ ds-base ds-size) data-stack-pointer) -3))
-        (scavenge-many binding-stack-pointer
-                       (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))))))
+  ;; Always scavenge the name.
+  (setf (%array-like-ref-t object +stack-group-offset-name+)
+        (scavenge-object (%array-like-ref-t object +stack-group-offset-name+)))
+  ;; Only scan the SG's stacks, MV area & TLS area when it isn't active or exhausted.
+  (when (not (member (stack-group-state object) '(:active :exhausted)))
+    (let* ((address (ash (%pointer-field object) 4))
+           (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
+           (bs-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-size+))
+           (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
+           (stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-control-stack-pointer+))
+           (frame-pointer (memref-unsigned-byte-64 stack-pointer 0))
+           (return-address (memref-unsigned-byte-64 stack-pointer 2))
+           (fn-address (base-address-of-internal-pointer return-address))
+           (fn-offset (- return-address fn-address))
+           (fn (%%assemble-value fn-address +tag-function+)))
+      ;; Unconditonally scavenge the TLS area and the binding stack.
+      (scavenge-many (+ address 8 (* +stack-group-offset-tls-slots+ 8))
+                     +stack-group-tls-slots-size+)
+      (scavenge-many binding-stack-pointer
+                     (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
+      (scavenge-stack (+ stack-pointer (* 3 8)) frame-pointer return-address))))
+
+(defun gc-info-for-function-offset (function offset)
+  (multiple-value-bind (info-address length)
+      (function-gc-info function)
+    (let ((position 0)
+          ;; Defaults.
+          (framep nil)
+          (interruptp nil)
+          (pushed-values 0)
+          (pushed-values-register nil)
+          (layout-address 0)
+          (layout-length 0)
+          (multiple-values nil)
+          (incoming-arguments nil)
+          (block-or-tagbody-thunk nil))
+      ;; Macroize because the compiler would allocate an environment/lambda for this otherwise.
+      (macrolet ((consume (&optional (errorp t))
+                   `(progn
+                      (when (>= position length)
+                        (when ,errorp
+                          (emergency-halt "Reached end of GC Info??"))
+                        (return-from gc-info-for-function-offset
+                          (values framep interruptp pushed-values pushed-values-register
+                                  layout-address layout-length multiple-values
+                                  incoming-arguments block-or-tagbody-thunk)))
+                      (prog1 (memref-unsigned-byte-8 info-address position)
+                        (incf position))))
+                 (register-id (reg)
+                   `(ecase ,reg
+                      (0 :rax)
+                      (1 :rcx)
+                      (2 :rdx)
+                      (3 :rbx)
+                      (4 :rsp)
+                      (5 :rbp)
+                      (6 :rsi)
+                      (7 :rdi)
+                      (8 :r8)
+                      (9 :r9)
+                      (10 :r10)
+                      (11 :r11)
+                      (12 :r12)
+                      (13 :r13)
+                      (14 :r14)
+                      (15 :r15))))
+        (loop (let ((address 0))
+                ;; Read first byte of address, this is where we can terminate.
+                (let ((byte (consume nil))
+                      (offset 0))
+                  (setf address (ldb (byte 7 0) byte)
+                        offset 7)
+                  (when (logtest byte #x80)
+                    ;; Read remaining bytes.
+                    (loop (let ((byte (consume)))
+                            (setf (ldb (byte 7 offset) address)
+                                  (ldb (byte 7 0) byte))
+                            (incf offset 7)
+                            (unless (logtest byte #x80)
+                              (return))))))
+                (when (< offset address)
+                  (return-from gc-info-for-function-offset
+                          (values framep interruptp pushed-values pushed-values-register
+                                  layout-address layout-length multiple-values
+                                  incoming-arguments block-or-tagbody-thunk)))
+                ;; Read flag/pvr byte & mv-and-iabtt.
+                (let ((flags-and-pvr (consume))
+                      (mv-and-iabtt (consume)))
+                  (setf framep (logtest flags-and-pvr #b0001))
+                  (setf interruptp (logtest flags-and-pvr #b0010))
+                  (if (eql (ldb (byte 4 4) flags-and-pvr) 4)
+                      (setf pushed-values-register nil)
+                      (setf pushed-values-register
+                            (register-id (ldb (byte 4 4) flags-and-pvr))))
+                  (if (eql (ldb (byte 4 0) mv-and-iabtt) 15)
+                      (setf multiple-values nil)
+                      (setf multiple-values (ldb (byte 4 0) mv-and-iabtt)))
+                  (setf block-or-tagbody-thunk nil
+                        incoming-arguments nil)
+                  (ecase (ldb (byte 2 2) flags-and-pvr)
+                    (#b00)
+                    (#b01 (setf block-or-tagbody-thunk
+                                (register-id (ldb (byte 4 4) mv-and-iabtt))))
+                    (#b10 (setf incoming-arguments
+                                (register-id (ldb (byte 4 4) mv-and-iabtt))))
+                    (#b11 (setf incoming-arguments
+                                (ldb (byte 4 4) mv-and-iabtt)))))
+                ;; Read vs32 pv.
+                (let ((shift 0)
+                      (value 0))
+                  (loop
+                     (let ((b (consume)))
+                       (when (not (logtest b #x80))
+                         (setf value (logior value (ash (logand b #x3F) shift)))
+                         (when (logtest b #x40)
+                           (setf value (- value)))
+                         (return))
+                       (setf value (logior value (ash (logand b #x7F) shift)))
+                       (incf shift 7)))
+                  (setf pushed-values value))
+                ;; Read vu32 n-layout bits.
+                (let ((shift 0)
+                      (value 0))
+                  (loop
+                     (let ((b (consume)))
+                       (setf value (logior value (ash (logand b #x7F) shift)))
+                       (when (not (logtest b #x80))
+                         (return))
+                       (incf shift 7)))
+                  (setf layout-length value)
+                  (setf layout-address (+ info-address position))
+                  ;; Consume layout bits.
+                  (incf position (ceiling layout-length 8)))))))))
 
 (defun scan-array-like (object)
   (let* ((address (ash (%pointer-field object) 4))

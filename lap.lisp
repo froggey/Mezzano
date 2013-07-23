@@ -61,7 +61,6 @@ a vector of constants and an alist of symbols & addresses."
                           unless (equal (rest prev) (rest entry))
                           collect entry
                           do (setf prev entry)))
-       (format t "GC data: ~:<~/PPRINT-LINEAR/~>~%" *gc-data*)
        (values *machine-code*
 	       *constant-pool*
                *fixups*

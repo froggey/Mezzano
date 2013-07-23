@@ -1210,7 +1210,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
 ;;; by removing redundant sign-extension bits.
 (define-lap-function %%canonicalize-bignum ()
   (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8) ; RAX = number of fragments (raw).
   ;; Zero-size bignums are zero.
@@ -1249,8 +1251,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; Resizing.
   ;; Save original bignum.
   (sys.lap-x86:push :r8)
+  (:gc :frame :pushed-values 1)
   ;; Save new size.
   (sys.lap-x86:push :rax)
+  (:gc :frame :pushed-values 2)
   ;; RAX = new size.
   (sys.lap-x86:lea64 :r8 ((:rax 8)))
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
@@ -1268,9 +1272,11 @@ Implements the dumb mp_div algorithm from BigNum Math."
   do-return
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret)
   ;; Attempt to convert a size-1 bignum to a fixnum.
   maybe-fixnumize
+  (:gc :frame)
   (sys.lap-x86:mov64 :rdx (:r8 #.(+ (- +tag-array-like+) 8)))
   (sys.lap-x86:imul64 :rdx 8)
   (sys.lap-x86:jo maybe-resize-bignum)

@@ -297,9 +297,10 @@
     (setf (io-port/8 #xE9) (hexify tag))
     (setf (io-port/8 #xE9) #x0A)))
 
-(defun mumble (message)
+(defun mumble (message &optional (nl t))
   (mumble-string message)
-  (mumble-char #\Newline))
+  (when nl
+    (mumble-char #\Newline)))
 
 ;;; Used while the GC is copying, so no lookup tables.
 (defun hexify (nibble)
@@ -321,9 +322,11 @@
 (defun mumble-string (message)
   (dotimes (i (%simple-array-length message))
     (mumble-char (schar message i) i)))
-(defun mumble-hex (number)
+(defun mumble-hex (number &optional (message "") (nl nil))
+  (mumble-string message)
   (dotimes (i 16)
-    (mumble-char (code-char (hexify (logand (ash number (* -4 (- 15 i))) #b1111))) i)))
+    (mumble-char (code-char (hexify (logand (ash number (* -4 (- 15 i))) #b1111))) i))
+  (when nl (mumble-char #\Newline)))
 
 (defun make-case-correcting-stream (stream case)
   stream)
