@@ -534,10 +534,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
         (t (error "Argument complex ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-+ ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   (sys.lap-x86:push :r8)
-  (:gc :no-frame :layout #*1)
+  (:gc :frame :layout #*1)
   (sys.lap-x86:push :r9)
-  (:gc :no-frame :layout #*11)
+  (:gc :frame :layout #*11)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
@@ -554,10 +558,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :r10 :r8)
   ;; Reread lengths.
-  (sys.lap-x86:pop :r9)
-  (:gc :no-frame :layout #*1)
-  (sys.lap-x86:pop :r8)
-  (:gc :no-frame)
+  (sys.lap-x86:mov64 :r9 (:stack 1))
+  (sys.lap-x86:mov64 :r8 (:stack 0))
+  (:gc :frame)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -602,7 +605,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r8 :r10)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:jmp (:symbol-function :r13))
+  (:gc :frame)
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -679,10 +685,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
            (error "Argument combination ~S and ~S not supported." x y))))
 
 (define-lap-function %%bignum-- ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   (sys.lap-x86:push :r8)
-  (:gc :no-frame :layout #*1)
+  (:gc :frame :layout #*1)
   (sys.lap-x86:push :r9)
-  (:gc :no-frame :layout #*11)
+  (:gc :frame :layout #*11)
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
@@ -699,10 +709,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:mov64 :r10 :r8)
   ;; Reread lengths.
-  (sys.lap-x86:pop :r9)
-  (:gc :no-frame :layout #*1)
-  (sys.lap-x86:pop :r8)
-  (:gc :no-frame)
+  (sys.lap-x86:mov64 :r9 (:stack 1))
+  (sys.lap-x86:mov64 :r8 (:stack 0))
+  (:gc :frame)
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -747,7 +756,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r8 :r10)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:jmp (:symbol-function :r13))
+  (:gc :frame)
   sx-left
   ;; Sign extend the left argument.
   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -828,6 +840,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
 ;;; This can be either a fixnum, a length-one bignum or a length-two bignum.
 ;;; Always returns an (UNSIGNED-BYTE 128) in a length-three bignum.
 (define-lap-function %%bignum-multiply-step ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   ;; Read X.
   (sys.lap-x86:test64 :r8 7)
   (sys.lap-x86:jnz read-bignum-x)
@@ -844,22 +860,20 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; RDX:RAX holds the 128-bit result.
   ;; Prepare to allocate the result.
   (sys.lap-x86:push :rdx) ; High half.
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:push :rax) ; Low half.
-  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
   (sys.lap-x86:mov64 :r8 24) ; fixnum 3
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
-  (:gc :no-frame)
   (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 24)) 0)
   ;; Single value return
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret)
+  (:gc :frame)
   read-bignum-x
   (sys.lap-x86:mov64 :rax (:r8 #.(+ (- +tag-array-like+) 8)))
   (sys.lap-x86:jmp read-y)
@@ -971,11 +985,15 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (macrolet ((def (name bignum-name op)
              `(progn
                 (define-lap-function ,bignum-name ()
+                  (sys.lap-x86:push :rbp)
+                  (:gc :no-frame :layout #*0)
+                  (sys.lap-x86:mov64 :rbp :rsp)
+                  (:gc :frame)
                   ;; Save objects.
                   (sys.lap-x86:push :r8)
-                  (:gc :no-frame :layout #*1)
+                  (:gc :frame :layout #*1)
                   (sys.lap-x86:push :r9)
-                  (:gc :no-frame :layout #*11)
+                  (:gc :frame :layout #*11)
                   ;; Read lengths.
                   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
                   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
@@ -990,10 +1008,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
                   (sys.lap-x86:call (:symbol-function :r13))
                   (sys.lap-x86:mov64 :r10 :r8)
                   ;; Reread lengths.
-                  (sys.lap-x86:pop :r9)
-                  (:gc :no-frame :layout #*1)
-                  (sys.lap-x86:pop :r8)
-                  (:gc :no-frame)
+                  (sys.lap-x86:mov64 :r9 (:stack 1))
+                  (sys.lap-x86:mov64 :r8 (:stack 0))
+                  (:gc :frame)
                   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
                   (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-array-like+)))
                   (sys.lap-x86:shr64 :rax 8)
@@ -1027,7 +1044,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
                   (sys.lap-x86:mov64 :r8 :r10)
                   (sys.lap-x86:mov32 :ecx 8)
                   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+                  (sys.lap-x86:leave)
+                  (:gc :no-frame)
                   (sys.lap-x86:jmp (:symbol-function :r13))
+                  (:gc :frame)
                   sx-left
                   ;; Sign extend the left argument.
                   ;; Previous value is not in RSI. Pull from the last word in the bignum.
@@ -1059,11 +1079,14 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (def generic-logxor %%bignum-logxor sys.lap-x86:xor64))
 
 (define-lap-function %%bignum-left-shift ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
   ;; Save objects.
   (sys.lap-x86:push :r8) ; src
-  (:gc :no-frame :layout #*1)
+  (:gc :frame :layout #*1)
   (sys.lap-x86:push :r9) ; count
-  (:gc :no-frame :layout #*11)
+  (:gc :frame :layout #*11)
   ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -1076,10 +1099,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; CL: count
   ;; RBX: n words.
   ;; R10: current word.
-  (sys.lap-x86:pop :rcx)
-  (:gc :no-frame :layout #*1)
-  (sys.lap-x86:pop :r9)
-  (:gc :no-frame :layout #*)
+  (sys.lap-x86:mov64 :rcx (:stack 1))
+  (sys.lap-x86:mov64 :r9 (:stack 0))
+  (:gc :frame)
+  (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:shr64 :rbx 8)
   (sys.lap-x86:mov32 :r10d 1)
@@ -1102,14 +1125,20 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 (:r8 #.(+ (- +tag-array-like+) 8)) :rax)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (define-lap-function %%bignum-right-shift ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   ;; Save objects.
   (sys.lap-x86:push :r8) ; src
-  (:gc :no-frame :layout #*1)
+  (:gc :frame :layout #*1)
   (sys.lap-x86:push :r9) ; count
-  (:gc :no-frame :layout #*11)
+  (:gc :frame :layout #*11)
   ;; Allocate a new bignum large enough to hold the result.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-array-like+)))
   (sys.lap-x86:shr64 :rax 8)
@@ -1123,10 +1152,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; RBX: n words. (fixnum)
   ;; R10: current word. (fixnum)
   (sys.lap-x86:pop :rcx)
-  (:gc :no-frame :layout #*1)
   (sys.lap-x86:pop :r9)
-  (:gc :no-frame :layout #*)
+  (:gc :frame)
   (sys.lap-x86:sar64 :rcx 3)
+  (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-array-like+)))
   (sys.lap-x86:and64 :rbx #.(lognot #xFF))
   (sys.lap-x86:shr64 :rbx 5)
   (sys.lap-x86:mov32 :r10d 8)
@@ -1147,6 +1176,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 (:r8 #.(- +tag-array-like+) :rbx) :rax)
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant %%canonicalize-bignum))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:jmp (:symbol-function :r13)))
 
 (defun %ash (integer count)
@@ -1251,10 +1282,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; Resizing.
   ;; Save original bignum.
   (sys.lap-x86:push :r8)
-  (:gc :frame :pushed-values 1)
+  (:gc :frame :layout #*1)
   ;; Save new size.
   (sys.lap-x86:push :rax)
-  (:gc :frame :pushed-values 2)
+  (:gc :frame :layout #*11)
   ;; RAX = new size.
   (sys.lap-x86:lea64 :r8 ((:rax 8)))
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
@@ -1263,6 +1294,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   ;; Fetch the original bignum.
   (sys.lap-x86:mov64 :rcx (:rsp))
   (sys.lap-x86:mov64 :r9 (:rsp 8))
+  (:gc :frame)
   ;; Copy words, we know there will always be at least one.
   copy-loop
   (sys.lap-x86:mov64 :rax (:r9 #.(- +tag-array-like+) (:rcx 8)))

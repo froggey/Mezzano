@@ -150,16 +150,16 @@
   (check-type stack-group stack-group)
   (%array-like-ref-t stack-group +stack-group-offset-name+))
 
-(defun stack-group-preset (stack-group function &rest arguments)
+(defun stack-group-preset (stack-group function)
   (declare (dynamic-extent arguments))
-  (stack-group-preset-common stack-group #x202 function arguments))
+  (stack-group-preset-common stack-group #x202 function))
 
-(defun stack-group-preset-no-interrupts (stack-group function &rest arguments)
+(defun stack-group-preset-no-interrupts (stack-group function)
   (declare (dynamic-extent arguments))
-  (stack-group-preset-common stack-group #x2 function arguments))
+  (stack-group-preset-common stack-group #x2 function))
 
 ;; ###: lock sg
-(defun stack-group-preset-common (stack-group initial-flags function arguments)
+(defun stack-group-preset-common (stack-group initial-flags function)
   (check-type stack-group stack-group)
   (check-type function function)
   (when (stack-group-active-p stack-group)
@@ -189,17 +189,8 @@
                  (%array-like-ref-unsigned-byte-64 stack-group
                                                    (+ +stack-group-offset-fxsave-area+ 3)))
             #x1F80)
-      ;; Copy arguments to the stack.
-      ;; Take care to align the stack so that it will be correctly aligned
-      ;; after register arguments are popped into registers.
-      (when (evenp (length arguments))
-        (push-u64 0))
-      (dolist (arg (reverse arguments))
-        (push-t arg))
       ;; Push the function on the stack.
       (push-t function)
-      ;; And the number of arguments.
-      (push-t (length arguments))
       ;; Initialize the binding stack pointer.
       (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-pointer+) bs-pointer)
       ;; Push initial stuff on the control stack.
@@ -224,35 +215,15 @@
   (%%assemble-value (msr +msr-ia32-gs-base+) 0))
 
 (define-lap-function %%initial-stack-group-function ()
+  (:gc :no-frame :layout #*1)
   ;; Initialize the FPU.
   (sys.lap-x86:fninit)
   ;; The binding stack is empty.
-  ;; The regular stack contains the argument count, the function and the arguments.
-  (sys.lap-x86:pop :rcx)
+  ;; The regular stack contains the function.
   (sys.lap-x86:pop :r13)
-  ;; Pop arguments into registers.
-  (sys.lap-x86:test64 :rcx :rcx)
-  (sys.lap-x86:jz do-call)
-  ;; One+ arguments.
-  (sys.lap-x86:pop :r8)
-  (sys.lap-x86:cmp64 :rcx 8) ; fixnum 1
-  (sys.lap-x86:je do-call)
-  ;; Two+ arguments.
-  (sys.lap-x86:pop :r9)
-  (sys.lap-x86:cmp64 :rcx 16) ; fixnum 2
-  (sys.lap-x86:je do-call)
-  ;; Three+ arguments.
-  (sys.lap-x86:pop :r10)
-  (sys.lap-x86:cmp64 :rcx 24) ; fixnum 3
-  (sys.lap-x86:je do-call)
-  ;; Four+ arguments.
-  (sys.lap-x86:pop :r11)
-  (sys.lap-x86:cmp64 :rcx 32) ; fixnum 4
-  (sys.lap-x86:je do-call)
-  ;; Five+ arguments.
-  (sys.lap-x86:pop :r12)
+  (:gc :no-frame)
   ;; Call the function.
-  do-call
+  (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:call :r13)
   ;; Function has returned.
   (sys.lap-x86:mov64 :r13 (:constant %stack-group-exhausted))

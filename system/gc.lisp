@@ -277,8 +277,7 @@
          (if block-or-tagbody-thunk
              (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
              (mumble "no-btt")))
-         (when (or (and (not framep) (not (zerop layout-length)))
-                   interruptp (not (eql pushed-values 0)) pushed-values-register
+         (when (or interruptp (not (eql pushed-values 0)) pushed-values-register
                    (and multiple-values (not (eql multiple-values 0)))
                    incoming-arguments block-or-tagbody-thunk)
            (emergency-halt "TODO! GC SG stuff."))
@@ -292,11 +291,18 @@
                (mumble-hex bit ":")
                (mumble-hex (memref-unsigned-byte-8 layout-address offset) "  " t))
              (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
-               #+(or)(progn
-                 (mumble-hex (- -1 slot) "Scav stack slot ")
-                 (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
-               (setf (memref-t frame-pointer (- -1 slot))
-                     (scavenge-object (memref-t frame-pointer (- -1 slot)))))))
+               (cond (framep
+                      #+(or)(progn
+                        (mumble-hex (- -1 slot) "Scav stack slot ")
+                        (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
+                      (setf (memref-t frame-pointer (- -1 slot))
+                            (scavenge-object (memref-t frame-pointer (- -1 slot)))))
+                     (t
+                      #+(or)(progn
+                        (mumble-hex slot "Scav no-frame stack slot ")
+                        (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
+                      (setf (memref-t stack-pointer slot)
+                            (scavenge-object (memref-t stack-pointer slot))))))))
          ;; Stop after seeing a zerop frame pointer.
          (when (eql frame-pointer 0)
            (return))
@@ -886,35 +892,38 @@ the header word. LENGTH is the number of elements in the array."
   (make-symbol-in-area name nil))
 
 (define-lap-function %%make-bignum-128-rdx-rax ()
-  (sys.lap-x86:push :rdx)
+  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  (sys.lap-x86:push :rdx)
   (sys.lap-x86:push :rax)
-  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
   (sys.lap-x86:mov64 :r8 16) ; fixnum 2
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
-  (:gc :no-frame :layout #*0)
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
-  (:gc :no-frame)
   (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret))
 
 (define-lap-function %%make-bignum-64-rax ()
-  (sys.lap-x86:push :rax)
+  (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  (sys.lap-x86:push 0)
   (sys.lap-x86:push :rax)
-  (:gc :no-frame :layout #*00)
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
   (sys.lap-x86:mov64 :r8 8) ; fixnum 1
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
   (sys.lap-x86:call (:symbol-function :r13))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:pop :rax)
-  (:gc :no-frame)
   (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret))
 
 ;;; This is used by the bignum code so that bignums and fixnums don't have

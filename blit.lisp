@@ -66,14 +66,14 @@
     (setf array (+ (sys.int::lisp-object-address array) (- sys.int::+tag-array-like+) 8)))
   array)
 
-;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+0) TO-OFFSET(+8)
+;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+8) TO-OFFSET(+16)
 ;;; TO and TO-OFFSET are fixnums, no GC info required.
 (sys.int::define-lap-function %bitset-mask-8-line ()
   (sys.lap-x86:mov64 :rsi :r11)
   (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
   (sys.lap-x86:mov64 :rdi (:rsp 8))
   (sys.lap-x86:sar64 :rdi 3) ; RDI = TO address (byte address)
-  (sys.lap-x86:sar64 (:rsp 16) 1) ; (:lsp 8) = TO-OFFSET (*4)
+  (sys.lap-x86:sar64 (:rsp 16) 1) ; TO-OFFSET (*4)
   (sys.lap-x86:add64 :rdi (:rsp 16)) ; RDI = TO + TO-OFFSET, first pixel on the line.
   (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
   (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
@@ -143,10 +143,10 @@
 (sys.int::define-lap-function %bitset-mask-1-line ()
   (sys.lap-x86:mov64 :rsi :r11)
   (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
-  (sys.lap-x86:mov64 :rdi (:lsp 0))
+  (sys.lap-x86:mov64 :rdi (:rsp 8))
   (sys.lap-x86:sar64 :rdi 3) ; RSI = TO address (byte address)
-  (sys.lap-x86:sar64 (:lsp 8) 1) ; (:lsp 8) = TO-OFFSET (*4)
-  (sys.lap-x86:add64 :rdi (:lsp 8)) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 (:rsp 16) 1) ; TO-OFFSET (*4)
+  (sys.lap-x86:add64 :rdi (:rsp 16)) ; RDI = TO + TO-OFFSET, first pixel on the line.
   (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
   (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
   (sys.lap-x86:mov64 :rcx :r12)
@@ -177,7 +177,6 @@
   (sys.lap-x86:xor32 :r10d :r10d)
   (sys.lap-x86:xor32 :r12d :r12d)
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:lea64 :rbx (:lsp 16))
   (sys.lap-x86:ret))
 
 (declaim (inline bitset-mask-1-whole))
@@ -331,7 +330,6 @@
   (sys.lap-x86:test64 :r8 :r8)
   (sys.lap-x86:jnz head)
   (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle

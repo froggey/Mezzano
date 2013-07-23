@@ -87,7 +87,6 @@ BODY must not allocate!"
   (sys.lap-x86:lea64 :r10 ((:rcx 8)))
   (sys.lap-x86:lea64 :r11 ((:rdx 8)))
   (sys.lap-x86:mov32 :ecx #.(ash 4 3))
-  (sys.lap-x86:mov64 :rbx :lsp)
   (sys.lap-x86:ret))
 
 (defun cpuid (leaf &optional (rcx 0))

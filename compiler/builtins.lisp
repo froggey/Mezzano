@@ -1095,11 +1095,12 @@
                  (sign-extend (gensym))
                  (ovfl (gensym))
                  (full (gensym))
-                 (really-done (gensym)))
+                 (really-done (gensym))
+                 (count-save (allocate-control-stack-slots 1)))
              (emit-trailer (ovfl)
                (emit
-                ;; Stash the count in the spare stack slot.
-                `(sys.lap-x86:mov64 (:cfp -32) :rcx)
+                ;; Stash the count.
+                `(sys.lap-x86:mov64 ,(control-stack-slot-ea count-save) :rcx)
                 ;; Recover carry.
                 `(sys.lap-x86:rcr64 :rax 1)
                 ;; Drop the two remaining fixnum tag bits.
@@ -1108,7 +1109,7 @@
                 `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
                 `(sys.lap-x86:call (:symbol-function :r13))
                 ;; Fall into the bignum helper.
-                `(sys.lap-x86:mov64 :rcx (:cfp -32))
+                `(sys.lap-x86:mov64 :rcx ,(control-stack-slot-ea count-save))
                 `(sys.lap-x86:lea64 :r9 ((:rcx 8) -8)))
                (call-support-function 'sys.int::%ash 2)
                (emit

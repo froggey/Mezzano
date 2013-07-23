@@ -131,7 +131,8 @@
                   (setf (aref *isa-pic-stack-groups* ,n) (make-stack-group ,(format nil "IRQ~D" n)
                                                                            :control-stack-size 512
                                                                            :binding-stack-size 32))
-                  (stack-group-preset-no-interrupts (aref *isa-pic-stack-groups* ,n) #'isa-pic-common ,n)))))
+                  (stack-group-preset-no-interrupts (aref *isa-pic-stack-groups* ,n)
+                                                    (lambda () (isa-pic-common ,n)))))))
   (doit))
 
 (defun isa-pic-interrupt-handler (irq)
