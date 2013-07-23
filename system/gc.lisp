@@ -779,7 +779,7 @@ the header word. LENGTH is the number of elements in the array."
               (memref-unsigned-byte-16 address 0) tag
               (memref-unsigned-byte-16 address 1) mc-size
               (memref-unsigned-byte-16 address 2) pool-size
-              (memref-unsigned-byte-16 address 3) gc-info-size)
+              (memref-unsigned-byte-16 address 3) (length gc-info))
         ;; Initialize code.
         (dotimes (i (length machine-code))
           (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))

@@ -524,7 +524,7 @@
                                 `(:stack ,(ldb (byte 4 4) mv-and-iabtt)))))
                   (unless (eql (ldb (byte 4 0) mv-and-iabtt) 15)
                     (setf (getf entry :multiple-values)
-                          (svref register-ids (ldb (byte 4 0) mv-and-iabtt))))
+                          (ldb (byte 4 0) mv-and-iabtt)))
                   (unless (eql (ldb (byte 4 4) flags-and-pvr) 4)
                     (setf (getf entry :pushed-values-register)
                           (svref register-ids (ldb (byte 4 4) flags-and-pvr))))
@@ -537,8 +537,7 @@
                                    :frame
                                    :no-frame)
                                entry)
-                        result)))))
-      (reverse result))))
+                        result))))))))
 
 (defun get-structure-type (name &optional (errorp t))
   (or (get name 'structure-type)

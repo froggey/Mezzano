@@ -29,10 +29,12 @@ be generated instead.")
   (dolist (i instructions)
     (push i *code-accum*)))
 
-(defmacro emit-trailer ((&optional name) &body body)
+(defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)
   `(push (let ((*code-accum* '()))
 	   ,(when name
 		  `(emit ,name))
+           ,@(when default-gc-info
+                   (list '(emit-gc-info)))
 	   (progn ,@body)
 	   (nreverse *code-accum*))
 	 *trailers*))
@@ -210,7 +212,7 @@ be generated instead.")
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
 	(invalid-arguments-label (gensym "BADARGS")))
-    (emit-trailer (invalid-arguments-label)
+    (emit-trailer (invalid-arguments-label nil)
       (emit `(:gc :frame :incoming-arguments :rcx)
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
             `(sys.lap-x86:call (:symbol-function :r13))
@@ -445,7 +447,7 @@ be generated instead.")
               ;; Save pointer to info
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax)))
-      (emit-trailer (thunk-label)
+      (emit-trailer (thunk-label nil)
         (case *for-value*
           ((:multiple :tail)
            (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0))
@@ -549,9 +551,14 @@ be generated instead.")
     new-values))
 
 (defun copy-stack-values (values)
-  "Copy the VALUES array, ensuring that it's at least as long as the current *stack-values* and is adjustable."
+  "Copy the VALUES array, ensuring that it's at least as long as the current *stack-values*, is adjustable and contains all unboxed slots."
   (let ((new (make-array (length *stack-values*) :adjustable t :fill-pointer t :initial-element nil)))
     (setf (subseq new 0) values)
+    (dotimes (i (length *stack-values*))
+      (when (equal (aref *stack-values* i) '(:unboxed . :home))
+        (assert (or (null (aref new i))
+                    (equal (aref new i) '(:unboxed . :home))))
+        (setf (aref new i) '(:unboxed . :home))))
     new))
 
 ;;; (predicate inverse jump-instruction cmov-instruction)
@@ -1046,20 +1053,20 @@ Returns an appropriate tag."
     (when escapes
       ;; Emit the jump-table.
       ;; TODO: Prune local labels out.
-      (emit-trailer (jump-table)
+      (emit-trailer (jump-table nil)
         (dolist (i thunk-labels)
           (emit `(:d64/le (- ,i ,jump-table)))))
       ;; And the all the thunks.
       (loop for thunk in thunk-labels
          for label in tag-labels do
-           (emit-trailer (thunk)
+           (emit-trailer (thunk nil)
              (emit-gc-info :block-or-tagbody-thunk :rax)
              (emit `(sys.lap-x86:mov64 :csp (:rax 16))
                    `(sys.lap-x86:mov64 :cfp (:rax 24))
                    `(sys.lap-x86:jmp ,label))))
       (smash-r8)
       (let ((slot (find-stack-slot))
-            (control-info (allocate-control-stack-slots 6)))
+            (control-info (allocate-control-stack-slots 4)))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
@@ -1481,7 +1488,7 @@ Returns an appropriate tag."
           (jump-table (gensym "jump-table")))
       ;; Build the jump table.
       ;; Every jump entry must be a local GO with no special bindings.
-      (emit-trailer (jump-table)
+      (emit-trailer (jump-table nil)
         (dolist (j jumps)
           (assert (and (listp j) (eql (first j) 'go)))
           (let ((go-tag (assoc (second j) *rename-list*)))
