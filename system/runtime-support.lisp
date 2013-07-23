@@ -242,6 +242,9 @@
   (declare (ignore args))
   (error 'invalid-arguments))
 
+(defun raise-stack-alignment-error ()
+  (error "Stack was misaligned."))
+
 (defun endp (list)
   (cond ((null list) t)
         ((consp list) nil)

@@ -8,6 +8,7 @@
   "When T, the built-in functions will not be used and full calls will
 be generated instead.")
 (defparameter *enable-branch-tensioner* t)
+(defparameter *enable-stack-alignment-checking* nil)
 (defparameter *trace-asm* nil)
 
 (defvar *run-counter* nil)
@@ -211,12 +212,21 @@ be generated instead.")
 
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
-	(invalid-arguments-label (gensym "BADARGS")))
+	(invalid-arguments-label (gensym "BADARGS"))
+        (stack-alignment-error (gensym "STACK-ALIGNMENT")))
     (emit-trailer (invalid-arguments-label nil)
       (emit `(:gc :frame :incoming-arguments :rcx)
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
             `(sys.lap-x86:call (:symbol-function :r13))
             `(sys.lap-x86:ud2)))
+    (when *enable-stack-alignment-checking*
+      (emit-trailer (stack-alignment-error nil)
+        (emit `(:gc :frame :incoming-arguments :rcx)
+              `(sys.lap-x86:sub64 :rsp 8)
+              `(sys.lap-x86:mov64 :r13 (:constant sys.int::raise-stack-alignment-error))
+              `(sys.lap-x86:xor32 :ecx :ecx)
+              `(sys.lap-x86:call (:symbol-function :r13))
+              `(sys.lap-x86:ud2))))
     (nconc
      (list entry-label
 	   ;; Create control stack frame.
@@ -225,6 +235,9 @@ be generated instead.")
            `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
 	   `(sys.lap-x86:mov64 :cfp :csp)
            `(:gc :frame :incoming-arguments :rcx))
+     (when *enable-stack-alignment-checking*
+       (list `(sys.lap-x86:test64 :rsp 8)
+             `(sys.lap-x86:jnz ,stack-alignment-error)))
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
 	    ;; If there are no required parameters, then don't generate a lower-bound check.
