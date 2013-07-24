@@ -175,15 +175,16 @@ BODY must not allocate!"
                  vars temps)
        ,(first temps))))
 
-(defun assemble-lap (code &optional name debug-info gc-info-offset gc-info-size)
-  (multiple-value-bind (mc constants)
+(defun assemble-lap (code &optional name debug-info)
+  (multiple-value-bind (mc constants fixups symbols gc-data)
       (sys.lap-x86:assemble code
         :base-address 12
         :initial-symbols (list (cons nil (lisp-object-address 'nil))
                                (cons t (lisp-object-address 't))
                                (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
         :info (list name debug-info))
-    (make-function mc constants gc-info-offset gc-info-size)))
+    (declare (ignore fixups symbols))
+    (make-function mc constants gc-data)))
 
 (defun lisp-implementation-type ()
   "LispOS")
