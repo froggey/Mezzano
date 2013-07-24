@@ -43,14 +43,12 @@
 
 (deftype simple-string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(or (simple-array nil (,size))
-       (simple-array base-char (,size))
+  `(or (simple-array base-char (,size))
        (simple-array character (,size))))
 
 (deftype string (&optional size)
   (check-type size (or non-negative-fixnum (eql *)))
-  `(or (vector nil ,size)
-       (vector base-char ,size)
+  `(or (vector base-char ,size)
        (vector character ,size)))
 
 (defun simple-array-type-p (object type)
@@ -134,9 +132,11 @@ This must be sorted from most-specific to least-specific.")
     ((base-char) 'base-char)
     ((character) 'character)
     ((bit) 'bit)
-    (t (dolist (type *specialized-array-types* 't)
-         (when (subtypep typespec type environment)
-           (return type))))))
+    (t (if (subtypep typespec 'nil environment)
+           't
+           (dolist (type *specialized-array-types* 't)
+             (when (subtypep typespec type environment)
+               (return type)))))))
 
 (defun arrayp (object)
   (or (%array-header-p object)
