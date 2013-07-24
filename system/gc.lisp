@@ -339,10 +339,7 @@
            (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
            (stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-control-stack-pointer+))
            (frame-pointer (memref-unsigned-byte-64 stack-pointer 0))
-           (return-address (memref-unsigned-byte-64 stack-pointer 2))
-           (fn-address (base-address-of-internal-pointer return-address))
-           (fn-offset (- return-address fn-address))
-           (fn (%%assemble-value fn-address +tag-function+)))
+           (return-address (memref-unsigned-byte-64 stack-pointer 2)))
       ;; Unconditonally scavenge the TLS area and the binding stack.
       (scavenge-many (+ address 8 (* +stack-group-offset-tls-slots+ 8))
                      +stack-group-tls-slots-size+)
@@ -682,6 +679,9 @@ Leaves pointer fields unchanged and returns the new object."
 ;;; Additionally, the number of words to allocate must be even to ensure
 ;;; correct alignment.
 (defun %raw-allocate (words &optional area)
+  (when (and (boundp '*gc-stack-group*)
+             (eql (current-stack-group) *gc-stack-group*))
+    (emergency-halt "Allocating from inside the GC!"))
   (ecase area
     ((nil :dynamic)
      (when (> (+ *newspace-offset* words) *semispace-size*)
