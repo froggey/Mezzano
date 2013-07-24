@@ -279,7 +279,9 @@
              (mumble "no-btt")))
          (when (or interruptp (not (eql pushed-values 0)) pushed-values-register
                    (and multiple-values (not (eql multiple-values 0)))
-                   incoming-arguments block-or-tagbody-thunk)
+                   (or (keywordp incoming-arguments)
+                       (and incoming-arguments (not framep)))
+                   block-or-tagbody-thunk)
            (emergency-halt "TODO! GC SG stuff."))
          ;; Scan stack slots.
          (dotimes (slot layout-length)
@@ -303,6 +305,21 @@
                         (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
                       (setf (memref-t stack-pointer slot)
                             (scavenge-object (memref-t stack-pointer slot))))))))
+         ;; Scan incoming arguments.
+         (when incoming-arguments
+           ;; Stored as fixnum on the stack.
+           (let* ((n-args (if framep
+                              (memref-t frame-pointer (- -1 incoming-arguments))
+                              (memref-t stack-pointer incoming-arguments)))
+                  (n-values (max 0 (- n-args 5))))
+             ;; There are N-VALUES values above the return address.
+             (if framep
+                 (dotimes (slot n-values)
+                   (setf (memref-t frame-pointer (+ 2 slot))
+                         (scavenge-object (memref-t frame-pointer (+ 2 slot)))))
+                 (dotimes (slot n-values)
+                   (setf (memref-t stack-pointer (+ 1 layout-length slot))
+                         (scavenge-object (memref-t stack-pointer (+ 1 layout-length slot))))))))
          ;; Stop after seeing a zerop frame pointer.
          (when (eql frame-pointer 0)
            (return))
