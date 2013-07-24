@@ -110,7 +110,8 @@
   "Code for the undefined function thunk.")
 
 (defparameter *setup-function*
-  `((sys.lap-x86:!code32)
+  `((:gc :no-frame)
+    (sys.lap-x86:!code32)
     (sys.lap-x86:mov32 :esp initial-stack)
     ;; Compute the start of the function.
     (sys.lap-x86:call get-eip)
@@ -221,7 +222,8 @@
     (:d32/le idt)))
 
 (defparameter *kboot-entry-function*
-  `(;; KBoot enters here.
+  `((:gc :no-frame)
+    ;; KBoot enters here.
     ;; RDI hold the KBoot magic value. (Don't care)
     ;; RSI contains a virtual pointer to the tag list.
     ;; We want a physical pointer!
@@ -432,24 +434,37 @@
     (ub64ref/le data-vector (* offset 8))))
 
 (defun compile-lap-function (code &optional (area :static) extra-symbols constant-values)
-  "Compile a list of LAP code as a function. Constants must by symbols only."
-  (multiple-value-bind (mc constants fixups)
+  "Compile a list of LAP code as a function. Constants must only be symbols."
+  (multiple-value-bind (mc constants fixups symbols gc-info)
       (sys.lap-x86:assemble (list* (list :d32/le 0 0 0) code) ; 12 byte header.
 	:base-address 0
         :initial-symbols (list* '(nil . :fixup)
                                 '(t . :fixup)
                                 extra-symbols))
+    (declare (ignore symbols))
     (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
     (let ((total-size (+ (* (truncate (length mc) 16) 2)
-                         (length constants))))
+                         (length constants)
+                         (* (ceiling (length gc-info) 8) 8))))
       (when (oddp total-size) (incf total-size))
       (let ((address (allocate total-size area)))
         ;; Copy machine code into the area.
         (dotimes (i (truncate (length mc) 8))
           (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
         ;; Set header word.
-        (setf (word address) (logior (ash (truncate (length mc) 16) 16)
-                                     (ash (length constants) 32)))
+        (setf (word address) 0)
+        (setf (ldb (byte 16 0) (word address)) 0 ; tag
+              (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
+              (ldb (byte 16 32) (word address)) (length constants)
+              (ldb (byte 16 48) (word address)) (length gc-info))
+        ;; Copy GC bytes.
+        (setf gc-info (adjust-array gc-info (* (ceiling (length gc-info) 8) 8)))
+        (dotimes (i (ceiling (length gc-info) 8))
+          (setf (word (+ address
+                         (* (truncate (length mc) 16) 2)
+                         (length constants)
+                         i))
+                (nibbles:ub64ref/le gc-info (* i 8))))
         ;; Write constant pool.
         (dotimes (i (length constants))
           (cond ((assoc (aref constants i) constant-values)

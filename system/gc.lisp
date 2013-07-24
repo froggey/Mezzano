@@ -345,7 +345,9 @@
           (layout-address 0)
           (layout-length 0)
           (multiple-values nil)
-          (incoming-arguments nil)
+          ;; Default to RCX here for closures & other stuff. Generally the right thing.
+          ;; Stuff can override if needed.
+          (incoming-arguments :rcx)
           (block-or-tagbody-thunk nil))
       ;; Macroize because the compiler would allocate an environment/lambda for this otherwise.
       (macrolet ((consume (&optional (errorp t))
