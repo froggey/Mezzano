@@ -11,12 +11,12 @@
 ;;;               Stack contains yield frame followed by an interrupt frame.
 
 ;;; Yielded stack layout:
-;;;  0 CFP
+;;;  0 RBP
 ;;;  1 RFlags
 ;;;  2 RIP
 
 ;;; Interrupted control stack layout:
-;;;  0 CFP
+;;;  0 RBP
 ;;;  1 RFlags (in the interrupt handler, IF clear)
 ;;;  2 RIP (in the interrupt handler)
 ;;;  3 R8
@@ -290,72 +290,3 @@ otherwise it will be marked as :YIELDED."
                 (%array-like-ref-t (current-stack-group) +stack-group-offset-flags+))
            (if exhaustp +stack-group-exhausted+ +stack-group-yielded+))
      (%%switch-to-stack-group stack-group))))
-
-#+nil(defun %stack-group-interrupted-reg (stack-group register)
-  "Read a saved register from an :INTERRUPTED stack-group."
-  (let ((csp (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+)))
-    (ecase register
-      (:cfp (memref-unsigned-byte-64 csp 0))
-      (:pc (memref-unsigned-byte-64 csp 10))
-      (:csp (memref-unsigned-byte-64 csp 13)))))
-
-#+nil(defun %stack-group-step (stack-group)
-  "Single-step an interrupted stack-group."
-  ;; Set the trap bit and clear the interrupt bit!
-  ;; No interrupts while running in the other stack-group.
-  (let* ((flags (%stack-group-interrupted-reg stack-group :flags))
-         (saved-interrupt-flag (ldb (byte 1 9) flags)))
-    (setf (ldb (byte 1 9) flags) 0 ; IF
-          (ldb (byte 1 8) flags) 1); TF
-    (setf (%stack-group-interrupted-reg stack-group :flags) flags)
-    ;; Set the current sg's state as yielded.
-    ;; ### lock current sg...
-    (setf (ldb (byte +stack-group-state-size+
-                     +stack-group-state-position+)
-               (%array-like-ref-t (current-stack-group) +stack-group-offset-flags+))
-          +stack-group-yielded+)
-    (setf *debug-trap-stack-group* (current-stack-group))
-    (%%switch-to-stack-group stack-group)
-    (setf *debug-trap-stack-group* nil)
-    ;; Restore the saved IF and turn TF off.
-    (let* ((new-flags (%stack-group-interrupted-reg stack-group :flags)))
-      (setf (ldb (byte 1 9) new-flags) saved-interrupt-flag ; IF
-            (ldb (byte 1 8) new-flags) 0); TF
-      (setf (%stack-group-interrupted-reg stack-group :flags) new-flags))))
-
-#+nil(defun %frame-function (cfp)
-  "Read the function slot of a frame."
-  (memref-t cfp -2))
-
-#+nil(defun normalize-stack-group (stack-group)
-  "Run STACK-GROUP until it reaches a point where it is safe to inspect.
-STACK-GROUP should be locked on entry, but may be temporarily unlocked during normalization."
-  (check-type stack-group stack-group)
-  (ecase (stack-group-state stack-group)
-    (:active (error "Stack group ~S is active." stack-group))
-    ;; Exhausted stack groups are done and can always be inspected.
-    (:exhausted)
-    ;; Yielded stack groups have stopped voluntarily, so won't be in the middle of something.
-    (:yielded)
-    (:interrupted
-     ;; Stack-group has been interrupted.
-     ;; Single-step it until it is no longer in a protected region.
-     (loop
-        (let* ((pc (%stack-group-interrupted-reg stack-group :pc))
-               (cfp (%stack-group-interrupted-reg stack-group :cfp))
-               (fn (%frame-function cfp))
-               (fn-addr (logand (lisp-object-address fn) (lognot #b1111)))
-               (pc-rel (- fn-addr pc))
-               (n-gc-entries (function-gc-info fn)))
-          ;; If PC is outside FN, then it's actually running in some other function
-          ;; and hasn't set up a stack frame yet. Safe to inspect in this state.
-          (when (not (and (<= fn-addr pc) (< pc (+ fn-addr (function-code-size fn)))))
-            (return-from normalize-stack-group))
-          (dotimes (i n-gc-entries
-                    (return-from normalize-stack-group))
-            (multiple-value-bind (start end)
-                (function-gc-info-entry fn i)
-              (when (and (<= start pc-rel)
-                         (< pc-rel end))
-                (return))))
-          (%stack-group-step stack-group))))))

@@ -190,79 +190,6 @@
 #+nil(add-hook '*early-initialize-hook* 'init-isa-pic)
 (init-isa-pic)
 
-(defvar *debug-trap-stack-group* nil
-  "Switch to this stack group on a #DB or #BP. Will enter LDB if NIL.")
-
-#+nil(define-lap-function %%db/bp-exception ()
-  ;; Save the current state (interrupted stack group frame).
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:push :rcx)
-  (sys.lap-x86:push :rdx)
-  (sys.lap-x86:push :rsi)
-  (sys.lap-x86:push :rdi)
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:mov64 (:lsp -24) nil)
-  (sys.lap-x86:mov64 (:lsp -32) nil)
-  (sys.lap-x86:mov64 (:lsp -40) nil)
-  (sys.lap-x86:mov64 (:lsp -48) nil)
-  (sys.lap-x86:mov64 (:lsp -56) nil)
-  (sys.lap-x86:sub64 :lsp 56)
-  (sys.lap-x86:mov64 (:lsp 0) :r8)
-  (sys.lap-x86:mov64 (:lsp 8) :r9)
-  (sys.lap-x86:mov64 (:lsp 16) :r10)
-  (sys.lap-x86:mov64 (:lsp 24) :r11)
-  (sys.lap-x86:mov64 (:lsp 32) :r12)
-  (sys.lap-x86:mov64 (:lsp 40) :r13)
-  (sys.lap-x86:mov64 (:lsp 48) :rbx)
-  ;; Load the target stack-group.
-  (sys.lap-x86:mov64 :r8 (:constant *debug-trap-stack-group*))
-  (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
-  (sys.lap-x86:cmp64 :r8 nil)
-  (sys.lap-x86:jmp no-debug-trap-handler)
-  ;; ### lock stack groups.
-  ;; Mark the current stack group as interrupted.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:or64 (#.(+ (- +tag-array-like+)
-                            (* (1+ +stack-group-offset-flags+) 8)))
-                    #.(ash +stack-group-interrupted+ (+ +stack-group-state-position+ 3)))
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; Restore state.
-  (sys.lap-x86:mov64 :r8 (:lsp 0))
-  (sys.lap-x86:mov64 :r9 (:lsp 8))
-  (sys.lap-x86:mov64 :r10 (:lsp 16))
-  (sys.lap-x86:mov64 :r11 (:lsp 24))
-  (sys.lap-x86:mov64 :r12 (:lsp 32))
-  (sys.lap-x86:mov64 :r13 (:lsp 40))
-  (sys.lap-x86:mov64 :rbx (:lsp 48))
-  (sys.lap-x86:add64 :lsp 56)
-  (sys.lap-x86:mov64 (:lsp -8) nil)
-  (sys.lap-x86:mov64 (:lsp -16) nil)
-  (sys.lap-x86:mov64 (:lsp -24) nil)
-  (sys.lap-x86:mov64 (:lsp -32) nil)
-  (sys.lap-x86:mov64 (:lsp -40) nil)
-  (sys.lap-x86:mov64 (:lsp -48) nil)
-  (sys.lap-x86:mov64 (:lsp -56) nil)
-  (sys.lap-x86:pop :rdi)
-  (sys.lap-x86:pop :rsi)
-  (sys.lap-x86:pop :rdx)
-  (sys.lap-x86:pop :rcx)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:iret)
-  no-debug-trap-handler
-  (sys.lap-x86:mov64 :r8 :rsp)
-  (sys.lap-x86:shl64 :r8 3)
-  (sys.lap-x86:test64 :rsp #b1000)
-  (sys.lap-x86:jz already-aligned)
-  (sys.lap-x86:push 0)
-  already-aligned
-  (sys.lap-x86:mov32 :ecx 8)
-  (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
-  (sys.lap-x86:call (:symbol-function :r13)))
-
 (defun ldb-exception (stack-frame)
   (mumble-string "In LDB.")
   (dotimes (i 32)
@@ -372,9 +299,6 @@
                   (setf (aref *exception-base-handlers* ,n) #',sym)
                   (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
   (doit))
-#+nil(progn
-(set-idt-entry 1 :offset (lisp-object-address #'%%db/bp-exception))
-(set-idt-entry 3 :offset (lisp-object-address #'%%db/bp-exception)))
 
 (defmacro define-interrupt-handler (name lambda-list &body body)
   `(progn (setf (get ',name 'interrupt-handler)
@@ -396,58 +320,57 @@
                                 :initial-contents the-env
                                 :area :static)))))
 
-#+nil(define-lap-function %%interrupt-break-thunk ()
-  ;; Control will return to the common PIC code.
+(define-lap-function %%interrupt-break-thunk ()
+  ;; Control will return to the interrupt code.
   ;; All registers can be smashed here, aside from the stack regs.
-  ;; Align the control stack
-  (sys.lap-x86:mov64 :rax :csp)
-  (sys.lap-x86:test64 :csp 8)
-  (sys.lap-x86:jz over-align)
-  (sys.lap-x86:add64 :csp 8)
-  over-align
-  ;; Save the old CSP and CFP.
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:push :cfp)
-  ;; Call break.
+  (:gc :no-frame)
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  ;; Align the control stack.
+  (sys.lap-x86:and64 :rsp #.(lognot 15))
+  ;; Call.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r13 (:constant break))
   (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:mov64 :lsp :rbx)
-  ;; Restore stack regs.
-  (sys.lap-x86:pop :cfp)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:mov64 :csp :rax)
-  ;; All done.
+  ;; Done.
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret))
 
-#+nil(defun signal-break-from-interrupt (stack-group)
-  "Configure the resumer stack group so it will call BREAK when resumed."
-  (let* ((target stack-group)
-         (csp (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+))
-         (original-csp csp))
-    (when (and (stack-group-interruptable-p target)
-               ;; Only works with an interrupted stack layout. :(
-               (eql (stack-group-state target) :interrupted))
-      (normalize-stack-group stack-group)
-      ;; TARGET's control stack looks like:
-      ;;  +0 CFP
-      ;;  +8 LFP
-      ;; +16 LSP
-      ;; +24 RFlags (with IF cleared due to the interrupt)
-      ;; +32 RIP
-      ;; 16 byte alignment not guaranteed.
-      ;; Rewrite it so it looks like:
-      ;;  +0 CFP
-      ;;  +8 LFP
-      ;; +16 LSP
-      ;; +24 RFlags (with IF set)
-      ;; +32 break-thunk
-      ;; +40 RIP
-      ;; break-thunk will align the stack before invoking BREAK.
-      (decf csp 8)
-      (setf (memref-unsigned-byte-64 csp 0) (memref-unsigned-byte-64 original-csp 0)) ; CFP
-      (setf (memref-unsigned-byte-64 csp 1) (memref-unsigned-byte-64 original-csp 1)) ; LFP
-      (setf (memref-unsigned-byte-64 csp 2) (memref-unsigned-byte-64 original-csp 2)) ; LSP
-      (setf (memref-unsigned-byte-64 csp 3) (logior (memref-unsigned-byte-64 original-csp 3) #x200)) ; RFlags
-      (setf (memref-t csp 4) #'%%interrupt-break-thunk) ; thunk
-      (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+) csp))))
+(defun signal-break-from-interrupt (stack-group)
+  "Configure STACK-GROUP so it will call BREAK when resumed."
+  (when (and (stack-group-interruptable-p stack-group)
+             ;; Only works with an interrupted stack layout. :(
+             (eql (stack-group-state stack-group) :interrupted))
+    ;; STACK-GROUP's RSP points to an interrupt frame.
+    (let* ((rsp (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+))
+           (original-rsp rsp)
+           (return-address (memref-unsigned-byte-64 rsp 15))
+           (fn-address (base-address-of-internal-pointer return-address))
+           (fn-offset (- return-address fn-address))
+           (fn (%%assemble-value fn-address +tag-function+)))
+      (multiple-value-bind (framep interruptp pushed-values pushed-values-register
+                                   layout-address layout-length
+                                   multiple-values incoming-arguments block-or-tagbody-thunk)
+          (gc-info-for-function-offset fn fn-offset)
+        ;; Don't try if there are active multiple-values.
+        (when multiple-values
+          (return-from signal-break-from-interrupt))
+        ;; STACK-GROUP's control stack looks like:
+        ;;  +0 RBP
+        ;;  +8 RFlags (with IF cleared due to the interrupt)
+        ;; +16 RIP (to the interrupt handler)
+        ;; 16 byte alignment not guaranteed.
+        ;; Rewrite it so it looks like:
+        ;;  +0 RBP
+        ;;  +8 RFlags (with IF set)
+        ;; +16 break-thunk
+        ;; +24 RIP
+        ;; break-thunk will align the stack before invoking BREAK.
+        (decf rsp 8)
+        (setf (memref-unsigned-byte-64 rsp 0) (memref-unsigned-byte-64 original-rsp 0)) ; RBP
+        (setf (memref-unsigned-byte-64 rsp 1) (logior (memref-unsigned-byte-64 original-rsp 1) #x200)) ; RFlags
+        (setf (memref-t rsp 2) #'%%interrupt-break-thunk) ; thunk
+        (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-control-stack-pointer+) rsp)))))
