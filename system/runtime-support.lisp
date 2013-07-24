@@ -414,44 +414,39 @@
 
 (defun function-tag (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ldb (byte 8 0) info)))
+  (let ((address (logand (lisp-object-address function) -16)))
+    (memref-unsigned-byte-8 address 0)))
 
 (defun function-pool-size (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ldb (byte 16 32) info)))
+  (let ((address (logand (lisp-object-address function) -16)))
+    (memref-unsigned-byte-16 address 2)))
 
 (defun function-code-size (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (* (ldb (byte 16 16) info) 16)))
+  (let ((address (logand (lisp-object-address function) -16)))
+    (* (memref-unsigned-byte-16 address 1) 16)))
 
 (defun function-pool-object (function offset)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0))
-         (mc-size (* (ldb (byte 16 16) info) 2))) ; in words.
+  (let ((address (logand (lisp-object-address function) -16))
+        (mc-size (truncate (function-code-size function) 8))) ; in words.
     (memref-t address (+ mc-size offset))))
 
 (defun function-code-byte (function offset)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
+  (let ((address (logand (lisp-object-address function) -16)))
     (memref-unsigned-byte-8 address offset)))
 
 (defun function-gc-info (function)
   "Return the address of and the number of bytes in FUNCTION's GC info."
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0))
-         (mc-size (* (ldb (byte 16 16) info) 16))
-         (n-constants (ldb (byte 16 32) info)))
+         (gc-length (memref-unsigned-byte-16 address 3))
+         (mc-size (function-code-size function))
+         (n-constants (function-pool-size function)))
     (values (+ address mc-size (* n-constants 8)) ; Address.
-            (ldb (byte 16 48) info)))) ; Length.
+            gc-length))) ; Length.
 
 (defun decode-function-gc-info (function)
   (multiple-value-bind (address length)

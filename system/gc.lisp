@@ -472,10 +472,9 @@
 (defun scan-function (object)
   ;; Scan the constant pool.
   (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0))
-         (mc-size (ash (ldb (byte 16 16) header) 1))
-         (pool-size (ldb (byte 16 32) header)))
-    (scavenge-many (+ address (* mc-size 8)) pool-size)))
+         (mc-size (* (memref-unsigned-byte-16 address 1) 16))
+         (pool-size (memref-unsigned-byte-16 address 2)))
+    (scavenge-many (+ address mc-size) pool-size)))
 
 (defun scan-object (object)
   "Scan one object, updating pointer fields."
