@@ -28,6 +28,7 @@
 (defconstant +llf-array+ #x16)
 ;; Call a function, push the result.
 (defconstant +llf-funcall+ #x17)
+(defconstant +llf-bit-vector+ #x18)
 
 (defvar *noisy-load* nil)
 
@@ -55,7 +56,8 @@
     (#.+llf-add-backlink+ 'add-backlink)
     (#.+llf-ratio+ 'ratio)
     (#.+llf-array+ 'array)
-    (#.+llf-funcall+ 'funcall)))
+    (#.+llf-funcall+ 'funcall)
+    (#.+llf-bit-vector+ 'bit-vector)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -236,7 +238,18 @@
     (#.+llf-array+
      (load-llf-array stream stack))
     (#.+llf-funcall+
-     (values (funcall (vector-pop stack))))))
+     (values (funcall (vector-pop stack))))
+    (#.+llf-bit-vector+
+     (let* ((len (load-integer stream))
+            (n-octets (ceiling len 8))
+            (vec (make-array len :element-type 'bit)))
+       (dotimes (i n-octets)
+         (let ((octet (%read-byte stream)))
+           (dotimes (j 8)
+             (when (>= (+ (* i 8) j) len)
+               (return))
+             (setf (bit vec (+ (* i 8) j)) (ldb (byte 1 j) octet)))))
+       vec))))
 
 (defun mini-load-llf (stream)
   (check-llf-header stream)

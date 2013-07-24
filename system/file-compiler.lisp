@@ -282,6 +282,16 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (dolist (dim (array-dimensions object))
     (save-integer dim stream)))
 
+(defmethod save-one-object ((object bit-vector) omap stream)
+  (write-byte +llf-bit-vector+ stream)
+  (save-integer (length object) stream)
+  (dotimes (i (ceiling (length object)))
+    (let ((octet 0))
+      (dotimes (j 8)
+        (when (>= (+ (* i 8) j) (length object)) (return))
+        (setf (ldb (byte 1 j) octet) (bit object j)))
+      (write-byte octet stream))))
+
 (defmethod save-one-object (object omap stream)
   (multiple-value-bind (creation-form initialization-form)
       (make-load-form object)

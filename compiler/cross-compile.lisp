@@ -260,6 +260,9 @@
 (defconstant +llf-integer-vector+ #x13)
 (defconstant +llf-add-backlink+ #x14)
 (defconstant +llf-array+ #x16)
+;; Call a function, push the result.
+(defconstant +llf-funcall+ #x17)
+(defconstant +llf-bit-vector+ #x18)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -413,6 +416,16 @@
   (save-integer (array-rank object) stream)
   (dolist (dim (array-dimensions object))
     (save-integer dim stream)))
+
+(defmethod save-one-object ((object bit-vector) omap stream)
+  (write-byte +llf-bit-vector+ stream)
+  (save-integer (length object) stream)
+  (dotimes (i (ceiling (length object)))
+    (let ((octet 0))
+      (dotimes (j 8)
+        (when (>= (+ (* i 8) j) (length object)) (return))
+        (setf (ldb (byte 1 j) octet) (bit object j)))
+      (write-byte octet stream))))
 
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))
