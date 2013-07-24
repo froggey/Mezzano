@@ -400,10 +400,12 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *llf-forms*)))
+          (gc) ; ### working around a hash-table bug
           (let ((*llf-dry-run* t))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o omap (make-broadcast-stream)))))
+          (gc) ; ### working around a hash-table bug
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
