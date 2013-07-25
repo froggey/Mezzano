@@ -248,7 +248,6 @@
 (defconstant +llf-setf-symbol+ #x08)
 (defconstant +llf-integer+ #x09)
 (defconstant +llf-invoke+ #x0A)
-(defconstant +llf-funcall+ #x0A) ; same as invoke
 (defconstant +llf-setf-fdefinition+ #x0B)
 (defconstant +llf-simple-vector+ #x0C)
 (defconstant +llf-character+ #x0D)
