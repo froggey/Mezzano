@@ -238,16 +238,19 @@
   "Scavenge SIZE words pointed to by OBJECT."
   (scavenge-many (ash (%pointer-field object) 4) size))
 
+(defvar *gc-debug-scavenge-stack* nil)
+
 (defun scavenge-stack (stack-pointer frame-pointer return-address)
+  (when *gc-debug-scavenge-stack* (mumble "Scav stack..."))
   (loop
-     #+(or)(progn
-     (mumble-hex stack-pointer "SP: " t)
-     (mumble-hex frame-pointer "FP: " t)
-     (mumble-hex return-address "RA: " t))
+     (when *gc-debug-scavenge-stack*
+       (mumble-hex stack-pointer "SP: " t)
+       (mumble-hex frame-pointer "FP: " t)
+       (mumble-hex return-address "RA: " t))
      (let* ((fn-address (base-address-of-internal-pointer return-address))
             (fn-offset (- return-address fn-address))
             (fn (%%assemble-value fn-address +tag-function+)))
-       #+(or)(progn
+       (when *gc-debug-scavenge-stack*
          (mumble-hex fn-address "fn: " t)
          (mumble-hex fn-offset "fnoffs: " t))
        (scavenge-object fn)
@@ -255,28 +258,28 @@
                                     layout-address layout-length
                                     multiple-values incoming-arguments block-or-tagbody-thunk)
            (gc-info-for-function-offset fn fn-offset)
-         #+(or)(progn
-         (if framep
-             (mumble "frame")
-             (mumble "no-frame"))
-         (if interruptp
-             (mumble "interrupt")
-             (mumble "no-interrupt"))
-         (mumble-hex pushed-values "pv: " t)
-         (mumble-hex (lisp-object-address pushed-values-register) "pvr: " t)
-         (if multiple-values
-             (mumble-hex multiple-values "mv: " t)
-             (mumble "no-multiple-values"))
-         (mumble-hex layout-address "Layout addr: ")
-         (mumble-hex layout-length "  Layout len: " t)
-         (cond ((integerp incoming-arguments)
-                (mumble-hex incoming-arguments "ia: " t))
-               (incoming-arguments
-                (mumble-hex (lisp-object-address incoming-arguments) "ia: " t))
-               (t (mumble "no-incoming-arguments")))
-         (if block-or-tagbody-thunk
-             (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
-             (mumble "no-btt")))
+         (when *gc-debug-scavenge-stack*
+           (if framep
+               (mumble "frame")
+               (mumble "no-frame"))
+           (if interruptp
+               (mumble "interrupt")
+               (mumble "no-interrupt"))
+           (mumble-hex pushed-values "pv: " t)
+           (mumble-hex (lisp-object-address pushed-values-register) "pvr: " t)
+           (if multiple-values
+               (mumble-hex multiple-values "mv: " t)
+               (mumble "no-multiple-values"))
+           (mumble-hex layout-address "Layout addr: ")
+           (mumble-hex layout-length "  Layout len: " t)
+           (cond ((integerp incoming-arguments)
+                  (mumble-hex incoming-arguments "ia: " t))
+                 (incoming-arguments
+                  (mumble-hex (lisp-object-address incoming-arguments) "ia: " t))
+                 (t (mumble "no-incoming-arguments")))
+           (if block-or-tagbody-thunk
+               (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
+               (mumble "no-btt")))
          (when (or interruptp (not (eql pushed-values 0)) pushed-values-register
                    (and multiple-values (not (eql multiple-values 0)))
                    (or (keywordp incoming-arguments)
@@ -287,20 +290,20 @@
          (dotimes (slot layout-length)
            (multiple-value-bind (offset bit)
                (%truncate slot 8) ; ### FIXME: compiler refuses to inline truncate.
-             #+(or)(progn
+             (when *gc-debug-scavenge-stack*
                (mumble-hex slot "ss: ")
                (mumble-hex offset " ")
                (mumble-hex bit ":")
                (mumble-hex (memref-unsigned-byte-8 layout-address offset) "  " t))
              (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
                (cond (framep
-                      #+(or)(progn
+                      (when *gc-debug-scavenge-stack*
                         (mumble-hex (- -1 slot) "Scav stack slot ")
                         (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
                       (setf (memref-t frame-pointer (- -1 slot))
                             (scavenge-object (memref-t frame-pointer (- -1 slot)))))
                      (t
-                      #+(or)(progn
+                      (when *gc-debug-scavenge-stack*
                         (mumble-hex slot "Scav no-frame stack slot ")
                         (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
                       (setf (memref-t stack-pointer slot)
@@ -308,16 +311,24 @@
          ;; Scan incoming arguments.
          (when incoming-arguments
            ;; Stored as fixnum on the stack.
+           #+(or)(mumble-hex (- -1 incoming-arguments) "IA in slot ")
            (let* ((n-args (if framep
                               (memref-t frame-pointer (- -1 incoming-arguments))
                               (memref-t stack-pointer incoming-arguments)))
                   (n-values (max 0 (- n-args 5))))
+             #+(or)(mumble-hex n-args "  n-args" t)
              ;; There are N-VALUES values above the return address.
              (if framep
                  (dotimes (slot n-values)
+                   (when *gc-debug-scavenge-stack*
+                     (mumble-hex (+ 2 slot) "Scav arg slot ")
+                     (mumble-hex (lisp-object-address (memref-t frame-pointer (+ 2 slot))) "  " t))
                    (setf (memref-t frame-pointer (+ 2 slot))
                          (scavenge-object (memref-t frame-pointer (+ 2 slot)))))
                  (dotimes (slot n-values)
+                   (when *gc-debug-scavenge-stack*
+                     (mumble-hex (+ 1 layout-length slot) "Scav arg slot ")
+                     (mumble-hex (lisp-object-address (memref-t frame-pointer (+ 1 layout-length slot))) "  " t))
                    (setf (memref-t stack-pointer (+ 1 layout-length slot))
                          (scavenge-object (memref-t stack-pointer (+ 1 layout-length slot))))))))
          ;; Stop after seeing a zerop frame pointer.
@@ -325,7 +336,8 @@
            (return))
          (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                 stack-pointer (+ frame-pointer 16)
-                frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))))
+                frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))))
+  (when *gc-debug-scavenge-stack* (mumble "Done scav stack.")))
 
 (defun scan-stack-group (object)
   ;; Always scavenge the name.
