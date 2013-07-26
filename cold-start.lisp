@@ -102,13 +102,18 @@
 (defun pathnamep (x) nil)
 (defun pathnames-equal (x y) nil)
 
-;; NOTE: incomplete.
 (defun equal (x y)
   (cond
     ((eql x y))
     ((stringp x)
      (and (stringp y)
           (string= x y)))
+    ((bit-vector-p x)
+     (and (bit-vector-p y)
+          (eql (length x) (length y))
+          (dotimes (i (length x) t)
+            (when (not (eql (bit x i) (bit y i)))
+              (return nil)))))
     ((consp x)
      (loop
         (when (not (consp y))
