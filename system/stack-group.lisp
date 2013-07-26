@@ -284,9 +284,10 @@ otherwise it will be marked as :YIELDED."
     (:active (error "Stack group ~S is already active." stack-group))
     (:exhausted (error "Stack group ~S is exhausted." stack-group))
     ((:yielded :interrupted)
-     ;; Mark as yielded.
-     (setf (ldb (byte +stack-group-state-size+
-                      +stack-group-state-position+)
-                (%array-like-ref-t (current-stack-group) +stack-group-offset-flags+))
-           (if exhaustp +stack-group-exhausted+ +stack-group-yielded+))
-     (%%switch-to-stack-group stack-group))))
+     (with-interrupts-disabled ()
+       ;; Mark as yielded.
+       (setf (ldb (byte +stack-group-state-size+
+                        +stack-group-state-position+)
+                  (%array-like-ref-t (current-stack-group) +stack-group-offset-flags+))
+             (if exhaustp +stack-group-exhausted+ +stack-group-yielded+))
+       (%%switch-to-stack-group stack-group)))))

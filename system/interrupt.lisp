@@ -219,10 +219,7 @@
   (sys.lap-x86:push :rax)
   (sys.lap-x86:mov64 :r8 :rsp)
   (sys.lap-x86:shl64 :r8 3)
-  (sys.lap-x86:test64 :rsp #b1000)
-  (sys.lap-x86:jz already-aligned)
-  (sys.lap-x86:push 0)
-  already-aligned
+  (sys.lap-x86:and64 :rsp #.(lognot 15))
   (sys.lap-x86:mov32 :ecx 8)
   (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
   (sys.lap-x86:call (:symbol-function :r13))

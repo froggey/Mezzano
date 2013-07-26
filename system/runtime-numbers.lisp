@@ -1285,7 +1285,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (:gc :frame :layout #*1)
   ;; Save new size.
   (sys.lap-x86:push :rax)
-  (:gc :frame :layout #*11)
+  (:gc :frame :layout #*10)
   ;; RAX = new size.
   (sys.lap-x86:lea64 :r8 ((:rax 8)))
   (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
