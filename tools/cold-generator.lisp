@@ -1162,6 +1162,7 @@
 (defconstant +llf-package+ #x12)
 (defconstant +llf-integer-vector+ #x13)
 (defconstant +llf-add-backlink+ #x14)
+(defconstant +llf-bit-vector+ #x18)
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
@@ -1472,6 +1473,19 @@
            (setf (word (+ address 1 i)) (typecase value
                                           ((signed-byte 61) (make-fixnum value))
                                           (t (make-bignum value))))))
+       (make-value address sys.int::+tag-array-like+)))
+    (#.+llf-bit-vector+
+     (let* ((len (load-integer stream))
+            (address (allocate (1+ (ceiling len 64)))))
+       ;; Header word.
+       (setf (word address) (array-header sys.int::+array-type-bit+ len))
+       (dotimes (i (ceiling len 8))
+         (let ((octet (read-byte stream)))
+           (multiple-value-bind (word offset)
+               (truncate i 8)
+             (setf (ldb (byte 8 (* offset 8))
+                        (word (+ address 1 word)))
+                   octet))))
        (make-value address sys.int::+tag-array-like+)))))
 
 (defun load-llf (stream)
