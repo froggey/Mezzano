@@ -290,7 +290,8 @@ be generated instead.")
          (reg-arg-tags (loop for reg in arg-registers collect (list (gensym))))
          (control-slots (allocate-control-stack-slots 4))
          (rest-head nil)
-         (rest-tail nil))
+         (rest-tail nil)
+         (reg-save-done (gensym "REG-SAVE-DONE")))
     (setf rest-head (find-stack-slot)
           (aref *stack-values* rest-head) (cons :rest-head :home))
     (setf rest-tail (find-stack-slot)
@@ -301,13 +302,19 @@ be generated instead.")
     ;; depending on the number of required/optional arguments.
     (unless dx-rest
       ;; Only save the arg registers when creating a full cons.
+      ;; Avoid saving registers that don't contain arguments.
+      ;; These may still hold DX values to objects anywhere on the stack. Very bad for GC.
       (loop for slot = (find-stack-slot)
          for tag in reg-arg-tags
          for reg in arg-registers
+         for i from regular-argument-count
          do
            (setf (aref *stack-values* slot) tag)
+           (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
+                 `(sys.lap-x86:jle ,reg-save-done))
            (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
-           (push tag *load-list*)))
+           (push tag *load-list*))
+      (emit reg-save-done))
     ;; Number of arguments processed. Skip register arguments.
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw (max regular-argument-count 5))))
     ;; Number of supplied arguments
@@ -870,16 +877,23 @@ Returns an appropriate tag."
                     (cg-form (second form))))
              (reg-arg-tags (loop for reg in '(:r8 :r9 :r10 :r11 :r12) collect (list (gensym))))
              (sv-save-area-tag (list (gensym)))
-             (sv-count-tag (list (gensym))))
+             (sv-count-tag (list (gensym)))
+             (reg-save-done (gensym "REG-SAVE-DONE")))
          (smash-r8)
          (when (eql tag :multiple)
            (loop for slot = (find-stack-slot)
+              ;; Avoid saving registers that don't contain arguments.
+              ;; These may still hold DX values to objects anywhere on the stack. Very bad for GC.
               for tag in reg-arg-tags
               for reg in '(:r8 :r9 :r10 :r11 :r12)
+              for i from 0
               do
                 (setf (aref *stack-values* slot) tag)
+                (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
+                      `(sys.lap-x86:jle ,reg-save-done))
                 (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
                 (push tag *load-list*))
+           (emit reg-save-done)
            ;; Save the count.
            (let ((slot (find-stack-slot)))
              (setf (aref *stack-values* slot) sv-count-tag)
