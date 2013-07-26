@@ -483,7 +483,7 @@
                                                                      ,sys.int::*top-level-form-number*)))
                                         (progn ,form))
                                      (cons env nil))))
-             (add-to-llf +llf-funcall+ fn)))))
+             (add-to-llf +llf-invoke+ fn)))))
 
 (defun cross-compile-file (input-file &key
                            (output-file (make-pathname :type "llf" :defaults input-file))
