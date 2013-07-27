@@ -18,10 +18,14 @@
    (input :initarg :input)
    (queued-bytes :initarg :queued-bytes)
    (interrupt-character :initarg :interrupt-character :accessor interrupt-character)
-   (state :initform 'xterm-initial :accessor terminal-state)
-   (current-number :initform nil)
-   (parameters :initform '())
+   (state :initform 'xterm-ground :accessor terminal-state)
+
+   (intermediate-characters :initform '())
+   (parameters :initform (make-array 16 :initial-element nil))
+   (n-parameters :initform 0)
    (escape-sequence :initform '())
+   (osc-buffer :initform (make-array 100 :fill-pointer 0 :element-type 'character))
+
    (width :reader terminal-width)
    (height :reader terminal-height)
    (x-pos :initform 0 :accessor x-pos)
@@ -324,35 +328,6 @@
                      (setf (background-colour terminal) (+ 8 (- attr 100))))
                     (t (report-unknown-escape terminal)))))))))
 
-(defun xterm-initial (terminal char)
-  "Initial state."
-  (ecase (charset terminal)
-    (:us-ascii) ; No translation.
-    (:dec ;; Translate some characters.
-     (when (<= #x60 (char-int char) #x7E)
-       (setf char (aref *dec-special-characters-and-line-drawing*
-                        (- (char-int char) #x60))))))
-  (case char
-    (#\Escape
-     (return-from xterm-initial
-       'xterm-saw-escape))
-    (#\Cr
-     (setf (x-pos terminal) 0))
-    (#\Lf
-     (cond ((eql (y-pos terminal)
-                 (or (scroll-end terminal)
-                     (terminal-height terminal)))
-            (scroll-terminal terminal
-                             (scroll-start terminal)
-                             (or (scroll-end terminal)
-                                 (terminal-height terminal))
-                             1))
-           (t (incf (y-pos terminal)))))
-    (#\Bs
-     (decf (x-pos terminal)))
-    (t (write-terminal terminal char)))
-  nil)
-
 (defun save-cursor (terminal)
   (setf (saved-x terminal) (x-pos terminal)
         (saved-y terminal) (y-pos terminal)))
@@ -361,118 +336,10 @@
   (setf (x-pos terminal) (saved-x terminal)
         (y-pos terminal) (saved-y terminal)))
 
-(defun xterm-saw-escape (terminal char)
-  "Saw escape byte."
-  (case char
-    (#\[ 'xterm-saw-bracket)
-    (#\] 'xterm-saw-close-bracket)
-    (#\( 'xterm-saw-paren)
-    (#\) 'xterm-saw-close-paren)
-    (#\> nil) ; DECKPNM
-    (#\= nil) ; DECKPAM
-    (#\M nil) ; Reverse index?
-    ;; Save cursor position.
-    (#\7 (save-cursor terminal)
-         nil)
-    ;; Restore cursor position.
-    (#\8 (restore-cursor terminal)
-         nil)
-    (t (report-unknown-escape terminal) nil)))
-
-(defun xterm-saw-bracket (terminal char)
-  "Saw '<Esc>[' and maybe some digits and semicolons."
-  (cond ((eql char #\;)
-         (cond ((slot-value terminal 'current-number)
-                (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
-                (setf (slot-value terminal 'current-number) nil))
-               (t (push 0 (slot-value terminal 'parameters))))
-         (return-from xterm-saw-bracket 'xterm-saw-bracket))
-        ((digit-char-p char)
-         (unless (slot-value terminal 'current-number)
-           (setf (slot-value terminal 'current-number) 0))
-         (setf (slot-value terminal 'current-number) (+ (* (slot-value terminal 'current-number) 10)
-                                                        (- (char-code char) (char-code #\0))))
-         (return-from xterm-saw-bracket 'xterm-saw-bracket))
-        (t (when (slot-value terminal 'current-number)
-             (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
-             (setf (slot-value terminal 'current-number) nil))
-           (case char
-             (#\A
-              (decf (y-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
-             (#\B
-              (incf (y-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
-             (#\C
-              (incf (x-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
-             (#\D
-              (decf (x-pos terminal) (or (first (slot-value terminal 'parameters)) 1)))
-             (#\H
-              (let* ((params (nreverse (slot-value terminal 'parameters)))
-                     (row (or (first params) 1))
-                     (column (or (second params) 1)))
-                (setf (y-pos terminal) (1- row)
-                      (x-pos terminal) (1- column))))
-             (#\G
-              (setf (x-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
-             (#\J
-              (case (first (slot-value terminal 'parameters))
-                ((0 nil)
-                 ;; clear below
-                 (erase terminal (x-pos terminal) (terminal-width terminal))
-                 (clear terminal (1+ (y-pos terminal)) (terminal-height terminal)))
-                (1 (clear terminal 0 (y-pos terminal))) ; clear above
-                (2 (clear terminal 0 (terminal-height terminal)))
-                (t (report-unknown-escape terminal))))
-             (#\K
-              (case (first (slot-value terminal 'parameters))
-                ((0 nil) (erase terminal (x-pos terminal) (terminal-width terminal))) ; erase to right
-                (1 (erase terminal 0 (x-pos terminal))) ; erase to left
-                (2 (erase terminal 0 (terminal-width terminal))) ; erase all
-                (t (report-unknown-escape terminal))))
-             (#\L
-              ;; Insert Pn lines, starting at the cursor. Lines move down.
-              (when (<= (scroll-start terminal)
-                        (y-pos terminal)
-                        (1- (or (scroll-end terminal)
-                                (terminal-height terminal))))
-                (scroll-terminal terminal
-                                 (y-pos terminal)
-                                 (or (scroll-end terminal)
-                                     (terminal-height terminal))
-                                 (- (or (first (slot-value terminal 'parameters)) 1)))))
-             (#\M
-              ;; Delete Pn lines, starting at the cursor. Lines move up.
-              (when (<= (scroll-start terminal)
-                        (y-pos terminal)
-                        (1- (or (scroll-end terminal)
-                                (terminal-height terminal))))
-                  (scroll-terminal terminal
-                                   (y-pos terminal)
-                                   (or (scroll-end terminal)
-                                       (terminal-height terminal))
-                                   (or (first (slot-value terminal 'parameters)) 1))))
-             (#\d
-              (setf (y-pos terminal) (1- (or (first (slot-value terminal 'parameters)) 1))))
-             (#\m (set-character-attributes terminal (nreverse (slot-value terminal 'parameters))))
-             (#\r ; set scroll region.
-              (let ((params (nreverse (slot-value terminal 'parameters))))
-                (setf (scroll-start terminal) (1- (or (first params) 1))
-                      (scroll-end terminal) (when (second params)
-                                              (1- (second params))))
-                (format t "Scroll region: ~D ~D~%" (scroll-start terminal) (scroll-end terminal))))
-             #+nil(#\h) ; set mode **
-             #+nil(#\l) ; clear mode **
-             (#\!
-              (if (or (slot-value terminal 'parameters)
-                      (slot-value terminal 'current-number))
-                  (report-unknown-escape terminal)
-                  (return-from xterm-saw-bracket 'xterm-saw-bracket-exclaim)))
-             (#\?
-              (if (or (slot-value terminal 'parameters)
-                      (slot-value terminal 'current-number))
-                  (report-unknown-escape terminal)
-                  (return-from xterm-saw-bracket 'xterm-saw-bracket-question)))
-             (t (report-unknown-escape terminal)))))
-  nil)
+(defun adjust-ansi-mode (terminal mode value)
+  "Set an ANSI mode. '<Esc>[Pn;Pm...h' or '<Esc>[Pn;Pm...l'"
+  (case mode
+    (t (format t "Unsupported ANSI mode ~D.~%" mode))))
 
 (defun adjust-dec-private-mode (terminal mode value)
   "Set a DEC private mode. '<Esc>[?Pn;Pm...h' or '<Esc>[?Pn;Pm...l'"
@@ -504,77 +371,445 @@
             (restore-cursor terminal))))
     (t (format t "Unsupported DEC private mode ~D.~%" mode))))
 
-(defun xterm-saw-bracket-exclaim (terminal char)
-  "Saw '<Esc>[!'"
-  (case char
-    (#\p ; DECSTR.
-     (soft-reset terminal))
-    (t (report-unknown-escape terminal)))
-  nil)
+;;;; Control sequence parser derived from http://vt100.net/emu/dec_ansi_parser
 
-(defun xterm-saw-bracket-question (terminal char)
-  "Saw '<Esc>[?'"
-  (cond ((eql char #\;)
-         (cond ((slot-value terminal 'current-number)
-                (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
-                (setf (slot-value terminal 'current-number) nil))
-               (t (push 0 (slot-value terminal 'parameters))))
-         'xterm-saw-bracket-question)
-        ((digit-char-p char)
-         (unless (slot-value terminal 'current-number)
-           (setf (slot-value terminal 'current-number) 0))
-         (setf (slot-value terminal 'current-number) (+ (* (slot-value terminal 'current-number) 10)
-                                                      (- (char-code char) (char-code #\0))))
-         'xterm-saw-bracket-question)
-        (t (when (slot-value terminal 'current-number)
-             (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
-             (setf (slot-value terminal 'current-number) nil))
+(defun default-action (terminal char)
+  "This function implements the Anywhere state transitions."
+  (cond ((eql char #\Escape)
+         (xterm-clear terminal)
+         'xterm-escape)
+        ((eql char #\String-Terminator)
+         'xterm-ground)
+        ((member char '(#\Start-String
+                        #\Privacy-Message
+                        #\Application-Program-Command))
+         'xterm-sos/pm/apc-string)
+        ((eql char #\Device-Control-String)
+         (xterm-clear terminal)
+         'xterm-dcs-entry)
+        ((eql char #\Operating-System-Command)
+         (xterm-osc-start terminal)
+         'xterm-osc-string)
+        ((eql char #\Control-Sequence-Introducer)
+         (xterm-clear terminal)
+         'xterm-csi-entry)
+        ((or (eql char #\Can)
+             (eql char #\Sub)
+             ;; Remaining C1 control codes.
+             (<= #x80 (char-code char) #x9F))
+         (xterm-execute terminal char)
+         'xterm-ground)))
+
+;;; States.
+
+(defun xterm-ground (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed, some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-ground)
+        (t (xterm-print terminal char))))
+
+(defun xterm-escape (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-escape)
+        ((eql char #\Del)
+         'xterm-escape)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-escape-intermediate)
+        ((member char '(#\X #\^ #\_))
+         'xterm-sos/pm/apc-string)
+        ((eql char #\P)
+         (xterm-clear terminal)
+         'dcs-entry)
+        ((eql char #\])
+         (xterm-osc-start terminal)
+         'xterm-osc-string)
+        ((eql char #\[)
+         (xterm-clear terminal)
+         'xterm-csi-entry)
+        (t (xterm-esc-dispatch terminal char)
+           'xterm-ground)))
+
+(defun xterm-escape-intermediate (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-escape-intermediate)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-escape-intermediate)
+        ((eql char #\Del)
+         'xterm-escape-intermediate)
+        (t (xterm-esc-dispatch terminal char)
+           'xterm-ground)))
+
+(defun xterm-csi-entry (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-csi-entry)
+        ((eql char #\Del)
+         'xterm-csi-entry)
+        ((or (<= #x30 (char-code char) #x39)
+             (eql char #\;))
+         (xterm-param terminal char)
+         'xterm-csi-param)
+        ((<= #x3C (char-code char) #x3F)
+         (xterm-collect terminal char)
+         'xterm-csi-param)
+        ((eql char #\:)
+         'xterm-csi-ignore)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-csi-intermediate)
+        (t (xterm-csi-dispatch terminal char)
+           'xterm-ground)))
+
+(defun xterm-csi-param (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-csi-param)
+        ((or (<= #x30 (char-code char) #x39)
+             (eql char #\;))
+         (xterm-param terminal char)
+         'xterm-csi-param)
+        ((eql char #\Del)
+         'xterm-csi-param)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-csi-intermediate)
+        ((or (eql char #\:)
+             (<= #x3C (char-code char) #x3F))
+         'xterm-csi-ignore)
+        (t (xterm-csi-dispatch terminal char)
+           'xterm-ground)))
+
+(defun xterm-csi-ignore (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-csi-ignore)
+        ((or (<= #x20 (char-code char) #x3F)
+             (eql char #\Del))
+         'xterm-csi-ignore)
+        (t 'xterm-ground)))
+
+(defun xterm-csi-intermediate (terminal char)
+  (cond ((default-action terminal char))
+        ;; C0 control codes are executed without a state change,
+        ;;some are handled by the default-action.
+        ((<= (char-code char) #x1F)
+         (xterm-execute terminal char)
+         'xterm-csi-intermediate)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-csi-intermediate)
+        ((eql char #\Del)
+         'xterm-csi-intermediate)
+        ((<= #x30 (char-code char) #x3F)
+         'xterm-csi-ignore)
+        (t (xterm-csi-dispatch terminal char)
+           'xterm-ground)))
+
+(defun xterm-sos/pm/apc-string (terminal char)
+  (cond ((default-action terminal char))
+        ((eql char #\String-Terminator)
+         'xterm-ground)
+        (t 'xterm-sos/pm/apc-string)))
+
+(defun xterm-osc-string (terminal char)
+  (let ((default (default-action terminal char)))
+    (cond (default
+           (xterm-osc-end terminal)
+              default)
+          ((eql char #\String-Terminator)
+           (xterm-osc-end terminal)
+           'xterm-ground)
+          ((<= (char-code char) #x1F)
+           'xterm-osc-string)
+          (t (xterm-osc-put terminal char)
+             'xterm-osc-string))))
+
+(defun xterm-dcs-entry (terminal char)
+  (cond ((default-action terminal char))
+        ((or (<= (char-code char) #x1F)
+             (eql char #\Del))
+         'xterm-dcs-entry)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-dcs-intermediate)
+        ((eql char #\:)
+         'xterm-dcs-ignore)
+        ((<= #x30 (code-char char) #x3B)
+         (xterm-param terminal char)
+         'xterm-dcs-param)
+        ((<= #x3C (code-char char) #x3F)
+         (xterm-collect terminal char)
+         'xterm-dcs-param)
+        (t (xterm-hook terminal char)
+           'xterm-dcs-passthrough)))
+
+(defun xterm-dcs-param (terminal char)
+  (cond ((default-action terminal char))
+        ((or (<= (char-code char) #x1F)
+             (eql char #\Del))
+         'xterm-dcs-param)
+        ((or (<= #x30 (char-code char) #x39)
+             (eql char #\;))
+         (xterm-param terminal char)
+         'xterm-dcs-param)
+        ((or (eql char #\:)
+             (<= #x3C (code-char char) #x3F))
+         'xterm-dcs-ignore)
+        ((<= #x20 (char-code char) #x2F)
+         (xterm-collect terminal char)
+         'xterm-dcs-intermediate)
+        (t (xterm-hook terminal char)
+           'xterm-dcs-passthrough)))
+
+(defun xterm-dcs-intermediate (terminal char)
+  (cond ((default-action terminal char))
+        ((or (<= (char-code char) #x1F)
+             (eql char #\Del))
+         'xterm-dcs-intermediate)
+        ((<= #x30 (char-code char) #x3F)
+         'xterm-dcs-ignore)
+        (t (xterm-hook terminal char)
+           'xterm-dcs-passthrough)))
+
+(defun xterm-dcs-ignore (terminal char)
+  (cond ((default-action terminal char))
+        ((eql char #\String-Terminator)
+         'xterm-ground)
+        (t 'xterm-dcs-ignore)))
+
+(defun xterm-dcs-passthrough (terminal char)
+  (let ((default (default-action terminal char)))
+    (cond (default
+           (xterm-unhook terminal)
+              default)
+          ((eql char #\String-Terminator)
+           (xterm-unhook terminal)
+           'xterm-ground)
+          ((eql char #\Del)
+           'xterm-dcs-passthrough)
+          (t (xterm-put terminal char)
+             'xterm-dcs-passthrough))))
+
+;;; Actions.
+
+(defun xterm-print (terminal char)
+  (ecase (charset terminal)
+    (:us-ascii) ; No translation.
+    (:dec ;; Translate some characters.
+     (when (<= #x60 (char-int char) #x7E)
+       (setf char (aref *dec-special-characters-and-line-drawing*
+                        (- (char-int char) #x60))))))
+  (write-terminal terminal char))
+
+(defun xterm-execute (terminal control-code)
+  (case control-code
+    (#\Cr
+     (setf (x-pos terminal) 0))
+    (#\Lf
+     (cond ((eql (1+ (y-pos terminal))
+                 (or (scroll-end terminal)
+                     (terminal-height terminal)))
+            (scroll-terminal terminal
+                             (scroll-start terminal)
+                             (or (scroll-end terminal)
+                                 (terminal-height terminal))
+                             1))
+           (t (incf (y-pos terminal)))))
+    (#\Bs
+     (decf (x-pos terminal)))))
+
+(defun xterm-clear (terminal)
+  (setf (slot-value terminal 'n-parameters) 0
+        (slot-value terminal 'intermediate-characters) '())
+  (fill (slot-value terminal 'parameters) nil))
+
+(defun xterm-collect (terminal char)
+  (when (listp (slot-value terminal 'intermediate-characters))
+    (if (>= (length (slot-value terminal 'intermediate-characters)) 2)
+        (setf (slot-value terminal 'intermediate-characters) :invalid)
+        (push char (slot-value terminal 'intermediate-characters)))))
+
+(defun xterm-param (terminal char)
+  (when (< (slot-value terminal 'n-parameters) 16)
+    (cond ((eql char #\;)
+           (incf (slot-value terminal 'n-parameters)))
+          (t
+           (unless (aref (slot-value terminal 'parameters)
+                         (slot-value terminal 'n-parameters))
+             (setf (aref (slot-value terminal 'parameters)
+                         (slot-value terminal 'n-parameters))
+                   0))
+           (setf (aref (slot-value terminal 'parameters)
+                       (slot-value terminal 'n-parameters))
+                 (min 16383
+                      (+ (* (aref (slot-value terminal 'parameters)
+                                  (slot-value terminal 'n-parameters))
+                            10)
+                         (- (char-code char) (char-code #\0)))))))))
+
+(defun xterm-esc-dispatch (terminal char)
+  (push char (slot-value terminal 'intermediate-characters))
+  (let ((intermediates (reverse (slot-value terminal 'intermediate-characters))))
+    (cond ((equal intermediates '(#\7))
+           (save-cursor terminal))
+          ((equal intermediates '(#\8))
+           (restore-cursor terminal))
+          ((equal intermediates '(#\( #\B))
+           ;; Set G0 character set.
+           (setf (charset terminal) :us-ascii))
+          ((equal intermediates '(#\( #\0))
+           ;; Set G0 character set.
+           (setf (charset terminal) :dec))
+          (t (report-unknown-escape terminal)))))
+
+(defun xterm-csi-dispatch (terminal char)
+  (when (and (< (slot-value terminal 'n-parameters) 16)
+             (aref (slot-value terminal 'parameters)
+                   (slot-value terminal 'n-parameters)))
+    (incf (slot-value terminal 'n-parameters)))
+  (let ((params (coerce (subseq (slot-value terminal 'parameters)
+                                0 (slot-value terminal 'n-parameters))
+                        'list))
+        (intermediates (reverse (slot-value terminal 'intermediate-characters))))
+    (cond ((endp intermediates)
            (case char
-             (#\h
-              (dolist (p (nreverse (slot-value terminal 'parameters)))
-                (adjust-dec-private-mode terminal p t)))
-             (#\l
-              (dolist (p (nreverse (slot-value terminal 'parameters)))
-                (adjust-dec-private-mode terminal p nil)))
-             (t (report-unknown-escape terminal)))
-           nil)))
+             (#\d (setf (y-pos terminal) (1- (or (first params) 1))))
+             (#\h (dolist (p params)
+                    (adjust-ansi-mode terminal p t)))
+             (#\l (dolist (p params)
+                    (adjust-ansi-mode terminal p nil)))
+             (#\m (set-character-attributes terminal params))
+             (#\r ; set scroll region.
+              (setf (scroll-start terminal) (1- (or (first params) 1))
+                    (scroll-end terminal) (when (second params)
+                                            (1- (second params))))
+              (format t "Scroll region: ~D ~D~%" (scroll-start terminal) (scroll-end terminal)))
+             (#\A (decf (y-pos terminal) (or (first params) 1)))
+             (#\B (incf (y-pos terminal) (or (first params) 1)))
+             (#\C (incf (x-pos terminal) (or (first params) 1)))
+             (#\D (decf (x-pos terminal) (or (first params) 1)))
+             (#\H (let* ((row (or (first params) 1))
+                         (column (or (second params) 1)))
+                    (setf (y-pos terminal) (1- row)
+                          (x-pos terminal) (1- column))))
+             (#\G (setf (x-pos terminal) (1- (or (first params) 1))))
+             (#\J (case (first params)
+                    ((0 nil)
+                     ;; clear below
+                     (erase terminal (x-pos terminal) (terminal-width terminal))
+                     (clear terminal (1+ (y-pos terminal)) (terminal-height terminal)))
+                    (1 (clear terminal 0 (y-pos terminal))) ; clear above
+                    (2 (clear terminal 0 (terminal-height terminal)))
+                    (t (report-unknown-escape terminal))))
+             (#\K (case (first params)
+                    ((0 nil) (erase terminal (x-pos terminal) (terminal-width terminal))) ; erase to right
+                    (1 (erase terminal 0 (x-pos terminal))) ; erase to left
+                    (2 (erase terminal 0 (terminal-width terminal))) ; erase all
+                    (t (report-unknown-escape terminal))))
+             (#\L
+              ;; Insert Pn lines, starting at the cursor. Lines move down.
+              (when (<= (scroll-start terminal)
+                        (y-pos terminal)
+                        (1- (or (scroll-end terminal)
+                                (terminal-height terminal))))
+                (scroll-terminal terminal
+                                 (y-pos terminal)
+                                 (or (scroll-end terminal)
+                                     (terminal-height terminal))
+                                 (- (or (first params) 1)))))
+             (#\M
+              ;; Delete Pn lines, starting at the cursor. Lines move up.
+              (when (<= (scroll-start terminal)
+                        (y-pos terminal)
+                        (1- (or (scroll-end terminal)
+                                (terminal-height terminal))))
+                  (scroll-terminal terminal
+                                   (y-pos terminal)
+                                   (or (scroll-end terminal)
+                                       (terminal-height terminal))
+                                   (or (first params) 1))))
+             (t (report-unknown-escape terminal))))
+          ((equal intermediates '(#\?))
+           (case char
+             (#\h (dolist (p params)
+                    (adjust-dec-private-mode terminal p t)))
+             (#\l (dolist (p params)
+                    (adjust-dec-private-mode terminal p nil)))
+             (t (report-unknown-escape terminal))))
+          (t (report-unknown-escape terminal)))))
 
-(defun xterm-saw-close-bracket (terminal char)
-  "Saw '<Esc>]'/OSC and maybe some digits and semicolons."
-  (cond ((eql char #\;)
-         (cond ((slot-value terminal 'current-number)
-                (push (slot-value terminal 'current-number) (slot-value terminal 'parameters))
-                (setf (slot-value terminal 'current-number) nil))
-               (t (push 0 (slot-value terminal 'parameters))))
-         (return-from xterm-saw-close-bracket 'xterm-saw-close-bracket))
-        ((digit-char-p char)
-         (unless (slot-value terminal 'current-number)
-           (setf (slot-value terminal 'current-number) 0))
-         (setf (slot-value terminal 'current-number) (+ (* (slot-value terminal 'current-number) 10)
-                                                        (- (char-code char) (char-code #\0))))
-         (return-from xterm-saw-close-bracket 'xterm-saw-close-bracket))
-        (t (report-unknown-escape terminal)))
-  nil)
+(defun xterm-hook (terminal char)
+  (when (and (< (slot-value terminal 'n-parameters) 16)
+             (aref (slot-value terminal 'parameters)
+                   (slot-value terminal 'n-parameters)))
+    (incf (slot-value terminal 'n-parameters)))
+  (let ((params (subseq (slot-value terminal 'parameters)
+                        0 (slot-value terminal 'n-parameters)))
+        (intermediates (reverse (slot-value terminal 'intermediate-characters))))
+    (report-unknown-escape terminal)))
 
-(defun xterm-saw-paren (terminal char)
-  "Saw '<Esc>(', expecting a character set identifier."
-  ;; Set G0 character set.
-  (case char
-    (#\B (setf (charset terminal) :us-ascii))
-    (#\0 (setf (charset terminal) :dec))
-    (t (setf (charset terminal) :us-ascii)
-       (report-unknown-escape terminal)))
-  nil)
+(defun xterm-put (terminal char))
 
-(defun xterm-saw-close-paren (terminal char)
-  "Saw '<Esc>)', expecting a character set identifier."
-  ;; Set G1 character set.
-  (case char
-    (#\B #+nil(setf (charset terminal) :us-ascii))
-    (#\0 #+nil(setf (charset terminal) :dec))
-    (t #+nil(setf (charset terminal) :us-ascii)
-       (report-unknown-escape terminal)))
-  nil)
+(defun xterm-unhook (terminal)
+  (format t "Unhook~%"))
+
+(defun xterm-osc-start (terminal)
+  (setf (fill-pointer (slot-value terminal 'osc-buffer)) 0))
+
+(defun xterm-osc-put (terminal char)
+  (vector-push char (slot-value terminal 'osc-buffer)))
+
+(defun xterm-osc-end (terminal)
+  ;; Find the end of the command parameter.
+  ;; The buffer will look like: P s ; P t
+  (let* ((buf (slot-value terminal 'osc-buffer))
+         (parameter-end (dotimes (i (length buf)
+                                  (progn ;; No #\;, give up.
+                                    (report-unknown-escape terminal)
+                                    (return-from xterm-osc-end)))
+                          (when (eql (aref buf i) #\;)
+                            (return i))))
+         (pt (subseq buf (1+ parameter-end)))
+         (parameter 0))
+    (dotimes (i parameter-end)
+      (let ((weight (digit-char-p (aref buf i))))
+        (when (not weight)
+          (report-unknown-escape terminal)
+          (return-from xterm-osc-end))
+        (setf parameter (+ (* parameter 10) weight))))
+    (case parameter
+      (0 (format t "Set iconified name and window title to ~S~%" pt))
+      (1 (format t "Set iconified name to ~S~%" pt))
+      (2 (format t "Set window title to ~S~%" pt))
+      (3 (format t "Set X property ~S~%" pt))
+      (4 (format t "Set colour ~S~%" pt))
+      ((10 11 12 13 14 15 16 17 18)
+       (format t "Set dynamic colour ~S~%" buf))
+      (46 (format t "Set log file to ~S~%" pt))
+      (50 (format t "Set font to ~S~%" pt))
+      (51) ; Reserved for Emacs shell.
+      (52 (format t "Manipulate selection data: ~S~%" pt)))))
 
 (defun utf-8-code-point-length (code-point)
   "Return the number of bytes required to encode CODE-POINT or NIL if it can't be encoded."
@@ -628,11 +863,10 @@
   (with-simple-restart (continue "Ignore this character.")
     (let ((new-state (funcall (terminal-state stream) stream char)))
       (cond (new-state
+             (when (eql new-state 'xterm-ground)
+               (setf (slot-value stream 'escape-sequence) '()))
              (setf (terminal-state stream) new-state))
-            (t (setf (terminal-state stream) 'xterm-initial
-                     (slot-value stream 'current-number) nil
-                     (slot-value stream 'parameters) '()
-                     (slot-value stream 'escape-sequence) '()))))))
+            (t (setf (terminal-state stream) 'xterm-ground))))))
 
 (defvar *xterm-translations*
   (list (list (name-char "Up-Arrow")    '(#\Esc #\[ #\A))
