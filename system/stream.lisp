@@ -403,7 +403,8 @@
 
 (defclass string-output-stream (sys.gray:fundamental-character-output-stream)
   ((element-type :initarg :element-type)
-   (string :initform nil)))
+   (string :initarg :string))
+  (:default-initargs :string nil))
 
 (defun make-string-output-stream (&key (element-type 'character))
   (make-instance 'string-output-stream :element-type element-type))
