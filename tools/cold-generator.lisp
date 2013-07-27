@@ -780,6 +780,8 @@
            "SYSTEM.INTERNALS")
           ((eql package (find-package "SYSTEM"))
            "SYSTEM")
+          ((eql package (find-package "SYS.FORMAT"))
+           "SYS.FORMAT")
           (t (error "Not touching package ~S (for symbol ~A)." package symbol)))))
 
 (defun (setf cold-symbol-value) (value symbol)

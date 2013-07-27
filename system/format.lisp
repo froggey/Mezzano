@@ -1,28 +1,214 @@
-(in-package :sys.int)
+(cl:defpackage :sys.format
+  (:use :cl #:sys.int))
 
-(defun format-c (s args params at-sign colon)
-  (when params (error "Expected 0 parameters."))
-  (let ((c (car args)))
-    (check-type c character)
-    (cond ((and at-sign (not colon))
-           (write c :stream s :escape t))
-	  (colon
-           (if (and (graphic-char-p c) (not (eql #\Space c)))
-               (write-char c s)
-               (write-string (char-name c) s))
-           ;; TODO: colon & at-sign.
-           ;; Describes how to type the character if it requires
-           ;; unusual shift keys to type.
-           (when at-sign))
-          (t (write-char c s))))
-  (cdr args))
+(in-package :sys.format)
 
-(defun format-integer (s args base params at-sign colon)
+(defstruct directive
+  character
+  at-sign
+  colon
+  parameters)
+
+;; Only tracks parameters for the start directive.
+(defstruct block-directive
+  character
+  start-at-sign
+  start-colon
+  end-at-sign
+  end-colon
+  parameters
+  inner)
+
+(defparameter *block-directives*
+  '((#\( #\))
+    (#\[ #\])
+    (#\< #\>)
+    (#\{ #\})))
+
+(defun whitespace[1]p (c)
+  (or (eql c #\Newline)
+      (eql c #\Space)
+      (eql c #\Rubout)
+      (eql c #\Page)
+      (eql c #\Tab)
+      (eql c #\Backspace)))
+
+(defun parse-format-directive (control-string offset)
+  (let ((prefix-parameters nil)
+        (at-sign-modifier nil)
+        (colon-modifier nil)
+        (current-prefix nil))
+    ;; Read prefix parameters
+    (do () (nil)
+      (case (char-upcase (char control-string offset))
+        ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\+ #\-)
+         (when current-prefix (error "Invalid format control string ~S." control-string))
+         ;; Eat digits until non-digit
+         (let ((negative nil))
+           (setf current-prefix 0)
+           (case (char control-string offset)
+             (#\+ (incf offset))
+             (#\- (incf offset)
+                  (setf negative t)))
+           (when (not (digit-char-p (char control-string offset)))
+             ;; The sign is optional, the digits are not.
+             (error "Invalid format control string ~S." control-string))
+           (do () ((not (digit-char-p (char control-string offset))))
+             (setf current-prefix (+ (* current-prefix 10)
+                                     (digit-char-p (char control-string offset))))
+             (incf offset))
+           (when negative
+             (setf current-prefix (- current-prefix)))))
+        (#\#
+         (when current-prefix (error "Invalid format control string ~S." control-string))
+         (incf offset)
+         (setf current-prefix :sharp-sign))
+        (#\V
+         (when current-prefix (error "Invalid format control string ~S." control-string))
+         (incf offset)
+         (setf current-prefix :v))
+        (#\'
+         (when current-prefix (error "Invalid format control string ~S." control-string))
+         (incf offset)
+         (setf current-prefix (char control-string offset))
+         (incf offset))
+        (#\,
+         (incf offset)
+         (push current-prefix prefix-parameters)
+         (setf current-prefix nil))
+        (t (return))))
+    (when current-prefix
+      (push current-prefix prefix-parameters))
+    (setf prefix-parameters (nreverse prefix-parameters))
+    ;; Munch all colons and at-signs
+    (do () (nil)
+      (case (char control-string offset)
+        (#\@ (setf at-sign-modifier t)
+             (incf offset))
+        (#\: (setf colon-modifier t)
+             (incf offset))
+        (t (return))))
+    (case (char control-string offset)
+      (#\Newline
+       ;; Newline must be handled specially, as it advances through the control string.
+       (unless colon-modifier
+         ;; Eat trailing whitespace[1].
+         (do () ((not (whitespace[1]p (char control-string (1+ offset)))))
+           (incf offset)))
+       (values offset #\Newline at-sign-modifier colon-modifier prefix-parameters))
+      (#\/
+       ;; This also advances through the control string.
+       (let ((package-name "COMMON-LISP-USER")
+             (symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0))
+             (allow-internal nil))
+         (do ((ch (char control-string (incf offset))
+                  (char control-string (incf offset))))
+             ((eql ch #\/))
+           (cond ((and (eql ch #\:)
+                       (zerop (length symbol-name)))
+                  (setf allow-internal t))
+                 ((eql ch #\:)
+                  (setf package-name symbol-name
+                        symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0)))
+                 (t (vector-push-extend (char-upcase ch) symbol-name))))
+         (push (list symbol-name package-name allow-internal) prefix-parameters)
+         (values offset #\/ at-sign-modifier colon-modifier prefix-parameters)))
+      (t (values offset (char-upcase (char control-string offset)) at-sign-modifier colon-modifier prefix-parameters)))))
+
+(defun parse-format-control-substring (control-string start end-char)
+  (do ((offset start (1+ offset))
+       (accumulated-string)
+       (result '()))
+      ((>= offset (length control-string))
+       (when end-char
+         (error "No terminating ~~~C directive." end-char))
+       (when accumulated-string
+         (push accumulated-string result)
+         (setf accumulated-string nil))
+       (values offset (reverse result)))
+    (flet ((append-character (c)
+             "Append C to the accumulated-string."
+             (when (not accumulated-string)
+               (setf accumulated-string (make-array 50 :element-type 'character :adjustable t :fill-pointer 0)))
+             (vector-push-extend c accumulated-string)))
+      (cond ((eql #\~ (char control-string offset))
+             (multiple-value-bind (new-offset character at-sign colon parameters)
+                 (parse-format-directive control-string (1+ offset))
+               (setf offset new-offset)
+               ;; Flush accumulated output.
+               (when accumulated-string
+                 (push accumulated-string result)
+                 (setf accumulated-string nil))
+               (cond ((find character *block-directives* :key #'first)
+                      (multiple-value-bind (new-offset inner end-at-sign end-colon)
+                          (parse-format-control-substring control-string (1+ offset)
+                                                          (second (find character *block-directives* :key #'first)))
+                        (push (make-block-directive :character character
+                                                    :start-at-sign at-sign
+                                                    :start-colon colon
+                                                    :end-at-sign end-at-sign
+                                                    :end-colon end-colon
+                                                    :parameters parameters
+                                                    :inner inner)
+                              result)
+                        (setf offset new-offset)))
+                     ((eql character end-char)
+                      (when parameters
+                        (error "~~~C does not take parameters." character))
+                      (when (eql character end-char)
+                        (return (values offset (reverse result) at-sign colon))))
+                     ((find character *block-directives* :key #'second)
+                      (error "Unexpected directive ~S in format control-string ~S!"
+                             character control-string))
+                     (t (push (make-directive :character character
+                                              :at-sign at-sign
+                                              :colon colon
+                                              :parameters parameters)
+                              result)))))
+               (t (append-character (char control-string offset)))))))
+
+
+(defun parse-format-control (control-string)
+  (nth-value 1 (parse-format-control-substring control-string 0 nil)))
+
+(defparameter *format-interpreters* '())
+
+(defun format-interpreter (character)
+  (check-type character character)
+  (getf *format-interpreters* character))
+
+(defun (setf format-interpreter) (value character)
+  (check-type character character)
+  (setf (getf *format-interpreters* character) value))
+
+(defmacro define-format-interpreter (character (at-sign colon &rest parameter-lambda-list) &body body)
+  (let ((arguments (gensym "Args"))
+        (at-sign-sym (or at-sign (gensym "At-Sign")))
+        (colon-sym (or colon (gensym "Colon"))))
+    `(setf (format-interpreter ',character)
+           (lambda (,arguments ,at-sign-sym ,colon-sym ,@parameter-lambda-list)
+             (declare (system:lambda-name (format-interpreter ,character)))
+             (block nil
+               ,@(when (not at-sign)
+                       (list `(when ,at-sign-sym
+                                (error "~~~C does not take the at-sign modifier." ',character))))
+               ,@(when (not colon)
+                       (list `(when ,colon-sym
+                                (error "~~~C does not take the colon modifier." ',character))))
+               (flet ((consume-argument ()
+                        (when (endp ,arguments)
+                          (error "No more format arguments."))
+                        (pop ,arguments))
+                      (remaining-arguments ()
+                        ,arguments))
+                 ,@body
+                 ,arguments))))))
+
+(defun format-integer (s n base params at-sign colon)
   (let ((mincol (first params))
 	(padchar (or (second params) #\Space))
 	(commachar (or (third params) #\,))
-	(comma-interval (or (fourth params) 3))
-	(n (car args)))
+	(comma-interval (or (fourth params) 3)))
     (unless (integerp n)
       (return-from format-integer
         (let ((*print-base* base))
@@ -70,8 +256,7 @@
 	(progn
 	  (when (and at-sign (not (minusp n)))
 	    (write-char #\+ s))
-	  (write n :stream s :escape nil :radix nil :base base :readably nil))))
-  (cdr args))
+	  (write n :stream s :escape nil :radix nil :base base :readably nil)))))
 
 (defvar *cardinal-names-1*
   '("zero" "one" "two" "three" "four" "five" "six" "seven" "eight" "nine"
@@ -140,343 +325,373 @@
                 (return)
               finally (error "Number ~:D too large to be printed as an ordinal number." integer)))))
 
-(defun format-r (s args params at-sign colon)
-  (cond
-    (params
-     (let ((base (or (car params) 10)))
-       (check-type base integer)
-       (format-integer s args base (cdr params) at-sign colon)))
-    (at-sign
-     (error "TODO: Roman numerals."))
-    (colon
-     (print-ordinal (car args) s)
-     (cdr args))
-    (t
-     (print-cardinal (car args) s)
-     (cdr args))))
+;;;; 22.3.1 FORMAT Basic Output.
 
-(defun format-b (s args params at-sign colon)
-  (format-integer s args 2 params at-sign colon))
+(define-format-interpreter #\C (at-sign colon)
+  (let ((c (consume-argument)))
+    (check-type c character)
+    (cond ((and at-sign (not colon))
+           (write c :escape t))
+	  (colon
+           (if (and (graphic-char-p c) (not (eql #\Space c)))
+               (write-char c)
+               (write-string (char-name c)))
+           ;; TODO: colon & at-sign.
+           ;; Describes how to type the character if it requires
+           ;; unusual shift keys to type.
+           (when at-sign))
+          (t (write-char c)))))
 
-(defun format-o (s args params at-sign colon)
-  (format-integer s args 8 params at-sign colon))
+(define-format-interpreter #\% (at-sign colon &optional n)
+  (check-type n (or integer null))
+  (dotimes (i (or n 1))
+    (terpri)))
 
-(defun format-d (s args params at-sign colon)
-  (format-integer s args 10 params at-sign colon))
+(define-format-interpreter #\& (at-sign colon &optional n)
+  (check-type n (or integer null))
+  (when (or (null n) (plusp n))
+    (fresh-line)
+    (dotimes (i (1- (or n 1)))
+      (terpri))))
 
-(defun format-x (s args params at-sign colon)
-  (format-integer s args 16 params at-sign colon))
+(define-format-interpreter #\| (at-sign colon &optional n)
+  (check-type n (or integer null))
+  (dotimes (i (or n 1))
+    (write-char #\Page)))
 
-(defun format-a (s args params at-sign colon)
-  (if (and colon (null (car args)))
-      (write-string "()" s)
-      (write (car args) :stream s :escape nil :readably nil))
-  (cdr args))
+(define-format-interpreter #\~ (at-sign colon &optional n)
+  (check-type n (or integer null))
+  (dotimes (i (or n 1))
+    (write-char #\~)))
 
-(defun format-s (s args params at-sign colon)
-  (if (and colon (null (car args)))
-      (write-string "()" s)
-      (write (car args) :stream s :escape t))
-  (cdr args))
+;;;; 22.3.2 FORMAT Radix Control.
 
-(defun format-~ (s args params at-sign colon)
-  (when (cdr params)
-    (error "Expected 0 or 1 parameters."))
-  (let ((count (or (car params)
-		   1)))
-    (check-type count integer)
-    (dotimes (i count)
-      (write-char #\~ s)))
-  args)
+(define-format-interpreter #\R (at-sign colon &rest params)
+  (let ((arg (consume-argument)))
+    (cond
+      (params
+       (let ((base (or (first params) 10)))
+         (check-type base integer)
+         (format-integer arg
+                         base (rest params)
+                         at-sign colon)))
+      (at-sign
+       (error "TODO: Roman numerals."))
+      (colon
+       (print-ordinal arg *standard-output*))
+      (t
+       (print-cardinal arg *standard-output*)))))
 
-(defun format-% (s args params at-sign colon)
-  (when (cdr params)
-    (error "Expected 0 or 1 parameters."))
-  (let ((count (or (car params)
-		   1)))
-    (check-type count integer)
-    (dotimes (i count)
-      (terpri s)))
-  args)
+(define-format-interpreter #\D (at-sign colon &rest params)
+  (format-integer (consume-argument)
+                  10 params at-sign colon))
 
-(defun format-& (s args params at-sign colon)
-  (when (cdr params)
-    (error "Expected 0 or 1 parameters."))
-  (let ((count (or (car params)
-		   1)))
-    (check-type count integer)
-    (fresh-line s)
-    (dotimes (i (1- count))
-      (terpri s)))
-  args)
+(define-format-interpreter #\B (at-sign colon &rest params)
+  (format-integer (consume-argument)
+                  2 params at-sign colon))
 
-(defun format-page (s args params at-sign colon)
-  (when (cdr params)
-    (error "Expected 0 or 1 parameters."))
-  (let ((count (or (car params)
-		   1)))
-    (check-type count integer)
-    (dotimes (i count)
-      (write-char #\Page s)))
-  args)
+(define-format-interpreter #\O (at-sign colon &rest params)
+  (format-integer (consume-argument)
+                  8 params at-sign colon))
 
-(defun format-write (s args params at-sign colon)
-  (when params
-    (error "~W takes no parameters."))
-  (cond
-    ((and at-sign colon)
-     (write (car args) :stream s :pretty t :level nil :length nil))
-    (at-sign
-     (write (car args) :stream s :level nil :length nil))
-    (colon
-     (write (car args) :stream s :pretty t))
-    (t (write (car args) :stream s)))
-  (cdr args))
+(define-format-interpreter #\X (at-sign colon &rest params)
+  (format-integer (consume-argument)
+                  16 params at-sign colon))
 
-(defun format-conditional-newline (s args params at-sign colon)
-  (when params
-    (error "~_ takes no parameters."))
+;;;; 22.3.3 FORMAT Floating-Point Printers.
+;;; TODO: F, E, G, $
+
+;;;; 22.3.4 FORMAT Printer Operations.
+
+(define-format-interpreter #\A (at-sign colon &optional mincol colinc minpad padchar)
+  (let ((arg (consume-argument)))
+    (if (and (null arg) colon)
+        (write-string "()")
+        (write arg :escape nil :readably nil))))
+
+(define-format-interpreter #\S (at-sign colon &optional mincol colinc minpad padchar)
+  (let ((arg (consume-argument)))
+    (if (and (null arg) colon)
+        (write-string "()")
+        (write arg :escape t))))
+
+(define-format-interpreter #\W (at-sign colon)
   (cond
     ((and at-sign colon)
-     (pprint-newline :mandatory s))
+     (write (consume-argument) :pretty t :level nil :length nil))
     (at-sign
-     (pprint-newline :miser s))
+     (write (consume-argument) :level nil :length nil))
     (colon
-     (pprint-newline :fill s))
-    (t (pprint-newline :linear s)))
-  args)
+     (write (consume-argument) :pretty t))
+    (t (write (consume-argument)))))
 
-(defun format-indent (s args params at-sign colon)
-  (when (cdr params)
-    (error "Expected 0 or 1 parameters."))
-  (let ((count (or (car params) 1)))
-    (when at-sign
-      (error "~I does not take the at-sign modifier."))
-    (pprint-indent (if colon
-                       :current
-                       :block)
-                   count))
-  args)
+;;;; 22.3.5 FORMAT Pretty Printer Operations.
 
-(defun format-tabulate (s args params at-sign colon)
-  (when (cddr params)
-    (error "Expected 0, 1 or 2 parameters."))
-  (let ((colnum (or (first params) 1))
-        (colinc (or (second params) 1)))
-    (cond (colon
-           (pprint-tab (if at-sign :section-relative :section)
-                       colnum colinc
-                       s))
-          (at-sign
-           (dotimes (i colnum)
-             (write-char #\Space s))
-           (let ((current (sys.gray:stream-line-column s)))
-             (when current
-               (dotimes (i (- colinc (rem current colinc)))
-                 (write-char #\Space s)))))
-          (t (let ((current (sys.gray:stream-line-column s)))
-               (cond ((not current)
-                      (write-string "  " s))
-                     ((< current colnum)
-                      (dotimes (i (- colnum current))
-                        (write-char #\Space s)))
-                     ((not (zerop colinc))
-                      (dotimes (i (- colinc (rem (- current colnum) colinc)))
-                        (write-char #\Space s))))))))
-  args)
+(define-format-interpreter #\_ (at-sign colon)
+  (cond
+    ((and at-sign colon)
+     (pprint-newline :mandatory))
+    (at-sign
+     (pprint-newline :miser))
+    (colon
+     (pprint-newline :fill))
+    (t (pprint-newline :linear))))
 
-(defun format-recurse (s args params at-sign colon)
-  (when colon
-    (error "~? does not take the colon modifier."))
-  (when params
-    (error "~? takes no parameters."))
-  (cond (at-sign
-         (multiple-value-bind (offset remaining-args)
-             (interpret-format-substring s (pop args) 0 nil args)
-           (declare (ignore offset))
-           remaining-args))
-        (t (interpret-format-substring s (pop args) 0 nil (pop args))
-           args)))
+;;; TODO
+(defun format-justification (args inner at-sign colon end-at-sign params)
+  (interpret-format-control inner args))
 
-(defun format-plural (s args params at-sign colon)
+(define-format-interpreter #\I (nil colon &optional count)
+  (check-type count (or integer null))
+  (pprint-indent (if colon
+                     :current
+                     :block)
+                 (or count 1)))
+
+(define-format-interpreter #\/ (at-sign colon function &rest params)
+  (destructuring-bind (symbol-name package-name allow-internal)
+      function
+    (apply (intern symbol-name package-name)
+           *standard-output*
+           (consume-argument)
+           colon at-sign
+           params)))
+
+;;;; 22.3.6 FORMAT Layout Control.
+
+(define-format-interpreter #\T (at-sign colon &optional colnum colinc)
+  (setf colnum (or colnum 1)
+        colinc (or colinc 1))
+  (cond (colon
+         (pprint-tab (if at-sign :section-relative :section)
+                     colnum colinc))
+        (at-sign
+         (dotimes (i colnum)
+           (write-char #\Space))
+         (let ((current (sys.gray:stream-line-column *standard-output*)))
+           (when current
+             (dotimes (i (- colinc (rem current colinc)))
+               (write-char #\Space)))))
+        (t (let ((current (sys.gray:stream-line-column *standard-output*)))
+             (cond ((not current)
+                    (write-string "  "))
+                   ((< current colnum)
+                    (dotimes (i (- colnum current))
+                      (write-char #\Space)))
+                   ((not (zerop colinc))
+                    (dotimes (i (- colinc (rem (- current colnum) colinc)))
+                      (write-char #\Space))))))))
+
+;;; TODO!
+(defun format-logical-block (args inner at-sign colon end-at-sign params)
+  (interpret-format-control inner args))
+
+;;;; 22.3.7 FORMAT Control-Flow Operations.
+
+;;; TODO.
+(define-format-interpreter #\* (at-sign colon &rest params))
+
+(defun format-iteration (args inner at-sign colon end-at-sign end-colon params)
+  (when (rest params)
+    (error "~~{ expects at most one parameter."))
+  (when end-at-sign
+    (error "~~> does not take the at-sign modifier."))
+  (let ((n (first params))
+        (list (cond (at-sign
+                     args)
+                    (t (when (endp args)
+                         (error "No more format arguments."))
+                       (pop args)))))
+    (check-type n (or null integer))
+    (loop
+       (when (and (not end-colon) (endp list)) (return))
+       (setf end-colon nil)
+       (if colon
+           (interpret-format-control inner
+                                     (pop list))
+           (setf list (interpret-format-control inner
+                                                list))))
+    (if at-sign
+        list
+        args)))
+
+(defun decode-conditional-clauses (control-list)
+  "Split CONTROL-LIST into a list of clauses at ~; directives."
+  (let ((result '())
+        (current '())
+        saw-else)
+    (dolist (element control-list)
+      (cond ((and (directive-p element)
+                  (eql (directive-character element) #\;))
+             (when saw-else
+               (error "Additional clauses after else clause."))
+             (when (directive-colon element)
+               (setf saw-else t))
+             (when (directive-at-sign element)
+               (error "~; in [] does not take the at-sign modifier."))
+             (when (directive-parameters element)
+               (error "~; in [] expects no parameters."))
+             (push (reverse current) result)
+             (setf current '()))
+            (t (push element current))))
+    (cond (saw-else
+           (values (reverse result) (reverse current) saw-else))
+          (t (push (reverse current) result)
+             (values (reverse result) nil saw-else)))))
+
+(defun format-conditional (args inner at-sign colon end-at-sign end-colon params)
+  (when (or end-at-sign end-colon)
+    (error "~~] does not take the at-sign or colon modifiers."))
+  (multiple-value-bind (clauses default defaultp)
+      (decode-conditional-clauses inner)
+    (cond ((and at-sign colon)
+           (error "At-sign and colon modifiers are mutually exclusive in ~~["))
+          (at-sign ; Test argument. If true, rewind 1 and execute the one-clause consequent.
+           (when params (error "~~@[ expects no parameters."))
+           (when defaultp
+             (error "Default clause with ~~:[."))
+           (unless (eql (length clauses) 1)
+             (error "~~@[ takes exactly one claus."))
+           (when (endp args)
+             (error "No more format arguments."))
+           (cond ((first args)
+                  (interpret-format-control (first clauses)
+                                            args))
+                 (t (pop args) args)))
+          (colon ; Select first clause if argument is false, second if true.
+           (when params (error "~~:[ expects no parameters."))
+           (when defaultp
+             (error "Default clause with ~~:[."))
+           (unless (eql (length clauses) 2)
+             (error "~~:[ takes exactly two clauses."))
+           (when (endp args)
+             (error "No more format arguments."))
+           (interpret-format-control (if (pop args)
+                                         (second clauses)
+                                         (first clauses))
+                                     args))
+           (t (when (rest params)
+                (error "~~[ expects at most one parameter."))
+              (when (and (null (first params)) (endp args))
+                (error "No more format arguments."))
+              (let ((arg (or (first params) (pop args))))
+                (check-type arg integer)
+                (cond ((or (< arg 0)
+                           (>= arg (length clauses)))
+                       (if defaultp
+                           (interpret-format-control default
+                                                     args)
+                           args))
+                      (t (interpret-format-control (nth arg clauses)
+                                                   args))))))))
+
+(define-format-interpreter #\? (at-sign nil)
+  (let ((control (parse-format-control (consume-argument))))
+    (cond (at-sign
+           (return (interpret-format-control control (remaining-arguments))))
+          (t (interpret-format-control control (consume-argument))))))
+
+;;;; 22.3.8 FORMAT Miscellaneous Operations.
+
+(defun format-case-correcting (args inner at-sign colon end-at-sign end-colon params)
+  (when params (error "~~( Expects no parameters."))
+  (when (or end-at-sign end-colon)
+    (error "~~) does not take the at-sign or colon modifiers."))
+  (let ((*standard-output* (sys.int::make-case-correcting-stream
+                            *standard-output*
+                            (cond ((and colon at-sign)
+                                   :upcase)
+                                  (colon
+                                   :titlecase)
+                                  (at-sign
+                                   :sentencecase)
+                                  (t :downcase)))))
+    (interpret-format-control inner args)))
+
+(define-format-interpreter #\P (at-sign colon)
   (let ((arg (if colon
                  ;; FIXME: Should back up by one.
-                 (first args)
-                 (pop args))))
+                 (first (remaining-arguments))
+                 (consume-argument))))
     (if (and (numberp arg)
              (= arg 1))
         (if at-sign
-            (write-string "y" s))
+            (write-string "y"))
         (if at-sign
-            (write-string "ies" s)
-            (write-string "s" s))))
+            (write-string "ies")
+            (write-string "s")))))
+
+;;;; 22.3.9 FORMAT Miscellaneous Pseudo-Operations.
+
+;; TODO!
+(define-format-interpreter #\^ (at-sign colon &rest params))
+
+(define-format-interpreter #\Newline (at-sign colon)
+  (when at-sign
+    (write-char #\Newline)))
+
+(defun format-justification-or-logical-block (args inner at-sign colon end-at-sign end-colon params)
+  (if end-colon
+      (format-logical-block args inner at-sign colon end-at-sign params)
+      (format-justification args inner at-sign colon end-at-sign params)))
+
+(defun interpret-format-control (control args)
+  (flet ((compute-parameters (params)
+           (mapcar (lambda (p)
+                     (cond ((eql p :v)
+                            (when (endp args)
+                              (error "No more arguments for V parameter."))
+                            (pop args))
+                           ((eql p :sharp-sign)
+                            (length args))
+                           (t p)))
+                   params)))
+    (dolist (element control)
+      (etypecase element
+        (string (write-string element))
+        (block-directive
+         (setf args (funcall (ecase (block-directive-character element)
+                               (#\( #'format-case-correcting)
+                               (#\[ #'format-conditional)
+                               (#\< #'format-justification-or-logical-block)
+                               (#\{ #'format-iteration))
+                             args
+                             (block-directive-inner element)
+                             (block-directive-start-at-sign element)
+                             (block-directive-start-colon element)
+                             (block-directive-end-at-sign element)
+                             (block-directive-end-colon element)
+                             (compute-parameters (block-directive-parameters element)))))
+        (directive
+         (let ((fn (format-interpreter (directive-character element))))
+           (when (not fn)
+             (error "Unknown format directive ~S!" (directive-character element)))
+           (setf args (apply fn args
+                             (directive-at-sign element)
+                             (directive-colon element)
+                             (compute-parameters (directive-parameters element)))))))))
   args)
 
-(defun format-ignore (s args params at-sign colon)
-  (declare (ignore s params at-sign colon))
-  args)
-
-(defparameter *format-functions*
-  '((#\C format-c)
-    (#\R format-r)
-    (#\B format-b)
-    (#\O format-o)
-    (#\D format-d)
-    (#\X format-x)
-    (#\S format-s)
-    (#\A format-a)
-    (#\~ format-~)
-    (#\% format-%)
-    (#\& format-&)
-    (#\| format-page)
-    (#\W format-write)
-    (#\_ format-conditional-newline)
-    (#\I format-indent)
-    (#\T format-tabulate)
-    (#\? format-recurse)
-    (#\P format-plural)
-    (#\< format-ignore)
-    (#\> format-ignore)
-    (#\[ format-ignore)
-    (#\] format-ignore)
-    (#\; format-ignore)
-    (#\{ format-ignore)
-    (#\} format-ignore)
-    (#\^ format-ignore)))
-
-(defun whitespace[1]p (c)
-  (or (eql c #\Newline)
-      (eql c #\Space)
-      (eql c #\Rubout)
-      (eql c #\Page)
-      (eql c #\Tab)
-      (eql c #\Backspace)))
-
-(defun interpret-format-substring (destination control-string start end-char args)
-  (do ((offset start (1+ offset)))
-      ((>= offset (length control-string))
-       (values offset args))
-    (if (eql #\~ (char control-string offset))
-        (let ((prefix-parameters nil)
-              (at-sign-modifier nil)
-              (colon-modifier nil)
-              (current-prefix nil))
-          (incf offset)
-          ;; Read prefix parameters
-          (do () (nil)
-            (case (char-upcase (char control-string offset))
-              ((#\0 #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\+ #\-)
-               (when current-prefix (error "Invalid format control string ~S." control-string))
-               ;; Eat digits until non-digit
-               (let ((negative nil))
-                 (setf current-prefix 0)
-                 (case (char control-string offset)
-                   (#\+ (incf offset))
-                   (#\- (incf offset)
-                        (setf negative t)))
-                 (when (not (digit-char-p (char control-string offset)))
-                   ;; The sign is optional, the digits are not.
-                   (error "Invalid format control string ~S." control-string))
-                 (do () ((not (digit-char-p (char control-string offset))))
-                   (setf current-prefix (+ (* current-prefix 10)
-                                           (digit-char-p (char control-string offset))))
-                   (incf offset))
-                 (when negative
-                   (setf current-prefix (- current-prefix)))))
-              (#\#
-               (when current-prefix (error "Invalid format control string ~S." control-string))
-               (incf offset)
-               (setf current-prefix (length args)))
-              (#\'
-               (when current-prefix (error "Invalid format control string ~S." control-string))
-               (incf offset)
-               (setf current-prefix (char control-string offset))
-               (incf offset))
-              (#\,
-               (incf offset)
-               (push current-prefix prefix-parameters)
-               (setf current-prefix nil))
-              (t (return))))
-          (when current-prefix
-            (push current-prefix prefix-parameters))
-          (setf prefix-parameters (nreverse prefix-parameters))
-          ;; Munch all colons and at-signs
-          (do () (nil)
-            (case (char control-string offset)
-              (#\@ (setf at-sign-modifier t)
-                   (incf offset))
-              (#\: (setf colon-modifier t)
-                   (incf offset))
-              (t (return))))
-          (case (char control-string offset)
-            (#\Newline
-             ;; Newline must be handled specially, as it advances through the control string.
-             (when (and at-sign-modifier colon-modifier)
-               (error "Cannot specify colon and at-sign for this directive."))
-             (when at-sign-modifier
-               ;; Leave the newline in place.
-               (write-char #\Newline destination))
-             (unless colon-modifier
-               ;; Eat trailing whitespace[1].
-               (do () ((not (whitespace[1]p (char control-string (1+ offset)))))
-                 (incf offset))))
-            (#\( ;; Case conversion.
-             ;; FIXME: Must check for outer ~(.
-             (when prefix-parameters (error "~~( Expects no parameters."))
-             (let ((s (make-case-correcting-stream destination (cond ((and colon-modifier at-sign-modifier)
-                                                                      :upcase)
-                                                                     (colon-modifier
-                                                                      :titlecase)
-                                                                     (at-sign-modifier
-                                                                      :sentencecase)
-                                                                     (t :downcase)))))
-               (multiple-value-bind (new-offset new-args)
-                   (interpret-format-substring s control-string (1+ offset) #\) args)
-                 (setf offset new-offset
-                       args new-args))))
-            (#\) (unless (eql end-char #\))
-                   (error "Unexpected format control character ~~) in ~S." control-string))
-                 (return (values offset args)))
-            (#\/
-             (let ((package-name "COMMON-LISP-USER")
-                   (symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0))
-                   (allow-internal nil))
-               (do ((ch (char control-string (incf offset))
-                        (char control-string (incf offset))))
-                   ((eql ch #\/))
-                 (cond ((and (eql ch #\:)
-                             (zerop (length symbol-name)))
-                        (setf allow-internal t))
-                        ((eql ch #\:)
-                         (setf package-name symbol-name
-                               symbol-name (make-array 20 :element-type 'character :adjustable t :fill-pointer 0)))
-                        (t (vector-push-extend (char-upcase ch) symbol-name))))
-               (apply (intern symbol-name package-name)
-                      destination (pop args)
-                      colon-modifier at-sign-modifier
-                      prefix-parameters)))
-            (t (let ((fn (cadr (assoc (char control-string offset) *format-functions*
-                                      :test #'char-equal))))
-                 (if fn
-                     (setf args (funcall fn destination args prefix-parameters
-                                         at-sign-modifier colon-modifier))
-                     (cerror "Ignore it."
-                             "Invalid format control character ~S in ~S."
-                             (char control-string offset) control-string))))))
-        (write-char (char control-string offset) destination))))
-
-(defun format* (destination control-string args)
-  (if (functionp control-string)
-      (apply control-string destination args)
-      (interpret-format-substring destination control-string 0 nil args)))
-
-(defun format (stream control &rest arguments)
-  (declare (dynamic-extent arguments))
-  (cond ((eql stream 'nil)
-         (with-output-to-string (s)
-           (format* s control arguments)))
-        ((eql stream 't)
-         (format* *standard-output* control arguments)
-         nil)
-        (t (format* stream control arguments)
-           nil)))
+(defun format (destination control-string &rest arguments)
+  (flet ((do-format (*standard-output*)
+           (interpret-format-control (parse-format-control control-string)
+                                     arguments)))
+    (cond
+      ((eql destination 'nil)
+       (with-output-to-string (stream)
+         (do-format stream)))
+      ((and (stringp destination)
+            (array-has-fill-pointer-p destination))
+       (do-format (make-instance 'sys.int::string-output-stream
+                                 :element-type 'character
+                                 :string destination)))
+      ((eql destination 't)
+       (do-format *standard-output*))
+      ((streamp destination)
+       (do-format destination))
+      (t (error 'type-error
+                :expected-type '(or
+                                 (member nil t)
+                                 stream
+                                 (and string (not simple-string)))
+                :datum destination)))))
