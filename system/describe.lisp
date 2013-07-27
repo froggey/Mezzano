@@ -16,7 +16,16 @@
     (format stream "  ~A uses the TLS slot ~D~%" object (symbol-tls-slot object))))
 
 (defun describe-character (object stream)
-  (format stream "~S is a ~S~%" object (type-of object)))
+  (format stream "~S is a ~S.~%" object (type-of object))
+  (format stream "  It has the char-code #x~4,'0X~%" (char-code object))
+  (when (char-bit object :control)
+    (format stream "  It has the control bit set.~%"))
+  (when (char-bit object :meta)
+    (format stream "  It has the meta bit set.~%"))
+  (when (char-bit object :super)
+    (format stream "  It has the super bit set.~%"))
+  (when (char-bit object :hyper)
+    (format stream "  It has the hyper bit set.~%")))
 
 (defun describe-float (object stream)
   (format stream "~D is a single-precision floating-point number.~%" object))
