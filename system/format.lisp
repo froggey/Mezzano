@@ -630,6 +630,9 @@
   (when at-sign
     (write-char #\Newline)))
 
+;; FIXME, remove this when #\< is implemented.
+(define-format-interpreter #\; (at-sign colon &rest params))
+
 (defun format-justification-or-logical-block (args inner at-sign colon end-at-sign end-colon params)
   (if end-colon
       (format-logical-block args inner at-sign colon end-at-sign params)
