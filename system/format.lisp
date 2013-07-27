@@ -204,7 +204,7 @@
                  ,@body
                  ,arguments))))))
 
-(defun format-integer (s n base params at-sign colon)
+(defun format-integer (n base params at-sign colon)
   (let ((mincol (first params))
 	(padchar (or (second params) #\Space))
 	(commachar (or (third params) #\,))
@@ -212,7 +212,7 @@
     (unless (integerp n)
       (return-from format-integer
         (let ((*print-base* base))
-          (format-a s args '() nil nil))))
+          (write n :escape nil :readably nil))))
     (check-type padchar character)
     (check-type commachar character)
     (check-type comma-interval integer)
@@ -239,24 +239,24 @@
 		  (setf n quot))))
 	  ;; TODO: count commas as well
 	  (dotimes (i (- mincol (+ (length buffer) (if (or negative at-sign) 1 0))))
-	    (write-char padchar s))
+	    (write-char padchar))
           (cond
             (negative
-             (write-char #\- s))
+             (write-char #\-))
             (at-sign
-             (write-char #\+ s)))
+             (write-char #\+)))
 	  (if colon
 	      (dotimes (i (length buffer))
 		(when (and (not (zerop i))
                            (zerop (rem (- (length buffer) i) comma-interval)))
-		  (write-char commachar s))
-		(write-char (char buffer (- (length buffer) i 1)) s))
+		  (write-char commachar))
+		(write-char (char buffer (- (length buffer) i 1))))
 	      (dotimes (i (length buffer))
-		(write-char (char buffer (- (length buffer) i 1)) s))))
+		(write-char (char buffer (- (length buffer) i 1))))))
 	(progn
 	  (when (and at-sign (not (minusp n)))
-	    (write-char #\+ s))
-	  (write n :stream s :escape nil :radix nil :base base :readably nil)))))
+	    (write-char #\+))
+	  (write n :escape nil :radix nil :base base :readably nil)))))
 
 (defvar *cardinal-names-1*
   '("zero" "one" "two" "three" "four" "five" "six" "seven" "eight" "nine"
@@ -403,13 +403,13 @@
 
 ;;;; 22.3.4 FORMAT Printer Operations.
 
-(define-format-interpreter #\A (at-sign colon &optional mincol colinc minpad padchar)
+(define-format-interpreter #\A (nil colon &optional mincol colinc minpad padchar)
   (let ((arg (consume-argument)))
     (if (and (null arg) colon)
         (write-string "()")
         (write arg :escape nil :readably nil))))
 
-(define-format-interpreter #\S (at-sign colon &optional mincol colinc minpad padchar)
+(define-format-interpreter #\S (nil colon &optional mincol colinc minpad padchar)
   (let ((arg (consume-argument)))
     (if (and (null arg) colon)
         (write-string "()")
