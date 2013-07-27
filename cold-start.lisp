@@ -791,6 +791,11 @@
                 (mini-load-llf stream))))
            (incf addr (round-up size 8))))))))
 
+(defvar *deferred-%defpackage-calls* '())
+
+(defun %defpackage (&rest arguments)
+  (push arguments *deferred-%defpackage-calls*))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 256
         *array-types* #(t
@@ -875,6 +880,9 @@
   (dotimes (i (length *package-system*))
     (eval (svref *package-system* i)))
   (initialize-package-system)
+  (dolist (args (reverse *deferred-%defpackage-calls*))
+    (apply #'%defpackage args))
+  (makunbound '*deferred-%defpackage-calls*)
   (let ((*package* *package*))
     (dotimes (i (length *additional-cold-toplevel-forms*))
       (eval (svref *additional-cold-toplevel-forms* i))))
