@@ -171,30 +171,33 @@
           (reverse (slot-value term 'escape-sequence))
           (terminal-state term)))
 
-(defun write-terminal (term char)
-  (let ((x (x-pos term)) (y (y-pos term)))
-    (when (and (<= 0 x (1- (terminal-width term)))
-               (<= 0 y (1- (terminal-height term))))
-      (sys.graphics::bitset 16 8
-                            (true-background-colour term) (terminal-framebuffer term)
-                            (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
-      (unless (eql char #\Space)
-        (let* ((glyph (sys.int::map-unifont-2d char)))
-          (when glyph
-            (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (true-foreground-colour term)
-                                                   glyph 0 0
-                                                   (terminal-framebuffer term)
-                                                   (+ (* y 16) (y-offset term))
-                                                   (+ (* x 8) (x-offset term)))
-            (when (bold term)
-              (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
+(defun write-terminal-at (term char x y)
+  (when (and (<= 0 x (1- (terminal-width term)))
+             (<= 0 y (1- (terminal-height term))))
+    (sys.graphics::bitset 16 8
+                          (true-background-colour term) (terminal-framebuffer term)
+                          (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
+    (unless (eql char #\Space)
+      (let* ((glyph (sys.int::map-unifont-2d char)))
+        (when glyph
+          (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (true-foreground-colour term)
+                                                 glyph 0 0
+                                                 (terminal-framebuffer term)
+                                                 (+ (* y 16) (y-offset term))
+                                                 (+ (* x 8) (x-offset term)))
+          (when (bold term)
+            (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
                                                    glyph 0 0
                                                    (terminal-framebuffer term)
                                                    (+ (* y 16) (y-offset term))
                                                    (+ (* x 8) (x-offset term) 1))))))
-      (when (underline term)
-        (sys.graphics::bitset 1 8 (true-foreground-colour term) (terminal-framebuffer term)
-                              (+ (* y 16) (y-offset term) 15) (+ (* x 8) (x-offset term)))))
+    (when (underline term)
+      (sys.graphics::bitset 1 8 (true-foreground-colour term) (terminal-framebuffer term)
+                            (+ (* y 16) (y-offset term) 15) (+ (* x 8) (x-offset term))))))
+
+(defun write-terminal (term char)
+  (let ((x (x-pos term)) (y (y-pos term)))
+    (write-terminal-at term char x y)
     (incf (x-pos term))
     (when (autowrap term)
       (when (>= (x-pos term) (terminal-width term))
@@ -286,7 +289,7 @@
          (setf (background-colour terminal) (third attributes)))
         (t (dolist (attr attributes)
              (case attr
-               (0 ;; Normal (reset to defaults).
+               ((0 nil) ;; Normal (reset to defaults).
                 (setf (bold terminal) nil
                       (inverse terminal) nil
                       (underline terminal) nil
@@ -671,9 +674,24 @@
 (defun xterm-esc-dispatch (terminal char)
   (push char (slot-value terminal 'intermediate-characters))
   (let ((intermediates (reverse (slot-value terminal 'intermediate-characters))))
-    (cond ((equal intermediates '(#\7))
+    (cond ((equal intermediates '(#\D)) ; Index (IND).
+           (xterm-execute terminal #\Lf))
+          ((equal intermediates '(#\E)) ; Next Line (NEL).
+           (xterm-execute terminal #\Lf)
+           (xterm-execute terminal #\Cr))
+          ((equal intermediates '(#\M)) ; Reverse Index (RI).
+           (cond ((eql (y-pos terminal)
+                       (or (scroll-start terminal)
+                           0))
+                  (scroll-terminal terminal
+                                   (scroll-start terminal)
+                                   (or (scroll-end terminal)
+                                       (terminal-height terminal))
+                                   -1))
+                 (t (decf (y-pos terminal)))))
+          ((equal intermediates '(#\7)) ; Save Cursor (DECSC).
            (save-cursor terminal))
-          ((equal intermediates '(#\8))
+          ((equal intermediates '(#\8)) ; Restore Cursor (DECRC).
            (restore-cursor terminal))
           ((equal intermediates '(#\( #\B))
            ;; Set G0 character set.
@@ -681,6 +699,12 @@
           ((equal intermediates '(#\( #\0))
            ;; Set G0 character set.
            (setf (charset terminal) :dec))
+          ((equal intermediates '(#\# #\8))
+           ;; Screen Alignment Display (DECALN).
+           ;; Fill the screen with #\E.
+           (dotimes (y (terminal-height terminal))
+             (dotimes (x (terminal-width terminal))
+               (write-terminal-at terminal #\E x y))))
           (t (report-unknown-escape terminal)))))
 
 (defun xterm-csi-dispatch (terminal char)
@@ -694,40 +718,67 @@
         (intermediates (reverse (slot-value terminal 'intermediate-characters))))
     (cond ((endp intermediates)
            (case char
-             (#\d (setf (y-pos terminal) (1- (or (first params) 1))))
-             (#\h (dolist (p params)
-                    (adjust-ansi-mode terminal p t)))
-             (#\l (dolist (p params)
-                    (adjust-ansi-mode terminal p nil)))
-             (#\m (set-character-attributes terminal params))
-             (#\r ; set scroll region.
+             (#\c ; Device Attributes (DA).
+              (cond ((or (null params)
+                         (eql (first params) 0))
+                     ;; FIXME: Respond with something.
+                     ;; \e[?1;2c  "I am a VT100 terminal with AVO."
+                     )
+                    (t (report-unknown-escape terminal))))
+             (#\d ; Line Position Absolute (VPA).
+              (setf (y-pos terminal) (1- (or (first params) 1))))
+             (#\h ; Set Mode (SM).
+              (dolist (p params)
+                (adjust-ansi-mode terminal p t)))
+             (#\l ; Reset Mode (RM).
+              (dolist (p params)
+                (adjust-ansi-mode terminal p nil)))
+             (#\m ; Select Graphics Rendition (SGR).
+              (set-character-attributes terminal params))
+             (#\r ; Set Top and Bottom Margins (DECSTBM).
               (setf (scroll-start terminal) (1- (or (first params) 1))
                     (scroll-end terminal) (when (second params)
                                             (1- (second params))))
               (format t "Scroll region: ~D ~D~%" (scroll-start terminal) (scroll-end terminal)))
-             (#\A (decf (y-pos terminal) (or (first params) 1)))
-             (#\B (incf (y-pos terminal) (or (first params) 1)))
-             (#\C (incf (x-pos terminal) (or (first params) 1)))
-             (#\D (decf (x-pos terminal) (or (first params) 1)))
-             (#\H (let* ((row (or (first params) 1))
-                         (column (or (second params) 1)))
-                    (setf (y-pos terminal) (1- row)
-                          (x-pos terminal) (1- column))))
-             (#\G (setf (x-pos terminal) (1- (or (first params) 1))))
-             (#\J (case (first params)
-                    ((0 nil)
-                     ;; clear below
-                     (erase terminal (x-pos terminal) (terminal-width terminal))
-                     (clear terminal (1+ (y-pos terminal)) (terminal-height terminal)))
-                    (1 (clear terminal 0 (y-pos terminal))) ; clear above
-                    (2 (clear terminal 0 (terminal-height terminal)))
-                    (t (report-unknown-escape terminal))))
-             (#\K (case (first params)
-                    ((0 nil) (erase terminal (x-pos terminal) (terminal-width terminal))) ; erase to right
-                    (1 (erase terminal 0 (x-pos terminal))) ; erase to left
-                    (2 (erase terminal 0 (terminal-width terminal))) ; erase all
-                    (t (report-unknown-escape terminal))))
-             (#\L
+             (#\A ; Cursor Up (CUU).
+              (setf (y-pos terminal) (max 0
+                                          (- (y-pos terminal)
+                                             (max (or (first params) 1) 1)))))
+             (#\B ; Cursor Down (CUD).
+              (setf (y-pos terminal) (min (1- (terminal-height terminal))
+                                          (+ (y-pos terminal)
+                                             (max (or (first params) 1) 1)))))
+             (#\C ; Cursor Forwards (CUF).
+              (setf (x-pos terminal) (min (1- (terminal-width terminal))
+                                          (+ (x-pos terminal)
+                                             (max (or (first params) 1) 1)))))
+             (#\D ; Cursor Backwards (CUB).
+              (setf (x-pos terminal) (max 0
+                                          (- (x-pos terminal)
+                                             (max (or (first params) 1) 1)))))
+             ((#\f #\H) ; Horizontal and Vertical Position (HVP) and Cursor Position (CUP).
+              (let* ((row (max (or (first params) 1) 1))
+                     (column (max (or (second params) 1) 1)))
+                (setf (y-pos terminal) (1- row)
+                      (x-pos terminal) (1- column))))
+             (#\G ; Cursor Character Absolute (CHA).
+              (setf (x-pos terminal) (1- (or (first params) 1))))
+             (#\J ; Erase In Display (ED).
+              (case (first params)
+                ((0 nil)
+                 ;; clear below
+                 (erase terminal (x-pos terminal) (terminal-width terminal))
+                 (clear terminal (1+ (y-pos terminal)) (terminal-height terminal)))
+                (1 (clear terminal 0 (y-pos terminal))) ; clear above
+                (2 (clear terminal 0 (terminal-height terminal))) ; clear screen
+                (t (report-unknown-escape terminal))))
+             (#\K ; Erase In Line (EL).
+              (case (first params)
+                ((0 nil) (erase terminal (x-pos terminal) (terminal-width terminal))) ; erase to right
+                (1 (erase terminal 0 (x-pos terminal))) ; erase to left
+                (2 (erase terminal 0 (terminal-width terminal))) ; erase line
+                (t (report-unknown-escape terminal))))
+             (#\L ; Insert Line (IL).
               ;; Insert Pn lines, starting at the cursor. Lines move down.
               (when (<= (scroll-start terminal)
                         (y-pos terminal)
@@ -738,7 +789,7 @@
                                  (or (scroll-end terminal)
                                      (terminal-height terminal))
                                  (- (or (first params) 1)))))
-             (#\M
+             (#\M ; Delete Line (DL).
               ;; Delete Pn lines, starting at the cursor. Lines move up.
               (when (<= (scroll-start terminal)
                         (y-pos terminal)
@@ -752,10 +803,12 @@
              (t (report-unknown-escape terminal))))
           ((equal intermediates '(#\?))
            (case char
-             (#\h (dolist (p params)
-                    (adjust-dec-private-mode terminal p t)))
-             (#\l (dolist (p params)
-                    (adjust-dec-private-mode terminal p nil)))
+             (#\h ; Set Mode (SM), DEC private modes.
+              (dolist (p params)
+                (adjust-dec-private-mode terminal p t)))
+             (#\l ; Reset Mode (SM), DEC private modes.
+              (dolist (p params)
+                (adjust-dec-private-mode terminal p nil)))
              (t (report-unknown-escape terminal))))
           (t (report-unknown-escape terminal)))))
 
