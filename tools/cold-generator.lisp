@@ -1275,6 +1275,8 @@
       ((#.sys.int::+tag-even-fixnum+
         #.sys.int::+tag-odd-fixnum+)
        (ash value -3))
+      (#.sys.int::+tag-character+
+       (code-char (ash value -4)))
       (#.sys.int::+tag-cons+
        (cons (extract-object (word address))
              (extract-object (word (1+ address)))))
