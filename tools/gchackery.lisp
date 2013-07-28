@@ -162,6 +162,8 @@ Assumes that everything can be reached from NIL."
        (if (ldb-test (byte 1 63) value)
            (ash (logior (lognot (ldb (byte 64 0) -1)) value) -3)
            (ash value -3)))
+      (#.sys.int::+tag-character+
+       (code-char (ldb (byte 21 4) value)))
       (#.sys.int::+tag-cons+
        (cons (extract-image-object image (image-word image address))
              (extract-image-object image (image-word image (+ address 8)))))
