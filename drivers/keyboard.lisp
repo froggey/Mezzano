@@ -4,7 +4,11 @@
   (head 0 :type fixnum)
   (tail 0 :type fixnum)
   (buffer (make-array 500 :element-type '(unsigned-byte 8) :area :static)
-          :type (simple-array (unsigned-byte 8) (*))))
+          :read-only t)
+  (semaphore (make-semaphore :name "PS/2 FIFO count" :area :static)
+             :read-only t)
+  (lock (make-spinlock :name "PS/2 FIFO lock" :area :static)
+        :read-only t))
 
 (defconstant +ps/2-data-port+ #x60)
 (defconstant +ps/2-control-port+ #x64)
@@ -26,13 +30,15 @@
        (when (eql data #x01)
          (signal-break-from-interrupt
           *isa-pic-interrupted-stack-group*)))))
-  (setf x (1+ (ps/2-fifo-tail fifo)))
-  (when (>= x (length (ps/2-fifo-buffer fifo)))
-    (setf x 0))
-  ;; When next reaches head, the buffer is full.
-  (unless (= x (ps/2-fifo-head fifo))
-    (setf (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-tail fifo)) data
-          (ps/2-fifo-tail fifo) x))
+  (with-spinlock-held (ps/2-fifo-lock fifo)
+    (setf x (1+ (ps/2-fifo-tail fifo)))
+    (when (>= x (length (ps/2-fifo-buffer fifo)))
+      (setf x 0))
+    ;; When next reaches head, the buffer is full.
+    (unless (= x (ps/2-fifo-head fifo))
+      (setf (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-tail fifo)) data
+            (ps/2-fifo-tail fifo) x)
+      (signal-semaphore (ps/2-fifo-semaphore fifo))))
   't)
 
 (defvar *ps/2-key-fifo*)
@@ -42,28 +48,31 @@
 (defvar *ps/2-break-control* nil)
 
 (defun ps/2-fifo-empty (fifo)
-  (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo)))
+  (with-interrupts-disabled ()
+    (with-spinlock-held (ps/2-fifo-lock fifo)
+      (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo)))))
 
 (defun ps/2-pop-fifo (fifo)
   "Pop a byte from FIFO. Returns NIL if FIFO is empty!"
-  (unless (ps/2-fifo-empty fifo)
-    (prog1 (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo))
-      (incf (ps/2-fifo-head fifo))
-      (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
-        (setf (ps/2-fifo-head fifo) 0)))))
+  (with-interrupts-disabled ()
+    (with-spinlock-held (ps/2-fifo-lock fifo)
+      (when (try-semaphore (ps/2-fifo-semaphore fifo))
+        (prog1 (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo))
+          (incf (ps/2-fifo-head fifo))
+          (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
+            (setf (ps/2-fifo-head fifo) 0)))))))
 
 (defun ps/2-read-fifo (fifo &optional timeout)
-  (loop
-     (let ((byte (ps/2-pop-fifo fifo)))
-       (when byte (return byte)))
-     (cond (timeout
-            (when (process-wait-with-timeout "PS/2 input" timeout
-                                             (lambda ()
-                                               (not (ps/2-fifo-empty fifo))))
-              (return nil)))
-           (t (process-wait "PS/2 input"
-                            (lambda ()
-                              (not (ps/2-fifo-empty fifo))))))))
+  (when (wait-on-semaphore (ps/2-fifo-semaphore fifo) :timeout timeout)
+    ;; There's one byte in the FIFO for us now.
+    (with-interrupts-disabled ()
+      (with-spinlock-held (ps/2-fifo-lock fifo)
+        (assert (not (eql (ps/2-fifo-head fifo) (ps/2-fifo-tail fifo))) (fifo)
+                "FIFO empty after sem down?")
+        (prog1 (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo))
+          (incf (ps/2-fifo-head fifo))
+          (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
+            (setf (ps/2-fifo-head fifo) 0)))))))
 
 (defclass ps/2-keyboard-stream (sys.gray:fundamental-character-input-stream sys.gray:unread-char-mixin) ())
 
@@ -164,48 +173,7 @@
   (ps/2-read-char *ps/2-key-fifo*))
 
 (defun keyboard-listen (fifo)
-  (loop (when (eql (ps/2-fifo-head fifo)
-                   (ps/2-fifo-tail fifo))
-          (return nil))
-     (let* ((scancode (aref (ps/2-fifo-buffer fifo) (ps/2-fifo-head fifo)))
-            (key (svref (if *ps/2-keyboard-shifted*
-                            *gb-keymap-high*
-                            *gb-keymap-low*)
-                        (logand scancode #x7F))))
-       (when *ps/2-keyboard-extended-key*
-         (setf *ps/2-keyboard-extended-key* nil)
-         (let ((extended-key (assoc (logand scancode #x7F) *extended-key-alist*)))
-           (cond ((null extended-key)
-                  (setf key nil))
-                 ((and *ps/2-keyboard-shifted* (third extended-key))
-                  (setf key (third extended-key)))
-                 (t (setf key (second extended-key))))))
-       (cond ((= scancode +extended-scan-code+)
-              (setf *ps/2-keyboard-extended-key* t))
-             ((logtest scancode #x80)
-              ;; Key release.
-              (case key
-                ((:shift :left-shift :right-shift) (setf *ps/2-keyboard-shifted* nil))
-                ((:control :left-control :right-control) (setf *ps/2-keyboard-ctrled* nil))
-                ((:meta :left-meta :right-meta) (setf *ps/2-keyboard-metaed* nil))
-                ((:super :left-super :right-super) (setf *ps/2-keyboard-supered* nil))
-                ((:hyper :left-hyper :right-hyper) (setf *ps/2-keyboard-hypered* nil))))
-             (t ;; Key press.
-              (cond ((member key '(:shift :left-shift :right-shift))
-                     (setf *ps/2-keyboard-shifted* t))
-                    ((member key '(:control :left-control :right-control))
-                     (setf *ps/2-keyboard-ctrled* t))
-                    ((member key '(:meta :left-meta :right-meta))
-                     (setf *ps/2-keyboard-metaed* t))
-                    ((member key '(:super :left-super :right-super))
-                     (setf *ps/2-keyboard-supered* t))
-                    ((member key '(:hyper :left-hyper :right-hyper))
-                     (setf *ps/2-keyboard-hypered* t))
-                    ((characterp key)
-                     (return t)))))
-       (incf (ps/2-fifo-head fifo))
-       (when (>= (ps/2-fifo-head fifo) (length (ps/2-fifo-buffer fifo)))
-         (setf (ps/2-fifo-head fifo) 0)))))
+  (not (ps/2-fifo-empty fifo)))
 
 (defmethod sys.gray:stream-listen ((stream ps/2-keyboard-stream))
   (keyboard-listen *ps/2-key-fifo*))
