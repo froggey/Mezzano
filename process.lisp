@@ -67,11 +67,14 @@
 ;; todo, Fix this...
 (defun process-wait-with-timeout (reason timeout function &rest arguments)
   (declare (dynamic-extent arguments))
-  (process-wait reason (lambda ()
-			 (if (<= (decf timeout) 0)
-			     t
-			     (apply function arguments))))
-  (<= timeout 0))
+  (cond (timeout
+         (process-wait reason (lambda ()
+                                (if (<= (decf timeout) 0)
+                                    t
+                                    (apply function arguments))))
+         (<= timeout 0))
+        (t (apply #'process-wait reason function arguments)
+           t)))
 
 (defun process-consider-runnability (process)
   (cond ((or (process-arrest-reasons process)
@@ -159,3 +162,137 @@
                                        :run-reasons '(:initial)
                                        :whostate "RUN"))
 (process-consider-runnability *current-process*)
+
+(defconstant +spinlocked-locked-value+ 0)
+(defconstant +spinlocked-unlocked-value+ 1)
+
+;(defun (cas foo) (old new args)
+
+(defmacro compare-and-swap (place old new)
+  (unless (and (consp place)
+               (eql (length place) 2)
+               (symbolp (first place)))
+    (error "Bad CAS place ~S." place))
+  (let ((info (get (first place) 'structure-cas))
+        (sym (gensym)))
+    (when (not info)
+      (error "Bad CAS place ~S." place))
+    `(let ((,sym ,(second place)))
+       (check-type ,sym ,(first info))
+       (%cas-struct-slot ,sym ',(second info) ,old ,new))))
+
+(defstruct (spinlock (:area t))
+  (name (error "Name is required!") :read-only t)
+  (lock-bits +spinlocked-unlocked-value+ :atomic t :type fixnum))
+
+;;; WARNING! Spinlocks don't use unwind-protect!
+;;; They're meant for use in super low-level code
+;;; that can't allocated (such as interrupt handlers).
+;;; Use a mutex or something instead!
+(defmacro with-spinlock-held (spinlock &body body)
+  (let ((sym (gensym "lock")))
+    `(let ((,sym ,spinlock))
+       (spinlock-lock ,sym)
+       (multiple-value-prog1 (progn ,@body)
+         (spinlock-unlock ,sym)))))
+
+(defun spinlock-lock (lock)
+  (assert (not (%interrupt-state)))
+  (do ()
+      ((compare-and-swap (spinlock-lock-bits lock)
+                         +spinlocked-unlocked-value+
+                         +spinlocked-locked-value+))
+    (cpu-relax)))
+
+(defun spinlock-unlock (lock)
+  (assert (eql (spinlock-lock-bits lock) +spinlocked-locked-value+) (lock))
+  (setf (spinlock-lock-bits lock) +spinlocked-unlocked-value+))
+
+
+(defstruct (semaphore (:area t))
+  (name (error "Name is required!") :read-only t)
+  (count 0 :atomic t :type fixnum))
+
+(defun signal-semaphore (semaphore &optional (n 1))
+  "Increment SEMAPHORE, waking processes as required.
+Increment the semaphore N times, N must be a non-negative integer.
+Safe to call with interrupts off and from inside an interrupt context."
+  (check-type n (integer 0))
+  (with-interrupts-disabled ()
+    (incf (semaphore-count semaphore) n)))
+
+(defun wait-on-semaphore (semaphore &key timeout)
+  "Decrement SEMAPHORE, blocking if it is 0.
+TIMEOUT is a real, specifying the number of seconds to sleep form.
+If TIMEOUT is NIL or some float infinity, then down will sleep forever.
+Returns true on success, false on timeout."
+  (cond ((try-semaphore semaphore))
+        ;; wait functions are called with interrupts off, so it's ok
+        ;; to grovel the semaphore in them.
+        (t (process-wait-with-timeout (semaphore-name semaphore)
+                                      timeout
+                                      (lambda ()
+                                        (when (not (zerop (semaphore-count semaphore)))
+                                          (decf (semaphore-count semaphore))
+                                          t))))))
+
+(defun try-semaphore (semaphore)
+  "Attempt to decrement SEMAPHORE, returning false the count would become negative."
+  (with-interrupts-disabled ()
+    (when (not (zerop (semaphore-count semaphore)))
+      (decf (semaphore-count semaphore))
+      t)))
+
+(defstruct mutex
+  (name (error "Name is required!") :read-only t)
+  (lock (make-spinlock name))
+  (owner nil))
+
+(defun call-with-mutex (fn mutex wait-p timeout)
+  (assert (%interrupt-state))
+  (let ((got-it nil))
+    (unwind-protect
+         (progn
+           ;; Updating GOT-IT must be done without interrupts, or
+           ;; the update may be lost if an interrupt occurs after
+           ;; the lock but before the setf.
+           (with-interrupts-disabled ()
+             (setf got-it (grab-mutex mutex :wait-p wait-p :timeout timeout)))
+           (when got-it
+             (funcall fn)))
+      (with-interrupts-disabled ()
+        (when got-it
+          (release-mutex mutex))))))
+
+(defmacro with-mutex ((mutex &key (wait-p t) timeout) &body body)
+  `(call-with-mutex (lambda () ,@body)
+                    ,mutex
+                    ,wait-p
+                    ,timeout))
+
+(defun grab-mutex (mutex &key (wait-p t) timeout)
+  (assert (not (%interrupt-state)))
+  (when (not (mutex-owner mutex))
+    (setf (mutex-owner mutex) (current-process))
+    (return-from grab-mutex t))
+  (when wait-p
+    (let ((process (current-process)))
+      (process-wait-with-timeout (mutex-name mutex)
+                                 timeout
+                                 (lambda ()
+                                   (when (not (mutex-owner mutex))
+                                     (setf (mutex-owner mutex) process)
+                                     t))))))
+
+(defun release-mutex (mutex &key (if-not-owner :error))
+  (assert (not (%interrupt-state)))
+  (when (or (eql (mutex-owner mutex) (current-process))
+            (eql if-not-owner :force))
+    (setf (mutex-owner mutex) nil)
+    (return-from release-mutex))
+  (ecase if-not-owner
+    (:error (cerror "Attempting to release mutex ~S not owned by the current process."
+                    mutex))
+    (:warn (warn "Attempting to release mutex ~S not owned by the current process."
+                 mutex))
+    ((:punt :force))))
