@@ -653,6 +653,7 @@
 (define-simple-instruction emms (#x0F #x77))
 (define-simple-instruction cpuid (#x0F #xA2))
 (define-simple-instruction rsm (#x0F #xAA))
+(define-simple-instruction pause (#xF3 #x90))
 
 (define-simple-instruction fninit (#xDB #xE3))
 
@@ -1256,3 +1257,10 @@
        (modrm-two-classes :gpr-32 :gpr-16 src dst '(#x0F #xB7)))
       (:gpr-64
        (modrm-two-classes :gpr-64 :gpr-16 src dst '(#x0F #xB7))))))
+
+(define-instruction cmpxchg (place new)
+  (ecase (reg-class new)
+    (:gpr-8  (modrm :gpr-8  place new '(#x0F #xB0)))
+    (:gpr-16 (modrm :gpr-16 place new '(#x0F #xB1)))
+    (:gpr-32 (modrm :gpr-32 place new '(#x0F #xB1)))
+    (:gpr-64 (modrm :gpr-64 place new '(#x0F #xB1)))))
