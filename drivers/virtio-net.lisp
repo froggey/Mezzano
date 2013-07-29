@@ -136,7 +136,8 @@
   size
   avail-offset
   used-offset
-  n-free-descriptors
+  (n-free-descriptors (sys.int::make-semaphore :name "Virt-Queue n-free descriptors")
+                      :read-only t)
   next-free-descriptor
   last-seen-used)
 
@@ -147,6 +148,8 @@
   rx-array
   tx-physical
   tx-array
+  (n-free-tx-buffers (sys.int::make-semaphore :name "Virtio-Net free tx buffers" :area :static)
+                     :read-only t)
   free-tx-buffers
   process
   (irq-semaphore (sys.int::make-semaphore :name "Virtio-Net interrupt" :area :static)
@@ -341,19 +344,16 @@
             (dotimes (i (1- queue-size))
               (setf (vring-desc-next vq i) (1+ i)
                     (vring-desc-flags vq i) (ash 1 +vring-desc-f-next+)))
-            (setf (virtqueue-n-free-descriptors vq) queue-size
+            (setf (sys.int::semaphore-count (virtqueue-n-free-descriptors vq)) queue-size
                   (virtqueue-next-free-descriptor vq) 0)))))))
 
 (defun vring-alloc-descriptor (vq)
-  (sys.int::process-wait "Alloc vring descriptor"
-                         (lambda ()
-                           (not (zerop (virtqueue-n-free-descriptors vq)))))
+  (sys.int::wait-on-semaphore (virtqueue-n-free-descriptors vq))
   (let ((id (virtqueue-next-free-descriptor vq)))
     (setf (virtqueue-next-free-descriptor vq)
           (if (logbitp +vring-desc-f-next+ (vring-desc-flags vq id))
               (vring-desc-next vq id)
               nil))
-    (decf (virtqueue-n-free-descriptors vq))
     id))
 
 (defun vring-add-to-avail-ring (vq desc)
@@ -459,15 +459,14 @@ and then some alignment.")
                  (len (vring-used-elem-len tx-queue ring-entry)))
             #+nil(format t "TX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
             ;; Packet sent. Add the descriptor back to the freelist.
-            (push id (virtio-net-free-tx-buffers dev)))
+            (push id (virtio-net-free-tx-buffers dev))
+            (sys.int::signal-semaphore (virtio-net-n-free-tx-buffers dev)))
           (setf (virtqueue-last-seen-used tx-queue)
                 (ldb (byte 16 0) (1+ (virtqueue-last-seen-used tx-queue))))))))
 
 (defun transmit-one (dev packet)
   ;; Allocate a free TX descriptor.
-  (sys.int::process-wait "Virtio-Net TX descriptor"
-                         (lambda ()
-                           (virtio-net-free-tx-buffers dev)))
+  (sys.int::wait-on-semaphore (virtio-net-n-free-tx-buffers dev))
   (let* ((tx-queue (aref (virtio-device-virtqueues dev) +net-transmitq+))
          (hdr-desc (pop (virtio-net-free-tx-buffers dev)))
          ;; Bleah. Do a terrible phys->offset conversion.
@@ -558,7 +557,8 @@ and then some alignment.")
                 (setf (vring-desc-address tx-queue pkt-desc) (+ phys (* i +tx-buffer-size+) +virtio-net-hdr-size+)
                       (vring-desc-length tx-queue pkt-desc) (- +tx-buffer-size+ +virtio-net-hdr-size+)
                       (vring-desc-flags tx-queue pkt-desc) 0)
-                (push hdr-desc (virtio-net-free-tx-buffers dev))))))
+                (push hdr-desc (virtio-net-free-tx-buffers dev))
+                (sys.int::signal-semaphore (virtio-net-n-free-tx-buffers dev))))))
         (sys.net:register-nic dev)
         ;; Unmask the IRQ.
         (setf (sys.int::isa-pic-interrupt-handler (sys.int::pci-irq-line pci-device))
