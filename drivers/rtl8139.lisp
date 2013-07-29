@@ -144,12 +144,14 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
    (tx-address)
    (last-tx-descriptor :initform 0)
    (next-tx-descriptor :initform 0)
-   (free-tx-descriptors :initform +rtl8139-tx-descriptors+)
+   (free-tx-descriptors :initform (sys.int::make-semaphore :name "RTL8139 free TX descriptors"
+                                                           :count +rtl8139-tx-descriptors+))
    (rx-buffer)
    (rx-address)
    (rx-offset :initform 0)
    (rx-process)
-   (signal-cons)
+   (irq-semaphore :initform (sys.int::make-semaphore :name "RTL8139 interrupt"
+                                                     :area :static))
    (isr)
    (ioar)
    (memar)
@@ -186,7 +188,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
   ;; Issue a reset command.
   (setf (rtl8139-reg/8 card +rtl8139-command+) +command-rst+)
   ;; Wait for the reset to complete.
-  ;; TODO: Use process-wait-with-timeout
+  ;; TODO: Use a timeout here.
   (do () ((not (logtest (rtl8139-reg/8 card +rtl8139-command+) +command-rst+))))
   ;; Read the MAC address.
   (dotimes (i 6)
@@ -212,51 +214,47 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
 ;; FIXME: This needs better locking.
 (defun rtl8139-tx (card packet-descriptor)
   ;; Wait for a free TX descriptor.
-  #+nil(format t "Transmitting packet... ~S descriptors free.~%" (slot-value card 'free-tx-descriptors))
-  (sys.int::process-wait "RTL8139 TX" (lambda () (/= (slot-value card 'free-tx-descriptors) 0)))
+  #+nil(format t "Transmitting packet... ~S descriptors free.~%"
+               (sys.int::semaphore-count (slot-value card 'free-tx-descriptors)))
+  (sys.int::wait-on-semaphore (slot-value card 'free-tx-descriptors))
   ;; Copy the packet into the TX buffer.
-  (unless (= (slot-value card 'free-tx-descriptors) 0)
-    (let ((tx-descriptor (slot-value card 'next-tx-descriptor))
-	  (tx-buffer (slot-value card 'tx-buffer))
-	  (tx-address (slot-value card 'tx-address))
-	  (packet-size (packet-length packet-descriptor)))
-      #+nil(format t "Transmitting ~D byte packet using descriptor ~S (phys ~X)~%"
-              packet-size tx-descriptor (+ tx-address (* tx-descriptor +rtl8139-tx-buffer-size+)))
-      (when (>= packet-size +rtl8139-tx-buffer-size+)
-	(error "RTL8139: packet too large. ~S" packet-descriptor))
-      (copy-packet tx-buffer packet-descriptor (* tx-descriptor +rtl8139-tx-buffer-size+))
-      ;; Avoid sending runt packets (does the RTL8139 do this automatically?)
-      (when (< packet-size 64)
-        (dotimes (i (- 64 packet-size))
-          (setf (aref tx-buffer (+ (* tx-descriptor +rtl8139-tx-buffer-size+) packet-size i)) 0))
-        (setf packet-size 64))
-      ;; Transmit!
-      (setf (rtl8139-reg/32 card (+ +rtl8139-tdad0+ (* tx-descriptor 4)))
-	    (+ tx-address (* tx-descriptor +rtl8139-tx-buffer-size+))
-	    (rtl8139-reg/32 card (+ +rtl8139-tsd0+ (* tx-descriptor 4))) packet-size)
-      (decf (slot-value card 'free-tx-descriptors))
-      (if (= tx-descriptor (1- +rtl8139-tx-descriptors+))
-	  (setf (slot-value card 'next-tx-descriptor) 0)
-	  (incf (slot-value card 'next-tx-descriptor))))))
+  (let ((tx-descriptor (slot-value card 'next-tx-descriptor))
+        (tx-buffer (slot-value card 'tx-buffer))
+        (tx-address (slot-value card 'tx-address))
+        (packet-size (packet-length packet-descriptor)))
+    #+nil(format t "Transmitting ~D byte packet using descriptor ~S (phys ~X)~%"
+                 packet-size tx-descriptor (+ tx-address (* tx-descriptor +rtl8139-tx-buffer-size+)))
+    (when (>= packet-size +rtl8139-tx-buffer-size+)
+      (error "RTL8139: packet too large. ~S" packet-descriptor))
+    (copy-packet tx-buffer packet-descriptor (* tx-descriptor +rtl8139-tx-buffer-size+))
+    ;; Avoid sending runt packets (does the RTL8139 do this automatically?)
+    (when (< packet-size 64)
+      (dotimes (i (- 64 packet-size))
+        (setf (aref tx-buffer (+ (* tx-descriptor +rtl8139-tx-buffer-size+) packet-size i)) 0))
+      (setf packet-size 64))
+    ;; Transmit!
+    (setf (rtl8139-reg/32 card (+ +rtl8139-tdad0+ (* tx-descriptor 4)))
+          (+ tx-address (* tx-descriptor +rtl8139-tx-buffer-size+))
+          (rtl8139-reg/32 card (+ +rtl8139-tsd0+ (* tx-descriptor 4))) packet-size)
+    (if (= tx-descriptor (1- +rtl8139-tx-descriptors+))
+        (setf (slot-value card 'next-tx-descriptor) 0)
+        (incf (slot-value card 'next-tx-descriptor)))))
 
 (defmethod sys.net:transmit-packet ((interface rtl8139) packet-descriptor)
   (rtl8139-tx interface packet-descriptor))
 
-(sys.int::define-interrupt-handler rtl8139-interrupt (io-base signal-cons)
-  ;; Copy the current ISR state into the signal cons.
-  (setf (car signal-cons) (io-port/16 (+ io-base +rtl8139-isr+)))
+(sys.int::define-interrupt-handler rtl8139-interrupt (io-base sem)
+  (sys.int::signal-semaphore sem)
   ;; Write #xFFFF to ISR to clear the interrupt state.
   (setf (io-port/16 (+ io-base +rtl8139-isr+)) #xFFFF))
 
 (defun rtl8139-process (card)
-  (let ((signal-cons (slot-value card 'signal-cons)))
-    (loop (sys.int::process-wait "RTL8139 interrupt"
-                                 (lambda ()
-                                   (car signal-cons)))
-       (setf (car signal-cons) nil)
+  (let ((irq-semaphore (slot-value card 'irq-semaphore)))
+    (loop (sys.int::wait-on-semaphore irq-semaphore)
        #+nil(format t "In RTL8139 handler...~%")
        (do ((tx (slot-value card 'last-tx-descriptor)))
-           ((or (eql (slot-value card 'free-tx-descriptors) +rtl8139-tx-descriptors+)
+           ((or (eql (sys.int::semaphore-count (slot-value card 'free-tx-descriptors))
+                     +rtl8139-tx-descriptors+)
                 (let ((tsd (rtl8139-reg/32 card (+ +rtl8139-tsd0+ (* tx 4)))))
                   (not (and (logtest tsd +tsd-own+)
                             (logtest tsd +tsd-tok+))))))
@@ -266,7 +264,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
              (setf tx 0)
              (incf tx))
          (setf (slot-value card 'last-tx-descriptor) tx)
-         (incf (slot-value card 'free-tx-descriptors)))
+         (sys.int::signal-semaphore (slot-value card 'free-tx-descriptors)))
        #+nil(format t "Finished TX work.~%")
        (do ()
            ;; Test the buffer-empty bit in the command register.
@@ -323,7 +321,6 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
 	(sys.int::allocate-dma-buffer +rtl8139-rx-buffer-size+)
       (format t "Tx buffer base: ~X  Rx buffer base: ~X~%" tx-address rx-address)
       (setf (slot-value card 'rx-process) (sys.int::make-process "RTL8139 receive process")
-            (slot-value card 'signal-cons) (sys.int::cons-in-area nil nil :static)
             (slot-value card 'tx-buffer) tx-buffer
 	    (slot-value card 'tx-address) tx-address
 	    (slot-value card 'rx-buffer) rx-buffer
@@ -332,7 +329,7 @@ When set, the Rx buffer must be 1.5k larger. Invalid when using a 64k buffer siz
 	    (slot-value card 'memar) (logand (sys.int::pci-bar pci-device 1) -4)
             (slot-value card 'isr) (sys.int::make-interrupt-handler 'rtl8139-interrupt
                                                                     (slot-value card 'ioar)
-                                                                    (slot-value card 'signal-cons))
+                                                                    (slot-value card 'irq-semaphore))
             (slot-value card 'mac) (make-array 6 :element-type '(unsigned-byte 8)))
       (sys.int::process-preset (slot-value card 'rx-process)
                                #'rtl8139-process card)
