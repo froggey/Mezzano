@@ -149,7 +149,8 @@
   tx-array
   free-tx-buffers
   process
-  irq-signal)
+  (irq-semaphore (sys.int::make-semaphore :name "Virtio-Net interrupt" :area :static)
+                 :read-only t))
 
 (defmethod print-object ((object virtio-net) stream)
   (print-unreadable-object (object stream :type t)
@@ -420,10 +421,7 @@ and then some alignment.")
 
 (defun worker (dev)
   (loop
-     (sys.int::process-wait "Virtio-Net interrupt"
-                            (lambda ()
-                              (car (virtio-net-irq-signal dev))))
-     (setf (car (virtio-net-irq-signal dev)) nil)
+     (sys.int::wait-on-semaphore (virtio-net-irq-semaphore dev))
      #+nil(format t "Network interrupt! RX used idx: ~D  TX used idx: ~D~%"
              (vring-used-idx (aref (virtio-device-virtqueues dev) +net-receiveq+))
              (vring-used-idx (aref (virtio-device-virtqueues dev) +net-transmitq+)))
@@ -484,10 +482,10 @@ and then some alignment.")
     (vring-add-to-avail-ring tx-queue hdr-desc)
     (virtio-kick dev +net-transmitq+)))
 
-(sys.int::define-interrupt-handler virtio-interrupt (io-base signal-cons)
+(sys.int::define-interrupt-handler virtio-interrupt (io-base sem)
   (let ((status (system:io-port/8 (+ io-base +isr-status+))))
     (when (logbitp 0 status)
-      (setf (car signal-cons) t))))
+      (sys.int::signal-semaphore sem))))
 
 (defun probe (pci-device)
   (when (eql (sys.int::pci-config/16 pci-device sys.int::+pci-config-subdeviceid+)
@@ -563,12 +561,11 @@ and then some alignment.")
                 (push hdr-desc (virtio-net-free-tx-buffers dev))))))
         (sys.net:register-nic dev)
         ;; Unmask the IRQ.
-        (setf (virtio-net-irq-signal dev) (sys.int::cons-in-area nil nil :static)
-              (sys.int::isa-pic-interrupt-handler (sys.int::pci-irq-line pci-device))
+        (setf (sys.int::isa-pic-interrupt-handler (sys.int::pci-irq-line pci-device))
               (sys.int::make-interrupt-handler 'virtio-interrupt
                                                (virtio-net-io-base dev)
-                                               (virtio-net-irq-signal dev))
-              (sys.int::isa-pic-irq-mask (sys.int::pci-irq-line pci-device)) nil)
+                                               (virtio-net-irq-semaphore dev)))
+        (setf (sys.int::isa-pic-irq-mask (sys.int::pci-irq-line pci-device)) nil)
         ;; Create worker process.
         (setf (virtio-net-process dev) (sys.int::make-process "Virtio-Net worker"))
         (sys.int::process-preset (virtio-net-process dev)
