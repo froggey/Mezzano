@@ -347,7 +347,7 @@
   (ps/2-read-fifo (ecase port
                     (:key *ps/2-key-fifo*)
                     (:aux *ps/2-aux-fifo*))
-                  (if (eql timeout t) 10000 timeout)))
+                  timeout))
 
 (defun ps/2-flush-input (port)
   (ecase port
@@ -362,7 +362,7 @@
          (warn "PS/2 send command #x~2,'0X failed, too many resends." byte)
          (return (values nil :resend-limit-exceeded)))
        (ps/2-write port byte)
-       (let ((reply (ps/2-read port t)))
+       (let ((reply (ps/2-read port)))
          (case reply
            (#.+ps/2-ack+ (return t))
            (#.+ps/2-resend+)
@@ -382,12 +382,12 @@
       (warn "PS/2 identify failed: ~2,'0X~%" reason)
       (return-from ps/2-identify nil)))
   ;; Read up to two bytes.
-  (let ((byte-one (ps/2-read port t)))
+  (let ((byte-one (ps/2-read port)))
     (case byte-one
       (#x00 :standard-mouse)
       (#x03 :scroll-mouse)
       (#x04 :5-button-mouse)
-      (#xAB (let ((byte-two (ps/2-read port t)))
+      (#xAB (let ((byte-two (ps/2-read port)))
               (case byte-two
                 ((#x41 #xC1) :mf2-keyboard-translated)
                 ((#x83) :mf2-keyboard)
@@ -400,21 +400,21 @@
   (ps/2-flush-input port)
   ;; Expecting ACK followed by Self-Test-Passed.
   (unless (ps/2-send-command port +ps/2-reset+)
-    (warn "PS/2 keyboard reset failed.~%")
+    (warn "PS/2 keyboard reset failed.")
     (return-from init-keyboard))
-  (unless (eql (ps/2-read port t) +ps/2-self-test-passed+)
-    (warn "PS/2 keyboard reset failed.~%")
+  (unless (eql (ps/2-read port) +ps/2-self-test-passed+)
+    (warn "PS/2 keyboard reset failed.")
     (return-from init-keyboard))
   (format t "Detected ~S on PS/2 ~S port.~%" (ps/2-identify port) port)
   ;; Switch to scancode set 1.
   (unless (ps/2-send-command port #xF0)
-    (warn "PS/2 keyboard scancode change failed (1).~%")
+    (warn "PS/2 keyboard scancode change failed (1).")
     (return-from init-keyboard))
   (unless (ps/2-send-command port 1)
-    (warn "PS/2 keyboard scancode change failed (2).~%")
+    (warn "PS/2 keyboard scancode change failed (2).")
     (return-from init-keyboard))
   (unless (ps/2-send-command port #xF4)
-    (warn "PS/2 keyboard start reporting failed.~%")
+    (warn "PS/2 keyboard start reporting failed.")
     (return-from init-keyboard)))
 
 (defun ps/2-mouse-command (port command)
@@ -427,11 +427,11 @@
   #+nil(progn
   (ps/2-flush-input port)
   (ps/2-write port +ps/2-reset+)
-  (unless (eql (ps/2-read port t) +ps/2-ack+)
+  (unless (eql (ps/2-read port) +ps/2-ack+)
     (warn "PS/2 mouse reset change failed (1).~%")))
-  #+nil(unless (eql (ps/2-read port t) #xAA)
+  #+nil(unless (eql (ps/2-read port) #xAA)
     (warn "PS/2 mouse reset change failed (2).~%"))
-  #+nil(unless (eql (ps/2-read port t) 0)
+  #+nil(unless (eql (ps/2-read port) 0)
     (warn "PS/2 mouse reset change failed (3).~%"))
   (ps/2-flush-input port)
   (format t "Detected ~S on PS/2 ~S port.~%" (ps/2-identify port) port)
