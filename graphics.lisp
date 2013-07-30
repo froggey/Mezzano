@@ -114,43 +114,6 @@
        (when ,window
          (close-window ,window)))))
 
-(defstruct (fifo (:constructor %make-fifo))
-  (head 0 :type fixnum)
-  (tail 0 :type fixnum)
-  (buffer (error "No buffer specified.")
-          :type array))
-
-(defun make-fifo (size &optional (type 't))
-  (%make-fifo :buffer (make-array size :element-type type)))
-
-(defun fifo-emptyp (fifo)
-  (eql (fifo-head fifo) (fifo-tail fifo)))
-
-(defun fifo-fullp (fifo)
-  (let ((next (1+ (fifo-tail fifo))))
-    (when (>= next (length (fifo-buffer fifo)))
-      (setf next 0))
-    (eql next (fifo-head fifo))))
-
-(defun fifo-push (value fifo)
-  (let ((x (1+ (fifo-tail fifo))))
-    (when (>= x (length (fifo-buffer fifo)))
-      (setf x 0))
-    ;; When next reaches head, the buffer is full.
-    (cond ((= x (fifo-head fifo))
-           nil)
-          (t
-           (setf (aref (fifo-buffer fifo) (fifo-tail fifo)) value
-                 (fifo-tail fifo) x)))))
-
-(defun fifo-pop (fifo)
-  "Pop a byte from FIFO. Returns NIL if FIFO is empty!"
-  (unless (fifo-emptyp fifo)
-    (prog1 (aref (fifo-buffer fifo) (fifo-head fifo))
-      (incf (fifo-head fifo))
-      (when (>= (fifo-head fifo) (length (fifo-buffer fifo)))
-        (setf (fifo-head fifo) 0)))))
-
 (defclass window ()
   ((title :initarg :title :accessor window-title)
    (width :initarg :width :reader window-width)

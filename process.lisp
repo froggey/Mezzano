@@ -296,3 +296,61 @@ Returns true on success, false on timeout."
     (:warn (warn "Attempting to release mutex ~S not owned by the current process."
                  mutex))
     ((:punt :force))))
+
+;;; Like boost:thread::barrier, but named so as not to conflict with memory barriers.
+(defstruct (rendezvous
+             (:constructor make-rendezvous (name count)))
+  (name (error "Name not specified."))
+  (count (error "Count not specified")
+         :type '(integer 1)
+         :read-only t)
+  (waiting-threads 0))
+
+(defun wait-on-rendezvous (rendezvous)
+  (incf (rendezvous-waiting-threads rendezvous))
+  (process-wait (rendezvous-name rendezvous)
+                (lambda ()
+                  (>= (rendezvous-waiting-threads rendezvous)
+                      (rendezvous-count rendezvous)))))
+
+(defstruct (fifo (:constructor %make-fifo (buffer name)))
+  (head 0 :type fixnum)
+  (tail 0 :type fixnum)
+  (buffer (error "No buffer specified.")
+          :type array)
+  (count-sem (sys.int::make-semaphore :name name)))
+
+(defun make-fifo (size name &optional (type 't))
+  (%make-fifo (make-array size :element-type type) name))
+
+(defun fifo-emptyp (fifo)
+  (eql (fifo-head fifo) (fifo-tail fifo)))
+
+(defun fifo-fullp (fifo)
+  (let ((next (1+ (fifo-tail fifo))))
+    (when (>= next (length (fifo-buffer fifo)))
+      (setf next 0))
+    (eql next (fifo-head fifo))))
+
+(defun fifo-push (value fifo)
+  (let ((x (1+ (fifo-tail fifo))))
+    (when (>= x (length (fifo-buffer fifo)))
+      (setf x 0))
+    ;; When next reaches head, the buffer is full.
+    (cond ((= x (fifo-head fifo))
+           nil)
+          (t
+           (setf (aref (fifo-buffer fifo) (fifo-tail fifo)) value
+                 (fifo-tail fifo) x)
+           (sys.int::signal-semaphore (fifo-count-sem fifo))))))
+
+(defun fifo-pop (fifo &key (wait-p t) timeout)
+  "Pop a byte from FIFO. Returns NIL if FIFO is empty and wait-p is false, otherwise waits."
+  (when (if wait-p
+            (sys.int::wait-on-semaphore (fifo-count-sem fifo) :timeout timeout)
+            (sys.int::try-semaphore (fifo-count-sem fifo)))
+    (assert (not (fifo-emptyp fifo)) (fifo))
+    (prog1 (aref (fifo-buffer fifo) (fifo-head fifo))
+      (incf (fifo-head fifo))
+      (when (>= (fifo-head fifo) (length (fifo-buffer fifo)))
+        (setf (fifo-head fifo) 0)))))
