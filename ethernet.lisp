@@ -264,13 +264,13 @@
 
 (define-condition drop-packet () ())
 
-(defvar *pending-packets* '())
+(defvar *pending-packets*
+  (sys.int::make-fifo 500 "TCP/IP packet queue"))
 
 (defun ethernet-worker ()
-  (loop (sys.int::process-wait "Ethernet worker"
-                               (lambda () (not (endp *pending-packets*))))
+  (loop
      (with-simple-restart (abort "Ignore this packet.")
-       (handler-case (apply '%receive-packet (pop *pending-packets*))
+       (handler-case (apply '%receive-packet (sys.int::fifo-pop *pending-packets*))
          (drop-packet ())))))
 
 (defvar *ethernet-process* (sys.int::make-process "Ethernet worker"))
@@ -278,7 +278,7 @@
 (sys.int::process-enable *ethernet-process*)
 
 (defun receive-packet (interface packet)
-  (setf *pending-packets* (nconc *pending-packets* (list (list interface packet)))))
+  (sys.int::fifo-push (list interface packet) *pending-packets*))
 
 (defun detach-tcp-connection (connection)
   (setf *tcp-connections* (remove connection *tcp-connections*))
@@ -928,7 +928,7 @@
 (defun ethernet-early-initialize ()
   (setf *cards* '()
         *routing-table* '()
-        *pending-packets* '()
+        *pending-packets* (sys.int::make-fifo 500 "TCP/IP packet queue")
         *ipv4-interfaces* '()
         *arp-table* '()
         *tcp-connections* '()

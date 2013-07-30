@@ -218,7 +218,7 @@
 (defclass editor-window (sys.graphics::window-with-chrome)
   ((input-buffer :initarg :input-buffer)
    (process :reader window-process))
-  (:default-initargs :input-buffer (sys.graphics::make-fifo 500 'character)))
+  (:default-initargs :input-buffer (sys.int::make-fifo 500 "User Input" 'character)))
 
 (defmethod initialize-instance :after ((instance editor-window))
   (unless *buffer*
@@ -235,7 +235,7 @@
   (sys.int::process-arrest-reason (window-process window) :window-closed))
 
 (defmethod sys.graphics::key-press-event ((window editor-window) character)
-  (sys.graphics::fifo-push character (slot-value window 'input-buffer)))
+  (sys.int::fifo-push character (slot-value window 'input-buffer)))
 
 (defmethod sys.graphics::window-redraw ((window editor-window))
   (let* ((fb (sys.graphics::window-backbuffer window))
@@ -271,13 +271,7 @@
       (sys.graphics::bitset 1 (- width left right) #xFFD0D0D0 fb (- height 16 16 2 bottom) left))))
 
 (defun read-editor-character ()
-  (loop
-     (let ((char (sys.graphics::fifo-pop (slot-value *frame* 'input-buffer))))
-       (when char (return char)))
-     (sys.int::process-wait "User input"
-                            (lambda (frame)
-                              (not (sys.graphics::fifo-emptyp (slot-value frame 'input-buffer))))
-                            *frame*)))
+  (sys.int::fifo-pop (slot-value *frame* 'input-buffer)))
 
 (defun editor-top-level (window)
   (let ((*buffer* (get-buffer-create "*scratch*"))

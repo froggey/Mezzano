@@ -281,8 +281,7 @@
     (setf (slot-value instance 'receive-process) rcv)
     (sys.int::process-preset cmd 'irc-top-level instance)
     (sys.int::process-preset rcv 'irc-receive instance)
-    (sys.int::process-enable cmd)
-    (sys.int::process-enable rcv)))
+    (sys.int::process-enable cmd)))
 
 ;;; The IRC-CLIENT stream is used to read/write from the input line, not from
 ;;; the display.
@@ -338,7 +337,6 @@
         (*debug-io* (make-two-way-stream irc (irc-display irc))))
     ;; Should close the connection here...
     (with-simple-restart (abort "Give up")
-      (sys.int::process-wait "Awaiting connection" (lambda () (irc-connection irc)))
       (let ((connection (irc-connection irc)))
         (loop (let ((line (read-line connection)))
                 (multiple-value-bind (prefix command parameters)
@@ -404,6 +402,7 @@
         (t (multiple-value-bind (address port)
                (resolve-server-name text)
              (setf (irc-connection irc) (sys.net::tcp-stream-connect address port))
+             (sys.int::process-enable (irc-receive-process irc))
              (send (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
              (send (irc-connection irc) "NICK ~A~%" (nickname irc))))))
 

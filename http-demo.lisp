@@ -122,21 +122,23 @@
                 (t (send stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
 (defun http-server (connection-queue)
-  (loop (sys.int::process-wait "Awaiting connection"
-                               (lambda ()
-                                 (symbol-value connection-queue)))
-     (let ((connection (pop (symbol-value connection-queue))))
+  (loop
+     (let ((connection (sys.int::fifo-pop connection-queue)))
        (ignore-errors (serve-request connection)))))
 
-(defun start-http-server-1 (&optional (connection-queue (gensym "HTTP-QUEUE")))
-  (let ((process (sys.int::make-process "HTTP server")))
+(defun start-http-server-1 ()
+  (let ((process (sys.int::make-process "HTTP server"))
+        (connection-queue (sys.int::make-fifo 200 "HTTP connection queue")))
     (setf (symbol-value connection-queue) '())
     (sys.int::process-preset process #'http-server connection-queue)
     (sys.int::process-enable process)
     (values process
             (lambda (connection)
-              (push (make-instance 'sys.net::tcp-stream :connection connection)
-                    (symbol-value connection-queue)))
+              (when (not (sys.int::fifo-push
+                          (make-instance 'sys.net::tcp-stream :connection connection)
+                          connection-queue))
+                ;; Drop connections when they can't be handled.
+                (close connection)))
             connection-queue)))
 
 (defun start-http-server (&optional (port 80))

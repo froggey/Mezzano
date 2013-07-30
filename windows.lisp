@@ -171,18 +171,13 @@
 
 (defclass character-input-mixin ()
   ((character-buffer :initarg :buffer :reader character-buffer))
-  (:default-initargs :buffer (make-fifo 500 'character)))
+  (:default-initargs :buffer (sys.int::make-fifo 500 "User Input" 'character)))
 
 (defmethod key-press-event ((window character-input-mixin) character)
-  (fifo-push character (character-buffer window)))
+  (sys.int::fifo-push character (character-buffer window)))
 
 (defmethod sys.gray:stream-read-char ((stream character-input-mixin))
-  (loop
-     (let ((char (fifo-pop (character-buffer stream))))
-       (when char (return char)))
-     (sys.int::process-wait "User input"
-                            (lambda ()
-                              (not (fifo-emptyp (character-buffer stream)))))))
+  (sys.int::fifo-pop (character-buffer stream)))
 
 (defclass text-window (sys.gray:unread-char-mixin
                        sys.int::simple-edit-mixin

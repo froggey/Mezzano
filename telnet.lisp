@@ -114,7 +114,6 @@ party to perform, the indicated option.")
 (defun telnet-rx (telnet)
   (handler-case
       (with-simple-restart (abort "Give up")
-        (sys.int::process-wait "Awaiting connection" (lambda () (telnet-connection telnet)))
         ;; Announce capabilities.
         (write-sequence #(#.+command-iac+ #.+command-do+ #.+option-suppress-go-ahead+
                           #.+command-iac+ #.+command-will+ #.+option-window-size+)
@@ -160,6 +159,7 @@ party to perform, the indicated option.")
            (setf sys.graphics::*refresh-required* t)
            (with-open-stream (connection (sys.net::tcp-stream-connect (telnet-server window) (telnet-port window)))
              (setf (telnet-connection window) connection)
+             (sys.int::process-enable (receive-process window))
              (handler-case
                  (loop (let ((byte (read-byte terminal)))
                          (when (eql byte +command-iac+)
@@ -181,18 +181,13 @@ party to perform, the indicated option.")
    (server :initarg :server :reader telnet-server)
    (port :initarg :port :reader telnet-port)
    (terminal-type :initarg :terminal-type :reader telnet-terminal-type))
-  (:default-initargs :buffer (sys.graphics::make-fifo 500 'character)))
+  (:default-initargs :buffer (sys.int::make-fifo 500 "User Input" 'character)))
 
 (defmethod sys.gray:stream-read-char ((stream telnet-client))
-  (loop
-     (let ((char (sys.graphics::fifo-pop (window-buffer stream))))
-       (when char (return char)))
-     (sys.int::process-wait "User input"
-                            (lambda ()
-                              (not (sys.graphics::fifo-emptyp (window-buffer stream)))))))
+  (sys.int::fifo-pop (window-buffer stream)))
 
 (defmethod sys.graphics::key-press-event ((window telnet-client) character)
-  (sys.graphics::fifo-push character (window-buffer window)))
+  (sys.int::fifo-push character (window-buffer window)))
 
 (defmethod sys.graphics::window-close-event ((window telnet-client))
   (sys.int::process-disable (command-process window))
@@ -208,8 +203,7 @@ party to perform, the indicated option.")
     (setf (slot-value instance 'receive-process) rcv)
     (sys.int::process-preset cmd 'telnet-top-level instance)
     (sys.int::process-preset rcv 'telnet-rx instance)
-    (sys.int::process-enable cmd)
-    (sys.int::process-enable rcv)))
+    (sys.int::process-enable cmd)))
 
 (defmethod sys.graphics::window-redraw ((window telnet-client)))
 
