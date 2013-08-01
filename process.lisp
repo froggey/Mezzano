@@ -2,7 +2,7 @@
 
 (defvar *scheduler-stack-group* nil)
 (defvar *current-process* nil)
-(defvar *active-processes* nil)
+(defvar *run-queue* nil)
 
 (defstruct (process
              (:constructor %make-process))
@@ -13,7 +13,8 @@
   (wait-argument-list '())
   (whostate '())
   (initial-form nil)
-  stack-group)
+  stack-group
+  next prev)
 
 (defmethod print-object ((object process) stream)
   (print-unreadable-object (object stream :type t :identity t)
@@ -79,8 +80,27 @@
 (defun process-consider-runnability (process)
   (cond ((or (process-arrest-reasons process)
 	     (null (process-run-reasons process)))
-	 (setf *active-processes* (remove process *active-processes*)))
-	(t (pushnew process *active-processes*))))
+         (when (process-next process)
+           (when (eql *run-queue* process)
+             (setf *run-queue* (if (eql (process-next process) process)
+                                   nil
+                                   (process-next process))))
+           (psetf (process-next (process-prev process)) (process-next process)
+                  (process-prev (process-next process)) (process-prev process))
+           (setf (process-next process) nil
+                 (process-prev process) nil)))
+        ;; Already on run queue.
+        ((process-next process))
+	(*run-queue*
+         ;; Run queue not empty, add to list.
+         (setf (process-next process) *run-queue*
+               (process-prev process) (process-prev *run-queue*))
+         (setf (process-next (process-prev *run-queue*)) process
+               (process-prev *run-queue*) process))
+        (t ;; Run queue empty, add as the only entry.
+         (setf (process-next process) process
+               (process-prev process) process
+               *run-queue* process))))
 
 (defun process-enable (process)
   (process-disable process)
@@ -95,21 +115,19 @@
 	(process-arrest-reasons process) nil)
   (process-consider-runnability process))
 
-(defun get-next-process (current)
-  (dolist (proc (member current *active-processes*))
-    (let ((wait-fn (process-wait-function proc))
-          (wait-args (process-wait-argument-list proc)))
-      (when (or (null wait-fn) (apply wait-fn wait-args))
-        (setf (process-wait-function proc) nil
-              (process-wait-argument-list proc) nil)
-        (return-from get-next-process proc))))
-  (dolist (proc *active-processes*)
-    (let ((wait-fn (process-wait-function proc))
-          (wait-args (process-wait-argument-list proc)))
-      (when (or (null wait-fn) (apply wait-fn wait-args))
-        (setf (process-wait-function proc) nil
-              (process-wait-argument-list proc) nil)
-        (return-from get-next-process proc)))))
+(defun get-next-process ()
+  (when *run-queue*
+    (loop with start = *run-queue*
+       with proc = start
+       do (let ((wait-fn (process-wait-function proc))
+                (wait-args (process-wait-argument-list proc)))
+            (when (or (null wait-fn) (apply wait-fn wait-args))
+              (setf (process-wait-function proc) nil
+                    (process-wait-argument-list proc) nil)
+              (setf *run-queue* (process-next proc))
+              (return proc)))
+         (setf proc (process-next proc))
+         (when (eql proc start) (return)))))
 
 ;;; FIXME: Running for so long with interrupts disabled is lame.
 ;;; Probably need to speed this up somehow.
@@ -122,7 +140,7 @@
         (*error-output* *error-output*))
     (loop
        (%cli)
-       (let ((next-process (get-next-process *current-process*)))
+       (let ((next-process (get-next-process)))
          (setf *current-process* next-process)
          (cond (next-process
                 (switch-to-stack-group (process-stack-group next-process)))

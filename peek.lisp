@@ -49,8 +49,12 @@
 
 (defun peek-process ()
   (format t "Process Name~24TState~%")
-  (dolist (process sys.int::*active-processes*)
-    (format t " ~A~24T~A~%" (sys.int::process-name process) (sys.int::process-whostate process))))
+  (when sys.int::*run-queue*
+    (loop with start = sys.int::*run-queue*
+       with process = start
+       do (format t " ~A~24T~A~%" (sys.int::process-name process) (sys.int::process-whostate process))
+         (setf process (sys.int::process-next process))
+         (when (eql process start) (return)))))
 
 (defun peek-memory ()
   (room))
