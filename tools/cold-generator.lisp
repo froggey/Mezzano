@@ -152,68 +152,9 @@
     (sys.lap-x86:shl64 :rbx 3)
     (sys.lap-x86:mov64 :r8 (:constant sys.int::*multiboot-info*))
     (sys.lap-x86:mov64 (:symbol-value :r8) :rbx)
-    ;; SSE init.
-    ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
-    (sys.lap-x86:movcr :rax :cr4)
-    (sys.lap-x86:or64 :rax #x00000600)
-    (sys.lap-x86:movcr :cr4 :rax)
-    ;; Clear CR0.EM and set CR0.MP.
-    (sys.lap-x86:movcr :rax :cr0)
-    (sys.lap-x86:and64 :rax -5)
-    (sys.lap-x86:or64 :rax #x00000002)
-    (sys.lap-x86:movcr :cr0 :rax)
-    ;; Clear FPU/SSE state.
-    (sys.lap-x86:push #x1F80)
-    (sys.lap-x86:ldmxcsr (:rsp))
-    (sys.lap-x86:add64 :rsp 8)
-    (sys.lap-x86:fninit)
-    ;; Preset the initial stack group.
-    (sys.lap-x86:mov64 :r8 (:constant sys.int::*initial-stack-group*))
-    (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
-    (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) sys.int::+tag-array-like+)))
-    ;; Clear binding stack.
-    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:sar64 :rcx 3)
-    (sys.lap-x86:xor32 :eax :eax)
-    (sys.lap-x86:rep)
-    (sys.lap-x86:stos64)
-    ;; Set the binding stack pointer.
-    (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) sys.int::+tag-array-like+)) :rdi)
-    ;; Clear TLS binding slots.
-    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* (1+ #.sys.int::+stack-group-offset-tls-slots+) 8)
-                                     sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rax -2)
-    (sys.lap-x86:mov32 :ecx #.sys.int::+stack-group-tls-slots-size+)
-    (sys.lap-x86:rep)
-    (sys.lap-x86:stos64)
-    ;; Mark the SG as running/unsafe.
-    (sys.lap-x86:mov64 (:r8 ,(- (* 2 8) sys.int::+tag-array-like+)) 0)
-    ;; Initialize GS.
-    (sys.lap-x86:mov64 :rax :r8)
-    (sys.lap-x86:mov64 :rdx :r8)
-    (sys.lap-x86:sar64 :rdx 32)
-    (sys.lap-x86:mov64 :rcx #xC0000101)
-    (sys.lap-x86:wrmsr)
-    ;; Clear frame pointer.
-    (sys.lap-x86:mov64 :cfp 0)
-    ;; Clear data registers.
-    (sys.lap-x86:xor32 :r8d :r8d)
-    (sys.lap-x86:xor32 :r9d :r9d)
-    (sys.lap-x86:xor32 :r10d :r10d)
-    (sys.lap-x86:xor32 :r11d :r11d)
-    (sys.lap-x86:xor32 :r12d :r12d)
-    (sys.lap-x86:xor32 :ebx :ebx)
-    ;; Prepare for call.
-    (sys.lap-x86:mov64 :r13 (:constant sys.int::initialize-lisp))
-    (sys.lap-x86:xor32 :ecx :ecx)
-    ;; Call the entry function.
-    (sys.lap-x86:call (:symbol-function :r13))
-    ;; Crash if it returns.
-    here
-    (sys.lap-x86:ud2)
-    (sys.lap-x86:jmp here)
+    ;; Jump to the common boot code.
+    (sys.lap-x86:mov64 :r13 (:constant sys.int::%%common-entry))
+    (sys.lap-x86:jmp (:symbol-function :r13))
     #+nil(:align 4) ; TODO!! ######
     gdtr
     (:d16/le gdt-length)
@@ -259,69 +200,9 @@
     (sys.lap-x86:shl64 :rsi 3)
     (sys.lap-x86:mov64 :r8 (:constant sys.int::*kboot-tag-list*))
     (sys.lap-x86:mov64 (:symbol-value :r8) :rsi)
-    ;; Preset the initial stack group.
-    (sys.lap-x86:mov64 :r8 (:constant sys.int::*initial-stack-group*))
-    (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
-    (sys.lap-x86:mov64 :csp (:r8 ,(- (* 5 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:add64 :csp (:r8 ,(- (* 6 8) sys.int::+tag-array-like+)))
-    ;; !!! Stacks are valid again.
-    ;; Clear binding stack.
-    (sys.lap-x86:mov64 :rdi (:r8 ,(- (* 7 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rcx (:r8 ,(- (* 8 8) sys.int::+tag-array-like+)))
-    (sys.lap-x86:sar64 :rcx 3)
-    (sys.lap-x86:xor32 :eax :eax)
-    (sys.lap-x86:rep)
-    (sys.lap-x86:stos64)
-    ;; Set the binding stack pointer.
-    (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) sys.int::+tag-array-like+)) :rdi)
-    ;; Clear TLS binding slots.
-    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* (1+ #.sys.int::+stack-group-offset-tls-slots+) 8)
-                                     sys.int::+tag-array-like+)))
-    (sys.lap-x86:mov64 :rax -2)
-    (sys.lap-x86:mov32 :ecx #.sys.int::+stack-group-tls-slots-size+)
-    (sys.lap-x86:rep)
-    (sys.lap-x86:stos64)
-    ;; Mark the SG as running/unsafe.
-    (sys.lap-x86:mov64 (:r8 ,(- (* 2 8) sys.int::+tag-array-like+)) 0)
-    ;; Initialize GS.
-    (sys.lap-x86:mov64 :rax :r8)
-    (sys.lap-x86:mov64 :rdx :r8)
-    (sys.lap-x86:sar64 :rdx 32)
-    (sys.lap-x86:mov64 :rcx #xC0000101)
-    (sys.lap-x86:wrmsr)
-    ;; SSE init.
-    ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
-    (sys.lap-x86:movcr :rax :cr4)
-    (sys.lap-x86:or64 :rax #x00000600)
-    (sys.lap-x86:movcr :cr4 :rax)
-    ;; Clear CR0.EM and set CR0.MP.
-    (sys.lap-x86:movcr :rax :cr0)
-    (sys.lap-x86:and64 :rax -5)
-    (sys.lap-x86:or64 :rax #x00000002)
-    (sys.lap-x86:movcr :cr0 :rax)
-    ;; Clear FPU/SSE state.
-    (sys.lap-x86:push #x1F80)
-    (sys.lap-x86:ldmxcsr (:rsp))
-    (sys.lap-x86:add64 :rsp 8)
-    (sys.lap-x86:fninit)
-    ;; Clear frame pointers.
-    (sys.lap-x86:mov64 :cfp 0)
-    ;; Clear data registers.
-    (sys.lap-x86:xor32 :r8d :r8d)
-    (sys.lap-x86:xor32 :r9d :r9d)
-    (sys.lap-x86:xor32 :r10d :r10d)
-    (sys.lap-x86:xor32 :r11d :r11d)
-    (sys.lap-x86:xor32 :r12d :r12d)
-    (sys.lap-x86:xor32 :ebx :ebx)
-    ;; Prepare for call.
-    (sys.lap-x86:mov64 :r13 (:constant sys.int::initialize-lisp))
-    (sys.lap-x86:xor32 :ecx :ecx)
-    ;; Call the entry function.
-    (sys.lap-x86:call (:symbol-function :r13))
-    ;; Crash if it returns.
-    here
-    (sys.lap-x86:ud2)
-    (sys.lap-x86:jmp here)
+    ;; Jump to the common boot code.
+    (sys.lap-x86:mov64 :r13 (:constant sys.int::%%common-entry))
+    (sys.lap-x86:jmp (:symbol-function :r13))
     #+nil(:align 4) ; TODO!! ######
     gdtr
     (:d16/le gdt-length)
