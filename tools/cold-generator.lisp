@@ -182,9 +182,10 @@
     ;; Set the binding stack pointer.
     (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) sys.int::+tag-array-like+)) :rdi)
     ;; Clear TLS binding slots.
-    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* 12 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* (1+ #.sys.int::+stack-group-offset-tls-slots+) 8)
+                                     sys.int::+tag-array-like+)))
     (sys.lap-x86:mov64 :rax -2)
-    (sys.lap-x86:mov32 :ecx 500)
+    (sys.lap-x86:mov32 :ecx #.sys.int::+stack-group-tls-slots-size+)
     (sys.lap-x86:rep)
     (sys.lap-x86:stos64)
     ;; Mark the SG as running/unsafe.
@@ -274,9 +275,10 @@
     ;; Set the binding stack pointer.
     (sys.lap-x86:mov64 (:r8 ,(- (* 1 8) sys.int::+tag-array-like+)) :rdi)
     ;; Clear TLS binding slots.
-    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* 12 8) sys.int::+tag-array-like+)))
+    (sys.lap-x86:lea64 :rdi (:r8 ,(- (* (1+ #.sys.int::+stack-group-offset-tls-slots+) 8)
+                                     sys.int::+tag-array-like+)))
     (sys.lap-x86:mov64 :rax -2)
-    (sys.lap-x86:mov32 :ecx 500)
+    (sys.lap-x86:mov32 :ecx #.sys.int::+stack-group-tls-slots-size+)
     (sys.lap-x86:rep)
     (sys.lap-x86:stos64)
     ;; Mark the SG as running/unsafe.

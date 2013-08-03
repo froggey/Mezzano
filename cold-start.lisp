@@ -74,7 +74,7 @@
 (defun streamp (object)
   (eql object *cold-stream*))
 
-(defun backtrace (&optional limit)
+(defun backtrace (&optional limit (resolve-names t))
   (do ((i 0 (1+ i))
        (fp (read-frame-pointer)
            (memref-unsigned-byte-64 fp 0)))
@@ -84,10 +84,11 @@
     (write-integer fp 16)
     (write-char #\Space)
     (let* ((ret-addr (memref-unsigned-byte-64 fp 1))
-           (fn (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-function+))
+           (fn (when resolve-names
+                 (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-function+)))
            (name (when (functionp fn) (function-name fn))))
-      (write-integer (lisp-object-address ret-addr) 16)
-      (when name
+      (write-integer ret-addr 16)
+      (when (and resolve-names name)
         (write-char #\Space)
         (write name)))))
 
@@ -290,6 +291,7 @@
       (setf (io-port/8 #x3F8) code)
       (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
             (logior code #x7000))))
+  (backtrace nil nil)
   (loop (%hlt)))
 
 (defun gc-trace (object direction prefix)
@@ -894,7 +896,7 @@
   (makunbound '*initial-setf-obarray*)
   (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
-  #+nil(gc)
+  (gc)
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()

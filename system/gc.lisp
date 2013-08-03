@@ -21,6 +21,38 @@
 
 (defvar *gc-in-progress* nil)
 
+(defvar *gc-stack-ranges*)
+
+;; TODO: a weak pointer to the allocating stack group would be nice.
+(defstruct gc-stack-range
+  allocated
+  marked
+  start
+  end)
+
+;; Run once during cold load to create the first stack range objects.
+(defun gc-init-stack-area ()
+  (let* ((sg (current-stack-group))
+         (cs-base (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-base+))
+	 (cs-size (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-size+))
+         (bs-base (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-binding-stack-base+))
+	 (bs-size (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-binding-stack-size+))
+         (cs-range (make-gc-stack-range :allocated t
+                                        :start cs-base
+                                        :end (+ cs-base cs-size)))
+         (bs-range (make-gc-stack-range :allocated t
+                                        :start bs-base
+                                        :end (+ bs-base bs-size)))
+         (free-range (make-gc-stack-range :allocated nil
+                                          :start *stack-bump-pointer*
+                                          :end *stack-bump-pointer-limit*)))
+    (setf (%array-like-ref-t sg +stack-group-offset-binding-stack-range+) bs-range
+          (%array-like-ref-t sg +stack-group-offset-control-stack-range+) cs-range)
+    (setf *gc-stack-ranges* (sort (list cs-range bs-range free-range)
+                                  #'<
+                                  :key #'gc-stack-range-start))))
+(gc-init-stack-area)
+
 (defun gc-init-system-memory ()
   (setf *system-memory-map* (canonicalize-memory-map
                              (cond (*multiboot-info*
@@ -85,13 +117,14 @@
       (format t "  Largest free area: ~:D words.~%" largest-free-space)
       (incf total-used allocated-words)
       (incf total total-words))
-    (format t "Stack space: ~:D/~:D words allocated (~D%).~%"
-            (truncate (- *stack-bump-pointer* #x100000000) 8)
-            (truncate (- *stack-bump-pointer-limit* #x100000000) 8)
-            (truncate (* (- *stack-bump-pointer* #x100000000) 100)
-                      (- *stack-bump-pointer-limit* #x100000000)))
-    (incf total-used (truncate (- *stack-bump-pointer* #x100000000) 8))
-    (incf total (truncate (- *stack-bump-pointer-limit* #x100000000) 8))
+    (multiple-value-bind (allocated-words total-words largest-free-space)
+        (stack-area-info)
+      (format t "Stack area: ~:D/~:D words allocated (~D%).~%"
+              allocated-words total-words
+              (truncate (* allocated-words 100) total-words))
+      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total-used allocated-words)
+      (incf total total-words))
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
@@ -113,6 +146,21 @@
               (when (logbitp +static-header-end-bit+ info)
                 (return))
               (incf offset (+ size 2)))))
+    (values allocated-words total-words largest-free-space)))
+
+(defun stack-area-info ()
+  (let ((allocated-words 0)
+        (total-words 0)
+        (largest-free-space 0))
+    (with-interrupts-disabled ()
+      (dolist (entry *gc-stack-ranges*)
+        (let ((size (truncate (- (gc-stack-range-end entry)
+                                 (gc-stack-range-start entry))
+                              8)))
+          (incf total-words size)
+          (if (gc-stack-range-allocated entry)
+              (incf allocated-words size)
+              (setf largest-free-space (max largest-free-space size))))))
     (values allocated-words total-words largest-free-space)))
 
 (defun gc ()
@@ -162,10 +210,14 @@
   (declare (ignore object prefix))
   `(progn ,@body))
 
+;; FIXME: evaluation rules...
+(defmacro scavengef (place)
+  "Scavange PLACE."
+  `(setf ,place (scavenge-object ,place)))
+
 (defun scavenge-many (address n)
   (dotimes (i n)
-    (setf (memref-t address i)
-          (scavenge-object (memref-t address i)))))
+    (scavengef (memref-t address i))))
 
 (defun scavenge-newspace ()
   (mumble "Scav newspace")
@@ -300,14 +352,12 @@
                       (when *gc-debug-scavenge-stack*
                         (mumble-hex (- -1 slot) "Scav stack slot ")
                         (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
-                      (setf (memref-t frame-pointer (- -1 slot))
-                            (scavenge-object (memref-t frame-pointer (- -1 slot)))))
+                      (scavengef (memref-t frame-pointer (- -1 slot))))
                      (t
                       (when *gc-debug-scavenge-stack*
                         (mumble-hex slot "Scav no-frame stack slot ")
                         (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
-                      (setf (memref-t stack-pointer slot)
-                            (scavenge-object (memref-t stack-pointer slot))))))))
+                      (scavengef (memref-t stack-pointer slot)))))))
          ;; Scan incoming arguments.
          (when incoming-arguments
            ;; Stored as fixnum on the stack.
@@ -323,14 +373,12 @@
                    (when *gc-debug-scavenge-stack*
                      (mumble-hex (+ 2 slot) "Scav arg slot ")
                      (mumble-hex (lisp-object-address (memref-t frame-pointer (+ 2 slot))) "  " t))
-                   (setf (memref-t frame-pointer (+ 2 slot))
-                         (scavenge-object (memref-t frame-pointer (+ 2 slot)))))
+                   (scavengef (memref-t frame-pointer (+ 2 slot))))
                  (dotimes (slot n-values)
                    (when *gc-debug-scavenge-stack*
                      (mumble-hex (+ 1 layout-length slot) "Scav arg slot ")
                      (mumble-hex (lisp-object-address (memref-t frame-pointer (+ 1 layout-length slot))) "  " t))
-                   (setf (memref-t stack-pointer (+ 1 layout-length slot))
-                         (scavenge-object (memref-t stack-pointer (+ 1 layout-length slot))))))))
+                   (scavengef (memref-t stack-pointer (+ 1 layout-length slot)))))))
          ;; Stop after seeing a zerop frame pointer.
          (when (eql frame-pointer 0)
            (return))
@@ -340,9 +388,15 @@
   (when *gc-debug-scavenge-stack* (mumble "Done scav stack.")))
 
 (defun scan-stack-group (object)
-  ;; Always scavenge the name.
-  (setf (%array-like-ref-t object +stack-group-offset-name+)
-        (scavenge-object (%array-like-ref-t object +stack-group-offset-name+)))
+  ;; Always scavenge the name & stack ranges.
+  (scavengef (%array-like-ref-t object +stack-group-offset-name+))
+  (scavengef (%array-like-ref-t object +stack-group-offset-control-stack-range+))
+  (scavengef (%array-like-ref-t object +stack-group-offset-binding-stack-range+))
+  ;; Mark the stacks, must be after they're scavenged!
+  (setf (gc-stack-range-marked (%array-like-ref-t object +stack-group-offset-control-stack-range+)) t
+        (gc-stack-range-marked (%array-like-ref-t object +stack-group-offset-binding-stack-range+)) t)
+  (assert (gc-stack-range-allocated (%array-like-ref-t object +stack-group-offset-control-stack-range+)))
+  (assert (gc-stack-range-allocated (%array-like-ref-t object +stack-group-offset-binding-stack-range+)))
   ;; Only scan the SG's stacks, MV area & TLS area when it isn't active or exhausted.
   (when (not (member (stack-group-state object) '(:active :exhausted)))
     (let* ((address (ash (%pointer-field object) 4))
@@ -634,6 +688,38 @@ Leaves pointer fields unchanged and returns the new object."
               (return))
             (incf offset (+ size 2))))))
 
+(defun sweep-stacks ()
+  (mumble "sweeping stacks")
+  (do* ((reversed-result nil)
+        (last-free nil)
+        (current *gc-stack-ranges* next)
+        (next (cdr current) (cdr current)))
+       ((endp current)
+        ;; Reverse the result list.
+        (do ((result nil)
+             (i reversed-result))
+            ((endp i)
+             (setf *gc-stack-ranges* result))
+          (psetf i (cdr i)
+                 (cdr i) result
+                 result i)))
+    (cond ((gc-stack-range-marked (first current))
+           ;; This one is allocated & still in use.
+           (assert (gc-stack-range-allocated (first current)))
+           (setf (rest current) reversed-result
+                 reversed-result current))
+          ((and last-free
+                (eql (gc-stack-range-end last-free)
+                     (gc-stack-range-start (first current))))
+           ;; Free and can be merged.
+           (setf (gc-stack-range-end last-free)
+                 (gc-stack-range-end (first current))))
+          (t ;; Free, but no last-free.
+           (setf last-free (first current)
+                 (gc-stack-range-allocated (first current)) nil
+                 (rest current) reversed-result
+                 reversed-result current)))))
+
 (defun gc-cycle ()
   (let ((old-offset *newspace-offset*))
     (set-gc-light)
@@ -650,6 +736,9 @@ Leaves pointer fields unchanged and returns the new object."
            *newspace-paging-bits* *oldspace-paging-bits*
            *newspace-offset* 0
            *static-mark-bit* (logxor *static-mark-bit* 1))
+    ;; Wipe stack mark bits.
+    (dolist (entry *gc-stack-ranges*)
+      (setf (gc-stack-range-marked entry) nil))
     ;; Scavenge NIL to start things off.
     (scavenge-object 'nil)
     ;; And scavenge the current registers and stacks.
@@ -665,6 +754,7 @@ Leaves pointer fields unchanged and returns the new object."
     (setf *small-static-area-hint* 0)
     (sweep-static-space *large-static-area*)
     (setf *large-static-area-hint* 0)
+    (sweep-stacks)
     (mumble "complete")
     (clear-gc-light)))
 
@@ -976,11 +1066,32 @@ the header word. LENGTH is the number of elements in the array."
 (defun %allocate-stack (length)
   (when (oddp length)
     (incf length))
-  (with-interrupts-disabled ()
-    (prog1 *stack-bump-pointer*
-      (incf *stack-bump-pointer* (* length 8))
-      (when (> *stack-bump-pointer* *stack-bump-pointer-limit*)
-        (error "No more space for stacks!")))))
+  (setf length (* length 8))
+  ;; Arrange for the error to be thrown after we leave the w-i-disabled region.
+  (or (with-interrupts-disabled ()
+        (dolist (entry *gc-stack-ranges*)
+          (when (and (not (gc-stack-range-allocated entry))
+                     (>= (- (gc-stack-range-end entry)
+                            (gc-stack-range-start entry))
+                         length))
+            (cond ((= (- (gc-stack-range-end entry)
+                         (gc-stack-range-start entry))
+                      length)
+                   ;; Same length, just mark as allocated.
+                   (setf (gc-stack-range-allocated entry) t)
+                   (return entry))
+                  (t ;; Split & resort.
+                   (let ((new (make-gc-stack-range :allocated t
+                                                   :start (gc-stack-range-start entry)
+                                                   :end (+ (gc-stack-range-start entry)
+                                                           length))))
+                     (setf (gc-stack-range-start entry) (gc-stack-range-end new))
+                     #+(or)(setf *gc-stack-ranges* (merge 'list (list new) *gc-stack-ranges*
+                                                          #'< :key #'gc-stack-range-start))
+                     (setf *gc-stack-ranges* (sort (list* new *gc-stack-ranges*)
+                                                   #'< :key #'gc-stack-range-start))
+                     (return new)))))))
+        (error "No more space for stacks!")))
 
 (defun allocate-dma-buffer (length &optional (bitsize 8) signedp)
   (check-type bitsize (member 8 16 32 64))

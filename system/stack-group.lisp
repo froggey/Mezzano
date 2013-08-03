@@ -46,7 +46,9 @@
 ;;;       5 CS size in bytes (ub64)
 ;;;       6 BS base (ub64)
 ;;;       7 BS size in bytes (ub64)
-;;;   8-127 MV slots
+;;;       8 CS stack range
+;;;       9 BS stack range
+;;;  10-127 MV slots
 ;;; 128-447 TLS slots.
 ;;; 447-511 FXSAVE area.
 ;;; Stack bases and sizes must be aligned so they can be treated as fixnums by the GC.
@@ -76,7 +78,9 @@
 (defconstant +stack-group-offset-control-stack-size+    5)
 (defconstant +stack-group-offset-binding-stack-base+    6)
 (defconstant +stack-group-offset-binding-stack-size+    7)
-(defconstant +stack-group-offset-mv-slots+              8)
+(defconstant +stack-group-offset-binding-stack-range+   8)
+(defconstant +stack-group-offset-control-stack-range+   9)
+(defconstant +stack-group-offset-mv-slots+             10)
 (defconstant +stack-group-offset-tls-slots+           128)
 ;; FXSAVE area must be at the end, GC doesn't scan it.
 (defconstant +stack-group-offset-fxsave-area+ (- +stack-group-size+
@@ -107,8 +111,10 @@
     (decf binding-stack-size))
   ;; Allocate stack and the stack-group object.
   (let* ((sg (%allocate-array-like +array-type-stack-group+ +stack-group-size+ +stack-group-size+ :static))
-	 (cs-pointer (%allocate-stack control-stack-size))
-	 (bs-pointer (%allocate-stack binding-stack-size)))
+	 (cs-range (%allocate-stack control-stack-size))
+         (cs-pointer (gc-stack-range-start cs-range))
+	 (bs-range (%allocate-stack binding-stack-size))
+         (bs-pointer (gc-stack-range-start bs-range)))
     ;; Set state.
     (setf (%array-like-ref-t sg +stack-group-offset-flags+)
           (logior (if interruptable 0 +stack-group-uninterruptable+)
@@ -117,10 +123,12 @@
     (setf (%array-like-ref-t sg +stack-group-offset-name+) (string name))
     ;; Control stack base/size.
     (setf (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-base+) cs-pointer
-	  (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-size+) (* control-stack-size 8))
+	  (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-size+) (* control-stack-size 8)
+          (%array-like-ref-t sg +stack-group-offset-control-stack-range+) cs-range)
     ;; Binding stack base/size.
     (setf (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-binding-stack-base+) bs-pointer
-	  (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-binding-stack-size+) (* binding-stack-size 8))
+	  (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-binding-stack-size+) (* binding-stack-size 8)
+          (%array-like-ref-t sg +stack-group-offset-binding-stack-range+) bs-range)
     sg))
 
 (defun stack-group-flags (stack-group)
