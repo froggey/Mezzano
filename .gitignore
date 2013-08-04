@@ -1,7 +1,6 @@
 *~
 *.fasl
 *.llf
-/lispos.image
-/lispos-warm.image
-/lispos.map
-/cdrom.iso
+/*.image
+/*.map
+/*.iso
