@@ -206,7 +206,8 @@
                 ,(simp-form (third form))
               (let ,bindings
                 ,@(simp-implicit-progn (cdddr form) t)))))
-        (t (simp-implicit-progn (cddr form) t)
+        (t (setf (third form) (simp-form (third form)))
+           (simp-implicit-progn (cdddr form) t)
            form)))
 
 (defun simp-multiple-value-call (form)
