@@ -585,6 +585,7 @@
     "system/stack-group.lisp"
     "system/interrupt.lisp"
     "cold-start.lisp"
+    "system/early-cons.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
