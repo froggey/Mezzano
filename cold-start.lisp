@@ -947,7 +947,7 @@
   (sys.lap-x86:lea64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-tls-slots+) 8)
                                     +tag-array-like+)))
   (sys.lap-x86:mov64 :rax -2)
-  (sys.lap-x86:mov32 :ecx #.+stack-group-offset-tls-slots+)
+  (sys.lap-x86:mov32 :ecx #.+stack-group-tls-slots-size+)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)
   ;; Initialize GS.
