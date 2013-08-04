@@ -417,6 +417,7 @@
     (array                                         (find-class 'array))
     ;;((and sequence (not (or vector list)))         (find-class 'sequence))
     (function                                      (find-class 'function))
+    (sys.int::stack-group                          (find-class 'sys.int::stack-group))
     (structure-object
      (class-of-structure-definition (sys.int::%struct-slot x 0)))
     (t                                             (find-class 't))))
@@ -1839,6 +1840,7 @@ Dispatching on class ~S." gf class))
 (defclass simple-string (string simple-array) ())
 (defclass integer (number) ())
 (defclass float (number) ())
+(defclass sys.int::stack-group (t) ())
 ;; 10. Define the other standard metaobject classes.
 (setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
 (defclass funcallable-standard-object (standard-object function)
