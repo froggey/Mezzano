@@ -130,29 +130,29 @@
   (ll-implicit-progn (cdr form))
   form)
 
-;; NOTE: Only support required and keyword args.
-;; Doesn't support fuzzy allow-other-keys matching or suppliedp variables.
+;; Doesn't support fuzzy allow-other-keys matching.
 (defun arguments-match-lambda-list (lambda arg-list)
   (let ((arg-count (length arg-list))
-        (req-count (length (lambda-information-required-args lambda))))
+        (req-count (length (lambda-information-required-args lambda)))
+        (opt-count (length (lambda-information-optional-args lambda))))
     (cond ((lambda-information-enable-keys lambda)
            (let ((keywords (mapcar 'caar (lambda-information-key-args lambda))))
              (when (and (>= arg-count req-count)
-                        (evenp (- arg-count req-count)))
-               (do ((i (nthcdr req-count arg-list) (cddr i)))
+                        (evenp (- arg-count (+ req-count opt-count))))
+               (do ((i (nthcdr (+ req-count opt-count) arg-list) (cddr i)))
                    ((null i)
                     t)
-                 (when (third (car i))
-                   (return nil))
                  (unless (and (listp (car i))
                               (= (length (car i)) 2)
                               (eql (first (car i)) 'quote)
                               (member (second (car i)) keywords))
                    (return nil))))))
-          (t (= arg-count req-count)))))
+          ((lambda-information-rest-arg lambda)
+           (<= req-count arg-count))
+          (t (<= req-count arg-count (+ req-count opt-count))))))
 
 (defun lift-lambda (lambda arg-list)
-  (let ((name (lambda-information-name lambda))
+  (let ((name (or (lambda-information-name lambda) 'lambda))
 	(required-args (lambda-information-required-args lambda))
 	(optional-args (lambda-information-optional-args lambda))
 	(rest-arg (lambda-information-rest-arg lambda))
@@ -163,12 +163,6 @@
             :format-arguments (list name))
       (return-from lift-lambda))
     ;; Attempt to match the argument list with the function's lambda list.
-    (when (or optional-args rest-arg)
-      ;; Bail out.
-      (warn 'sys.int::simple-style-warning
-	    :format-control "Cannot inline ~S yet."
-	    :format-arguments (list name))
-      (return-from lift-lambda))
     (unless (arguments-match-lambda-list lambda arg-list)
       ;; Bail out.
       (warn 'simple-warning
@@ -180,10 +174,12 @@
     (dolist (arg required-args)
       (when (lexical-variable-p arg)
 	(setf (lexical-variable-definition-point arg) *current-lambda*)))
-    #+nil(dolist (arg optional-args)
-      (when (lexical-variable-p arg)
-	(setf (lexical-variable-definition-point arg) *current-lambda*)))
-    #+nil(when (lexical-variable-p rest-arg)
+    (dolist (arg optional-args)
+      (when (lexical-variable-p (first arg))
+	(setf (lexical-variable-definition-point (first arg)) *current-lambda*))
+      (when (lexical-variable-p (third arg))
+	(setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
+    (when (lexical-variable-p rest-arg)
       (setf (lexical-variable-definition-point rest-arg) *current-lambda*))
     (dolist (arg key-args)
       (when (lexical-variable-p (second (first arg)))
@@ -197,24 +193,62 @@
                                                            :ignore :maybe))
                                   arg-list))
            (key-pairs (nthcdr (length required-args) argument-vars)))
-      (labels ((build-key-bindings (keys)
+      (labels ((build-required-bindings (req-args arg-vars)
+                 (cond (req-args
+                        `(let ((,(first req-args) ,(first arg-vars)))
+                           ,(build-required-bindings (rest req-args) (rest arg-vars))))
+                       (t (build-optional-bindings optional-args arg-vars))))
+               (build-optional-bindings (opt-args arg-vars)
+                 (cond ((and opt-args arg-vars)
+                        (destructuring-bind (var init-form suppliedp)
+                            (first opt-args)
+                          (declare (ignore init-form))
+                          `(let ,(if suppliedp
+                                     `((,var ,(first arg-vars))
+                                       (,suppliedp 't))
+                                     `((,var ,(first arg-vars))))
+                             ,(build-optional-bindings (rest opt-args) (rest arg-vars)))))
+                       (opt-args
+                        (destructuring-bind (var init-form suppliedp)
+                            (first opt-args)
+                          `(let ,(if suppliedp
+                                     `((,var ,init-form)
+                                       (,suppliedp 'nil))
+                                     `((,var ,init-form)))
+                             ,(build-optional-bindings (rest opt-args) '()))))
+                       (t (build-rest-binding arg-vars))))
+               (build-rest-binding (arg-vars)
+                 (if rest-arg
+                     `(let ((,rest-arg (list ,@arg-vars)))
+                        ,(build-key-bindings key-args))
+                     (build-key-bindings key-args)))
+               (build-key-bindings (keys)
                  (cond (keys
-                        (do ((p 0 (+ p 2))
-                             (i (nthcdr (length required-args) arg-list) (cddr i)))
-                            ((null i)
-                             ;; Not provided, use the initform.
-                             `(let ((,(cadar (first keys)) ,(second (first keys))))
-                                ,(build-key-bindings (rest keys))))
-                          (when (eql (second (car i)) (caar (first keys)))
-                            ;; Keywords match, use this argument.
-                            (return `(let ((,(cadar (first keys)) ,(nth (1+ p) key-pairs)))
-                                       ,(build-key-bindings (rest keys)))))))
+                        (destructuring-bind ((keyword var) init-form suppliedp)
+                            (first keys)
+                          (do ((p 0 (+ p 2))
+                               (i (nthcdr (+ (length required-args)
+                                             (length optional-args))
+                                          arg-list)
+                                  (cddr i)))
+                              ((null i)
+                               ;; Not provided, use the initform.
+                               `(let ,(if suppliedp
+                                          `((,var ,init-form)
+                                            (,suppliedp 'nil))
+                                          `((,var ,init-form)))
+                                  ,(build-key-bindings (rest keys))))
+                            (when (eql (second (car i)) keyword)
+                              ;; Keywords match, use this argument.
+                              (return `(let ,(if suppliedp
+                                                 `((,var ,(nth (1+ p) key-pairs))
+                                                   (,suppliedp 't))
+                                                 `((,var ,(nth (1+ p) key-pairs))))
+                                         ,(build-key-bindings (rest keys))))))))
                        (t `(progn ,@(mapcar #'ll-form (lambda-information-body lambda)))))))
         ;; Evaluate arguments.
         `(let ,(mapcar #'list argument-vars arg-list)
-           ;; Bind required arguments.
-           (let ,(mapcar #'list required-args argument-vars)
-             ,(build-key-bindings key-args)))))))
+           ,(build-required-bindings required-args argument-vars))))))
 
 (defun ll-function-form (form)
   (ll-implicit-progn (cdr form))
