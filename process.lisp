@@ -1,7 +1,7 @@
 (in-package :sys.int)
 
-(defvar *scheduler-stack-group* nil)
 (defvar *current-process* nil)
+(defvar *idle-process* nil)
 (defvar *run-queue* nil)
 
 (defstruct (process
@@ -33,7 +33,7 @@
                           (apply (first (process-initial-form process))
                                  (rest (process-initial-form process))))
                         (process-disable process)
-                        (switch-to-stack-group *scheduler-stack-group* t))))
+                        (process-yield))))
 
 (defun process-run-reason (process object)
   (pushnew object (process-run-reasons process))
@@ -53,17 +53,10 @@
 
 (defun process-wait (reason function &rest arguments)
   (declare (dynamic-extent arguments))
-  (if (and *current-process*
-	   *scheduler-stack-group*
-	   (not (eql (stack-group-state *scheduler-stack-group*) :active)))
-      (progn
-	(setf (process-whostate *current-process*) reason
-	      (process-wait-function *current-process*) function
-	      (process-wait-argument-list *current-process*) arguments)
-	(switch-to-stack-group *scheduler-stack-group*))
-      (do ()
-	  ((apply function arguments))
-	(%hlt))))
+  (setf (process-whostate *current-process*) reason
+        (process-wait-function *current-process*) function
+        (process-wait-argument-list *current-process*) arguments)
+  (process-yield))
 
 ;; todo, Fix this...
 (defun process-wait-with-timeout (reason timeout function &rest arguments)
@@ -129,22 +122,22 @@
          (setf proc (process-next proc))
          (when (eql proc start) (return)))))
 
-;;; FIXME: Running for so long with interrupts disabled is lame.
-;;; Probably need to speed this up somehow.
-(defun process-scheduler ()
-  (let ((*terminal-io* *terminal-io*)
-        (*standard-output* *standard-output*)
-        (*standard-input* *standard-input*)
-        (*debug-io* *debug-io*)
-        (*query-io* *query-io*)
-        (*error-output* *error-output*))
-    (loop
-       (%cli)
-       (let ((next-process (get-next-process)))
-         (setf *current-process* next-process)
-         (cond (next-process
-                (switch-to-stack-group (process-stack-group next-process)))
-               (t (%stihlt)))))))
+(defun process-yield ()
+  (with-interrupts-disabled ()
+    (let ((next-process (or (get-next-process)
+                            *idle-process*)))
+      (unless (eql next-process *current-process*)
+        (setf *current-process* next-process)
+        (switch-to-stack-group (process-stack-group next-process))))))
+
+(defun idle-process ()
+  (%cli)
+  (loop
+     (let ((next-process (get-next-process)))
+       (cond (next-process
+              (setf *current-process* next-process)
+              (switch-to-stack-group (process-stack-group next-process)))
+             (t (%stihlt))))))
 
 (defun make-process (name &key
                             control-stack-size
@@ -172,14 +165,14 @@
                          ,@body)
          (sys.int::process-disable ,x)))))
 
-(setf *scheduler-stack-group* (make-stack-group "scheduler"
-                                                :interruptable nil))
-(stack-group-preset *scheduler-stack-group* #'process-scheduler)
 (setf *current-process* (%make-process :name "Initial Process"
                                        :stack-group (current-stack-group)
                                        :run-reasons '(:initial)
                                        :whostate "RUN"))
 (process-consider-runnability *current-process*)
+
+(setf *idle-process* (make-process "Idle"))
+(process-preset *idle-process* #'idle-process)
 
 (defconstant +spinlocked-locked-value+ 0)
 (defconstant +spinlocked-unlocked-value+ 1)
