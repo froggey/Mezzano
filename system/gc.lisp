@@ -77,11 +77,6 @@
 
 #+nil(add-hook '*early-initialize-hook* 'gc-init-system-memory)
 
-(defvar *gc-stack-group* (make-stack-group "GC"
-                                           :control-stack-size 100000
-                                           :interruptable nil))
-(stack-group-preset *gc-stack-group* #'gc-task)
-
 ;;; FIXME: Should use unwind-protect but that conses!!!
 ;;; TODO: Require that this can never nest (ie interrupts are on "all" the time).
 (defmacro with-interrupts-disabled (options &body code)
@@ -758,17 +753,14 @@ Leaves pointer fields unchanged and returns the new object."
     (mumble "complete")
     (clear-gc-light)))
 
-(defun gc-task ()
-  (loop
-     (gc-cycle)
-     (switch-to-stack-group *gc-in-progress*)))
-
 (defun %gc ()
   (when *gc-in-progress*
     (error "Nested GC?!"))
   (unwind-protect
-       (progn (setf *gc-in-progress* (current-stack-group))
-              (switch-to-stack-group *gc-stack-group*))
+       (progn (setf *gc-in-progress* t)
+              (%sti)
+              (gc-cycle)
+              (%cli))
     (setf *gc-in-progress* nil)))
 
 ;;; This is the fundamental dynamic allocation function.
@@ -781,8 +773,8 @@ Leaves pointer fields unchanged and returns the new object."
 ;;; Additionally, the number of words to allocate must be even to ensure
 ;;; correct alignment.
 (defun %raw-allocate (words &optional area)
-  (when (and (boundp '*gc-stack-group*)
-             (eql (current-stack-group) *gc-stack-group*))
+  (when (and (boundp '*gc-in-progress*)
+             *gc-in-progress*)
     (emergency-halt "Allocating from inside the GC!"))
   (ecase area
     ((nil :dynamic)
