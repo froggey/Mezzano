@@ -62,7 +62,7 @@
              (copy-file f (merge-pathnames (pathname-file-part f) stage)))
            (external-program:run "mkisofs"
                                  (list "-R" "-b" bootloader-name "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
-                                       (format nil "~A.iso" image-name)
+                                       (format nil "~A" image-path)
                                        (format nil "~A" stage))
                                  :output *standard-output*
                                  :error :output))
