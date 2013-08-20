@@ -15,7 +15,7 @@
 ;;;  1 RFlags
 ;;;  2 RIP
 
-;;; Interrupted control stack layout:
+;;; Interrupted control stack layout: (obsolete)
 ;;;  0 RBP
 ;;;  1 RFlags (in the interrupt handler, IF clear)
 ;;;  2 RIP (in the interrupt handler)

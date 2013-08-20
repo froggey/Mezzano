@@ -67,7 +67,7 @@
 (defmacro with-deferred-gc (options &body body)
   "Execute BODY with the garbage collector deferred.
 BODY must not allocate!"
-  `(progn ,@body))
+  `(with-interrupts-disabled () ,@body))
 
 (defgeneric documentation (x doc-type))
 (defgeneric (setf documentation) (new-value x doc-type))
