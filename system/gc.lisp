@@ -429,6 +429,33 @@
                 sg-interruptedp nil))))
   (when *gc-debug-scavenge-stack* (mumble "Done scav stack.")))
 
+(defun scan-stack-group (object)
+  ;; Always scavenge the name & stack ranges.
+  (scavengef (%array-like-ref-t object +stack-group-offset-name+))
+  (scavengef (%array-like-ref-t object +stack-group-offset-control-stack-range+))
+  (scavengef (%array-like-ref-t object +stack-group-offset-binding-stack-range+))
+  ;; Mark the stacks, must be after they're scavenged!
+  (setf (gc-stack-range-marked (%array-like-ref-t object +stack-group-offset-control-stack-range+)) t
+        (gc-stack-range-marked (%array-like-ref-t object +stack-group-offset-binding-stack-range+)) t)
+  (assert (gc-stack-range-allocated (%array-like-ref-t object +stack-group-offset-control-stack-range+)))
+  (assert (gc-stack-range-allocated (%array-like-ref-t object +stack-group-offset-binding-stack-range+)))
+  ;; Only scan the SG's stacks, MV area & TLS area when it isn't active or exhausted.
+  (when (not (member (stack-group-state object) '(:active :exhausted)))
+    (let* ((address (ash (%pointer-field object) 4))
+           (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
+           (bs-size (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-size+))
+           (binding-stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-pointer+))
+           (stack-pointer (%array-like-ref-unsigned-byte-64 object +stack-group-offset-control-stack-pointer+))
+           (frame-pointer (memref-unsigned-byte-64 stack-pointer 0))
+           (return-address (memref-unsigned-byte-64 stack-pointer 2)))
+      ;; Unconditonally scavenge the TLS area and the binding stack.
+      (scavenge-many (+ address 8 (* +stack-group-offset-tls-slots+ 8))
+                     +stack-group-tls-slots-size+)
+      (scavenge-many binding-stack-pointer
+                     (ash (- (+ bs-base bs-size) binding-stack-pointer) -3))
+      (scavenge-stack (+ stack-pointer (* 3 8)) frame-pointer return-address
+                      (eql (stack-group-state object) :interrupted)))))
+
 (defun gc-info-for-function-offset (function offset)
   (multiple-value-bind (info-address length)
       (function-gc-info function)
