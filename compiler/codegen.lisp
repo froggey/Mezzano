@@ -21,6 +21,7 @@ be generated instead.")
 (defvar *trailers* nil)
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
+(defvar *used-dynamic-extent* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-array-like+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-array-like+))
@@ -86,7 +87,8 @@ be generated instead.")
          (*code-accum* '())
          (*trailers* '())
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
-         (*gc-info-fixups* '()))
+         (*gc-info-fixups* '())
+         (*used-dynamic-extent* nil))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -158,12 +160,12 @@ be generated instead.")
         (emit-rest-list lambda arg-registers)))
     ;; No longer in argument setup mode, switch over to normal GC info.
     (emit-gc-info)
-    (let* ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
-                       (cg-form `(progn ,@(lambda-information-body lambda))))))
+    (let ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
+                      (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
-        (unless (eql code-tag :multiple)
-          (load-in-r8 code-tag t)
-          (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))))
+        (load-multiple-values code-tag)
+        (when *used-dynamic-extent*
+          (flush-data-registers (eql code-tag :multiple)))
         (emit `(sys.lap-x86:leave)
               `(:gc :no-frame)
               `(sys.lap-x86:ret))))
@@ -292,6 +294,8 @@ be generated instead.")
          (rest-head nil)
          (rest-tail nil)
          (reg-save-done (gensym "REG-SAVE-DONE")))
+    (when dx-rest
+      (setf *used-dynamic-extent* t))
     (setf rest-head (find-stack-slot)
           (aref *stack-values* rest-head) (cons :rest-head :home))
     (setf rest-tail (find-stack-slot)
@@ -399,6 +403,26 @@ be generated instead.")
     ;; Flush the two temps.
     (setf (aref *stack-values* rest-head) nil
           (aref *stack-values* rest-tail) nil)))
+
+(defun flush-data-registers (multiple-values)
+  ;; Flush out any possible references to dynamic-extent values.
+  ;; If multiple-values is true, then obey the multiple-values protocol
+  ;; to limit which registers are cleared, otherwise get all but R8.
+  (emit `(sys.lap-x86:xor32 :ebx :ebx)
+        `(sys.lap-x86:xor32 :r13d :r13d))
+  (if multiple-values
+      (emit `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 2))
+            `(sys.lap-x86:cmov32ae :r9d :ebx)
+            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 3))
+            `(sys.lap-x86:cmov32ae :r10d :ebx)
+            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 4))
+            `(sys.lap-x86:cmov32ae :r11d :ebx)
+            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 5))
+            `(sys.lap-x86:cmov32ae :r12d :ebx))
+      (emit `(sys.lap-x86:xor32 :r9d :r9d)
+            `(sys.lap-x86:xor32 :r10d :r10d)
+            `(sys.lap-x86:xor32 :r11d :r11d)
+            `(sys.lap-x86:xor32 :r12d :r12d))))
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
@@ -527,14 +551,21 @@ be generated instead.")
            (let ((tagbody-tag (let ((*for-value* t))
                                 (cg-form (third form)))))
              (load-in-reg :rax tagbody-tag t)
+             ;; Data registers must be flushed unconditionally here.
+             ;; If this closure was called from a function with DX values
+             ;; then there might still be livish DX values left over.
+             (flush-data-registers nil)
              ;; RAX holds the tagbody info.
-             (emit ;; GO GO GO!
-                   `(sys.lap-x86:mov64 :rdx (:rax 0))
-                   `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (second form)
-                                                                (tagbody-information-go-tags
-                                                                 (go-tag-tagbody (second form))))
-                                                      8)))
-                   `(sys.lap-x86:jmp :rdx)))))
+             (emit
+              ;; Get R8 as well.
+              `(sys.lap-x86:xor32 :r8d :r8d)
+              ;; GO GO GO!
+              `(sys.lap-x86:mov64 :rdx (:rax 0))
+              `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (second form)
+                                                           (tagbody-information-go-tags
+                                                            (go-tag-tagbody (second form))))
+                                                 8)))
+              `(sys.lap-x86:jmp :rdx)))))
     'nil))
 
 (defun branch-to (label))
@@ -1017,11 +1048,8 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:jmp ,(second local-info))))
           (t ;; Non-local exit.
            (load-in-reg :rax target-tag t)
-           ;; Restore registers.
-           (emit `(sys.lap-x86:mov64 :csp (:rax 16))
-                 `(sys.lap-x86:mov64 :cfp (:rax 24))
-                 ;; GO GO GO!
-                 `(sys.lap-x86:jmp (:rax 0)))))
+           (flush-data-registers (eql target-tag :multiple))
+           (emit `(sys.lap-x86:jmp (:rax 0)))))
     'nil))
 
 (defun find-variable-home (var)
