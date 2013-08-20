@@ -9,7 +9,7 @@
   name
   (run-reasons '())
   (arrest-reasons '())
-  (wait-function (constantly 'nil))
+  (wait-function nil)
   (wait-argument-list '())
   (whostate '())
   (initial-form nil)
@@ -129,6 +129,16 @@
       (unless (eql next-process *current-process*)
         (setf *current-process* next-process)
         (switch-to-stack-group (process-stack-group next-process))))))
+
+(defun %maybe-preempt-from-interrupt-frame ()
+  "Return a process to switch to, or NIL if the current process should keep running."
+  (let ((next-process (or (get-next-process)
+                          *idle-process*)))
+    ;; Must not preempt the GC, or try to switch to current process.
+    (when (and (not *gc-in-progress*)
+               (not (eql next-process *current-process*)))
+      (setf *current-process* next-process)
+      (process-stack-group next-process))))
 
 (defun idle-process ()
   (%cli)

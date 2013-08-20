@@ -799,6 +799,10 @@
 (defun %defpackage (&rest arguments)
   (push arguments *deferred-%defpackage-calls*))
 
+;;; Until the process system is loaded.
+(defun %maybe-preempt-from-interrupt-frame ()
+  nil)
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 256
         *array-types* #(t
