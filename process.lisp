@@ -178,6 +178,9 @@
                          ,@body)
          (sys.int::process-disable ,x)))))
 
+(defun current-process ()
+  *current-process*)
+
 (setf *current-process* (%make-process :name "Initial Process"
                                        :stack-group (current-stack-group)
                                        :run-reasons '(:initial)
@@ -269,7 +272,7 @@ Returns true on success, false on timeout."
 
 (defstruct mutex
   (name (error "Name is required!") :read-only t)
-  (lock (make-spinlock name))
+  (lock (make-spinlock :name name))
   (owner nil))
 
 (defun call-with-mutex (fn mutex wait-p timeout)
