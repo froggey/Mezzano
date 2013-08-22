@@ -1556,6 +1556,9 @@ Dispatching on class ~S." gf (nth argument-offset args)))
       (compute-applicable-methods-using-classes gf classes)
     (unless validp
       (setf applicable-methods (compute-applicable-methods gf args)))
+    (when (null applicable-methods)
+      (error "No applicable methods to generic function ~S.
+Dispatching on classes ~S." gf classes))
     (let ((emfun (funcall
                   (if (eq (class-of gf) the-class-standard-gf)
                       #'std-compute-effective-method-function
