@@ -1048,7 +1048,7 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:jmp ,(second local-info))))
           (t ;; Non-local exit.
            (load-in-reg :rax target-tag t)
-           (flush-data-registers (eql target-tag :multiple))
+           (flush-data-registers (eql tag :multiple))
            (emit `(sys.lap-x86:jmp (:rax 0)))))
     'nil))
 
