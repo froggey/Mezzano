@@ -220,17 +220,15 @@
   (cond ((and (consp (second form))
               (eql (first (second form)) 'progn))
          ;; If the first form is a PROGN, then hoist all but the final value out.
-         (simp-form
-          `(progn ,@(butlast (cdr (second form)))
-                  (multiple-value-prog1 ,(car (last (second form)))
-                    ,@(cddr form)))))
+         `(progn ,@(butlast (cdr (second form)))
+                 (multiple-value-prog1 ,(car (last (second form)))
+                   ,@(cddr form))))
         ((and (consp (second form))
               (eql (first (second form)) 'multiple-value-prog1))
          ;; If the first form is a M-V-PROG1, then splice it in.
-         (simp-form
-          `(multiple-value-prog1 ,(second (second form))
-             ,@(cddr (second form))
-             ,@(cddr form))))
+         `(multiple-value-prog1 ,(second (second form))
+            ,@(cddr (second form))
+            ,@(cddr form)))
         ((null (cddr form))
          ;; If there are no body forms, then kill this completely.
          (second form))
