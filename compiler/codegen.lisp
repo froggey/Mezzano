@@ -400,6 +400,9 @@ be generated instead.")
       (emit `(sys.lap-x86:mov64 :r8 (:stack ,rest-head))
             `(sys.lap-x86:mov64 :r8 (:cdr :r8))
             `(sys.lap-x86:mov64 (:stack ,ofs) :r8)))
+    ;; Make sure to flush any possible DX cons in rbx.
+    (unless dx-rest
+      (emit `(sys.lap-x86:xor32 :ebx :ebx)))
     ;; Flush the two temps.
     (setf (aref *stack-values* rest-head) nil
           (aref *stack-values* rest-tail) nil)))
