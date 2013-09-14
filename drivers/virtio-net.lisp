@@ -153,7 +153,10 @@
   free-tx-buffers
   process
   (irq-semaphore (sys.int::make-semaphore :name "Virtio-Net interrupt" :area :static)
-                 :read-only t))
+                 :read-only t)
+  (tx-semaphore (sys.int::make-semaphore :name "Await Virtio-Net TX" :area :static)
+                :read-only t)
+  (lock (sys.int::make-mutex :name "Virtio-Net lock")))
 
 (defmethod print-object ((object virtio-net) stream)
   (print-unreadable-object (object stream :type t)
@@ -425,61 +428,65 @@ and then some alignment.")
      #+nil(format t "Network interrupt! RX used idx: ~D  TX used idx: ~D~%"
              (vring-used-idx (aref (virtio-device-virtqueues dev) +net-receiveq+))
              (vring-used-idx (aref (virtio-device-virtqueues dev) +net-transmitq+)))
-     (let ((rx-queue (aref (virtio-device-virtqueues dev) +net-receiveq+)))
-       (loop
-          (when (eql (vring-used-idx rx-queue)
-                     (virtqueue-last-seen-used rx-queue))
-            (virtio-kick dev +net-receiveq+)
-            (return))
-          (let* ((ring-entry (rem (virtqueue-last-seen-used rx-queue)
-                                  (virtqueue-size rx-queue)))
-                 (id (vring-used-elem-id rx-queue ring-entry))
-                 (len (vring-used-elem-len rx-queue ring-entry)))
-            #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
-            ;; Cheat slightly, RX descriptor IDs can be converted directly
-            ;; to offsets in the RX buffer.
-            ;; Extract the packet!
-            (let* ((rx-offset (+ (* (truncate id 2) +rx-buffer-size+) +virtio-net-hdr-size+))
-                   (packet (subseq (virtio-net-rx-array dev) rx-offset (+ rx-offset
-                                                                          (- len +virtio-net-hdr-size+)))))
-              ;; Re-add the descriptor to the avail ring.
-              (vring-add-to-avail-ring rx-queue id)
-              ;; Dispatch!
-              (sys.net:receive-packet dev packet)))
-          (setf (virtqueue-last-seen-used rx-queue)
-                (ldb (byte 16 0) (1+ (virtqueue-last-seen-used rx-queue))))))
-     (let ((tx-queue (aref (virtio-device-virtqueues dev) +net-transmitq+)))
-       (loop
-          (when (eql (vring-used-idx tx-queue)
-                     (virtqueue-last-seen-used tx-queue))
-            (return))
-          (let* ((ring-entry (rem (virtqueue-last-seen-used tx-queue)
-                                  (virtqueue-size tx-queue)))
-                 (id (vring-used-elem-id tx-queue ring-entry))
-                 (len (vring-used-elem-len tx-queue ring-entry)))
-            #+nil(format t "TX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
-            ;; Packet sent. Add the descriptor back to the freelist.
-            (push id (virtio-net-free-tx-buffers dev))
-            (sys.int::signal-semaphore (virtio-net-n-free-tx-buffers dev)))
-          (setf (virtqueue-last-seen-used tx-queue)
-                (ldb (byte 16 0) (1+ (virtqueue-last-seen-used tx-queue))))))))
+     (sys.int::with-mutex ((virtio-net-lock dev))
+       (let ((rx-queue (aref (virtio-device-virtqueues dev) +net-receiveq+)))
+         (loop
+            (when (eql (vring-used-idx rx-queue)
+                       (virtqueue-last-seen-used rx-queue))
+              (virtio-kick dev +net-receiveq+)
+              (return))
+            (let* ((ring-entry (rem (virtqueue-last-seen-used rx-queue)
+                                    (virtqueue-size rx-queue)))
+                   (id (vring-used-elem-id rx-queue ring-entry))
+                   (len (vring-used-elem-len rx-queue ring-entry)))
+              #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
+              ;; Cheat slightly, RX descriptor IDs can be converted directly
+              ;; to offsets in the RX buffer.
+              ;; Extract the packet!
+              (let* ((rx-offset (+ (* (truncate id 2) +rx-buffer-size+) +virtio-net-hdr-size+))
+                     (packet (subseq (virtio-net-rx-array dev) rx-offset (+ rx-offset
+                                                                            (- len +virtio-net-hdr-size+)))))
+                ;; Re-add the descriptor to the avail ring.
+                (vring-add-to-avail-ring rx-queue id)
+                ;; Dispatch!
+                (sys.net:receive-packet dev packet)))
+            (setf (virtqueue-last-seen-used rx-queue)
+                  (ldb (byte 16 0) (1+ (virtqueue-last-seen-used rx-queue))))))
+       (let ((tx-queue (aref (virtio-device-virtqueues dev) +net-transmitq+)))
+         (loop
+            (when (eql (vring-used-idx tx-queue)
+                       (virtqueue-last-seen-used tx-queue))
+              (return))
+            (let* ((ring-entry (rem (virtqueue-last-seen-used tx-queue)
+                                    (virtqueue-size tx-queue)))
+                   (id (vring-used-elem-id tx-queue ring-entry))
+                   (len (vring-used-elem-len tx-queue ring-entry)))
+              #+nil(format t "TX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
+              ;; Packet sent. Add the descriptor back to the freelist.
+              (push id (virtio-net-free-tx-buffers dev))
+              (sys.int::signal-semaphore (virtio-net-n-free-tx-buffers dev))
+              (sys.int::signal-semaphore (virtio-net-tx-semaphore dev)))
+            (setf (virtqueue-last-seen-used tx-queue)
+                  (ldb (byte 16 0) (1+ (virtqueue-last-seen-used tx-queue)))))))))
 
 (defun transmit-one (dev packet)
   ;; Allocate a free TX descriptor.
   (sys.int::wait-on-semaphore (virtio-net-n-free-tx-buffers dev))
-  (let* ((tx-queue (aref (virtio-device-virtqueues dev) +net-transmitq+))
-         (hdr-desc (pop (virtio-net-free-tx-buffers dev)))
-         ;; Bleah. Do a terrible phys->offset conversion.
-         (offset (- (vring-desc-address tx-queue hdr-desc) (virtio-net-tx-physical dev))))
-    ;; Copy packet into the descriptor.
-    (sys.net:copy-packet (virtio-net-tx-array dev) packet (+ offset +virtio-net-hdr-size+))
-    ;; Clear the header.
-    (fill (virtio-net-tx-array dev) 0
-          :start offset
-          :end (+ offset +virtio-net-hdr-size+))
-    ;; Add to the avail ring and notify the card.
-    (vring-add-to-avail-ring tx-queue hdr-desc)
-    (virtio-kick dev +net-transmitq+)))
+  (sys.int::with-mutex ((virtio-net-lock dev))
+    (let* ((tx-queue (aref (virtio-device-virtqueues dev) +net-transmitq+))
+           (hdr-desc (pop (virtio-net-free-tx-buffers dev)))
+           ;; Bleah. Do a terrible phys->offset conversion.
+           (offset (- (vring-desc-address tx-queue hdr-desc) (virtio-net-tx-physical dev))))
+      ;; Copy packet into the descriptor.
+      (sys.net:copy-packet (virtio-net-tx-array dev) packet (+ offset +virtio-net-hdr-size+))
+      ;; Clear the header.
+      (fill (virtio-net-tx-array dev) 0
+            :start offset
+            :end (+ offset +virtio-net-hdr-size+))
+      ;; Add to the avail ring and notify the card.
+      (vring-add-to-avail-ring tx-queue hdr-desc)
+      (virtio-kick dev +net-transmitq+)))
+  (sys.int::wait-on-semaphore (virtio-net-tx-semaphore dev)))
 
 (sys.int::define-interrupt-handler virtio-interrupt (io-base sem)
   (let ((status (system:io-port/8 (+ io-base +isr-status+))))
