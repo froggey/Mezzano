@@ -192,7 +192,12 @@
   r-next
   window-size
   (max-seg-size 1000)
-  rx-data)
+  rx-data
+  (lock (sys.int::make-mutex :name "TCP connection lock")))
+
+(defmacro with-tcp-connection-locked (connection &body body)
+  `(sys.int::with-mutex ((tcp-connection-lock ,connection))
+     ,@body))
 
 (defvar *raw-packet-hooks* nil)
 (defvar *tcp-connections* nil)
@@ -233,7 +238,9 @@
                   (funcall (second server) connection))
                  (t (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                       :ack-p t :rst-p t))))))
-      (t (unless (logtest flags +tcp4-flag-rst+)
+      (t (format t "Ignoring packet from ~X ~S~%" remote-ip
+                 (subseq packet start end))
+         (unless (logtest flags +tcp4-flag-rst+)
            (let ((connection (make-tcp-connection :state :syn-received
                                                   :local-port local-port
                                                   :remote-port remote-port
@@ -286,101 +293,104 @@
 
 (defun tcp4-receive (connection packet &optional (start 0) end)
   (unless end (setf end (length packet)))
-  (let* ((seq (ub32ref/be packet (+ start 4)))
-	 (ack (ub32ref/be packet (+ start 8)))
-	 (flags (aref packet (+ start 13)))
-	 (header-length (* (ash (aref packet (+ start 12)) -4) 4))
-	 (data-length (- end (+ start header-length))))
-    (case (tcp-connection-state connection)
-      (:syn-sent
-       (if (and (logtest flags +tcp4-flag-ack+)
-		(logtest flags +tcp4-flag-syn+)
-		(eql ack (tcp-connection-s-next connection)))
-	   (progn
-	     (setf (tcp-connection-state connection) :established
-		   (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
-	     (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
-	   (progn
-	     (setf (tcp-connection-state connection) :closed)
-	     (detach-tcp-connection connection)
-	     (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
-	     (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags))))
-      (:syn-received
-       (cond ((and (eql flags +tcp4-flag-ack+)
-                   (eql seq (tcp-connection-r-next connection))
-                   (eql ack (tcp-connection-s-next connection)))
-              (setf (tcp-connection-state connection) :established))
-             (t (setf (tcp-connection-state connection) :closed)
-                (detach-tcp-connection connection)
-                (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
-                (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
-                        ack (tcp-connection-s-next connection)
-                        seq (tcp-connection-r-next connection)
-                        flags))))
-      (:established
-       ;; Ignore out-of-order packets.
-       (when (eql seq (tcp-connection-r-next connection))
-	 (unless (eql data-length 0)
-	   ;; Send data to the user layer
-	   (if (tcp-connection-rx-data connection)
-	       (setf (cdr (last (tcp-connection-rx-data connection))) (list (list packet (+ start header-length) end)))
-	       (setf (tcp-connection-rx-data connection) (list (list packet (+ start header-length) end))))
-	   (setf (tcp-connection-r-next connection)
-		 (logand (+ (tcp-connection-r-next connection) data-length)
-			 #xFFFFFFFF)))
-	 (cond
-	   ((logtest flags +tcp4-flag-fin+)
-	    ;; Always ack FIN packets.
-	    (setf (tcp-connection-state connection) :closing
-		  (tcp-connection-r-next connection)
-		  (logand (+ (tcp-connection-r-next connection) 1)
-			  #xFFFFFFFF))
-	    (tcp4-send-packet connection
-			      (tcp-connection-s-next connection)
-			      (tcp-connection-r-next connection)
-			      nil
-			      :fin-p t))
-	   ((not (eql data-length 0))
-	    (tcp4-send-packet connection
-			      (tcp-connection-s-next connection)
-			      (tcp-connection-r-next connection)
-			      nil)))))
-      (:closing
-       (cond ((logtest flags +tcp4-flag-ack+))
+  (with-tcp-connection-locked connection
+    (let* ((seq (ub32ref/be packet (+ start 4)))
+           (ack (ub32ref/be packet (+ start 8)))
+           (flags (aref packet (+ start 13)))
+           (header-length (* (ash (aref packet (+ start 12)) -4) 4))
+           (data-length (- end (+ start header-length))))
+      (case (tcp-connection-state connection)
+        (:syn-sent
+         (if (and (logtest flags +tcp4-flag-ack+)
+                  (logtest flags +tcp4-flag-syn+)
+                  (eql ack (tcp-connection-s-next connection)))
+             (progn
+               (setf (tcp-connection-state connection) :established
+                     (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
+               (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
+             (progn
+               (setf (tcp-connection-state connection) :closed)
+               (detach-tcp-connection connection)
+               (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
+               (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags))))
+        (:syn-received
+         (cond ((and (eql flags +tcp4-flag-ack+)
+                     (eql seq (tcp-connection-r-next connection))
+                     (eql ack (tcp-connection-s-next connection)))
+                (setf (tcp-connection-state connection) :established))
+               (t (setf (tcp-connection-state connection) :closed)
+                  (detach-tcp-connection connection)
+                  (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
+                  (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
+                          ack (tcp-connection-s-next connection)
+                          seq (tcp-connection-r-next connection)
+                          flags))))
+        (:established
+         ;; Ignore out-of-order packets.
+         (when (eql seq (tcp-connection-r-next connection))
+           (unless (eql data-length 0)
+             ;; Send data to the user layer
+             (if (tcp-connection-rx-data connection)
+                 (setf (cdr (last (tcp-connection-rx-data connection))) (list (list packet (+ start header-length) end)))
+                 (setf (tcp-connection-rx-data connection) (list (list packet (+ start header-length) end))))
+             (setf (tcp-connection-r-next connection)
+                   (logand (+ (tcp-connection-r-next connection) data-length)
+                           #xFFFFFFFF)))
+           (cond
              ((logtest flags +tcp4-flag-fin+)
+              ;; Always ack FIN packets.
+              (setf (tcp-connection-state connection) :closing
+                    (tcp-connection-r-next connection)
+                    (logand (+ (tcp-connection-r-next connection) 1)
+                            #xFFFFFFFF))
               (tcp4-send-packet connection
                                 (tcp-connection-s-next connection)
                                 (tcp-connection-r-next connection)
                                 nil
-                                :ack-p t
-                                :fin-p t)))
-       (detach-tcp-connection connection)
-       (setf (tcp-connection-state connection) :closed))
-      (:closed
-       (detach-tcp-connection connection))
-      (t (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
-	 (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
-	 (detach-tcp-connection connection)
-	 (setf (tcp-connection-state connection) :closed)))))
+                                :fin-p t))
+             ((not (eql data-length 0))
+              (tcp4-send-packet connection
+                                (tcp-connection-s-next connection)
+                                (tcp-connection-r-next connection)
+                                nil)))))
+        (:closing
+         (cond ((logtest flags +tcp4-flag-ack+))
+               ((logtest flags +tcp4-flag-fin+)
+                (tcp4-send-packet connection
+                                  (tcp-connection-s-next connection)
+                                  (tcp-connection-r-next connection)
+                                  nil
+                                  :ack-p t
+                                  :fin-p t)))
+         (detach-tcp-connection connection)
+         (setf (tcp-connection-state connection) :closed))
+        (:closed
+         (detach-tcp-connection connection))
+        (t (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
+           (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
+           (detach-tcp-connection connection)
+           (setf (tcp-connection-state connection) :closed))))))
 
 (defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
   (multiple-value-bind (ethernet-mac interface)
       (ipv4-route (tcp-connection-remote-ip connection))
-    (when (and ethernet-mac interface)
-      (let* ((source (ipv4-interface-address interface))
-	     (source-port (tcp-connection-local-port connection))
-	     (packet (assemble-tcp4-packet source source-port
-					   (tcp-connection-remote-ip connection)
-					   (tcp-connection-remote-port connection)
-					   seq ack
-					   (tcp-connection-window-size connection)
-					   data
-					   :ack-p ack-p
-					   :psh-p psh-p
-					   :rst-p rst-p
-					   :syn-p syn-p
-					   :fin-p fin-p)))
-	(transmit-ethernet-packet interface ethernet-mac +ethertype-ipv4+ packet)))))
+    (cond ((and ethernet-mac interface)
+           (let* ((source (ipv4-interface-address interface))
+                  (source-port (tcp-connection-local-port connection))
+                  (packet (assemble-tcp4-packet source source-port
+                                                (tcp-connection-remote-ip connection)
+                                                (tcp-connection-remote-port connection)
+                                                seq ack
+                                                (tcp-connection-window-size connection)
+                                                data
+                                                :ack-p ack-p
+                                                :psh-p psh-p
+                                                :rst-p rst-p
+                                                :syn-p syn-p
+                                                :fin-p fin-p)))
+             (transmit-ethernet-packet interface ethernet-mac +ethertype-ipv4+ packet)))
+           (t (format t "No route to ~/sys.int::format-ipv4-address/? Discarding TCPv4 packet.~%"
+                      (tcp-connection-remote-ip connection))))))
 
 (defun ipv4-route (destination)
   "Return the interface and destination mac for the destination IP address."
@@ -513,8 +523,9 @@
 					  :window-size 8192)))
     (push connection *tcp-connections*)
     (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-    (when (sys.int::process-wait-with-timeout "TCP connect" 100
-				     (lambda () (not (eql (tcp-connection-state connection) :syn-sent))))
+    (when (not (sys.int::process-wait-with-timeout "TCP connect" 100
+                                                   (lambda ()
+                                                     (not (eql (tcp-connection-state connection) :syn-sent)))))
       (setf (tcp-connection-state connection) :closed))
     connection))
 
@@ -530,19 +541,18 @@
              ((>= offset end))
            (tcp-send connection data offset (min (+ offset mss) end))))
         (t ;; Send one packet.
-         (let ((s-next (tcp-connection-s-next connection)))
-           (setf (tcp-connection-s-next connection)
-                 (logand (+ s-next (- end start))
-                         #xFFFFFFFF))
-           (tcp4-send-packet connection s-next
-                             (tcp-connection-r-next connection)
-                             (if (and (eql start 0)
-                                      (eql end (length data)))
-                                 data
-                                 (subseq data start end))
-                             :psh-p t)))))))
-
-(defvar *test-message* #(#x47 #x45 #x54 #x20 #x2F #x0D #x0A #x0D #x0A))
+         (with-tcp-connection-locked connection
+           (let ((s-next (tcp-connection-s-next connection)))
+             (setf (tcp-connection-s-next connection)
+                   (logand (+ s-next (- end start))
+                           #xFFFFFFFF))
+             (tcp4-send-packet connection s-next
+                               (tcp-connection-r-next connection)
+                               (if (and (eql start 0)
+                                        (eql end (length data)))
+                                   data
+                                   (subseq data start end))
+                               :psh-p t))))))))
 
 (defun send-ping (destination &optional (identifier 0) (sequence-number 0) payload)
   (let ((packet (make-array (+ 8 (if payload (length payload) 56)))))
@@ -705,24 +715,27 @@
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))))
 
 (defun tcp-connection-closed-p (stream)
-  (let ((connection (tcp-stream-connection stream)))
-    (refill-tcp-stream-buffer stream)
-    (and (null (tcp-stream-packet stream))
-         (not (eql (tcp-connection-state connection) :established))
-         (not (eql (tcp-connection-state connection) :syn-received)))))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (let ((connection (tcp-stream-connection stream)))
+      (refill-tcp-stream-buffer stream)
+      (and (null (tcp-stream-packet stream))
+           (not (eql (tcp-connection-state connection) :established))
+           (not (eql (tcp-connection-state connection) :syn-received))))))
 
 (defmethod sys.gray:stream-listen ((stream tcp-stream))
-  (refill-tcp-stream-buffer stream)
-  (not (null (tcp-stream-packet stream))))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (refill-tcp-stream-buffer stream)
+    (not (null (tcp-stream-packet stream)))))
 
 (defmethod sys.gray:stream-read-byte ((stream tcp-stream))
-  (when (not (refill-tcp-packet-buffer stream))
-    (return-from sys.gray:stream-read-byte :eof))
-  (let* ((packet (tcp-stream-packet stream))
-         (byte (aref (first packet) (second packet))))
-    (when (>= (incf (second packet)) (third packet))
-      (setf (tcp-stream-packet stream) nil))
-    byte))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (when (not (refill-tcp-packet-buffer stream))
+      (return-from sys.gray:stream-read-byte :eof))
+    (let* ((packet (tcp-stream-packet stream))
+           (byte (aref (first packet) (second packet))))
+      (when (>= (incf (second packet)) (third packet))
+        (setf (tcp-stream-packet stream) nil))
+      byte)))
 
 (defmethod sys.gray:stream-read-sequence ((stream tcp-stream) sequence &optional (start 0) end)
   (unless end (setf end (length sequence)))
@@ -737,36 +750,42 @@
 (defun refill-tcp-packet-buffer (stream)
   (let ((connection (tcp-stream-connection stream)))
     (when (null (tcp-stream-packet stream))
-      (sys.int::process-wait "TCP read" (lambda ()
-                                          (or (tcp-connection-rx-data connection)
-                                              (not (member (tcp-connection-state connection)
-                                                           '(:established :syn-received))))))
+      (sys.int::with-interrupts-disabled ()
+        (sys.int::release-mutex (tcp-connection-lock connection))
+        (sys.int::process-wait "TCP read" (lambda ()
+                                            (or (tcp-connection-rx-data connection)
+                                                (not (member (tcp-connection-state connection)
+                                                             '(:established :syn-received))))))
+        (sys.int::grab-mutex (tcp-connection-lock connection)))
+      ;; Something may have refilled while we were waiting.
+      (when (tcp-stream-packet stream)
+        (return-from refill-tcp-packet-buffer t))
       (when (and (null (tcp-connection-rx-data connection))
-                 (not (eql (tcp-connection-state connection) :established))
-                 (not (eql (tcp-connection-state connection) :syn-received)))
+                 (not (member (tcp-connection-state connection)
+                              '(:established :syn-received))))
         (return-from refill-tcp-packet-buffer nil))
-      (setf (tcp-stream-packet stream) (first (tcp-connection-rx-data connection))
-            (tcp-connection-rx-data connection) (cdr (tcp-connection-rx-data connection))))
+      (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
     t))
 
 (defun tcp-read-byte-sequence (sequence stream start end)
-  (let ((position start))
-    (loop (when (or (>= position end)
-                    (not (refill-tcp-packet-buffer stream)))
-            (return))
-       (let* ((packet (tcp-stream-packet stream))
-              (pkt-data (first packet))
-              (pkt-offset (second packet))
-              (pkt-length (third packet))
-              (bytes-to-copy (min (- end position) (- pkt-length pkt-offset))))
-         (replace sequence pkt-data
-                  :start1 position
-                  :start2 pkt-offset
-                  :end2 (+ pkt-offset bytes-to-copy))
-         (when (>= (incf (second packet) bytes-to-copy) (third packet))
-           (setf (tcp-stream-packet stream) nil))
-         (incf position bytes-to-copy)))
-    position))
+  (with-tcp-connection-locked (tcp-stream-connection stream)
+    (let ((position start))
+      (loop (when (or (>= position end)
+                      (not (refill-tcp-packet-buffer stream)))
+              (return))
+         (let* ((packet (tcp-stream-packet stream))
+                (pkt-data (first packet))
+                (pkt-offset (second packet))
+                (pkt-length (third packet))
+                (bytes-to-copy (min (- end position) (- pkt-length pkt-offset))))
+           (replace sequence pkt-data
+                    :start1 position
+                    :start2 pkt-offset
+                    :end2 (+ pkt-offset bytes-to-copy))
+           (when (>= (incf (second packet) bytes-to-copy) (third packet))
+             (setf (tcp-stream-packet stream) nil))
+           (incf position bytes-to-copy)))
+      position)))
 
 (defun utf-8-decode-leader (leader)
   "Break a UTF-8 leader byte apart into sequence length (minus one) and code-point so far."
