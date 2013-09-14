@@ -56,17 +56,20 @@
   (setf (process-whostate *current-process*) reason
         (process-wait-function *current-process*) function
         (process-wait-argument-list *current-process*) arguments)
-  (process-yield))
+  (process-yield)
+  (setf (process-whostate *current-process*) nil))
 
 ;; todo, Fix this...
 (defun process-wait-with-timeout (reason timeout function &rest arguments)
+  "Poll FUNCTION until it returns true, or until timeout expires.
+Returns true if the timeout has not expired. TIMEOUT may be false, for infinite timeout."
   (declare (dynamic-extent arguments))
   (cond (timeout
          (process-wait reason (lambda ()
                                 (if (<= (decf timeout) 0)
                                     t
                                     (apply function arguments))))
-         (<= timeout 0))
+         (> timeout 0))
         (t (apply #'process-wait reason function arguments)
            t)))
 
@@ -134,18 +137,19 @@
 
 (defun %maybe-preempt-from-interrupt-frame ()
   "Return a process to switch to, or NIL if the current process should keep running."
-  (let ((next-process (or (get-next-process)
-                          *idle-process*)))
-    ;; Must not preempt the GC, or try to switch to current process.
-    (when (and *preemption-enabled*
-               (not *gc-in-progress*)
-               (not (eql next-process *current-process*)))
-      (setf *current-process* next-process)
-      (process-stack-group next-process))))
+  ;; Must not preempt the GC.
+  (when (and *preemption-enabled*
+             (not *gc-in-progress*))
+    (let ((next-process (or (get-next-process)
+                            *idle-process*)))
+      ;; Must not try to switch to current process.
+      (when (not (eql next-process *current-process*))
+        (setf *current-process* next-process)
+        (process-stack-group next-process)))))
 
 (defun idle-process ()
-  (%cli)
   (loop
+     (%cli)
      (let ((next-process (get-next-process)))
        (cond (next-process
               (setf *current-process* next-process)
@@ -214,7 +218,7 @@
 
 ;;; WARNING! Spinlocks don't use unwind-protect!
 ;;; They're meant for use in super low-level code
-;;; that can't allocated (such as interrupt handlers).
+;;; that can't allocate (such as interrupt handlers).
 ;;; Use a mutex or something instead!
 (defmacro with-spinlock-held (spinlock &body body)
   (let ((sym (gensym "lock")))
@@ -275,6 +279,10 @@ Returns true on success, false on timeout."
   (lock (make-spinlock :name name))
   (owner nil))
 
+(defun mutex-held-p (mutex &optional (process (current-process)))
+  "Return true if MUTEX is held by PROCESS."
+  (eql (mutex-owner mutex) process))
+
 (defun call-with-mutex (fn mutex wait-p timeout)
   (assert (%interrupt-state))
   (let ((got-it nil))
@@ -286,7 +294,8 @@ Returns true on success, false on timeout."
            (with-interrupts-disabled ()
              (setf got-it (grab-mutex mutex :wait-p wait-p :timeout timeout)))
            (when got-it
-             (funcall fn)))
+             (assert (mutex-held-p mutex))
+             (multiple-value-prog1 (funcall fn) (assert (mutex-held-p mutex)))))
       (with-interrupts-disabled ()
         (when got-it
           (release-mutex mutex))))))
@@ -304,12 +313,14 @@ Returns true on success, false on timeout."
     (return-from grab-mutex t))
   (when wait-p
     (let ((process (current-process)))
-      (process-wait-with-timeout (mutex-name mutex)
-                                 timeout
-                                 (lambda ()
-                                   (when (not (mutex-owner mutex))
-                                     (setf (mutex-owner mutex) process)
-                                     t))))))
+      (when (process-wait-with-timeout (mutex-name mutex)
+                                       timeout
+                                       (lambda ()
+                                         (when (not (mutex-owner mutex))
+                                           (setf (mutex-owner mutex) process)
+                                           t)))
+        (assert (mutex-held-p mutex))
+        t))))
 
 (defun release-mutex (mutex &key (if-not-owner :error))
   (assert (not (%interrupt-state)))
@@ -318,7 +329,8 @@ Returns true on success, false on timeout."
     (setf (mutex-owner mutex) nil)
     (return-from release-mutex))
   (ecase if-not-owner
-    (:error (cerror "Attempting to release mutex ~S not owned by the current process."
+    (:error (cerror "Leave the mutex alone."
+                    "Attempting to release mutex ~S not owned by the current process."
                     mutex))
     (:warn (warn "Attempting to release mutex ~S not owned by the current process."
                  mutex))
