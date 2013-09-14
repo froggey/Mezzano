@@ -66,12 +66,14 @@ arrays
 00 11000 (simple-array (complex long-float) (*))
 00 11001
 00 11010
-00 11011 simple-string
-00 11100 string
-00 11101 memory-array
+00 11011 memory-array
          fill pointer, type, storage, dimensions...
+00 11100 simple-string
+         fill pointer, displacement, storage, dimension
+00 11101 string
+         fill pointer, displacement, storage, dimension
 00 11110 simple-array
-         storage, dimensions...
+         fill pointer, displacement, storage, dimensions...
 00 11111 array
          fill pointer, displacement, storage, dimensions...
 
@@ -176,3 +178,6 @@ Functions
 11 11101
 11 11110
 11 11111
+
+
+LLLLLLLL LLLLLLLL LLLLLLLL tttttggg

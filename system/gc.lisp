@@ -427,11 +427,19 @@
                                        other-layout-address other-layout-length
                                        other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
                     (when (or other-interruptp
-                              (not (eql other-pushed-values 0)) other-pushed-values-register
+                              (not (eql other-pushed-values 0))
+                              (not (eql other-pushed-values-register nil))
+                              #+nil(not (or (eql other-pushed-values-register nil)
+                                       (eql other-pushed-values-register :rcx)))
                               (and other-multiple-values (not (eql other-multiple-values 0)))
                               (and (keywordp other-incoming-arguments) (not (eql other-incoming-arguments :rcx)))
                               other-block-or-tagbody-thunk)
                       (let ((*gc-debug-scavenge-stack* t))
+                        (mumble-hex other-return-address "oRA: " t)
+                        (mumble-hex other-frame-pointer "oFP: " t)
+                        (mumble-hex other-stack-pointer "oSP: " t)
+                        (mumble-hex other-fn-address "oFNa: " t)
+                        (mumble-hex other-fn-offset "oFNo: " t)
                         (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
                                            other-layout-address other-layout-length
                                            other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
