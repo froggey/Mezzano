@@ -1,0 +1,36 @@
+This is Mezzanine, an operating system written in Common Lisp.
+
+Building a cold image
+---------------------
+(ql:quickload "lispos")
+(with-compilation-unit ()
+  (sys.c::set-up-cross-compiler)
+  (mapc 'sys.c::load-for-cross-compiler cold-generator::*warm-source-files*))
+(cold-generator::make-image "lispos")
+(cold-generator::compile-warm-source)
+
+
+Generating a warm image
+-----------------------
+Where lispos.image is a cold image, and test.hd is a flat 512MB HD image:
+
+qemu-system-x86_64 -kernel lispos.image -m 512 -hda test.hd -initrd system/closette.llf,system/runtime-misc.llf,system/condition.llf,system/restarts.llf,system/error.llf,system/debug.llf,system/coerce.llf,system/time.llf,system/eval.llf,system/stream.llf,process.llf,drivers/keyboard.llf,framebuffer-stream.llf,drivers/bochs-vbe.llf,system/ansi-loop.llf,lap.llf,lap-x86.llf,compiler/package.llf,compiler/compiler.llf,compiler/pass1.llf,compiler/constprop.llf,compiler/simplify.llf,compiler/lift.llf,compiler/inline.llf,compiler/kill-temps.llf,compiler/codegen.llf,compiler/builtins.llf,compiler/branch-tension.llf,compiler/lower-environment.llf,compiler/lower-special-bindings.llf
+
+Wait for the system to boot.
+Run after booting, but type slowly and carefully:
+(setf *print-safe* nil)
+(gc)
+(dump-image)
+yes
+
+After DUMP-IMAGE completes, it will print the number of sectors written.
+Note this down, then close qemu.
+
+Run: dd if=test.hd of=lispos-warm.image count=<sector count>
+
+lispos-warm.image is now a warm image! Hurrah!
+
+
+Running a warm image
+--------------------
+qemu-system-x86_64 -kernel lispos-warm.image -m 512 -net user -net nic,model=virtio -vga std -initrd graphics.llf,blit.llf,windows.llf,ethernet.llf,drivers/virtio-net.llf,xterm.llf,telnet.llf,peek.llf,system/file-compiler.llf

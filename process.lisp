@@ -182,6 +182,12 @@ Returns true if the timeout has not expired. TIMEOUT may be false, for infinite 
                          ,@body)
          (sys.int::process-disable ,x)))))
 
+(defun run-process (name function &rest arguments)
+  (let ((process (make-process name)))
+    (apply #'process-preset process function arguments)
+    (process-enable process)
+    process))
+
 (defun current-process ()
   *current-process*)
 

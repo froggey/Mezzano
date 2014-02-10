@@ -399,7 +399,8 @@
 (defun handle-keypress (key)
   (let ((command (gethash key *global-keybindings*)))
     (when command
-      (funcall command)
+      (ignore-errors
+        (funcall command))
       (return-from handle-keypress)))
   (when *window-list*
     (key-press-event *window-list* key)))
