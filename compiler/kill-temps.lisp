@@ -19,7 +19,7 @@
 	    ((multiple-value-call) (kt-multiple-value-call form target-variable replacement-form))
 	    ((multiple-value-prog1) (kt-multiple-value-prog1 form target-variable replacement-form))
 	    ((progn) (kt-progn form target-variable replacement-form))
-	    ((quote) (kt-quote form target-variable replacement-form))
+	    ((function quote) (kt-quote form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((setq) (kt-setq form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))

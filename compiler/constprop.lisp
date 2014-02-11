@@ -23,7 +23,7 @@
 	    ((multiple-value-call) (cp-multiple-value-call form))
 	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
 	    ((progn) (cp-progn form))
-	    ((quote) (cp-quote form))
+	    ((function quote) (cp-quote form))
 	    ((return-from) (cp-return-from form))
 	    ((setq) (cp-setq form))
 	    ((tagbody) (cp-tagbody form))

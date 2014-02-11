@@ -6,6 +6,7 @@
 ;;;; Pass 2 links each environment vector together and actually
 ;;;; rewrites the code.
 ;;;; Vectors are created at LAMBDA and TAGBODY nodes.
+;;;; Additionally, turn FUNCTION into a call to SYMBOL-FUNCTION.
 
 (in-package :sys.c)
 
@@ -44,7 +45,7 @@
              (mapc #'compute-environment-layout (rest form)))
 	    ((progn)
              (mapc #'compute-environment-layout (rest form)))
-	    ((quote) nil)
+	    ((function quote) nil)
 	    ((return-from)
              (compute-environment-layout (rest form)))
 	    ((setq)
@@ -122,6 +123,7 @@ of statements opens a new contour."
   (etypecase form
     (cons (case (first form)
 	    ((block) (le-block form))
+            ((function) `(symbol-function ',(second form)))
 	    ((go) (le-go form))
 	    ((if) (le-form*-cdr form))
 	    ((let) (le-let form))

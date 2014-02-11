@@ -14,7 +14,7 @@
 	    ((multiple-value-call) (il-multiple-value-call form))
 	    ((multiple-value-prog1) (il-multiple-value-prog1 form))
 	    ((progn) (il-progn form))
-	    ((quote) (il-quote form))
+	    ((quote function) (il-quote form))
 	    ((return-from) (il-return-from form))
 	    ((setq) (il-setq form))
 	    ((tagbody) (il-tagbody form))

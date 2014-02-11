@@ -14,7 +14,7 @@
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((progn) (ll-progn form))
-	    ((quote) (ll-quote form))
+	    ((function quote) (ll-quote form))
 	    ((return-from) (ll-return-from form))
 	    ((setq) (ll-setq form))
 	    ((tagbody) (ll-tagbody form))

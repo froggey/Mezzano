@@ -89,7 +89,7 @@
 			     :dynamic-extent (declared-as-p 'dynamic-extent name declares))))
 
 (defun pass1-lambda (lambda env)
-  "Perform macroexpansion, alpha-conversion, simple constant folding/propagation, canonicalization and inlining on LAMBDA."
+  "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
@@ -291,22 +291,7 @@
     (cond ((lexical-variable-p fn)
            ;; Lexical function.
 	   (list* 'funcall fn args))
-	  (t
-	   ;; Top-level function.
-	   ;; Optimize (funcall (fdefinition 'function-name) into (name-symbol ...).
-	   ;; This allow calls to setf functions to be subject to inlining.
-	   (when (and (eq fn 'funcall)
-		      (consp (first args))
-		      (eq (first (first args)) 'fdefinition)
-		      (consp (cdr (first args)))
-		      (null (cddr (first args)))
-		      (consp (second (first args)))
-		      (eq (first (second (first args))) 'quote)
-		      (consp (cdr (second (first args))))
-		      (null (cddr (second (first args))))
-                      (function-name-p (second (second (first args)))))
-	     (setf fn (second (second (first args)))
-		   args (rest args)))
+	  (t ;; Top-level function.
            (list* fn args)))))
 
 (defun pass1-block (form env)
@@ -370,7 +355,7 @@
                  (pushnew *current-lambda* (lexical-variable-used-in var))
                  var)
                 (t ;; Top-level function.
-                 (pass1-form `(fdefinition ',name) env)))))))
+                 `(function ,name)))))))
 
 (defun pass1-go (form env)
   (destructuring-bind (tag) (cdr form)
