@@ -84,7 +84,7 @@
 	 (when report
 	   (error "Duplicate report clause"))
 	 (setf report (if (stringp (cadr forms))
-			  `(lambda (stream) (write-string stream ,(cadr forms)))
+			  `(lambda (stream) (write-string ,(cadr forms) stream))
 			  `(function ,(cadr forms)))
 	       forms (cddr forms)))
 	(:test
