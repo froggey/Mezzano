@@ -35,7 +35,7 @@
       (read-sequence (file-image-data instance) s))))
 
 (defmethod image-nil ((image file-image))
-  #x200012)
+  #x200019)
 
 (defmethod image-physical-word ((image file-image) address)
   (nibbles:ub64ref/le (file-image-data image) (- address #x200000)))
@@ -91,34 +91,49 @@
     (setf (gethash object seen-objects) t)
     (funcall fn object)
     (let ((address (logand object (lognot #b1111))))
-      (ecase (ldb (byte 4 0) object)
-        (#b0000) ; even-fixnum
-        (#b0001 ; cons
-         (map-object fn image seen-objects (image-word image address))
-         (map-object fn image seen-objects (image-word image (+ address 8))))
-        (#b0010 ; symbol
-         (dotimes (i 6)
-           (map-object fn image seen-objects (image-word image (+ address (* i 8))))))
-        (#b0011 ; array-header
-         (dotimes (i 4)
-           (map-object fn image seen-objects (image-word image (+ address (* i 8))))))
-        ;; #b0100
-        ;; #b0101
-        ;; #b0110
-        (#b0111 ; array-like
-         (map-array-like-object fn image seen-objects address))
-        (#b1000) ; odd-fixnum
-        ;; #b1001
-        (#b1010) ; character
-        (#b1011) ; single-float
-        (#b1100 ; function
-         (let* ((header (image-word image address))
-                (mc-size (* (ldb (byte 16 16) header) 16))
-                (n-constants (ldb (byte 16 32) header)))
-           (dotimes (i n-constants)
-             (map-object fn image seen-objects (image-word image (+ address mc-size (* i 8)))))))
-        (#b1110) ; unbound-value
-        (#b1111))))) ; gc-forwarding-pointer
+      (when (logtest object 1) ; ignore fixnums
+        (ecase (ldb (byte 4 0) object)
+          (#b0011 ; cons
+           (map-object fn image seen-objects (image-word image address))
+           (map-object fn image seen-objects (image-word image (+ address 8))))
+          (#b0101) ; unbound-value
+          ;; #b0111
+          (#b1001 ; objects
+           (let* ((header (image-word image address))
+                  (type (ldb (byte sys.int::+array-type-size+
+                                   sys.int::+array-type-shift+)
+                             header))
+                  (len (ldb (byte sys.int::+array-length-size+
+                                  sys.int::+array-length-shift+)
+                            header)))
+             (if (<= sys.int::+first-function-object-tag+
+                     type
+                     sys.int::+last-function-object-tag+)
+                 (let* ((header (image-word image address))
+                        (mc-size (* (ldb (byte 16 16) header) 16))
+                        (n-constants (ldb (byte 16 32) header)))
+                   (dotimes (i n-constants)
+                     (map-object fn image seen-objects (image-word image (+ address mc-size (* i 8))))))
+                 (dotimes (i (if (<= 1 type sys.int::+last-simple-1d-array-object-tag+)
+                                 0 ; ignore numeric arrays.
+                                 (ecase type
+                                   ((#.sys.int::+object-tag-array-t+
+                                     #.sys.int::+object-tag-structure-object+)
+                                    (1+ len))
+                                   (#.sys.int::+object-tag-std-instance+ 3)
+                                   (#.sys.int::+object-tag-stack-group+ (- 511 64))
+                                   (#.sys.int::+object-tag-symbol+ 6)
+                                   ((#.sys.int::+object-tag-memory-array+
+                                     #.sys.int::+object-tag-simple-string+
+                                     #.sys.int::+object-tag-string+
+                                     #.sys.int::+object-tag-simple-array+
+                                     #.sys.int::+object-tag-array+)
+                                    (+ 4 len))
+                                   (#.sys.int::+object-tag-bignum+ 0))))
+                   (map-object fn image seen-objects (image-word image (+ address (* i 8))))))))
+          (#b1011) ; character
+          (#b1101) ; single-float
+          (#b1111)))))) ; gc forwarding pointer
 
 (defun map-objects (fn image)
   "Call FN for every object in IMAGE. Returns a hash-table whose keys are the seen objects.
@@ -146,49 +161,65 @@ Assumes that everything can be reached from NIL."
   name
   package-name)
 
+
 (defmethod print-object ((object image-symbol) stream)
   (if (or *print-escape* *print-readably*)
       (call-next-method)
-      (format stream "~A::~A"
-              (image-symbol-package-name object)
-              (image-symbol-name object))))
+      (cond ((eql (image-symbol-package-name object) "COMMON-LISP")
+             (format stream "~A" (image-symbol-name object)))
+            ((eql (image-symbol-package-name object) "KEYWORD")
+             (format stream ":~A" (image-symbol-name object)))
+            (t (format stream "~A::~A"
+                       (image-symbol-package-name object)
+                       (image-symbol-name object))))))
 
 (defun extract-image-object (image value)
   (let ((address (logand value (lognot #b1111))))
     (ecase (ldb (byte 4 0) value)
-      ((#.sys.int::+tag-even-fixnum+
-        #.sys.int::+tag-odd-fixnum+)
+      ((#.sys.int::+tag-fixnum-000+ #.sys.int::+tag-fixnum-001+
+        #.sys.int::+tag-fixnum-010+ #.sys.int::+tag-fixnum-011+
+        #.sys.int::+tag-fixnum-100+ #.sys.int::+tag-fixnum-101+
+        #.sys.int::+tag-fixnum-110+ #.sys.int::+tag-fixnum-111+)
        ;; Make sure negative numbers are negative.
        (if (ldb-test (byte 1 63) value)
-           (ash (logior (lognot (ldb (byte 64 0) -1)) value) -3)
-           (ash value -3)))
+           (ash (logior (lognot (ldb (byte 64 0) -1)) value) (- sys.int::+n-fixnum-bits+))
+           (ash value (- sys.int::+n-fixnum-bits+))))
       (#.sys.int::+tag-character+
        (code-char (ldb (byte 21 4) value)))
       (#.sys.int::+tag-cons+
        (cons (extract-image-object image (image-word image address))
              (extract-image-object image (image-word image (+ address 8)))))
-      (#.sys.int::+tag-symbol+
-       (when (eql value (image-nil image))
-         (return-from extract-image-object nil))
-       (let ((name (extract-image-object image (image-word image address)))
-             (package (image-word image (+ address 8))))
-         (when (eql package (image-nil image))
-           (error "Attemping to extract an uninterned symbol."))
-         ;; package groveling...
-         (let ((package-name (extract-image-object image
-                                                   (image-word image
-                                                               (+ (logand package (lognot #b1111)) 16)))))
-           (make-image-symbol :address address
-                              :image image
-                              :name name
-                              :package-name package-name))))
-      (#.sys.int::+tag-array-like+
-       (ecase (ldb (byte 5 3) (image-word image address))
-         (#.sys.int::+array-type-base-char+
-          (map 'simple-string 'code-char (extract-image-array image address 8)))
-         (#.sys.int::+array-type-character+
-          (map 'simple-string 'code-char (extract-image-array image address 32)))
-         (#.sys.int::+array-type-std-instance+
+      (#.sys.int::+tag-object+
+       (ecase (ldb (byte sys.int::+array-type-size+
+                         sys.int::+array-type-shift+)
+                   (image-word image address))
+         (#.sys.int::+object-tag-symbol+
+          (when (eql value (image-nil image))
+            (return-from extract-image-object nil))
+          (let ((name (extract-image-object image (image-word image (+ address 8))))
+                (package (image-word image (+ address 16))))
+            (when (eql package (image-nil image))
+              (error "Attemping to extract an uninterned symbol."))
+            ;; package groveling...
+            (let ((package-name (extract-image-object image
+                                                      (image-word image
+                                                                  (+ (logand package (lognot #b1111)) 16)))))
+              (make-image-symbol :address address
+                                 :image image
+                                 :name name
+                                 :package-name package-name))))
+         ((#.sys.int::+object-tag-simple-string+
+           #.sys.int::+object-tag-string+)
+          (map 'simple-string #'code-char
+               (extract-image-object image
+                                     (image-word image (+ address 8)))))
+         (#.sys.int::+object-tag-array-unsigned-byte-8+
+          (extract-image-array image address 8))
+         (#.sys.int::+object-tag-array-unsigned-byte-16+
+          (extract-image-array image address 16))
+         (#.sys.int::+object-tag-array-unsigned-byte-32+
+          (extract-image-array image address 32))
+         (#.sys.int::+object-tag-std-instance+
           (cons (extract-image-object image (image-word image (+ address 8)))
                 (extract-image-object image (image-word image (+ address 16))))))))))
 
@@ -196,8 +227,12 @@ Assumes that everything can be reached from NIL."
   "Detect all symbols in IMAGE, returning a list of (symbol-name address)."
   (let ((symbols '()))
     (map-objects (lambda (value)
-                   (when (eql (logand value #b1111) sys.int::+tag-symbol+)
-                     (push (list (extract-image-object image (image-word image (logand value (lognot #b1111))))
+                   (when (and (eql (logand value #b1111) sys.int::+tag-object+)
+                              (eql (ldb (byte sys.int::+array-type-size+
+                                              sys.int::+array-type-shift+)
+                                        (image-word image (logand value (lognot #b1111))))
+                                   sys.int::+object-tag-symbol+))
+                     (push (list (extract-image-object image (image-word image (+ (logand value (lognot #b1111)) 8)))
                                  value)
                            symbols)))
                  image)
@@ -209,10 +244,10 @@ Assumes that everything can be reached from NIL."
                    (when (eql (logand value #b1111) sys.int::+tag-object+)
                      (let* ((address (logand value (lognot #b1111)))
                             (header (image-word image address))
-                            (tag (ldb (byte 16 0) header))
+                            (tag (ldb (byte 8 2) header))
                             (mc-size (* (ldb (byte 16 16) header) 16))
                             (n-constants (ldb (byte 16 32) header)))
-                       (when (and (= tag 0)
+                       (when (and (= tag sys.int::+object-tag-function+)
                                   (/= n-constants 0))
                          (format t "~8,'0X ~A~%" value (extract-image-object image (image-word image (+ address mc-size)))))))))
                image)

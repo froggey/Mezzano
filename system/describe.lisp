@@ -74,34 +74,38 @@
   (case stream
     ((nil) (setf stream *standard-output*))
     ((t) (setf stream *terminal-io*)))
-  (case (logand (lisp-object-address object) 15)
-    (#b0000 (format stream "~D is an even fixnum.~%" object))
-    ;; TODO: Identify proper/dotted/circular lists.
-    (#b0001 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
-    (#b0010 (describe-symbol object stream))
-    (#b0011 (describe-array object stream)) ; simple array.
-    ;; #b0100
-    ;; #b0101
-    ;; #b0110
-    (#b0111 (cond ((structure-object-p object)
-                   (describe-structure object stream))
-                  ((stack-group-p object)
-                   (describe-stack-group object stream))
-                  ((std-instance-p object)
-                   (describe-object object stream))
-                  ((bignump object)
-                   (describe-bignum object stream))
-                  (t (describe-array object stream))))
-    (#b1000 (format stream "~D is an odd fixnum.~%" object))
-    ;; #b1001
-    (#b1010 (describe-character object stream))
-    (#b1011 (describe-float object stream))
-    (#b1100 (if (funcallable-std-instance-p object)
-                (describe-object object stream)
-                (describe-function object stream)))
-    ;; #b1101
-    (#b1110 (format stream "This is an unbound value marker.~%"))
-    (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)
-                                                                                               (lognot #xF))))
-    (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))
+  (if (fixnump object)
+      (format stream "~D is a fixnum.~%" object)
+      (case (logand (lisp-object-address object) 15)
+        ;; TODO: Identify proper/dotted/circular lists.
+        (#b0011 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
+        (#b0101 (format stream "This is an unbound value marker.~%"))
+        (#b1001
+         (let ((otag (%object-tag object)))
+           (cond ((or (<= otag +last-simple-1d-array-object-tag+)
+                      (<= +first-complex-array-object-tag+
+                          otag
+                          +last-complex-array-object-tag+))
+                  (describe-array object stream))
+                 (t (case otag
+                      (#.+object-tag-bignum+
+                       (describe-bignum object stream))
+                      (#.+object-tag-symbol+
+                       (describe-symbol object stream))
+                      (#.+object-tag-structure-object+
+                       (describe-structure object stream))
+                      ((#.+object-tag-std-instance+
+                        #.+object-tag-funcallable-instance+)
+                       (describe-object object stream))
+                      (#.+object-tag-stack-group+
+                       (describe-stack-group object stream))
+                      ((#.+object-tag-function+
+                        #.+object-tag-closure+)
+                       (describe-function object stream))
+                      (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))))))
+        (#b1011 (describe-character object stream))
+        (#b1101 (describe-float object stream))
+        (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)
+                                                                                                   (lognot #xF))))
+        (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object)))))
   (values))
