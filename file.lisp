@@ -830,5 +830,5 @@
 
 (add-simple-file-host :that-mac-thing '(192 168 1 13))
 (setf *default-pathname-defaults* (make-pathname :host (second (first *host-alist*))
-                                                 :directory '(:absolute "Users" "henry" "Documents" "LispOS")))
-(setf *home-directory* (make-pathname :directory '(:absolute "Users" "henry" "Documents" "LispOS-home")))
+                                                 :directory '(:absolute "Users" "henry" "Documents" "Mezzanine")))
+(setf *home-directory* (make-pathname :directory '(:absolute "Users" "henry" "Documents" "Old Mezzanine Stuff" "LispOS-home")))
