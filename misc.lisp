@@ -178,7 +178,7 @@ BODY must not allocate!"
 (defun assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants fixups symbols gc-data)
       (sys.lap-x86:assemble code
-        :base-address 12
+        :base-address 16
         :initial-symbols (list (cons nil (lisp-object-address 'nil))
                                (cons t (lisp-object-address 't))
                                (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))

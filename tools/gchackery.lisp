@@ -165,9 +165,9 @@ Assumes that everything can be reached from NIL."
 (defmethod print-object ((object image-symbol) stream)
   (if (or *print-escape* *print-readably*)
       (call-next-method)
-      (cond ((eql (image-symbol-package-name object) "COMMON-LISP")
+      (cond ((equal (image-symbol-package-name object) "COMMON-LISP")
              (format stream "~A" (image-symbol-name object)))
-            ((eql (image-symbol-package-name object) "KEYWORD")
+            ((equal (image-symbol-package-name object) "KEYWORD")
              (format stream ":~A" (image-symbol-name object)))
             (t (format stream "~A::~A"
                        (image-symbol-package-name object)

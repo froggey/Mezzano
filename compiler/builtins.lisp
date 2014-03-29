@@ -502,7 +502,7 @@
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:shr64 :rdx 8)
+            `(sys.lap-x86:shr64 :rdx ,sys.int::+array-length-shift+)
             ;; RDX = bignum length.
             `(sys.lap-x86:cmp64 :rdx 2)
             `(sys.lap-x86:je ,len-2-bignum)
