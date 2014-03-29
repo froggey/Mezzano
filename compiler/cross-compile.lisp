@@ -227,7 +227,7 @@
 (defun sys.int::assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants fixups symbols gc-data)
       (sys.lap-x86:assemble code
-        :base-address 12
+        :base-address 16
         :initial-symbols '((nil . :fixup)
                            (t . :fixup)
                            (undefined-function . :fixup))
@@ -314,7 +314,7 @@
       (save-object (aref constants i) omap stream))
     (save-object (cross-function-fixups object) omap stream)
     (write-byte +llf-function+ stream)
-    (write-byte 0 stream) ; tag, normal function.
+    (write-byte sys.int::+object-tag-function+ stream) ; tag, normal function.
     (save-integer (length (cross-function-mc object)) stream)
     (save-integer (length constants) stream)
     (save-integer (length (cross-function-gc-info object)) stream)

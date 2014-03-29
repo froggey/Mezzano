@@ -17,10 +17,10 @@
 
 (defun system:symbol-mode (symbol)
   (svref #(nil :special :constant :symbol-macro)
-         (ldb (byte 2 0) (%symbol-flags symbol))))
+         (ldb (byte 2 8) (%array-like-ref-unsigned-byte-64 symbol -1))))
 
 (defun (setf system:symbol-mode) (value symbol)
-  (setf (ldb (byte 2 0) (%symbol-flags symbol))
+  (setf (ldb (byte 2 8) (%array-like-ref-unsigned-byte-64 symbol -1))
         (ecase value
           ((nil) +symbol-mode-nil+)
           ((:special) +symbol-mode-special+)
@@ -65,8 +65,8 @@
   (sys.lap-x86:cmp64 :r9 nil)
   (sys.lap-x86:je do-call)
   ;; Unpack the list.
+  ;; Known to have at least one cons, so we can drop directly into the body.
   (sys.lap-x86:mov64 :rbx :r9)
-  (sys.lap-x86:jmp unpack-test)
   unpack-loop
   (:gc :frame :pushed-values-register :rcx)
   ;; Typecheck list, part 2. consp
@@ -77,11 +77,10 @@
   ;; Push car & increment arg count
   (sys.lap-x86:push (:car :rbx))
   (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (:gc :frame :pushed-values-register :rcx)
   ;; Advance.
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  unpack-test
   ;; Typecheck list, part 1. null
   (sys.lap-x86:cmp64 :rbx nil)
   (sys.lap-x86:jne unpack-loop)
@@ -93,18 +92,20 @@
   (sys.lap-x86:jnz stack-aligned)
   ;; Don't push anything extra if there are 5 or fewer args.
   ;; They will all be popped off.
-  (sys.lap-x86:cmp32 :ecx #.(* 5 8)) ; fixnum 5
+  (sys.lap-x86:cmp32 :ecx #.(ash 5 +n-fixnum-bits+)) ; fixnum 5
   (sys.lap-x86:jbe stack-aligned)
   ;; Reversing will put this at the end of the stack, out of the way.
   (sys.lap-x86:push 0)
   (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (:gc :frame :pushed-values-register :rcx)
-  (sys.lap-x86:add32 :edi 8) ; fixnum 1
+  (sys.lap-x86:add32 :edi #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   stack-aligned
-  ;; RCX = n arguments.
+  ;; RCX = n arguments. (fixnum)
   ;; RDX = left offset, RAX = right offset.
-  (sys.lap-x86:lea32 :eax (:rcx -8))
+  (sys.lap-x86:lea32 :eax (:ecx #.(ash -1 +n-fixnum-bits+)))
+  (sys.lap-x86:shr32 :eax #.+n-fixnum-bits+)
+  (sys.lap-x86:shl32 :eax 3) ; * 8
   (sys.lap-x86:xor32 :edx :edx)
   (sys.lap-x86:jmp reverse-test)
   reverse-loop
@@ -126,19 +127,19 @@
   ;; Always at least one argument by this point.
   (sys.lap-x86:pop :r8)
   (:gc :frame :pushed-values-register :rcx :pushed-values -1)
-  (sys.lap-x86:cmp32 :ecx 8)
+  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r9)
   (:gc :frame :pushed-values-register :rcx :pushed-values -2)
-  (sys.lap-x86:cmp32 :ecx 16)
+  (sys.lap-x86:cmp32 :ecx #.(ash 2 +n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r10)
   (:gc :frame :pushed-values-register :rcx :pushed-values -3)
-  (sys.lap-x86:cmp32 :ecx 24)
+  (sys.lap-x86:cmp32 :ecx #.(ash 3 +n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r11)
   (:gc :frame :pushed-values-register :rcx :pushed-values -4)
-  (sys.lap-x86:cmp32 :ecx 32)
+  (sys.lap-x86:cmp32 :ecx #.(ash 4 +n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r12)
   (:gc :frame :pushed-values-register :rcx :pushed-values -5)
@@ -157,8 +158,8 @@
   (sys.lap-x86:mov64 :r8 :r9)
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
   (sys.lap-x86:mov64 :r13 (:constant raise-type-error))
-  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:ud2))
 
 ;;; TODO: This requires a considerably more flexible mechanism.
@@ -171,7 +172,8 @@
     (error "Critial error! TLS slots exhausted!"))
   (let ((slot *next-symbol-tls-slot*))
     (incf *next-symbol-tls-slot*)
-    (setf (ldb (byte 16 8) (%symbol-flags symbol)) slot)
+    ;; Twiddle TLS bits directly in the symbol header.
+    (setf (ldb (byte 16 10) (%array-like-ref-unsigned-byte-64 symbol -1)) slot)
     slot))
 
 (defun %symbol-tls-slot (symbol)
@@ -277,12 +279,12 @@
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
-    (ecase (logand info #xFF)
-      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
+    (ecase (%object-tag function)
+      (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
-      (#.+function-type-closure+ ;; Closure.
+      (#.+object-tag-closure+ ;; Closure.
        (function-name (memref-t address 4)))
-      (#.+function-type-funcallable-instance+
+      (#.+object-tag-funcallable-instance+
        (multiple-value-bind (lambda closurep name)
            (funcallable-instance-lambda-expression function)
          (declare (ignore lambda closurep))
@@ -292,31 +294,30 @@
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
-    (ecase (logand info #xFF)
-      (#.+function-type-function+ ;; Regular function. First entry in the constant pool.
+    (ecase (%object-tag function)
+      (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
        (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
-      (#.+function-type-closure+ ;; Closure.
+      (#.+object-tag-closure+ ;; Closure.
        (values nil t (function-name (memref-t address 4))))
-      (#.+function-type-funcallable-instance+
+      (#.+object-tag-funcallable-instance+
        (funcallable-instance-lambda-expression function)))))
 
 (defun function-debug-info (function)
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
          (info (memref-unsigned-byte-64 address 0)))
-    (ecase (logand info #xFF)
-      (#.+function-type-function+ ;; Regular function. second entry in the constant pool.
+    (ecase (%object-tag function)
+      (#.+object-tag-function+ ;; Regular function. second entry in the constant pool.
        (memref-t address (1+ (* (logand (ash info -16) #xFFFF) 2))))
-      (#.+function-type-closure+ ;; Closure.
+      (#.+object-tag-closure+ ;; Closure.
        (function-debug-info (memref-t address 4)))
-      (#.+function-type-funcallable-instance+
+      (#.+object-tag-funcallable-instance+
        (funcallable-instance-debug-info function)))))
 
 (defun funcallable-std-instance-p (object)
-  (when (functionp object)
-    (let* ((address (logand (lisp-object-address object) -16))
-           (info (memref-unsigned-byte-64 address 0)))
-      (eql (ldb (byte 8 0) info) +function-type-funcallable-instance+))))
+  (and (functionp object)
+       (eql (%object-tag object)
+            +object-tag-funcallable-instance+)))
 
 (defun funcallable-std-instance-function (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
@@ -347,10 +348,8 @@
     (setf (memref-t address 6) value)))
 
 (defun compiled-function-p (object)
-  (when (functionp object)
-    (let* ((address (logand (lisp-object-address object) -16))
-           (info (memref-unsigned-byte-64 address 0)))
-      (not (eql (logand info #xFF) +function-type-interpreted-function+)))))
+  ;; FIXME: interpreted functions (of class sys.eval::interpreted-function) shouldn't return true.
+  (functionp object))
 
 (defvar *gensym-counter* 0)
 (defun gensym (&optional (thing "G"))
@@ -404,7 +403,7 @@
   (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
           (return))
      (assert (< (%%special-stack-pointer) target-special-stack-pointer))
-     (etypecase (memref-t 0 (%%special-stack-pointer))
+     (etypecase (memref-t (ash (%%special-stack-pointer) +n-fixnum-bits+) 0)
        (symbol
         (%%unbind))
        (simple-vector
@@ -565,7 +564,7 @@
                    tagbody the throw unwind-protect)))
 
 (defun %array-like-p (object)
-  (eql (%tag-field object) +tag-array-like+))
+  (eql (%tag-field object) +tag-object+))
 
 (defun %array-like-header (object)
   (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
@@ -580,7 +579,7 @@
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
   (sys.lap-x86:sub64 :rsp 16) ; 2 slots
-  (sys.lap-x86:cmp32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:jne bad-arguments)
   ;; RBX = iterator, (:stack 0) = list.
   (sys.lap-x86:mov64 :rbx :r8)
@@ -609,7 +608,7 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :r9 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Pop into R10.
   (sys.lap-x86:cmp64 :rbx nil)
   (sys.lap-x86:je done)
@@ -619,7 +618,7 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :r10 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Pop into R11.
   (sys.lap-x86:cmp64 :rbx nil)
   (sys.lap-x86:je done)
@@ -629,7 +628,7 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :r11 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Pop into R12.
   (sys.lap-x86:cmp64 :rbx nil)
   (sys.lap-x86:je done)
@@ -639,9 +638,9 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :r12 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Registers are populated, now unpack into the MV-area
-  (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-array-like+)
+  (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-object+)
                                (* +stack-group-offset-mv-slots+ 8)))
   (:gc :frame :layout #*10 :multiple-values 0)
   unpack-loop
@@ -651,7 +650,7 @@
   (sys.lap-x86:and8 :al #b1111)
   (sys.lap-x86:cmp8 :al #.+tag-cons+)
   (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(* (+ +stack-group-mv-slots-size+ 5) 8))
+  (sys.lap-x86:cmp32 :ecx #.(ash (+ +stack-group-mv-slots-size+ 5) +n-fixnum-bits+))
   (sys.lap-x86:jae too-many-values)
   (sys.lap-x86:mov64 :r13 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
@@ -659,7 +658,7 @@
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 (:rdi) :r13)
   (:gc :frame :layout #*10 :multiple-values 0)
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:add64 :rdi 8)
   (sys.lap-x86:jmp unpack-loop)
   done
@@ -671,18 +670,18 @@
   (sys.lap-x86:mov64 :r8 (:stack 0))
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
   (sys.lap-x86:mov64 :r13 (:constant raise-type-error))
-  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:ud2)
   too-many-values
   (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
   (sys.lap-x86:mov64 :r9 (:stack 0))
   (sys.lap-x86:mov64 :r13 (:constant error))
-  (sys.lap-x86:mov32 :ecx 16) ; fixnum 2
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:ud2)
   bad-arguments
   (:gc :frame)
   (sys.lap-x86:mov64 :r13 (:constant sys.int::%invalid-argument-error))
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:ud2))

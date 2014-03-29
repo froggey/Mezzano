@@ -218,7 +218,7 @@
      (write-char #\Newline)
      (write-integer fp 16)
      (write-char #\Space)
-     (let* ((fn (%%assemble-value (base-address-of-internal-pointer (memref-unsigned-byte-64 fp 1)) +tag-function+))
+     (let* ((fn (%%assemble-value (base-address-of-internal-pointer (memref-unsigned-byte-64 fp 1)) +tag-object+))
             (name (when (functionp fn) (function-name fn))))
        (write-integer (lisp-object-address fn) 16)
        (when name

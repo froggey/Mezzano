@@ -59,23 +59,25 @@
                     ;; Realign the stack.
                     (sys.lap-x86:and64 :rsp ,(lognot 15))
                     ;; Call the handler.
-                    (sys.lap-x86:mov32 :r8d ,(* n 8))
-                    (sys.lap-x86:mov32 :ecx ,8)
+                    (sys.lap-x86:mov32 :r8d ,(ash n +n-fixnum-bits+))
+                    (sys.lap-x86:mov32 :ecx ,(ash 1 +n-fixnum-bits+))
                     (sys.lap-x86:mov64 :r13 (:constant isa-pic-common))
-                    (sys.lap-x86:call (:symbol-function :r13))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
                     (sys.lap-x86:xor32 :ecx :ecx)
                     (sys.lap-x86:mov64 :r13 (:constant %maybe-preempt-from-interrupt-frame))
-                    (sys.lap-x86:call (:symbol-function :r13))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
                     (sys.lap-x86:cmp64 :r8 nil)
                     (sys.lap-x86:je no-preempt)
                     ;; Mark current stack-group as interrupted.
                     (sys.lap-x86:gs)
-                    (sys.lap-x86:or64 (,(+ (- +tag-array-like+)
+                    (sys.lap-x86:or64 (,(+ (- +tag-object+)
                                            (* (1+ +stack-group-offset-flags+) 8)))
-                                      ,(ash +stack-group-interrupted+ (+ +stack-group-state-position+ 3)))
-                    (sys.lap-x86:mov32 :ecx ,8)
+                                      ,(ash +stack-group-interrupted+
+                                            (+ +stack-group-state-position+
+                                               +n-fixnum-bits+)))
+                    (sys.lap-x86:mov32 :ecx ,(ash 1 +n-fixnum-bits+))
                     (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
-                    (sys.lap-x86:call (:symbol-function :r13))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
                     no-preempt
                     (sys.lap-x86:mov64 :r8 (:rbp -96))
                     (sys.lap-x86:mov64 :r9 (:rbp -88))
@@ -177,11 +179,11 @@
   (sys.lap-x86:movcr :rax :cr2)
   (sys.lap-x86:push :rax)
   (sys.lap-x86:mov64 :r8 :rsp)
-  (sys.lap-x86:shl64 :r8 3)
+  (sys.lap-x86:shl64 :r8 #.+n-fixnum-bits+)
   (sys.lap-x86:and64 :rsp #.(lognot 15))
-  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:mov64 :rsp :r8)
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
@@ -251,7 +253,7 @@
                     (sys.lap-x86:push ,n)
                     (sys.lap-x86:push :rax)
                     (sys.lap-x86:mov64 :rax (:constant %%exception))
-                    (sys.lap-x86:jmp (:symbol-function :rax)))
+                    (sys.lap-x86:jmp (:rax #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8)))))
                   (setf (aref *exception-base-handlers* ,n) #',sym)
                   (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
   (doit))
@@ -289,7 +291,7 @@
   ;; Call.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r13 (:constant break))
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   ;; Done.
   (sys.lap-x86:leave)
   (:gc :no-frame)
@@ -306,7 +308,7 @@
            (return-address (memref-unsigned-byte-64 rsp 15))
            (fn-address (base-address-of-internal-pointer return-address))
            (fn-offset (- return-address fn-address))
-           (fn (%%assemble-value fn-address +tag-function+)))
+           (fn (%%assemble-value fn-address +tag-object+)))
       (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                    layout-address layout-length
                                    multiple-values incoming-arguments block-or-tagbody-thunk)

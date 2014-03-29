@@ -11,7 +11,8 @@
   (check-type bits (or null (integer 0 15)))
   (if (<= #xD800 code #xDFFF)
       nil
-      (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4) #b1010)))
+      (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4)
+                        +tag-character+)))
 
 (defconstant +char-control-bit+ #b0001)
 (defconstant +char-meta-bit+    #b0010)

@@ -85,7 +85,7 @@
     (write-char #\Space *cold-stream*)
     (let* ((ret-addr (memref-unsigned-byte-64 fp 1))
            (fn (when resolve-names
-                 (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-function+)))
+                 (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-object+)))
            (name (when (functionp fn) (function-name fn))))
       (write-integer ret-addr 16 *cold-stream*)
       (when (and resolve-names name)
@@ -238,15 +238,6 @@
 (defun (setf compiler-macro-function) (value name &optional environment)
   (setf (get (function-symbol name) '%compiler-macro-function) value))
 
-(defun simplify-string (string)
-  (if (simple-string-p string)
-      string
-      (make-array (length string)
-                  :element-type (if (every 'sys.int::base-char-p string)
-                                    'base-char
-                                    'character)
-                  :initial-contents string)))
-
 (declaim (inline identity))
 (defun identity (thing)
   thing)
@@ -328,8 +319,8 @@
           (logior code #x7000))))
 
 (defun mumble-string (message)
-  (dotimes (i (%simple-array-length message))
-    (mumble-char (schar message i) i)))
+  (dotimes (i (array-dimension message 0))
+    (mumble-char (char message i) i)))
 (defun mumble-hex (number &optional (message "") (nl nil))
   (mumble-string message)
   (dotimes (i 16)
@@ -375,9 +366,9 @@
     (values (make-array size
                         :element-type '(unsigned-byte 8)
                         :memory (+ #x8000000000 base))
-            (make-array cmdl-len
-                        :element-type 'base-char
-                        :memory command-line))))
+            (map 'string #'code-char (make-array cmdl-len
+                                                 :element-type '(unsigned-byte 8)
+                                                 :memory command-line)))))
 
 (defun multiboot-module-data (id)
   (multiple-value-bind (data command-line)
@@ -806,8 +797,7 @@
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 256
         *array-types* #(t
-                        base-char
-                        character
+                        fixnum
                         bit
                         (unsigned-byte 2)
                         (unsigned-byte 4)
@@ -824,11 +814,13 @@
                         (signed-byte 64)
                         single-float
                         double-float
+                        short-float
                         long-float
-                        xmm-vector
                         (complex single-float)
                         (complex double-float)
-                        (complex long-float))
+                        (complex short-float)
+                        (complex long-float)
+                        xmm-vector)
         ;; Ugh! Set the small static area boundary tag.
         (memref-unsigned-byte-64 *small-static-area* 0) (- (* 1 1024 1024) 2)
         (memref-unsigned-byte-64 *small-static-area* 1) #b100
@@ -859,8 +851,8 @@
         *print-safe* nil)
   (setf *features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
         *macroexpand-hook* 'funcall
-        most-positive-fixnum #.(- (expt 2 60) 1)
-        most-negative-fixnum #.(- (expt 2 60)))
+        most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
+        most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
   ;; Initialize defstruct and patch up all the structure types.
   (bootstrap-defstruct)
   (dotimes (i (length *initial-structure-obarray*))
@@ -934,23 +926,23 @@
   ;; Calling this from Lisp is probably a bad idea.
   ;; Preset the initial stack group.
   (sys.lap-x86:mov64 :r8 (:constant *initial-stack-group*))
-  (sys.lap-x86:mov64 :r8 (:symbol-value :r8))
-  (sys.lap-x86:mov64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-base+) 8) +tag-array-like+)))
-  (sys.lap-x86:add64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-size+) 8) +tag-array-like+)))
+  (sys.lap-x86:mov64 :r8 (:r8 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-value+ 8))))
+  (sys.lap-x86:mov64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-base+) 8) +tag-object+)))
+  (sys.lap-x86:add64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-size+) 8) +tag-object+)))
   ;; Clear binding stack.
-  (sys.lap-x86:mov64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-base+) 8) +tag-array-like+)))
-  (sys.lap-x86:mov64 :rcx (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-size+) 8) +tag-array-like+)))
+  (sys.lap-x86:mov64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-base+) 8) +tag-object+)))
+  (sys.lap-x86:mov64 :rcx (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-size+) 8) +tag-object+)))
   (sys.lap-x86:sar64 :rcx 3)
   (sys.lap-x86:xor32 :eax :eax)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)
   ;; Set the binding stack pointer.
   (sys.lap-x86:mov64 (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-pointer+) 8)
-                               +tag-array-like+))
+                               +tag-object+))
                      :rdi)
   ;; Clear TLS binding slots.
   (sys.lap-x86:lea64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-tls-slots+) 8)
-                                    +tag-array-like+)))
+                                    +tag-object+)))
   (sys.lap-x86:mov64 :rax -2)
   (sys.lap-x86:mov32 :ecx #.+stack-group-tls-slots-size+)
   (sys.lap-x86:rep)
@@ -963,10 +955,12 @@
   (sys.lap-x86:wrmsr)
   ;; Mark the SG as active.
   (sys.lap-x86:gs)
-  (sys.lap-x86:and64 (#.(+ (- +tag-array-like+)
-                           (* (1+ +stack-group-offset-flags+) 8)))
+  (sys.lap-x86:and64 (#.(+ (- +tag-object+)
+                           (ash (1+ +stack-group-offset-flags+)
+                                +n-fixnum-bits+)))
                      #.(ash (lognot (1- (ash 1 +stack-group-state-size+)))
-                            (+ +stack-group-state-position+ 3)))
+                            (+ +stack-group-state-position+
+                               +n-fixnum-bits+)))
   ;; SSE init.
   ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
   (sys.lap-x86:movcr :rax :cr4)
@@ -995,7 +989,7 @@
   (sys.lap-x86:mov64 :r13 (:constant initialize-lisp))
   (sys.lap-x86:xor32 :ecx :ecx)
   ;; Call the entry function.
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   ;; Crash if it returns.
   here
   (sys.lap-x86:ud2)

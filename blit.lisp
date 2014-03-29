@@ -59,24 +59,25 @@
 
 (defun %simple-array-data-pointer (array)
   "Find the address of ARRAY's first data element."
-  (when (sys.int::%array-header-p array)
-    (setf array (sys.int::%array-header-storage array)))
+  (when (not (sys.int::%simple-1d-array-p array))
+    (setf array (sys.int::%complex-array-storage array)))
   (unless (integerp array)
-    (assert (typep array 'simple-array))
-    (setf array (+ (sys.int::lisp-object-address array) (- sys.int::+tag-array-like+) 8)))
+    (assert (sys.int::%simple-1d-array-p array))
+    (setf array (+ (sys.int::lisp-object-address array) (- sys.int::+tag-object+) 8)))
   array)
 
 ;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+8) TO-OFFSET(+16)
 ;;; TO and TO-OFFSET are fixnums, no GC info required.
 (sys.int::define-lap-function %bitset-mask-8-line ()
   (sys.lap-x86:mov64 :rsi :r11)
-  (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+) ; RSI = MASK address (byte address)
   (sys.lap-x86:mov64 :rdi (:rsp 8))
-  (sys.lap-x86:sar64 :rdi 3) ; RDI = TO address (byte address)
-  (sys.lap-x86:sar64 (:rsp 16) 1) ; TO-OFFSET (*4)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; RDI = TO address (byte address)
+  (sys.lap-x86:sar64 (:rsp 16) #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
+  (sys.lap-x86:shl64 (:rsp 16) 2) ; TO-OFFSET * 4(raw)
   (sys.lap-x86:add64 :rdi (:rsp 16)) ; RDI = TO + TO-OFFSET, first pixel on the line.
-  (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
-  (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
+  (sys.lap-x86:sar64 :r10 #.sys.int::+n-fixnum-bits+) ; R10 = colour (raw)
+  (sys.lap-x86:sar64 :r12 #.sys.int::+n-fixnum-bits+) ; R12 = MASK-OFFEST (raw)
   (sys.lap-x86:add64 :rsi :r12) ; RSI = MASK + MASK-OFFSET, first pixel in the mask line.
   (sys.lap-x86:test64 :r9 :r9) ; R9(NCOLS) == 0?
   (sys.lap-x86:jz out) ; true, goto out.
@@ -92,7 +93,7 @@
   next
   (sys.lap-x86:add64 :rdi 4) ; Advance TO address.
   (sys.lap-x86:add64 :rsi 1) ; Advance MASK address.
-  (sys.lap-x86:sub64 :r9 8) ; Decrement NCOLS, set ZF when zero.
+  (sys.lap-x86:sub64 :r9 #.(ash 1 sys.int::+n-fixnum-bits+)) ; Decrement NCOLS, set ZF when zero.
   (sys.lap-x86:jnz head) ; loop when stuff left to do.
   out
   ;; Clear the two data registers that got smashed.
@@ -142,13 +143,14 @@
 ;;; SETTER NCOLS COLOUR MASK MASK-OFFSET TO TO-OFFSET
 (sys.int::define-lap-function %bitset-mask-1-line ()
   (sys.lap-x86:mov64 :rsi :r11)
-  (sys.lap-x86:sar64 :rsi 3) ; RSI = MASK address (byte address)
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+) ; RSI = MASK address (byte address)
   (sys.lap-x86:mov64 :rdi (:rsp 8))
-  (sys.lap-x86:sar64 :rdi 3) ; RSI = TO address (byte address)
-  (sys.lap-x86:sar64 (:rsp 16) 1) ; TO-OFFSET (*4)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; RSI = TO address (byte address)
+  (sys.lap-x86:sar64 (:rsp 16) #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
+  (sys.lap-x86:shl64 (:rsp 16) 2) ; TO-OFFSET * 4(raw)
   (sys.lap-x86:add64 :rdi (:rsp 16)) ; RDI = TO + TO-OFFSET, first pixel on the line.
-  (sys.lap-x86:sar64 :r10 3) ; R10 = colour (raw)
-  (sys.lap-x86:sar64 :r12 3) ; R12 = MASK-OFFEST (raw)
+  (sys.lap-x86:sar64 :r10 #.sys.int::+n-fixnum-bits+) ; R10 = colour (raw)
+  (sys.lap-x86:sar64 :r12 #.sys.int::+n-fixnum-bits+) ; R12 = MASK-OFFEST (raw)
   (sys.lap-x86:mov64 :rcx :r12)
   (sys.lap-x86:and8 :cl #b111111) ; CL = current bit in mask.
   (sys.lap-x86:mov32 :eax 1)
@@ -170,7 +172,7 @@
   (sys.lap-x86:mov32 :ecx 1)
   (sys.lap-x86:add64 :rsi 8)
   no-carry
-  (sys.lap-x86:sub64 :r9 8)
+  (sys.lap-x86:sub64 :r9 #.(ash 1 sys.int::+n-fixnum-bits+))
   test
   (sys.lap-x86:jnz head)
   ;; Clear the two data registers that got smashed.
@@ -179,7 +181,7 @@
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:ret))
 
-(declaim (inline bitset-mask-1-whole))
+(declaim (inline %bitset-mask-1-whole))
 (defun %bitset-mask-1-whole (setter nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
   (sys.int::with-deferred-gc ()
     (setf to (%simple-array-data-pointer to))
@@ -269,14 +271,16 @@
 ;;; NCOLS FROM FROM-OFFSET TO TO-OFFSET
 (sys.int::define-lap-function %bitblt-argb-xrgb-line ()
   (sys.lap-x86:mov64 :rsi :r9) ; rsi = FROM.
-  (sys.lap-x86:shr64 :rsi 3)
+  (sys.lap-x86:shr64 :rsi #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rcx :r10) ; rcx = FROM-OFFSET (fixnum).
-  (sys.lap-x86:shr64 :rcx 1) ; FROM-OFFSET (* 4).
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+) ; FROM-OFFSET (raw)
+  (sys.lap-x86:shl64 :rcx 2) ; FROM-OFFSET * 4(raw)
   (sys.lap-x86:add64 :rsi :rcx) ; rsi = FROM + FROM-OFFSET.
   (sys.lap-x86:mov64 :rdi :r11) ; rdi = TO.
-  (sys.lap-x86:shr64 :rdi 3)
+  (sys.lap-x86:shr64 :rdi #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rdx :r12) ; rcx = TO-OFFSET (fixnum).
-  (sys.lap-x86:shr64 :rdx 1) ; TO-OFFSET (* 4).
+  (sys.lap-x86:sar64 :rdx #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
+  (sys.lap-x86:shl64 :rdx 2) ; TO-OFFSET * 4(raw)
   (sys.lap-x86:add64 :rdi :rdx) ; rdi = TO + TO-OFFSET.
   ;; R8 = NCOLS.
   ;; RSI = Source.
@@ -323,13 +327,13 @@
   set-result
   (sys.lap-x86:mov32 (:rdi) :eax) ; rdx = pixel (XRGB)
   out
-  (sys.lap-x86:sub64 :r8 8)
+  (sys.lap-x86:sub64 :r8 #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:add64 :rsi 4)
   (sys.lap-x86:add64 :rdi 4)
   test
   (sys.lap-x86:test64 :r8 :r8)
   (sys.lap-x86:jnz head)
-  (sys.lap-x86:mov32 :ecx 8)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle

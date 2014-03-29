@@ -51,13 +51,13 @@
   `(or (vector base-char ,size)
        (vector character ,size)))
 
-(defun simple-array-type-p (object type)
+#+(or)(defun simple-array-type-p (object type)
   (and (%simple-array-p object)
        (array-type-p object type)))
-(%define-compound-type 'simple-array 'simple-array-type-p)
+#+(or)(%define-compound-type 'simple-array 'simple-array-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-(%define-type-symbol 'simple-array '%simple-array-p)
+#+(or)(%define-type-symbol 'simple-array '%simple-array-p)
 )
 
 (defun parse-array-type (type)
@@ -138,21 +138,18 @@ This must be sorted from most-specific to least-specific.")
              (when (subtypep typespec type environment)
                (return type)))))))
 
-(defun arrayp (object)
-  (or (%array-header-p object)
-      (%simple-array-p object)))
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
 )
 
 (defun adjustable-array-p (array)
   (check-type array array)
-  (%array-header-p array))
+  (not (%simple-1d-array-p array)))
 
 (defun vectorp (object)
-  (or (and (%array-header-p object)
-	   (fixnump (%array-header-dimensions object)))
-      (%simple-array-p object)))
+  (or (%simple-1d-array-p object)
+      (and (arrayp object)
+           (eql (array-rank object) 1))))
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'vector 'vectorp)
 )
@@ -166,13 +163,6 @@ This must be sorted from most-specific to least-specific.")
 
 (defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
   (let ((real-element-type (upgraded-array-element-type element-type)))
-    (when (and (eql real-element-type 'character)
-               (not initial-element-p))
-      ;; Character arrays are stored as 32-bit values WITH tags. %ALLOC-CLEAR
-      ;; clears to 0, which would cause uninitialized slots to contain fixnums
-      ;; so here we force an initialization.
-      (setf initial-element (code-char 0)
-            initial-element-p t))
     (cond (initial-element-p
 	   (unless (typep initial-element element-type)
 	     (error 'type-error :expected-type element-type :datum initial-element))
@@ -219,6 +209,19 @@ This must be sorted from most-specific to least-specific.")
     (3 `(funcall #'(setf aref-3) ,value ,array ,@subscripts))
     (t whole)))
 
+(defun %make-array-header (tag storage fill-pointer info dimensions area)
+  (let* ((rank (length dimensions))
+         (array (%allocate-array-like tag
+                                     (+ 3 rank)
+                                     rank
+                                     area)))
+    (setf (%array-like-ref-t array 0) storage
+          (%array-like-ref-t array 1) fill-pointer
+          (%array-like-ref-t array 2) info)
+    (loop for i from 3 for d in dimensions
+       do (setf (%array-like-ref-t array i) d))
+    array))
+
 (defun make-array (dimensions &key
 		   (element-type t)
 		   (initial-element nil initial-element-p)
@@ -228,180 +231,186 @@ This must be sorted from most-specific to least-specific.")
 		   displaced-to displaced-index-offset
                    memory
                    area)
-  ;; (n) => n
-  (when (and (consp dimensions)
-	     (null (rest dimensions)))
-    (setf dimensions (first dimensions)))
-  (when (and initial-element-p initial-contents-p)
-    (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
-  (when (and displaced-to (or initial-element-p initial-contents-p))
-    (error "Cannot use :INITIAL-ELEMENT or :INITIAL-CONTENTS with a displaced array."))
-  (when (and (not displaced-to) displaced-index-offset)
-    (error "Non-NIL :DISPLACED-INDEX-OFFSET with NIL :DISPLACED-TO."))
-  (when fill-pointer
-    (unless (integerp dimensions)
-      (error ":FILL-POINTER is not valid on multidimensional arrays."))
-    (when (eql fill-pointer 't)
-      (setf fill-pointer dimensions))
-    (unless (integerp fill-pointer)
-      (error "Invalid :FILL-POINTER ~S." fill-pointer))
-    (unless (<= 0 fill-pointer dimensions)
-      (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer dimensions)))
-  (when (and memory displaced-to)
-    (error ":MEMORY and :DISPLACED-TO are mutually exclusive."))
-  (if (integerp dimensions)
-      (check-type dimensions (integer 0))
-      (dolist (dimension dimensions)
-        (check-type dimension (integer 0))))
-  (cond ((and (integerp dimensions)
-	      (not adjustable)
-	      (not fill-pointer)
-	      (not displaced-to)
-              (not memory))
-	 ;; Create a simple 1D array.
-	 (let ((array (if initial-element-p
-			  (make-simple-array dimensions element-type area initial-element)
-			  (make-simple-array dimensions element-type area))))
-	   (when initial-contents
-	     (initialize-from-sequence array initial-contents))
-	   array))
-	(displaced-to
-         (unless displaced-index-offset
-           (setf displaced-index-offset 0))
-         (%make-array-header dimensions fill-pointer displaced-index-offset displaced-to area))
-        (memory
-         ;; Element types must be exact matches.
-         (when (not (member element-type *specialized-array-types*
-                            :test (lambda (x y) (and (subtypep x y) (subtypep y x)))))
-           (error "Element type ~S is not supported for memory arrays." element-type))
-         (check-type memory fixnum)
-         (let ((array (%make-array-header dimensions fill-pointer element-type memory area)))
+  ;; n => (n)
+  (when (not (listp dimensions))
+    (setf dimensions (list dimensions)))
+  (let ((rank (length dimensions)))
+    (when (and initial-element-p initial-contents-p)
+      (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
+    (when (and displaced-to (or initial-element-p initial-contents-p))
+      (error "Cannot use :INITIAL-ELEMENT or :INITIAL-CONTENTS with a displaced array."))
+    (when (and (not displaced-to) displaced-index-offset)
+      (error "Non-NIL :DISPLACED-INDEX-OFFSET with NIL :DISPLACED-TO."))
+    (when fill-pointer
+      (unless (eql rank 1)
+        (error ":FILL-POINTER is not valid on multidimensional arrays."))
+      (when (eql fill-pointer 't)
+        (setf fill-pointer (first dimensions)))
+      (unless (integerp fill-pointer)
+        (error "Invalid :FILL-POINTER ~S." fill-pointer))
+      (unless (<= 0 fill-pointer (first dimensions))
+        (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer (first dimensions))))
+    (when (and memory displaced-to)
+      (error ":MEMORY and :DISPLACED-TO are mutually exclusive."))
+    (dolist (dimension dimensions)
+      (check-type dimension (integer 0)))
+    (cond ((and (eql rank 1)
+                (not adjustable)
+                (not fill-pointer)
+                (not displaced-to)
+                (not memory)
+                ;; character arrays are special.
+                (not (and (subtypep element-type 'character)
+                          (not (subtypep element-type 'nil)))))
+           ;; Create a simple 1D array.
+           (let ((array (if initial-element-p
+                            (make-simple-array (first dimensions) element-type area initial-element)
+                            (make-simple-array (first dimensions) element-type area))))
+             (when initial-contents
+               (initialize-from-sequence array initial-contents))
+             array))
+          (displaced-to
+           (unless displaced-index-offset
+             (setf displaced-index-offset 0))
+           (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
+          (memory
+           ;; Element types must be exact matches.
+           (when (not (member element-type *specialized-array-types*
+                              :test (lambda (x y) (and (subtypep x y) (subtypep y x)))))
+             (error "Element type ~S is not supported for memory arrays." element-type))
+           (check-type memory fixnum)
            (when (or initial-element-p initial-contents-p)
              (error "TODO: Initialization of memory arrays."))
-           array))
-	(t (let* ((total-size (if (integerp dimensions)
-				  dimensions
-				  (apply #'* dimensions)))
-		  (backing-array (if initial-element-p
-				     (make-simple-array total-size element-type area initial-element)
-				     (make-simple-array total-size element-type area)))
-		  (array (%make-array-header dimensions fill-pointer nil backing-array area)))
-	     (when initial-contents
-	       (initialize-from-sequence array initial-contents))
-	     array))))
+           (%make-array-header +object-tag-memory-array+ memory fill-pointer element-type dimensions area))
+          ((and (subtypep element-type 'character)
+                (not (subtypep element-type 'nil)))
+           (let* ((total-size (apply #'* dimensions))
+                  (backing-array (make-simple-array total-size '(unsigned-byte 8) area))
+                  (array (%make-array-header +object-tag-string+ backing-array fill-pointer nil dimensions area)))
+             (when initial-element-p
+               (dotimes (i total-size)
+                 (setf (%row-major-aref array i) initial-element)))
+             (when initial-contents
+               (initialize-from-sequence array initial-contents))
+             array))
+          (t (let* ((total-size (if (integerp dimensions)
+                                    dimensions
+                                    (apply #'* dimensions)))
+                    (backing-array (if initial-element-p
+                                       (make-simple-array total-size element-type area initial-element)
+                                       (make-simple-array total-size element-type area)))
+                    (array (%make-array-header +object-tag-array+ backing-array fill-pointer nil dimensions area)))
+               (when initial-contents
+                 (initialize-from-sequence array initial-contents))
+               array)))))
 
 (defun adjust-array (array new-dimensions &key
 		     (element-type (array-element-type array))
 		     (initial-element nil initial-element-p)
 		     fill-pointer)
+  (when (integerp new-dimensions)
+    (setf new-dimensions (list new-dimensions)))
+  (when (not (eql (array-rank array) (length new-dimensions)))
+    (error "New dimensions do not match array's rank."))
   (unless (equal element-type (array-element-type array))
     (error "Cannot convert array ~S to different element-type ~S from ~S."
 	   array element-type (array-element-type array)))
-  (when (and (consp new-dimensions)
-	     (null (rest new-dimensions)))
-    (setf new-dimensions (first new-dimensions)))
   (when fill-pointer
-    (unless (integerp new-dimensions)
+    (unless (vectorp array)
       (error ":FILL-POINTER is only valid with vectors."))
     (when (eql fill-pointer 't)
       (setf fill-pointer new-dimensions))
     (unless (integerp fill-pointer)
       (error "Invalid :FILL-POINTER ~S." fill-pointer))
-    (unless (<= 0 fill-pointer new-dimensions)
-      (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer new-dimensions)))
-  (unless (and (vectorp array)
-	       (integerp new-dimensions))
+    (unless (<= 0 fill-pointer (first new-dimensions))
+      (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer (first new-dimensions))))
+  (unless (vectorp array)
     (error "TODO: adjust-array on non-vectors."))
   (when (and (array-has-fill-pointer-p array)
 	     (not fill-pointer)
-	     (< new-dimensions (fill-pointer array)))
+	     (< (first new-dimensions) (fill-pointer array)))
     (error "Fill-pointer ~S on array ~S is larger than the new size ~S."
 	   (fill-pointer array) array new-dimensions))
-  (if (%array-header-p array)
-      (cond ((null (%array-header-info array))
-	     (let ((old-array (%array-header-storage array))
-		   (new-array (if initial-element-p
-				  (make-simple-array new-dimensions element-type nil initial-element)
-				  (make-simple-array new-dimensions element-type nil))))
-	       (dotimes (i (min new-dimensions (array-dimension old-array 0)))
-		 (setf (aref new-array i) (aref old-array i)))
-	       (setf (%array-header-dimensions array) new-dimensions
-		     (%array-header-storage array) new-array))
-	     array)
-	    (t (error "TODO: Adjusting unusual array ~S." array)))
-      (let ((new-array (if initial-element-p
-			   (make-simple-array new-dimensions element-type nil initial-element)
-			   (make-simple-array new-dimensions element-type nil))))
-	(dotimes (i (min new-dimensions (array-dimension old-array 0)))
-	  (setf (aref new-array i) (aref old-array i)))
-	new-array)))
+  (cond ((%simple-1d-array-p array)
+         (let ((new-array (if initial-element-p
+                              (make-simple-array (first new-dimensions) element-type nil initial-element)
+                              (make-simple-array (first new-dimensions) element-type nil))))
+           (dotimes (i (min (first new-dimensions) (array-dimension array 0)))
+             (setf (aref new-array i) (aref array i)))
+           new-array))
+        ((and (null (%complex-array-info array))
+              (character-array-p array))
+         (setf (%complex-array-storage array) (if initial-element-p
+                                                  (adjust-array (%complex-array-storage array) new-dimensions
+                                                            :initial-element (char-int initial-element))
+                                                  (adjust-array (%complex-array-storage array) new-dimensions))
+               (%array-like-ref-t array 3) (first new-dimensions))
+         array)
+        ((null (%complex-array-info array))
+         (setf (%array-like-ref-t array 3) (first new-dimensions)
+               (%complex-array-storage array) (if initial-element-p
+                                                  (adjust-array (%complex-array-storage array) new-dimensions
+                                                                :initial-element initial-element)
+                                                  (adjust-array (%complex-array-storage array) new-dimensions)))
+         array)
+        (t (error "TODO: Adjusting unusual array ~S." array))))
 
 (defun array-rank (array)
   (check-type array array)
-  (cond ((%array-header-p array)
-	 (if (fixnump (%array-header-dimensions array))
-	     1
-	     (list-length (%array-header-dimensions array))))
-	(t 1)))
+  (cond ((%simple-1d-array-p array)
+         1)
+	(t (%object-header-data array))))
 
 (defun array-dimensions (array)
   (check-type array array)
-  (cond ((%array-header-p array)
-	 (if (fixnump (%array-header-dimensions array))
-	     (list (%array-header-dimensions array))
-	     (%array-header-dimensions array)))
-	(t (list (array-dimension array 0)))))
+  (loop for i below (array-rank array)
+     collect (array-dimension array i)))
 
 (defun array-dimension (array axis-number)
   (check-type array array)
   (check-type axis-number (integer 0) "a non-negative integer")
-  (cond ((%array-header-p array)
-	 (let* ((dims (%array-header-dimensions array))
-		(rank (if (fixnump dims)
-			  1
-			  (list-length dims))))
-	   (when (>= axis-number rank)
-	     (error "Axis ~S exceeds array rank ~S." axis-number rank))
-	   (if (fixnump dims)
-	       dims
-	       (nth axis-number dims))))
-	(t (unless (zerop axis-number)
-	     (error "Axis ~S exceeds array rank 1." axis-number))
-	   (%simple-array-length array))))
+  (cond ((%simple-1d-array-p array)
+         (unless (zerop axis-number)
+           (error "Axis ~S exceeds array rank 1." axis-number))
+         (%simple-1d-array-length array))
+        (t
+         (when (>= axis-number (array-rank array))
+           (error "Axis ~S exceeds array rank ~D."
+                  axis-number (array-rank array)))
+         (%complex-array-dimension array axis-number))))
 
 (defun array-total-size (array)
   (check-type array array)
-  (cond ((%array-header-p array)
-	 (if (fixnump (%array-header-dimensions array))
-	     (%array-header-dimensions array)
-	     (apply #'* (%array-header-dimensions array))))
-	(t (%simple-array-length array))))
+  (apply #'* (array-dimensions array)))
 
 (defun array-displacement (array)
   (check-type array array)
-  (if (and (%array-header-p array)
-	   (fixnump (%array-header-info array)))
-      (values (%array-header-storage array)
-	      (%array-header-info array))
-      (values nil 0)))
+  (if (or (%simple-1d-array-p array)
+          (not (fixnump (%complex-array-info array))))
+      (values nil 0)
+      (values (%complex-array-storage array)
+              (%complex-array-info array))))
 
 (defun array-element-type (array)
   (check-type array array)
-  (if (%array-header-p array)
-      (cond ((integerp (%array-header-storage array))
-	     ;; Memory arrays store the type in the info slot.
-	     (%array-header-info array))
-	    ((%array-header-info array)
-	     ;; Displaced arrays inherit the type of the array they displace on.
-	     (array-element-type (%array-header-storage array)))
-	    (t ;; Normal arrays use the type of their storage simple array.
-	     (%simple-array-element-type (%array-header-storage array))))
-      (%simple-array-element-type array)))
+  (cond ((%simple-1d-array-p array)
+         (%simple-array-element-type array))
+        ((character-array-p array)
+         'character)
+        ((integerp (%complex-array-storage array))
+         ;; Memory arrays store the type in the info slot.
+         (%complex-array-info array))
+        ((%complex-array-info array)
+         ;; Displaced arrays inherit the type of the array they displace on.
+         (array-element-type (%complex-array-storage array)))
+        (t ;; Normal arrays use the type of their storage simple array.
+         (%simple-array-element-type (%complex-array-storage array)))))
 
 (defun array-has-fill-pointer-p (array)
   (check-type array array)
-  (when (%array-header-p array)
-    (%array-header-fill-pointer array)))
+  (and (vectorp array)
+       (not (%simple-1d-array-p array))
+       (%complex-array-fill-pointer array)))
 
 (defun array-in-bounds-p (array &rest subscripts)
   (check-type array array)
@@ -419,8 +428,7 @@ This must be sorted from most-specific to least-specific.")
 		      (array-dimensions array))))
 
 (defun check-vector-has-fill-pointer (vector)
-  (unless (and (%array-header-p vector)
-	       (%array-header-fill-pointer vector))
+  (unless (array-has-fill-pointer-p vector)
     (error 'simple-type-error
 	   :expected-type 'vector
 	   :datum vector
@@ -429,17 +437,17 @@ This must be sorted from most-specific to least-specific.")
 
 (defun fill-pointer (vector)
   (check-vector-has-fill-pointer vector)
-  (%array-header-fill-pointer vector))
+  (%complex-array-fill-pointer vector))
 
 (defun (setf fill-pointer) (new-value vector)
   (check-type new-value (integer 0))
   ;; Not sure if this should allow adding a fill-pointer to a vector
   ;; that doesn't already have one.
   (check-vector-has-fill-pointer vector)
-  (unless (<= 0 new-value (%array-header-dimensions vector))
+  (unless (<= 0 new-value (array-dimension vector 0))
     (error "New fill-pointer ~S exceeds vector bounds. Should be non-negative and <=~S."
-	   new-value (%array-header-dimensions vector)))
-  (setf (%array-header-fill-pointer vector) new-value))
+	   new-value (array-dimension vector 0)))
+  (setf (%complex-array-fill-pointer vector) new-value))
 
 (defun vector (&rest objects)
   (declare (dynamic-extent objects))
@@ -449,29 +457,58 @@ This must be sorted from most-specific to least-specific.")
 
 (defun %row-major-aref (array index)
   "ROW-MAJOR-AREF with no bounds check."
-  (if (%array-header-p array)
-      (cond ((null (%array-header-info array))
-	     ;; Normal array, must be backed by a simple array.
-	     (%simple-array-aref (%array-header-storage array) index))
-	    ((fixnump (%array-header-info array))
-	     ;; Displaced array.
-	     (row-major-aref (%array-header-storage array) (+ index (%array-header-info array))))
-	    (t ;; Direct memory access array.
-	     (%memory-aref (%array-header-info array) (%array-header-storage array) index)))
-      (%simple-array-aref array index)))
+  (cond ((%simple-1d-array-p array)
+         (%simple-array-aref array index))
+        ((%complex-array-info array)
+         ;; Either a memory array or a displaced array.
+         (if (eql (%object-tag array) +object-tag-memory-array+)
+             (%memory-aref (%complex-array-info array)
+                           (%complex-array-storage array)
+                           index)
+             (row-major-aref (%complex-array-storage array)
+                             (+ index (%complex-array-info array)))))
+        ((character-array-p array)
+         ;; Character array. Elements are characters, stored as integers.
+         (%%assemble-value (ash (%simple-array-aref (%complex-array-storage array) index)
+                                4)
+                           +tag-character+))
+        (t ;; Normal array, backed by a simple array.
+         (%simple-array-aref (%complex-array-storage array) index))))
 
 (defun (setf %row-major-aref) (value array index)
   "(SETF ROW-MAJOR-AREF) with no bounds check."
-  (if (%array-header-p array)
-      (cond ((null (%array-header-info array))
-	     ;; Normal array, must be backed by a simple array.
-	     (setf (%simple-array-aref (%array-header-storage array) index) value))
-	    ((fixnump (%array-header-info array))
-	     ;; Displaced array.
-	     (setf (row-major-aref (%array-header-storage array) (+ index (%array-header-info array))) value))
-	    (t ;; Direct memory access array.
-	     (setf (%memory-aref (%array-header-info array) (%array-header-storage array) index) value)))
-      (setf (%simple-array-aref array index) value)))
+  (cond ((%simple-1d-array-p array)
+         (setf (%simple-array-aref array index) value))
+        ((%complex-array-info array)
+         ;; Either a memory array or a displaced array.
+         (if (eql (%object-tag array) +object-tag-memory-array+)
+             (setf (%memory-aref (%complex-array-info array)
+                                 (%complex-array-storage array)
+                                 index)
+                   value)
+             (setf (row-major-aref (%complex-array-storage array)
+                                   (+ index (%complex-array-info array)))
+                   value)))
+        ((character-array-p array)
+         ;; Character array. Elements are characters, stored as integers.
+         (let ((min-len (cond ((<= (char-int value) #xFF)
+                               +object-tag-array-unsigned-byte-8+)
+                              ((<= (char-int value) #xFFFF)
+                               +object-tag-array-unsigned-byte-16+)
+                              (t +object-tag-array-unsigned-byte-32+)))
+               (backing-type (%object-tag (%complex-array-storage array))))
+           (when (< backing-type min-len)
+             ;; Promote the storage array to fit the character.
+             (setf (%complex-array-storage array) (make-array (length (%complex-array-storage array))
+                                                              :element-type (ecase min-len
+                                                                              (#.+object-tag-array-unsigned-byte-8+ '(unsigned-byte 8))
+                                                                              (#.+object-tag-array-unsigned-byte-16+ '(unsigned-byte 16))
+                                                                              (#.+object-tag-array-unsigned-byte-32+ '(unsigned-byte 32)))
+                                                              :initial-contents (%complex-array-storage array))))
+           (setf (%simple-array-aref (%complex-array-storage array) index)
+                 (char-int value))))
+        (t ;; Normal array, backed by a simple array.
+         (setf (%simple-array-aref (%complex-array-storage array) index) value))))
 
 (defun row-major-aref (array index)
   (check-type array array)
@@ -588,30 +625,20 @@ This must be sorted from most-specific to least-specific.")
   (apply #'(setf aref) value bit-array subscripts))
 
 (defun char (string index)
-  (cond ((simple-string-p string)
-         (schar string index))
-        ;; Open-coded check for non-displaced non-simple string-like
-        ;; arrays.
-        ((and (%array-header-p string)
-              (fixnump (%array-header-dimensions string))
-              (null (%array-header-info string))
-              (simple-string-p (%array-header-storage string)))
-         (schar (%array-header-storage string) index))
-        (t (check-type string string)
-           (aref string index))))
+  (check-type string string)
+  (aref string index))
 
 (defun (setf char) (value string index)
-  (cond ((simple-string-p string)
-         (setf (schar string index) value))
-        ;; Open-coded check for non-displaced non-simple string-like
-        ;; arrays.
-        ((and (%array-header-p string)
-              (fixnump (%array-header-dimensions string))
-              (null (%array-header-info string))
-              (simple-string-p (%array-header-storage string)))
-         (setf (schar (%array-header-storage string) index) value))
-        (t (check-type string string)
-           (setf (aref string index) value))))
+  (check-type string string)
+  (setf (aref string index) value))
+
+(defun schar (string index)
+  (check-type string string)
+  (char string index))
+
+(defun (setf schar) (value string index)
+  (check-type string string)
+  (setf (char string index) value))
 
 (defun vector-pop (vector)
   (check-vector-has-fill-pointer vector)

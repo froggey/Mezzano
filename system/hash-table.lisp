@@ -14,7 +14,7 @@
   (storage (error "No storage provided.") :type simple-vector))
 
 (defun hash-table-size (hash-table)
-  (ash (%simple-array-length (hash-table-storage hash-table)) -1))
+  (ash (%simple-1d-array-length (hash-table-storage hash-table)) -1))
 
 (defun hash-table-key-at (hash-table index)
   (svref (hash-table-storage hash-table) (* index 2)))

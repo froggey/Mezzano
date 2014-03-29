@@ -97,7 +97,7 @@
 
 (defun stack-group-p (object)
   (and (%array-like-p object)
-       (eql (%array-like-type object) +array-type-stack-group+)))
+       (eql (%array-like-type object) +object-tag-stack-group+)))
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (%define-type-symbol 'stack-group 'stack-group-p))
 
@@ -110,7 +110,7 @@
   (when (oddp binding-stack-size)
     (decf binding-stack-size))
   ;; Allocate stack and the stack-group object.
-  (let* ((sg (%allocate-array-like +array-type-stack-group+ +stack-group-size+ +stack-group-size+ :static))
+  (let* ((sg (%allocate-array-like +object-tag-stack-group+ +stack-group-size+ +stack-group-size+ :static))
 	 (cs-range (%allocate-stack control-stack-size))
          (cs-pointer (gc-stack-range-start cs-range))
 	 (bs-range (%allocate-stack binding-stack-size))
@@ -203,7 +203,14 @@
       (setf (%array-like-ref-unsigned-byte-64 stack-group +stack-group-offset-binding-stack-pointer+) bs-pointer)
       ;; Push initial stuff on the control stack.
       ;; Must match the frame %%switch-to-stack-group expects!
-      (push-t #'%%initial-stack-group-function)
+      ;; %%initial-stack-group-function has an unusual frame layout.
+      ;; The default gc layout is (:gc :no-frame :incoming-arguments :rcx)
+      ;; which the GC can't handle unless preceeded by an interrupt frame.
+      ;; Push the true entry address of %%initial-stack-group-function, skipping
+      ;; the nopslide so we skip the default gc layout.
+      (let* ((function-address (lisp-object-address #'%%initial-stack-group-function))
+             (entry-point (+ function-address (- +tag-object+) 16)))
+        (push-u64 entry-point))
       ;; Initial EFLAGS.
       (push-u64 initial-flags)
       ;; Control stack frame pointer.
@@ -235,8 +242,8 @@
   (sys.lap-x86:call :r13)
   ;; Function has returned.
   (sys.lap-x86:mov64 :r13 (:constant %stack-group-exhausted))
-  (sys.lap-x86:mov32 :ecx 0) ; fixnum 0
-  (sys.lap-x86:call (:symbol-function :r13))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 0
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
   (sys.lap-x86:ud2))
 
 (defun %stack-group-exhausted ()
@@ -249,11 +256,11 @@
   (sys.lap-x86:cli)
   (sys.lap-x86:push :cfp)
   (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (#.(+ (- +tag-array-like+)
+  (sys.lap-x86:fxsave (#.(+ (- +tag-object+)
                             (* (1+ +stack-group-offset-fxsave-area+) 8))))
   ;; Save CSP to the current stack group.
   (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (#.(+ (- +tag-array-like+)
+  (sys.lap-x86:mov64 (#.(+ (- +tag-object+)
                            (* (1+ +stack-group-offset-control-stack-pointer+) 8)))
                      :csp)
   ;; Switch to the new stack group.
@@ -264,22 +271,22 @@
   (sys.lap-x86:wrmsr)
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 :csp
-                     (#.(+ (- +tag-array-like+)
+                     (#.(+ (- +tag-object+)
                            (* (1+ +stack-group-offset-control-stack-pointer+) 8))))
   ;; Mark this stack group as :active.
   (sys.lap-x86:gs)
-  (sys.lap-x86:and64 (#.(+ (- +tag-array-like+)
+  (sys.lap-x86:and64 (#.(+ (- +tag-object+)
                            (* (1+ +stack-group-offset-flags+) 8)))
                      #.(ash (lognot (1- (ash 1 +stack-group-state-size+)))
-                            (+ +stack-group-state-position+ 3)))
+                            (+ +stack-group-state-position+ +n-fixnum-bits+)))
   ;; Restore state.
   (sys.lap-x86:gs)
-  (sys.lap-x86:fxrstor (#.(+ (- +tag-array-like+)
+  (sys.lap-x86:fxrstor (#.(+ (- +tag-object+)
                              (* (1+ +stack-group-offset-fxsave-area+) 8))))
   (sys.lap-x86:pop :cfp)
   (sys.lap-x86:popf)
   (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:mov32 :ecx 0) ; fixnum 0
+  (sys.lap-x86:mov32 :ecx #.(ash 0 +n-fixnum-bits+)) ; fixnum 0
   (sys.lap-x86:ret))
 
 ;;; ### Need to lock the sg.

@@ -206,7 +206,7 @@ Assumes that everything can be reached from NIL."
 (defun build-map-file (image)
   (map-objects (lambda (value)
                  (with-simple-restart (continue "Ignore value ~X" value)
-                   (when (eql (logand value #b1111) sys.int::+tag-function+)
+                   (when (eql (logand value #b1111) sys.int::+tag-object+)
                      (let* ((address (logand value (lognot #b1111)))
                             (header (image-word image address))
                             (tag (ldb (byte 16 0) header))

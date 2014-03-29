@@ -57,8 +57,8 @@
     (when (find-package n)
       (error "A package named ~S already exists." n)))
   (let ((use-list (mapcar 'find-package use))
-	(package (%make-package (simplify-string (string package-name))
-				(mapcar (lambda (x) (simplify-string (string x))) nicknames))))
+	(package (%make-package (string package-name)
+				(mapcar (lambda (x) (string x)) nicknames))))
     (setf (package-internal-symbols package) (make-hash-table :test 'equal)
           (package-external-symbols package) (make-hash-table :test 'equal))
     ;; Use packages.

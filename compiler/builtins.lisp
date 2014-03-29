@@ -1,8 +1,10 @@
 ;;;; Functions which are built in to the compiler and have custom code generators.
-
 (in-package :sys.c)
 
 (defparameter *builtins* (make-hash-table))
+
+(defun small-fixnum-p (integer)
+  (typep integer `(signed-byte ,(- 32 sys.int::+fixnum-tag-mask+))))
 
 (defmacro defbuiltin (name lambda-list (&optional (emit-function t) suppress-binding-stack-check) &body body)
   `(progn (setf (gethash (sys.int::function-symbol ',name) *builtins*)
@@ -17,33 +19,46 @@
                       ',suppress-binding-stack-check))
 	  ',name))
 
+(defun emit-tag-check (reg tag type)
+  "Emit a value tag type check. Smashes AL."
+  (let ((type-error-label (gensym)))
+    (emit-trailer (type-error-label)
+      (raise-type-error reg type))
+    (emit `(sys.lap-x86:mov8 :al ,(sys.lap-x86::convert-width reg 8))
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,tag)
+          `(sys.lap-x86:jne ,type-error-label))))
+
+(defun emit-object-type-check (reg object-tag type original)
+  "Emit an object tag type check. Smashes AL."
+  (unless (and (quoted-constant-p original)
+             (typep (second original) type))
+    (let ((type-error-label (gensym)))
+      (emit-trailer (type-error-label)
+        (raise-type-error reg type))
+      (emit `(sys.lap-x86:mov8 :al ,(sys.lap-x86::convert-width reg 8))
+            `(sys.lap-x86:and8 :al #b1111)
+            `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+            `(sys.lap-x86:jne ,type-error-label)
+            `(sys.lap-x86:cmp8 (,reg ,(- sys.int::+tag-object+))
+                               ,(ash object-tag sys.int::+array-type-shift+))
+            `(sys.lap-x86:jne ,type-error-label)))))
+
 (defmacro define-reader (name type tag slot)
   `(defbuiltin ,name (object) ()
-     (let ((type-error-label (gensym)))
-       (emit-trailer (type-error-label)
-         (raise-type-error :r8 ',type))
-       (load-in-reg :r8 object t)
-       (smash-r8)
-       (emit `(sys.lap-x86:mov8 :al :r8l)
-             `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,,tag)
-             `(sys.lap-x86:jne ,type-error-label)
-             `(sys.lap-x86:mov64 :r8 (,',slot :r8)))
-       (setf *r8-value* (list (gensym))))))
+     (load-in-reg :r8 object t)
+     (smash-r8)
+     (emit-tag-check :r8 ,tag ',type)
+     (emit `(sys.lap-x86:mov64 :r8 (,',slot :r8)))
+     (setf *r8-value* (list (gensym)))))
 
 (defmacro define-writer (name type tag slot)
   `(defbuiltin ,name (value object) ()
-     (let ((type-error-label (gensym)))
-       (emit-trailer (type-error-label)
-         (raise-type-error :r9 ',type))
-       (load-in-reg :r9 object t)
-       (load-in-reg :r8 value t)
-       (emit `(sys.lap-x86:mov8 :al :r9l)
-             `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,,tag)
-             `(sys.lap-x86:jne ,type-error-label)
-             `(sys.lap-x86:mov64 (,',slot :r9) :r8))
-       *r8-value*)))
+     (load-in-reg :r9 object t)
+     (load-in-reg :r8 value t)
+     (emit-tag-check :r9 ,tag ',type)
+     (emit `(sys.lap-x86:mov64 (,',slot :r9) :r8))
+     *r8-value*))
 
 (defmacro define-accessor (name type tag slot)
   `(progn (define-reader ,name ,type ,tag ,slot)
@@ -63,53 +78,35 @@
        (load-in-reg :r9 object t)
        (smash-r8)
        ;; Check tag.
-       (emit `(sys.lap-x86:mov64 :r8 nil)
-             `(sys.lap-x86:mov8 :al :r9l)
+       (emit `(sys.lap-x86:mov8 :al :r9l)
              `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
              `(sys.lap-x86:jne ,out)
-             `(sys.lap-x86:mov8 :al (:simple-array-header :r9))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
-             `(sys.lap-x86:mov64 :r9 t)
-             `(sys.lap-x86:cmov64e :r8 :r9)
+             `(sys.lap-x86:cmp8 ,(object-ea :r9 :slot -1)
+                                ,(ash ,array-type sys.int::+array-type-shift+))
+             ;; Subtle. OUT can be reached through either the tag check
+             ;; or through the array type check. Both checks clear ZF when
+             ;; they fail.
              out)
-       (setf *r8-value* (list (gensym))))))
+       (predicate-result :z))))
 
 (defmacro define-array-like-reader (name type-name array-type slot)
   `(defbuiltin ,name (object) ()
-     (let ((type-error-label (gensym)))
-       (emit-trailer (type-error-label)
-         (raise-type-error :r8 ',type-name))
-       (load-in-reg :r8 object t)
-       (smash-r8)
-       (emit `(sys.lap-x86:mov8 :al :r8l)
-             `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
-             `(sys.lap-x86:jne ,type-error-label)
-             `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
-             `(sys.lap-x86:jne ,type-error-label)
-             ;; Load.
-             `(sys.lap-x86:mov64 :r8 (:r8 ,(+ 1 (* ,slot 8))))))
-    (setf *r8-value* (list (gensym)))))
+     (load-in-reg :r8 object t)
+     (smash-r8)
+     (emit-object-type-check :r8 ,array-type ',type-name object)
+     ;; Load.
+     (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot ,slot)))
+     (setf *r8-value* (list (gensym)))))
 
 (defmacro define-array-like-writer (name type-name array-type slot)
   `(defbuiltin ,name (value object) ()
-     (let ((type-error-label (gensym)))
-       (emit-trailer (type-error-label)
-         (raise-type-error :r9 ',type-name))
-       (load-in-reg :r9 object t)
-       (load-in-reg :r8 value t)
-       (emit `(sys.lap-x86:mov8 :al :r9l)
-             `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
-             `(sys.lap-x86:jne ,type-error-label)
-             `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
-             `(sys.lap-x86:jne ,type-error-label)
-             ;; Store.
-             `(sys.lap-x86:mov64 (:r9 ,(+ 1 (* ,slot 8))) :r8)))
-    *r8-value*))
+     (load-in-reg :r9 object t)
+     (load-in-reg :r8 value t)
+     (emit-object-type-check :r9 ,array-type ',type-name object)
+     ;; Store.
+     (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot ,slot) :r8))
+     *r8-value*))
 
 (defmacro define-array-like-accessor (name type-name array-type slot)
   `(progn (define-array-like-reader ,name ,type-name ,array-type ,slot)
@@ -144,7 +141,32 @@
   (and (quoted-constant-p tag)
        (typep (second tag) type)))
 
-(defmacro define-u-b-memref (name shift read-op write-op register size)
+(defun box-unsigned-byte-64-rax ()
+  "Box the unboxed (unsigned-byte 64) in RAX into R8."
+  (let ((overflow-label (gensym))
+        (resume (gensym)))
+    (emit-trailer (overflow-label)
+      (emit
+       ;; Undo the shift.
+       `(sys.lap-x86:rcr64 :rax 1)
+       ;; Build bignum.
+       `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+       ;; Result needs a 128-bit bignum when the high bit is set.
+       `(sys.lap-x86:cmov64s :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
+       `(sys.lap-x86:xor32 :edx :edx)
+       `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
+       `(sys.lap-x86:jmp ,resume)))
+    (smash-r8)
+    (emit
+     ;; Convert to fixnum & check for unsigned overflow.
+     ;; Assumes fixnum size of 1!
+     `(sys.lap-x86:shl64 :rax 1)
+     `(sys.lap-x86:jc ,overflow-label)
+     `(sys.lap-x86:js ,overflow-label)
+     `(sys.lap-x86:mov64 :r8 :rax)
+     resume)))
+
+(defmacro define-u-b-memref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (base offset) ()
        (load-in-reg :r9 base t)
@@ -155,17 +177,18 @@
        (emit `(sys.lap-x86:mov64 :rcx :r9))
        (smash-r8)
        ;; BASE to raw integer.
-       (emit '(sys.lap-x86:sar64 :rdx 3))
-       ;; Convert OFFSET to a scaled raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,shift)
-             '(,read-op :eax (:rdx :rcx)))
+       (emit '(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+))
+       ;; Convert OFFSET to a raw integer.
+       (emit '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
+       ;; Read
+       (emit '(,read-op :eax (:rdx (:rcx ,width))))
        ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
+       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
        (setf *r8-value* (list (gensym))))
      (defbuiltin (setf ,name) (new-value base offset) ()
        (let ((type-error-label (gensym)))
          (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(unsigned-byte ,size)))
+           (raise-type-error :r8 '(unsigned-byte ,(* width 8))))
          (load-in-reg :r9 base t)
          (fixnum-check :r9)
          (emit `(sys.lap-x86:mov64 :rdx :r9))
@@ -174,58 +197,38 @@
          (emit `(sys.lap-x86:mov64 :rcx :r9))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax #b111)
+               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
                `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 size)))
+               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 (* width 8))))
                '(sys.lap-x86:cmp64 :rax :rsi)
                `(sys.lap-x86:jae ,type-error-label)
-               ;; Convert to raw integers, leaving offset correctly scaled.
-               '(sys.lap-x86:sar64 :rdx 3)
-               '(sys.lap-x86:sar64 :rcx ,shift)
-               '(sys.lap-x86:sar64 :rax 3)
+               ;; Convert to raw integers.
+               '(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
+               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
                ;; Write.
-               '(,write-op (:rdx :rcx) ,register))
+               '(,write-op (:rdx (:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-u-b-memref sys.int::memref-unsigned-byte-8 3 sys.lap-x86:movzx8 sys.lap-x86:mov8 :al 8)
-(define-u-b-memref sys.int::memref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax 16)
-(define-u-b-memref sys.int::memref-unsigned-byte-32 1 sys.lap-x86:mov32 sys.lap-x86:mov32 :eax 32)
+(define-u-b-memref sys.int::memref-unsigned-byte-8 1 sys.lap-x86:movzx8 sys.lap-x86:mov8 :al)
+(define-u-b-memref sys.int::memref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
+(define-u-b-memref sys.int::memref-unsigned-byte-32 4 sys.lap-x86:mov32 sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
-  (let ((overflow-error-label (gensym))
-        (ok-label (gensym))
-        (resume (gensym)))
-    (emit-trailer (overflow-error-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:xor32 :edx :edx)
-            ;; CL holds the high 4 bits of the word.
-            ;; If bit 3 is non-zero, then the sign bit of word was set & a 128-bit bignum
-            ;; is required.
-            `(sys.lap-x86:test8 :cl #b1000)
-            `(sys.lap-x86:cmov64nz :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
-            `(sys.lap-x86:jmp ,resume)))
-    (load-in-reg :r8 base t)
-    (fixnum-check :r8)
-    (load-in-reg :r9 offset t)
-    (fixnum-check :r9)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:mov64 :rcx :r9)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rax 3)
+  (load-in-reg :r8 base t)
+  (fixnum-check :r8)
+  (load-in-reg :r9 offset t)
+  (fixnum-check :r9)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :rax :r8)
+        `(sys.lap-x86:mov64 :rcx :r9)
+        ;; Convert to raw integers.
+        `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
           ;; Read.
-          `(sys.lap-x86:mov64 :rax (:rax :rcx))
-          ;; Check for overflow. Top 4 bits must be all 0.
-          `(sys.lap-x86:mov64 :rcx :rax)
-          `(sys.lap-x86:sar64 :rcx 60)
-          `(sys.lap-x86:jnz ,overflow-error-label)
-          ok-label
-          ;; Convert to fixnum.
-          `(sys.lap-x86:shl64 :rax 3)
-          `(sys.lap-x86:mov64 :r8 :rax)
-          resume)
-    (setf *r8-value* (list (gensym)))))
+        `(sys.lap-x86:mov64 :rax (:rax (:rcx 8))))
+  (box-unsigned-byte-64-rax)
+  (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym))
@@ -235,10 +238,11 @@
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
-            `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+            `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
-            `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:shr64 :rdx 8)
             ;; RDX = bignum length.
@@ -248,16 +252,16 @@
             `(sys.lap-x86:cmp64 :rdx 1)
             `(sys.lap-x86:jne ,type-error-label)
             ;; And the sign bit must be clear.
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:shl64 :rdx 1)
             `(sys.lap-x86:jc ,type-error-label)
             `(sys.lap-x86:rcr64 :rdx 1)
             `(sys.lap-x86:jmp ,value-extracted)
             len-2-bignum
             ;; Length 2 bignums must have the high word be 0.
-            `(sys.lap-x86:cmp64 (:r8 #.(+ (- sys.int::+tag-array-like+) 16)) 0)
+            `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot 1) 0)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
@@ -268,20 +272,21 @@
     (fixnum-check :r9)
     (emit `(sys.lap-x86:mov64 :rcx :r9))
     (load-in-r8 new-value t)
-    (emit `(sys.lap-x86:sar64 :rax 3)
+    (emit `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
           `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
 	  `(sys.lap-x86:jnz ,bignum-path)
           `(sys.lap-x86:cmp64 :r8 0)
           `(sys.lap-x86:jl ,type-error-label)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Convert to raw integers.
+	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
           value-extracted
 	  ;; Write.
-	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
+	  `(sys.lap-x86:mov64 (:rax (:rcx 8)) :rdx))
     *r8-value*))
 
-(defmacro define-s-b-memref (name shift read-op write-op register size)
+(defmacro define-s-b-memref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (base offset) ()
        (load-in-reg :r9 base t)
@@ -291,18 +296,18 @@
        (fixnum-check :r9)
        (emit `(sys.lap-x86:mov64 :rcx :r9))
        (smash-r8)
-       ;; BASE to raw integer.
-       (emit '(sys.lap-x86:sar64 :rdx 3))
-       ;; Convert OFFSET to a scaled raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,shift)
-             '(,read-op :rax (:rdx :rcx)))
+       ;; BASE & OFFSET to raw integer.
+       (emit '(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
+             '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
+       ;; Read it.
+       (emit '(,read-op :rax (:rdx (:rcx ,width))))
        ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
+       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
        (setf *r8-value* (list (gensym))))
      (defbuiltin (setf ,name) (new-value base offset) ()
        (let ((type-error-label (gensym)))
          (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(signed-byte ,size)))
+           (raise-type-error :r8 '(signed-byte ,(* width 8))))
          (load-in-reg :r9 base t)
          (fixnum-check :r9)
          (emit `(sys.lap-x86:mov64 :rdx :r9))
@@ -311,34 +316,34 @@
          (emit `(sys.lap-x86:mov64 :rcx :r9))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax #b111)
+               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
                `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:sar64 :rax 3)
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
                '(sys.lap-x86:mov64 :rsi :rax)
-               '(sys.lap-x86:mov64 :rdi ,(ash 1 (1- size)))
+               '(sys.lap-x86:mov64 :rdi ,(ash 1 (1- (* width 8))))
                '(sys.lap-x86:cmp64 :rsi :rdi)
                `(sys.lap-x86:jge ,type-error-label)
-               '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- size))))
+               '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- (* width 8)))))
                '(sys.lap-x86:cmp64 :rsi :rdi)
                `(sys.lap-x86:jl ,type-error-label)
-               ;; Convert to raw integers, leaving offset correctly scaled.
-               '(sys.lap-x86:sar64 :rdx 3)
-               '(sys.lap-x86:sar64 :rcx ,shift)
+               ;; Convert to raw integers.
+               '(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
+               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
                ;; Write.
-               '(,write-op (:rdx :rcx) ,register))
+               '(,write-op (:rdx (:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-s-b-memref sys.int::memref-signed-byte-8 3 sys.lap-x86:movsx8 sys.lap-x86:mov8 :al 8)
-(define-s-b-memref sys.int::memref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax 16)
-(define-s-b-memref sys.int::memref-signed-byte-32 1 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax 32)
+(define-s-b-memref sys.int::memref-signed-byte-8 1 sys.lap-x86:movsx8 sys.lap-x86:mov8 :al)
+(define-s-b-memref sys.int::memref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
+(define-s-b-memref sys.int::memref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
-  (let ((overflow-error-label (gensym))
-        (ok-label (gensym))
+  (let ((overflow-label (gensym))
         (resume (gensym)))
-    (emit-trailer (overflow-error-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+    (emit-trailer (overflow-label)
+      (emit `(sys.lap-x86:rcr64 :rax 1)
+            `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r8 base t)
     (fixnum-check :r8)
@@ -347,19 +352,15 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:mov64 :rcx :r9)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rax 3)
+	  ;; Convert to raw integers.
+	  `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+	  `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
           ;; Read.
-          `(sys.lap-x86:mov64 :rax (:rax :rcx))
-          ;; Check for overflow. Top 3 bits must be all 0 or all 1.
-          `(sys.lap-x86:mov64 :rdx :rax)
-          `(sys.lap-x86:sar64 :rdx 60)
-          `(sys.lap-x86:jz ,ok-label)
-          `(sys.lap-x86:cmp8 :dl -1)
-          `(sys.lap-x86:jne ,overflow-error-label)
-          ok-label
-          ;; Convert to fixnum.
-          `(sys.lap-x86:shl64 :rax 3)
+          `(sys.lap-x86:mov64 :rax (:rax (:rcx 8)))
+          ;; Convert to fixnum & check for signed overflow.
+          ;; Assumes fixnum size of 1!
+          `(sys.lap-x86:shl64 :rax 1)
+          `(sys.lap-x86:jo ,overflow-label)
           `(sys.lap-x86:mov64 :r8 :rax)
           resume)
     (setf *r8-value* (list (gensym)))))
@@ -371,16 +372,16 @@
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
-            `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+            `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
-            `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:shr64 :rdx 8)
-            ;; RDX = bignum length.
-            `(sys.lap-x86:cmp64 :rdx 1)
+            ;; Length check.
+            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+array-length-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(signed-byte 64)))
@@ -392,14 +393,15 @@
     (emit `(sys.lap-x86:mov64 :rcx :r9))
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
 	  `(sys.lap-x86:jnz ,bignum-path)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Convert to raw integers
+	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
           value-extracted
-	  `(sys.lap-x86:sar64 :rax 3)
+	  `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
 	  ;; Write.
-	  `(sys.lap-x86:mov64 (:rax :rcx) :rdx))
+	  `(sys.lap-x86:mov64 (:rax (:rcx 8)) :rdx))
     *r8-value*))
 
 (defbuiltin sys.int::memref-t (base offset) ()
@@ -410,10 +412,11 @@
   (fixnum-check :r9)
   (emit `(sys.lap-x86:mov64 :rcx :r9))
   (smash-r8)
-  (emit ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-   `(sys.lap-x86:sar64 :rax 3)
+  (emit ;; Convert to raw integers.
+   `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+   `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
    ;; Read.
-   `(sys.lap-x86:mov64 :r8 (:rax :rcx)))
+   `(sys.lap-x86:mov64 :r8 (:rax (:rcx 8))))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
@@ -424,13 +427,14 @@
   (fixnum-check :r9)
   (emit `(sys.lap-x86:mov64 :rcx :r9))
   (load-in-r8 new-value t)
-  (emit ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-   `(sys.lap-x86:sar64 :rax 3)
+  (emit ;; Convert to raw integers.
+   `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+   `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
    ;; Write.
-   `(sys.lap-x86:mov64 (:rax :rcx) :r8))
+   `(sys.lap-x86:mov64 (:rax (:rcx 8)) :r8))
   *r8-value*)
 
-(defmacro define-u-b-alref (name shift read-op write-op register size)
+(defmacro define-u-b-alref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (array offset) ()
        (load-in-reg :r9 array t)
@@ -438,71 +442,51 @@
        (fixnum-check :r10)
        (emit `(sys.lap-x86:mov64 :rcx :r10))
        (smash-r8)
-       ;; Convert OFFSET to a scaled raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,shift)
-             '(,read-op :eax (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8))))
+       ;; Convert OFFSET to a raw integer & read it.
+       (emit '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+             '(,read-op :eax ,(object-ea :r9 :index `(:rcx ,width))))
        ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
+       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
        (setf *r8-value* (list (gensym))))
      (defbuiltin (setf ,name) (new-value array offset) ()
        (let ((type-error-label (gensym)))
          (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(unsigned-byte ,size)))
+           (raise-type-error :r8 '(unsigned-byte ,(* width 8))))
          (load-in-reg :r9 array t)
          (load-in-reg :r10 offset t)
          (fixnum-check :r10)
          (emit `(sys.lap-x86:mov64 :rcx :r10))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax #b111)
+               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
                `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 size)))
+               '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 (* width 8))))
                '(sys.lap-x86:cmp64 :rax :rsi)
                `(sys.lap-x86:jae ,type-error-label)
-               ;; Convert to raw integers, leaving offset correctly scaled.
-               '(sys.lap-x86:sar64 :rcx ,shift)
-               '(sys.lap-x86:sar64 :rax 3)
+               ;; Convert to raw integers.
+               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
                ;; Write.
-               '(,write-op (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) ,register))
+               '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-8  3 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al   8)
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax  16)
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-32 1 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax 32)
+(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
+(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
+(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%array-like-ref-unsigned-byte-64 (array offset) ()
-  (let ((overflow-error-label (gensym))
-        (ok-label (gensym))
-        (resume (gensym)))
-    (emit-trailer (overflow-error-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:xor32 :edx :edx)
-            ;; CL holds the high 4 bits of the word.
-            ;; If bit 3 is non-zero, then the sign bit of word was set & a 128-bit bignum
-            ;; is required.
-            `(sys.lap-x86:test8 :cl #b1000)
-            `(sys.lap-x86:cmov64nz :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
-            `(sys.lap-x86:jmp ,resume)))
-    (load-in-reg :r8 array t)
-    (load-in-reg :r9 offset t)
-    (fixnum-check :r9)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov64 :rcx :r9)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rax 3)
-          ;; Read.
-          `(sys.lap-x86:mov64 :rax (:r8 :rcx #.(+ (- sys.int::+tag-array-like+) 8)))
-          ;; Check for overflow. Top 4 bits must be all 0.
-          `(sys.lap-x86:mov64 :rcx :rax)
-          `(sys.lap-x86:sar64 :rcx 60)
-          `(sys.lap-x86:jnz ,overflow-error-label)
-          ok-label
-          ;; Convert to fixnum.
-          `(sys.lap-x86:shl64 :rax 3)
-          `(sys.lap-x86:mov64 :r8 :rax)
-          resume)
-    (setf *r8-value* (list (gensym)))))
+  (load-in-reg :r8 array t)
+  (load-in-reg :r9 offset t)
+  (fixnum-check :r9)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :rcx :r9)
+        ;; Convert to raw integers.
+        `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+        ;; Read.
+        `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index `(:rcx 8))))
+  (box-unsigned-byte-64-rax)
+  (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::%array-like-ref-unsigned-byte-64) (new-value array offset) ()
   (let ((type-error-label (gensym))
@@ -512,10 +496,11 @@
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
-            `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+            `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
-            `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:shr64 :rdx 8)
             ;; RDX = bignum length.
@@ -525,16 +510,16 @@
             `(sys.lap-x86:cmp64 :rdx 1)
             `(sys.lap-x86:jne ,type-error-label)
             ;; And the sign bit must be clear.
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:shl64 :rdx 1)
             `(sys.lap-x86:jc ,type-error-label)
             `(sys.lap-x86:rcr64 :rdx 1)
             `(sys.lap-x86:jmp ,value-extracted)
             len-2-bignum
             ;; Length 2 bignums must have the high word be 0.
-            `(sys.lap-x86:cmp64 (:r8 #.(+ (- sys.int::+tag-array-like+) 16)) 0)
+            `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot 1) 0)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
@@ -544,18 +529,19 @@
     (emit `(sys.lap-x86:mov64 :rcx :r10))
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
 	  `(sys.lap-x86:jnz ,bignum-path)
           `(sys.lap-x86:cmp64 :r8 0)
           `(sys.lap-x86:jl ,type-error-label)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Convert to raw integer.
+	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
           value-extracted
+	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
 	  ;; Write.
-	  `(sys.lap-x86:mov64 (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) :rdx))
+	  `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :rdx))
     *r8-value*))
 
-(defmacro define-s-b-alref (name shift read-op write-op register size)
+(defmacro define-s-b-alref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (array offset) ()
        (load-in-reg :r9 array t)
@@ -563,66 +549,61 @@
        (fixnum-check :r10)
        (emit `(sys.lap-x86:mov64 :rcx :r10))
        (smash-r8)
-       ;; Convert OFFSET to a scaled raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,shift)
-             '(,read-op :rax (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8))))
+       ;; Convert OFFSET to a raw integer & read it.
+       (emit '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+             '(,read-op :rax ,(object-ea :r9 :index `(:rcx ,width))))
        ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax 8))))
+       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
        (setf *r8-value* (list (gensym))))
      (defbuiltin (setf ,name) (new-value array offset) ()
        (let ((type-error-label (gensym)))
          (emit-trailer (type-error-label)
-           (raise-type-error :r8 '(signed-byte ,size)))
+           (raise-type-error :r8 '(signed-byte ,(* width 8))))
          (load-in-reg :r9 array t)
          (load-in-reg :r10 offset t)
          (fixnum-check :r10)
          (emit `(sys.lap-x86:mov64 :rcx :r10))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
-               '(sys.lap-x86:test64 :rax #b111)
+               '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
                `(sys.lap-x86:jnz ,type-error-label)
-               '(sys.lap-x86:sar64 :rax 3)
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
                '(sys.lap-x86:mov64 :rsi :rax)
-               '(sys.lap-x86:mov64 :rdi ,(ash 1 (1- size)))
+               '(sys.lap-x86:mov64 :rdi ,(ash 1 (1- (* width 8))))
                '(sys.lap-x86:cmp64 :rsi :rdi)
                `(sys.lap-x86:jge ,type-error-label)
-               '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- size))))
+               '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- (* width 8)))))
                '(sys.lap-x86:cmp64 :rsi :rdi)
                `(sys.lap-x86:jl ,type-error-label)
-               ;; Convert to raw integers, leaving offset correctly scaled.
-               '(sys.lap-x86:sar64 :rcx ,shift)
+               ;; Convert to raw integer.
+               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
                ;; Write.
-               '(,write-op (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) ,register))
+               '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-8  3 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al  8)
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax  16)
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-32 1 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax 32)
+(define-s-b-alref sys.int::%array-like-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
+(define-s-b-alref sys.int::%array-like-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
+(define-s-b-alref sys.int::%array-like-ref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%array-like-ref-signed-byte-64 (array offset) ()
-  (let ((overflow-error-label (gensym))
-        (ok-label (gensym))
+  (let ((overflow-label (gensym))
         (resume (gensym)))
-    (emit-trailer (overflow-error-label)
+    (emit-trailer (overflow-label)
       (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r8 array t)
     (load-in-reg :r9 offset t)
     (fixnum-check :r9)
     (smash-r8)
     (emit `(sys.lap-x86:mov64 :rcx :r9)
-          ;; Read. Offset is prescaled due to fixnumness.
-          `(sys.lap-x86:mov64 :rax (:r8 :rcx #.(+ (- sys.int::+tag-array-like+) 8)))
-          ;; Check for overflow. Top 3 bits must be all 0 or all 1.
-          `(sys.lap-x86:mov64 :rdx :rax)
-          `(sys.lap-x86:sar64 :rdx 60)
-          `(sys.lap-x86:jz ,ok-label)
-          `(sys.lap-x86:cmp8 :dl -1)
-          `(sys.lap-x86:jne ,overflow-error-label)
-          ok-label
-          ;; Convert to fixnum.
-          `(sys.lap-x86:shl64 :rax 3)
+          `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+          ;; Read.
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index '(:rcx 8)))
+          ;; Convert to fixnum & check for signed overflow.
+          ;; Assumes fixnum size of 1!
+          `(sys.lap-x86:shl64 :rax 1)
+          `(sys.lap-x86:jo ,overflow-label)
           `(sys.lap-x86:mov64 :r8 :rax)
           resume)
     (setf *r8-value* (list (gensym)))))
@@ -634,16 +615,15 @@
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
-            `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+            `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
-            `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:shr64 :rdx 8)
-            ;; RDX = bignum length.
-            `(sys.lap-x86:cmp64 :rdx 1)
+            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+array-length-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+            `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(signed-byte 64)))
@@ -653,45 +633,49 @@
     (emit `(sys.lap-x86:mov64 :rcx :r10))
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
-	  `(sys.lap-x86:test64 :rdx #b111)
+	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
 	  `(sys.lap-x86:jnz ,bignum-path)
-	  ;; Convert to raw integers, leaving offset correctly scaled (* 8).
-	  `(sys.lap-x86:sar64 :rdx 3)
+	  ;; Convert to raw integer.
+	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
           value-extracted
-	  ;; Write. Offset is correctly scaled.
-	  `(sys.lap-x86:mov64 (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) :rdx))
+	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+	  ;; Write.
+	  `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :rdx))
     *r8-value*))
 
 (defbuiltin sys.int::%array-like-ref-t (array offset) ()
   (load-in-reg :r8 array t)
   (load-in-reg :r9 offset t)
   (fixnum-check :r9)
-  (emit `(sys.lap-x86:mov64 :rcx :r9))
+  (emit `(sys.lap-x86:mov64 :rcx :r9)
+        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
   (smash-r8)
-  ;; Read. Offset is prescaled.
-  (emit `(sys.lap-x86:mov64 :r8 (:r8 :rcx #.(+ (- sys.int::+tag-array-like+) 8))))
+  ;; Read.
+  (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rcx 8))))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::%array-like-ref-t) (new-value array offset) ()
   (load-in-reg :r9 array t)
   (load-in-reg :r10 offset t)
   (fixnum-check :r10)
-  (emit `(sys.lap-x86:mov64 :rcx :r10))
+  (emit `(sys.lap-x86:mov64 :rcx :r10)
+        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
   (load-in-r8 new-value t)
-  ;; Write. Offset is prescaled.
-  (emit `(sys.lap-x86:mov64 (:r9 :rcx #.(+ (- sys.int::+tag-array-like+) 8)) :r8))
+  ;; Write.
+  (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
   *r8-value*)
 
-(defbuiltin sys.int::%simple-array-p (object) ()
+(defbuiltin sys.int::%simple-1d-array-p (object) ()
   (let ((false-out (gensym))
         (out (gensym)))
     (load-in-reg :r8 object t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,false-out)
-          `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 ,(object-ea :r8 :slot -1)
+                             ,(ash sys.int::+last-simple-1d-array-object-tag+
+                                   sys.int::+array-type-shift+))
           `(sys.lap-x86:jnbe ,false-out)
           `(sys.lap-x86:mov64 :r8 t)
           `(sys.lap-x86:jmp ,out)
@@ -700,7 +684,7 @@
           out)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin sys.int::%simple-array-length (array) ()
+(defbuiltin sys.int::%simple-1d-array-length (array) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
 		  (raise-type-error :r8 '(simple-array * (*))))
@@ -708,15 +692,16 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
-	  `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
+	  `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-simple-1d-array-object-tag+
+                                       sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
 	  ;; Convert length to fixnum.
-	  `(sys.lap-x86:shr64 :rax 5)
-	  `(sys.lap-x86:and64 :rax -8)
+	  `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
+          `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
 	  `(sys.lap-x86:mov64 :r8 :rax))
     (setf *r8-value* (list (gensym)))))
 
@@ -728,14 +713,17 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
-	  `(sys.lap-x86:mov8 :al (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-array-type+ sys.int::+array-type-shift+))
+	  `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-simple-1d-array-object-tag+
+                                       sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
 	  ;; Convert tag to fixnum. Low 3 bits are for the GC, always clear.
           `(sys.lap-x86:and32 :eax ,(ash (- (ash 1 sys.int::+array-type-size+) 1) sys.int::+array-type-shift+))
+	  `(sys.lap-x86:shr32 :eax ,sys.int::+array-type-shift+)
+          `(sys.lap-x86:shl32 :eax ,sys.int::+n-fixnum-bits+)
 	  `(sys.lap-x86:mov32 :r8d :eax))
     (setf *r8-value* (list (gensym)))))
 
@@ -743,8 +731,7 @@
   (let ((full-logior (gensym))
         (resume (gensym)))
     (when (constant-type-p y 'fixnum)
-      (psetf x y
-             y x))
+      (rotatef x y))
     (emit-trailer (full-logior)
       (when (constant-type-p x 'fixnum)
         (load-constant :r9 (second x)))
@@ -753,10 +740,10 @@
     (cond ((constant-type-p x 'fixnum)
            (load-in-r8 y t)
            (smash-r8)
-           (emit `(sys.lap-x86:test64 :r8 7)
+           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                  `(sys.lap-x86:jnz ,full-logior))
            ;; Small integers can be encoded directly into the instruction.
-           (if (typep (second x) '(signed-byte 28))
+           (if (small-fixnum-p (second x))
                (emit `(sys.lap-x86:or64 :r8 ,(fixnum-to-raw (second x))))
                (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
                      `(sys.lap-x86:or64 :r8 :rax)))
@@ -765,9 +752,9 @@
           (t (load-in-reg :r9 y t)
              (load-in-reg :r8 x t)
              (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 7)
+             (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logior)
-                   `(sys.lap-x86:test64 :r9 7)
+                   `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logior)
                    `(sys.lap-x86:or64 :r8 :r9)
                    resume)
@@ -777,8 +764,7 @@
   (let ((full-logxor (gensym))
         (resume (gensym)))
     (when (constant-type-p y 'fixnum)
-      (psetf x y
-             y x))
+      (rotatef x y))
     (emit-trailer (full-logxor)
       (when (constant-type-p x 'fixnum)
         (load-constant :r9 (second x)))
@@ -787,10 +773,10 @@
     (cond ((constant-type-p x 'fixnum)
            (load-in-r8 y t)
            (smash-r8)
-           (emit `(sys.lap-x86:test64 :r8 7)
+           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                  `(sys.lap-x86:jnz ,full-logxor))
            ;; Small integers can be encoded directly into the instruction.
-           (if (typep (second x) '(signed-byte 28))
+           (if (small-fixnum-p (second x))
                (emit `(sys.lap-x86:xor64 :r8 ,(fixnum-to-raw (second x))))
                (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
                      `(sys.lap-x86:xor64 :r8 :rax)))
@@ -799,9 +785,9 @@
           (t (load-in-reg :r9 y t)
              (load-in-reg :r8 x t)
              (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 7)
+             (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logxor)
-                   `(sys.lap-x86:test64 :r9 7)
+                   `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logxor)
                    `(sys.lap-x86:xor64 :r8 :r9)
                    resume)
@@ -811,8 +797,7 @@
   (let ((full-logand (gensym))
         (resume (gensym)))
     (when (constant-type-p y 'fixnum)
-      (psetf x y
-             y x))
+      (rotatef x y))
     (emit-trailer (full-logand)
       (when (constant-type-p x 'fixnum)
         (load-constant :r9 (second x)))
@@ -821,10 +806,10 @@
     (cond ((constant-type-p x 'fixnum)
            (load-in-r8 y t)
            (smash-r8)
-           (emit `(sys.lap-x86:test64 :r8 7)
+           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                  `(sys.lap-x86:jnz ,full-logand))
            ;; Small integers can be encoded directly into the instruction.
-           (if (typep (second x) '(signed-byte 28))
+           (if (small-fixnum-p (second x))
                (emit `(sys.lap-x86:and64 :r8 ,(fixnum-to-raw (second x))))
                (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
                      `(sys.lap-x86:and64 :r8 :rax)))
@@ -833,9 +818,9 @@
           (t (load-in-reg :r9 y t)
              (load-in-reg :r8 x t)
              (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 7)
+             (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logand)
-                   `(sys.lap-x86:test64 :r9 7)
+                   `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-logand)
                    `(sys.lap-x86:and64 :r8 :r9)
                    resume)
@@ -849,9 +834,9 @@
       (emit `(sys.lap-x86:jmp ,resume)))
     (load-in-reg :r8 integer t)
     (smash-r8)
-    (emit `(sys.lap-x86:test64 :r8 #b111)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,not-fixnum)
-          `(sys.lap-x86:xor64 :r8 -8)
+          `(sys.lap-x86:xor64 :r8 ,(- (ash 1 sys.int::+n-fixnum-bits+)))
           resume)
     (setf *r8-value* (list (gensym)))))
 
@@ -860,17 +845,17 @@
         (resume (gensym "+resume"))
         (full-add (gensym "+full")))
     (when (constant-type-p y 'fixnum)
-      (psetf x y
-             y x))
+      (rotatef x y))
     (emit-trailer (ovfl)
       ;; Recover the full value using the carry bit.
       (emit `(sys.lap-x86:mov64 :rax :r8)
-            `(sys.lap-x86:rcr64 :rax 1)
-            ;; Drop the two remaining fixnum tag bits.
-            `(sys.lap-x86:sar64 :rax 2)
-            ;; Call assembly helper function.
-            `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:rcr64 :rax 1))
+      ;; Drop the remaining fixnum tag bits.
+      ;(when (> sys.int::+n-fixnum-bits+ 1)
+      ;  (emit `(sys.lap-x86:sar64 :rax ,(1- sys.int::+n-fixnum-bits+))))
+      ;; Call assembly helper function.
+      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)))
     (emit-trailer (full-add)
       (when (constant-type-p x 'fixnum)
@@ -879,19 +864,19 @@
       (emit `(sys.lap-x86:jmp ,resume)))
     (cond ((constant-type-p x 'fixnum)
            (load-in-r8 y t)
-           (emit `(sys.lap-x86:test64 :r8 7)
+           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                  `(sys.lap-x86:jnz ,full-add))
            (smash-r8)
            ;; Small integers can be encoded directly into the instruction.
-           (if (typep (second x) '(signed-byte 28))
+           (if (small-fixnum-p (second x))
                (emit `(sys.lap-x86:add64 :r8 ,(fixnum-to-raw (second x))))
                (emit `(sys.lap-x86:mov64 :rax ,(fixnum-to-raw (second x)))
                      `(sys.lap-x86:add64 :r8 :rax))))
           (t (load-in-reg :r9 y t)
              (load-in-reg :r8 x t)
-             (emit `(sys.lap-x86:test64 :r9 7)
+             (emit `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-add)
-                   `(sys.lap-x86:test64 :r8 7)
+                   `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full-add))
              (smash-r8)
              (emit `(sys.lap-x86:add64 :r8 :r9))))
@@ -907,12 +892,13 @@
       ;; Recover the full value.
       (emit `(sys.lap-x86:cmc)
             `(sys.lap-x86:mov64 :rax :r8)
-            `(sys.lap-x86:rcr64 :rax 1)
-            ;; Drop the two remaining fixnum tag bits.
-            `(sys.lap-x86:sar64 :rax 2)
-            ;; Call assembly helper function.
-            `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:rcr64 :rax 1))
+      ;; Drop the remaining fixnum tag bits.
+      ;(when (> sys.int::+n-fixnum-bits+ 1)
+      ;  (emit `(sys.lap-x86:sar64 :rax ,(1- sys.int::+n-fixnum-bits+))))
+      ;; Call assembly helper function.
+      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)))
     (emit-trailer (full-sub)
       (call-support-function 'sys.int::generic-- 2)
@@ -920,9 +906,9 @@
     (load-in-reg :r8 x t)
     (load-in-reg :r9 y t)
     (smash-r8)
-    (emit `(sys.lap-x86:test64 :r8 7)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-sub)
-          `(sys.lap-x86:test64 :r9 7)
+          `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-sub)
           `(sys.lap-x86:sub64 :r8 :r9)
           `(sys.lap-x86:jo ,ovfl)
@@ -937,8 +923,8 @@
     (emit-trailer (ovfl)
       ;; 128-bit result in rdx:rax.
       ;; Unbox the result.
-      (emit `(sys.lap-x86:shrd64 :rax :rdx 3)
-            `(sys.lap-x86:sar64 :rdx 3)
+      (emit `(sys.lap-x86:shrd64 :rax :rdx ,sys.int::+n-fixnum-bits+)
+            `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
             ;; Check if the result will fit in 64 bits.
             ;; Save the high bits.
             `(sys.lap-x86:mov64 :rcx :rdx)
@@ -948,12 +934,12 @@
             ;; Nope.
             `(sys.lap-x86:mov64 :rdx :rcx)
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)
             small-bignum
             ;; Yup.
             `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:jmp ,resume)))
     (emit-trailer (full-mul)
       (call-support-function 'sys.int::generic-* 2)
@@ -961,13 +947,14 @@
     (load-in-reg :r9 y t)
     (load-in-reg :r8 x t)
     (smash-r8)
-    (emit `(sys.lap-x86:test64 :r8 7)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-mul)
-          `(sys.lap-x86:test64 :r9 7)
+          `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-mul)
           `(sys.lap-x86:mov64 :rax :r8)
-          ;; Convert RAX to raw integer.
-          `(sys.lap-x86:sar64 :rax 3)
+          ;; Convert RAX to raw integer, leaving R9 as a fixnum.
+          ;; This will cause the result to be a fixnum.
+          `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
           `(sys.lap-x86:imul64 :r9)
           `(sys.lap-x86:jo ,ovfl)
           ;; R9 was not converted to a raw integer, so the result
@@ -986,9 +973,9 @@
     (load-in-reg :r9 divisor t)
     (load-in-reg :r8 number t)
     (smash-r8)
-    (emit `(sys.lap-x86:test64 :r8 7)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-rem)
-          `(sys.lap-x86:test64 :r9 7)
+          `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-rem)
           ;; Bail out to the full REM on /0.
           `(sys.lap-x86:test64 :r9 :r9)
@@ -1013,21 +1000,21 @@
     (load-in-reg :r9 divisor t)
     (load-in-reg :r8 number t)
     (smash-r8)
-    (emit `(sys.lap-x86:test64 :r8 7)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-truncate)
-          `(sys.lap-x86:test64 :r9 7)
+          `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,full-truncate)
           ;; Bail out to the full truncate when /0 or /-1.
           `(sys.lap-x86:test64 :r9 :r9)
           `(sys.lap-x86:jz ,full-truncate)
-          `(sys.lap-x86:cmp64 :r9 -8)
+          `(sys.lap-x86:cmp64 :r9 ,(- (ash 1 sys.int::+n-fixnum-bits+)))
           `(sys.lap-x86:je ,full-truncate)
           `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:cqo)
           `(sys.lap-x86:idiv64 :r9)
           ;; :rax holds the dividend as a integer.
           ;; :rdx holds the remainder as a fixnum.
-          `(sys.lap-x86:shl64 :rax 3)
+          `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
           `(sys.lap-x86:mov64 :r8 :rax))
     (prog1 (cond ((member *for-value* '(:multiple :tail))
                   (emit `(sys.lap-x86:mov64 :r9 :rdx))
@@ -1047,20 +1034,20 @@
              (call-support-function 'sys.int::%ash 2)
              (load-constant :r13 'sys.int::%ash)
              (emit `(sys.lap-x86:jmp ,resume)))
-           (emit `(sys.lap-x86:test64 :r8 #b111)
+           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                  `(sys.lap-x86:jnz ,not-fixnum))
            (cond ((minusp count)
                   ;; Right shift.
                   (setf count (- count))
                   (smash-r8)
-                  (cond ((>= count 61)
+                  (cond ((>= count (- 64 sys.int::+n-fixnum-bits+))
                          ;; All bits shifted out.
                          (emit `(sys.lap-x86:cqo)
-                               `(sys.lap-x86:and64 :rdx -8)
+                               `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
                                `(sys.lap-x86:mov64 :r8 :rdx)))
                         (t (emit `(sys.lap-x86:mov64 :rax :r8)
                                  `(sys.lap-x86:sar64 :rax ,count)
-                                 `(sys.lap-x86:and64 :rax -8)
+                                 `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
                                  `(sys.lap-x86:mov64 :r8 :rax))))
                   (emit resume)
                   (setf *r8-value* (list (gensym))))
@@ -1103,14 +1090,15 @@
                 `(sys.lap-x86:mov64 ,(control-stack-slot-ea count-save) :rcx)
                 ;; Recover carry.
                 `(sys.lap-x86:rcr64 :rax 1)
-                ;; Drop the two remaining fixnum tag bits.
-                `(sys.lap-x86:sar64 :rax 2)
+                ;; Drop the remaining fixnum tag bits.
+                ;(when (> sys.int::+n-fixnum-bits+ 1)
+                ;  (emit `(sys.lap-x86:sar64 :rax ,(1- sys.int::+n-fixnum-bits+))))
                 ;; Turn it into a bignum.
                 `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-                `(sys.lap-x86:call (:symbol-function :r13))
+                `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
                 ;; Fall into the bignum helper.
                 `(sys.lap-x86:mov64 :rcx ,(control-stack-slot-ea count-save))
-                `(sys.lap-x86:lea64 :r9 ((:rcx 8) -8)))
+                `(sys.lap-x86:lea64 :r9 ((:rcx ,(ash 1 sys.int::+n-fixnum-bits+)) ,(fixnum-to-raw -1))))
                (call-support-function 'sys.int::%ash 2)
                (emit
                 `(sys.lap-x86:jmp ,really-done)))
@@ -1119,12 +1107,12 @@
                (emit
                 `(sys.lap-x86:jmp ,really-done)))
              (load-in-reg :r9 count t)
-             (emit `(sys.lap-x86:test64 :r9 7)
+             (emit `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full))
              (fixnum-check :r9)
              (load-in-reg :r8 integer t)
              (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 7)
+             (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,full))
              (fixnum-check :r8)
              (emit `(sys.lap-x86:mov64 :rcx :r9)
@@ -1134,7 +1122,7 @@
                    `(sys.lap-x86:jl ,shift-right)
                    ;; Left shift.
                    ;; Perform the shift one bit at a time so that overflow can be checked for.
-                   `(sys.lap-x86:sar64 :rcx 3)
+                   `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
                    shift-left
                    `(sys.lap-x86:shl64 :rax 1)
                    `(sys.lap-x86:jo ,ovfl)
@@ -1145,14 +1133,14 @@
                    shift-right
                    `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw -64))
                    `(sys.lap-x86:jle ,sign-extend)
-                   `(sys.lap-x86:sar64 :rcx 3)
+                   `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
                    `(sys.lap-x86:neg64 :rcx)
                    `(sys.lap-x86:sar64 :rax :cl)
-                   `(sys.lap-x86:and64 :rax -8)
+                   `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
                    `(sys.lap-x86:jmp ,done-label)
                    sign-extend
                    `(sys.lap-x86:cqo)
-                   `(sys.lap-x86:and64 :rdx -8)
+                   `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
                    `(sys.lap-x86:mov64 :rax :rdx)
                    done-label
                    `(sys.lap-x86:mov64 :r8 :rax)
@@ -1169,9 +1157,9 @@
        (load-in-reg :r9 y t)
        (load-in-reg :r8 x t)
        (smash-r8)
-       (emit `(sys.lap-x86:test64 :r8 7)
+       (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
              `(sys.lap-x86:jnz ,generic)
-             `(sys.lap-x86:test64 :r9 7)
+             `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
              `(sys.lap-x86:jnz ,generic)
              `(sys.lap-x86:cmp64 :r8 :r9)
              `(sys.lap-x86:mov64 :r8 nil)
@@ -1186,140 +1174,24 @@
 (define-conditional-builtin sys.int::binary-<= sys.int::generic-<= :le)
 (define-conditional-builtin sys.int::binary-= sys.int::generic-= :e)
 
-(defbuiltin schar (string index) ()
-  (let ((bound-error-label (gensym))
-	(type-error-label (gensym))
-	(base-string-label (gensym))
-	(out-label (gensym)))
-    (emit-trailer (bound-error-label)
-      (emit `(sys.lap-x86:mov64 :r9 :rax))
-      (call-support-function 'sys.int::raise-bound-error 2)
-      (emit `(sys.lap-x86:ud2)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'simple-string))
-    (load-in-reg :rax index t)
-    (fixnum-check :rax)
-    (load-in-r8 string t)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov64 :rdx :rax)
-	  `(sys.lap-x86:sar64 :rdx 3)
-	  `(sys.lap-x86:mov8 :cl :r8l)
-	  `(sys.lap-x86:and8 :cl #b1111)
-	  `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-array-like+)
-	  `(sys.lap-x86:jne ,type-error-label)
-	  ;; Ensure that it is a simple-string.
-	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r8))
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ sys.int::+array-type-shift+))
-	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ sys.int::+array-type-shift+))
-	  `(sys.lap-x86:jne ,type-error-label)
-	  ;; simple-string (not simple-base-string).
-	  `(sys.lap-x86:shr64 :rcx 8)
-	  `(sys.lap-x86:cmp64 :rdx :rcx)
-	  `(sys.lap-x86:jae ,bound-error-label)
-	  `(sys.lap-x86:mov32 :eax (:r8 1 (:rdx 4)))
-	  `(sys.lap-x86:jmp ,out-label)
-	  ;; simple-base-string.
-	  base-string-label
-	  `(sys.lap-x86:shr64 :rcx 8)
-	  `(sys.lap-x86:cmp64 :rdx :rcx)
-	  `(sys.lap-x86:jae ,bound-error-label)
-	  `(sys.lap-x86:xor32 :eax :eax)
-	  `(sys.lap-x86:mov8 :al (:r8 1 :rdx))
-	  out-label
-	  ;; Convert EAX to a real character.
-	  `(sys.lap-x86:shl32 :eax 4)
-	  `(sys.lap-x86:or32 :eax ,sys.int::+tag-character+)
-	  `(sys.lap-x86:mov32 :r8d :eax))
-    (setf *r8-value* (list (gensym)))))
-
-(defbuiltin (setf schar) (value string index) ()
-  (let ((bound-error-label (gensym))
-	(type-error-label (gensym))
-	(char-type-error-label (gensym))
-	(base-char-type-error-label (gensym))
-	(base-string-label (gensym))
-	(out-label (gensym)))
-    (emit-trailer (bound-error-label)
-      (emit `(sys.lap-x86:mov64 :r9 :rax))
-      (call-support-function 'sys.int::raise-bound-error 2)
-      (emit `(sys.lap-x86:ud2)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r9 'simple-string))
-    (emit-trailer (char-type-error-label)
-      (raise-type-error :r8 'character))
-    (emit-trailer (base-char-type-error-label)
-      (raise-type-error :r8 'base-char))
-    (load-in-reg :rax index t)
-    (fixnum-check :rax)
-    (load-in-reg :r9 string t)
-    (load-in-reg :r8 value t)
-    (emit `(sys.lap-x86:mov64 :rdx :rax)
-	  `(sys.lap-x86:sar64 :rdx 3)
-	  `(sys.lap-x86:mov8 :cl :r9l)
-	  `(sys.lap-x86:and8 :cl #b1111)
-	  `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-array-like+)
-	  `(sys.lap-x86:jne ,type-error-label)
-	  ;; Ensure that it is a simple-string.
-	  `(sys.lap-x86:mov64 :rcx (:simple-array-header :r9))
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-base-char+ sys.int::+array-type-shift+))
-	  `(sys.lap-x86:je ,base-string-label)
-	  `(sys.lap-x86:cmp8 :cl ,(ash sys.int::+array-type-character+ sys.int::+array-type-shift+))
-	  `(sys.lap-x86:jne ,type-error-label)
-	  ;; simple-string (not simple-base-string).
-	  `(sys.lap-x86:shr64 :rcx 8)
-	  `(sys.lap-x86:cmp64 :rdx :rcx)
-	  `(sys.lap-x86:jae ,bound-error-label)
-          `(sys.lap-x86:mov8 :cl :r8l)
-          `(sys.lap-x86:and8 :cl #b1111)
-          `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-character+)
-          `(sys.lap-x86:jne ,char-type-error-label)
-          `(sys.lap-x86:mov32 :eax :r8d)
-          `(sys.lap-x86:shr32 :eax 4)
-	  `(sys.lap-x86:mov32 (:r9 1 (:rdx 4)) :eax)
-	  `(sys.lap-x86:jmp ,out-label)
-	  ;; simple-base-string.
-	  base-string-label
-	  `(sys.lap-x86:shr64 :rcx 8)
-	  `(sys.lap-x86:cmp64 :rdx :rcx)
-	  `(sys.lap-x86:jae ,bound-error-label)
-	  `(sys.lap-x86:xor32 :eax :eax)
-          `(sys.lap-x86:mov8 :cl :r8l)
-          `(sys.lap-x86:and8 :cl #b1111)
-          `(sys.lap-x86:cmp8 :cl ,sys.int::+tag-character+)
-          `(sys.lap-x86:jne ,base-char-type-error-label)
-          `(sys.lap-x86:mov32 :eax :r8d)
-          `(sys.lap-x86:shr32 :eax 4)
-          `(sys.lap-x86:cmp32 :eax 256)
-          `(sys.lap-x86:jae ,base-char-type-error-label)
-	  `(sys.lap-x86:mov8 (:r9 1 :rdx) :al)
-	  out-label)
-    *r8-value*))
-
-(define-tag-type-predicate symbolp sys.int::+tag-symbol+)
-(define-reader symbol-name symbol sys.int::+tag-symbol+ :symbol-name)
-(define-accessor symbol-package symbol sys.int::+tag-symbol+ :symbol-package)
+(define-array-like-predicate symbolp sys.int::+object-tag-symbol+)
+(define-array-like-reader symbol-name symbol sys.int::+object-tag-symbol+ +symbol-name+)
+(define-array-like-accessor symbol-package symbol sys.int::+object-tag-symbol+ +symbol-package+)
 
 (defbuiltin symbol-value (symbol) ()
   (let ((unbound-error-label (gensym))
-	(type-error-label (gensym))
         (no-tls-slot (gensym))
         (test-bound (gensym)))
     (emit-trailer (unbound-error-label)
       (emit `(sys.lap-x86:mov64 :r8 :r9))
       (call-support-function 'sys.int::raise-unbound-error 1)
       (emit `(sys.lap-x86:ud2)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r9 'symbol))
     (load-in-reg :r9 symbol t)
+    (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
     (smash-r8)
-    (emit `(sys.lap-x86:mov8 :al :r9l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-          ;; Extract the TLS offset.
-          `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
-          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+    (emit ;; Extract the TLS offset.
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:shr64 :rax ,+tls-offset-shift+)
           `(sys.lap-x86:and32 :eax #xFFFF)
           `(sys.lap-x86:jz ,no-tls-slot)
           ;; Read from the TLS slot.
@@ -1329,7 +1201,7 @@
           `(sys.lap-x86:cmp64 :r8 -2)
           `(sys.lap-x86:jne ,test-bound)
           no-tls-slot
-	  `(sys.lap-x86:mov64 :r8 (:symbol-value :r9))
+	  `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot +symbol-value+))
           test-bound
 	  `(sys.lap-x86:cmp64 :r8 ,sys.int::+tag-unbound-value+)
 	  `(sys.lap-x86:je ,unbound-error-label))
@@ -1343,13 +1215,10 @@
       (raise-type-error :r9 'symbol))
     (load-in-reg :r9 symbol t)
     (load-in-reg :r8 value t)
-    (emit `(sys.lap-x86:mov8 :al :r9l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-          `(sys.lap-x86:jne ,type-error-label)
-          ;; Extract the TLS offset.
-          `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
-          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+    (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
+    (emit ;; Extract the TLS offset.
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:shr64 :rax ,+tls-offset-shift+)
           `(sys.lap-x86:and32 :eax #xFFFF)
           `(sys.lap-x86:jz ,no-tls-slot)
           ;; Check if the TLS slot holds a value.
@@ -1360,99 +1229,85 @@
           `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-          `(sys.lap-x86:mov64 (:symbol-value :r9) :r8)
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-value+) :r8)
           out)
     *r8-value*))
 
 (defbuiltin symbol-function (symbol) ()
-  (let ((type-error-label (gensym))
-	(undefined-function-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'symbol))
+  (let ((undefined-function-error-label (gensym)))
     (emit-trailer (undefined-function-error-label)
       (load-constant :r13 'sys.int::raise-undefined-function-via-%symbol-function)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r8 symbol t)
+    (emit-object-type-check :r8 sys.int::+object-tag-symbol+ 'symbol symbol)
     (smash-r8)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function)
+    (emit `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot +symbol-function+) undefined-function)
 	  `(sys.lap-x86:je ,undefined-function-error-label)
-          `(sys.lap-x86:mov64 :r8 (:symbol-function :r8)))
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot +symbol-function+)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf symbol-function) (value symbol) ()
-  (let ((symbol-type-error-label (gensym))
-	(function-type-error-label (gensym)))
-    (emit-trailer (symbol-type-error-label)
-      (raise-type-error :r9 'symbol))
+  (let ((function-type-error-label (gensym)))
     (emit-trailer (function-type-error-label)
       (raise-type-error :r8 'function))
     (load-in-reg :r9 symbol t)
+    (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
     (load-in-r8 value t)
-    (emit `(sys.lap-x86:mov8 :al :r9l)
+    (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,symbol-type-error-label)
-	  `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-function+)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
 	  `(sys.lap-x86:jne ,function-type-error-label)
-	  `(sys.lap-x86:mov64 (:symbol-function :r9) :r8))
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-function-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-function-object-tag+
+                                          sys.int::+first-function-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,function-type-error-label)
+	  `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-function+) :r8))
     *r8-value*))
 
 ;; TODO type checking? ensure value is a plist?
-(define-accessor symbol-plist symbol sys.int::+tag-symbol+ :symbol-plist)
+(define-array-like-accessor symbol-plist symbol sys.int::+object-tag-symbol+ +symbol-plist+)
 
 ;; TODO: type checking, value should be a fixnum.
-(define-accessor sys.int::%symbol-flags symbol sys.int::+tag-symbol+ :symbol-flags)
+#+(or)(define-array-like-accessor sys.int::%symbol-flags symbol sys.int::+object-tag-symbol+ :symbol-flags)
 
 ;;; TODO: should just test the tag bits.
 (defbuiltin boundp (symbol) ()
-  (let ((type-error-label (gensym))
-        (no-tls-slot (gensym))
+  (let ((no-tls-slot (gensym))
         (out (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'symbol))
     (load-in-reg :r8 symbol t)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-          ;; Extract the TLS offset.
-          `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
-          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+    (emit-object-type-check :r8 sys.int::+object-tag-symbol+ 'symbol symbol)
+    (smash-r8)
+    (emit ;; Extract the TLS offset.
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:shr64 :rax ,+tls-offset-shift+)
           `(sys.lap-x86:and32 :eax #xFFFF)
           `(sys.lap-x86:jz ,no-tls-slot)
+          ;; Read from the TLS slot.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r8 ((:rax 8) ,+tls-base-offset+))
           ;; Check if the TLS slot holds a value.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) -2)
-          `(sys.lap-x86:je ,no-tls-slot)
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:cmp64 ((:rax 8) ,+tls-base-offset+) ,sys.int::+tag-unbound-value+)
+          `(sys.lap-x86:cmp64 :r8 -2)
+          `(sys.lap-x86:jne ,no-tls-slot)
+	  `(sys.lap-x86:cmp64 :r8 ,sys.int::+tag-unbound-value+)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:cmp64 (:symbol-value :r8) ,sys.int::+tag-unbound-value+)
+	  `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot +symbol-value+)
+                              ,sys.int::+tag-unbound-value+)
           out)
     (predicate-result :ne)))
 
 (defbuiltin makunbound (symbol) ()
-  (let ((type-error-label (gensym))
-        (no-tls-slot (gensym))
+  (let ((no-tls-slot (gensym))
         (out (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'symbol))
     (load-in-reg :r8 symbol t)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-          ;; Extract the TLS offset.
-          `(sys.lap-x86:mov32 :eax (:symbol-flags :r8))
+    (emit-object-type-check :r8 sys.int::+object-tag-symbol+ 'symbol symbol)
+    (emit ;; Extract the TLS offset.
+          `(sys.lap-x86:mov32 :eax ,(object-ea :r8 :slot -1))
           `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
           `(sys.lap-x86:and32 :eax #xFFFF)
           `(sys.lap-x86:jz ,no-tls-slot)
@@ -1464,35 +1319,23 @@
           `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) ,sys.int::+tag-unbound-value+)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:mov64 (:symbol-value :r8) ,sys.int::+tag-unbound-value+)
+	  `(sys.lap-x86:mov64 ,(object-ea :r8 :slot +symbol-value+) ,sys.int::+tag-unbound-value+)
           out)
     *r8-value*))
 
 ;;; FBOUNDP but just for symbols.
 (defbuiltin sys.int::%fboundp (symbol) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'symbol))
-    (load-in-reg :r8 symbol t)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-	  `(sys.lap-x86:cmp64 (:symbol-function :r8) undefined-function))
-    (predicate-result :ne)))
+  (load-in-reg :r8 symbol t)
+  (emit-object-type-check :r8 sys.int::+object-tag-symbol+ 'symbol symbol)
+  (emit `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot +symbol-function+) undefined-function))
+  (predicate-result :ne))
 
 ;;; FMAKUNBOUND but just for symbols.
 (defbuiltin sys.int::%fmakunbound (symbol) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'symbol))
-    (load-in-reg :r8 symbol t)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-symbol+)
-	  `(sys.lap-x86:jne ,type-error-label)
-	  `(sys.lap-x86:mov64 (:symbol-function :r8) undefined-function))
-    *r8-value*))
+  (load-in-reg :r8 symbol t)
+  (emit-object-type-check :r8 sys.int::+object-tag-symbol+ 'symbol symbol)
+  (emit `(sys.lap-x86:mov64 ,(object-ea :r8 :slot +symbol-function+) undefined-function))
+  *r8-value*)
 
 (define-tag-type-predicate consp sys.int::+tag-cons+)
 
@@ -1533,20 +1376,6 @@
 (define-writer (setf car) cons sys.int::+tag-cons+ :car)
 (define-writer (setf cdr) cons sys.int::+tag-cons+ :cdr)
 
-(define-tag-type-predicate sys.int::%array-header-p sys.int::+tag-array-header+)
-(define-accessor sys.int::%array-header-dimensions
-    sys.int::%array-header sys.int::+tag-array-header+
-    :array-header-dimensions)
-(define-accessor sys.int::%array-header-fill-pointer
-    sys.int::%array-header sys.int::+tag-array-header+
-    :array-header-fill-pointer)
-(define-accessor sys.int::%array-header-info
-    sys.int::%array-header sys.int::+tag-array-header+
-    :array-header-info)
-(define-accessor sys.int::%array-header-storage
-    sys.int::%array-header sys.int::+tag-array-header+
-    :array-header-storage)
-
 (defbuiltin null (object) ()
   (load-in-reg :r8 object t)
   (emit `(sys.lap-x86:cmp64 :r8 nil))
@@ -1567,9 +1396,9 @@
            ;; Should characters and single-floats be loaded into a register
            ;; for comparison or should they be compared through the constant
            ;; pool? Currently they go through the constant pool...
-           (etypecase constant
-             ((signed-byte 28) ; Must fit in an IMM32 after fixnumization.
-              (emit `(sys.lap-x86:cmp64 :r8 ,(* constant 8))))
+           (cond
+             ((small-fixnum-p constant)
+              (emit `(sys.lap-x86:cmp64 :r8 ,(fixnum-to-raw constant))))
              (t (emit `(sys.lap-x86:cmp64 :r8 (:constant ,constant)))))
            (predicate-result :e)))
         (t (load-in-reg :r9 y t)
@@ -1587,38 +1416,47 @@
            ;; Should characters and single-floats be loaded into a register
            ;; for comparison or should they be compared through the constant
            ;; pool? Currently they go through the constant pool...
-           (etypecase constant
-             ((signed-byte 28) ; Must fit in an IMM32 after fixnumization.
-              (emit `(sys.lap-x86:cmp64 :r8 ,(* constant 8))))
+           (cond
+             ((small-fixnum-p constant)
+              (emit `(sys.lap-x86:cmp64 :r8 ,(fixnum-to-raw constant))))
              (t (emit `(sys.lap-x86:cmp64 :r8 (:constant ,constant)))))
            (predicate-result :e)))
         (t (load-in-reg :r9 y t)
            (load-in-reg :r8 x t)
+           ;; FIXME: Broken.
            (emit `(sys.lap-x86:cmp64 :r8 :r9))
            (predicate-result :e))))
+
+(defun emit-port-access (instruction port port-reg)
+  (cond ((and (quoted-constant-p port)
+              (typep (second port) '(unsigned-byte 8)))
+         ;; Small port number, fits directly in the instruction.
+         (setf *load-list* (delete port *load-list*))
+         (emit (list instruction (second port))))
+        ((and (quoted-constant-p port)
+              (typep (second port) '(unsigned-byte 8)))
+         ;; Large port number, needs to be loaded into dx.
+         (setf *load-list* (delete port *load-list*))
+         (emit `(sys.lap-x86:mov16 :dx ,(second port))
+               (list instruction :dx)))
+        (t ;; Unknown port.
+         (let ((type-error-label (gensym "port-type-error")))
+           (emit-trailer (type-error-label)
+             (raise-type-error port-reg '(unsigned-byte 16)))
+           (load-in-reg port-reg port t)
+           (emit `(sys.lap-x86:test64 ,port-reg ,sys.int::+fixnum-tag-mask+)
+                 `(sys.lap-x86:cmp64 ,port-reg ,(fixnum-to-raw #x10000))
+                 `(sys.lap-x86:jae ,type-error-label)
+                 `(sys.lap-x86:mov64 :rdx ,port-reg)
+                 ;; Convert to a raw integer.
+                 `(sys.lap-x86:sar32 :edx ,sys.int::+n-fixnum-bits+)
+                 (list instruction :dx))))))
 
 (defbuiltin system:io-port/8 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
-  (cond ((and (consp port)
-              (eql (first port) 'quote)
-              (<= 0 (second port) 255))
-         (smash-r8)
-         (setf *load-list* (delete port *load-list*))
-         (emit `(sys.lap-x86:in8 ,(second port))))
-        (t (let ((type-error-label (gensym)))
-             (emit-trailer (type-error-label)
-               (raise-type-error :r8 '(unsigned-byte 16)))
-             (load-in-r8 port t)
-             (emit `(sys.lap-x86:test64 :r8 #b111)
-                   `(sys.lap-x86:jnz ,type-error-label)
-                   `(sys.lap-x86:cmp64 :r8 ,(* #x10000 8))
-                   `(sys.lap-x86:jae ,type-error-label)
-                   `(sys.lap-x86:mov64 :rdx :r8)
-                   ;; Convert to a raw integer.
-                   `(sys.lap-x86:sar32 :edx 3)
-                   `(sys.lap-x86:in8 :dx)))))
-  (emit `(sys.lap-x86:shl32 :eax 3)
+  (emit-port-access 'sys.lap-x86:in8 port :r8)
+  (emit `(sys.lap-x86:shl32 :eax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov32 :r8d :eax))
   (setf *r8-value* (list (gensym))))
 
@@ -1627,53 +1465,20 @@
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
       (raise-type-error :r8 '(unsigned-byte 8)))
-    (emit `(sys.lap-x86:test64 :r8 #b111)
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,value-type-error-label)
-          `(sys.lap-x86:cmp64 :r8 ,(* #x100 8))
+          `(sys.lap-x86:cmp64 :r8 ,(fixnum-to-raw #x100))
           `(sys.lap-x86:jae ,value-type-error-label)
           `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:sar32 :eax 3))
-    (cond ((and (consp port)
-                (eql (first port) 'quote)
-                (<= 0 (second port) 255))
-           (setf *load-list* (delete port *load-list*))
-           (emit `(sys.lap-x86:out8 ,(second port))))
-          (t (let ((type-error-label (gensym)))
-               (emit-trailer (type-error-label)
-                             (raise-type-error :r9 '(unsigned-byte 16)))
-               (load-in-reg :r9 port t)
-               (emit `(sys.lap-x86:test64 :r9 #b111)
-                     `(sys.lap-x86:jnz ,type-error-label)
-                     `(sys.lap-x86:cmp64 :r9 ,(* #x10000 8))
-                     `(sys.lap-x86:jae ,type-error-label)
-                     `(sys.lap-x86:mov64 :rdx :r9)
-                     ;; Convert to a raw integer.
-                     `(sys.lap-x86:sar32 :edx 3)
-                     `(sys.lap-x86:out8 :dx)))))
+          `(sys.lap-x86:sar32 :eax ,sys.int::+n-fixnum-bits+))
+    (emit-port-access 'sys.lap-x86:out8 port :r9)
     value))
 
 (defbuiltin system:io-port/16 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
-  (cond ((and (consp port)
-              (eql (first port) 'quote)
-              (<= 0 (second port) 255))
-         (smash-r8)
-         (setf *load-list* (delete port *load-list*))
-         (emit `(sys.lap-x86:in16 ,(second port))))
-        (t (let ((type-error-label (gensym)))
-             (emit-trailer (type-error-label)
-               (raise-type-error :r8 '(unsigned-byte 16)))
-             (load-in-r8 port t)
-             (emit `(sys.lap-x86:test64 :r8 #b111)
-                   `(sys.lap-x86:jnz ,type-error-label)
-                   `(sys.lap-x86:cmp64 :r8 ,(* #x10000 8))
-                   `(sys.lap-x86:jae ,type-error-label)
-                   `(sys.lap-x86:mov64 :rdx :r8)
-                   ;; Convert to a raw integer.
-                   `(sys.lap-x86:sar32 :edx 3)
-                   `(sys.lap-x86:in16 :dx)))))
-  (emit `(sys.lap-x86:shl32 :eax 3)
+  (emit-port-access 'sys.lap-x86:in16 port :r8)
+  (emit `(sys.lap-x86:shl32 :eax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov32 :r8d :eax))
   (setf *r8-value* (list (gensym))))
 
@@ -1681,54 +1486,21 @@
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
-      (raise-type-error :r8 '(unsigned-byte 16)))
-    (emit `(sys.lap-x86:test64 :r8 #b111)
+      (raise-type-error :r8 '(unsigned-byte 8)))
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,value-type-error-label)
-          `(sys.lap-x86:cmp64 :r8 ,(* #x10000 8))
+          `(sys.lap-x86:cmp64 :r8 ,(fixnum-to-raw #x10000))
           `(sys.lap-x86:jae ,value-type-error-label)
           `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:sar32 :eax 3))
-    (cond ((and (consp port)
-                (eql (first port) 'quote)
-                (<= 0 (second port) 255))
-           (setf *load-list* (delete port *load-list*))
-           (emit `(sys.lap-x86:out16 ,(second port))))
-          (t (let ((type-error-label (gensym)))
-               (emit-trailer (type-error-label)
-                             (raise-type-error :r9 '(unsigned-byte 16)))
-               (load-in-reg :r9 port t)
-               (emit `(sys.lap-x86:test64 :r9 #b111)
-                     `(sys.lap-x86:jnz ,type-error-label)
-                     `(sys.lap-x86:cmp64 :r9 ,(* #x10000 8))
-                     `(sys.lap-x86:jae ,type-error-label)
-                     `(sys.lap-x86:mov64 :rdx :r9)
-                     ;; Convert to a raw integer.
-                     `(sys.lap-x86:sar32 :edx 3)
-                     `(sys.lap-x86:out16 :dx)))))
+          `(sys.lap-x86:sar32 :eax ,sys.int::+n-fixnum-bits+))
+    (emit-port-access 'sys.lap-x86:out16 port :r9)
     value))
 
 (defbuiltin system:io-port/32 (port) ()
   (smash-r8)
   (emit `(sys.lap-x86:xor32 :eax :eax))
-  (cond ((and (consp port)
-              (eql (first port) 'quote)
-              (<= 0 (second port) 255))
-         (smash-r8)
-         (setf *load-list* (delete port *load-list*))
-         (emit `(sys.lap-x86:in32 ,(second port))))
-        (t (let ((type-error-label (gensym)))
-             (emit-trailer (type-error-label)
-               (raise-type-error :r8 '(unsigned-byte 16)))
-             (load-in-r8 port t)
-             (emit `(sys.lap-x86:test64 :r8 #b111)
-                   `(sys.lap-x86:jnz ,type-error-label)
-                   `(sys.lap-x86:cmp64 :r8 ,(* #x10000 8))
-                   `(sys.lap-x86:jae ,type-error-label)
-                   `(sys.lap-x86:mov64 :rdx :r8)
-                   ;; Convert to a raw integer.
-                   `(sys.lap-x86:sar32 :edx 3)
-                   `(sys.lap-x86:in32 :dx)))))
-  (emit `(sys.lap-x86:shl64 :rax 3)
+  (emit-port-access 'sys.lap-x86:in32 port :r8)
+  (emit `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
@@ -1736,31 +1508,15 @@
   (load-in-r8 value t)
   (let ((value-type-error-label (gensym)))
     (emit-trailer (value-type-error-label)
-      (raise-type-error :r8 '(unsigned-byte 32)))
-    (emit `(sys.lap-x86:test64 :r8 #b111)
+      (raise-type-error :r8 '(unsigned-byte 8)))
+    (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
           `(sys.lap-x86:jnz ,value-type-error-label)
           `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:sar64 :rax 3)
+          `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
           `(sys.lap-x86:mov64 :rdx :rax)
           `(sys.lap-x86:sar64 :rdx 32)
           `(sys.lap-x86:jnz ,value-type-error-label))
-    (cond ((and (consp port)
-                (eql (first port) 'quote)
-                (<= 0 (second port) 255))
-           (setf *load-list* (delete port *load-list*))
-           (emit `(sys.lap-x86:out32 ,(second port))))
-          (t (let ((type-error-label (gensym)))
-               (emit-trailer (type-error-label)
-                             (raise-type-error :r9 '(unsigned-byte 16)))
-               (load-in-reg :r9 port t)
-               (emit `(sys.lap-x86:test64 :r9 #b111)
-                     `(sys.lap-x86:jnz ,type-error-label)
-                     `(sys.lap-x86:cmp64 :r9 ,(* #x10000 8))
-                     `(sys.lap-x86:jae ,type-error-label)
-                     `(sys.lap-x86:mov64 :rdx :r9)
-                     ;; Convert to a raw integer.
-                     `(sys.lap-x86:sar32 :edx 3)
-                     `(sys.lap-x86:out32 :dx)))))
+    (emit-port-access 'sys.lap-x86:out32 port :r9)
     value))
 
 (defbuiltin simple-vector-p (object) ()
@@ -1768,9 +1524,9 @@
     (load-in-r8 object t)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,out)
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
           `(sys.lap-x86:test8 :al :al)
           ;; Subtle. OUT can be reached through either the tag check
           ;; or through the array type check. Both checks clear ZF when
@@ -1786,7 +1542,7 @@
     (emit-trailer (bounds-error-label)
       (load-constant :r13 'sys.int::raise-bounds-error)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r8 simple-vector t)
     (smash-r8)
@@ -1794,21 +1550,21 @@
     (fixnum-check :r9)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
           ;; Load header word.
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
           ;; Check array type.
           `(sys.lap-x86:test8 :al :al)
           `(sys.lap-x86:jnz ,type-error-label)
           ;; Check bounds.
           `(sys.lap-x86:mov64 :rcx :r9)
-          `(sys.lap-x86:shr64 :rcx 3)
-          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
+          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
           ;; Load!
-          `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin sys.int::%svref (simple-vector index) ()
@@ -1816,9 +1572,11 @@
   (load-in-r8 simple-vector t)
   (smash-r8)
   (cond ((quoted-constant-p index)
-         (emit `(sys.lap-x86:mov64 :r8 (:r8 ,(+ 1 (* (second index) 8))))))
+         (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot (second index)))))
         (t (load-in-reg :r9 index t)
-           (emit `(sys.lap-x86:mov64 :r8 (:r8 1 :r9)))))
+           (emit `(sys.lap-x86:mov64 :rax :r9)
+                 `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+))
+           (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rax 8))))))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf svref) (value simple-vector index) ()
@@ -1829,7 +1587,7 @@
     (emit-trailer (bounds-error-label)
       (load-constant :r13 'sys.int::raise-bounds-error)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r8 value t)
     (load-in-reg :r9 simple-vector t)
@@ -1837,21 +1595,21 @@
     (fixnum-check :r10)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
           ;; Load header word.
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
           ;; Check array type.
           `(sys.lap-x86:test8 :al :al)
           `(sys.lap-x86:jnz ,type-error-label)
           ;; Check bounds.
           `(sys.lap-x86:mov64 :rcx :r10)
-          `(sys.lap-x86:shr64 :rcx 3)
-          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
+          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
           ;; Store!
-          `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf sys.int::%svref) (value simple-vector index) ()
@@ -1859,9 +1617,11 @@
   (load-in-reg :r8 value t)
   (load-in-reg :r9 simple-vector t)
   (cond ((quoted-constant-p index)
-         (emit `(sys.lap-x86:mov64 (:r9 ,(+ 1 (* (second index) 8))) :r8)))
+         (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot (second index)) :r8)))
         (t (load-in-reg :r10 index t)
-           (emit `(sys.lap-x86:mov64 (:r9 1 :r10) :r8))))
+           (emit `(sys.lap-x86:mov64 :rax :r10)
+                 `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+))
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rax 8)) :r8))))
   (setf *r8-value* (list (gensym))))
 
 (define-tag-type-predicate characterp sys.int::+tag-character+)
@@ -1869,12 +1629,12 @@
 (defbuiltin system.internals::read-frame-pointer () ()
   (smash-r8)
   (emit `(sys.lap-x86:mov64 :rax :cfp)
-        `(sys.lap-x86:shl64 :rax 3)
+        `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
 (define-array-like-predicate system.internals::structure-object-p
-    sys.int::+array-type-struct+)
+    sys.int::+object-tag-structure-object+)
 
 (defbuiltin system.internals::%struct-slot (object slot) ()
   (let ((type-error-label (gensym))
@@ -1884,7 +1644,7 @@
     (emit-trailer (bounds-error-label)
       (load-constant :r13 'sys.int::raise-bounds-error)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r9 slot t)
     (fixnum-check :r9)
@@ -1892,20 +1652,21 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ sys.int::+array-type-shift+))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
           `(sys.lap-x86:mov64 :rcx :r9)
-          `(sys.lap-x86:shr64 :rcx 3)
+          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
           ;; Check bounds.
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
           ;; Load.
-          `(sys.lap-x86:mov64 :r8 (:r8 1 (:rcx 8))))
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rcx 8))))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf system.internals::%struct-slot) (value object slot) ()
@@ -1916,7 +1677,7 @@
     (emit-trailer (bounds-error-label)
       (load-constant :r13 'sys.int::raise-bounds-error)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r10 slot t)
     (fixnum-check :r10)
@@ -1924,20 +1685,21 @@
     (load-in-reg :r8 value t)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ sys.int::+array-type-shift+))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
           `(sys.lap-x86:mov64 :rcx :r10)
-          `(sys.lap-x86:shr64 :rcx 3)
+          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
           ;; Check bounds.
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
           ;; Store.
-          `(sys.lap-x86:mov64 (:r9 1 (:rcx 8)) :r8))
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
     *r8-value*))
 
 (defbuiltin sys.int::%cas-struct-slot (object slot old new) ()
@@ -1948,7 +1710,7 @@
     (emit-trailer (bounds-error-label)
       (load-constant :r13 'sys.int::raise-bounds-error)
       (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call (:symbol-function :r13))
+            `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
             `(sys.lap-x86:ud2)))
     (load-in-reg :r10 slot t)
     (fixnum-check :r10)
@@ -1958,15 +1720,16 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r9l)
           `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r9))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+array-type-struct+ sys.int::+array-type-shift+))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
           ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax 8)
+          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
           `(sys.lap-x86:mov64 :rcx :r10)
-          `(sys.lap-x86:shr64 :rcx 3)
+          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
           ;; Check bounds.
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
@@ -1976,7 +1739,7 @@
           `(sys.lap-x86:cli)
           `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:lock)
-          `(sys.lap-x86:cmpxchg (:r9 1 (:rcx 8)) :r11)
+          `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11)
           `(sys.lap-x86:mov64 :r9 t)
           `(sys.lap-x86:mov64 :r8 nil)
           `(sys.lap-x86:cmov64z :r8 :r9)
@@ -2002,7 +1765,7 @@
 	  ;; Mask away the non-code bits.
 	  `(sys.lap-x86:and32 :r8d #x01fffff0)
 	  ;; Shift to fixnum.
-	  `(sys.lap-x86:shr32 :r8d 1))
+	  `(sys.lap-x86:shr32 :r8d ,(- 4 sys.int::+n-fixnum-bits+)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin system:char-bits (character) ()
@@ -2016,7 +1779,7 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-character+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:and32 :r8d #x1e000000)
-          `(sys.lap-x86:shr32 :r8d 22))
+          `(sys.lap-x86:shr32 :r8d ,(- 25 sys.int::+n-fixnum-bits+)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin char-int (char) ()
@@ -2032,20 +1795,20 @@
 	  ;; Mask away the tag bits.
 	  `(sys.lap-x86:and32 :r8d -16)
 	  ;; Shift to fixnum.
-	  `(sys.lap-x86:shr32 :r8d 1))
+	  `(sys.lap-x86:shr32 :r8d ,(- 4 sys.int::+n-fixnum-bits+)))
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin system:fixnump (object) ()
   (load-in-reg :r8 object t)
-  (emit `(sys.lap-x86:test8 :r8l #b111))
+  (emit `(sys.lap-x86:test8 :r8l ,sys.int::+fixnum-tag-mask+))
   (predicate-result :z))
 
 (defbuiltin sys.int::%%assemble-value (address tag) ()
   (load-in-reg :rax tag t)
   (load-in-reg :r8 address t)
   (smash-r8)
-  (emit `(sys.lap-x86:shr32 :eax 3)
-        `(sys.lap-x86:shr64 :r8 3)
+  (emit `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:shr64 :r8 ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:or64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
@@ -2053,32 +1816,51 @@
   (load-in-reg :r8 value t)
   (smash-r8)
   (emit `(sys.lap-x86:and64 :r8 -16)
-        `(sys.lap-x86:shr64 :r8 1))
+        `(sys.lap-x86:shr64 :r8 ,(- 4 sys.int::+n-fixnum-bits+)))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%tag-field (value) ()
   (load-in-reg :r8 value t)
   (smash-r8)
-  (emit `(sys.lap-x86:shl64 :r8 3)
-        `(sys.lap-x86:and64 :r8 #b1111000))
+  (emit `(sys.lap-x86:shl64 :r8 ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:and64 :r8 ,(ash (1- (ash 1 4)) sys.int::+n-fixnum-bits+)))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::lisp-object-address (value) ()
   (load-in-reg :r8 value t)
   (smash-r8)
   ;; Convert to fixnum.
-  (emit `(sys.lap-x86:shl64 :r8 3))
+  (emit `(sys.lap-x86:shl64 :r8 ,sys.int::+n-fixnum-bits+))
   (setf *r8-value* (list (gensym))))
 
-(define-array-like-predicate sys.int::std-instance-p sys.int::+array-type-std-instance+)
+(define-array-like-predicate sys.int::std-instance-p sys.int::+object-tag-std-instance+)
 (define-array-like-accessor sys.int::std-instance-class
-    sys.int::std-instance sys.int::+array-type-std-instance+
+    sys.int::std-instance sys.int::+object-tag-std-instance+
     0)
 (define-array-like-accessor sys.int::std-instance-slots
-    sys.int::std-instance sys.int::+array-type-std-instance+
+    sys.int::std-instance sys.int::+object-tag-std-instance+
     1)
 
-(define-tag-type-predicate functionp sys.int::+tag-function+)
+(defbuiltin functionp (object) ()
+  (let ((out (gensym)))
+    (load-in-reg :r9 object t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :r8 nil)
+          ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,out)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-function-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-function-object-tag+
+                                          sys.int::+first-function-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmov64be :r8 (:constant t))
+          out)
+    (setf *r8-value* (list (gensym)))))
 
 (defbuiltin sys.int::%stihlt () ()
   (emit `(sys.lap-x86:sti)
@@ -2106,7 +1888,7 @@
 (defbuiltin sys.int::%cr3 () ()
   (smash-r8)
   (emit `(sys.lap-x86:movcr :rax :cr3)
-        `(sys.lap-x86:shl64 :rax 3)
+        `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:mov64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
@@ -2114,11 +1896,11 @@
   (load-in-r8 value t)
   (fixnum-check :r8)
   (emit `(sys.lap-x86:mov64 :rax :r8)
-        `(sys.lap-x86:shr64 :rax 3)
+        `(sys.lap-x86:shr64 :rax ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:movcr :cr3 :rax))
   value)
 
-(define-array-like-predicate sys.int::bignump sys.int::+array-type-bignum+)
+(define-array-like-predicate sys.int::bignump sys.int::+object-tag-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)
 
 (defbuiltin sys.int::%array-like-length (thing) ()
@@ -2129,14 +1911,24 @@
     (smash-r8)
     (emit `(sys.lap-x86:mov8 :al :r8l)
 	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-array-like+)
+	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
 	  `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax (:simple-array-header :r8))
+          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
 	  ;; Convert length to fixnum.
-	  `(sys.lap-x86:shr64 :rax 5)
-	  `(sys.lap-x86:and64 :rax -8)
+	  `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
+	  `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
 	  `(sys.lap-x86:mov64 :r8 :rax))
     (setf *r8-value* (list (gensym)))))
+
+(defbuiltin sys.int::%object-tag (thing) ()
+  (load-in-r8 thing t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+        `(sys.lap-x86:and32 :eax #xFF)
+        `(sys.lap-x86:shr32 :eax ,sys.int::+array-type-shift+)
+        `(sys.lap-x86:shl32 :eax ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:mov32 :r8d :eax))
+  (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%%special-stack-pointer () ()
   (smash-r8)
@@ -2165,7 +1957,7 @@
   (smash-r8)
   (let ((has-tls-slot (gensym)))
     ;; Ensure there is a TLS slot.
-    (emit `(sys.lap-x86:mov32 :eax (:symbol-flags :r9))
+    (emit `(sys.lap-x86:mov32 :eax ,(object-ea :r9 :slot -1))
           `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
           `(sys.lap-x86:and32 :eax #xFFFF)
           `(sys.lap-x86:jnz ,has-tls-slot))
@@ -2174,7 +1966,7 @@
     (call-support-function 'sys.int::%allocate-tls-slot 1)
     (load-in-reg :r9 symbol t)
     (emit `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:shr32 :eax 3)
+          `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
           has-tls-slot
           ;; Save the old value on the binding stack.
           ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
@@ -2218,7 +2010,7 @@
         `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
         `(sys.lap-x86:mov64 :r8 (:rax))
         `(sys.lap-x86:mov64 :r9 (:rax 8))
-        `(sys.lap-x86:mov32 :edx (:symbol-flags :r8))
+        `(sys.lap-x86:mov32 :edx ,(object-ea :r8 :slot -1))
         `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
         `(sys.lap-x86:and32 :edx #xFFFF)
         `(sys.lap-x86:gs)
@@ -2238,7 +2030,7 @@
         `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
         `(sys.lap-x86:mov64 :r8 (:rax 0))
         `(sys.lap-x86:mov64 :rcx (:rax 8))
-        `(sys.lap-x86:mov64 (:r8 :rcx ,(+ (- sys.int::+tag-array-like+) 8)) nil)
+        `(sys.lap-x86:mov64 ,(object-ea :r8 :index :rcx) nil)
         `(sys.lap-x86:mov64 (:rax 0) 0)
         `(sys.lap-x86:mov64 (:rax 8) 0)
         `(sys.lap-x86:gs)
@@ -2266,7 +2058,7 @@
   (declare (ignore single-value))
   (load-constant :r13 symbol)
   (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw n-args))
-        `(sys.lap-x86:call (:symbol-function :r13))))
+        `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))))
 
 (defun emit-type-error (register type)
   (let ((label (gensym "type-error")))
@@ -2274,63 +2066,36 @@
       (raise-type-error register type))
     label))
 
+(defun unpack-ub32-fixnum-into-register (value target scratch)
+  (let ((reg64 (sys.lap-x86::convert-width target 64))
+        (reg32 (sys.lap-x86::convert-width target 32)))
+    (cond ((and (quoted-constant-p value)
+                (typep (second value) '(unsigned-byte 32)))
+           (emit `(sys.lap-x86:mov32 ,reg32 ,(second value))))
+          (t (let ((type-error-label (emit-type-error scratch '(unsigned-byte 32))))
+               (load-in-r8 value t)
+               (smash-r8)
+               (emit `(sys.lap-x86:test64 ,scratch ,sys.int::+fixnum-tag-mask+)
+                     `(sys.lap-x86:jnz ,type-error-label)
+                     `(sys.lap-x86:mov64 ,reg64 ,scratch)
+                     `(sys.lap-x86:sar64 ,reg64 ,(+ 32 sys.int::+n-fixnum-bits+))
+                     `(sys.lap-x86:jnz ,type-error-label)
+                     `(sys.lap-x86:mov64 ,reg64 ,scratch)
+                     `(sys.lap-x86:shr64 ,reg64 ,sys.int::+n-fixnum-bits+)))))))
+
 (defbuiltin sys.int::msr (register) ()
   (smash-r8)
-  (cond ((and (quoted-constant-p register)
-              (typep (second register) '(unsigned-byte 32)))
-         (emit `(sys.lap-x86:mov32 :ecx ,(second register))))
-        (t (let ((type-error-label (emit-type-error :r8 '(unsigned-byte 32))))
-             (load-in-r8 register t)
-             (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 #b111)
-                   `(sys.lap-x86:jnz ,type-error-label)
-                   `(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 32)))
-                   `(sys.lap-x86:cmp64 :r8 :rsi)
-                   `(sys.lap-x86:jae ,type-error-label)
-                   `(sys.lap-x86:mov64 :rcx :r8)
-                   `(sys.lap-x86:shr64 :rcx 3)))))
-  (let ((overflow-error-label (gensym))
-        (ok-label (gensym))
-        (resume (gensym)))
-    (emit-trailer (overflow-error-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
-            `(sys.lap-x86:xor32 :edx :edx)
-            ;; CL holds the high 4 bits of the word.
-            ;; If bit 3 is non-zero, then the sign bit of word was set & a 128-bit bignum
-            ;; is required.
-            `(sys.lap-x86:test8 :cl #b1000)
-            `(sys.lap-x86:cmov64nz :r13 (:constant sys.int::%%make-bignum-128-rdx-rax))
-            `(sys.lap-x86:call (:symbol-function :r13))
-            `(sys.lap-x86:jmp ,resume)))
-    (emit `(sys.lap-x86:rdmsr)
-          ;; Convert result to integer.
-          `(sys.lap-x86:shl64 :rdx 32)
-          `(sys.lap-x86:or64 :rax :rdx)
-          ;; Check for overflow. Top 4 bits must be all 0.
-          `(sys.lap-x86:mov64 :rcx :rax)
-          `(sys.lap-x86:sar64 :rcx 60)
-          `(sys.lap-x86:jnz ,overflow-error-label)
-          ok-label
-          ;; Convert to fixnum.
-          `(sys.lap-x86:lea64 :r8 ((:rax 8)))
-          resume)
-    (setf *r8-value* (list (gensym)))))
+  (unpack-ub32-fixnum-into-register register :rcx :r8)
+  (emit `(sys.lap-x86:rdmsr)
+        ;; Pack result into one register
+        `(sys.lap-x86:shl64 :rdx 32)
+        `(sys.lap-x86:or64 :rax :rdx))
+  (box-unsigned-byte-64-rax)
+  (setf *r8-value* (list (gensym))))
 
 (defbuiltin (setf sys.int::msr) (value register) ()
   (smash-r8)
-  (cond ((and (quoted-constant-p register)
-              (typep (second register) '(unsigned-byte 32)))
-         (emit `(sys.lap-x86:mov32 :ecx ,(second register))))
-        (t (let ((type-error-label (emit-type-error :r8 '(unsigned-byte 32))))
-             (load-in-r8 register t)
-             (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 #b111)
-                   `(sys.lap-x86:jnz ,type-error-label)
-                   `(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 32)))
-                   `(sys.lap-x86:cmp64 :r8 :rsi)
-                   `(sys.lap-x86:jae ,type-error-label)
-                   `(sys.lap-x86:mov64 :rcx :r8)
-                   `(sys.lap-x86:shr64 :rcx 3)))))
+  (unpack-ub32-fixnum-into-register register :rcx :r8)
   (cond ((and (quoted-constant-p value)
               (typep (second value) '(unsigned-byte 64)))
          (emit `(sys.lap-x86:mov32 :eax ,(ldb (byte 32 0) (second value)))
@@ -2342,12 +2107,13 @@
              (emit-trailer (bignum-path)
                ;; Check for bignumness.
                (emit `(sys.lap-x86:and8 :dl #b1111)
-                     `(sys.lap-x86:cmp8 :dl #.sys.int::+tag-array-like+)
+                     `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
                      `(sys.lap-x86:jne ,type-error-label)
-                     `(sys.lap-x86:mov64 :rdx (:simple-array-header :r8))
-                     `(sys.lap-x86:cmp8 :dl #.(ash sys.int::+array-type-bignum+ 3))
+                     `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+                     `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
+                                                  sys.int::+array-type-shift+))
                      `(sys.lap-x86:jne ,type-error-label)
-                     `(sys.lap-x86:shr64 :rdx 8)
+                     `(sys.lap-x86:shr64 :rdx ,sys.int::+array-length-shift+)
                      ;; RDX = bignum length.
                      `(sys.lap-x86:cmp64 :rdx 2)
                      `(sys.lap-x86:je ,len-2-bignum)
@@ -2355,26 +2121,26 @@
                      `(sys.lap-x86:cmp64 :rdx 1)
                      `(sys.lap-x86:jne ,type-error-label)
                      ;; And the sign bit must be clear.
-                     `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+                     `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
                      `(sys.lap-x86:shl64 :rdx 1)
                      `(sys.lap-x86:jc ,type-error-label)
                      `(sys.lap-x86:rcr64 :rdx 1)
                      `(sys.lap-x86:jmp ,value-extracted)
                      len-2-bignum
                      ;; Length 2 bignums must have the high word be 0.
-                     `(sys.lap-x86:cmp64 (:r8 #.(+ (- sys.int::+tag-array-like+) 16)) 0)
+                     `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot 1) 0)
                      `(sys.lap-x86:jne ,type-error-label)
-                     `(sys.lap-x86:mov64 :rdx (:r8 #.(+ (- sys.int::+tag-array-like+) 8)))
+                     `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
                      `(sys.lap-x86:jmp ,value-extracted)
                      type-error-label)
                (raise-type-error :r8 '(unsigned-byte 64)))
              (load-in-r8 value t)
              (emit `(sys.lap-x86:mov64 :rdx :r8)
-                   `(sys.lap-x86:test64 :rdx #b111)
+                   `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
                    `(sys.lap-x86:jnz ,bignum-path)
                    `(sys.lap-x86:cmp64 :r8 0)
                    `(sys.lap-x86:jl ,type-error-label)
-                   `(sys.lap-x86:sar64 :rdx 3)
+                   `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
                    value-extracted
                    `(sys.lap-x86:mov64 :rax :rdx)
                    `(sys.lap-x86:shr64 :rdx 32)))))
@@ -2392,3 +2158,200 @@
          (load-constant :rcx 0)
          :multiple)
         (t ''nil)))
+
+(defbuiltin sys.int::character-array-p (object) ()
+  (let ((out (gensym)))
+    (load-in-reg :r8 object t)
+    (smash-r8)
+    ;; Check tag.
+    (emit `(sys.lap-x86:mov8 :al :r8l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,out)
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:or8 :al ,(ash sys.int::+array-type-simple-bit+
+                                      sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-string+
+                                       sys.int::+array-type-shift+))
+          ;; Subtle. OUT can be reached through either the tag check
+          ;; or through the array type check. Both checks clear ZF when
+          ;; they fail.
+          out)
+    (predicate-result :z)))
+
+(define-array-like-predicate sys.int::simple-character-array-p sys.int::+object-tag-simple-string+)
+
+(defbuiltin arrayp (object) ()
+  (let ((out (gensym)))
+    (load-in-reg :r9 object t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :r8 nil)
+          ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,out)
+          ;; Check object tag.
+          `(sys.lap-x86:cmp8 ,(object-ea :r9 :slot -1)
+                             ;; Complex arrays include simple arrays.
+                             ,(ash sys.int::+last-complex-array-object-tag+
+                                   sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmov64be :r8 (:constant t))
+          out)
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin sys.int::%complex-array-storage (complex-array) ()
+  (let ((type-error (emit-type-error :r8 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 complex-array t)
+    (smash-r8)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r8l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot 0)))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::%complex-array-storage) (value complex-array) ()
+  (let ((type-error (emit-type-error :r9 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 value t)
+    (load-in-reg :r9 complex-array t)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot 0) :r8))
+    value))
+
+(defbuiltin sys.int::%complex-array-fill-pointer (complex-array) ()
+  (let ((type-error (emit-type-error :r8 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 complex-array t)
+    (smash-r8)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r8l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot 1)))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::%complex-array-fill-pointer) (value complex-array) ()
+  (let ((type-error (emit-type-error :r9 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 value t)
+    (load-in-reg :r9 complex-array t)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot 1) :r8))
+    value))
+
+(defbuiltin sys.int::%complex-array-info (complex-array) ()
+  (let ((type-error (emit-type-error :r8 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 complex-array t)
+    (smash-r8)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r8l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot 2)))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::%complex-array-info) (value complex-array) ()
+  (let ((type-error (emit-type-error :r9 '(and array
+                                           (not (simple-array * (*)))))))
+    (load-in-reg :r8 value t)
+    (load-in-reg :r9 complex-array t)
+    (emit ;; Check tag.
+          `(sys.lap-x86:mov8 :al :r9l)
+          `(sys.lap-x86:and8 :al #b1111)
+          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+          `(sys.lap-x86:jne ,type-error)
+          ;; Check object tag.
+          `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
+                                          sys.int::+first-complex-array-object-tag+)
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:ja ,type-error)
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot 2) :r8))
+    value))
+
+(defbuiltin sys.int::%object-header-data (value) ()
+  (load-in-reg :r8 value t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot -1))
+        `(sys.lap-x86:and64 :r8 ,(lognot (1- (ash 1 sys.int::+array-length-shift+))))
+        `(sys.lap-x86:shr64 :r8 ,(- sys.int::+array-length-shift+
+                                    sys.int::+n-fixnum-bits+)))
+  (setf *r8-value* (list (gensym))))
+
+;; FIXME: Type & limit checking here.
+
+(defbuiltin sys.int::%complex-array-dimension (array axis) ()
+  (load-in-reg :r9 axis t)
+  (load-in-reg :r8 array t)
+  (smash-r8)
+  (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8
+                                            :slot 3
+                                            :index `(:r9 ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))))))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin (setf sys.int::%complex-array-dimension) (value array axis) ()
+  (load-in-reg :r8 value t)
+  (load-in-reg :r9 axis t)
+  (load-in-reg :r10 array t)
+  (emit `(sys.lap-x86:mov64 ,(object-ea :r10
+                                        :slot 3
+                                        :index `(:r9 ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))))
+                            :r8))
+  value)

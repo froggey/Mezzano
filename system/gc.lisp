@@ -183,7 +183,10 @@
 (defun immediatep (object)
   "Return true if OBJECT is an immediate object."
   (case (%tag-field object)
-    ((#.+tag-even-fixnum+ #.+tag-odd-fixnum+
+    ((#.+tag-fixnum-000+ #.+tag-fixnum-001+
+      #.+tag-fixnum-010+ #.+tag-fixnum-011+
+      #.+tag-fixnum-100+ #.+tag-fixnum-101+
+      #.+tag-fixnum-110+ #.+tag-fixnum-111+
       #.+tag-character+ #.+tag-single-float+
       #.+tag-unbound-value+)
      t)
@@ -374,7 +377,7 @@
        (mumble-hex return-address "RA: " t))
      (let* ((fn-address (base-address-of-internal-pointer return-address))
             (fn-offset (- return-address fn-address))
-            (fn (%%assemble-value fn-address +tag-function+)))
+            (fn (%%assemble-value fn-address +tag-object+)))
        (when *gc-debug-scavenge-stack*
          (mumble-hex fn-address "fn: " t)
          (mumble-hex fn-offset "fnoffs: " t))
@@ -404,7 +407,7 @@
                        (other-stack-pointer (memref-unsigned-byte-64 frame-pointer 4))
                        (other-fn-address (base-address-of-internal-pointer other-return-address))
                        (other-fn-offset (- other-return-address other-fn-address))
-                       (other-fn (%%assemble-value other-fn-address +tag-function+)))
+                       (other-fn (%%assemble-value other-fn-address +tag-object+)))
                   (when *gc-debug-scavenge-stack*
                     (mumble-hex other-return-address "oRA: " t)
                     (mumble-hex other-frame-pointer "oFP: " t)
@@ -644,21 +647,71 @@
          (length (ldb (byte +array-length-size+ +array-length-shift+) header))
          (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
     ;; Dispatch again based on the type.
-    (cond ((member type '(#.+array-type-t+
-                          #.+array-type-std-instance+
-                          #.+array-type-struct+))
-           ;; simple-vector, std-instance or structure-object.
-           (when (hash-table-p object)
-             (setf (hash-table-rehash-required object) 't))
-           ;; 1+ to account for the header word.
-           (scan-generic object (1+ length)))
-          ((eql type +array-type-stack-group+)
-           (scan-stack-group object))
-          ;; Ignore numeric arrays and bignums.
-          ;; Array-type 0 is simple-vector, but that's handled above.
-          ((or (<= type +last-array-type+)
-               (eql type +array-type-bignum+)))
-          (t (scan-error object)))))
+    (case type
+      (#.+object-tag-array-t+
+       ;; simple-vector
+       ;; 1+ to account for the header word.
+       (scan-generic object (1+ length)))
+      ((#.+object-tag-memory-array+
+        #.+object-tag-simple-string+
+        #.+object-tag-string+
+        #.+object-tag-simple-array+
+        #.+object-tag-array+)
+       ;; Dimensions don't need to be scanned
+       (scan-generic object 4))
+      ((#.+object-tag-complex-rational+
+        #.+object-tag-ratio+)
+       (scan-generic object 3))
+      (#.+object-tag-symbol+
+       (scan-generic object 6))
+      (#.+object-tag-structure-object+
+       (when (hash-table-p object)
+         (setf (hash-table-rehash-required object) 't))
+       (scan-generic object (1+ length)))
+      (#.+object-tag-std-instance+
+       (scan-generic object 3))
+      ((#.+object-tag-function+
+        #.+object-tag-closure+
+        #.+object-tag-funcallable-instance+)
+       (scan-function object))
+      ;; Things that don't need to be scanned.
+      ((#.+object-tag-array-fixnum+
+        #.+object-tag-array-bit+
+        #.+object-tag-array-unsigned-byte-2+
+        #.+object-tag-array-unsigned-byte-4+
+        #.+object-tag-array-unsigned-byte-8+
+        #.+object-tag-array-unsigned-byte-16+
+        #.+object-tag-array-unsigned-byte-32+
+        #.+object-tag-array-unsigned-byte-64+
+        #.+object-tag-array-signed-byte-1+
+        #.+object-tag-array-signed-byte-2+
+        #.+object-tag-array-signed-byte-4+
+        #.+object-tag-array-signed-byte-8+
+        #.+object-tag-array-signed-byte-16+
+        #.+object-tag-array-signed-byte-32+
+        #.+object-tag-array-signed-byte-64+
+        #.+object-tag-array-single-float+
+        #.+object-tag-array-double-float+
+        #.+object-tag-array-short-float+
+        #.+object-tag-array-long-float+
+        #.+object-tag-array-complex-single-float+
+        #.+object-tag-array-complex-double-float+
+        #.+object-tag-array-complex-short-float+
+        #.+object-tag-array-complex-long-float+
+        #.+object-tag-array-xmm-vector+
+        #.+object-tag-bignum+
+        #.+object-tag-double-float+
+        #.+object-tag-short-float+
+        #.+object-tag-long-float+
+        ;; not complex-rational or ratio, they may hold other numbers.
+        #.+object-tag-complex-single-float+
+        #.+object-tag-complex-double-float+
+        #.+object-tag-complex-short-float+
+        #.+object-tag-complex-long-float+
+        #.+object-tag-xmm-vector+))
+      (#.+object-tag-stack-group+
+       (scan-stack-group object))
+      (t (scan-error object)))))
 
 (defun scan-function (object)
   ;; Scan the constant pool.
@@ -672,14 +725,8 @@
   (case (%tag-field object)
     (#.+tag-cons+
      (scan-generic object 2))
-    (#.+tag-symbol+
-     (scan-generic object 6))
-    (#.+tag-array-header+
-     (scan-generic object 4))
-    (#.+tag-array-like+
+    (#.+tag-object+
      (scan-array-like object))
-    (#.+tag-function+
-     (scan-function object))
     (t (scan-error object))))
 
 (defun transport-error (object)
@@ -725,17 +772,27 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (when (eql (ldb (byte 4 0) header) +tag-gc-forward+)
       (return-from transport-array-like
         (%%assemble-value (logand header (lognot #b1111))
-                          +tag-array-like+)))
+                          +tag-object+)))
     (when (hash-table-p object)
       (setf (hash-table-rehash-required object) 't))
     ;; Dispatch again based on the type.
     (case type
-      ((#.+array-type-t+
-        #.+array-type-std-instance+
-        #.+array-type-struct+)
+      ((#.+object-tag-array-t+
+        #.+object-tag-array-fixnum+
+        #.+object-tag-structure-object+)
        ;; simple-vector, std-instance or structure-object.
        ;; 1+ to account for the header word.
        (transport-generic object (1+ length)))
+      (#.+object-tag-symbol+
+       (transport-generic object 6))
+      (#.+object-tag-std-instance+
+       (transport-generic object 4))
+      ((#.+object-tag-memory-array+
+        #.+object-tag-simple-string+
+        #.+object-tag-string+
+        #.+object-tag-simple-array+
+        #.+object-tag-array+)
+       (transport-generic object (+ 4 length)))
       ;; Nothing else can be transported
       (t (transport-error object)))))
 
@@ -745,11 +802,7 @@ Leaves pointer fields unchanged and returns the new object."
   (case (%tag-field object)
     (#.+tag-cons+
      (transport-generic object 2))
-    (#.+tag-symbol+
-     (transport-generic object 6))
-    (#.+tag-array-header+
-     (transport-generic object 4))
-    (#.+tag-array-like+
+    (#.+tag-object+
      (transport-array-like object))
     (t (transport-error object))))
 
@@ -980,16 +1033,16 @@ the header word. LENGTH is the number of elements in the array."
             (logior (ash length +array-length-shift+)
                     (ash tag +array-type-shift+)))
       ;; Return value.
-      (%%assemble-value address +tag-array-like+))))
+      (%%assemble-value address +tag-object+))))
 
 (defun allocate-std-instance (class slots &optional area)
-  (let ((value (%allocate-array-like +array-type-std-instance+ 2 2 area)))
+  (let ((value (%allocate-array-like +object-tag-std-instance+ 2 2 area)))
     (setf (std-instance-class value) class
           (std-instance-slots value) slots)
     value))
 
 (defun %make-struct (length &optional area)
-  (%allocate-array-like +array-type-struct+ length length area))
+  (%allocate-array-like +object-tag-structure-object+ length length area))
 
 (define-lap-function %%add-function-to-bochs-debugger ()
   (sys.lap-x86:mov32 :eax 1)
@@ -998,7 +1051,7 @@ the header word. LENGTH is the number of elements in the array."
 
 (defun make-function-with-fixups (tag machine-code fixups constants gc-info)
   (with-interrupts-disabled ()
-    (let* ((mc-size (ceiling (+ (length machine-code) 12) 16))
+    (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
            (gc-info-size (ceiling (length gc-info) 8))
            (pool-size (length constants))
            (total (+ (* mc-size 2) pool-size gc-info-size)))
@@ -1006,17 +1059,18 @@ the header word. LENGTH is the number of elements in the array."
         (incf total))
       (let ((address (%raw-allocate total :static)))
         (%%add-function-to-bochs-debugger address
-                                          (+ (length machine-code) 12)
+                                          (+ (length machine-code) 16)
                                           (aref constants 0))
         ;; Initialize header.
         (setf (memref-unsigned-byte-64 address 0) 0
-              (memref-unsigned-byte-16 address 0) tag
+              (memref-unsigned-byte-64 address 1) #x9090909090909090
+              (memref-unsigned-byte-16 address 0) (ash tag +array-type-shift+)
               (memref-unsigned-byte-16 address 1) mc-size
               (memref-unsigned-byte-16 address 2) pool-size
               (memref-unsigned-byte-16 address 3) (length gc-info))
         ;; Initialize code.
         (dotimes (i (length machine-code))
-          (setf (memref-unsigned-byte-8 address (+ i 12)) (aref machine-code i)))
+          (setf (memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
         ;; Apply fixups.
         (dolist (fixup fixups)
           (let ((value (cond ((member (car fixup) '(nil t))
@@ -1034,10 +1088,10 @@ the header word. LENGTH is the number of elements in the array."
         (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
           (dotimes (i (length gc-info))
             (setf (memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
-        (%%assemble-value address +tag-function+)))))
+        (%%assemble-value address +tag-object+)))))
 
 (defun make-function (machine-code constants gc-info)
-  (make-function-with-fixups +function-type-function+ machine-code '() constants gc-info))
+  (make-function-with-fixups +object-tag-function+ machine-code '() constants gc-info))
 
 (defun make-closure (function environment)
   "Allocate a closure object."
@@ -1046,19 +1100,22 @@ the header word. LENGTH is the number of elements in the array."
     (let ((address (%raw-allocate 6 :static)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) #x00020001
+      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
+                                                        (ash +object-tag-closure+
+                                                             +array-type-shift+))
             ;; Constant pool size and slot count.
             (memref-unsigned-byte-32 address 1) #x00000002
-            (memref-unsigned-byte-32 address 2) #x00000000
+            ;; Unused bits.
+            (memref-unsigned-byte-32 address 2) #x90909090
+            (memref-unsigned-byte-32 address 3) #x90909090
             ;; The code.
-            ;; mov64 :rbx (:rip 21)/pool[1]
-            (memref-unsigned-byte-32 address 3) #x151D8B48
-            ;; jmp (:rip 7)/pool[0]
-            (memref-unsigned-byte-32 address 4) #xFF000000
-            (memref-unsigned-byte-32 address 5) #x00000725
-            (memref-unsigned-byte-32 address 6) #xCCCCCC00
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
-      (let ((value (%%assemble-value address +tag-function+)))
+            ;; mov64 :rbx (:rip 17)/pool[1]
+            (memref-unsigned-byte-32 address 4) #x111D8B48
+            ;; jmp (:rip 3)/pool[0]
+            (memref-unsigned-byte-32 address 5) #xFF000000
+            (memref-unsigned-byte-32 address 6) #x00000325
+            (memref-unsigned-byte-32 address 7) #xCCCCCC00)
+      (let ((value (%%assemble-value address +tag-object+)))
         ;; Initialize constant pool
         (setf (memref-t address 4) function
               (memref-t address 5) environment)
@@ -1071,44 +1128,33 @@ the header word. LENGTH is the number of elements in the array."
     (let ((address (%raw-allocate 8 :static)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) #x00020003
+      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
+                                                        (ash +object-tag-funcallable-instance+
+                                                             +array-type-shift+))
             ;; Constant pool size and slot count.
             (memref-unsigned-byte-32 address 1) #x00000003
-            (memref-unsigned-byte-32 address 2) #x00000000
+            ;; Unused bits.
+            (memref-unsigned-byte-32 address 2) #x90909090
+            (memref-unsigned-byte-32 address 3) #x90909090
             ;; The code.
-            ;; jmp (:rip 13)/pool[0]
-            (memref-unsigned-byte-32 address 3) #x000E25FF
-            (memref-unsigned-byte-32 address 4) #xCCCC0000
-            (memref-unsigned-byte-32 address 5) #xCCCCCCCC
+            ;; jmp (:rip 10)/pool[0]
+            (memref-unsigned-byte-32 address 4) #x000A25FF
+            (memref-unsigned-byte-32 address 5) #xCCCC0000
             (memref-unsigned-byte-32 address 6) #xCCCCCCCC
             (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
-      (let ((value (%%assemble-value address +tag-function+)))
+      (let ((value (%%assemble-value address +tag-object+)))
         ;; Initialize constant pool
         (setf (memref-t address 4) function
               (memref-t address 5) class
               (memref-t address 6) slots)
         value))))
 
-(defun %make-array-header (dimensions fill-pointer info storage &optional area)
-  (with-interrupts-disabled ()
-    (let ((value (%%assemble-value (%raw-allocate 4 area) +tag-array-header+)))
-      (setf (%array-header-dimensions value) dimensions
-            (%array-header-fill-pointer value) fill-pointer
-            (%array-header-info value) info
-            (%array-header-storage value) storage)
-      value)))
-
 (defun make-symbol-in-area (name &optional area)
   (check-type name string)
   (with-interrupts-disabled ()
-    (let* ((simp-name (sys.int::simplify-string name))
-           (address (%raw-allocate 6 area))
-           (symbol (%%assemble-value address +tag-symbol+)))
+    (let* ((symbol (%allocate-array-like +object-tag-symbol+ 6 0 area)))
       ;; symbol-name.
-      (setf (memref-t address 0) simp-name
-            ;; Must be done before makunbound to prevent random
-            ;; TLS slots from being smashed.
-            (%symbol-flags symbol) 0)
+      (setf (%array-like-ref-t symbol 0) name)
       (makunbound symbol)
       (%fmakunbound symbol)
       (setf (symbol-plist symbol) nil
@@ -1126,13 +1172,13 @@ the header word. LENGTH is the number of elements in the array."
   (:gc :frame)
   (sys.lap-x86:push :rdx)
   (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 16) ; fixnum 2
+  (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 16)))
-  (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 16)))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:leave)
   (:gc :no-frame)
   (sys.lap-x86:ret))
@@ -1144,12 +1190,12 @@ the header word. LENGTH is the number of elements in the array."
   (:gc :frame)
   (sys.lap-x86:push 0)
   (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx 8) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 8) ; fixnum 1
+  (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
-  (sys.lap-x86:call (:symbol-function :r13))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-array-like+) 8)))
-  (sys.lap-x86:mov32 :ecx 8) ; fixnum 1
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:leave)
   (:gc :no-frame)
   (sys.lap-x86:ret))
@@ -1160,16 +1206,16 @@ the header word. LENGTH is the number of elements in the array."
   (with-interrupts-disabled ()
     (let* ((address (%raw-allocate 2 :static)))
       (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 +array-length-shift+)
-                                                        (ash +array-type-bignum+ +array-type-shift+))
+                                                        (ash +object-tag-bignum+ +array-type-shift+))
             (memref-signed-byte-64 address 1) n)
-      (%%assemble-value address +tag-array-like+))))
+      (%%assemble-value address +tag-object+))))
 
 (defun %make-bignum-of-length (words)
   (with-interrupts-disabled ()
     (let* ((address (%raw-allocate (+ 1 words (if (logtest words 1) 0 1)) :static)))
       (setf (memref-unsigned-byte-64 address 0) (logior (ash words +array-length-shift+)
-                                                        (ash +array-type-bignum+ +array-type-shift+)))
-      (%%assemble-value address +tag-array-like+))))
+                                                        (ash +object-tag-bignum+ +array-type-shift+)))
+      (%%assemble-value address +tag-object+))))
 
 (defun %allocate-stack (length)
   (when (oddp length)

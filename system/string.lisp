@@ -9,12 +9,12 @@
     (symbol (symbol-name x))))
 
 (defun stringp (object)
-  (or (simple-string-p object)
-      (and (vectorp object)
-           (let ((element-type (array-element-type object)))
-             (or (eql element-type 'nil)
-                 (eql element-type 'base-char)
-                 (eql element-type 'character))))))
+  (and (character-array-p object)
+       (eql (array-rank object) 1)))
+
+(defun simple-string-p (object)
+  (and (simple-character-array-p object)
+       (eql (array-rank object) 1)))
 
 (macrolet ((def (name comparator docstring)
              `(defun ,name (string1 string2 &key (start1 0) end1 (start2 0) end2)

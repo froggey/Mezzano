@@ -102,11 +102,13 @@
 (defparameter *undefined-function-thunk*
   `(;; Pass invoked-through as the first argument.
     (sys.lap-x86:mov64 :r8 :r13)
-    (sys.lap-x86:mov32 :ecx ,(* 1 8))
+    (sys.lap-x86:mov32 :ecx ,(ash 1 sys.int::+n-fixnum-bits+))
     ;; Tail call through to RAISE-UNDEFINED-FUNCTION and let that
     ;; handle the heavy work.
     (sys.lap-x86:mov64 :r13 (:constant sys.int::raise-undefined-function))
-    (sys.lap-x86:jmp (:symbol-function :r13)))
+    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
+                               8
+                               (* sys.c::+symbol-function+ 8)))))
   "Code for the undefined function thunk.")
 
 (defparameter *setup-function*
@@ -149,12 +151,17 @@
     (sys.lap-x86:movseg :ss :eax)
     ;; Save the multiboot pointer.
     (sys.lap-x86:mov32 :ebx :ebx)
-    (sys.lap-x86:shl64 :rbx 3)
+    (sys.lap-x86:shl64 :rbx ,sys.int::+n-fixnum-bits+)
     (sys.lap-x86:mov64 :r8 (:constant sys.int::*multiboot-info*))
-    (sys.lap-x86:mov64 (:symbol-value :r8) :rbx)
+    (sys.lap-x86:mov64 (:r8 ,(+ (- sys.int::+tag-object+)
+                                8
+                                (* sys.c::+symbol-value+ 8)))
+                       :rbx)
     ;; Jump to the common boot code.
     (sys.lap-x86:mov64 :r13 (:constant sys.int::%%common-entry))
-    (sys.lap-x86:jmp (:symbol-function :r13))
+    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
+                               8
+                               (* sys.c::+symbol-function+ 8))))
     #+nil(:align 4) ; TODO!! ######
     gdtr
     (:d16/le gdt-length)
@@ -197,12 +204,17 @@
     (sys.lap-x86:movcr :cr3 :rax)
     ;; !!! Stack is invalid from here until stack group init.
     ;; Save the tag list address.
-    (sys.lap-x86:shl64 :rsi 3)
+    (sys.lap-x86:shl64 :rsi ,sys.int::+n-fixnum-bits+)
     (sys.lap-x86:mov64 :r8 (:constant sys.int::*kboot-tag-list*))
-    (sys.lap-x86:mov64 (:symbol-value :r8) :rsi)
+    (sys.lap-x86:mov64 (:r8 ,(+ (- sys.int::+tag-object+)
+                                8
+                                (* sys.c::+symbol-value+ 8)))
+                       :rsi)
     ;; Jump to the common boot code.
     (sys.lap-x86:mov64 :r13 (:constant sys.int::%%common-entry))
-    (sys.lap-x86:jmp (:symbol-function :r13))
+    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
+                               8
+                               (* sys.c::+symbol-function+ 8))))
     #+nil(:align 4) ; TODO!! ######
     gdtr
     (:d16/le gdt-length)
@@ -306,7 +318,14 @@
              (values offset *support-data*)))
           (t (error "Unknown address #x~X.~%" address)))))
 
+(defvar *word-locks*)
+
+(defun lock-word (address)
+  (setf (gethash address *word-locks*) t))
+
 (defun (setf word) (new-value address)
+  (when (gethash address *word-locks*)
+    (error "Attempted to write locked word at ~X~%" address))
   (multiple-value-bind (offset data-vector)
       (storage-info-for-address address)
     (setf (ub64ref/le data-vector (* offset 8)) new-value)))
@@ -319,7 +338,7 @@
 (defun compile-lap-function (code &optional (area :static) extra-symbols constant-values)
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (multiple-value-bind (mc constants fixups symbols gc-info)
-      (sys.lap-x86:assemble (list* (list :d32/le 0 0 0) code) ; 12 byte header.
+      (sys.lap-x86:assemble (list* (list :d64/le 0 #x9090909090909090) code) ; 16 byte header.
 	:base-address 0
         :initial-symbols (list* '(nil . :fixup)
                                 '(t . :fixup)
@@ -336,7 +355,8 @@
           (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
         ;; Set header word.
         (setf (word address) 0)
-        (setf (ldb (byte 16 0) (word address)) 0 ; tag
+        (setf (ldb (byte 16 0) (word address)) (ash sys.int::+object-tag-function+
+                                                    sys.int::+array-type-shift+) ; tag
               (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
               (ldb (byte 16 32) (word address)) (length constants)
               (ldb (byte 16 48) (word address)) (length gc-info))
@@ -361,10 +381,12 @@
                                   (truncate (length mc) 8)
                                   i)
                                0
-                               :full64)
+                               :full64
+                               code)
                          *pending-fixups*))))
         (dolist (fixup fixups)
-          (push (list (car fixup) address (cdr fixup) :signed32)
+          (assert (>= (cdr fixup) 16))
+          (push (list (car fixup) address (cdr fixup) :signed32 code)
                 *pending-fixups*))
         address))))
 
@@ -378,21 +400,29 @@
   (ldb (byte 4 0) value))
 
 (defun make-fixnum (value)
-  (check-type value (signed-byte 61))
-  (ldb (byte 64 0) (ash value 3)))
+  (assert (typep value `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+))))
+  (ldb (byte 64 0) (ash value sys.int::+n-fixnum-bits+)))
 
 (defun store-string (string)
-  (let ((address (allocate (1+ (ceiling (length string) 8)) :static)))
+  (let ((object-address (allocate 6 :static))
+        (data-address (allocate (1+ (ceiling (length string) 8)) :static)))
+    ;; String container
+    (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
+          (word (+ object-address 1)) (make-value data-address sys.int::+tag-object+)
+          (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP" nil) sys.int::+tag-object+)
+          (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP" nil) sys.int::+tag-object+)
+          (word (+ object-address 4)) (make-fixnum (length string)))
+    ;; Byte data.
     ;; Header word.
-    (setf (word address) (array-header sys.int::+array-type-base-char+ (length string)))
+    (setf (word data-address) (array-header sys.int::+object-tag-array-unsigned-byte-8+ (length string)))
     (dotimes (i (ceiling (length string) 8))
       (let ((value 0))
         (dotimes (j 8)
           (when (< (+ (* i 8) j) (length string))
             (setf (ldb (byte 8 64) value) (char-code (char string (+ (* i 8) j)))))
           (setf value (ash value -8)))
-        (setf (word (+ address 1 i)) value)))
-    address))
+        (setf (word (+ data-address 1 i)) value)))
+    object-address))
 
 (defun symbol-address (name package &optional (createp t))
   (or (gethash (cons name package) *symbol-table*)
@@ -401,16 +431,16 @@
                package
                name))
       (let ((address (allocate 6 :static)))
-        (setf (word address) (make-value (store-string name)
-                                         sys.int::+tag-array-like+)
-              (word (+ address 1)) (make-value (symbol-address package "KEYWORD") sys.int::+tag-symbol+)
-              (word (+ address 2)) (if (string= package "KEYWORD")
-                                       (make-value address sys.int::+tag-symbol+)
+        ;; fixme, keywords should be constant.
+        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
+              (word (+ address 1)) (make-value (store-string name)
+                                         sys.int::+tag-object+)
+              (word (+ address 2)) (make-value (symbol-address package "KEYWORD") sys.int::+tag-object+)
+              (word (+ address 3)) (if (string= package "KEYWORD")
+                                       (make-value address sys.int::+tag-object+)
                                        (make-value 0 sys.int::+tag-unbound-value+))
-              (word (+ address 3)) (make-value *undefined-function-address* sys.int::+tag-function+)
-              (word (+ address 4)) (make-value (gethash '("NIL" . "COMMON-LISP") *symbol-table*) sys.int::+tag-symbol+)
-              ;; fixme, keywords should be constant.
-              (word (+ address 5)) (make-fixnum 0))
+              (word (+ address 4)) (make-value *undefined-function-address* sys.int::+tag-object+)
+              (word (+ address 5)) (make-value (gethash '("NIL" . "COMMON-LISP") *symbol-table*) sys.int::+tag-object+))
         (setf (gethash address *reverse-symbol-table*) (cons name package)
               (gethash (cons name package) *symbol-table*) address))))
 
@@ -418,13 +448,13 @@
   (or (gethash symbol *setf-table*)
       (let ((name (write-to-string `(setf ,symbol)))
             (address (allocate 6)))
-        (setf (word address) (make-value (store-string name)
-                                         sys.int::+tag-array-like+)
-              (word (+ address 1)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+)
-              (word (+ address 2)) (make-value 0 sys.int::+tag-unbound-value+)
-              (word (+ address 3)) (make-value *undefined-function-address* sys.int::+tag-function+)
-              (word (+ address 4)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+)
-              (word (+ address 5)) (make-fixnum 0))
+        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
+              (word (+ address 1)) (make-value (store-string name)
+                                         sys.int::+tag-object+)
+              (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+              (word (+ address 3)) (make-value 0 sys.int::+tag-unbound-value+)
+              (word (+ address 4)) (make-value *undefined-function-address* sys.int::+tag-object+)
+              (word (+ address 5)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
         (setf (gethash symbol *setf-table*) address))))
 
 ;; fixme, nil and t should be constant.
@@ -435,34 +465,6 @@
         (keyword-keyword (allocate 6 :static))
         (cl-keyword (allocate 6 :static))
         (undef-fn (compile-lap-function *undefined-function-thunk* :static)))
-    (setf (word nil-value) (make-value (store-string "NIL")
-                                       sys.int::+tag-array-like+) ; name
-          (word (+ nil-value 1)) (make-value cl-keyword sys.int::+tag-symbol+) ; package
-          (word (+ nil-value 2)) (make-value nil-value sys.int::+tag-symbol+) ; value
-          (word (+ nil-value 3)) (make-value undef-fn sys.int::+tag-function+) ; function
-          (word (+ nil-value 4)) (make-value nil-value sys.int::+tag-symbol+) ; plist
-          (word (+ nil-value 5)) (make-fixnum 0)) ; flags
-    (setf (word t-value) (make-value (store-string "T")
-                                     sys.int::+tag-array-like+)
-          (word (+ t-value 1)) (make-value cl-keyword sys.int::+tag-symbol+)
-          (word (+ t-value 2)) (make-value t-value sys.int::+tag-symbol+)
-          (word (+ t-value 3)) (make-value undef-fn sys.int::+tag-function+)
-          (word (+ t-value 4)) (make-value nil-value sys.int::+tag-symbol+)
-          (word (+ t-value 5)) (make-fixnum 0))
-    (setf (word keyword-keyword) (make-value (store-string "KEYWORD")
-                                     sys.int::+tag-array-like+)
-          (word (+ keyword-keyword 1)) (make-value keyword-keyword sys.int::+tag-symbol+)
-          (word (+ keyword-keyword 2)) (make-value keyword-keyword sys.int::+tag-symbol+)
-          (word (+ keyword-keyword 3)) (make-value undef-fn sys.int::+tag-function+)
-          (word (+ keyword-keyword 4)) (make-value nil-value sys.int::+tag-symbol+)
-          (word (+ keyword-keyword 5)) (make-fixnum 0))
-    (setf (word cl-keyword) (make-value (store-string "COMMON-LISP")
-                                     sys.int::+tag-array-like+)
-          (word (+ cl-keyword 1)) (make-value keyword-keyword sys.int::+tag-symbol+)
-          (word (+ cl-keyword 2)) (make-value cl-keyword sys.int::+tag-symbol+)
-          (word (+ cl-keyword 3)) (make-value undef-fn sys.int::+tag-function+)
-          (word (+ cl-keyword 4)) (make-value nil-value sys.int::+tag-symbol+)
-          (word (+ cl-keyword 5)) (make-fixnum 0))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -474,7 +476,35 @@
           (gethash keyword-keyword *reverse-symbol-table*) '("KEYWORD" . "KEYWORD")
           (gethash '("COMMON-LISP" . "KEYWORD") *symbol-table*) cl-keyword
           (gethash cl-keyword *reverse-symbol-table*) '("COMMON-LISP" . "KEYWORD")
-          *undefined-function-address* undef-fn)))
+          *undefined-function-address* undef-fn)
+    (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
+          (word (+ nil-value 1)) (make-value (store-string "NIL")
+                                       sys.int::+tag-object+) ; name
+          (word (+ nil-value 2)) (make-value cl-keyword sys.int::+tag-object+) ; package
+          (word (+ nil-value 3)) (make-value nil-value sys.int::+tag-object+) ; value
+          (word (+ nil-value 4)) (make-value undef-fn sys.int::+tag-object+) ; function
+          (word (+ nil-value 5)) (make-value nil-value sys.int::+tag-object+)) ; plist
+    (setf (word (+ t-value 0)) (array-header sys.int::+object-tag-symbol+ 0)
+          (word (+ t-value 1)) (make-value (store-string "T")
+                                     sys.int::+tag-object+)
+          (word (+ t-value 2)) (make-value cl-keyword sys.int::+tag-object+)
+          (word (+ t-value 3)) (make-value t-value sys.int::+tag-object+)
+          (word (+ t-value 4)) (make-value undef-fn sys.int::+tag-object+)
+          (word (+ t-value 5)) (make-value nil-value sys.int::+tag-object+))
+    (setf (word (+ keyword-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
+          (word (+ keyword-keyword 1)) (make-value (store-string "KEYWORD")
+                                     sys.int::+tag-object+)
+          (word (+ keyword-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
+          (word (+ keyword-keyword 3)) (make-value keyword-keyword sys.int::+tag-object+)
+          (word (+ keyword-keyword 4)) (make-value undef-fn sys.int::+tag-object+)
+          (word (+ keyword-keyword 5)) (make-value nil-value sys.int::+tag-object+))
+    (setf (word (+ cl-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
+          (word (+ cl-keyword 1)) (make-value (store-string "COMMON-LISP")
+                                     sys.int::+tag-object+)
+          (word (+ cl-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
+          (word (+ cl-keyword 3)) (make-value cl-keyword sys.int::+tag-object+)
+          (word (+ cl-keyword 4)) (make-value undef-fn sys.int::+tag-object+)
+          (word (+ cl-keyword 5)) (make-value nil-value sys.int::+tag-object+))))
 
 (defun write-image (name kboot-entry)
   (with-open-file (s (make-pathname :type "image" :defaults name)
@@ -510,8 +540,8 @@
      (* (ceiling *support-offset* #x40000) #x40000)))
 
 (defun array-header (tag length)
-  (logior (ash tag 3)
-          (ash length 8)))
+  (logior (ash tag sys.int::+array-type-shift+)
+          (ash length sys.int::+array-length-shift+)))
 
 (defun pack-halfwords (low high)
   (check-type low (unsigned-byte 32))
@@ -630,28 +660,28 @@
          (binding-stack-size 1024)
          (binding-stack (allocate-stack binding-stack-size :binding)))
     ;; Array tag.
-    (setf (word (+ address 0)) (array-header sys.int::+array-type-stack-group+ 511))
+    (setf (word (+ address 0)) (array-header sys.int::+object-tag-stack-group+ 511))
     ;; Binding stack pointer.
-    (setf (word (+ address 1)) (make-fixnum (+ binding-stack binding-stack-size)))
+    (setf (word (+ address 1)) (* (+ binding-stack binding-stack-size) 8))
     ;; State word. Unsafe, active.
     (setf (word (+ address 2)) (make-fixnum 0))
     ;; Saved control stack pointer.
-    (setf (word (+ address 3)) (make-fixnum (+ control-stack control-stack-size)))
+    (setf (word (+ address 3)) (* (+ control-stack control-stack-size) 8))
     ;; Name.
-    (setf (word (+ address 4)) (make-value (store-string "Initial stack group") sys.int::+tag-array-like+))
-    ;; Control stack base.
-    (setf (word (+ address 5)) (make-fixnum control-stack))
+    (setf (word (+ address 4)) (make-value (store-string "Initial stack group") sys.int::+tag-object+))
+    ;; Control stack base. Byte pointer stored as ub64.
+    (setf (word (+ address 5)) (* control-stack 8))
     ;; Control stack size.
-    (setf (word (+ address 6)) (make-fixnum control-stack-size))
+    (setf (word (+ address 6)) (* control-stack-size 8))
     ;; Binding stack base.
-    (setf (word (+ address 7)) (make-fixnum binding-stack))
+    (setf (word (+ address 7)) (* binding-stack 8))
     ;; Binding stack size.
-    (setf (word (+ address 8)) (make-fixnum binding-stack-size))
+    (setf (word (+ address 8)) (* binding-stack-size 8))
     ;; Start of TLS slots.
     (dotimes (i (- 512 9))
       (setf (word (+ address 9 i)) #xFFFFFFFFFFFFFFFE))
-    (setf (word (+ (symbol-address "*INITIAL-STACK-GROUP*" "SYSTEM.INTERNALS") 2))
-          (make-value address sys.int::+tag-array-like+))))
+    (setf (cold-symbol-value 'sys.int::*initial-stack-group*)
+          (make-value address sys.int::+tag-object+))))
 
 (defun canonical-symbol-package (symbol)
   (when (keywordp symbol)
@@ -670,51 +700,52 @@
 (defun (setf cold-symbol-value) (value symbol)
   (setf (word (+ (symbol-address (symbol-name symbol)
                                  (canonical-symbol-package symbol))
-                 2))
+                 1
+                 sys.c::+symbol-value+))
         value))
 
 (defun generate-toplevel-form-array (functions symbol)
   ;; Generate array of toplevel forms to eval.
   (let* ((n (length functions))
          (toplevel-forms (allocate (1+ n))))
-    (setf (word toplevel-forms) (array-header sys.int::+array-type-t+ n))
+    (setf (word toplevel-forms) (array-header sys.int::+object-tag-array-t+ n))
     (iter (for i from 0)
           (for fn in functions)
           (setf (word (+ toplevel-forms 1 i)) fn))
-    (setf (cold-symbol-value symbol) (make-value toplevel-forms sys.int::+tag-array-like+))))
+    (setf (cold-symbol-value symbol) (make-value toplevel-forms sys.int::+tag-object+))))
 
 (defun generate-obarray (symtab target-symbol)
   (let ((obarray (allocate (1+ (hash-table-count symtab)))))
-    (setf (word obarray) (array-header sys.int::+array-type-t+ (hash-table-count symtab)))
+    (setf (word obarray) (array-header sys.int::+object-tag-array-t+ (hash-table-count symtab)))
     (iter (for (nil address) in-hashtable symtab)
           (for i from 0)
-          (setf (word (+ obarray 1 i)) (make-value address sys.int::+tag-symbol+)))
-    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-array-like+))))
+          (setf (word (+ obarray 1 i)) (make-value address sys.int::+tag-object+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-object+))))
 
 (defun generate-setf-obarray (symtab target-symbol)
   (let ((obarray (allocate (1+ (* (hash-table-count symtab) 2)))))
-    (setf (word obarray) (array-header sys.int::+array-type-t+ (* (hash-table-count symtab) 2)))
+    (setf (word obarray) (array-header sys.int::+object-tag-array-t+ (* (hash-table-count symtab) 2)))
     (iter (for (symbol address) in-hashtable symtab)
           (for i from 0)
-          (setf (word (+ obarray 1 (* i 2))) (make-value address sys.int::+tag-symbol+)
+          (setf (word (+ obarray 1 (* i 2))) (make-value address sys.int::+tag-object+)
                 (word (+ obarray 1 (1+ (* i 2)))) (vintern (symbol-name symbol) (canonical-symbol-package symbol))))
-    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-array-like+))))
+    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-object+))))
 
 (defun generate-struct-obarray (symtab target-symbol)
   (let ((obarray (allocate (1+ (hash-table-count symtab)))))
-    (setf (word obarray) (array-header sys.int::+array-type-t+ (hash-table-count symtab)))
+    (setf (word obarray) (array-header sys.int::+object-tag-array-t+ (hash-table-count symtab)))
     (iter (for (nil address) in-hashtable symtab)
           (for i from 0)
-          (setf (word (+ obarray 1 i)) (make-value (first address) sys.int::+tag-array-like+)))
-    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-array-like+))))
+          (setf (word (+ obarray 1 i)) (make-value (first address) sys.int::+tag-object+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-object+))))
 
 (defun generate-string-array (sequence target-symbol)
   (let ((obarray (allocate (1+ (length sequence)))))
-    (setf (word obarray) (array-header sys.int::+array-type-t+ (length sequence)))
+    (setf (word obarray) (array-header sys.int::+object-tag-array-t+ (length sequence)))
     (iter (for object in-sequence sequence)
           (for i from 0)
-          (setf (word (+ obarray 1 i)) (make-value (store-string object) sys.int::+tag-array-like+)))
-    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-array-like+))))
+          (setf (word (+ obarray 1 i)) (make-value (store-string object) sys.int::+tag-object+)))
+    (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-object+))))
 
 (defun write-map-file (image-name map)
   (with-open-file (s (format nil "~A.map" image-name)
@@ -722,7 +753,7 @@
                      :if-exists :supersede)
     (let ((*print-right-margin* 10000))
       (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
-            (format s "~X ~A~%" (make-value addr sys.int::+tag-function+) name)))))
+            (format s "~X ~A~%" (make-value addr sys.int::+tag-object+) name)))))
 
 ;; Ugh.
 (defun load-compiler-builtins ()
@@ -731,7 +762,7 @@
 
 (defun save-ub1-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 64)) area)))
-    (setf (word address) (array-header sys.int::+array-type-bit+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-bit+ (length vec)))
     (dotimes (i (ceiling (length vec) 64))
       (let ((value 0))
         (dotimes (j 64)
@@ -739,11 +770,11 @@
             (setf (ldb (byte 1 64) value) (aref vec (+ (* i 64) j))))
           (setf value (ash value -1)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub2-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 32)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-2+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-2+ (length vec)))
     (dotimes (i (ceiling (length vec) 32))
       (let ((value 0))
         (dotimes (j 32)
@@ -751,11 +782,11 @@
             (setf (ldb (byte 2 64) value) (aref vec (+ (* i 32) j))))
           (setf value (ash value -2)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub4-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 16)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-4+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-4+ (length vec)))
     (dotimes (i (ceiling (length vec) 16))
       (let ((value 0))
         (dotimes (j 16)
@@ -763,11 +794,11 @@
             (setf (ldb (byte 4 64) value) (aref vec (+ (* i 16) j))))
           (setf value (ash value -4)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub8-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 8)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-8+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-8+ (length vec)))
     (dotimes (i (ceiling (length vec) 8))
       (let ((value 0))
         (dotimes (j 8)
@@ -775,11 +806,11 @@
             (setf (ldb (byte 8 64) value) (aref vec (+ (* i 8) j))))
           (setf value (ash value -8)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub16-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 4)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-16+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-16+ (length vec)))
     (dotimes (i (ceiling (length vec) 4))
       (let ((value 0))
         (dotimes (j 4)
@@ -787,11 +818,11 @@
             (setf (ldb (byte 16 64) value) (aref vec (+ (* i 4) j))))
           (setf value (ash value -16)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub32-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (ceiling (length vec) 2)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-32+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-32+ (length vec)))
     (dotimes (i (ceiling (length vec) 2))
       (let ((value 0))
         (dotimes (j 2)
@@ -799,39 +830,39 @@
             (setf (ldb (byte 32 64) value) (aref vec (+ (* i 2) j))))
           (setf value (ash value -32)))
         (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-ub64-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (length vec)) area)))
-    (setf (word address) (array-header sys.int::+array-type-unsigned-byte-64+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-64+ (length vec)))
     (iter (for x in-sequence vec)
           (for i from 1)
           (setf (word (+ address i)) x))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-simple-vector (vec &optional (area :dynamic))
   (let ((address (allocate (1+ (length vec)) area)))
-    (setf (word address) (array-header sys.int::+array-type-t+ (length vec)))
+    (setf (word address) (array-header sys.int::+object-tag-array-t+ (length vec)))
     (iter (for x in-sequence vec)
           (for i from 1)
           (setf (word (+ address i)) (save-object x area)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun save-object (object &optional (area :dynamic))
   (etypecase object
-    ((signed-byte 61) (make-fixnum object))
+    ((signed-byte 63) (make-fixnum object))
     (string
      (let ((value (gethash object *string-dedup-table*)))
        (unless value
          (setf value (make-value (store-string object)
-                                 sys.int::+tag-array-like+))
+                                 sys.int::+tag-object+))
          (setf (gethash object *string-dedup-table*) value))
        value))
     (cons (vcons (save-object (car object))
                  (save-object (cdr object))))
     (symbol (make-value (symbol-address (symbol-name object)
                                         (canonical-symbol-package object))
-                        sys.int::+tag-symbol+))
+                        sys.int::+tag-object+))
     ((vector (unsigned-byte 1))
      (save-ub1-vector object :static))
     ((vector (unsigned-byte 2))
@@ -857,7 +888,8 @@
     (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :static))))
 
 (defun make-image (image-name &key extra-source-files)
-  (let ((*support-offset* 0)
+  (let ((*word-locks* (make-hash-table))
+        (*support-offset* 0)
         (*static-offset* 0)
         (*dynamic-offset* 0)
         (*stack-offset* 0)
@@ -886,6 +918,7 @@
                                     (collect (symbol-name sym)))
                               :test #'string=)))
     (create-support-objects)
+    ;; Multiboot header must be allocated within the first 8kb.
     (setf multiboot (allocate 5 :static)
           initial-stack (allocate 8 :static)
           gdt (allocate 3 :static)
@@ -899,7 +932,7 @@
                                                (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                ;; PML4 must be at this address
                                                (cons 'initial-page-table #x400000))))
-    (setf (cold-symbol-value 'sys.int::*%setup-function*) (make-value setup-fn sys.int::+tag-function+))
+    (setf (cold-symbol-value 'sys.int::*%setup-function*) (make-value setup-fn sys.int::+tag-object+))
     (create-initial-stack-group)
     (setf kboot-entry-fn (compile-lap-function *kboot-entry-function* :static
                                                (list (cons 'gdt (* (1+ gdt) 8))
@@ -909,7 +942,7 @@
                                                      (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                      ;; PML4 must be at this address
                                                      (cons 'initial-page-table #x400000))))
-    (setf (cold-symbol-value 'sys.int::*%kboot-entry*) (make-value kboot-entry-fn sys.int::+tag-function+))
+    (setf (cold-symbol-value 'sys.int::*%kboot-entry*) (make-value kboot-entry-fn sys.int::+tag-object+))
     (let ((*load-time-evals* '()))
       (load-compiler-builtins)
       (load-source-files *source-files* t)
@@ -950,9 +983,9 @@
             sys.int::*unicode-encoding-table* sys.int::*unicode-name-trie*
             sys.int::*%kboot-entry* sys.int::*kboot-tag-list*
             ))
-    (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-function+))
-    (setf (cold-symbol-value 'sys.int::*kboot-tag-list*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+)
-          (cold-symbol-value 'sys.int::*multiboot-info*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+))
+    (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*kboot-tag-list*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+          (cold-symbol-value 'sys.int::*multiboot-info*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
@@ -965,24 +998,24 @@
     (generate-setf-obarray *setf-table* 'sys.int::*initial-setf-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
     ;; Create GDT.
-    (setf (word gdt) (array-header sys.int::+array-type-unsigned-byte-64+ 2)
+    (setf (word gdt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 2)
           (word (+ gdt 1)) 0
           (word (+ gdt 2)) #x00209A0000000000)
-    (setf (cold-symbol-value 'sys.int::*gdt*) (make-value gdt sys.int::+tag-array-like+))
+    (setf (cold-symbol-value 'sys.int::*gdt*) (make-value gdt sys.int::+tag-object+))
     ;; Create IDT.
-    (setf (word idt) (array-header sys.int::+array-type-unsigned-byte-64+ 256))
+    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 256))
     (dotimes (i 256)
       (setf (word (1+ idt)) 0))
-    (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-array-like+))
+    (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-object+))
     ;; Create the setup stack.
-    (setf (word initial-stack) (array-header sys.int::+array-type-unsigned-byte-64+ 7))
-    (setf (cold-symbol-value 'sys.int::*%setup-stack*) (make-value initial-stack sys.int::+tag-array-like+))
-    (format t "Multiboot entry point at ~X~%" (make-value setup-fn sys.int::+tag-function+))
-    (format t "KBoot entry point at ~X~%" (make-value kboot-entry-fn sys.int::+tag-function+))
+    (setf (word initial-stack) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 7))
+    (setf (cold-symbol-value 'sys.int::*%setup-stack*) (make-value initial-stack sys.int::+tag-object+))
+    (format t "Multiboot entry point at ~X~%" (make-value setup-fn sys.int::+tag-object+))
+    (format t "KBoot entry point at ~X~%" (make-value kboot-entry-fn sys.int::+tag-object+))
     ;; Generate page tables.
     (setf (values initial-pml4 data-pml3) (create-page-tables))
     ;; Create multiboot header.
-    (setf (word multiboot) (array-header sys.int::+array-type-unsigned-byte-32+ 8)
+    (setf (word multiboot) (array-header sys.int::+object-tag-array-unsigned-byte-32+ 8)
           (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
           (word (+ multiboot 2)) (pack-halfwords (ldb (byte 32 0) (- (+ #x1BADB002 #x00010003)))
                                                  (* (1+ multiboot) 8))
@@ -990,8 +1023,8 @@
                                                  (+ *physical-load-address* (* (image-data-size) 8)))
           (word (+ multiboot 4)) (pack-halfwords (+ *physical-load-address*
                                                     (* (total-image-size) 8))
-                                                 (make-value setup-fn sys.int::+tag-function+)))
-    (setf (cold-symbol-value 'sys.int::*multiboot-header*) (make-value multiboot sys.int::+tag-array-like+))
+                                                 (make-value setup-fn sys.int::+tag-object+)))
+    (setf (cold-symbol-value 'sys.int::*multiboot-header*) (make-value multiboot sys.int::+tag-object+))
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
@@ -1020,7 +1053,7 @@
             (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
-    (write-image image-name (make-value kboot-entry-fn sys.int::+tag-function+))))
+    (write-image image-name (make-value kboot-entry-fn sys.int::+tag-object+))))
 
 (defun load-source-files (files set-fdefinitions)
   (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))
@@ -1052,10 +1085,10 @@
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
          (address (allocate (1+ length) :static)))
-    (setf (word address) (array-header sys.int::+array-type-bignum+ length))
+    (setf (word address) (array-header sys.int::+object-tag-bignum+ length))
     (dotimes (i length)
       (setf (word (+ address 1 i)) (ldb (byte 64 (* i 64)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 ;;; Mostly duplicated from the file compiler...
 (defun load-integer (stream)
@@ -1101,17 +1134,24 @@
 
 (defun load-string (stream)
   (let* ((len (load-integer stream))
-         (address (allocate (1+ (ceiling len 2)) :static)))
+         (object-address (allocate 6 :static))
+         (data-address (allocate (1+ (ceiling len 2)) :static)))
+    ;; String container
+    (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
+          (word (+ object-address 1)) (make-value data-address sys.int::+tag-object+)
+          (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+          (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+          (word (+ object-address 4)) (make-fixnum len))
     ;; Header word.
-    (setf (word address) (array-header sys.int::+array-type-character+ len))
+    (setf (word data-address) (array-header sys.int::+object-tag-array-unsigned-byte-32+ len))
     (dotimes (i (ceiling len 2))
       (let ((value 0))
         (dotimes (j 2)
           (when (< (+ (* i 2) j) len)
             (setf (ldb (byte 32 64) value) (load-character stream)))
           (setf value (ash value -32)))
-        (setf (word (+ address 1 i)) value)))
-    (make-value address sys.int::+tag-array-like+)))
+        (setf (word (+ data-address 1 i)) value)))
+    (make-value object-address sys.int::+tag-object+)))
 
 (defun load-string* (stream)
   (let* ((len (load-integer stream))
@@ -1130,17 +1170,17 @@
          (definition (gethash name *struct-table*)))
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
-           (make-value (first definition) sys.int::+tag-array-like+))
+           (make-value (first definition) sys.int::+tag-object+))
           (t (let ((address (allocate 7 :static)))
-               (setf (word address) (array-header sys.int::+array-type-struct+ 6))
-               (setf (word (+ address 1)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+))
+               (setf (word address) (array-header sys.int::+object-tag-structure-object+ 6))
+               (setf (word (+ address 1)) 0) ; uninitialized definition
                (setf (word (+ address 2)) name*)
                (setf (word (+ address 3)) slots*)
                (setf (word (+ address 4)) parent*)
                (setf (word (+ address 5)) area*)
-               (setf (word (+ address 6)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+))
+               (setf (word (+ address 6)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
                (setf (gethash name *struct-table*) (list address name slots))
-               (make-value address sys.int::+tag-array-like+))))))
+               (make-value address sys.int::+tag-object+))))))
 
 (defun extract-array (address element-width)
   (let* ((size (ldb (byte 56 8) (word address)))
@@ -1157,33 +1197,42 @@
   (let ((address (pointer-part value)))
     (ecase (tag-part value)
       ;; FIXME: Negative numbers...
-      ((#.sys.int::+tag-even-fixnum+
-        #.sys.int::+tag-odd-fixnum+)
-       (ash value -3))
+      ((#.sys.int::+tag-fixnum-000+ #.sys.int::+tag-fixnum-001+
+        #.sys.int::+tag-fixnum-010+ #.sys.int::+tag-fixnum-011+
+        #.sys.int::+tag-fixnum-100+ #.sys.int::+tag-fixnum-101+
+        #.sys.int::+tag-fixnum-110+ #.sys.int::+tag-fixnum-111+)
+       (ash value (- sys.int::+n-fixnum-bits+)))
       (#.sys.int::+tag-character+
        (code-char (ash value -4)))
       (#.sys.int::+tag-cons+
        (cons (extract-object (word address))
              (extract-object (word (1+ address)))))
-      (#.sys.int::+tag-symbol+
-       (destructuring-bind (name . package)
-           (gethash address *reverse-symbol-table*)
-         (unless (and name package)
-           (error "Unknown symbol ~S at address ~X?"
-                  (extract-object (word address))
-                  address))
-         (intern name package)))
-      (#.sys.int::+tag-array-like+
-       (ecase (ldb (byte sys.int::+array-type-size+
-                         sys.int::+array-type-shift+)
-                   (word address))
-         (#.sys.int::+array-type-base-char+
-          (map 'simple-string 'code-char (extract-array address 8)))
-         (#.sys.int::+array-type-character+
-          (map 'simple-string 'code-char (extract-array address 32))))))))
+      (#.sys.int::+tag-object+
+       (let* ((header (word address))
+              (tag (ldb (byte sys.int::+array-type-size+
+                              sys.int::+array-type-shift+)
+                        header)))
+         (ecase tag
+           (#.sys.int::+object-tag-symbol+
+            (destructuring-bind (name . package)
+                (gethash address *reverse-symbol-table*)
+              (unless (and name package)
+                (error "Unknown symbol ~S at address ~X?"
+                       (extract-object (word address))
+                       address))
+              (intern name package)))
+           ((#.sys.int::+object-tag-simple-string+
+             #.sys.int::+object-tag-string+)
+            (map 'simple-string 'code-char (extract-object (word (1+ address)))))
+           ((#.sys.int::+object-tag-array-unsigned-byte-8+)
+            (extract-array address 8))
+           ((#.sys.int::+object-tag-array-unsigned-byte-16+)
+            (extract-array address 16))
+           ((#.sys.int::+object-tag-array-unsigned-byte-32+)
+            (extract-array address 32))))))))
 
 (defun vintern (name package)
-  (make-value (symbol-address name package) sys.int::+tag-symbol+))
+  (make-value (symbol-address name package) sys.int::+tag-object+))
 
 (defun vcons (car cdr)
   (let ((address (allocate 2)))
@@ -1208,8 +1257,8 @@
   ;; gc-info
   (let* ((tag (read-byte stream))
          (mc-length (load-integer stream))
-         ;; mc-length does not include the 12 byte function header.
-         (mc (make-array (* (ceiling (+ mc-length 12) 8) 8)
+         ;; mc-length does not include the 16 byte function header.
+         (mc (make-array (* (ceiling (+ mc-length 16) 8) 8)
                          :element-type '(unsigned-byte 8)
                          :initial-element 0))
          (n-constants (load-integer stream))
@@ -1219,56 +1268,67 @@
          (fixups (vector-pop stack))
          ;; Pull n constants off the value stack.
          (constants (subseq stack (- (length stack) n-constants)))
-         (total-size (+ (* (ceiling (+ mc-length 12) 16) 2)
+         (total-size (+ (* (ceiling (+ mc-length 16) 16) 2)
                         n-constants
                         (ceiling gc-info-length 8)))
          (address (allocate total-size :static)))
     ;; Pop constants off.
     (decf (fill-pointer stack) n-constants)
     ;; Read mc bytes.
-    (read-sequence mc stream :start 12 :end (+ 12 mc-length))
+    (read-sequence mc stream :start 16 :end (+ 16 mc-length))
     ;; Copy machine code bytes.
-    (dotimes (i (ceiling (+ mc-length 12) 8))
-      (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
+    (dotimes (i (ceiling (+ mc-length 16) 8))
+      (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8)))
+      #+nil(when (not (member i '(0 1)))
+        (lock-word (+ address i))))
     ;; Read GC bytes.
     (read-sequence gc-info stream :end gc-info-length)
     ;; Copy GC bytes.
     (dotimes (i (ceiling gc-info-length 8))
       (setf (word (+ address
-                     (* (ceiling (+ mc-length 12) 16) 2)
+                     (* (ceiling (+ mc-length 16) 16) 2)
                      n-constants
                      i))
-            (nibbles:ub64ref/le gc-info (* i 8))))
+            (nibbles:ub64ref/le gc-info (* i 8)))
+      (lock-word (+ address
+                    (* (ceiling (+ mc-length 16) 16) 2)
+                    n-constants
+                    i)))
     ;; Set function header.
     (setf (word address) 0)
-    (setf (ldb (byte 16 0) (word address)) tag
-          (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 12) 16)
+    (setf (word (1+ address)) #x9090909090909090)
+    (lock-word (1+ address))
+    (setf (ldb (byte  8 0) (word address)) (ash tag sys.int::+array-type-shift+)
+          (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 16) 16)
           (ldb (byte 16 32) (word address)) n-constants
           (ldb (byte 16 48) (word address)) gc-info-length)
+    (lock-word address)
     ;; Set constant pool.
     (dotimes (i (length constants))
-      (setf (word (+ address (* (ceiling (+ mc-length 12) 16) 2) i))
-            (aref constants i)))
+      (setf (word (+ address (* (ceiling (+ mc-length 16) 16) 2) i))
+            (aref constants i))
+      (lock-word (+ address (* (ceiling (+ mc-length 16) 16) 2) i)))
     ;; Add to the function map.
     (push (list address (extract-object (aref constants 0)))
           *function-map*)
     ;; Add fixups to the list.
     (dolist (fixup (extract-object fixups))
-      (push (list (car fixup) address (cdr fixup) :signed32)
+      (assert (>= (cdr fixup) 16))
+      (push (list (car fixup) address (cdr fixup) :signed32 (aref constants 1))
             *pending-fixups*))
     ;; Done.
-    (make-value address sys.int::+tag-function+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun load-llf-vector (stream stack)
   (let* ((len (load-integer stream))
          (address (allocate (1+ len))))
     ;; Header word.
-    (setf (word address) (array-header sys.int::+array-type-t+ len))
+    (setf (word address) (array-header sys.int::+object-tag-array-t+ len))
     ;; Drop vector values and copy them into the image.
     (decf (fill-pointer stack) len)
     (dotimes (i len)
       (setf (word (+ address 1 i)) (aref stack (+ (length stack) i))))
-    (make-value address sys.int::+tag-array-like+)))
+    (make-value address sys.int::+tag-object+)))
 
 (defun load-one-object (command stream stack)
   (ecase command
@@ -1282,7 +1342,7 @@
      (let* ((name (load-string* stream))
             (package (load-string* stream)))
        (make-value (symbol-address name package)
-                   sys.int::+tag-symbol+)))
+                   sys.int::+tag-object+)))
     (#.+llf-uninterned-symbol+
      (let ((plist (vector-pop stack))
            (fn (vector-pop stack))
@@ -1290,24 +1350,24 @@
            (name (vector-pop stack))
            (address (allocate 6)))
        ;; FN and VALUE may be the unbound tag.
-       (setf (word address) name
-             (word (+ address 1)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+)
-             (word (+ address 2)) value
-             (word (+ address 3)) (if (eql fn sys.int::+tag-unbound-value+)
-                                      (make-value *undefined-function-address* sys.int::+tag-function+)
+       (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
+             (word (+ address 1)) name
+             (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+             (word (+ address 3)) value
+             (word (+ address 4)) (if (eql fn sys.int::+tag-unbound-value+)
+                                      (make-value *undefined-function-address* sys.int::+tag-object+)
                                       fn)
-             (word (+ address 4)) plist
-             (word (+ address 5)) (make-fixnum 0))
-       (make-value address sys.int::+tag-symbol+)))
+             (word (+ address 5)) plist)
+       (make-value address sys.int::+tag-object+)))
     (#.+llf-unbound+ sys.int::+tag-unbound-value+)
     (#.+llf-string+ (load-string stream))
     (#.+llf-setf-symbol+
      (let ((symbol (vector-pop stack)))
-       (make-value (resolve-setf-symbol (extract-object symbol)) sys.int::+tag-symbol+)))
+       (make-value (resolve-setf-symbol (extract-object symbol)) sys.int::+tag-object+)))
     (#.+llf-integer+
      (let ((value (load-integer stream)))
        (typecase value
-         ((signed-byte 61) (make-fixnum value))
+         ((signed-byte 63) (make-fixnum value))
          (t (make-bignum value)))))
     (#.+llf-invoke+
      ;; `(funcall ',fn)
@@ -1322,7 +1382,7 @@
             (fn-value (vector-pop stack))
             (name (resolve-function-name base-name)))
        (if *load-should-set-fdefinitions*
-           (setf (word (+ (pointer-part name) 3)) fn-value)
+           (setf (word (+ (pointer-part name) (1+ sys.c::+symbol-function+))) fn-value)
            ;; `(funcall #'(setf symbol-function) ',fn-value ',name)
            (push (vlist (vintern "FUNCALL" "COMMON-LISP")
                         (vlist (vintern "FUNCTION" "COMMON-LISP") (vlist (vintern "SETF" "COMMON-LISP") (vintern "SYMBOL-FUNCTION" "COMMON-LISP")))
@@ -1345,7 +1405,7 @@
      (logior (ash (load-integer stream) 32)
              sys.int::+tag-single-float+))
     (#.+llf-proper-list+
-     (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-symbol+))
+     (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
            (length (load-integer stream)))
        (dotimes (i length)
          (setf list (vcons (vector-pop stack) list)))
@@ -1354,18 +1414,18 @@
      (let* ((len (load-integer stream))
             (address (allocate (1+ len))))
        ;; Header word.
-       (setf (word address) (array-header sys.int::+array-type-t+ len))
+       (setf (word address) (array-header sys.int::+object-tag-array-t+ len))
        (dotimes (i len)
          (let ((value (load-integer stream)))
            (setf (word (+ address 1 i)) (typecase value
-                                          ((signed-byte 61) (make-fixnum value))
+                                          ((signed-byte 63) (make-fixnum value))
                                           (t (make-bignum value))))))
-       (make-value address sys.int::+tag-array-like+)))
+       (make-value address sys.int::+tag-object+)))
     (#.+llf-bit-vector+
      (let* ((len (load-integer stream))
             (address (allocate (1+ (ceiling len 64)))))
        ;; Header word.
-       (setf (word address) (array-header sys.int::+array-type-bit+ len))
+       (setf (word address) (array-header sys.int::+object-tag-array-bit+ len))
        (dotimes (i (ceiling len 8))
          (let ((octet (read-byte stream)))
            (multiple-value-bind (word offset)
@@ -1373,7 +1433,7 @@
              (setf (ldb (byte 8 (* offset 8))
                         (word (+ address 1 word)))
                    octet))))
-       (make-value address sys.int::+tag-array-like+)))))
+       (make-value address sys.int::+tag-object+)))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))
@@ -1408,7 +1468,7 @@
           ((and (= (list-length name) 2)
                 (eql (first name) 'setf)
                 (symbolp (second name)))
-           (make-value (resolve-setf-symbol (second name)) sys.int::+tag-symbol+))
+           (make-value (resolve-setf-symbol (second name)) sys.int::+tag-object+))
           (t (error "Unknown function name ~S." name)))))
 
 (defun load-source-file (file set-fdefinitions)
@@ -1433,17 +1493,17 @@
   (mapc 'apply-fixup fixups))
 
 (defun apply-fixup (fixup)
-  (destructuring-bind (what address byte-offset type) fixup
+  (destructuring-bind (what address byte-offset type debug-info) fixup
     (let* ((value (if (consp what)
                       (make-value (symbol-address (symbol-name (second what))
                                                   (canonical-symbol-package (second what))
                                                   t)
-                                  sys.int::+tag-symbol+)
+                                  sys.int::+tag-object+)
                       (ecase what
                         ((nil t) (make-value (symbol-address (symbol-name what) "COMMON-LISP")
-                                             sys.int::+tag-symbol+))
+                                             sys.int::+tag-object+))
                         ((:undefined-function undefined-function)
-                         (make-value *undefined-function-address* sys.int::+tag-function+)))))
+                         (make-value *undefined-function-address* sys.int::+tag-object+)))))
            (length (ecase type
                      (:signed32 (check-type value (signed-byte 32))
                                 4)

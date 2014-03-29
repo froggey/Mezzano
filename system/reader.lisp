@@ -562,7 +562,7 @@
 			   :fill-pointer 0))
        (x (read-char stream t nil t)
 	  (read-char stream t nil t)))
-      ((eql x first) (simplify-string string))
+      ((eql x first) string)
     (if (eql (readtable-syntax-type x) :single-escape)
 	(vector-push-extend (read-char stream t nil t) string)
 	(vector-push-extend x string))))
