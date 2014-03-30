@@ -413,8 +413,7 @@
 
 (defun function-tag (function)
   (check-type function function)
-  (let ((address (logand (lisp-object-address function) -16)))
-    (memref-unsigned-byte-8 address 0)))
+  (%object-tag function))
 
 (defun function-pool-size (function)
   (check-type function function)

@@ -1289,11 +1289,11 @@
           `(sys.lap-x86:jz ,no-tls-slot)
           ;; Read from the TLS slot.
           `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r8 ((:rax 8) ,+tls-base-offset+))
+          `(sys.lap-x86:mov64 :r9 ((:rax 8) ,+tls-base-offset+))
           ;; Check if the TLS slot holds a value.
-          `(sys.lap-x86:cmp64 :r8 -2)
+          `(sys.lap-x86:cmp64 :r9 -2)
           `(sys.lap-x86:jne ,no-tls-slot)
-	  `(sys.lap-x86:cmp64 :r8 ,sys.int::+tag-unbound-value+)
+	  `(sys.lap-x86:cmp64 :r9 ,sys.int::+tag-unbound-value+)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
 	  `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot +symbol-value+)
