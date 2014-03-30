@@ -597,7 +597,7 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :r8 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx 8) ; fixnum 1
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Pop into R9.
   (sys.lap-x86:cmp64 :rbx nil)
   (sys.lap-x86:je done)
