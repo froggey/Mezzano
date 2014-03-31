@@ -16,7 +16,7 @@
     (if (eql size '*)
         `(simple-vector-p ,object)
         `(and (simple-vector-p ,object)
-              (eq (%simple-array-length ,object) ',size)))))
+              (eq (%simple-1d-array-length ,object) ',size)))))
 (%define-compound-type-optimizer 'simple-vector 'compile-simple-vector-type)
 (%define-type-symbol 'simple-vector 'simple-vector-p)
 )

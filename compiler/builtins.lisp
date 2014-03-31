@@ -2030,7 +2030,7 @@
         `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
         `(sys.lap-x86:mov64 :r8 (:rax 0))
         `(sys.lap-x86:mov64 :rcx (:rax 8))
-        `(sys.lap-x86:mov64 ,(object-ea :r8 :index :rcx) nil)
+        `(sys.lap-x86:mov64 ,(object-ea :r8 :index `(:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))) nil)
         `(sys.lap-x86:mov64 (:rax 0) 0)
         `(sys.lap-x86:mov64 (:rax 8) 0)
         `(sys.lap-x86:gs)
