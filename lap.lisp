@@ -95,6 +95,7 @@ a vector of constants and an alist of symbols & addresses."
 	(cons (with-simple-restart (continue "Skip it.")
 		(if (keywordp (first i))
 		    (ecase (first i)
+                      (:comment)
 		      (:d8 (apply 'emit-d8 (rest i)))
 		      (:d16/le (apply 'emit-d16/le (rest i)))
 		      (:d32/le (apply 'emit-d32/le (rest i)))

@@ -37,6 +37,9 @@ be generated instead.")
   (dolist (i instructions)
     (push i *code-accum*)))
 
+(defun comment (&rest stuff)
+  (emit `(:comment ,@stuff)))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun object-ea (base &key (slot 0) index)
   (if index
@@ -1393,6 +1396,7 @@ Returns an appropriate tag."
                  (dolist (i (rest args))
                    (setf *load-list* (delete i *load-list*)))
                  (return-from cg-values nil))))
+           (comment 'values)
            (setf args (nreverse args))
            ;; Load the first values in registers.
            (when (> arg-count 4)
@@ -1462,6 +1466,7 @@ Returns an appropriate tag."
 		   (dolist (i (rest args))
 		     (setf *load-list* (delete i *load-list*)))
 		   (return-from cg-function-form nil))))
+             (comment (first form))
 	     (apply fn (nreverse args))))
 	  ((and (eql (first form) 'funcall)
 		(rest form))
@@ -1470,6 +1475,7 @@ Returns an appropriate tag."
 		  (symbol-label (gensym))
                   (out-label (gensym)))
 	     (cond ((prep-arguments-for-call (cddr form))
+                    (comment 'funcall)
 		    (emit-trailer (type-error-label)
 		      (raise-type-error :r13 '(or function symbol)))
 		    (load-in-reg :r13 fn-tag t)
@@ -1522,6 +1528,7 @@ Returns an appropriate tag."
           ((eql (first form) 'values)
            (cg-values (rest form)))
 	  (t (when (prep-arguments-for-call (rest form))
+               (comment (first form))
 	       (load-constant :r13 (first form))
 	       (smash-r8)
 	       (load-constant :rcx (length (rest form)))
