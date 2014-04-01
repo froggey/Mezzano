@@ -309,7 +309,7 @@
 
 (defun scavenge-regular-stack-frame (frame-pointer stack-pointer framep
                                      layout-address layout-length
-                                     incoming-arguments)
+                                     incoming-arguments pushed-values)
   ;; Scan stack slots.
   (dotimes (slot layout-length)
     (multiple-value-bind (offset bit)
@@ -330,6 +330,10 @@
                  (mumble-hex slot "Scav no-frame stack slot ")
                  (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
                (scavengef (memref-t stack-pointer slot)))))))
+  (dotimes (slot pushed-values)
+    (when *gc-debug-scavenge-stack*
+      (mumble-hex slot "Scav pv "))
+    (scavengef (memref-t stack-pointer i)))
   ;; Scan incoming arguments.
   (when incoming-arguments
     ;; Stored as fixnum on the stack.
@@ -389,7 +393,10 @@
          (when (or (if sg-interruptedp
                        (not interruptp)
                        interruptp)
-                   (not (eql pushed-values 0)) pushed-values-register
+                   (and (not (eql pushed-values 0))
+                        (or interruptp
+                            (not framep)))
+                   pushed-values-register
                    (and multiple-values (not (eql multiple-values 0)))
                    (or (keywordp incoming-arguments)
                        (and incoming-arguments (not framep)))
@@ -430,7 +437,9 @@
                                        other-layout-address other-layout-length
                                        other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
                     (when (or other-interruptp
-                              (not (eql other-pushed-values 0))
+                              (and (not (eql other-pushed-values 0))
+                                   (or other-interruptp
+                                       (not other-framep)))
                               (not (eql other-pushed-values-register nil))
                               #+nil(not (or (eql other-pushed-values-register nil)
                                        (eql other-pushed-values-register :rcx)))
@@ -463,7 +472,7 @@
                        (memref-t frame-pointer -2)))
                     (scavenge-regular-stack-frame other-frame-pointer other-stack-pointer other-framep
                                                   other-layout-address other-layout-length
-                                                  other-incoming-arguments)
+                                                  other-incoming-arguments other-pushed-values)
                     (setf sg-interruptedp nil)
                     (cond (other-framep
                            (psetf stack-pointer other-stack-pointer
@@ -482,7 +491,7 @@
                     (emergency-halt "interrupted sg, but not interrupt frame?"))
                   (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                                 layout-address layout-length
-                                                incoming-arguments)))
+                                                incoming-arguments pushed-values)))
          ;; Stop after seeing a zerop frame pointer.
          (if (eql frame-pointer 0)
              (return-from scavenge-stack))
