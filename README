@@ -33,4 +33,4 @@ lispos-warm.image is now a warm image! Hurrah!
 
 Running a warm image
 --------------------
-qemu-system-x86_64 -kernel lispos-warm.image -m 512 -net user -net nic,model=virtio -vga std -initrd graphics.llf,blit.llf,windows.llf,ethernet.llf,drivers/virtio-net.llf,xterm.llf,telnet.llf,peek.llf,system/file-compiler.llf
+qemu-system-x86_64 -kernel lispos-warm.image -m 512 -net user -net nic,model=virtio -vga std -initrd graphics.llf,blit.llf,windows.llf,ethernet.llf,drivers/virtio-net.llf,xterm.llf,telnet.llf,peek.llf,misc.llf,system/file-compiler.llf

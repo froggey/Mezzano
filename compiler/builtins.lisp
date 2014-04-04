@@ -149,6 +149,8 @@
       (emit
        ;; Undo the shift.
        `(sys.lap-x86:rcr64 :rax 1)
+       ;; Prod the sign flag.
+       `(sys.lap-x86:test64 :rax :rax)
        ;; Build bignum.
        `(sys.lap-x86:mov64 :r13 (:constant sys.int::%%make-bignum-64-rax))
        ;; Result needs a 128-bit bignum when the high bit is set.
