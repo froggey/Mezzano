@@ -69,15 +69,16 @@
 (defvar *read-input* nil)
 
 (defvar *console-window*)
+(defvar *old-terminal-io*)
 
 (defun invoke-graphics ()
   (setf *read-input* t
         *refresh-required* t)
-  (let ((old-terminal-io *terminal-io*))
+  (let ((*old-terminal-io* *terminal-io*))
     (unwind-protect
          (progn (setf *terminal-io* *console-window*)
                 (sys.int::process-wait "Graphics" (lambda () (null *read-input*))))
-      (setf *terminal-io* old-terminal-io))))
+      (setf *terminal-io* *old-terminal-io*))))
 
 (defun suspend-graphics ()
   (setf *read-input* nil))

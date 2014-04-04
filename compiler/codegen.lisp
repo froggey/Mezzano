@@ -831,7 +831,7 @@ be generated instead.")
     (emit-gc-info)
     (cg-form `(progn ,@body))))
 
-(defun emit-funcall-common ()
+(defun emit-funcall-common (&rest gc-info)
   "Emit the common code for funcall, argument registers must
 be set up and the function must be in R13.
 Returns an appropriate tag."
@@ -854,9 +854,13 @@ Returns an appropriate tag."
                                           sys.int::+first-function-object-tag+)
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:ja ,type-error-label)
-          `(sys.lap-x86:call :r13)
-          `(sys.lap-x86:jmp ,out-label)
-          symbol-label
+          `(sys.lap-x86:call :r13))
+    (cond ((member *for-value* '(:multiple :tail))
+           (emit-gc-info :multiple-values 0))
+          (t (emit-gc-info)))
+    (emit `(sys.lap-x86:jmp ,out-label))
+    (apply #'emit-gc-info gc-info)
+    (emit symbol-label
           `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))
           out-label)
     (cond ((member *for-value* '(:multiple :tail))
@@ -918,7 +922,7 @@ Returns an appropriate tag."
                       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
                     (smash-r8)
                     (load-in-reg :r13 fn-tag t)
-                    (prog1 (emit-funcall-common)
+                    (prog1 (emit-funcall-common :pushed-values -5 :pushed-values-register :rcx)
                       (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area))))))
                  (t ;; Single value.
                   (load-in-reg :r13 fn-tag t)
@@ -973,7 +977,7 @@ Returns an appropriate tag."
              (emit-trailer (no-values)
                (load-constant :r8 nil)
                (emit `(sys.lap-x86:jmp ,save-done)))
-             (emit `(sys.lap-x86:lea64 :rax (:rcx ,(- (fixnum-to-raw 5))))
+             (emit `(sys.lap-x86:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
                    `(sys.lap-x86:cmp64 :rax 0)
                    `(sys.lap-x86:jle ,no-values)
                    ;; Space for the values.
@@ -984,14 +988,14 @@ Returns an appropriate tag."
                    `(sys.lap-x86:and64 :rsp ,(lognot 8))
                    ;; Set header. SV header type = 0.
                    `(sys.lap-x86:mov64 :rdx :rax)
-                   `(sys.lap-x86:shl64 :rdx ,(- 8 sys.int::+n-fixnum-bits+))
+                   `(sys.lap-x86:shl64 :rdx ,(- 8 3))
                    `(sys.lap-x86:mov64 (:rsp) :rdx)
                    ;; Clear values. RDX is N+1 non-register values, skipping the header.
                    ;; Required for GC safety!
                    `(sys.lap-x86:mov64 :rdx :rax)
                    clear-loop-head
                    `(sys.lap-x86:mov64 (:rsp :rdx) 0)
-                   `(sys.lap-x86:sub64 :rdx ,(fixnum-to-raw 1))
+                   `(sys.lap-x86:sub64 :rdx 8)
                    `(sys.lap-x86:jnz ,clear-loop-head)
                    ;; Create pointer.
                    `(sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
@@ -1005,7 +1009,7 @@ Returns an appropriate tag."
                    `(sys.lap-x86:mov64 (:rdi) :rbx)
                    `(sys.lap-x86:add64 :rdi 8)
                    `(sys.lap-x86:add64 :rsi 8)
-                   `(sys.lap-x86:sub64 :rax ,(fixnum-to-raw 1))
+                   `(sys.lap-x86:sub64 :rax 8)
                    `(sys.lap-x86:ja ,save-loop-head)
                    save-done
                    ;; Values are saved to a SV pointed to by R8.
@@ -1497,22 +1501,22 @@ Returns an appropriate tag."
                                                             sys.int::+first-function-object-tag+)
                                                          sys.int::+array-type-shift+))
                             `(sys.lap-x86:ja ,type-error-label)))
-                    (if (zerop (max 0 (- (length form) 6)))
-                        (emit-gc-info)
-                        (emit-gc-info :pushed-values (max 0 (- (length form) 6))))
                     (cond ((can-tail-call (cddr form))
                            (emit-tail-call :r13 (second form)))
                           (t (emit `(sys.lap-x86:call :r13))
                              (unless (typep (second form) 'lambda-information)
+                               (if (member *for-value* '(:multiple :tail))
+                                   (emit-gc-info :multiple-values 0)
+                                   (emit-gc-info))
                                (emit `(sys.lap-x86:jmp ,out-label)))))
                     (unless (typep (second form) 'lambda-information)
+                      (if (zerop (max 0 (- (length form) 6)))
+                        (emit-gc-info)
+                        (emit-gc-info :pushed-values (max 0 (- (length form) 6))))
                       (emit symbol-label)
                       (cond ((can-tail-call (cddr form))
                              (emit-tail-call (object-ea :r13 :slot +symbol-function+) (second form)))
-                            (t (emit `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+)))
-                               (if (member *for-value* '(:multiple :tail))
-                                   (emit-gc-info :multiple-values 0)
-                                   (emit-gc-info)))))
+                            (t (emit `(sys.lap-x86:call ,(object-ea :r13 :slot +symbol-function+))))))
                     (unless (typep (second form) 'lambda-information)
                       (emit out-label))
                     (if (member *for-value* '(:multiple :tail))

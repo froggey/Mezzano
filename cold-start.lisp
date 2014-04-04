@@ -277,12 +277,7 @@
 
 (defun emergency-halt (message)
   (%cli)
-  (dotimes (i (%simple-array-length message))
-    (let ((code (logand (char-code (schar message i)) #xFF)))
-      (setf (io-port/8 #xE9) code)
-      (setf (io-port/8 #x3F8) code)
-      (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 i)
-            (logior code #x7000))))
+  (mumble-string message)
   (low-level-backtrace nil nil)
   (loop (%hlt)))
 

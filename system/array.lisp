@@ -51,13 +51,13 @@
   `(or (vector base-char ,size)
        (vector character ,size)))
 
-#+(or)(defun simple-array-type-p (object type)
-  (and (%simple-array-p object)
+(defun simple-array-type-p (object type)
+  (and (%simple-1d-array-p object)
        (array-type-p object type)))
-#+(or)(%define-compound-type 'simple-array 'simple-array-type-p)
+(%define-compound-type 'simple-array 'simple-array-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-#+(or)(%define-type-symbol 'simple-array '%simple-array-p)
+(%define-type-symbol 'simple-array '%simple-1d-array-p)
 )
 
 (defun parse-array-type (type)

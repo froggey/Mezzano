@@ -333,7 +333,7 @@
   (dotimes (slot pushed-values)
     (when *gc-debug-scavenge-stack*
       (mumble-hex slot "Scav pv "))
-    (scavengef (memref-t stack-pointer i)))
+    (scavengef (memref-t stack-pointer slot)))
   ;; Scan incoming arguments.
   (when incoming-arguments
     ;; Stored as fixnum on the stack.

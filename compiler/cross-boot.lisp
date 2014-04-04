@@ -142,8 +142,8 @@
   (def sb-impl::backq-nconc nconc)
   (def sb-impl::backq-cons cons))
 
-(defconstant sys.int::most-positive-fixnum (- (expt 2 60) 1))
-(defconstant sys.int::most-negative-fixnum (- (expt 2 60)))
+(defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))
+(defconstant sys.int::most-negative-fixnum (- (expt 2 62)))
 (alexandria:define-constant sys.int::lambda-list-keywords
     '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)
   :test 'equal)

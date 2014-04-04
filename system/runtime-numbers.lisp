@@ -1106,7 +1106,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov64 :r9 (:stack 0))
   (:gc :frame)
   (sys.lap-x86:mov64 :rbx (:r9 #.(- +tag-object+)))
-  (sys.lap-x86:sar64 :rcx #.(ash 1 +n-fixnum-bits+))
+  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+)
   (sys.lap-x86:and64 :rbx #.(lognot (1- (ash 1 +array-length-shift+))))
   (sys.lap-x86:shr64 :rbx #.(- +array-length-shift+ +n-fixnum-bits+))
   (sys.lap-x86:mov32 :r10d #.(ash 1 +n-fixnum-bits+))
