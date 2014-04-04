@@ -79,7 +79,6 @@
       (case (logand (lisp-object-address object) 15)
         ;; TODO: Identify proper/dotted/circular lists.
         (#b0011 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
-        (#b0101 (format stream "This is an unbound value marker.~%"))
         (#b1001
          (let ((otag (%object-tag object)))
            (cond ((or (<= otag +last-simple-1d-array-object-tag+)
@@ -99,6 +98,8 @@
                        (describe-object object stream))
                       (#.+object-tag-stack-group+
                        (describe-stack-group object stream))
+                      (#.+object-tag-unbound-value+
+                       (format stream "This is an unbound value marker.~%"))
                       ((#.+object-tag-function+
                         #.+object-tag-closure+)
                        (describe-function object stream))

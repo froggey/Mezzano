@@ -188,7 +188,7 @@
         (setf (memref-t bs-base i) 0))
       ;; Clear the TLS slots.
       (dotimes (i +stack-group-tls-slots-size+)
-        (setf (%array-like-ref-signed-byte-64 stack-group (+ +stack-group-offset-tls-slots+ i)) -2))
+        (setf (%array-like-ref-t stack-group (+ +stack-group-offset-tls-slots+ i)) (%unbound-tls-slot)))
       ;; Initialize the FXSAVE save area.
       (dotimes (i 64)
         (setf (%array-like-ref-unsigned-byte-64 stack-group (+ +stack-group-offset-fxsave-area+ i)) 0))

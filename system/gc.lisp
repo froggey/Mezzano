@@ -187,8 +187,7 @@
       #.+tag-fixnum-010+ #.+tag-fixnum-011+
       #.+tag-fixnum-100+ #.+tag-fixnum-101+
       #.+tag-fixnum-110+ #.+tag-fixnum-111+
-      #.+tag-character+ #.+tag-single-float+
-      #.+tag-unbound-value+)
+      #.+tag-character+ #.+tag-single-float+)
      t)
     (t nil)))
 
@@ -717,7 +716,8 @@
         #.+object-tag-complex-double-float+
         #.+object-tag-complex-short-float+
         #.+object-tag-complex-long-float+
-        #.+object-tag-xmm-vector+))
+        #.+object-tag-xmm-vector+
+        #.+object-tag-unbound-value+))
       (#.+object-tag-stack-group+
        (scan-stack-group object))
       (t (scan-error object)))))
@@ -1082,11 +1082,16 @@ the header word. LENGTH is the number of elements in the array."
           (setf (memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
         ;; Apply fixups.
         (dolist (fixup fixups)
-          (let ((value (cond ((member (car fixup) '(nil t))
-                              (lisp-object-address (car fixup)))
-                             ((eql (car fixup) 'undefined-function)
-                              (lisp-object-address *undefined-function-thunk*))
-                             (t (error "Unsupported fixup ~S." (car fixup))))))
+          (let ((value (case (car fixup)
+                         ((nil t)
+                          (lisp-object-address (car fixup)))
+                         (undefined-function
+                          (lisp-object-address *undefined-function-thunk*))
+                         (:unbound-tls-slot
+                          (lisp-object-address (%unbound-tls-slot)))
+                         (:unbound-value
+                          (lisp-object-address (%unbound-value)))
+                         (t (error "Unsupported fixup ~S." (car fixup))))))
             (dotimes (i 4)
               (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i))
                     (logand (ash value (* i -8)) #xFF)))))

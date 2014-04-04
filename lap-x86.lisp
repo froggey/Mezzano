@@ -843,7 +843,8 @@
     (unless (eql class :gpr-64)
       (when (and (immediatep src)
 		 (eql (reg-class dst) class))
-	(let ((imm-value (resolve-immediate src)))
+	(let ((imm-value (resolve-immediate src))
+              (*fixup-target* src))
 	  (return-from instruction
 	    (when imm-value
 	      (maybe-emit-operand-size-override class)

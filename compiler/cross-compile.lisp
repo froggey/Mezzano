@@ -230,7 +230,9 @@
         :base-address 16
         :initial-symbols '((nil . :fixup)
                            (t . :fixup)
-                           (undefined-function . :fixup))
+                           (undefined-function . :fixup)
+                           (:unbound-value . :fixup)
+                           (:unbound-tls-slot . :fixup))
         :info (list name debug-info))
     (make-cross-function :mc mc
                          :constants constants

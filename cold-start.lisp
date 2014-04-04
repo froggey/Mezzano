@@ -938,7 +938,7 @@
   ;; Clear TLS binding slots.
   (sys.lap-x86:lea64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-tls-slots+) 8)
                                     +tag-object+)))
-  (sys.lap-x86:mov64 :rax -2)
+  (sys.lap-x86:mov64 :rax :unbound-tls-slot)
   (sys.lap-x86:mov32 :ecx #.+stack-group-tls-slots-size+)
   (sys.lap-x86:rep)
   (sys.lap-x86:stos64)

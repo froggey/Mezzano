@@ -181,7 +181,9 @@ BODY must not allocate!"
         :base-address 16
         :initial-symbols (list (cons nil (lisp-object-address 'nil))
                                (cons t (lisp-object-address 't))
-                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*)))
+                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*))
+                               (cons :unbound-value (lisp-object-address (%unbound-value)))
+                               (cons :unbound-tls-slot (lisp-object-address (%unbound-tls-slot))))
         :info (list name debug-info))
     (declare (ignore fixups symbols))
     (make-function mc constants gc-data)))

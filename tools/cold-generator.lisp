@@ -249,6 +249,8 @@
 (defvar *reverse-symbol-table*)
 (defvar *setf-table*)
 (defvar *struct-table*)
+(defvar *unbound-value-address*)
+(defvar *unbound-tls-slot-address*)
 (defvar *undefined-function-address*)
 (defvar *load-time-evals*)
 (defvar *string-dedup-table*)
@@ -403,6 +405,9 @@
   (assert (typep value `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+))))
   (ldb (byte 64 0) (ash value sys.int::+n-fixnum-bits+)))
 
+(defun unbound-value ()
+  (make-value *unbound-value-address* sys.int::+tag-object+))
+
 (defun store-string (string)
   (let ((object-address (allocate 6 :static))
         (data-address (allocate (1+ (ceiling (length string) 8)) :static)))
@@ -438,7 +443,7 @@
               (word (+ address 2)) (make-value (symbol-address package "KEYWORD") sys.int::+tag-object+)
               (word (+ address 3)) (if (string= package "KEYWORD")
                                        (make-value address sys.int::+tag-object+)
-                                       (make-value 0 sys.int::+tag-unbound-value+))
+                                       (unbound-value))
               (word (+ address 4)) (make-value *undefined-function-address* sys.int::+tag-object+)
               (word (+ address 5)) (make-value (gethash '("NIL" . "COMMON-LISP") *symbol-table*) sys.int::+tag-object+))
         (setf (gethash address *reverse-symbol-table*) (cons name package)
@@ -452,7 +457,7 @@
               (word (+ address 1)) (make-value (store-string name)
                                          sys.int::+tag-object+)
               (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-              (word (+ address 3)) (make-value 0 sys.int::+tag-unbound-value+)
+              (word (+ address 3)) (unbound-value)
               (word (+ address 4)) (make-value *undefined-function-address* sys.int::+tag-object+)
               (word (+ address 5)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
         (setf (gethash symbol *setf-table*) address))))
@@ -464,10 +469,13 @@
         (t-value (allocate 6 :static))
         (keyword-keyword (allocate 6 :static))
         (cl-keyword (allocate 6 :static))
+        (unbound-val (allocate 2 :static))
+        (unbound-tls-val (allocate 2 :static))
         (undef-fn (compile-lap-function *undefined-function-thunk* :static)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
+    (format t "UBV at word ~X~%" unbound-val)
     (setf (gethash '("NIL" . "COMMON-LISP") *symbol-table*) nil-value
           (gethash nil-value *reverse-symbol-table*) '("NIL" . "COMMON-LISP")
           (gethash '("T" . "COMMON-LISP") *symbol-table*) t-value
@@ -476,7 +484,9 @@
           (gethash keyword-keyword *reverse-symbol-table*) '("KEYWORD" . "KEYWORD")
           (gethash '("COMMON-LISP" . "KEYWORD") *symbol-table*) cl-keyword
           (gethash cl-keyword *reverse-symbol-table*) '("COMMON-LISP" . "KEYWORD")
-          *undefined-function-address* undef-fn)
+          *undefined-function-address* undef-fn
+          *unbound-value-address* unbound-val
+          *unbound-tls-slot-address* unbound-tls-val)
     (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
           (word (+ nil-value 1)) (make-value (store-string "NIL")
                                        sys.int::+tag-object+) ; name
@@ -504,7 +514,9 @@
           (word (+ cl-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
           (word (+ cl-keyword 3)) (make-value cl-keyword sys.int::+tag-object+)
           (word (+ cl-keyword 4)) (make-value undef-fn sys.int::+tag-object+)
-          (word (+ cl-keyword 5)) (make-value nil-value sys.int::+tag-object+))))
+          (word (+ cl-keyword 5)) (make-value nil-value sys.int::+tag-object+))
+    (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
+    (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
 
 (defun write-image (name kboot-entry)
   (with-open-file (s (make-pathname :type "image" :defaults name)
@@ -1354,12 +1366,12 @@
              (word (+ address 1)) name
              (word (+ address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
              (word (+ address 3)) value
-             (word (+ address 4)) (if (eql fn sys.int::+tag-unbound-value+)
+             (word (+ address 4)) (if (eql fn (unbound-value))
                                       (make-value *undefined-function-address* sys.int::+tag-object+)
                                       fn)
              (word (+ address 5)) plist)
        (make-value address sys.int::+tag-object+)))
-    (#.+llf-unbound+ sys.int::+tag-unbound-value+)
+    (#.+llf-unbound+ (unbound-value))
     (#.+llf-string+ (load-string stream))
     (#.+llf-setf-symbol+
      (let ((symbol (vector-pop stack)))
@@ -1502,6 +1514,10 @@
                       (ecase what
                         ((nil t) (make-value (symbol-address (symbol-name what) "COMMON-LISP")
                                              sys.int::+tag-object+))
+                        (:unbound-tls-slot
+                         (make-value *unbound-tls-slot-address*
+                                     sys.int::+tag-object+))
+                        (:unbound-value (unbound-value))
                         ((:undefined-function undefined-function)
                          (make-value *undefined-function-address* sys.int::+tag-object+)))))
            (length (ecase type

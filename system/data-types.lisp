@@ -12,7 +12,7 @@
 (defconstant +tag-fixnum-001+    #b0010)
 (defconstant +tag-cons+          #b0011)
 (defconstant +tag-fixnum-010+    #b0100)
-(defconstant +tag-unbound-value+ #b0101)
+;;#b0101
 (defconstant +tag-fixnum-011+    #b0110)
 ;;#b0111
 (defconstant +tag-fixnum-100+    #b1000)
@@ -97,9 +97,9 @@
 (defconstant +object-tag-std-instance+            #b110010)
 (defconstant +object-tag-xmm-vector+              #b110011)
 (defconstant +object-tag-stack-group+             #b110100)
+(defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-stack-group+)
-;;#b110101
+(defconstant +last-misc-object-tag+ +object-tag-unbound-value+)
 ;;#b110110
 ;;#b110111
 ;;#b111000
