@@ -89,7 +89,7 @@
   (sys.lap-x86:jne blend-alpha) ; true, do full blend.
   (sys.lap-x86:mov32 :eax :r10d) ; EAX = COLOUR.
   invoke-setter
-  (sys.lap-x86:call :r8) ; Call SETTER.
+  (sys.lap-x86:call (:r8 #.(+ (- sys.int::+tag-object+) 8))) ; Call SETTER.
   next
   (sys.lap-x86:add64 :rdi 4) ; Advance TO address.
   (sys.lap-x86:add64 :rsi 1) ; Advance MASK address.
@@ -164,7 +164,7 @@
   (sys.lap-x86:test64 (:rsi) :rcx)
   (sys.lap-x86:jz next)
   (sys.lap-x86:mov32 :eax :r10d)
-  (sys.lap-x86:call :r8)
+  (sys.lap-x86:call (:r8 #.(+ (- sys.int::+tag-object+) 8)))
   next
   (sys.lap-x86:add64 :rdi 4)
   (sys.lap-x86:add64 :rcx :rcx)

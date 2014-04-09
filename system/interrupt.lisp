@@ -61,11 +61,11 @@
                     ;; Call the handler.
                     (sys.lap-x86:mov32 :r8d ,(ash n +n-fixnum-bits+))
                     (sys.lap-x86:mov32 :ecx ,(ash 1 +n-fixnum-bits+))
-                    (sys.lap-x86:mov64 :r13 (:constant isa-pic-common))
-                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+                    (sys.lap-x86:mov64 :r13 (:function isa-pic-common))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
                     (sys.lap-x86:xor32 :ecx :ecx)
-                    (sys.lap-x86:mov64 :r13 (:constant %maybe-preempt-from-interrupt-frame))
-                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+                    (sys.lap-x86:mov64 :r13 (:function %maybe-preempt-from-interrupt-frame))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
                     (sys.lap-x86:cmp64 :r8 nil)
                     (sys.lap-x86:je no-preempt)
                     ;; Mark current stack-group as interrupted.
@@ -76,8 +76,8 @@
                                             (+ +stack-group-state-position+
                                                +n-fixnum-bits+)))
                     (sys.lap-x86:mov32 :ecx ,(ash 1 +n-fixnum-bits+))
-                    (sys.lap-x86:mov64 :r13 (:constant %%switch-to-stack-group))
-                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+                    (sys.lap-x86:mov64 :r13 (:function %%switch-to-stack-group))
+                    (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
                     no-preempt
                     (sys.lap-x86:mov64 :r8 (:rbp -96))
                     (sys.lap-x86:mov64 :r9 (:rbp -88))
@@ -130,7 +130,7 @@
   ;; Hook into the IDT.
   (dotimes (i 16)
     (set-idt-entry (+ +isa-pic-interrupt-base+ i)
-                   :offset (lisp-object-address (aref *isa-pic-base-handlers* i))))
+                   :offset (%array-like-ref-unsigned-byte-64 (aref *isa-pic-base-handlers* i) 0)))
   ;; Initialize the ISA PIC.
   (setf (io-port/8 #x20) #x11
         (io-port/8 #xA0) #x11
@@ -182,8 +182,8 @@
   (sys.lap-x86:shl64 :r8 #.+n-fixnum-bits+)
   (sys.lap-x86:and64 :rsp #.(lognot 15))
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
-  (sys.lap-x86:mov64 :r13 (:constant ldb-exception))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:mov64 :r13 (:function ldb-exception))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:mov64 :rsp :r8)
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
@@ -252,10 +252,10 @@
                               `((sys.lap-x86:push 0)))
                     (sys.lap-x86:push ,n)
                     (sys.lap-x86:push :rax)
-                    (sys.lap-x86:mov64 :rax (:constant %%exception))
-                    (sys.lap-x86:jmp (:rax #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8)))))
+                    (sys.lap-x86:mov64 :rax (:function %%exception))
+                    (sys.lap-x86:jmp (:rax #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
                   (setf (aref *exception-base-handlers* ,n) #',sym)
-                  (set-idt-entry ,n :offset (lisp-object-address #',sym))))))
+                  (set-idt-entry ,n :offset (%array-like-ref-unsigned-byte-64 #',sym 0))))))
   (doit))
 
 (defmacro define-interrupt-handler (name lambda-list &body body)
@@ -290,8 +290,8 @@
   (sys.lap-x86:and64 :rsp #.(lognot 15))
   ;; Call.
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:mov64 :r13 (:constant break))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:mov64 :r13 (:function break))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   ;; Done.
   (sys.lap-x86:leave)
   (:gc :no-frame)

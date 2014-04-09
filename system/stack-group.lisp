@@ -239,11 +239,11 @@
   (:gc :no-frame)
   ;; Call the function.
   (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:call :r13)
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8)))
   ;; Function has returned.
-  (sys.lap-x86:mov64 :r13 (:constant %stack-group-exhausted))
+  (sys.lap-x86:mov64 :r13 (:function %stack-group-exhausted))
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 0
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
 
 (defun %stack-group-exhausted ()

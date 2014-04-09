@@ -15,10 +15,7 @@
 (defgeneric make-load-form (object &optional environment))
 
 (defun raise-undefined-function (invoked-through &rest args)
-  ;; Convert setf-symbols back to (setf foo).
-  (when (and (symbolp invoked-through)
-             (get invoked-through 'setf-symbol-backlink))
-    (setf invoked-through `(setf ,(get invoked-through 'setf-symbol-backlink))))
+  (setf invoked-through (function-reference-name invoked-through))
   ;; Allow restarting.
   (restart-case (error 'undefined-function :name invoked-through)
     (use-value (v)

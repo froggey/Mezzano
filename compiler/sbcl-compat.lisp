@@ -22,12 +22,6 @@
 (defun compiler-macro-function (symbol &optional env)
   (declare (ignore symbol env))
   nil)
-(defun sys.int::function-symbol (name)
-  (cond ((symbolp name)
-         name)
-        (t (or (get (second name) 'setf-symbol)
-               (setf (get (second name) 'setf-symbol)
-                     (make-symbol (format nil "~A" name)))))))
 (declaim (declaration system:lambda-name))
 (defun parse-ordinary-lambda-list (lambda-list)
   "Parse LAMBDA-LIST as an ordinary lambda list.

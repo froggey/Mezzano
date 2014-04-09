@@ -170,11 +170,14 @@
   (setf (get name 'macro-lambda-list) lambda-list)
   (setf (macro-function name) function))
 
-(defun %compiler-defun (name source-lambda)
-  (let ((sym (function-symbol name)))
-    (when (or (get sym 'inline-mode)
-              (get sym 'inline-form))
-      (setf (get sym 'inline-form) source-lambda)))
+(defun sys.int::%compiler-defun (name source-lambda)
+  (multiple-value-bind (sym mode-name form-name)
+      (if (symbolp name)
+          (values name 'inline-mode 'inline-form)
+          (values (second name) 'setf-inline-mode 'setf-inline-form))
+    (when (or (get sym mode-name)
+              (get sym form-name))
+      (setf (get sym form-name) source-lambda)))
   nil)
 
 (defun %defun (name lambda)
@@ -211,32 +214,98 @@
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
 
-(defun function-symbol (name)
-  "Convert a function name to a symbol."
-  (cond ((symbolp name) name)
+(defun make-function-reference (name &optional area)
+  (let ((fref (%allocate-array-like +object-tag-function-reference+ 4 0 area)))
+    (setf (%array-like-ref-t fref +fref-name+) name
+          (function-reference-function fref) nil)
+    fref))
+
+(defun function-reference (name)
+  "Convert a function name to a function reference."
+  ;; FIXME: lock here.
+  (cond ((symbolp name)
+         (let ((fref (symbol-fref name)))
+           (unless fref
+             (setf fref (make-function-reference name)
+                   (symbol-fref name) fref))
+           fref))
 	((and (consp name)
 	      (= (list-length name) 2)
 	      (eql (first name) 'setf)
 	      (symbolp (second name)))
-	 (let ((sym (get (second name) 'setf-symbol)))
-	   (unless sym
-	     (setf sym (make-symbol (symbol-name (second name)))
-                   (get sym 'setf-symbol-backlink) (second name)
-		   (get (second name) 'setf-symbol) sym))
-	   sym))
+	 (let ((fref (get (second name) 'setf-fref)))
+	   (unless fref
+	     (setf fref (make-function-reference name)
+		   (get (second name) 'setf-fref) fref))
+           fref))
 	(t (error "Invalid function name ~S." name))))
 
+(defun function-reference-p (object)
+  (and (eql (%tag-field object) +tag-object+)
+       (eql (%object-tag object) +object-tag-function-reference+)))
+
+(deftype function-reference ()
+  '(satisfies function-reference-p))
+
+(defun function-reference-name (fref)
+  (check-type fref function-reference)
+  (%array-like-ref-t fref +fref-name+))
+
+(defun function-reference-function (fref)
+  (check-type fref function-reference)
+  (%array-like-ref-t fref +fref-function+))
+
+(defun (setf function-reference-function) (value fref)
+  "Update the function & entry-point fields of a function-reference.
+VALUE may be nil to make the fref unbound."
+  (check-type value (or function null))
+  (check-type fref function-reference)
+  ;; mhmm. This should really be a DCAS to avoid racing.
+  ;; a lock would work, but writes are infrequent.
+  (cond (value
+         (setf (%array-like-ref-t fref +fref-function+) value
+               (%array-like-ref-unsigned-byte-64 fref +fref-entry-point+) (%array-like-ref-unsigned-byte-64 value 0)))
+        (t ;; making the fref unbound.
+         (setf (%array-like-ref-t fref +fref-function+) nil
+               (%array-like-ref-unsigned-byte-64 fref +fref-entry-point+) (%array-like-ref-unsigned-byte-64 sys.int::*undefined-function-thunk* 0))))
+  value)
+
 (defun fdefinition (name)
-  (symbol-function (function-symbol name)))
+  (or (function-reference-function (function-reference name))
+      (error 'undefined-function :name name)))
 
 (defun (setf fdefinition) (value name)
-  (setf (symbol-function (function-symbol name)) value))
+  (check-type value function)
+  (setf (function-reference-function (function-reference name)) value))
+
+(defun fboundp (name)
+  (not (null (function-reference-function (function-reference name)))))
+
+(defun fmakunbound (name)
+  (setf (function-reference-function (function-reference name)) nil)
+  name)
+
+(defun symbol-function (symbol)
+  (check-type symbol symbol)
+  (fdefinition symbol))
+
+(defun (setf symbol-function) (value symbol)
+  (check-type symbol symbol)
+  (setf (fdefinition symbol) value))
 
 (defun compiler-macro-function (name &optional environment)
-  (get (function-symbol name) '%compiler-macro-function))
+  (multiple-value-bind (sym indicator)
+      (if (symbolp name)
+          (values name '%compiler-macro-function)
+          (values (second name) '%setf-compiler-macro-function))
+    (get sym indicator)))
 
 (defun (setf compiler-macro-function) (value name &optional environment)
-  (setf (get (function-symbol name) '%compiler-macro-function) value))
+  (multiple-value-bind (sym indicator)
+      (if (symbolp name)
+          (values name '%compiler-macro-function)
+          (values (second name) '%setf-compiler-macro-function))
+    (setf (get sym indicator) value)))
 
 (declaim (inline identity))
 (defun identity (thing)
@@ -789,6 +858,11 @@
 (defun %maybe-preempt-from-interrupt-frame ()
   nil)
 
+(defun %coerce-to-callable (thing)
+  (if (functionp thing)
+      thing
+      (fdefinition thing)))
+
 (defun initialize-lisp ()
   (setf *next-symbol-tls-slot* 256
         *array-types* #(t
@@ -853,12 +927,13 @@
   (dotimes (i (length *initial-structure-obarray*))
     (setf (%struct-slot (svref *initial-structure-obarray* i) 0) *structure-type-type*))
   (write-line "Cold image coming up...")
-  ;; Hook SETF symbols up.
-  (dotimes (i (truncate (length *initial-setf-obarray*) 2))
-    (let* ((sym (svref *initial-setf-obarray* (* i 2)))
-           (other (svref *initial-setf-obarray* (1+ (* i 2)))))
-      (setf (get sym 'setf-symbol-backlink) other
-            (get other 'setf-symbol) sym)))
+  ;; Hook FREFs up where required.
+  (dotimes (i (length *initial-fref-obarray*))
+    (let* ((fref (svref *initial-fref-obarray* i))
+           (name (%array-like-ref-t fref 0)))
+      (when (consp name)
+        (setf (get (second name) 'setf-fref) fref))))
+  ;; Run toplevel forms.
   (let ((*package* *package*))
     (dotimes (i (length *cold-toplevel-forms*))
       (eval (svref *cold-toplevel-forms* i))))
@@ -885,7 +960,7 @@
   (makunbound '*package-system*)
   (makunbound '*additional-cold-toplevel-forms*)
   (makunbound '*cold-toplevel-forms*)
-  (makunbound '*initial-setf-obarray*)
+  (makunbound '*initial-fref-obarray*)
   (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
   (gc)
@@ -981,10 +1056,10 @@
   (sys.lap-x86:xor32 :r12d :r12d)
   (sys.lap-x86:xor32 :ebx :ebx)
   ;; Prepare for call.
-  (sys.lap-x86:mov64 :r13 (:constant initialize-lisp))
+  (sys.lap-x86:mov64 :r13 (:function initialize-lisp))
   (sys.lap-x86:xor32 :ecx :ecx)
   ;; Call the entry function.
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   ;; Crash if it returns.
   here
   (sys.lap-x86:ud2)

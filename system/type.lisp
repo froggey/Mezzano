@@ -588,7 +588,7 @@
        (#b110011 'xmm-vector)
        (#b110100 'stack-group)
        (#b110101 'unbound-value)
-       (#b110110 'object-tag-110110)
+       (#b110110 'function-reference)
        (#b110111 'object-tag-110111)
        (#b111000 'object-tag-111000)
        (#b111001 'object-tag-111001)

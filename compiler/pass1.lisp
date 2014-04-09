@@ -183,11 +183,11 @@
             (error "Symbol-macro not allowed here."))
           (return v))))))
 
-(defun find-function (symbol env)
-  "Find the function named by SYMBOL in ENV, returning SYMBOL if not found."
-  (dolist (e env symbol)
+(defun find-function (name env)
+  "Find the function named by NAME in ENV, returning NAME if not found."
+  (dolist (e env name)
     (when (eq (first e) :functions)
-      (let ((v (assoc symbol (rest e))))
+      (let ((v (assoc name (rest e) :test #'equal)))
 	(when v
 	  (return (cdr v)))))))
 
@@ -280,28 +280,34 @@
 		  (pass1-form expansion env)
 		  (pass1-function-form form env))))))))
 
+(defun function-name-p (thing)
+  (ignore-errors
+    (or (symbolp thing)
+        (typep thing '(cons (eql setf) (cons symbol null))))))
+
 (defun pass1-function-form (form env)
   (let ((fn (find-function (first form) env))
 	(args (pass1-implicit-progn (rest form) env)))
-    (cond ((symbolp fn)
+    (cond ((lexical-variable-p fn)
+           ;; Lexical function.
+	   (list* 'funcall fn args))
+	  (t
 	   ;; Top-level function.
-	   ;; Optimize (funcall (symbol-function 'symbol) into (name-symbol ...).
+	   ;; Optimize (funcall (fdefinition 'function-name) into (name-symbol ...).
 	   ;; This allow calls to setf functions to be subject to inlining.
 	   (when (and (eq fn 'funcall)
 		      (consp (first args))
-		      (eq (first (first args)) 'symbol-function)
+		      (eq (first (first args)) 'fdefinition)
 		      (consp (cdr (first args)))
 		      (null (cddr (first args)))
 		      (consp (second (first args)))
 		      (eq (first (second (first args))) 'quote)
 		      (consp (cdr (second (first args))))
 		      (null (cddr (second (first args))))
-		      (symbolp (second (second (first args)))))
+                      (function-name-p (second (second (first args)))))
 	     (setf fn (second (second (first args)))
 		   args (rest args)))
-           (list* fn args))
-	  (t ;; Lexical function.
-	   (list* 'funcall fn args)))))
+           (list* fn args)))))
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
@@ -328,16 +334,15 @@
       (parse-declares (cddr fn))
     ;; FIXME: docstring permitted here.
     (let* ((name (first fn))
-	   (sym (sys.int::function-symbol name))
-	   (var (make-lexical-variable :name sym
+	   (var (make-lexical-variable :name name
 				       :definition-point *current-lambda*)))
-      (values sym var `(lambda ,(second fn)
-			 (declare (system:lambda-name ,name)
-				  ,@declares)
-			 (block ,(if (consp name)
-				     (second name)
-				     name)
-			   ,@body))))))
+      (values name var `(lambda ,(second fn)
+                          (declare (system:lambda-name ,name)
+                                   ,@declares)
+                          (block ,(if (consp name)
+                                      (second name)
+                                      name)
+                            ,@body))))))
 
 (defun pass1-flet (form env)
   (destructuring-bind (functions &body forms) (cdr form)
@@ -358,16 +363,14 @@
     (if (and (consp name)
 	     (eq (first name) 'lambda))
 	(pass1-lambda name env)
-	(let* ((symbol (sys.int::function-symbol name))
-	       (var (find-function symbol env)))
-	  (if (symbolp var)
-	      ;; Top-level function.
-	      (pass1-form `(symbol-function ',symbol) env)
-	      ;; Lexical function.
-	      (progn
-		(incf (lexical-variable-use-count var))
-		(pushnew *current-lambda* (lexical-variable-used-in var))
-		var))))))
+	(let* ((var (find-function name env)))
+	  (cond ((lexical-variable-p var)
+                 ;; Lexical function.
+                 (incf (lexical-variable-use-count var))
+                 (pushnew *current-lambda* (lexical-variable-used-in var))
+                 var)
+                (t ;; Top-level function.
+                 (pass1-form `(fdefinition ',name) env)))))))
 
 (defun pass1-go (form env)
   (destructuring-bind (tag) (cdr form)

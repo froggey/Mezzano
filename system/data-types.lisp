@@ -16,8 +16,6 @@
 (defconstant +tag-fixnum-011+    #b0110)
 ;;#b0111
 (defconstant +tag-fixnum-100+    #b1000)
-;; WARNING! This must be >= 8 for backcompat.
-;; Functions are currently invoked directly through the pointer!
 (defconstant +tag-object+        #b1001)
 (defconstant +tag-fixnum-101+    #b1010)
 (defconstant +tag-character+     #b1011)
@@ -98,9 +96,9 @@
 (defconstant +object-tag-xmm-vector+              #b110011)
 (defconstant +object-tag-stack-group+             #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
+(defconstant +object-tag-function-reference+      #b110110)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-unbound-value+)
-;;#b110110
+(defconstant +last-misc-object-tag+ +object-tag-function-reference+)
 ;;#b110111
 ;;#b111000
 ;;#b111001
@@ -117,3 +115,7 @@
 (defconstant +symbol-mode-special+ 1)
 (defconstant +symbol-mode-constant+ 2)
 (defconstant +symbol-mode-symbol-macro+ 3)
+
+(defconstant +fref-name+ 0)
+(defconstant +fref-function+ 1)
+(defconstant +fref-entry-point+ 2)

@@ -26,7 +26,7 @@ Symbol layout:
 +0 Name (always a string)
 +1 Package (may be anything, but usually either NIL or a package)
 +2 Value (may be anything, including unbound-value)
-+3 Function (must be a function. unbound functions point to a special unbound-function function)
++3 Function (either NIL or a function reference) (could be weak ref?)
 +4 Plist (must be a list)
 
 
@@ -81,3 +81,14 @@ Memory array layout
 +3... Dimensions as fixnums
 
 header data contains the array rank.
+
+
+
+Function reference
+
+-1 header
++0 name
++1 function
++2 entry-point (unbound functions have entry-point point to undefined-function thunk)
+
+Calls via function reference must have fref in r13 for the undefined-function thunk.

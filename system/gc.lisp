@@ -678,6 +678,8 @@
        (scan-generic object (1+ length)))
       (#.+object-tag-std-instance+
        (scan-generic object 3))
+      (#.+object-tag-function-reference+
+       (scan-generic object 4))
       ((#.+object-tag-function+
         #.+object-tag-closure+
         #.+object-tag-funcallable-instance+)
@@ -795,6 +797,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
       (#.+object-tag-symbol+
        (transport-generic object 6))
       (#.+object-tag-std-instance+
+       (transport-generic object 3))
+      (#.+object-tag-function-reference+
        (transport-generic object 4))
       ((#.+object-tag-memory-array+
         #.+object-tag-simple-string+
@@ -1072,7 +1076,7 @@ the header word. LENGTH is the number of elements in the array."
                                           (aref constants 0))
         ;; Initialize header.
         (setf (memref-unsigned-byte-64 address 0) 0
-              (memref-unsigned-byte-64 address 1) #x9090909090909090
+              (memref-unsigned-byte-64 address 1) (+ address 16)
               (memref-unsigned-byte-16 address 0) (ash tag +array-type-shift+)
               (memref-unsigned-byte-16 address 1) mc-size
               (memref-unsigned-byte-16 address 2) pool-size
@@ -1111,7 +1115,10 @@ the header word. LENGTH is the number of elements in the array."
   "Allocate a closure object."
   (check-type function function)
   (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 6 :static)))
+    (let* ((address (%raw-allocate 6 :static))
+           (entry-point (%array-like-ref-unsigned-byte-64 function 0))
+           ;; Jmp's address is entry-point - <address-of-instruction-after-jmp>
+           (rel-entry-point (- entry-point (+ address (* 7 4)))))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
@@ -1119,16 +1126,16 @@ the header word. LENGTH is the number of elements in the array."
                                                              +array-type-shift+))
             ;; Constant pool size and slot count.
             (memref-unsigned-byte-32 address 1) #x00000002
-            ;; Unused bits.
-            (memref-unsigned-byte-32 address 2) #x90909090
-            (memref-unsigned-byte-32 address 3) #x90909090
+            ;; Entry point
+            (memref-unsigned-byte-64 address 1) (+ address 16)
             ;; The code.
             ;; mov64 :rbx (:rip 17)/pool[1]
             (memref-unsigned-byte-32 address 4) #x111D8B48
-            ;; jmp (:rip 3)/pool[0]
-            (memref-unsigned-byte-32 address 5) #xFF000000
-            (memref-unsigned-byte-32 address 6) #x00000325
-            (memref-unsigned-byte-32 address 7) #xCCCCCC00)
+            ;; jmp entry-point
+            (memref-unsigned-byte-32 address 5) #xE9000000
+            ;; jmp's rel32 address ended up being nicely aligned. lucky!
+            (memref-signed-byte-32 address 6) rel-entry-point
+            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
       (let ((value (%%assemble-value address +tag-object+)))
         ;; Initialize constant pool
         (setf (memref-t address 4) function
@@ -1139,7 +1146,8 @@ the header word. LENGTH is the number of elements in the array."
   "Allocate a funcallable instance."
   (check-type function function)
   (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 8 :static)))
+    (let ((address (%raw-allocate 8 :static))
+          (entry-point (%array-like-ref-unsigned-byte-64 function 0)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
       (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
@@ -1147,15 +1155,14 @@ the header word. LENGTH is the number of elements in the array."
                                                              +array-type-shift+))
             ;; Constant pool size and slot count.
             (memref-unsigned-byte-32 address 1) #x00000003
-            ;; Unused bits.
-            (memref-unsigned-byte-32 address 2) #x90909090
-            (memref-unsigned-byte-32 address 3) #x90909090
+            ;; Entry point
+            (memref-unsigned-byte-64 address 1) (+ address 16)
             ;; The code.
-            ;; jmp (:rip 10)/pool[0]
-            (memref-unsigned-byte-32 address 4) #x000A25FF
+            ;; jmp (:rip 2)/pool[-1]
+            (memref-unsigned-byte-32 address 4) #x000225FF
             (memref-unsigned-byte-32 address 5) #xCCCC0000
-            (memref-unsigned-byte-32 address 6) #xCCCCCCCC
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
+            ;; entry-point
+            (memref-unsigned-byte-64 address 3) entry-point)
       (let ((value (%%assemble-value address +tag-object+)))
         ;; Initialize constant pool
         (setf (memref-t address 4) function
@@ -1170,8 +1177,8 @@ the header word. LENGTH is the number of elements in the array."
       ;; symbol-name.
       (setf (%array-like-ref-t symbol 0) name)
       (makunbound symbol)
-      (%fmakunbound symbol)
-      (setf (symbol-plist symbol) nil
+      (setf (symbol-fref symbol) nil
+            (symbol-plist symbol) nil
             (symbol-package symbol) nil)
       symbol)))
 
@@ -1188,8 +1195,8 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:push :rax)
   (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:mov64 :r8 #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 16)))
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
@@ -1206,8 +1213,8 @@ the header word. LENGTH is the number of elements in the array."
   (sys.lap-x86:push :rax)
   (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:mov64 :r8 #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r13 (:constant %make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-function+ 8))))
+  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:leave)

@@ -11,9 +11,6 @@
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
 (defvar *system-symbol-declarations* (make-hash-table :test 'eq))
 
-(defvar *setf-symbols* (make-hash-table :test 'eq))
-(defvar *reverse-setf-symbols* (make-hash-table :test 'eq))
-
 (defstruct (structure-type
              (:constructor sys.int::make-struct-type
                            (name slots parent area)))
@@ -23,19 +20,6 @@
   (area))
 
 (defvar *structure-types* (make-hash-table :test 'eq))
-
-(defun sys.int::function-symbol (name)
-  (cond ((symbolp name) name)
-        ((and (= (list-length name) 2)
-              (eql (first name) 'setf)
-              (symbolp (second name)))
-         (let ((x (gethash (second name) *setf-symbols*)))
-           (unless x
-             (setf x (make-symbol (format nil "~A" name)))
-             (setf (gethash (second name) *setf-symbols*) x
-                   (gethash x *reverse-setf-symbols*) (second name)))
-           x))
-        (t (error "Bad function name ~S~%" name))))
 
 (defvar *cross-readtable* (copy-readtable nil))
 
@@ -224,16 +208,27 @@
   fixups
   gc-info)
 
+(defstruct (cross-fref (:constructor make-cross-fref (name)))
+  name)
+
+;; Should be a weak hash table.
+(defvar *fref-table* (make-hash-table :test #'equal))
+
+(defun resolve-fref (name)
+  (alexandria:ensure-gethash name *fref-table*
+                             (make-cross-fref name)))
+
 (defun sys.int::assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (sys.lap-x86:assemble code
-        :base-address 16
-        :initial-symbols '((nil . :fixup)
-                           (t . :fixup)
-                           (undefined-function . :fixup)
-                           (:unbound-value . :fixup)
-                           (:unbound-tls-slot . :fixup))
-        :info (list name debug-info))
+      (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
+        (sys.lap-x86:assemble code
+          :base-address 16
+          :initial-symbols '((nil . :fixup)
+                             (t . :fixup)
+                             (undefined-function . :fixup)
+                             (:unbound-value . :fixup)
+                             (:unbound-tls-slot . :fixup))
+          :info (list name debug-info)))
     (make-cross-function :mc mc
                          :constants constants
                          :fixups fixups
@@ -264,6 +259,7 @@
 ;; Call a function, push the result.
 (defconstant +llf-funcall+ #x17)
 (defconstant +llf-bit-vector+ #x18)
+(defconstant +llf-function-reference+ #x19)
 
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
@@ -310,6 +306,10 @@
 
 (defgeneric save-one-object (object object-map stream))
 
+(defmethod save-one-object ((object cross-fref) omap stream)
+  (save-object (cross-fref-name object) omap stream)
+  (write-byte +llf-function-reference+ stream))
+
 (defmethod save-one-object ((object cross-function) omap stream)
   (let ((constants (cross-function-constants object)))
     (dotimes (i (length constants))
@@ -355,9 +355,6 @@
            (save-integer (length (package-name package)) stream)
            (dotimes (i (length (package-name package)))
              (save-character (char (package-name package) i) stream))))
-        ((gethash object *reverse-setf-symbols*)
-         (save-object (gethash object *reverse-setf-symbols*) omap stream)
-         (write-byte +llf-setf-symbol+ stream))
         (t (save-object (symbol-name object) omap stream)
            ;; Should save flags?
            (if (boundp object)

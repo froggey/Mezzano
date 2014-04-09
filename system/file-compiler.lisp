@@ -218,9 +218,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (save-integer (length (package-name package)) stream)
            (dotimes (i (length (package-name package)))
              (save-character (char (package-name package) i) stream))))
-        ((get object 'setf-symbol-backlink)
-         (save-object (get object 'setf-symbol-backlink) omap stream)
-         (write-byte +llf-setf-symbol+ stream))
         (t (save-object (symbol-name object) omap stream)
            ;; Should save flags?
            (if (boundp object)
@@ -292,6 +289,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         (when (>= (+ (* i 8) j) (length object)) (return))
         (setf (ldb (byte 1 j) octet) (bit object j)))
       (write-byte octet stream))))
+
+(defmethod save-one-object ((object function-reference) omap stream)
+  (save-object (function-reference-name object) omap stream)
+  (write-byte +llf-function-reference+ stream))
 
 (defmethod save-one-object (object omap stream)
   (multiple-value-bind (creation-form initialization-form)

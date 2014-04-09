@@ -18,16 +18,22 @@
          (sys.int::%compiler-defun ',name ',the-lambda))
        (sys.int::%defun ',name ,the-lambda))))
 
+(defvar *inline-modes* (make-hash-table :test #'equal))
+(defvar *inline-forms* (make-hash-table :test #'equal))
+
 (defun sys.int::%compiler-defun (name source-lambda)
-  (let ((sym (sys.int::function-symbol name)))
-    (when (or (get sym 'sys.int::inline-mode)
-              (get sym 'sys.int::inline-form))
-      (setf (get sym 'sys.int::inline-form) source-lambda)))
+  (when (or (gethash name *inline-modes*)
+            (gethash name *inline-forms*))
+      (setf (gethash name *inline-forms*) source-lambda))
   nil)
 
 (defun sys.int::%defun (name lambda)
   (setf (fdefinition name) lambda)
   name)
+
+(defun function-inline-info (name)
+  (values (gethash name *inline-modes*)
+          (gethash name *inline-forms*)))
 
 ;; Enough to load the full DEFMACRO.
 (def-x-macro defmacro (name lambda-list &body body)
@@ -78,12 +84,10 @@
        (setf (gethash sym *system-symbol-declarations*) :special)))
     (inline
      (dolist (name (rest declaration-specifier))
-       (let ((sym (sys.int::function-symbol name)))
-         (setf (get sym 'sys.int::inline-mode) t))))
+       (setf (gethash name *inline-modes*) t)))
     (notinline
      (dolist (name (rest declaration-specifier))
-       (let ((sym (sys.int::function-symbol name)))
-         (setf (get sym 'sys.int::inline-mode) nil))))))
+       (setf (gethash name *inline-modes*) nil)))))
 
 (defun sys.int::dotted-list-length (list)
   "Returns the length of LIST if list is a proper list. Returns NIL if LIST is a circular list."
