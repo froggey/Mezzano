@@ -41,17 +41,23 @@
 
 (defun simp-block (form)
   (cond
-     ((eql (lexical-variable-use-count (second form)) 0)
-      (change-made)
-      (simp-form `(progn ,@(cddr form))))
-     ;; (block foo (return-from foo form)) => form
-     ((and (eql (lexical-variable-use-count (second form)) 1)
-           (eql (length form) 3)
-           (eql (first (third form)) 'return-from)
-           (eql (second form) (second (third form))))
-      (third (third form)))
-     (t (simp-implicit-progn (cddr form) t)
-	form)))
+    ;; Unused blocks get reduced to progn.
+    ((eql (lexical-variable-use-count (second form)) 0)
+     (change-made)
+     (simp-form `(progn ,@(cddr form))))
+    ;; (block foo) => 'nil
+    ((eql (length form) 2)
+     (change-made)
+     'nil)
+    ;; (block foo ... (return-from foo form)) => (block foo ... form)
+    ((and (listp (first (last form)))
+          (eql (first (first (last form))) 'return-from)
+          (eql (second form) (second (first (last form)))))
+     (change-made)
+     (setf (first (last form)) (third (first (last form))))
+     form)
+    (t (simp-implicit-progn (cddr form) t)
+       form)))
 
 (defun simp-go (form)
   ;; HACK: Update the tagbody location part after tagbodies have merged.
@@ -123,6 +129,15 @@
                    (return-from ,new-block ,(simp-form (third form)) ,new-block)
                    ,else-tag
                    (return-from ,new-block ,(simp-form (fourth form)) ,new-block)))))
+          ((and (listp (third form))
+                (eql (first (third form)) 'go)
+                (listp (fourth form))
+                (eql (first (fourth form)) 'go)
+                (eql (second (third form)) (second (fourth form)))
+                (eql (third (third form)) (third (fourth form))))
+           ;; Rewrite (if x (go A-TAG) (go A-TAG)) => (go A-TAG)
+           (change-made)
+           (simp-form (third form)))
           (t
            (setf (second form) (simp-form (second form))
                  (third form) (simp-form (third form))
@@ -294,8 +309,29 @@
 		(change-made)
 		(setf (cdr tail) (cons x nil)
 		      tail (cdr tail)))
+            ;; Flatten the body as much as possible.
 	    (setf (cdr tail) (flatten x)
 		  tail (last tail)))))
+    ;; Kill code after GO statements and try to eliminate no-op GOs.
+    (do* ((i (cddr form) (cdr i))
+          (prev (cdr form))
+          (last-was-go nil))
+         ((endp i))
+      (let ((stmt (car i)))
+        (cond ((go-tag-p stmt)
+               (setf last-was-go nil))
+              (last-was-go
+               (change-made)
+               (setf (cdr prev) (cdr i)))
+              ((and (listp stmt)
+                    (eql (first stmt) 'go))
+               (cond ((eql (cadr i) (second stmt))
+                      ;; This GO can be eliminated.
+                      (change-made)
+                      (setf (cdr prev) (cdr i)))
+                     (t (setf last-was-go t)
+                        (setf prev i))))
+              (t (setf prev i)))))
     ;; Reduce tagbodys with no tags to progn.
     (cond ((tagbody-information-go-tags (second form))
 	   form)
