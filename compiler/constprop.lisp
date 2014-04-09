@@ -5,6 +5,8 @@
 (defvar *known-variables* nil
   "An alist mapping lexical-variables to their values, if known.")
 
+(defparameter *constprop-lambda-copy-limit* 3)
+
 (defun constprop (form)
   (let ((*known-variables* '()))
     (cp-form form)))
@@ -112,7 +114,9 @@
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
 	(when (and (lexical-variable-p var)
-		   (or (lambda-information-p val)
+		   (or (and (lambda-information-p val)
+                            (<= (getf (lambda-information-plist val) 'copy-count 0)
+                                *constprop-lambda-copy-limit*))
 		       (and (consp val) (eq (first val) 'quote))
 		       (and (lexical-variable-p val)
 			    (localp val)
@@ -154,8 +158,11 @@
   (setf (third form) (cp-form (third form)))
   (let ((info (assoc (second form) *known-variables*)))
     (if info
-        (cond ((or (lambda-information-p (third form))
-                   (and (consp (third form)) (eq (first (third form)) 'quote)))
+        (cond ((or (and (lambda-information-p (third form))
+                        (<= (getf (lambda-information-plist (third form)) 'copy-count 0)
+                            *constprop-lambda-copy-limit*))
+                   (and (consp (third form))
+                        (eq (first (third form)) 'quote)))
                ;; Always propagate the new value forward.
                (setf (second info) (third form))
                ;; The value is constant. Attempt to push it back to the
@@ -255,6 +262,8 @@
     (if val
 	(progn
 	  (change-made)
+          (when (lambda-information-p (second val))
+            (incf (getf (lambda-information-plist (second val)) 'copy-count 0)))
 	  (decf (lexical-variable-use-count form))
           (incf (third val))
 	  (copy-form (second val)))
