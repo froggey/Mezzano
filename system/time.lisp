@@ -90,6 +90,7 @@ It should be the current year, or earlier."
           (month (rtc +rtc-month+))
           (year (rtc +rtc-year+))
           (status-b (rtc +rtc-status-b+)))
+      ;; Keep rereading until we get two consistent times.
       (do ((last-second nil (prog1 second (setf second (rtc +rtc-second+))))
            (last-minute nil (prog1 minute (setf minute (rtc +rtc-minute+))))
            (last-hour   nil (prog1 hour   (setf hour   (rtc +rtc-hour+))))
@@ -110,7 +111,8 @@ It should be the current year, or earlier."
         (setf second (conv-bcd second)
               minute (conv-bcd minute)
               ;; Preserve the 12-hour AM/PM bit.
-              hour (logior (conv-bcd hour) (logand hour +rtc-hour-pm+))
+              hour (logior (conv-bcd (logand hour (lognot +rtc-hour-pm+)))
+                           (logand hour +rtc-hour-pm+))
               day (conv-bcd day)
               month (conv-bcd month)
               year (conv-bcd year)))
