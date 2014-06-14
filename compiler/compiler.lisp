@@ -24,24 +24,27 @@ A list of any declaration-specifiers."
 (declaim (special *environment*))
 
 (defun compile-lambda (lambda &optional env)
+  (codegen-lambda (compile-lambda-1 lambda env)))
+
+;; Parse lambda and optimize, but do not do codegen.
+(defun compile-lambda-1 (lambda &optional env)
   (let ((*environment* (cdr env)))
-    (codegen-lambda
-     (detect-uses
-      (simp-form
-       (detect-uses
-        ;; Make the dynamic environment explicit.
-        (lsb-lambda
-         ;; Run a final simplify pass to kill off any useless bindings.
-         (detect-uses
-          (simp-form
-           (detect-uses
-            ;; Lower closed-over variables.
-            (lower-environment
-             (detect-uses
-              (lower-arguments
-               (detect-uses
-                (run-optimizers
-                 (pass1-lambda lambda (car env)))))))))))))))))
+    (detect-uses
+     (simp-form
+      (detect-uses
+       ;; Make the dynamic environment explicit.
+       (lsb-lambda
+        ;; Run a final simplify pass to kill off any useless bindings.
+        (detect-uses
+         (simp-form
+          (detect-uses
+           ;; Lower closed-over variables.
+           (lower-environment
+            (detect-uses
+             (lower-arguments
+              (detect-uses
+               (run-optimizers
+                (pass1-lambda lambda (car env))))))))))))))))
 
 (defun compile (name &optional definition)
   (unless definition

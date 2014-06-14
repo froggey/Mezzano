@@ -58,7 +58,31 @@
            :macroexpand
            :macroexpand-1
            :macro-function
-           :constantp)
+           :constantp
+
+           #:quoted-form-p
+           #:lambda-information
+           #:lambda-information-p
+           #:lambda-information-name
+           #:lambda-information-docstring
+           #:lambda-information-lambda-list
+           #:lambda-information-body
+           #:lambda-information-required-args
+           #:lambda-information-optional-args
+           #:lambda-information-rest-arg
+           #:lambda-information-enable-keys
+           #:lambda-information-key-args
+           #:lambda-information-allow-other-keys
+           #:lambda-information-environment-arg
+           #:lambda-information-environment-layout
+           #:lambda-information-plist
+           #:lexical-variable
+           #:lexical-variable-p
+           #:block-information-env-var
+           #:block-information-count
+           #:block-information-return-mode
+           #:tagbody-information-go-tags
+           #:go-tag-p)
   (:use :cross-cl))
 
 (defpackage :sys.newc
