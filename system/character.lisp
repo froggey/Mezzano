@@ -9,7 +9,12 @@
   (check-type code (or (integer 0 #x0010FFFF))
               "a unicode code-point")
   (check-type bits (or null (integer 0 15)))
-  (if (<= #xD800 code #xDFFF)
+  (if (or (<= #xD800 code #xDFFF) ; UTF-16 surrogates.
+          ;; Noncharacters.
+          (<= #xFDD0 code #xFDEF)
+          (member code '#.(loop for i to #x10
+                             collect (logior (ash i 16) #xFFFE)
+                             collect (logior (ash i 16) #xFFFF))))
       nil
       (%%assemble-value (ash (logior code (ash (or bits 0) 21)) 4)
                         +tag-character+)))
