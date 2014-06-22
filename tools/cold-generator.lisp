@@ -755,7 +755,10 @@
                      :if-exists :supersede)
     (let ((*print-right-margin* 10000))
       (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
-            (format s "~X ~A~%" (* (+ addr 2) 8) name)))))
+            (format s "~X ~A~%" (* (+ addr 2) 8)
+                    (cl-ppcre:regex-replace (string #\Newline)
+                                            (format nil "~A" name)
+                                            "#\\Newline"))))))
 
 ;; Ugh.
 (defun load-compiler-builtins ()
