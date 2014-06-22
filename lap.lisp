@@ -177,18 +177,14 @@ a vector of constants and an alist of symbols & addresses."
     (check-type layout bit-vector)
     (check-type pushed-values (signed-byte 32))
     (check-type incoming-arguments (or null
-                                       (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)
-                                       (cons (eql :stack)
-                                             (cons (integer 0 14)
-                                                   null))))
+                                       (eql :rcx)
+                                       (integer 0 14)))
     (check-type interrupt boolean)
     (check-type multiple-values (or null (unsigned-byte 4)))
     (check-type pushed-values-register (or null
                                            (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)))
     (check-type block-or-tagbody-thunk (or null
-                                           (member :rax :rcx :rdx :rbx :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)))
-    (when (and incoming-arguments block-or-tagbody-thunk)
-      (error "Incoming-Arguments and Block-Or-Tagbody-Thunk conflict."))
+                                           (member :rax)))
     ;; Canonicalise keyword order, so EQUAL can be used to strip duplicates.
     (let ((gc-keys '()))
       (when block-or-tagbody-thunk
@@ -244,12 +240,13 @@ a vector of constants and an alist of symbols & addresses."
                                     (:no-frame 0))
                                   (if interrupt 2 0)
                                   (cond
-                                    ((keywordp incoming-arguments)
-                                     #b1000)
-                                    (incoming-arguments
-                                     #b1100)
                                     (block-or-tagbody-thunk
+                                     (assert (eql block-or-tagbody-thunk :rax))
                                      #b0100)
+                                    (t 0))
+                                  (cond
+                                    (incoming-arguments
+                                     #b1000)
                                     (t 0))
                                   (ash (if pushed-values-register
                                            ;; ehhhh
@@ -259,12 +256,12 @@ a vector of constants and an alist of symbols & addresses."
                           bytes)
       (vector-push-extend (logior (or multiple-values #b1111)
                                   (ash (cond ((keywordp incoming-arguments)
-                                              (funcall (intern "REG-NUMBER" :sys.lap-x86) incoming-arguments))
+                                              (assert (eql incoming-arguments :rcx))
+                                              15)
                                              (incoming-arguments
-                                              (second incoming-arguments))
-                                             (block-or-tagbody-thunk
-                                              (funcall (intern "REG-NUMBER" :sys.lap-x86) block-or-tagbody-thunk))
-                                             (t 0))
+                                              (check-type incoming-arguments (integer 0 (15)))
+                                              incoming-arguments)
+                                             (t 15))
                                        4))
                           bytes)
       (append-vs32 pushed-values bytes)

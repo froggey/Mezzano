@@ -344,7 +344,7 @@ be generated instead.")
     ;; Number of supplied arguments
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 1)) :rcx))
     (unless dx-rest
-      (emit-gc-info :incoming-arguments (control-stack-slot-ea (+ control-slots 1))))
+      (emit-gc-info :incoming-arguments (+ control-slots 1)))
     ;; Create the result cell. Always create this as dynamic-extent, it
     ;; is only used during rest-list creation.
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 2)) nil)

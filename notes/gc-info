@@ -571,8 +571,7 @@ GC keywords:
   With no frame: (bit layout n) = (livep (+ :rsp (* n 8)))
 :incoming-arguments register-or-stack-location
   When present, (min (- REGISTER-OR-STACK-LOCATION 5) 0) is the number of live values above the return address.
-  Mutually exclusive with :block-or-tagbody-thunk
-  Stack-location must be one of the first 16 slots
+  Stack-location must be one of the first 15 slots or register must be rcx.
 :interrupt T
   When present, indicates that there is an interrupt 'frame' instead of a return address. RIP/CS/RFLAGS/RSP/SS
 :multiple-values count
@@ -588,13 +587,13 @@ GC keywords:
   tagbody thunk and that the stack pointer can be found at (register 16)
   & the frame pointer is at (register 24).
   Frame pointer will be ignored if in a frameless function.
-  Mutually exclusive with :incoming-arguments
+  Register must be RAX
 
 vu32 Start-Offset
 u4 Flag-Bits
 u4 Pushed-Values-Register  4/rsp = not-present
 u4 Multiple-Values  15 = not-present
-u4 IA/BTT bits.
+u4 IA bits  15 = not-present or register
 vs32 Pushed-Values
 vu32 N-Layout-Bits
 u8[n] Layout-Bits
@@ -603,7 +602,5 @@ u8[n] Layout-Bits
 Flag bits:
 0 Frame
 1 Interrupt
-2-3 00 = Ignore
-    01 = Block-Or-Tagbody-Thunk
-    10 = Incoming-Arguments-Register
-    11 = Incoming-Arguments-Stack-Location
+2 Block-Or-Tagbody-Thunk
+3 Incoming-Arguments

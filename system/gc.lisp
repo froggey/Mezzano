@@ -614,14 +614,12 @@
                       (setf multiple-values (ldb (byte 4 0) mv-and-iabtt)))
                   (setf block-or-tagbody-thunk nil
                         incoming-arguments nil)
-                  (ecase (ldb (byte 2 2) flags-and-pvr)
-                    (#b00)
-                    (#b01 (setf block-or-tagbody-thunk
-                                (register-id (ldb (byte 4 4) mv-and-iabtt))))
-                    (#b10 (setf incoming-arguments
-                                (register-id (ldb (byte 4 4) mv-and-iabtt))))
-                    (#b11 (setf incoming-arguments
-                                (ldb (byte 4 4) mv-and-iabtt)))))
+                  (when (logtest flags-and-pvr #b0100)
+                    (setf block-or-tagbody-thunk :rax))
+                  (when (logtest flags-and-pvr #b1000)
+                    (if (eql (ldb (byte 4 4) mv-and-iabtt) 15)
+                        :rcx
+                        (ldb (byte 4 4) mv-and-iabtt))))
                 ;; Read vs32 pv.
                 (let ((shift 0)
                       (value 0))

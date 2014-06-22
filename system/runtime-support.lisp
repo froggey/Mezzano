@@ -463,7 +463,7 @@
                  (incf position))))
         (loop (let ((address 0)
                     flags-and-pvr
-                    mv-and-iabtt
+                    mv-and-ia
                     (pv 0)
                     (n-layout-bits 0)
                     (layout (make-array 32 :element-type 'bit :adjustable t :fill-pointer 0)))
@@ -482,8 +482,8 @@
                               (return))))))
                 ;; Read flag/pvr byte
                 (setf flags-and-pvr (consume))
-                ;; Read mv-and-iabtt
-                (setf mv-and-iabtt (consume))
+                ;; Read mv-and-ia
+                (setf mv-and-ia (consume))
                 ;; Read vs32 pv.
                 (let ((shift 0))
                   (loop
@@ -512,14 +512,13 @@
                 (let ((entry '()))
                   (unless (zerop n-layout-bits)
                     (setf (getf entry :layout) layout))
-                  (ecase (ldb (byte 2 2) flags-and-pvr)
-                    (#b00)
-                    (#b01 (setf (getf entry :block-or-tagbody-thunk)
-                                (svref register-ids (ldb (byte 4 4) mv-and-iabtt))))
-                    (#b10 (setf (getf entry :incoming-arguments)
-                                (svref register-ids (ldb (byte 4 4) mv-and-iabtt))))
-                    (#b11 (setf (getf entry :incoming-arguments)
-                                `(:stack ,(ldb (byte 4 4) mv-and-iabtt)))))
+                  (unless (logtest flags-and-pvr #b0100)
+                    (setf (getf entry :block-or-tagbody-thunk) :rax))
+                  (unless (logtest flags-and-pvr #b1000)
+                    (setf (getf entry :incoming-arguments)
+                          (if (eql (ldb (byte 4 4) mv-and-ia) 15)
+                              :rcx
+                              (ldb (byte 4 4) mv-and-ia))))
                   (unless (eql (ldb (byte 4 0) mv-and-iabtt) 15)
                     (setf (getf entry :multiple-values)
                           (ldb (byte 4 0) mv-and-iabtt)))
