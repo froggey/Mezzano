@@ -397,6 +397,12 @@
     (when (funcall test item (funcall key (car i)))
       (return i))))
 
+(defun member-if (predicate list)
+  (when list
+    (if (funcall predicate (first list))
+        list
+        (member-if predicate (rest list)))))
+
 (defun get-properties (plist indicator-list)
   (do ((i plist (cddr i)))
       ((null i)

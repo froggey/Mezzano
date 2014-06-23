@@ -389,23 +389,29 @@ BODY must not allocate!"
 (defun remprop (symbol indicator)
   (remf (symbol-plist symbol) indicator))
 
-(defun mismatch (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
-  (when (and test test-not)
-    (error ":TEST and :TEST-NOT specified"))
-  (when test-not
-    (setf test (complement test-not)))
-  (setf test (or test #'eql))
-  (setf key (or key #'identity))
-  (when from-end
-    (setf sequence-1 (reverse sequence-1)
-          sequence-2 (reverse sequence-2)))
-  (setf end1 (or end1 (length sequence-1)))
-  (setf end2 (or end2 (length sequence-2)))
-  (dotimes (position (min (- end1 start1)
-                          (- end2 start2))
-            (when (not (eql (- end1 start1) (- end2 start2)))
-              (+ start1 position)))
-    (when (not (funcall test
-                        (funcall key (elt sequence-1 (+ start1 position)))
-                        (funcall key (elt sequence-2 (+ start2 position)))))
-      (return (+ start1 position)))))
+(defun map-apropos (fn string package)
+  (cond (package
+         (do-symbols (sym package)
+           (when (search string (symbol-name sym) :test #'string-equal)
+             (funcall fn sym))))
+        (t
+         (do-all-symbols (sym)
+           (when (search string (symbol-name sym) :test #'string-equal)
+             (funcall fn sym))))))
+
+(defun apropos (string &optional package)
+  (map-apropos (lambda (sym)
+                 (let ((info '()))
+                   (when (boundp sym) (push "bound" info))
+                   (when (fboundp sym) (push "fbound" info))
+                   (if info
+                       (format t "~S ~A~%" sym info)
+                       (format t "~S~%" sym))))
+               string package))
+
+(defun apropos-list (string &optional package)
+  (let ((syms '()))
+    (map-apropos (lambda (sym)
+                   (pushnew sym syms))
+                 string package)
+    syms))

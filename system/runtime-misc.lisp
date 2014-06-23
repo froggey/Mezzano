@@ -24,3 +24,22 @@
                      (list (eval (read))))
       :report (lambda (s) (format s "Input a value to be used in place of ~S." `(fdefinition ',invoked-through)))
       (apply v args))))
+
+(defmethod print-object ((object structure-object) stream)
+  (write-string "#S" stream)
+  (let ((contents (list (type-of object)))
+        (type (%struct-slot object 0)))
+    (write (list* (type-of object)
+                  (loop
+                     for i from 1
+                     for slot in (structure-slots type)
+                     collect (intern (symbol-name (first slot)) "KEYWORD")
+                     collect (%struct-slot object i)))
+           :stream stream)))
+
+(defmethod print-object ((object hash-table) stream)
+  (print-unreadable-object (object stream :type t :identity t)))
+
+(defmethod print-object ((object stack-group) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format t "~S" (stack-group-name object))))

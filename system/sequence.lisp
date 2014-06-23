@@ -497,3 +497,49 @@
 (setf (fdefinition 'stable-sort) #'sort)
 ;; missing function...
 (setf (fdefinition 'delete-duplicates) #'remove-duplicates)
+
+;;; Bastardized SEARCH from SBCL.
+(defun search (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
+  (setf end1 (or end1 (length sequence-1)))
+  (setf end2 (or end2 (length sequence-2)))
+  (when test-not
+    (when test (error ":TEST and :TEST-NOT specified."))
+    (setf test (complement test-not)))
+  (setf test (or test #'eql))
+  (setf key (or key #'identity))
+  (do ((index2 start2 (1+ index2))
+       (terminus (- end2 (- end1 start1)))
+       (last-match nil))
+      ((> index2 terminus)
+       last-match)
+    (if (do ((index index2 (1+ index))
+             (sub-index start1 (1+ sub-index)))
+            ((= sub-index end1) t)
+          (if (not (funcall test
+                            (funcall key (elt sequence-1 sub-index))
+                            (funcall key (elt sequence-2 index))))
+              (return nil)))
+        (if from-end
+            (setf last-match index2)
+            (return index2)))))
+
+(defun mismatch (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
+  (when (and test test-not)
+    (error ":TEST and :TEST-NOT specified"))
+  (when test-not
+    (setf test (complement test-not)))
+  (setf test (or test #'eql))
+  (setf key (or key #'identity))
+  (when from-end
+    (setf sequence-1 (reverse sequence-1)
+          sequence-2 (reverse sequence-2)))
+  (setf end1 (or end1 (length sequence-1)))
+  (setf end2 (or end2 (length sequence-2)))
+  (dotimes (position (min (- end1 start1)
+                          (- end2 start2))
+            (when (not (eql (- end1 start1) (- end2 start2)))
+              (+ start1 position)))
+    (when (not (funcall test
+                        (funcall key (elt sequence-1 (+ start1 position)))
+                        (funcall key (elt sequence-2 (+ start2 position)))))
+      (return (+ start1 position)))))
