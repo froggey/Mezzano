@@ -220,6 +220,6 @@ party to perform, the indicated option.")
       (lambda () (create-telnet-client '(204 236 130 210) :title "nethack.alt.org")))
 (setf (gethash (name-char "F7") sys.graphics::*global-keybindings*)
       ;; This server is dumb and treats xterm-color as xterm-256color. Jerk.
-      (lambda () (create-telnet-client '(128 174 251 59) :title "nyancat")))
+      (lambda () (create-telnet-client '(107 170 207 248) :title "nyancat")))
 (setf (gethash (name-char "F8") sys.graphics::*global-keybindings*)
       (lambda () (create-telnet-client '(173 164 225 201) :title "magic-1.org")))
