@@ -654,11 +654,11 @@
   (sys.lap-x86:jae too-many-values)
   (sys.lap-x86:mov64 :r13 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (:gc :frame :layout #*10 :multiple-values 1)
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 (:rdi) :r13)
-  (:gc :frame :layout #*10 :multiple-values 0)
+  (:gc :frame :layout #*10 :multiple-values 1)
   (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (:gc :frame :layout #*10 :multiple-values 0)
   (sys.lap-x86:add64 :rdi 8)
   (sys.lap-x86:jmp unpack-loop)
   done
