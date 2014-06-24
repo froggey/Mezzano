@@ -648,16 +648,18 @@
                   (incf position (ceiling layout-length 8)))))))))
 
 (defun scan-array-like (object)
+  ;; Careful here. Functions with lots of GC info can have the header fall
+  ;; into bignumness when read as a ub64.
   (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0))
-         (length (ldb (byte +array-length-size+ +array-length-shift+) header))
-         (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
+         (type (ldb (byte +array-type-size+ +array-type-shift+)
+                    (memref-unsigned-byte-8 address 0))))
     ;; Dispatch again based on the type.
     (case type
       (#.+object-tag-array-t+
        ;; simple-vector
        ;; 1+ to account for the header word.
-       (scan-generic object (1+ length)))
+       (scan-generic object (1+ (ldb (byte +array-length-size+ +array-length-shift+)
+                                     (memref-unsigned-byte-64 address 0)))))
       ((#.+object-tag-memory-array+
         #.+object-tag-simple-string+
         #.+object-tag-string+
@@ -673,7 +675,8 @@
       (#.+object-tag-structure-object+
        (when (hash-table-p object)
          (setf (hash-table-rehash-required object) 't))
-       (scan-generic object (1+ length)))
+       (scan-generic object (1+ (ldb (byte +array-length-size+ +array-length-shift+)
+                                     (memref-unsigned-byte-64 address 0)))))
       (#.+object-tag-std-instance+
        (scan-generic object 3))
       (#.+object-tag-function-reference+
