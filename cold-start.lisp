@@ -1,5 +1,17 @@
 (in-package :sys.int)
 
+(declaim (inline null not))
+
+(defun null (object)
+  (if object
+      'nil
+      't))
+
+(defun not (object)
+  (if object
+      'nil
+      't))
+
 (declaim (special *cold-toplevel-forms*
                   *package-system*
                   *additional-cold-toplevel-forms*
