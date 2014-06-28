@@ -224,7 +224,7 @@
   (send (irc-connection irc) "PONG :~A~%" message))
 
 (defvar *known-servers*
-  '((:freenode (213 92 8 4) 6667))
+  '((:freenode (64 32 24 176) 6667))
   "A list of known/named IRC servers.")
 
 (defun resolve-server-name (name)
