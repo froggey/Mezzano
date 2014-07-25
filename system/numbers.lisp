@@ -72,6 +72,27 @@
 (defun truncate (number &optional (divisor 1))
   (%truncate number divisor))
 
+;; Can't use DEFINE-COMMUTATIVE-ARITHMETIC-OPERATOR here because one-arg GCD is ABS.
+;; Types are also wrong (integer vs number).
+(defun gcd (&rest integers)
+  (declare (dynamic-extent integers))
+  (cond
+    ((endp integers) 0)
+    ((endp (rest integers))
+     (check-type (first integers) integer)
+     (abs (first integers)))
+    (t (reduce #'two-arg-gcd integers))))
+
+(define-compiler-macro gcd (&rest integers)
+  (declare (dynamic-extent integers))
+  (cond ((null integers) '0)
+        ((null (rest integers))
+         `(abs (the integer ,(first integers))))
+        (t (let ((result (first integers)))
+             (dolist (n (rest integers))
+               (setf result (list 'two-arg-gcd result n)))
+             result))))
+
 (defmacro define-comparison-operator (name base type)
   `(progn (defun ,name (number &rest more-numbers)
             (declare (dynamic-extent more-numbers))

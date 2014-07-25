@@ -1499,12 +1499,3 @@ Implements the dumb mp_div algorithm from BigNum Math."
           (return a))
      (psetf b (mod a b)
             a b)))
-
-(defun gcd (&rest integers)
-  (declare (dynamic-extent integers))
-  (cond
-    ((endp integers) 0)
-    ((endp (rest integers))
-     (check-type (first integers) integer)
-     (abs (first integers)))
-    (t (reduce #'two-arg-gcd integers))))
