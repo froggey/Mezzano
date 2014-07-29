@@ -876,6 +876,9 @@ VALUE may be nil to make the fref unbound."
       (fdefinition thing)))
 
 (defun initialize-lisp ()
+  "A grab-bag of things that must be done before Lisp will work properly.
+Cold-generator sets up just enough stuff for functions to be called, for
+structures to exist, and for memory to be allocated, but not much beyond that."
   (setf *next-symbol-tls-slot* 256
         *array-types* #(t
                         fixnum
@@ -930,7 +933,7 @@ VALUE may be nil to make the fref unbound."
         *print-escape* t
         *print-readably* nil
         *print-safe* nil)
-  (setf *features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp)
+  (setf *features* '(:unicode :little-endian :x86-64 :mezzanine :ieee-floating-point :ansi-cl :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
