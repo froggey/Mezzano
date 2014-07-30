@@ -12,13 +12,19 @@
 
 (defvar *staging-path* #p"iso_stage/")
 (defvar *grub-eltorito* #p"tools/stage2_eltorito")
-(defvar *cdkboot* #p"tools/kboot/cdboot")
+(defvar *cdkboot* #p"tools/kboot/cdkboot")
 
 (defun pathname-file-part (pathname)
   (make-pathname :name (pathname-name pathname)
                  :type (pathname-type pathname)))
 
-(defun build-image (image-name kernel modules &key (bootloader :grub) confirm (verbose t) (base-path *default-pathname-defaults*))
+(defun build-image (image-name kernel modules
+                    &key
+                      (bootloader :kboot)
+                      confirm
+                      (verbose t)
+                      (base-path *default-pathname-defaults*)
+                      (kboot-options '(("video_mode" . "1024x768"))))
   (check-type bootloader (member :grub :kboot))
   (let* ((stage (merge-pathnames *staging-path*))
          (image-path (merge-pathnames (make-pathname :name image-name :type "iso")))
@@ -56,12 +62,28 @@
                         (dolist (f modules)
                           (format s "module /~A~%" (pathname-file-part f))))
                       (setf bootloader-name "grub/stage2_eltorito")))
-             #+nil(:kboot (copy-file *cdkboot* (merge-pathnames *cdkboot* stage))))
+             (:kboot (when verbose
+                       (format t "KBoot source: ~A~%" (merge-pathnames *cdkboot* base-path))
+                       (format t "KBoot loader: ~A~%" (merge-pathnames (pathname-file-part *cdkboot*) stage)))
+                     (copy-file (merge-pathnames *cdkboot* base-path)
+                                (merge-pathnames (pathname-file-part *cdkboot*) stage))
+                     (with-open-file (s (merge-pathnames "loader.cfg" stage)
+                                        :direction :output
+                                        :if-does-not-exist :create)
+                       (format s "set \"timeout\" 1~%")
+                       (format s "entry ~S {~%" image-name)
+                       (loop for (name . value) in kboot-options
+                          do (format s "  set ~S ~S~%" name value))
+                       (format s "  kboot \"/~A\" [~{\"/~A\" ~}]~%"
+                               (pathname-file-part kernel)
+                               (mapcar #'pathname-file-part modules))
+                       (format s "}~%"))
+                     (setf bootloader-name "cdkboot")))
            (copy-file kernel (merge-pathnames (pathname-file-part kernel) stage))
            (dolist (f modules)
              (copy-file f (merge-pathnames (pathname-file-part f) stage)))
            (external-program:run "mkisofs"
-                                 (list "-R" "-b" bootloader-name "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
+                                 (list "-R" "-J" "-b" bootloader-name "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
                                        (format nil "~A" image-path)
                                        (format nil "~A" stage))
                                  :output *standard-output*
