@@ -134,17 +134,11 @@
                (memory-map-entry-type entry))))
 
 (defun test-mmap (&optional suppress-memory-map)
-  (let ((mmap (cond (*multiboot-info*
-                     (multiboot-memory-map suppress-memory-map))
-                    (*kboot-tag-list*
+  (let ((mmap (cond (*kboot-tag-list*
                      (kboot-memory-map))
                     (t #()))))
     (format t "Bootloader provided memory map:~%")
     (print-memory-map mmap)
-    (when *multiboot-info*
-      (setf mmap (multiboot-mmap-add-reserved-regions mmap))
-      (format t "With reserved regions:~%")
-      (print-memory-map mmap))
     (setf mmap (canonicalize-memory-map mmap))
     (format t "In canonical form:~%")
     (print-memory-map mmap)

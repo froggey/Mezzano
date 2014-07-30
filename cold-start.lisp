@@ -19,14 +19,14 @@
                   *initial-keyword-obarray*
                   *initial-setf-obarray*
                   *initial-structure-obarray*
-                  *kboot-tag-list*
-                  *multiboot-info*)
+                  *kboot-tag-list*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
                   *debug-io*
                   *cold-stream-screen*
                   *keyboard-shifted*))
+(declaim (special *features* *macroexpand-hook*))
 
 (defun write-char (character &optional stream)
   (cold-write-char character stream))
@@ -410,57 +410,6 @@ VALUE may be nil to make the fref unbound."
 (defun print-object (object stream)
   (print-unreadable-object (object stream :type t :identity t)))
 
-(declaim (special *features* *macroexpand-hook*))
-
-(defun multiboot-module-count ()
-  (if (and *multiboot-info*
-           (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+))
-      (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 5)
-      0))
-
-(defun multiboot-module-info ()
-  (if (and *multiboot-info*
-           (logtest (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 0) +multiboot-flag-modules+))
-      (make-array (* (multiboot-module-count) 4)
-                  :element-type '(unsigned-byte 32)
-                  :memory (+ #x8000000000 (memref-unsigned-byte-32 (+ *multiboot-info* #x8000000000) 6)))
-      (make-array 0 :element-type '(unsigned-byte 32))))
-
-(defparameter *maximum-multiboot-command-line-length* 100)
-
-(defun multiboot-module (id)
-  (assert (< id (multiboot-module-count)))
-  (let* ((info (multiboot-module-info))
-         (base (aref info (+ (* id 4) 0)))
-         (end (aref info (+ (* id 4) 1)))
-         (size (- end base))
-         (command-line (+ #x8000000000 (aref info (+ (* id 4) 2))))
-         (cmdl-len (dotimes (i *maximum-multiboot-command-line-length*
-                             *maximum-multiboot-command-line-length*)
-                     (when (eql (memref-unsigned-byte-8 command-line i) 0)
-                       (return i)))))
-    (values (make-array size
-                        :element-type '(unsigned-byte 8)
-                        :memory (+ #x8000000000 base))
-            (map 'string #'code-char (make-array cmdl-len
-                                                 :element-type '(unsigned-byte 8)
-                                                 :memory command-line)))))
-
-(defun multiboot-module-data (id)
-  (multiple-value-bind (data command-line)
-      (multiboot-module id)
-    (declare (ignore command-line))
-    data))
-
-(defun multiboot-module-command-line (id)
-  (multiple-value-bind (data command-line)
-      (multiboot-module id)
-    (declare (ignore data))
-    command-line))
-
-(defun mini-multiboot-module-stream (id)
-  (mini-vector-stream (multiboot-module-data id)))
-
 (defun mini-vector-stream (vector)
   (cons vector 0))
 
@@ -469,7 +418,9 @@ VALUE may be nil to make the fref unbound."
     (incf (cdr stream))))
 
 (defun %read-sequence (seq stream)
-  (replace seq (car stream) :start2 (cdr stream) :end2 (+ (cdr stream) (length seq)))
+  (replace seq (car stream)
+           :start2 (cdr stream)
+           :end2 (+ (cdr stream) (length seq)))
   (incf (cdr stream) (length seq)))
 
 (defun %defconstant (name value &optional docstring)
@@ -824,10 +775,6 @@ VALUE may be nil to make the fref unbound."
              (incf addr (round-up size 8))))))))
 
 (defun load-modules ()
-  (when *multiboot-info*
-    (dotimes (i (multiboot-module-count))
-      (format t "Loading module ~S.~%" (multiboot-module-command-line i))
-      (mini-load-llf (mini-multiboot-module-stream i))))
   (when *kboot-tag-list*
     (flet ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
            (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
@@ -914,7 +861,8 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
         *debug-io* *cold-stream*
-        *cold-stream-screen* nil
+        *screen-offset* (cons 0 0)
+        *cold-stream-screen* '(:serial #x3F8)
         *keyboard-shifted* nil
         *early-initialize-hook* '()
         *initialize-hook* '()

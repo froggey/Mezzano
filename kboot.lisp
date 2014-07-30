@@ -296,7 +296,7 @@ immediately after the header."
     hdr))
 
 (defun kboot-mmap-memory-type (type)
-  "Convert a multiboot memory map type to a normal memory type."
+  "Convert a KBoot memory map type to a normal memory type."
   (case type
     (#.+kboot-memory-free+ :free)
     (#.+kboot-memory-allocated+ :reserved)

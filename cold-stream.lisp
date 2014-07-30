@@ -43,7 +43,7 @@
                   (#.+kboot-video-lfb+
                    (cond
                      ((and (logtest (p/32 (+ addr 16)) +kboot-lfb-rgb+) ; flags
-                           ;; Currently xRGB 8888 supported...
+                           ;; Currently only xRGB 8888 is supported...
                            (eql (p/8 (+ addr 28)) 32) ; bpp
                            (eql (p/8 (+ addr 60)) 8) ; red_size
                            (eql (p/8 (+ addr 62)) 8) ; green_size
@@ -111,6 +111,9 @@
                (attempts 0))
            (loop (when (logbitp 5 (io-port/8 (+ port 5))) (return))
               (when (> (incf attempts) 100000) (return)))
+           (incf (car *screen-offset*))
+           (when (eql c #\Newline)
+             (setf (car *screen-offset*) 0))
            (setf (system:io-port/8 port) (logand (char-code c) #xFF))))
         ((functionp (first *cold-stream-screen*))
          (funcall (first *cold-stream-screen*) c)))
@@ -189,13 +192,20 @@
               (case key
                 ((:shift :left-shift :right-shift) (setf *keyboard-shifted* nil))))))))
 
+(defun read-serial-char (port)
+  (loop
+     (when (logbitp 0 (io-port/8 (+ port 5)))
+       (return (code-char (io-port/8 port))))))
+
 (defvar *unread-char* nil)
 
 (defun cold-read-char (stream)
   (cond (*unread-char*
          (prog1 *unread-char*
            (setf *unread-char* nil)))
-        (t (let ((c (read-keyboard-char)))
+        (t (let ((c (if (eql (first *cold-stream-screen*) :serial)
+                        (read-serial-char (second *cold-stream-screen*))
+                        (read-keyboard-char))))
              (cold-write-char c nil)
              c))))
 

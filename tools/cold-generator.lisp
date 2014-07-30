@@ -28,7 +28,6 @@
     "system/load.lisp"
     "system/format.lisp"
     "system/interrupt.lisp"
-    "multiboot.lisp"
     "memory.lisp"
     "dump.lisp"
     "system/cons-compiler-macros.lisp"
@@ -110,65 +109,6 @@
                                8
                                (* sys.int::+fref-entry-point+ 8)))))
   "Code for the undefined function thunk.")
-
-(defparameter *setup-function*
-  `((:gc :no-frame)
-    (sys.lap-x86:!code32)
-    (sys.lap-x86:mov32 :esp initial-stack)
-    ;; Compute the start of the function.
-    (sys.lap-x86:call get-eip)
-    get-eip
-    (sys.lap-x86:pop :esi)
-    ;; Set ESI to the start of the function.
-    (sys.lap-x86:sub32 :esi get-eip)
-    ;; Enable long mode.
-    (sys.lap-x86:movcr :eax :cr4)
-    (sys.lap-x86:or32 :eax #x000000A0)
-    (sys.lap-x86:movcr :cr4 :eax)
-    (sys.lap-x86:mov32 :eax initial-page-table)
-    (sys.lap-x86:movcr :cr3 :eax)
-    (sys.lap-x86:mov32 :ecx #xC0000080)
-    (sys.lap-x86:rdmsr)
-    (sys.lap-x86:or32 :eax #x00000100)
-    (sys.lap-x86:wrmsr)
-    (sys.lap-x86:movcr :eax :cr0)
-    (sys.lap-x86:or32 :eax #x80000000)
-    (sys.lap-x86:movcr :cr0 :eax)
-    (sys.lap-x86:lgdt (:esi gdtr))
-    (sys.lap-x86:lidt (:esi idtr))
-    ;; There was a far jump here, but that's hard to make position-independent.
-    (sys.lap-x86:push #x0008)
-    (sys.lap-x86:lea32 :eax (:esi long64))
-    (sys.lap-x86:push :eax)
-    (sys.lap-x86:retf)
-    (sys.lap-x86:!code64)
-    long64
-    (sys.lap-x86:xor32 :eax :eax)
-    (sys.lap-x86:movseg :ds :eax)
-    (sys.lap-x86:movseg :es :eax)
-    (sys.lap-x86:movseg :fs :eax)
-    (sys.lap-x86:movseg :gs :eax)
-    (sys.lap-x86:movseg :ss :eax)
-    ;; Save the multiboot pointer.
-    (sys.lap-x86:mov32 :ebx :ebx)
-    (sys.lap-x86:shl64 :rbx ,sys.int::+n-fixnum-bits+)
-    (sys.lap-x86:mov64 :r8 (:constant sys.int::*multiboot-info*))
-    (sys.lap-x86:mov64 (:r8 ,(+ (- sys.int::+tag-object+)
-                                8
-                                (* sys.c::+symbol-value+ 8)))
-                       :rbx)
-    ;; Jump to the common boot code.
-    (sys.lap-x86:mov64 :r13 (:function sys.int::%%common-entry))
-    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
-                               8
-                               (* sys.int::+fref-entry-point+ 8))))
-    #+nil(:align 4) ; TODO!! ######
-    gdtr
-    (:d16/le gdt-length)
-    (:d32/le gdt)
-    idtr
-    (:d16/le idt-length)
-    (:d32/le idt)))
 
 (defparameter *kboot-entry-function*
   `((:gc :no-frame)
@@ -909,12 +849,9 @@
         (*undefined-function-address* nil)
         (*function-map* '())
         (*string-dedup-table* (make-hash-table :test 'equal))
-        (setup-fn nil)
         (kboot-entry-fn nil)
         (gdt nil)
         (idt nil)
-        (multiboot nil)
-        (initial-stack nil)
         (initial-pml4)
         (data-pml3)
         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
@@ -923,28 +860,15 @@
                                     (collect (symbol-name sym)))
                               :test #'string=)))
     (create-support-objects)
-    ;; Multiboot header must be allocated within the first 8kb.
-    (setf multiboot (allocate 5 :static)
-          initial-stack (allocate 8 :static)
-          gdt (allocate 3 :static)
+    (setf gdt (allocate 3 :static)
           idt (allocate 257 :static))
-    ;; Create setup function.
-    (setf setup-fn (compile-lap-function *setup-function* :static
-                                         (list (cons 'gdt (* (1+ gdt) 8))
-                                               (cons 'gdt-length (1- (* 2 8)))
-                                               (cons 'idt (* (1+ idt) 8))
-                                               (cons 'idt-length (1- (* 256 8)))
-                                               (cons 'initial-stack (* (+ initial-stack 8) 8))
-                                               ;; PML4 must be at this address
-                                               (cons 'initial-page-table #x400000))))
-    (setf (cold-symbol-value 'sys.int::*%setup-function*) (make-value setup-fn sys.int::+tag-object+))
     (create-initial-stack-group)
+    ;; Create setup function.
     (setf kboot-entry-fn (compile-lap-function *kboot-entry-function* :static
                                                (list (cons 'gdt (* (1+ gdt) 8))
                                                      (cons 'gdt-length (1- (* 2 8)))
                                                      (cons 'idt (* (1+ idt) 8))
                                                      (cons 'idt-length (1- (* 256 8)))
-                                                     (cons 'initial-stack (* (+ initial-stack 8) 8))
                                                      ;; PML4 must be at this address
                                                      (cons 'initial-page-table #x400000))))
     (setf (cold-symbol-value 'sys.int::*%kboot-entry*) (make-value kboot-entry-fn sys.int::+tag-object+))
@@ -975,7 +899,6 @@
     ;; Poke a few symbols to ensure they exist.
     (mapc (lambda (sym) (symbol-address (string sym) "SYSTEM.INTERNALS"))
           '(sys.int::*gdt* sys.int::*idt* sys.int::*%setup-stack* sys.int::*%setup-function*
-            sys.int::*multiboot-header* sys.int::*multiboot-info*
             sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
             sys.int::*newspace-offset* sys.int::*semispace-size* sys.int::*newspace* sys.int::*oldspace*
@@ -989,8 +912,7 @@
             sys.int::*%kboot-entry* sys.int::*kboot-tag-list*
             ))
     (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-object+))
-    (setf (cold-symbol-value 'sys.int::*kboot-tag-list*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-          (cold-symbol-value 'sys.int::*multiboot-info*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*kboot-tag-list*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
@@ -1012,24 +934,9 @@
     (dotimes (i 256)
       (setf (word (1+ idt)) 0))
     (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-object+))
-    ;; Create the setup stack.
-    (setf (word initial-stack) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 7))
-    (setf (cold-symbol-value 'sys.int::*%setup-stack*) (make-value initial-stack sys.int::+tag-object+))
-    (format t "Multiboot entry point at ~X~%" (word (1+ setup-fn)))
     (format t "KBoot entry point at ~X~%" (word (1+ kboot-entry-fn)))
     ;; Generate page tables.
     (setf (values initial-pml4 data-pml3) (create-page-tables))
-    ;; Create multiboot header.
-    (setf (word multiboot) (array-header sys.int::+object-tag-array-unsigned-byte-32+ 8)
-          (word (+ multiboot 1)) (pack-halfwords #x1BADB002 #x00010003)
-          (word (+ multiboot 2)) (pack-halfwords (ldb (byte 32 0) (- (+ #x1BADB002 #x00010003)))
-                                                 (* (1+ multiboot) 8))
-          (word (+ multiboot 3)) (pack-halfwords *physical-load-address*
-                                                 (+ *physical-load-address* (* (image-data-size) 8)))
-          (word (+ multiboot 4)) (pack-halfwords (+ *physical-load-address*
-                                                    (* (total-image-size) 8))
-                                                 (word (1+ setup-fn))))
-    (setf (cold-symbol-value 'sys.int::*multiboot-header*) (make-value multiboot sys.int::+tag-object+))
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)

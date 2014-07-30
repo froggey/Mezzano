@@ -228,7 +228,6 @@ know where the PDEs for new- and old-space are."
                                   512)))
     (with-interrupts-disabled ()
       (let ((old-bump-pointer *bump-pointer*)
-            (old-mb-info *multiboot-info*)
             (old-kboot-tags *kboot-tag-list*)
             (page-tables-here nil)
             (kboot-here nil))
@@ -237,15 +236,11 @@ know where the PDEs for new- and old-space are."
                ;; Scan the static area and figure out which pages need to be dumped.
                (dump-scan-static-area *large-static-area* static-pages)
                (dump-scan-static-area *small-static-area* static-pages)
-               (setf *multiboot-info* nil
-                     *kboot-tag-list* nil)
+               (setf *kboot-tag-list* nil)
                (setf *bump-pointer* (round-up old-bump-pointer 512)
                      kboot-here *bump-pointer*
                      page-tables-here (+ *bump-pointer* (length kboot)))
                (dump-generate-page-tables page-tables-here static-pages)
-               ;; Reconfigure the multiboot header for the larger image.
-               (setf (aref *multiboot-header* 5) (+ #x200000 (dump-disk-image-size static-pages))
-                     (aref *multiboot-header* 6) (+ #x200000 (dump-memory-image-size)))
                ;; Hack correct sizes into the KBoot LOAD phdr.
                (setf (ub64ref/le kboot (+ +elf-header-size+ +elf-p_filesz+)) (dump-disk-image-size static-pages)
                      (ub64ref/le kboot (+ +elf-header-size+ +elf-p_memsz+)) (dump-memory-image-size))
@@ -277,7 +272,6 @@ know where the PDEs for new- and old-space are."
                                                        (round-up *stack-bump-pointer-limit* #x200000)
                                                        total-sectors)))
           (setf *bump-pointer* old-bump-pointer
-                *multiboot-info* old-mb-info
                 *kboot-tag-list* old-kboot-tags))))
     (format t "Wrote ~S sectors (~DbMB) to disk.~%" total-sectors (truncate (truncate (* total-sectors 512) 1024) 1024))
     total-sectors))

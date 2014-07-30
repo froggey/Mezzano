@@ -10,7 +10,7 @@
 (declaim (special *verbose-gc*))
 ;;; GC Meters.
 (declaim (special *objects-copied* *words-copied*))
-(declaim (special *multiboot-info* *kboot-tag-list*))
+(declaim (special *kboot-tag-list*))
 (setf *verbose-gc* nil)
 (setf *objects-copied* 0
       *words-copied* 0)
@@ -55,10 +55,7 @@
 
 (defun gc-init-system-memory ()
   (setf *system-memory-map* (canonicalize-memory-map
-                             (cond (*multiboot-info*
-                                    (multiboot-mmap-add-reserved-regions
-                                     (multiboot-memory-map)))
-                                   (*kboot-tag-list*
+                             (cond (*kboot-tag-list*
                                     (kboot-memory-map))
                                    (t #()))))
   ;; Allocate DMA memory from the largest :FREE region.
