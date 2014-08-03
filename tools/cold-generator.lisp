@@ -37,7 +37,8 @@
     "system/parse.lisp"
     "pci.lisp"
     "framebuffer.lisp"
-    "system/describe.lisp"))
+    "system/describe.lisp"
+    "system/stuff.lisp"))
 
 (defparameter *special-source-files*
   '(("system/packages.lisp" sys.int::*package-system*)))
