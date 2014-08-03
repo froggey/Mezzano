@@ -375,6 +375,9 @@
 	       (encode-imm imm imm-length))))))
 
 (defun parse-r/m (form)
+  "Parse a register or effective address into a bunch of values.
+First value is the register, or false if the expression is an effective address.
+Remaining values describe the effective address: base index scale disp rip-relative"
   (cond ((not (consp form))
 	 form)
 	((and (= (length form) 2)
@@ -397,6 +400,17 @@
 	 (ecase (first form)
 	   (:car (values nil (second form) nil nil -3))
 	   (:cdr (values nil (second form) nil nil (+ -3 8)))))
+        ((eql (first form) :object)
+         (destructuring-bind (base slot &optional index (scale 8))
+             (rest form)
+           (values nil
+                   base
+                   index
+                   (if index scale nil)
+                   ;; subtract +tag-object+, skip object header.
+                   ;; Return an expression, so slot goes through symbol resolution, etc.
+                   `(+ (- #b1001) 8 (* ,slot 8))
+                   nil)))
 	(t (let (base index scale disp rip-relative)
 	     (dolist (elt form)
 	       (cond ((eql elt :rip)
