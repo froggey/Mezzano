@@ -70,6 +70,14 @@
   (format stream "~S is a stack-group, with address ~X~%"
           object (lisp-object-address object)))
 
+(defun describe-function-reference (object stream)
+  (format stream "~S is a function reference named ~S, with address ~X~%"
+          object (function-reference-name object) (lisp-object-address object))
+  (cond ((function-reference-function object)
+         (format stream "  It is bound to ~S.~%"
+                 (function-reference-function object)))
+        (t (format stream "  It is not bound.~%"))))
+
 (defun describe (object &optional (stream *standard-output*))
   (case stream
     ((nil) (setf stream *standard-output*))
@@ -100,6 +108,8 @@
                        (describe-stack-group object stream))
                       (#.+object-tag-unbound-value+
                        (format stream "This is an unbound value marker.~%"))
+                      (#.+object-tag-function-reference+
+                       (describe-function-reference object stream))
                       ((#.+object-tag-function+
                         #.+object-tag-closure+)
                        (describe-function object stream))
