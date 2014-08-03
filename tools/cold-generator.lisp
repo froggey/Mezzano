@@ -862,14 +862,14 @@
                               :test #'string=)))
     (create-support-objects)
     (setf gdt (allocate 3 :static)
-          idt (allocate 257 :static))
+          idt (allocate (1+ 512) :static))
     (create-initial-stack-group)
     ;; Create setup function.
     (setf kboot-entry-fn (compile-lap-function *kboot-entry-function* :static
                                                (list (cons 'gdt (* (1+ gdt) 8))
                                                      (cons 'gdt-length (1- (* 2 8)))
                                                      (cons 'idt (* (1+ idt) 8))
-                                                     (cons 'idt-length (1- (* 256 8)))
+                                                     (cons 'idt-length (1- (* 512 8)))
                                                      ;; PML4 must be at this address
                                                      (cons 'initial-page-table #x400000))))
     (setf (cold-symbol-value 'sys.int::*%kboot-entry*) (make-value kboot-entry-fn sys.int::+tag-object+))
@@ -931,8 +931,8 @@
           (word (+ gdt 2)) #x00209A0000000000)
     (setf (cold-symbol-value 'sys.int::*gdt*) (make-value gdt sys.int::+tag-object+))
     ;; Create IDT.
-    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 256))
-    (dotimes (i 256)
+    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 512))
+    (dotimes (i 512)
       (setf (word (1+ idt)) 0))
     (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-object+))
     (format t "KBoot entry point at ~X~%" (word (1+ kboot-entry-fn)))
