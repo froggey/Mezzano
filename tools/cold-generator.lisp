@@ -1049,23 +1049,27 @@
 (defun load-string (stream)
   (let* ((len (load-integer stream))
          (object-address (allocate 6 :static))
-         (data-address (allocate (1+ (ceiling len 2)) :static)))
-    ;; String container
-    (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
-          (word (+ object-address 1)) (make-value data-address sys.int::+tag-object+)
-          (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-          (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-          (word (+ object-address 4)) (make-fixnum len))
-    ;; Header word.
-    (setf (word data-address) (array-header sys.int::+object-tag-array-unsigned-byte-32+ len))
-    (dotimes (i (ceiling len 2))
-      (let ((value 0))
-        (dotimes (j 2)
-          (when (< (+ (* i 2) j) len)
-            (setf (ldb (byte 32 64) value) (load-character stream)))
-          (setf value (ash value -32)))
-        (setf (word (+ data-address 1 i)) value)))
-    (make-value object-address sys.int::+tag-object+)))
+         (string-data (make-array len :element-type '(unsigned-byte 32)))
+         (min-width 1))
+    ;; Read all characters and figure out how wide the data vector must be.
+    (dotimes (i len)
+      (let ((ch (load-character stream)))
+        (setf (aref string-data i) ch)
+        (setf min-width (min min-width
+                             (cond ((>= ch (expt 2 16)) 4)
+                                   ((>= ch (expt 2 8)) 2)
+                                   (t 1))))))
+    (let ((data-value (ecase min-width
+                        (4 (save-ub32-vector string-data :static))
+                        (2 (save-ub16-vector string-data :static))
+                        (1 (save-ub8-vector string-data :static)))))
+      ;; String container
+      (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
+            (word (+ object-address 1)) data-value
+            (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+            (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+            (word (+ object-address 4)) (make-fixnum len))
+      (make-value object-address sys.int::+tag-object+))))
 
 (defun load-string* (stream)
   (let* ((len (load-integer stream))
