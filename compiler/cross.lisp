@@ -124,3 +124,6 @@
   (:nicknames :sys.clos))
 
 (defpackage :sys.format)
+
+(defpackage :mezzanine.supervisor
+  (:use :cross-cl))

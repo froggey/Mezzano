@@ -4,7 +4,10 @@
 (in-package :cold-generator)
 
 (defparameter *source-files*
-  '("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
+  '("supervisor/entry.lisp"))
+
+
+  #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
     "cold-start.lisp"
     "system/gc.lisp"
     "system/runtime-array.lisp"
@@ -38,10 +41,10 @@
     "pci.lisp"
     "framebuffer.lisp"
     "system/describe.lisp"
-    "system/stuff.lisp"))
+    "system/stuff.lisp")
 
 (defparameter *special-source-files*
-  '(("system/packages.lisp" sys.int::*package-system*)))
+  '(#+nil("system/packages.lisp" sys.int::*package-system*)))
 
 (defparameter *warm-source-files*
   '("system/closette.lisp"
@@ -177,12 +180,10 @@
 (defparameter *linear-map*        #x8000000000)
 (defparameter *physical-load-address* #x0000200000)
 
-(defvar *support-offset*)
 (defvar *static-offset*)
 (defvar *dynamic-offset*)
 (defvar *stack-offset*)
 
-(defvar *support-data*)
 (defvar *static-data*)
 (defvar *dynamic-data*)
 
@@ -215,15 +216,7 @@
          (error "Allocation of ~S words exceeds static area size." word-count))
        (setf (ldb (byte 1 1) (word (- address 1))) 1
              (word (- address 2)) word-count)
-       address))
-    (:support
-     ;; Force alignment.
-     (unless (zerop (logand word-count #x1FF))
-       (incf word-count #x1FF)
-       (decf word-count (logand word-count #x1FF)))
-     (prog1 (+ (truncate (+ *linear-map* *physical-load-address* #x200000) 8)
-               *support-offset*)
-       (incf *support-offset* word-count)))))
+       address))))
 
 (defun allocate-stack (size style)
   (check-type style (member :control :data :binding))
@@ -250,16 +243,6 @@
              (when (>= (* offset 8) (length *dynamic-data*))
                (adjust-array *dynamic-data* (* (ceiling *dynamic-offset* #x40000) #x200000)))
              (values offset *dynamic-data*)))
-          ((<= (+ *linear-map* *physical-load-address* #x200000)
-               byte-address
-               (+ *linear-map* *physical-load-address* #x200000 (* *support-offset* 8)))
-           (let ((offset (- address (truncate (+ *linear-map* *physical-load-address* #x200000) 8))))
-             (when (>= (* offset 8) (length *support-data*))
-               (format t "Resizing support-data to ~S bytes, while accessing address ~X (offset ~X) ~
-                          support-offset is ~X~%"
-                       (* (ceiling *support-offset* #x40000) #x200000) address offset (* *support-offset* 8))
-               (adjust-array *support-data* (* (ceiling *support-offset* #x40000) #x200000)))
-             (values offset *support-data*)))
           (t (error "Unknown address #x~X.~%" address)))))
 
 (defvar *word-locks*)
@@ -450,24 +433,84 @@
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
     (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
 
-(defun write-image (name kboot-entry)
+(defun write-image (name entry-fref initial-process)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
-    (write-sequence (sys.int::make-kboot-header kboot-entry
-                                                *physical-load-address*
-                                                (* (image-data-size) 8)
-                                                (* (total-image-size) 8)
-                                                512) s)
-    ;; Must match the page-table code!
-    ;; First comes the first 2MB of the static area.
-    (write-sequence *static-data* s :end #x200000)
-    ;; Then the support area.
-    (write-sequence *support-data* s)
-    ;; Then the rest of the static area.
-    (write-sequence *static-data* s :start #x200000)
-    ;; Finally, the dynamic area.
+    ;; Image header.
+    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
+      ;; Magic.
+      (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+               :start1 0)
+      ;; UUID.
+      (dotimes (i 16)
+        (setf (aref header (+ 16 i)) (case i
+                                       (9 (logior #x40 (random 16)))
+                                       (7 (logior (random 64) #x80))
+                                       (t (random 256)))))
+      ;; Major & minor version.
+      (setf (ub16ref/le header 32) 0
+            (ub16ref/le header 34) 0)
+      ;; Number of extents.
+      (setf (ub32ref/le header 36) 4)
+      ;; Entry fref.
+      (setf (ub64ref/le header 40) entry-fref)
+      ;; Initial process.
+      (setf (ub64ref/le header 48) initial-process)
+      (flet ((extent (id store-base virtual-base size flags)
+               (setf (ub64ref/le header (+ 64 (* id 32) 0)) store-base
+                     (ub64ref/le header (+ 64 (* id 32) 8)) virtual-base
+                     (ub64ref/le header (+ 64 (* id 32) 16)) size
+                     (ub64ref/le header (+ 64 (* id 32) 32)) flags)))
+        ;; The static area extent.
+        (extent 0
+                #x1000
+                *static-area-base*
+                (+ *small-static-area-size* *large-static-area-size*)
+                0)
+        ;; The dynamic area extent (newspace).
+        (extent 1
+                (+ #x1000
+                   *small-static-area-size*
+                   *large-static-area-size*)
+                *dynamic-area-base*
+                *dynamic-area-semispace-limit*
+                0)
+        ;; The dynamic area extent (oldspace).
+        (extent 2
+                (+ #x1000
+                   *small-static-area-size*
+                   *large-static-area-size*
+                   *dynamic-area-semispace-limit*)
+                (+ *dynamic-area-base* (/ *dynamic-area-size* 2))
+                *dynamic-area-semispace-limit*
+                0)
+        ;; The stack area extent.
+        (extent 3
+                (+ #x1000
+                   *small-static-area-size*
+                   *large-static-area-size*
+                   (* *dynamic-area-semispace-limit* 2))
+                *stack-area-base*
+                (* (1+ (ceiling *stack-offset* #x40000)) #x200000)
+                0))
+      ;; Write it out.
+      (write-sequence header s))
+    ;; Touch the very end of the image, to make it the right size.
+    (file-position s (1- (+ #x1000
+                            *small-static-area-size*
+                            *large-static-area-size*
+                            (* *dynamic-area-semispace-limit* 2)
+                            (* (1+ (ceiling *stack-offset* #x40000)) #x200000))))
+    (write-byte 0 s)
+    ;; First, the static area.
+    (file-position s #x1000)
+    (write-sequence *static-data* s)
+    ;; Then, the dynamic area.
+    (file-position s (+ #x1000
+                        *small-static-area-size*
+                        *large-static-area-size*))
     (write-sequence *dynamic-data* s))
   (values))
 
@@ -475,13 +518,11 @@
   (+ (* (/ *small-static-area-size* 8) 2)
      (* (/ *large-static-area-size* 8) 2)
      (/ (* *dynamic-area-semispace-limit* 2) 8)
-     (* (ceiling *support-offset* #x40000) #x40000)
      (* (1+ (ceiling *stack-offset* #x40000)) #x40000)))
 
 (defun image-data-size ()
   (+ (* (ceiling *static-offset* #x40000) #x40000)
-     (* (ceiling *dynamic-offset* #x40000) #x40000)
-     (* (ceiling *support-offset* #x40000) #x40000)))
+     (* (ceiling *dynamic-offset* #x40000) #x40000)))
 
 (defun array-header (tag length)
   (logior (ash tag sys.int::+array-type-shift+)
@@ -491,111 +532,6 @@
   (check-type low (unsigned-byte 32))
   (check-type high (unsigned-byte 32))
   (dpb high (byte 32 32) low))
-
-(defconstant +page-table-present+  #b0000000000001)
-(defconstant +page-table-writable+ #b0000000000010)
-(defconstant +page-table-user+     #b0000000000100)
-(defconstant +page-table-pwt+      #b0000000001000)
-(defconstant +page-table-pcd+      #b0000000010000)
-(defconstant +page-table-accessed+ #b0000000100000)
-(defconstant +page-table-dirty+    #b0000001000000)
-(defconstant +page-table-large+    #b0000010000000)
-(defconstant +page-table-global+   #b0000100000000)
-(defconstant +page-table-pat+      #b1000000000000)
-
-(defun create-page-tables ()
-  (let ((pml4 (allocate 512 :support))
-        (data-pml3 (allocate 512 :support))
-        (phys-pml3 (allocate 512 :support))
-        (data-pml2 (allocate (* 512 512) :support))
-        (phys-pml2 (allocate (* 512 512) :support))
-        (phys-curr *physical-load-address*))
-    (format t "PML4 at ~X~%" (* pml4 8))
-    (format t "Data PML3 at ~X. PML2s at ~X~%" (* data-pml3 8) (* data-pml2 8))
-    (format t "Phys PML3 at ~X. PML2s at ~X~%" (* phys-pml3 8) (* phys-pml2 8))
-    (dotimes (i 512)
-      ;; Clear PML4.
-      (setf (word (+ pml4 i)) 0)
-      ;; Link PML3s to PML2s.
-      (setf (word (+ data-pml3 i)) (logior (+ (- (* data-pml2 8) *linear-map*) (* i 4096))
-                                           +page-table-writable+
-                                           +page-table-present+))
-      (setf (word (+ phys-pml3 i)) (logior (+ (- (* phys-pml2 8) *linear-map*) (* i 4096))
-                                           +page-table-writable+
-                                           +page-table-present+))
-      (dotimes (j 512)
-        ;; Clear the data PML2.
-        (setf (word (+ data-pml2 (* i 512) j)) 0)
-        ;; Map the physical PML2 to the first 512GB of physical memory.
-        (setf (word (+ phys-pml2 (* i 512) j)) (logior (* (+ (* i 512) j) #x200000)
-                                                       +page-table-present+
-                                                       +page-table-writable+
-                                                       +page-table-large+))))
-    ;; Link the PML4 to the PML3s.
-    ;; Data PML3 at 0, physical PML3 at 512GB.
-    (setf (word (+ pml4 0)) (logior (- (* data-pml3 8) *linear-map*)
-                                    +page-table-writable+
-                                    +page-table-present+))
-    (setf (word (+ pml4 1)) (logior (- (* phys-pml3 8) *linear-map*)
-                                    +page-table-writable+
-                                    +page-table-present+))
-    ;; Identity map the first 2MB of static space.
-    (setf (word (+ data-pml2 (truncate phys-curr #x200000)))
-          (logior phys-curr
-                  +page-table-writable+
-                  +page-table-present+
-                  +page-table-large+))
-    (incf phys-curr #x200000)
-    ;; Skip over the support area.
-    (incf phys-curr (* #x200000 (ceiling *support-offset* #x40000)))
-    ;; The rest of the static area.
-    (dotimes (i (1- (ceiling *static-offset* #x40000)))
-      (setf (word (+ data-pml2 1 (truncate *static-area-base* #x200000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    ;; The dynamic area.
-    (dotimes (i (ceiling *dynamic-offset* #x40000))
-      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    ;; Now map any left-over memory in dynamic/static space in at the end using the BSS.
-    (dotimes (i (truncate (- (/ (+ *small-static-area-size* *large-static-area-size*) 8) *static-offset*) #x40000))
-      (setf (word (+ data-pml2 (truncate *static-area-base* #x200000) (ceiling *static-offset* #x40000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    (dotimes (i (truncate (- (/ *dynamic-area-semispace-limit* 8) *dynamic-offset*) #x40000))
-      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling *dynamic-offset* #x40000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    ;; And future-newspace also comes from the BSS.
-    (dotimes (i (ceiling (/ *dynamic-area-semispace-limit* 8) #x40000))
-      (setf (word (+ data-pml2 (truncate *dynamic-area-base* #x200000) (ceiling (/ *dynamic-area-size* 2) #x200000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    ;; As does stack space.
-    (dotimes (i (1+ (ceiling *stack-offset* #x40000)))
-      (setf (word (+ data-pml2 (truncate *stack-area-base* #x200000) i))
-            (logior phys-curr
-                    +page-table-writable+
-                    +page-table-present+
-                    +page-table-large+))
-      (incf phys-curr #x200000))
-    (values (- (* pml4 8) *linear-map*) (* data-pml3 8))))
 
 (defun create-initial-stack-group ()
   (let* ((address (allocate 512 :static))
@@ -623,7 +559,8 @@
     (setf (word (+ address 8)) (* binding-stack-size 8))
     ;; Start of TLS slots.
     (dotimes (i (- 512 9))
-      (setf (word (+ address 9 i)) #xFFFFFFFFFFFFFFFE))
+      (setf (word (+ address 9 i)) (make-value *unbound-tls-slot-address*
+                                               sys.int::+tag-object+)))
     (setf (cold-symbol-value 'sys.int::*initial-stack-group*)
           (make-value address sys.int::+tag-object+))))
 
@@ -835,11 +772,9 @@
 
 (defun make-image (image-name &key extra-source-files)
   (let ((*word-locks* (make-hash-table))
-        (*support-offset* 0)
         (*static-offset* 0)
         (*dynamic-offset* 0)
         (*stack-offset* 0)
-        (*support-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*static-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*dynamic-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
         (*pending-fixups* '())
@@ -850,70 +785,68 @@
         (*undefined-function-address* nil)
         (*function-map* '())
         (*string-dedup-table* (make-hash-table :test 'equal))
-        (kboot-entry-fn nil)
         (gdt nil)
         (idt nil)
-        (initial-pml4)
-        (data-pml3)
+        (initial-process)
         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
         (system-symbol-names (remove-duplicates
                               (iter (for sym in-package :system external-only t)
                                     (collect (symbol-name sym)))
                               :test #'string=)))
+    ;; Generate the support objects. NIL/T/etc, the x86 GDT & IDT and the initial process.
     (create-support-objects)
     (setf gdt (allocate 3 :static)
           idt (allocate (1+ 512) :static))
-    (create-initial-stack-group)
-    ;; Create setup function.
-    (setf kboot-entry-fn (compile-lap-function *kboot-entry-function* :static
-                                               (list (cons 'gdt (* (1+ gdt) 8))
-                                                     (cons 'gdt-length (1- (* 2 8)))
-                                                     (cons 'idt (* (1+ idt) 8))
-                                                     (cons 'idt-length (1- (* 512 8)))
-                                                     ;; PML4 must be at this address
-                                                     (cons 'initial-page-table #x400000))))
-    (setf (cold-symbol-value 'sys.int::*%kboot-entry*) (make-value kboot-entry-fn sys.int::+tag-object+))
+    (setf initial-process (create-initial-stack-group))
+    ;; The system needs to know where the undefined function value is.
+    ;; Put it in the value cell of a symbol, not the function cell.
+    ;; If it were in the function cell, then the symbol would appear to be unbound.
+    ;; Might not be up to date with the fref changes?
+    (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-object+))
+    ;; Load all cold source files, emitting the top-level forms into an array
+    ;; FIXME: Top-level forms generally show up as functions in .LLF files,
+    ;;        this should be a vector of callable functions, not evalable forms.
     (let ((*load-time-evals* '()))
       (load-compiler-builtins)
       (load-source-files *source-files* t)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*cold-toplevel-forms*))
+    ;; Certain cold LLF files are special and must be deferred until after the
+    ;; cold load has done a bit of bootstrapping. Put those top-level forms
+    ;; in a special symbol.
     (iter (for (file symbol) in *special-source-files*)
           (let ((*load-time-evals* '()))
             (load-source-file file nil)
             (generate-toplevel-form-array (reverse *load-time-evals*) symbol)))
+    ;; Extra LLF files can be included in the cold load for processing after bootstrap is over.
     (let ((*load-time-evals* '()))
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*additional-cold-toplevel-forms*))
-    (format t "Saving Unifont...~%")
-    (save-unifont-data "tools/unifont-5.1.20080820.hex")
-    (format t "Saving Unicode data...~%")
-    (multiple-value-bind (planes name-store encoding-table name-trie)
+    #+nil(format t "Saving Unifont...~%")
+    #+nil(save-unifont-data "tools/unifont-5.1.20080820.hex")
+    #+nil(format t "Saving Unicode data...~%")
+    #+nil(multiple-value-bind (planes name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "tools/UnicodeData.txt"))
       (setf (cold-symbol-value 'sys.int::*unicode-info*) (save-object planes :static)
             (cold-symbol-value 'sys.int::*unicode-name-store*) (save-ub8-vector name-store :static)
             (cold-symbol-value 'sys.int::*unicode-encoding-table*) (save-object encoding-table :static)
             (cold-symbol-value 'sys.int::*unicode-name-trie*) (save-object name-trie :static)))
-    (format t "Saving PCI IDs...~%")
-    (let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
+    #+nil(format t "Saving PCI IDs...~%")
+    #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.
     (mapc (lambda (sym) (symbol-address (string sym) "SYSTEM.INTERNALS"))
-          '(sys.int::*gdt* sys.int::*idt* sys.int::*%setup-stack* sys.int::*%setup-function*
+          '(sys.int::*gdt* sys.int::*idt*
             sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
             sys.int::*newspace-offset* sys.int::*semispace-size* sys.int::*newspace* sys.int::*oldspace*
             sys.int::*static-bump-pointer* sys.int::*static-area-size* sys.int::*static-mark-bit*
-            sys.int::*oldspace-paging-bits* sys.int::*newspace-paging-bits*
             sys.int::*stack-bump-pointer*
             sys.int::*static-area* sys.int::*static-area-hint*
-            sys.int::*unifont-bmp* sys.int::*unifont-bmp-data*
-            sys.int::*unicode-info* sys.int::*unicode-name-store*
-            sys.int::*unicode-encoding-table* sys.int::*unicode-name-trie*
-            sys.int::*%kboot-entry* sys.int::*kboot-tag-list*
+            #+nil sys.int::*unifont-bmp* #+nil sys.int::*unifont-bmp-data*
+            #+nil sys.int::*unicode-info* #+nil sys.int::*unicode-name-store*
+            #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
             ))
-    (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-object+))
-    (setf (cold-symbol-value 'sys.int::*kboot-tag-list*) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
@@ -928,16 +861,16 @@
     ;; Create GDT.
     (setf (word gdt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 2)
           (word (+ gdt 1)) 0
+          ;; Ring 0, 64-bit code.
           (word (+ gdt 2)) #x00209A0000000000)
     (setf (cold-symbol-value 'sys.int::*gdt*) (make-value gdt sys.int::+tag-object+))
     ;; Create IDT.
+    ;; IDT entries in 64-bit mode are 128 bits long, there is no ub128 vector type,
+    ;; so a doubled-up ub64 vector is used instead.
     (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 512))
     (dotimes (i 512)
       (setf (word (1+ idt)) 0))
     (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-object+))
-    (format t "KBoot entry point at ~X~%" (word (1+ kboot-entry-fn)))
-    ;; Generate page tables.
-    (setf (values initial-pml4 data-pml3) (create-page-tables))
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
@@ -952,8 +885,6 @@
       (set-value 'sys.int::*small-static-area-hint* 0)
       (set-value 'sys.int::*static-mark-bit* 0)
       (set-value 'sys.int::*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
-      (set-value 'sys.int::*oldspace-paging-bits* (+ data-pml3 (* (/ (+ *dynamic-area-base* (/ *dynamic-area-size* 2)) #x40000000) 8)))
-      (set-value 'sys.int::*newspace-paging-bits* (+ data-pml3 (* (/ *dynamic-area-base* #x40000000) 8)))
       (set-value 'sys.int::*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
       (set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
     ;; Write the boundary tag for the static area's free part.
@@ -966,7 +897,10 @@
             (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
-    (write-image image-name (word (1+ kboot-entry-fn)))))
+    (write-image image-name
+                 (make-value (function-reference 'sys.int::bootloader-entry-point)
+                             sys.int::+tag-object+)
+                 initial-process)))
 
 (defun load-source-files (files set-fdefinitions)
   (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))
