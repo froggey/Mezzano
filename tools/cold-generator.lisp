@@ -4,7 +4,8 @@
 (in-package :cold-generator)
 
 (defparameter *source-files*
-  '("supervisor/entry.lisp"))
+  '("supervisor/entry.lisp"
+    "supervisor/interrupts.lisp"))
 
 
   #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
@@ -114,59 +115,6 @@
                                (* sys.int::+fref-entry-point+ 8)))))
   "Code for the undefined function thunk.")
 
-(defparameter *kboot-entry-function*
-  `((:gc :no-frame)
-    ;; KBoot enters here.
-    ;; RDI hold the KBoot magic value. (Don't care)
-    ;; RSI contains a virtual pointer to the tag list.
-    ;; We want a physical pointer!
-    ;; CS/DS/ES/FS/GS/SS are set to sensible segments.
-    ;; GDTR/IDTR may not be valid.
-    ;; RSP holds a valid stack, but we've got our own.
-    ;; RFLAGS is clear, interrupts are off.
-    ;; Load our own GDT/IDT asap.
-    (sys.lap-x86:lgdt (:rip gdtr))
-    (sys.lap-x86:lidt (:rip idtr))
-    ;; Reload CS.
-    (sys.lap-x86:push #x0008)
-    (sys.lap-x86:lea64 :rax (:rip cs-reload))
-    (sys.lap-x86:push :rax)
-    (sys.lap-x86:retf)
-    cs-reload
-    ;; Reload data segs.
-    (sys.lap-x86:xor32 :eax :eax)
-    (sys.lap-x86:movseg :ds :eax)
-    (sys.lap-x86:movseg :es :eax)
-    (sys.lap-x86:movseg :fs :eax)
-    (sys.lap-x86:movseg :gs :eax)
-    (sys.lap-x86:movseg :ss :eax)
-    ;; First tag in the tag list is always a CORE tag.
-    ;; Read the taglist physical address from it.
-    (sys.lap-x86:mov64 :rsi (:rsi 8))
-    ;; Switch over to our page tables.
-    (sys.lap-x86:mov64 :rax initial-page-table)
-    (sys.lap-x86:movcr :cr3 :rax)
-    ;; !!! Stack is invalid from here until stack group init.
-    ;; Save the tag list address.
-    (sys.lap-x86:shl64 :rsi ,sys.int::+n-fixnum-bits+)
-    (sys.lap-x86:mov64 :r8 (:constant sys.int::*kboot-tag-list*))
-    (sys.lap-x86:mov64 (:r8 ,(+ (- sys.int::+tag-object+)
-                                8
-                                (* sys.c::+symbol-value+ 8)))
-                       :rsi)
-    ;; Jump to the common boot code.
-    (sys.lap-x86:mov64 :r13 (:function sys.int::%%common-entry))
-    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
-                               8
-                               (* sys.int::+fref-entry-point+ 8))))
-    #+nil(:align 4) ; TODO!! ######
-    gdtr
-    (:d16/le gdt-length)
-    (:d64/le gdt)
-    idtr
-    (:d16/le idt-length)
-    (:d64/le idt)))
-
 (defparameter *small-static-area-size* (* 8 1024 1024))
 (defparameter *large-static-area-size* (* 56 1024 1024))
 (defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
@@ -262,63 +210,68 @@
       (storage-info-for-address address)
     (ub64ref/le data-vector (* offset 8))))
 
-(defun compile-lap-function (code &optional (area :static) extra-symbols constant-values)
+(defun compile-lap-function (code &key (area :static) extra-symbols constant-values (position-independent t))
   "Compile a list of LAP code as a function. Constants must only be symbols."
-  (multiple-value-bind (mc constants fixups symbols gc-info)
-      (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
-        (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
-          :base-address 0
-          :initial-symbols (list* '(nil . :fixup)
-                                  '(t . :fixup)
-                                  extra-symbols)))
-    (declare (ignore symbols))
-    (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
-    (let ((total-size (+ (* (truncate (length mc) 16) 2)
-                         (length constants)
-                         (* (ceiling (length gc-info) 8) 8))))
-      (when (oddp total-size) (incf total-size))
-      (let ((address (allocate total-size area)))
-        ;; Copy machine code into the area.
-        (dotimes (i (truncate (length mc) 8))
-          (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
-        ;; Set header word.
-        (setf (word address) 0)
-        (setf (ldb (byte 16 0) (word address)) (ash sys.int::+object-tag-function+
-                                                    sys.int::+array-type-shift+) ; tag
-              (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
-              (ldb (byte 16 32) (word address)) (length constants)
-              (ldb (byte 16 48) (word address)) (length gc-info))
-        (setf (word (1+ address)) (* (+ address 2) 8))
-        ;; Copy GC bytes.
-        (setf gc-info (adjust-array gc-info (* (ceiling (length gc-info) 8) 8)))
-        (dotimes (i (ceiling (length gc-info) 8))
-          (setf (word (+ address
-                         (* (truncate (length mc) 16) 2)
-                         (length constants)
-                         i))
-                (nibbles:ub64ref/le gc-info (* i 8))))
-        ;; Write constant pool.
-        (dotimes (i (length constants))
-          (cond ((assoc (aref constants i) constant-values)
-                 (setf (word (+ address
-                                (truncate (length mc) 8)
-                                i))
-                       (cdr (assoc (aref constants i) constant-values))))
-                (t (check-type (aref constants i)
-                               (or symbol sys.c::cross-fref))
-                   (push (list (list 'quote (aref constants i))
-                               (+ address
+  (let ((base-address (if position-independent
+                          0
+                          (ecase area
+                            (:static
+                             (+ *static-area-base* (* *static-offset* 8) 16))))))
+    (multiple-value-bind (mc constants fixups symbols gc-info)
+        (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
+          (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
+            :base-address base-address
+            :initial-symbols (list* '(nil . :fixup)
+                                    '(t . :fixup)
+                                    extra-symbols)))
+      (declare (ignore symbols))
+      (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
+      (let ((total-size (+ (* (truncate (length mc) 16) 2)
+                           (length constants)
+                           (* (ceiling (length gc-info) 8) 8))))
+        (when (oddp total-size) (incf total-size))
+        (let ((address (allocate total-size area)))
+          ;; Copy machine code into the area.
+          (dotimes (i (truncate (length mc) 8))
+            (setf (word (+ address i)) (nibbles:ub64ref/le mc (* i 8))))
+          ;; Set header word.
+          (setf (word address) 0)
+          (setf (ldb (byte 16 0) (word address)) (ash sys.int::+object-tag-function+
+                                                      sys.int::+array-type-shift+) ; tag
+                (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
+                (ldb (byte 16 32) (word address)) (length constants)
+                (ldb (byte 16 48) (word address)) (length gc-info))
+          (setf (word (1+ address)) (* (+ address 2) 8))
+          ;; Copy GC bytes.
+          (setf gc-info (adjust-array gc-info (* (ceiling (length gc-info) 8) 8)))
+          (dotimes (i (ceiling (length gc-info) 8))
+            (setf (word (+ address
+                           (* (truncate (length mc) 16) 2)
+                           (length constants)
+                           i))
+                  (nibbles:ub64ref/le gc-info (* i 8))))
+          ;; Write constant pool.
+          (dotimes (i (length constants))
+            (cond ((assoc (aref constants i) constant-values)
+                   (setf (word (+ address
                                   (truncate (length mc) 8)
-                                  i)
-                               0
-                               :full64
-                               code)
-                         *pending-fixups*))))
-        (dolist (fixup fixups)
-          (assert (>= (cdr fixup) 16))
-          (push (list (car fixup) address (cdr fixup) :signed32 code)
-                *pending-fixups*))
-        address))))
+                                  i))
+                         (cdr (assoc (aref constants i) constant-values))))
+                  (t (check-type (aref constants i)
+                                 (or symbol sys.c::cross-fref))
+                     (push (list (list 'quote (aref constants i))
+                                 (+ address
+                                    (truncate (length mc) 8)
+                                    i)
+                                 0
+                                 :full64
+                                 code)
+                           *pending-fixups*))))
+          (dolist (fixup fixups)
+            (assert (>= (cdr fixup) 16))
+            (push (list (car fixup) address (- (cdr fixup) base-address) :signed32 code)
+                  *pending-fixups*))
+          address)))))
 
 (defun make-value (address tag)
   (logior (* address 8) tag))
@@ -386,7 +339,7 @@
         (cl-keyword (allocate 6 :static))
         (unbound-val (allocate 2 :static))
         (unbound-tls-val (allocate 2 :static))
-        (undef-fn (compile-lap-function *undefined-function-thunk* :static)))
+        (undef-fn (compile-lap-function *undefined-function-thunk*)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -433,7 +386,7 @@
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
     (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
 
-(defun write-image (name entry-fref initial-process)
+(defun write-image (name entry-fref initial-process idt-size idt-pointer)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
@@ -451,18 +404,21 @@
                                        (t (random 256)))))
       ;; Major & minor version.
       (setf (ub16ref/le header 32) 0
-            (ub16ref/le header 34) 0)
+            (ub16ref/le header 34) 1)
       ;; Number of extents.
       (setf (ub32ref/le header 36) 4)
       ;; Entry fref.
       (setf (ub64ref/le header 40) entry-fref)
       ;; Initial process.
       (setf (ub64ref/le header 48) initial-process)
+      ;; System IDT info.
+      (setf (ub16ref/le header 64) idt-size
+            (ub64ref/le header 66) idt-pointer)
       (flet ((extent (id store-base virtual-base size flags)
-               (setf (ub64ref/le header (+ 64 (* id 32) 0)) store-base
-                     (ub64ref/le header (+ 64 (* id 32) 8)) virtual-base
-                     (ub64ref/le header (+ 64 (* id 32) 16)) size
-                     (ub64ref/le header (+ 64 (* id 32) 32)) flags)))
+               (setf (ub64ref/le header (+ 80 (* id 32) 0)) store-base
+                     (ub64ref/le header (+ 80 (* id 32) 8)) virtual-base
+                     (ub64ref/le header (+ 80 (* id 32) 16)) size
+                     (ub64ref/le header (+ 80 (* id 32) 32)) flags)))
         ;; The static area extent.
         (extent 0
                 #x1000
@@ -770,6 +726,223 @@
     (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-object tree :static))
     (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :static))))
 
+;; Handlers for the defined CPU exceptions, and a bool indicating if they take
+;; an error code or not.
+(defparameter *cpu-exception-info*
+  '((sys.int::%divide-error-handler nil)           ; 0
+    (sys.int::%debug-exception-handler nil)        ; 1
+    (sys.int::%nonmaskable-interrupt-handler nil)  ; 2
+    (sys.int::%breakpoint-handler nil)             ; 3
+    (sys.int::%overflow-handler nil)               ; 4
+    (sys.int::%bound-exception-handler nil)        ; 5
+    (sys.int::%invalid-opcode-handler nil)         ; 6
+    (sys.int::%device-not-available-handler nil)   ; 7
+    (sys.int::%double-fault-handler t)             ; 8
+    nil                                            ; 9
+    (sys.int::%invalid-tss-handler t)              ; 10
+    (sys.int::%segment-not-present-handler t)      ; 11
+    (sys.int::%stack-segment-fault-handler t)      ; 12
+    (sys.int::%general-protection-fault-handler t) ; 13
+    (sys.int::%page-fault-handler t)               ; 14
+    nil                                            ; 15
+    (sys.int::%math-fault-handler nil)             ; 16
+    (sys.int::%alignment-check-handler t)          ; 17
+    (sys.int::%machine-check-handler nil)          ; 18
+    (sys.int::%simd-exception-handler nil)         ; 19
+    nil                                            ; 20
+    nil                                            ; 21
+    nil                                            ; 22
+    nil                                            ; 23
+    nil                                            ; 24
+    nil                                            ; 25
+    nil                                            ; 26
+    nil                                            ; 27
+    nil                                            ; 28
+    nil                                            ; 29
+    nil                                            ; 30
+    nil))                                          ; 31
+
+(defparameter *common-interrupt-code*
+  `(;; Common code for all interrupts.
+    ;; There's an interrupt frame set up, a per-interrupt value in r9, and an fref for the high-level handler in r13.
+    ;; Generate a DX interrupt frame object, then call the handler with it.
+    ;; Realign the stack.
+    (sys.lap-x86:and64 :rsp ,(lognot 15))
+    (sys.lap-x86:sub64 :rsp 16) ; 2 elements.
+    (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+array-type-shift+)) ; header
+    (sys.lap-x86:lea64 :rax (:rbp :rbp)) ; Convert frame pointer to fixnum.
+    (sys.lap-x86:mov64 (:rsp 8) :rax) ; 2nd element.
+    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
+    (sys.lap-x86:mov32 :ecx ,(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args.
+    (:gc :frame :interrupt t)
+    (sys.lap-x86:call (:object :r13 ,sys.int::+fref-entry-point+))
+    ;; Restore registers, then return.
+    (sys.lap-x86:mov64 :r15 (:rbp -112))
+    (sys.lap-x86:mov64 :r14 (:rbp -104))
+    (sys.lap-x86:mov64 :r13 (:rbp -96))
+    (sys.lap-x86:mov64 :r12 (:rbp -88))
+    (sys.lap-x86:mov64 :r11 (:rbp -80))
+    (sys.lap-x86:mov64 :r10 (:rbp -72))
+    (sys.lap-x86:mov64 :r9 (:rbp -64))
+    (sys.lap-x86:mov64 :r8 (:rbp -56))
+    (sys.lap-x86:mov64 :rdi (:rbp -48))
+    (sys.lap-x86:mov64 :rsi (:rbp -40))
+    (sys.lap-x86:mov64 :rbx (:rbp -32))
+    (sys.lap-x86:mov64 :rdx (:rbp -24))
+    (sys.lap-x86:mov64 :rcx (:rbp -16))
+    (sys.lap-x86:mov64 :rax (:rbp -8))
+    (sys.lap-x86:leave)
+    (sys.lap-x86:iret)))
+
+(defparameter *common-user-interrupt-code*
+  `(;; Common code for interrupts 32+.
+    ;; There's an incomplete interrupt frame set up and an interrupt number in rax (fixnum).
+    ;; Save registers to fill in the rest of the interrupt frame.
+    (sys.lap-x86:push :rcx) ; -16 (-2)
+    (sys.lap-x86:push :rdx) ; -24 (-3)
+    (sys.lap-x86:push :rbx) ; -32 (-4)
+    (sys.lap-x86:push :rsi) ; -40 (-5)
+    (sys.lap-x86:push :rdi) ; -48 (-6)
+    (sys.lap-x86:push :r8)  ; -56 (-7)
+    (sys.lap-x86:push :r9)  ; -64 (-8)
+    (sys.lap-x86:push :r10) ; -72 (-9)
+    (sys.lap-x86:push :r11) ; -80 (-10)
+    (sys.lap-x86:push :r12) ; -88 (-11)
+    (sys.lap-x86:push :r13) ; -96 (-12)
+    (sys.lap-x86:push :r14) ; -104 (-13)
+    (sys.lap-x86:push :r15) ; -112 (-14)
+    ;; Fall into the common interrupt code.
+    (sys.lap-x86:mov64 :r9 :rax)
+    (sys.lap-x86:mov64 :r13 (:function sys.int::%user-interrupt-handler))
+    (sys.lap-x86:jmp interrupt-common)))
+
+(defun create-exception-isr (handler error-code-p)
+  (append
+   (if error-code-p
+       ;; Create interrupt frame and pull error code off the stack.
+       ;; There aren't any free registers yet, so we have to shuffle things around.
+       ;; Don't use xchg, because that has an implicit lock (slow).
+       '((sys.lap-x86:push :rax)
+         (sys.lap-x86:mov64 :rax (:rsp 8))  ; load error code into rax, freeing up the fp location
+         (sys.lap-x86:mov64 (:rsp 8) :rbp)  ; really create the stack frame.
+         (sys.lap-x86:lea64 :rbp (:rsp 8))) ; rsp is slightly offset because of the push rax.
+       ;; Create interrupt frame. No error code, so no shuffling needed.
+       '((sys.lap-x86:push :rbp)
+         (sys.lap-x86:mov64 :rbp :rsp)
+         (sys.lap-x86:push :rax)))
+   ;; Frame looks like:
+   ;; +40 SS
+   ;; +32 RSP
+   ;; +24 RFlags
+   ;; +16 CS
+   ;; +8  RIP
+   ;; +0  RBP
+   ;; -8  RAX
+   ;; Save registers to fill in the rest of the interrupt frame.
+   ;; RAX holds the saved error code (if any).
+   `((sys.lap-x86:push :rcx) ; -16 (-2)
+     (sys.lap-x86:push :rdx) ; -24 (-3)
+     (sys.lap-x86:push :rbx) ; -32 (-4)
+     (sys.lap-x86:push :rsi) ; -40 (-5)
+     (sys.lap-x86:push :rdi) ; -48 (-6)
+     (sys.lap-x86:push :r8)  ; -56 (-7)
+     (sys.lap-x86:push :r9)  ; -64 (-8)
+     (sys.lap-x86:push :r10) ; -72 (-9)
+     (sys.lap-x86:push :r11) ; -80 (-10)
+     (sys.lap-x86:push :r12) ; -88 (-11)
+     (sys.lap-x86:push :r13) ; -96 (-12)
+     (sys.lap-x86:push :r14) ; -104 (-13)
+     (sys.lap-x86:push :r15) ; -112 (-14)
+     ;; Jump to the common exception code.
+     (sys.lap-x86:mov64 :r13 (:function ,handler)))
+   (if error-code-p
+       '((sys.lap-x86:lea64 :r9 (:rax :rax))) ; Convert error code to fixnum.
+       '((sys.lap-x86:mov32 :r9d nil))) ; Nothing interesting
+   '((sys.lap-x86:jmp interrupt-common))))
+
+(defun create-user-interrupt-isr (index)
+  ;; Create interrupt frame. No error code, so no shuffling needed.
+  `((sys.lap-x86:push :rbp)
+    (sys.lap-x86:mov64 :rbp :rsp)
+    ;; Frame looks like:
+    ;; +40 SS
+    ;; +32 RSP
+    ;; +24 RFlags
+    ;; +16 CS
+    ;; +8  RIP
+    ;; +0  RBP
+    ;; Save RAX, then jump to common code with the interrupt number.
+    (sys.lap-x86:push :rax) ; -8 (-1)
+    (sys.lap-x86:mov32 :eax ,(ash index sys.int::+n-fixnum-bits+))
+    (sys.lap-x86:jmp user-interrupt-common)))
+
+(defun make-idt-entry (&key (offset 0) (segment #x0008)
+                         (present t) (dpl 0) (ist nil)
+                         (interrupt-gate-p t))
+  (check-type offset (signed-byte 64))
+  (check-type segment (unsigned-byte 16))
+  (check-type dpl (unsigned-byte 2))
+  (check-type ist (or null (unsigned-byte 3)))
+  (let ((value 0))
+    (setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
+          (ldb (byte 1 47) value) (if present 1 0)
+          (ldb (byte 2 45) value) dpl
+          (ldb (byte 4 40) value) (if interrupt-gate-p
+                                      #b1110
+                                      #b1111)
+          (ldb (byte 3 16) value) (or ist 0)
+          (ldb (byte 16 16) value) segment
+          (ldb (byte 16 0) value) (ldb (byte 16 0) offset))
+    value))
+
+(defun create-low-level-interrupt-support ()
+  "Generate the IDT and the ISR thunks that call into Lisp.
+Return the size & address of the IDT, suitable for use with LIDT.
+Doing this in the cold-generator avoids needing to put low-level single-use
+setup code into the supervisor.
+The bootloader provides a per-cpu GDT & TSS."
+  ;; For maximum flexibility, make the IDT as large as possible.
+  (let* ((idt-size 256)
+         (idt (allocate (1+ (* idt-size 2)) :static))) ; IDT entries are 16 bytes.
+    ;; Create IDT.
+    ;; IDT entries in 64-bit mode are 128 bits long, there is no ub128 vector type,
+    ;; so a doubled-up ub64 vector is used instead.
+    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ (* idt-size 2)))
+    (dotimes (i idt-size)
+      (setf (word (+ idt (* i 2))) 0
+            (word (+ idt (* i 2) 1)) 0))
+    (setf (cold-symbol-value 'sys.int::+interrupt-descriptor-table+) (make-value idt sys.int::+tag-object+))
+    ;; Generate the ISR thunks.
+    (let* ((exception-isrs (loop
+                              for (handler error-code-p) in *cpu-exception-info*
+                              collect
+                                (when handler
+                                  (create-exception-isr handler error-code-p))))
+           (user-interrupt-isrs (loop
+                                   for i from 32 below idt-size
+                                   collect (create-user-interrupt-isr i)))
+           (common-code (compile-lap-function *common-interrupt-code*
+                                              :area :static ; ### should be :support.
+                                              :position-independent nil))
+           (common-user-code (compile-lap-function *common-user-interrupt-code*
+                                                   :area :static ; ### should be :support.
+                                                   :position-independent nil
+                                                   :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))))))
+      (loop
+         for isr in (append exception-isrs user-interrupt-isrs)
+         for i from 0
+         when isr do
+           ;; Assemble the ISR and update the IDT entry
+           (let* ((addr (compile-lap-function isr
+                                              :area :static ; ### should be :support.
+                                              :position-independent nil
+                                              :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
+                                                                   (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))))
+                  (entry (make-idt-entry :offset (+ (* addr 8) 16) :segment 8)))
+             (setf (word (+ idt 1 (* i 2))) (ldb (byte 64 0) entry)
+                   (word (+ idt 1 (* i 2) 1)) (ldb (byte 64 64) entry)))))
+    (values (1- (* idt-size 16)) (+ (* idt 8) 8))))
+
 (defun make-image (image-name &key extra-source-files)
   (let ((*word-locks* (make-hash-table))
         (*static-offset* 0)
@@ -785,18 +958,16 @@
         (*undefined-function-address* nil)
         (*function-map* '())
         (*string-dedup-table* (make-hash-table :test 'equal))
-        (gdt nil)
-        (idt nil)
         (initial-process)
         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
         (system-symbol-names (remove-duplicates
                               (iter (for sym in-package :system external-only t)
                                     (collect (symbol-name sym)))
-                              :test #'string=)))
-    ;; Generate the support objects. NIL/T/etc, the x86 GDT & IDT and the initial process.
+                              :test #'string=))
+        idt-size idt-pointer)
+    ;; Generate the support objects. NIL/T/etc, and the initial process.
     (create-support-objects)
-    (setf gdt (allocate 3 :static)
-          idt (allocate (1+ 512) :static))
+    (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
     (setf initial-process (create-initial-stack-group))
     ;; The system needs to know where the undefined function value is.
     ;; Put it in the value cell of a symbol, not the function cell.
@@ -836,8 +1007,7 @@
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.
     (mapc (lambda (sym) (symbol-address (string sym) "SYSTEM.INTERNALS"))
-          '(sys.int::*gdt* sys.int::*idt*
-            sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
+          '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
             sys.int::*newspace-offset* sys.int::*semispace-size* sys.int::*newspace* sys.int::*oldspace*
             sys.int::*static-bump-pointer* sys.int::*static-area-size* sys.int::*static-mark-bit*
@@ -858,19 +1028,6 @@
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
-    ;; Create GDT.
-    (setf (word gdt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 2)
-          (word (+ gdt 1)) 0
-          ;; Ring 0, 64-bit code.
-          (word (+ gdt 2)) #x00209A0000000000)
-    (setf (cold-symbol-value 'sys.int::*gdt*) (make-value gdt sys.int::+tag-object+))
-    ;; Create IDT.
-    ;; IDT entries in 64-bit mode are 128 bits long, there is no ub128 vector type,
-    ;; so a doubled-up ub64 vector is used instead.
-    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ 512))
-    (dotimes (i 512)
-      (setf (word (1+ idt)) 0))
-    (setf (cold-symbol-value 'sys.int::*idt*) (make-value idt sys.int::+tag-object+))
     ;; Initialize GC twiddly bits.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
@@ -900,7 +1057,8 @@
     (write-image image-name
                  (make-value (function-reference 'sys.int::bootloader-entry-point)
                              sys.int::+tag-object+)
-                 initial-process)))
+                 initial-process
+                 idt-size idt-pointer)))
 
 (defun load-source-files (files set-fdefinitions)
   (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))

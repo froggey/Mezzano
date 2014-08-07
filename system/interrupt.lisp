@@ -159,104 +159,49 @@
   (mumble-string ". Halted.")
   (loop (%hlt)))
 
-(defvar *exception-base-handlers* (make-array 32 :initial-element nil))
-(define-lap-function %%exception ()
-  ;; RAX already pushed.
-  (sys.lap-x86:push :rbx)
-  (sys.lap-x86:push :rcx)
-  (sys.lap-x86:push :rdx)
-  (sys.lap-x86:push :rbp)
-  (sys.lap-x86:push :rsi)
-  (sys.lap-x86:push :rdi)
-  (sys.lap-x86:push :r8)
-  (sys.lap-x86:push :r9)
-  (sys.lap-x86:push :r10)
-  (sys.lap-x86:push :r11)
-  (sys.lap-x86:push :r12)
-  (sys.lap-x86:push :r13)
-  (sys.lap-x86:push :r14)
-  (sys.lap-x86:push :r15)
-  (sys.lap-x86:movcr :rax :cr2)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :r8 :rsp)
-  (sys.lap-x86:shl64 :r8 #.+n-fixnum-bits+)
-  (sys.lap-x86:and64 :rsp #.(lognot 15))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
-  (sys.lap-x86:mov64 :r13 (:function ldb-exception))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:mov64 :rsp :r8)
-  (sys.lap-x86:pop :r15)
-  (sys.lap-x86:pop :r14)
-  (sys.lap-x86:pop :r13)
-  (sys.lap-x86:pop :r12)
-  (sys.lap-x86:pop :r11)
-  (sys.lap-x86:pop :r10)
-  (sys.lap-x86:pop :r9)
-  (sys.lap-x86:pop :r8)
-  (sys.lap-x86:pop :rdi)
-  (sys.lap-x86:pop :rsi)
-  (sys.lap-x86:pop :rbp)
-  (sys.lap-x86:pop :rdx)
-  (sys.lap-x86:pop :rcx)
-  (sys.lap-x86:pop :rbx)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:add64 :rsp 16)
-  (sys.lap-x86:iret))
+(defun interrupt-frame-register-offset (register)
+  (ecase register
+    (:ss   5)
+    (:rsp  4)
+    (:rflags 3)
+    (:cs   2)
+    (:rip  1)
+    (:rbp  0)
+    (:rax -1)
+    (:rcx -2)
+    (:rdx -3)
+    (:rbx -4)
+    (:rsi -5)
+    (:rdi -6)
+    (:r8  -7)
+    (:r9  -8)
+    (:r10 -9)
+    (:r11 -10)
+    (:r12 -11)
+    (:r13 -12)
+    (:r14 -13)
+    (:r15 -14)))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter *exception-names*
-    #("Divide-Error"
-      "Debug"
-      "NMI"
-      "Breakpoint"
-      "Overflow"
-      "BOUND-Range-Exceeded"
-      "Invalid-Opcode"
-      "Device-Not-Available"
-      "Double-Fault"
-      "Coprocessor-Segment-Overrun"
-      "Invalid-TSS"
-      "Segment-Not-Present"
-      "Stack-Segment-Fault"
-      "General-Protection-Fault"
-      "Page-Fault"
-      "Exception-15"
-      "Math-Fault"
-      "Alignment-Check"
-      "Machine-Check"
-      "SIMD-Floating-Point-Exception"
-      "Exception-20"
-      "Exception-21"
-      "Exception-22"
-      "Exception-23"
-      "Exception-24"
-      "Exception-25"
-      "Exception-26"
-      "Exception-27"
-      "Exception-28"
-      "Exception-29"
-      "Exception-30"
-      "Exception-31")))
+(defun interrupt-frame-pointer (frame)
+  (%array-like-ref-t frame 0))
 
-(macrolet ((doit ()
-             (let ((forms '(progn)))
-               (dotimes (i 32)
-                 (push `(exception-handler ,i) forms))
-               (nreverse forms)))
-           (exception-handler (n)
-             (let ((sym (intern (format nil "%%~A-thunk" (aref *exception-names* n)))))
-               `(progn
-                  (define-lap-function ,sym ()
-                    ;; Some exceptions do not push an error code.
-                    ,@(unless (member n '(8 10 11 12 13 14 17))
-                              `((sys.lap-x86:push 0)))
-                    (sys.lap-x86:push ,n)
-                    (sys.lap-x86:push :rax)
-                    (sys.lap-x86:mov64 :rax (:function %%exception))
-                    (sys.lap-x86:jmp (:rax #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
-                  (setf (aref *exception-base-handlers* ,n) #',sym)
-                  (set-idt-entry ,n :offset (%array-like-ref-unsigned-byte-64 #',sym 0))))))
-  (doit))
+(defun interrupt-frame-raw-register (frame register)
+  (memref-unsigned-byte-64 (interrupt-frame-pointer frame)
+                            (interrupt-frame-register-offset register)))
+
+(defun (setf interrupt-frame-raw-register) (value frame register)
+  (setf (memref-unsigned-byte-64 (interrupt-frame-pointer frame)
+                                  (interrupt-frame-register-offset register))
+        value))
+
+(defun interrupt-frame-value-register (frame register)
+  (memref-t (interrupt-frame-pointer frame)
+             (interrupt-frame-register-offset register)))
+
+(defun (setf interrupt-frame-value-register) (value frame register)
+  (setf (memref-t (interrupt-frame-pointer frame)
+                   (interrupt-frame-register-offset register))
+        value))
 
 (defmacro define-interrupt-handler (name lambda-list &body body)
   `(progn (setf (get ',name 'interrupt-handler)

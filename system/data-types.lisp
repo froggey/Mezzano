@@ -97,9 +97,9 @@
 (defconstant +object-tag-stack-group+             #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)
+(defconstant +object-tag-interrupt-frame+         #b110111)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-function-reference+)
-;;#b110111
+(defconstant +last-misc-object-tag+ +object-tag-interrupt-frame+)
 ;;#b111000
 ;;#b111001
 ;;#b111010
