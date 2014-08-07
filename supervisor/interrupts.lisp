@@ -32,7 +32,7 @@
   "Called when the system is booted to reset all user interrupt handlers."
   ;; Avoid high-level array/seq functions.
   ;; fixme: should be wired.
-  (setf *user-interrupt-handlers* #.(make-array 256)) ; ugly hack avoiding early gc
+  (setf *user-interrupt-handlers* #.(make-array 256)) ; ### ugly hack avoiding early allocation
   (dotimes (i 256)
     (setf (svref *user-interrupt-handlers* i) nil)))
 
@@ -43,6 +43,8 @@
 (defun unhandled-interrupt (interrupt-frame info name)
   (declare (ignore interrupt-frame info))
   (error "Unhandled ~A interrupt." name))
+
+;;; Mid-level interrupt handlers, called by the low-level assembly code.
 
 (defun sys.int::%divide-error-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "divide error"))
@@ -148,10 +150,14 @@
           (setf (sys.int::io-port/8 #x21) (ldb (byte 8 0) *i8259-shadow-mask*))
           (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*))))))
 
+(defun i8259-hook-irq (irq handler)
+  (check-type handler (or null function symbol))
+  (setf (svref *i8259-handlers* irq) handler))
+
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
   ;; FIXME: should be wired.
-  (setf *i8259-handlers* #.(make-array 16) ; ugly hack avoiding early gc
+  (setf *i8259-handlers* #.(make-array 16) ; ### ugly hack avoiding early allocation
         *i8259-spinlock* :unlocked)
   (dotimes (i 16)
     (setf (svref *i8259-handlers* i) nil))

@@ -5,7 +5,8 @@
 
 (defparameter *source-files*
   '("supervisor/entry.lisp"
-    "supervisor/interrupts.lisp"))
+    "supervisor/interrupts.lisp"
+    "supervisor/serial.lisp"))
 
 
   #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.

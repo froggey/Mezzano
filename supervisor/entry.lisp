@@ -40,6 +40,6 @@
   (initialize-initial-thread)
   (initialize-interrupts)
   (initialize-i8259)
-  (i8259-unmask-irq 0)
   (sys.int::%sti)
+  (initialize-debug-serial #x3F8 4)
   (loop))
