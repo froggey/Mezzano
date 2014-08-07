@@ -205,6 +205,8 @@ Returns true if the timeout has not expired. TIMEOUT may be false, for infinite 
 
 ;(defun (cas foo) (old new args)
 
+;;; Warning! %CAS-foo must currently be used in a without-interrupts section.
+;;; The cmpxchg instruction uses a raw register (rax) to hold a GC'd value. Unsafe.
 (defmacro compare-and-swap (place old new)
   (unless (and (consp place)
                (eql (length place) 2)

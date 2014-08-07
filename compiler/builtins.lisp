@@ -1210,11 +1210,8 @@
     (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf symbol-value) (value symbol) ()
-  (let ((type-error-label (gensym))
-        (no-tls-slot (gensym))
+  (let ((no-tls-slot (gensym))
         (out (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r9 'symbol))
     (load-in-reg :r9 symbol t)
     (load-in-reg :r8 value t)
     (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
@@ -1234,6 +1231,47 @@
           `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-value+) :r8)
           out)
     *r8-value*))
+
+(defbuiltin sys.int::symbol-global-value (symbol) ()
+  (let ((unbound-error-label (gensym)))
+    (emit-trailer (unbound-error-label)
+      (emit `(sys.lap-x86:mov64 :r8 :r9))
+      (call-support-function 'sys.int::raise-unbound-error 1)
+      (emit `(sys.lap-x86:ud2)))
+    (load-in-reg :r9 symbol t)
+    (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot +symbol-value+))
+	  `(sys.lap-x86:cmp64 :r8 :unbound-value)
+	  `(sys.lap-x86:je ,unbound-error-label))
+    (setf *r8-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::symbol-global-value) (value symbol) ()
+  (load-in-reg :r9 symbol t)
+  (load-in-reg :r8 value t)
+  (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
+  (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-value+) :r8))
+  *r8-value*)
+
+(defbuiltin sys.int::%cas-symbol-global-value (symbol old new) ()
+  (load-in-reg :r9 symbol t)
+  (load-in-reg :r11 new t)
+  (load-in-reg :r8 old t)
+  (smash-r8)
+  (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
+  ;; CAS. Aiee, cmpxchg uses RAX for the old value.
+  ;; GC issues.
+  (emit `(sys.lap-x86:mov64 :rax :r8)
+        `(sys.lap-x86:lock)
+        `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot +symbol-value+) :r11)
+        )
+  (cond ((member *for-value* '(:multiple :tail))
+         ;; Return success and the old value.
+         (emit `(sys.lap-x86:mov64 :r9 :rax))
+         (load-constant :rcx 2)
+         :multiple)
+        (t ;; Just return the success state.
+         (predicate-result :z))))
 
 (define-array-like-accessor sys.int::symbol-fref symbol sys.int::+object-tag-symbol+ +symbol-function+)
 
@@ -1687,20 +1725,14 @@
           ;; Check bounds.
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
-          ;; CAS. Aiee, cmpxchg uses RAX for the old value.
-          ;; GC issues.
-          `(sys.lap-x86:pushf)
-          `(sys.lap-x86:cli)
+          ;; Begin GC danger.
           `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:lock)
-          `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11)
-          `(sys.lap-x86:mov64 :r9 t)
-          `(sys.lap-x86:mov64 :r8 nil)
-          `(sys.lap-x86:cmov64z :r8 :r9)
-          `(sys.lap-x86:mov64 :r9 :rax)
-          `(sys.lap-x86:popf))
+          `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
     (cond ((member *for-value* '(:multiple :tail))
            ;; Return success and the old value.
+           (emit `(sys.lap-x86:mov64 :r9 :rax))
+           ;; End GC danger.
            (load-constant :rcx 2)
            :multiple)
           (t ;; Just return the success state.
