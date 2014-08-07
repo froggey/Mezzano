@@ -1839,6 +1839,21 @@
         `(sys.lap-x86:test32 :eax #x200))
   (predicate-result :nz))
 
+;; These functions save & restore the entire state of the flags register.
+(defbuiltin sys.int::%save-irq-state () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:pushf)
+        `(sys.lap-x86:shl64 (:rsp) ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:pop :r8))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%restore-irq-state (saved-state) ()
+  (load-in-r8 saved-state t)
+  (emit `(sys.lap-x86:push :r8)
+        `(sys.lap-x86:shr64 (:rsp) ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:popf))
+  saved-state)
+
 (defbuiltin sys.int::%cr3 () ()
   (smash-r8)
   (emit `(sys.lap-x86:movcr :rax :cr3)
