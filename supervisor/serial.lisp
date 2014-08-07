@@ -241,6 +241,37 @@
      ;; Delay until an interrupt.
      (sys.int::%hlt)))
 
+(defun debug-serial-write-char (char)
+  (let ((code (char-code char)))
+    (cond ((eql char #\Newline)
+           ;; Turn #\Newline into CRLF
+           (debug-serial-write-byte #x0D)
+           (debug-serial-write-byte #x0A))
+          ;; Encode as UTF-8, ignore any flag bits.
+          ((< code #x80)
+           (debug-serial-write-byte code))
+          ((< code #x800)
+           (debug-serial-write-byte (logior #b11000000 (ldb (byte 5 6) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code))))
+          ((< code #x10000)
+           (debug-serial-write-byte (logior #b11100000 (ldb (byte 4 12) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 6) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code))))
+          (t
+           (debug-serial-write-byte (logior #b11110000 (ldb (byte 3 18) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 12) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 6) code)))
+           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code)))))))
+
+(defun debug-serial-write-string (string)
+  (dotimes (i (length string))
+    (debug-serial-write-char (char string i))))
+
+(defun debug-serial-write-line (string)
+  (dotimes (i (length string))
+    (debug-serial-write-char (char string i)))
+  (debug-serial-write-char #\Newline))
+
 (defun initialize-debug-serial (io-port irq)
   (setf *debug-serial-io-port* io-port
         *debug-serial-irq* irq
