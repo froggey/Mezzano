@@ -15,7 +15,7 @@
   (check-type lock-symbol symbol)
   (let ((current-thread (gensym)))
     `(without-interrupts
-       (let ((,current-thread (sys.int::current-stack-group)))
+       (let ((,current-thread (sys.int::current-thread)))
          (do ()
              ((sys.int::%cas-symbol-global-value ',lock-symbol
                                                  :unlocked

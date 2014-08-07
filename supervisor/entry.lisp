@@ -3,7 +3,7 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-(defun sys.int::current-stack-group ()
+(defun sys.int::current-thread ()
   (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
 
 (defun integerp (object)
@@ -19,8 +19,8 @@
 
 ;;; <<<<<<
 
-(defun initialize-initial-process ()
-  (let* ((sg (sys.int::current-stack-group))
+(defun initialize-initial-thread ()
+  (let* ((sg (sys.int::current-thread))
          (bs-base (sys.int::%array-like-ref-unsigned-byte-64 sg sys.int::+stack-group-offset-binding-stack-base+))
          (bs-size (sys.int::%array-like-ref-unsigned-byte-64 sg sys.int::+stack-group-offset-binding-stack-size+)))
     ;; Clear binding stack.
@@ -36,8 +36,8 @@
 
 (defun sys.int::bootloader-entry-point ()
   ;; The bootloader current does not properly initialize the
-  ;; initial process, do that now.
-  (initialize-initial-process)
+  ;; initial thread, do that now.
+  (initialize-initial-thread)
   (initialize-interrupts)
   (initialize-i8259)
   (i8259-unmask-irq 0)
