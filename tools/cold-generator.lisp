@@ -1148,7 +1148,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (dotimes (i len)
       (let ((ch (load-character stream)))
         (setf (aref string-data i) ch)
-        (setf min-width (min min-width
+        (setf min-width (max min-width
                              (cond ((>= ch (expt 2 16)) 4)
                                    ((>= ch (expt 2 8)) 2)
                                    (t 1))))))
