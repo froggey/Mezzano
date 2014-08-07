@@ -31,8 +31,7 @@
 (defun initialize-interrupts ()
   "Called when the system is booted to reset all user interrupt handlers."
   ;; Avoid high-level array/seq functions.
-  ;; fixme: should be wired.
-  (setf *user-interrupt-handlers* #.(make-array 256)) ; ### ugly hack avoiding early allocation
+  (setf *user-interrupt-handlers* (sys.int::make-simple-vector 256 :wired))
   (dotimes (i 256)
     (setf (svref *user-interrupt-handlers* i) nil)))
 
@@ -156,8 +155,7 @@
 
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
-  ;; FIXME: should be wired.
-  (setf *i8259-handlers* #.(make-array 16) ; ### ugly hack avoiding early allocation
+  (setf *i8259-handlers* (sys.int::make-simple-vector 256 :wired)
         *i8259-spinlock* :unlocked)
   (dotimes (i 16)
     (setf (svref *i8259-handlers* i) nil))

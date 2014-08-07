@@ -45,6 +45,25 @@
 (defun char-code (character)
   (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
 
+(declaim (special sys.int::*newspace* sys.int::*newspace-offset*))
+
+(defvar *allocator-lock*)
+
+(defun sys.int::make-simple-vector (size &optional area)
+  (declare (ignore area))
+  (let ((words (1+ size)))
+    (when (oddp words)
+      (incf words))
+    (with-spinlock (*allocator-lock*)
+      ;; Assume we have enough memory to do the allocation...
+      ;; And that the memory is already zero initialized.
+      (let ((addr (+ sys.int::*newspace* (ash sys.int::*newspace-offset* 3))))
+        (incf sys.int::*newspace-offset* words)
+        ;; Write array header.
+        (setf (sys.int::memref-unsigned-byte-64 addr 0)
+              (ash size sys.int::+array-length-shift+))
+        (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
+
 ;;; <<<<<<
 
 (defun initialize-initial-thread ()
@@ -66,6 +85,7 @@
   ;; The bootloader current does not properly initialize the
   ;; initial thread, do that now.
   (initialize-initial-thread)
+  (setf *allocator-lock* :unlocked)
   (initialize-interrupts)
   (initialize-i8259)
   (sys.int::%sti)

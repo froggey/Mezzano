@@ -276,10 +276,10 @@
   (setf *debug-serial-io-port* io-port
         *debug-serial-irq* irq
         *debug-serial-lock* :unlocked
-        *debug-serial-tx-buffer* #.(make-array +debug-serial-buffer-size+) ; fixme: early alloc
+        *debug-serial-tx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
         *debug-serial-tx-buffer-head* 0
         *debug-serial-tx-buffer-tail* 0
-        *debug-serial-rx-buffer* #.(make-array +debug-serial-buffer-size+) ; fixme: early alloc
+        *debug-serial-rx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
         *debug-serial-rx-buffer-head* 0
         *debug-serial-rx-buffer-tail* 0)
   ;; Initialize port.
