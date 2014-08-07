@@ -586,6 +586,7 @@
     "cold-start.lisp"
     "system/early-cons.lisp"
     "system/stuff.lisp"
+    "system/runtime-numbers.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")
