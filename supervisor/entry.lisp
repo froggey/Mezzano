@@ -90,5 +90,5 @@
   (initialize-i8259)
   (sys.int::%sti)
   (initialize-debug-serial #x3F8 4)
-  (debug-serial-write-line "Hello, Debug World!")
+  (debug-write-line "Hello, Debug World!")
   (loop))

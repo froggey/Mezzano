@@ -235,8 +235,42 @@
        (sys.int::%stihlt)
        (sys.int::%cli))))
 
+;; High-level character functions. These assume that whatever is on the other
+;; end of the port uses UTF-8 with CRLF newlines.
+
+(defun debug-serial-read-char ()
+  (loop
+     (let* ((leader (debug-serial-read-byte))
+            (extra-bytes (cond ((eql (logand leader #b10000000) #b00000000) 0)
+                               ((eql (logand leader #b11100000) #b11000000) 1)
+                               ((eql (logand leader #b11110000) #b11100000) 2)
+                               ((eql (logand leader #b11111000) #b11110000) 3)
+                               ;; Reject 5 and 6 byte encodings, and continuation bytes
+                               (t (return #\REPLACEMENT_CHARACTER)))))
+       (dotimes (i extra-bytes)
+         ;; FIXME: this should avoid consuming non-continuation bytes.
+         ;; Need to add a peek-byte function, but also prevent other threads
+         ;; reading characters between the two calls.
+         (let ((byte (debug-serial-read-byte)))
+           (unless (eql (logand byte #b11000000) #b10000000)
+             (return #\REPLACEMENT_CHARACTER))
+           (setf leader (logior (ash leader 6)
+                                (logand byte #b00111111)))))
+       ;; Reject overlong forms and non-unicode values.
+       (when (or (and (< code #x80) (not (eql extra-bytes 0)))
+                 (and (< code #x800) (not (eql extra-bytes 1)))
+                 (and (< code #x10000) (not (eql extra-bytes 2)))
+                 (<= #xD800 code #xDFFF)
+                 (< #x10FFFF code))
+         (return #\REPLACEMENT_CHARACTER))
+       ;; Ignore CR characters.
+       (unless (eql leader #x0D)
+         (return (code-char leader))))))
+
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
+    ;; FIXME: Should write all the bytes to the buffer in one go.
+    ;; Other processes may interfere.
     (cond ((eql char #\Newline)
            ;; Turn #\Newline into CRLF
            (debug-serial-write-byte #x0D)
@@ -261,10 +295,13 @@
   (dotimes (i (length string))
     (debug-serial-write-char (char string i))))
 
-(defun debug-serial-write-line (string)
-  (dotimes (i (length string))
-    (debug-serial-write-char (char string i)))
-  (debug-serial-write-char #\Newline))
+(defun debug-serial-stream (op &optional arg)
+  (ecase op
+    (:read-char (debug-serial-read-char))
+    (:clear-input)
+    (:write-char (debug-serial-write-char arg))
+    (:write-string (debug-serial-write-string arg))
+    (:force-output)))
 
 (defun initialize-debug-serial (io-port irq)
   (setf *debug-serial-io-port* io-port
@@ -301,5 +338,6 @@
                                                            +serial-mcr-auxiliary-output-2+)
      ;; Enable RX interrupts.
      (sys.int::io-port/8 (+ io-port +serial-IER+)) +serial-ier-received-data-available+))
+  (debug-set-output-pesudostream 'debug-serial-stream)
   (i8259-hook-irq irq 'debug-serial-irq-handler)
   (i8259-unmask-irq irq))

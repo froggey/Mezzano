@@ -6,6 +6,7 @@
 (defparameter *source-files*
   '("supervisor/entry.lisp"
     "supervisor/interrupts.lisp"
+    "supervisor/debug.lisp"
     "supervisor/serial.lisp"))
 
 
