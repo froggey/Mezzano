@@ -7,7 +7,8 @@
   '("supervisor/entry.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/debug.lisp"
-    "supervisor/serial.lisp"))
+    "supervisor/serial.lisp"
+    "supervisor/ata.lisp"))
 
 
   #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
