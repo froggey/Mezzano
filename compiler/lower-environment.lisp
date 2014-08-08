@@ -2,7 +2,7 @@
 ;;;; to environment objects.
 ;;;; This is done in two passes.
 ;;;; Pass 1 discovers escaping variables & assigns them slots
-;;;; in their environment vector.
+;;;; in their environment vector. Determines the extent of every lambda.
 ;;;; Pass 2 links each environment vector together and actually
 ;;;; rewrites the code.
 ;;;; Vectors are created at LAMBDA and TAGBODY nodes.
@@ -12,10 +12,13 @@
 
 (defvar *environment-chain*)
 (defvar *environment-layout*)
+(defvar *environment-layout-dx*)
 (defvar *active-environment-vector*)
+(defvar *allow-dx-environment*)
 
 (defun lower-environment (lambda)
-  (let ((*environment-layout* (make-hash-table)))
+  (let ((*environment-layout* (make-hash-table))
+        (*environment-layout-dx* (make-hash-table)))
     (compute-environment-layout lambda)
     (let ((*environment* '()))
       (lower-env-form lambda))))
@@ -55,10 +58,22 @@
 	    ((the)
              (compute-environment-layout (third form)))
 	    ((unwind-protect)
-             (mapc #'compute-environment-layout (rest form)))
-	    (t (mapc #'compute-environment-layout (rest form)))))
+             (compute-environment-layout (second form))
+             (cond ((lambda-information-p (third form))
+                    (unless (getf (lambda-information-plist (third form)) 'extent)
+                        (setf (getf (lambda-information-plist (third form)) 'extent) :dynamic))
+                    (compute-lambda-environment-layout (third form)))
+                   (t (compute-environment-layout (third form)))))
+	    (t (cond ((and (eql (first form) 'funcall)
+                           (lambda-information-p (second form)))
+                      (unless (getf (lambda-information-plist (second form)) 'extent)
+                        (setf (getf (lambda-information-plist (second form)) 'extent) :dynamic))
+                      (compute-lambda-environment-layout (second form))
+                      (mapc #'compute-environment-layout (cddr form)))
+                     (t (mapc #'compute-environment-layout (rest form)))))))
     (lexical-variable nil)
     (lambda-information
+     (setf (getf (lambda-information-plist form) 'dynamic-extent) :indefinite)
      (compute-lambda-environment-layout form))))
 
 (defun maybe-add-environment-variable (variable)
@@ -67,30 +82,44 @@
     (push variable (gethash *active-environment-vector* *environment-layout*))))
 
 (defun compute-lambda-environment-layout (lambda)
-  (let ((*active-environment-vector* lambda))
-    (assert (null (lambda-information-environment-arg lambda)))
-    ;; Special variables are not supported here, nor are keywords or non-trivial &OPTIONAL init-forms.
-    (assert (every (lambda (arg)
-                     (lexical-variable-p arg))
-                   (lambda-information-required-args lambda)))
-    (assert (every (lambda (arg)
-                     (and (lexical-variable-p (first arg))
-                          (quoted-form-p (second arg))
-                          (or (null (third arg))
-                              (lexical-variable-p (first arg)))))
-                   (lambda-information-optional-args lambda)))
-    (assert (or (null (lambda-information-rest-arg lambda))
-                (lexical-variable-p (lambda-information-rest-arg lambda))))
-    (assert (not (lambda-information-enable-keys lambda)))
-    (dolist (arg (lambda-information-required-args lambda))
-      (maybe-add-environment-variable arg))
-    (dolist (arg (lambda-information-optional-args lambda))
-      (maybe-add-environment-variable (first arg))
-      (when (third arg)
-        (maybe-add-environment-variable (third arg))))
-    (when (lambda-information-rest-arg lambda)
-      (maybe-add-environment-variable (lambda-information-rest-arg lambda)))
-    (compute-environment-layout `(progn ,@(lambda-information-body lambda)))))
+  (let ((env-is-dx nil))
+    (let ((*active-environment-vector* lambda)
+          (*allow-dx-environment* t))
+      (assert (null (lambda-information-environment-arg lambda)))
+      ;; Special variables are not supported here, nor are keywords or non-trivial &OPTIONAL init-forms.
+      (assert (every (lambda (arg)
+                       (lexical-variable-p arg))
+                     (lambda-information-required-args lambda)))
+      (assert (every (lambda (arg)
+                       (and (lexical-variable-p (first arg))
+                            (quoted-form-p (second arg))
+                            (or (null (third arg))
+                                (lexical-variable-p (first arg)))))
+                     (lambda-information-optional-args lambda)))
+      (assert (or (null (lambda-information-rest-arg lambda))
+                  (lexical-variable-p (lambda-information-rest-arg lambda))))
+      (assert (not (lambda-information-enable-keys lambda)))
+      (dolist (arg (lambda-information-required-args lambda))
+        (maybe-add-environment-variable arg))
+      (dolist (arg (lambda-information-optional-args lambda))
+        (maybe-add-environment-variable (first arg))
+        (when (third arg)
+          (maybe-add-environment-variable (third arg))))
+      (when (lambda-information-rest-arg lambda)
+        (maybe-add-environment-variable (lambda-information-rest-arg lambda)))
+      (compute-environment-layout `(progn ,@(lambda-information-body lambda)))
+      ;; Inner environments must be DX, and every variable in this environment
+      ;; must only be accessed by DX lambdas.
+      (when (and *allow-dx-environment*
+                 (every (lambda (var)
+                          (every (lambda (l)
+                                   (eql (getf (lambda-information-plist l) 'extent) :dynamic))
+                                 (lexical-variable-used-in var)))
+                        (gethash lambda *environment-layout*)))
+        (setf (gethash lambda *environment-layout-dx*) t)
+        (setf env-is-dx t)))
+    (unless env-is-dx
+      (setf *allow-dx-environment* nil))))
 
 (defun compute-tagbody-environment-layout (form)
   "TAGBODY defines a single variable in the enclosing environment and each group
@@ -100,8 +129,22 @@ of statements opens a new contour."
     (dolist (stmt (cddr form))
       (cond ((go-tag-p stmt)
              (setf last-tag stmt))
-            (t (let ((*active-environment-vector* last-tag))
-                 (compute-environment-layout stmt)))))))
+            (t (let ((env-is-dx nil))
+                 (let ((*active-environment-vector* last-tag)
+                       (*allow-dx-environment* t))
+                   (compute-environment-layout stmt)
+                   ;; Inner environments must be DX, and every variable in this environment
+                   ;; must only be accessed by DX lambdas.
+                   (when (and *allow-dx-environment*
+                              (every (lambda (var)
+                                       (every (lambda (l)
+                                                (eql (getf (lambda-information-plist l) 'extent) :dynamic))
+                                              (lexical-variable-used-in var)))
+                                     (gethash last-tag *environment-layout*)))
+                     (setf (gethash last-tag *environment-layout-dx*) t)
+                     (setf env-is-dx t)))
+                 (unless env-is-dx
+                   (setf *allow-dx-environment* nil))))))))
 
 (defun compute-block-environment-layout (form)
   "BLOCK defines one variable."
@@ -181,7 +224,10 @@ of statements opens a new contour."
              (push lambda *environment*)
              (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
              (setf (lambda-information-body lambda)
-                   `((let ((,new-env (sys.int::make-simple-vector ',(1+ (length local-env)))))
+                   `((let ((,new-env (,(if (gethash lambda *environment-layout-dx*)
+                                           'sys.c::make-dx-simple-vector
+                                           'sys.int::make-simple-vector)
+                                       ',(1+ (length local-env)))))
                        ,@(when (rest *environment-chain*)
                            (list (list '(setf sys.int::%svref)
                                        (second (second *environment-chain*))
@@ -353,12 +399,18 @@ of statements opens a new contour."
                  ,@(let ((info (assoc (second form) new-envs)))
                      (when info
                        (if *environment*
-                           (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))
+                           (list `(setq ,(second info) (,(if (gethash (second form) *environment-layout-dx*)
+                                                             'sys.c::make-dx-simple-vector
+                                                             'sys.int::make-simple-vector)
+                                                         ',(1+ (length (third info)))))
                                  (list '(setf sys.int::%svref)
                                        (second (first *environment-chain*))
                                        (second info)
                                        ''0))
-                           (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))))))
+                           (list `(setq ,(second info) (,(if (gethash (second form) *environment-layout-dx*)
+                                                             'sys.c::make-dx-simple-vector
+                                                             'sys.int::make-simple-vector)
+                                                         ',(1+ (length (third info)))))))))
                  ,@(frob-inner (second form))))
              (frob-inner (current-env)
                (loop for stmt in (cddr form)
@@ -367,7 +419,10 @@ of statements opens a new contour."
                                 (let ((info (assoc current-env new-envs)))
                                   (append (list stmt)
                                           (when info
-                                            (list `(setq ,(second info) (sys.int::make-simple-vector ',(1+ (length (third info)))))))
+                                            (list `(setq ,(second info) (,(if (gethash current-env *environment-layout-dx*)
+                                                                              'sys.c::make-dx-simple-vector
+                                                                              'sys.int::make-simple-vector)
+                                                                          ',(1+ (length (third info)))))))
                                           (when (and info *environment*)
                                             (list (list '(setf sys.int::%svref)
                                                         (second (first *environment-chain*))
