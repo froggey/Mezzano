@@ -2,13 +2,11 @@
 
 (defmacro without-interrupts (&body body)
   "Execute body with local IRQs inhibited."
-  ;; FIXME: should use unwind-protect, but the compiler needs to
-  ;; be fixed so it generates a dx environment & closure.
   (let ((irq-state (gensym)))
     `(let ((,irq-state (sys.int::%save-irq-state)))
        (sys.int::%cli)
-       (multiple-value-prog1
-           (progn ,@body)
+       (unwind-protect
+            (progn ,@body)
          (sys.int::%restore-irq-state ,irq-state)))))
 
 (defmacro with-spinlock ((lock-symbol) &body body)
@@ -21,7 +19,8 @@
                                                  :unlocked
                                                  ,current-thread))
            (sys.int::cpu-relax))
-         (multiple-value-prog1 (progn ,@body)
+         (unwind-protect
+              (progn ,@body)
            (setf (sys.int::symbol-global-value ',lock-symbol) :unlocked))))))
 
 ;;; Low-level interrupt support.

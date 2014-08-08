@@ -174,72 +174,66 @@
         (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
               +serial-ier-received-data-available+)))))
 
+;; Low-level byte functions.
+
 (defun debug-serial-write-byte (byte)
-  (loop
-     ;; fixme: with-spinlock does not use unwind-protect. be careful when
-     ;; leaving the loop.
-     (let ((done nil))
+  (without-interrupts
+    (loop
        (with-spinlock (*debug-serial-lock*)
-         (block nil
-           ;; Try to write directly to the serial port if the TX buffer is empty.
-           (when (and (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                         +debug-serial-buffer-size+
-                                         *debug-serial-tx-buffer-head*
-                                         *debug-serial-tx-buffer-tail*)
-                      (logbitp +serial-lsr-thr-empty+
-                               (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+))))
-             (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-                   byte)
-             (setf done t)
-             (return))
-           ;; Write into the buffer, if not full.
-           (when (not (debug-fifo-fullp *debug-serial-tx-buffer*
-                                        +debug-serial-buffer-size+
-                                        *debug-serial-tx-buffer-head*
-                                        *debug-serial-tx-buffer-tail*))
-             ;; If the buffer was empty, then the TX interrupt will have been
-             ;; turned off. Turn it back on.
-             (when (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                     +debug-serial-buffer-size+
-                                     *debug-serial-tx-buffer-head*
-                                     *debug-serial-tx-buffer-tail*)
-               (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
-                     (logior +serial-ier-received-data-available+
-                             +serial-ier-transmitter-holding-register-empty+)))
-             (debug-fifo-push byte
-                              *debug-serial-tx-buffer*
-                              +debug-serial-buffer-size+
-                              *debug-serial-tx-buffer-head*
-                              *debug-serial-tx-buffer-tail*)
-             (setf done t)
-             (return))))
-       (when done
-         (return)))
-     ;; Delay until an interrupt, the serial port may have drained part of
-     ;; the TX buffer after.
-     (sys.int::%hlt)))
+         ;; Try to write directly to the serial port if the TX buffer is empty.
+         (when (and (debug-fifo-emptyp *debug-serial-tx-buffer*
+                                       +debug-serial-buffer-size+
+                                       *debug-serial-tx-buffer-head*
+                                       *debug-serial-tx-buffer-tail*)
+                    (logbitp +serial-lsr-thr-empty+
+                             (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+))))
+           (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
+                 byte)
+           (return))
+         ;; Write into the buffer, if not full.
+         (when (not (debug-fifo-fullp *debug-serial-tx-buffer*
+                                      +debug-serial-buffer-size+
+                                      *debug-serial-tx-buffer-head*
+                                      *debug-serial-tx-buffer-tail*))
+           ;; If the buffer was empty, then the TX interrupt will have been
+           ;; turned off. Turn it back on.
+           (when (debug-fifo-emptyp *debug-serial-tx-buffer*
+                                    +debug-serial-buffer-size+
+                                    *debug-serial-tx-buffer-head*
+                                    *debug-serial-tx-buffer-tail*)
+             (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
+                   (logior +serial-ier-received-data-available+
+                           +serial-ier-transmitter-holding-register-empty+)))
+           (debug-fifo-push byte
+                            *debug-serial-tx-buffer*
+                            +debug-serial-buffer-size+
+                            *debug-serial-tx-buffer-head*
+                            *debug-serial-tx-buffer-tail*)
+           (return)))
+       ;; Delay until an interrupt, the serial port may have drained part of
+       ;; the TX buffer after.
+       ;; Use without-interrupts & stihlt/cli to avoid race conditions on
+       ;; the local cpu (taking an interrupt between testing the buffer and
+       ;; going to sleep). This is still not SMP-safe.
+       (sys.int::%stihlt)
+       (sys.int::%cli))))
 
 (defun debug-serial-read-byte ()
-  (loop
-     ;; fixme: with-spinlock does not use unwind-protect. be careful when
-     ;; leaving the loop.
-     (let ((done nil))
+  (without-interrupts
+    (loop
        (with-spinlock (*debug-serial-lock*)
-         (block nil
-           ;; Maybe there's stuff in the RX buffer.
-           (when (not (debug-fifo-emptyp *debug-serial-rx-buffer*
-                                         +debug-serial-buffer-size+
-                                         *debug-serial-rx-buffer-head*
-                                         *debug-serial-rx-buffer-tail*))
-             (setf done (debug-fifo-pop *debug-serial-rx-buffer*
-                                        +debug-serial-buffer-size+
-                                        *debug-serial-rx-buffer-head*
-                                        *debug-serial-rx-buffer-tail*))
-             (return))))
-       (when done
-         (return done)))
-     ;; Delay until an interrupt.
-     (sys.int::%hlt)))
+         ;; Maybe there's stuff in the RX buffer.
+         (when (not (debug-fifo-emptyp *debug-serial-rx-buffer*
+                                       +debug-serial-buffer-size+
+                                       *debug-serial-rx-buffer-head*
+                                       *debug-serial-rx-buffer-tail*))
+           (return (debug-fifo-pop *debug-serial-rx-buffer*
+                                   +debug-serial-buffer-size+
+                                   *debug-serial-rx-buffer-head*
+                                   *debug-serial-rx-buffer-tail*))))
+       ;; Delay until an interrupt.
+       (sys.int::%stihlt)
+       (sys.int::%cli))))
 
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
