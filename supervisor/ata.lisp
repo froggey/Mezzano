@@ -218,39 +218,56 @@ Returns true when the bits are equal, false when the timeout expires or if the d
             command)))
   t)
 
+(defun ata-check-status (device &optional (timeout 30))
+  "Wait until BSY clears, then return two values.
+First is true if DRQ is set, false if DRQ is clear or timeout.
+Second is true if the timeout expired.
+This is used to implement the Check_Status states of the various command protocols."
+  (let ((controller (ata-device-controller device)))
+    ;; Sample the alt-status register for the required delay.
+    (ata-alt-status controller)
+    (loop
+       (let ((status (ata-alt-status controller)))
+         (when (not (logtest status +ata-bsy+))
+           (return (values (logtest status +ata-drq+)
+                           nil)))
+         ;; Stay in Check_Status.
+         (when (<= timeout 0)
+           (return (values nil t)))
+         (sleep 0.001)
+         (decf timeout 0.001)))))
+
+(defun ata-intrq-wait (device &optional (timeout 30))
+  "Wait for a interrupt from the device.
+This is used to implement the INTRQ_Wait state."
+  (declare (ignore timeout))
+  ;; FIXME: Timeouts.
+  (let ((controller (ata-device-controller device)))
+    (setf (ata-controller-interrupt-flag controller) nil)
+    (loop
+       (when (ata-controller-interrupt-flag controller)
+         (return))
+       (sys.int::%stihlt)
+       (sys.int::%cli))))
+
 (defun ata-pio-data-in (device count mem-addr)
   "Implement the PIO data-in protocol."
   (let ((controller (ata-device-controller device)))
     (loop
        ;; HPIOI0: INTRQ_wait
-       ;; FIXME: Timeouts.
-       (setf (ata-controller-interrupt-flag controller) nil)
-       (loop
-          (when (ata-controller-interrupt-flag controller)
-            (return))
-          (sys.int::%stihlt)
-          (sys.int::%cli))
-       ;; HPIOI1: Check_Status
+       (ata-intrq-wait device)
        (with-ata-spinlock (controller)
-         ;; Sample the alt-status register for the required delay.
-         (ata-alt-status controller)
-         (let ((timeout 31)) ; wait up to 30 seconds. The device may have to spin up.
-           (loop
-              (let ((status (ata-alt-status controller)))
-                (when (not (logtest status +ata-bsy+))
-                  (when (not (logtest status +ata-drq+))
-                    ;; FIXME: Should reset the device here.
-                    (debug-write-line "Device error during PIO data in.")
-                    (return-from ata-pio-data-in nil))
-                  ;; Leave loop.
-                  (return)))
-              ;; Stay in HPIOI1.
-              (when (<= timeout 0)
-                ;; FIXME: Should reset the device here.
-                (debug-write-line "Device timeout during PIO data in.")
-                (return-from ata-pio-data-in nil))
-              (sleep 0.001)
-              (decf timeout 0.001)))
+         ;; HPIOI1: Check_Status
+         (multiple-value-bind (drq timed-out)
+             (ata-check-status device)
+           (when timed-out
+             ;; FIXME: Should reset the device here.
+             (debug-write-line "Device timeout during PIO data in.")
+             (return-from ata-pio-data-in nil))
+           (when (not drq)
+             ;; FIXME: Should reset the device here.
+             (debug-write-line "Device error during PIO data in.")
+             (return-from ata-pio-data-in nil)))
          ;; HPIOI2: Transfer_Data
          (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
            (setf (sys.int::memref-unsigned-byte-16 mem-addr 0)
@@ -266,31 +283,22 @@ Returns true when the bits are equal, false when the timeout expires or if the d
   "Implement the PIO data-out protocol."
   (let ((controller (ata-device-controller device)))
     (loop
-       ;; HPIOO0: Check_Status
        (with-ata-spinlock (controller)
-         ;; Sample the alt-status register for the required delay.
-         (ata-alt-status controller)
-         (let ((timeout 31)) ; wait up to 30 seconds. The device may have to spin up.
-           (loop
-              (let ((status (ata-alt-status controller)))
-                (when (not (logtest status +ata-bsy+))
-                  (when (not (logtest status +ata-drq+))
-                    (cond ((zerop count)
-                           ;; All data transfered successfully.
-                           (return-from ata-pio-data-out t))
-                          (t ;; Error?
-                           ;; FIXME: Should reset the device here.
-                           (debug-write-line "Device error during PIO data out.")
-                           (return-from ata-pio-data-out nil))))
-                  ;; Leave loop.
-                  (return)))
-              ;; Stay in HPIOI1.
-              (when (<= timeout 0)
-                ;; FIXME: Should reset the device here.
-                (debug-write-line "Device timeout during PIO data out.")
-                (return-from ata-pio-data-out nil))
-              (sleep 0.001)
-              (decf timeout 0.001)))
+         ;; HPIOO0: Check_Status
+         (multiple-value-bind (drq timed-out)
+             (ata-check-status device)
+           (when timed-out
+             ;; FIXME: Should reset the device here.
+             (debug-write-line "Device timeout during PIO data out.")
+             (return-from ata-pio-data-out nil))
+           (when (not drq)
+             (cond ((zerop count)
+                    ;; All data transfered successfully.
+                    (return-from ata-pio-data-out t))
+                   (t ;; Error?
+                    ;; FIXME: Should reset the device here.
+                    (debug-write-line "Device error during PIO data out.")
+                    (return-from ata-pio-data-out nil)))))
          ;; HPIOO1: Transfer_Data
          (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
            (setf (sys.int::io-port/16 (+ (ata-controller-command controller)
@@ -298,13 +306,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                  (sys.int::memref-unsigned-byte-16 mem-addr 0))
            (incf mem-addr 2)))
        ;; HPIOO2: INTRQ_Wait
-       ;; FIXME: Timeouts.
-       (setf (ata-controller-interrupt-flag controller) nil)
-       (loop
-          (when (ata-controller-interrupt-flag controller)
-            (return))
-          (sys.int::%stihlt)
-          (sys.int::%cli))
+       (ata-intrq-wait device)
        ;; Return to HPIOO0.
        (decf count))))
 
