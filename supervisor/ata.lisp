@@ -39,6 +39,7 @@
 
 ;; Commands.
 (defconstant +ata-command-read-sectors+ #x20)
+(defconstant +ata-command-write-sectors+ #x30)
 (defconstant +ata-command-identify+ #xEC)
 
 (defvar *ata-devices*)
@@ -128,7 +129,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                    (ata-alt-status controller))
       (debug-write-line "ATA-SELECT-DEVICE called with command in progress.")
       (return-from ata-select-device nil))
-    (setf (ata-controller-current-channel controller) channel)))
+    (setf (ata-controller-current-channel controller) channel))
+  t)
 
 (defun ata-detect-drive (controller channel)
   (with-ata-spinlock (controller)
@@ -181,6 +183,131 @@ Returns true when the bits are equal, false when the timeout expires or if the d
              *ata-devices*
              :wired)))))
 
+(defun ata-issue-lba28-command (device lba count command)
+  (let ((controller (ata-device-controller device)))
+    (with-ata-spinlock (controller)
+      ;; Select the device.
+      (when (not (ata-select-device controller (ata-device-channel device)))
+        (debug-write-line "Could not select ata device.")
+        (return-from ata-issue-lba28-command nil))
+      ;; HI3: Write_parameters
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-count+))
+            (if (eql count 256)
+                0
+                count))
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-lba-low+))
+            (ldb (byte 8 0) lba))
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-lba-mid+))
+            (ldb (byte 8 8) lba))
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-lba-high+))
+            (ldb (byte 8 16) lba))
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-device+))
+            (logior (ecase (ata-device-channel device)
+                      (:master 0)
+                      (:slave +ata-dev+))
+                    +ata-lba+
+                    (ldb (byte 4 24) lba)))
+      ;; HI4: Write_command
+      (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                   +ata-register-command+))
+            command)))
+  t)
+
+(defun ata-pio-data-in (device count mem-addr)
+  "Implement the PIO data-in protocol."
+  (let ((controller (ata-device-controller device)))
+    (loop
+       ;; HPIOI0: INTRQ_wait
+       ;; FIXME: Timeouts.
+       (setf (ata-controller-interrupt-flag controller) nil)
+       (loop
+          (when (ata-controller-interrupt-flag controller)
+            (return))
+          (sys.int::%stihlt)
+          (sys.int::%cli))
+       ;; HPIOI1: Check_Status
+       (with-ata-spinlock (controller)
+         ;; Sample the alt-status register for the required delay.
+         (ata-alt-status controller)
+         (let ((timeout 31)) ; wait up to 30 seconds. The device may have to spin up.
+           (loop
+              (let ((status (ata-alt-status controller)))
+                (when (not (logtest status +ata-bsy+))
+                  (when (not (logtest status +ata-drq+))
+                    ;; FIXME: Should reset the device here.
+                    (debug-write-line "Device error during PIO data in.")
+                    (return-from ata-pio-data-in nil))
+                  ;; Leave loop.
+                  (return)))
+              ;; Stay in HPIOI1.
+              (when (<= timeout 0)
+                ;; FIXME: Should reset the device here.
+                (debug-write-line "Device timeout during PIO data in.")
+                (return-from ata-pio-data-in nil))
+              (sleep 0.001)
+              (decf timeout 0.001)))
+         ;; HPIOI2: Transfer_Data
+         (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
+           (setf (sys.int::memref-unsigned-byte-16 mem-addr 0)
+                 (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                         +ata-register-data+)))
+           (incf mem-addr 2))
+         ;; If there are no more blocks to transfer, transition back to host idle,
+         ;; otherwise return to HPIOI0.
+         (when (zerop (decf count))
+           (return t))))))
+
+(defun ata-pio-data-out (device count mem-addr)
+  "Implement the PIO data-out protocol."
+  (let ((controller (ata-device-controller device)))
+    (loop
+       ;; HPIOO0: Check_Status
+       (with-ata-spinlock (controller)
+         ;; Sample the alt-status register for the required delay.
+         (ata-alt-status controller)
+         (let ((timeout 31)) ; wait up to 30 seconds. The device may have to spin up.
+           (loop
+              (let ((status (ata-alt-status controller)))
+                (when (not (logtest status +ata-bsy+))
+                  (when (not (logtest status +ata-drq+))
+                    (cond ((zerop count)
+                           ;; All data transfered successfully.
+                           (return-from ata-pio-data-out t))
+                          (t ;; Error?
+                           ;; FIXME: Should reset the device here.
+                           (debug-write-line "Device error during PIO data out.")
+                           (return-from ata-pio-data-out nil))))
+                  ;; Leave loop.
+                  (return)))
+              ;; Stay in HPIOI1.
+              (when (<= timeout 0)
+                ;; FIXME: Should reset the device here.
+                (debug-write-line "Device timeout during PIO data out.")
+                (return-from ata-pio-data-out nil))
+              (sleep 0.001)
+              (decf timeout 0.001)))
+         ;; HPIOO1: Transfer_Data
+         (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
+           (setf (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                         +ata-register-data+))
+                 (sys.int::memref-unsigned-byte-16 mem-addr 0))
+           (incf mem-addr 2)))
+       ;; HPIOO2: INTRQ_Wait
+       ;; FIXME: Timeouts.
+       (setf (ata-controller-interrupt-flag controller) nil)
+       (loop
+          (when (ata-controller-interrupt-flag controller)
+            (return))
+          (sys.int::%stihlt)
+          (sys.int::%cli))
+       ;; Return to HPIOO0.
+       (decf count))))
+
 (defun ata-read (device lba count mem-addr)
   (let ((controller (ata-device-controller device)))
     (assert (>= lba 0))
@@ -194,77 +321,30 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (with-ata-use-lock (controller)
       ;; FIXME: Not SMP-safe.
       (without-interrupts
-        (with-ata-spinlock (controller)
-          ;; Select the device.
-          (when (not (ata-select-device controller (ata-device-channel device)))
-            (debug-write-line "Could not select ata device for read.")
-            (return-from ata-read nil))
-          ;; HI3: Write_parameters
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-count+))
-                (if (eql count 256)
-                    0
-                    count))
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-lba-low+))
-                (ldb (byte 8 0) lba))
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-lba-mid+))
-                (ldb (byte 8 8) lba))
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-lba-high+))
-                (ldb (byte 8 16) lba))
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-device+))
-                (logior (ecase (ata-device-channel device)
-                          (:master 0)
-                          (:slave +ata-dev+))
-                        +ata-lba+
-                        (ldb (byte 4 24) lba)))
-          ;; HI4: Write_command
-          (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
-                                       +ata-register-command+))
-                +ata-command-read-sectors+))
-        (loop
-           ;; HPIOI0: INTRQ_wait
-           ;; FIXME: Timeouts.
-           (setf (ata-controller-interrupt-flag controller) nil)
-           (loop
-              (when (ata-controller-interrupt-flag controller)
-                (return))
-              (sys.int::%stihlt)
-              (sys.int::%cli))
-           ;; HPIOI1: Check_Status
-           (with-ata-spinlock (controller)
-             ;; Sample the alt-status register for the required delay.
-             (ata-alt-status controller)
-             (let ((timeout 31)) ; wait up to 30 seconds. The device may have to spin up.
-               (loop
-                  (let ((status (ata-alt-status controller)))
-                    (when (not (logtest status +ata-bsy+))
-                      (when (not (logtest status +ata-drq+))
-                        ;; FIXME: Should reset the device here.
-                        (debug-write-line "Device error during read.")
-                        (return-from ata-read nil))
-                      ;; Leave loop.
-                      (return)))
-                  ;; Stay in HPIOI1.
-                  (when (<= timeout 0)
-                    ;; FIXME: Should reset the device here.
-                    (debug-write-line "Device timeout during read.")
-                    (return-from ata-read nil))
-                  (sleep 0.001)
-                  (decf timeout 0.001)))
-             ;; HPIOI2: Transfer_Data
-             (dotimes (i 256) ; FIXME: non-512 byte sectors, non 2-byte words.
-               (setf (sys.int::memref-unsigned-byte-16 mem-addr 0)
-                     (sys.int::io-port/16 (+ (ata-controller-command controller)
-                                             +ata-register-data+)))
-               (incf mem-addr 2))
-             ;; If there are no more blocks to transfer, transition back to host idle,
-             ;; otherwise return to HPIOI0.
-             (when (zerop (decf count))
-               (return))))))))
+        (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
+          (return-from ata-read nil))
+        (when (not (ata-pio-data-in device count mem-addr))
+          (return-from ata-read nil)))))
+  t)
+
+(defun ata-write (device lba count mem-addr)
+  (let ((controller (ata-device-controller device)))
+    (assert (>= lba 0))
+    (assert (>= count 0))
+    (assert (< (+ lba count) (ata-device-sector-count device)))
+    (when (> count 256)
+      (debug-write-line "Can't do writes of more than 256 sectors.")
+      (return-from ata-write nil))
+    (when (eql count 0)
+      (return-from ata-write t))
+    (with-ata-use-lock (controller)
+      ;; FIXME: Not SMP-safe.
+      (without-interrupts
+        (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
+          (return-from ata-write nil))
+        (when (not (ata-pio-data-out device count mem-addr))
+          (return-from ata-write nil)))))
+  t)
 
 (defun ata-irq-handler (irq)
   (dolist (drive *ata-devices*)
