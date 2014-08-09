@@ -6,7 +6,6 @@
 ;;;; Pass 2 links each environment vector together and actually
 ;;;; rewrites the code.
 ;;;; Vectors are created at LAMBDA and TAGBODY nodes.
-;;;; Additionally, turn FUNCTION into a call to FDEFINITION.
 
 (in-package :sys.c)
 
@@ -166,7 +165,7 @@ of statements opens a new contour."
   (etypecase form
     (cons (case (first form)
 	    ((block) (le-block form))
-            ((function) `(fdefinition ',(second form)))
+            ((function) form)
 	    ((go) (le-go form))
 	    ((if) (le-form*-cdr form))
 	    ((let) (le-let form))

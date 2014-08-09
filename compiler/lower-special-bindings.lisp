@@ -62,7 +62,7 @@
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))
               ((progn) (map-form 1))
-              ((quote) form)
+              ((quote function) form)
               ((return-from)
                (lsb-return-from form))
               ((setq) (map-form 2))
