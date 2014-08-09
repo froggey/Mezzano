@@ -667,6 +667,30 @@
   (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
   *r8-value*)
 
+(defbuiltin sys.int::%cas-array-like (object offset old new) ()
+  (load-in-reg :r10 offset t)
+  (fixnum-check :r10)
+  (load-in-reg :r9 object t)
+  (load-in-reg :r11 new t)
+  (load-in-reg :r8 old t)
+  (smash-r8)
+  (emit
+   ;; Convert size and slot number to integers.
+   `(sys.lap-x86:mov64 :rcx :r10)
+   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
+   ;; Begin GC danger.
+   `(sys.lap-x86:mov64 :rax :r8)
+   `(sys.lap-x86:lock)
+   `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
+  (cond ((member *for-value* '(:multiple :tail))
+         ;; Return success and the old value.
+         (emit `(sys.lap-x86:mov64 :r9 :rax))
+         ;; End GC danger.
+         (load-constant :rcx 2)
+         :multiple)
+        (t ;; Just return the success state.
+         (setf *r8-value* (list (gensym))))))
+
 (defbuiltin sys.int::%simple-1d-array-p (object) ()
   (let ((false-out (gensym))
         (out (gensym)))
