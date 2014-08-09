@@ -153,19 +153,22 @@
                          +debug-serial-buffer-size+
                          *debug-serial-rx-buffer-head*
                          *debug-serial-rx-buffer-tail*))
-      ;; Transmit, if the tx buffer is not empty.
-      (do ()
-          ((not (and (logbitp +serial-lsr-thr-empty+
-                              (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
-                     (not (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                             +debug-serial-buffer-size+
-                                             *debug-serial-tx-buffer-head*
-                                             *debug-serial-tx-buffer-tail*)))))
-        (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-              (debug-fifo-pop *debug-serial-tx-buffer*
-                              +debug-serial-buffer-size+
-                              *debug-serial-tx-buffer-head*
-                              *debug-serial-tx-buffer-tail*)))
+      ;; Refill the TX FIFO when it becomes empty.
+      (when (logbitp +serial-lsr-thr-empty+
+                     (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
+        (loop
+           ;; Push at most 16 bytes into the FIFO.
+           for i below 16
+           while (not (debug-fifo-emptyp *debug-serial-tx-buffer*
+                                         +debug-serial-buffer-size+
+                                         *debug-serial-tx-buffer-head*
+                                         *debug-serial-tx-buffer-tail*))
+           do
+             (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
+                   (debug-fifo-pop *debug-serial-tx-buffer*
+                                   +debug-serial-buffer-size+
+                                   *debug-serial-tx-buffer-head*
+                                   *debug-serial-tx-buffer-tail*))))
       ;; Turn the TX interrupt off when the TX buffer is empty.
       (when (debug-fifo-emptyp *debug-serial-tx-buffer*
                                +debug-serial-buffer-size+
