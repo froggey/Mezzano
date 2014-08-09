@@ -94,7 +94,7 @@
 (defconstant +object-tag-structure-object+        #b110001)
 (defconstant +object-tag-std-instance+            #b110010)
 (defconstant +object-tag-xmm-vector+              #b110011)
-(defconstant +object-tag-stack-group+             #b110100)
+(defconstant +object-tag-thread+                  #b110100)
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)
 (defconstant +object-tag-interrupt-frame+         #b110111)

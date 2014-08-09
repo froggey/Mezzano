@@ -4,7 +4,7 @@
 ;;; >>>>>>
 
 (defun sys.int::current-thread ()
-  (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
+  (current-thread))
 
 (defun integerp (object)
   (sys.int::fixnump object))
@@ -49,6 +49,11 @@
 
 (defvar *allocator-lock*)
 
+;; TODO?
+(defmacro with-gc-deferred (&body body)
+  `(progn
+     ,@body))
+
 (defun %allocate-object (tag data size area)
   (declare (ignore area))
   (let ((words (1+ size)))
@@ -81,6 +86,21 @@
       (setf (sys.int::memref-t addr 0) car
             (sys.int::memref-t addr 1) cdr)
       (sys.int::%%assemble-value addr sys.int::+tag-cons+))))
+
+(defun stack-base (stack)
+  (car stack))
+
+(defun stack-size (stack)
+  (cdr stack))
+
+(defun %allocate-stack (style size)
+  ;; Page align stacks.
+  (incf size #xFFF)
+  (setf size (logand size (lognot #xFFF)))
+  (let ((addr (with-spinlock (*allocator-lock*)
+                (prog1 sys.int::*stack-bump-pointer*
+                  (incf sys.int::*stack-bump-pointer* size)))))
+    (sys.int::cons-in-area addr size :wired)))
 
 ;; TODO.
 (defun sleep (seconds)
@@ -188,26 +208,31 @@
 (defun sys.int::generic->= (x y)
   (not (sys.int::generic-< x y)))
 
+(defun sys.int::raise-undefined-function (fref)
+  (debug-write-string "Undefined function ")
+  (let ((name (sys.int::%array-like-ref-t fref sys.int::+fref-name+)))
+    (cond ((consp name)
+           (debug-write-string "(")
+           (debug-write-string (symbol-name (car name)))
+           (debug-write-string " ")
+           (debug-write-string (symbol-name (car (cdr name))))
+           (debug-write-line ")"))
+          (t (debug-write-line (symbol-name name)))))
+  (sys.int::%sti)
+  (loop))
+
+(defun sys.int::raise-unbound-error (symbol)
+  (debug-write-string "Unbound symbol ")
+  (debug-write-line (symbol-name symbol))
+  (sys.int::%sti)
+  (loop))
+
+(defun endp (list)
+  (null list))
+
 ;;; <<<<<<
 
-(defun initialize-initial-thread ()
-  (let* ((sg (sys.int::current-thread))
-         (bs-base (sys.int::%array-like-ref-unsigned-byte-64 sg sys.int::+stack-group-offset-binding-stack-base+))
-         (bs-size (sys.int::%array-like-ref-unsigned-byte-64 sg sys.int::+stack-group-offset-binding-stack-size+)))
-    ;; Clear binding stack.
-    (dotimes (i (truncate bs-size 8))
-      (setf (sys.int::memref-unsigned-byte-64 bs-base i) 0))
-    ;; Set the binding stack pointer.
-    (setf (sys.int::%array-like-ref-unsigned-byte-64 sg sys.int::+stack-group-offset-binding-stack-pointer+)
-          (+ bs-base bs-size))
-    ;; Reset the TLS binding slots.
-    (dotimes (i sys.int::+stack-group-tls-slots-size+)
-      (setf (sys.int::%array-like-ref-t sg (+ sys.int::+stack-group-offset-tls-slots+ i))
-            (sys.int::%unbound-tls-slot)))))
-
 (defun sys.int::bootloader-entry-point ()
-  ;; The bootloader current does not properly initialize the
-  ;; initial thread, do that now.
   (initialize-initial-thread)
   (setf *allocator-lock* :unlocked)
   (initialize-interrupts)
@@ -216,5 +241,14 @@
   (initialize-debug-serial #x3F8 4)
   (debug-write-line "Hello, Debug World!")
   (initialize-ata)
-  (ata-read (car *ata-devices*) 0 32 (logior (ash -1 48) #x800000001000))
-  (loop))
+  (initialize-threads)
+  (make-thread
+   (lambda ()
+     (debug-write-line "Reading page...")
+     (ata-read (car *ata-devices*) 0 8 (logior (ash -1 48) #x800000001000))
+     (debug-write-line "Complete!")
+     (debug-write-line "Writing page...")
+     (ata-write (car *ata-devices*) 0 8 (logior (ash -1 48) #x800000000000))
+     (debug-write-line "Complete!"))
+   :name "Main thread")
+  (finish-initial-thread))

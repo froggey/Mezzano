@@ -9,19 +9,19 @@
             (progn ,@body)
          (sys.int::%restore-irq-state ,irq-state)))))
 
-(defmacro with-spinlock ((lock-symbol) &body body)
-  (check-type lock-symbol symbol)
+(defmacro with-spinlock ((lock-place) &body body)
+  (check-type lock-place symbol)
   (let ((current-thread (gensym)))
     `(without-interrupts
        (let ((,current-thread (sys.int::current-thread)))
          (do ()
-             ((sys.int::%cas-symbol-global-value ',lock-symbol
+             ((sys.int::%cas-symbol-global-value ',lock-place
                                                  :unlocked
                                                  ,current-thread))
            (sys.int::cpu-relax))
          (unwind-protect
               (progn ,@body)
-           (setf (sys.int::symbol-global-value ',lock-symbol) :unlocked))))))
+           (setf (sys.int::symbol-global-value ',lock-place) :unlocked))))))
 
 ;;; Low-level interrupt support.
 

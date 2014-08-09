@@ -8,7 +8,8 @@
     "supervisor/interrupts.lisp"
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
-    "supervisor/ata.lisp"))
+    "supervisor/ata.lisp"
+    "supervisor/thread.lisp"))
 
 
   #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
@@ -169,16 +170,28 @@
              (word (- address 2)) word-count)
        address))))
 
-(defun allocate-stack (size style)
-  (check-type style (member :control :data :binding))
-  ;; Force alignment.
-  (unless (zerop (logand size #x1FF))
-    (incf size #x1FF)
-    (decf size (logand size #x1FF)))
-  (prog1 (+ (truncate *stack-area-base* 8) *stack-offset*)
-    (incf *stack-offset* size)
-    (when (> *stack-offset* (truncate (/ *stack-area-size* 2) 8))
-       (error "Allocation of ~S words exceeds stack area size." size))))
+(defstruct stack
+  style
+  base
+  size
+  value)
+
+(defun allocate-stack (style size)
+  (check-type style (member :control :binding))
+  ;; Force page alignment.
+  (incf size #xFFF)
+  (setf size (logand size (lognot #xFFF)))
+  (let ((stack (prog1 (make-stack :style style
+                                  :base (+ *stack-area-base* (* *stack-offset* 8))
+                                  :size size)
+                 (incf *stack-offset* (truncate size 8))
+                 (when (> (* *stack-offset* 8) *stack-area-size*)
+                   (error "Allocation of ~S words exceeds stack area size." size))))
+        (info (allocate 2 :static)))
+    (setf (word info) (make-fixnum (stack-base stack))
+          (word (1+ info)) (make-fixnum size))
+    (setf (stack-value stack) (make-value info sys.int::+tag-cons+))
+    stack))
 
 (defun storage-info-for-address (address)
   (let ((byte-address (* address 8)))
@@ -405,9 +418,10 @@
                                        (9 (logior #x40 (random 16)))
                                        (7 (logior (random 64) #x80))
                                        (t (random 256)))))
-      ;; Major & minor version.
-      (setf (ub16ref/le header 32) 0
-            (ub16ref/le header 34) 1)
+      ;; Major version.
+      (setf (ub16ref/le header 32) 0)
+      ;; Minor version.
+      (setf (ub16ref/le header 34) 2)
       ;; Number of extents.
       (setf (ub32ref/le header 36) 4)
       ;; Entry fref.
@@ -492,35 +506,43 @@
   (check-type high (unsigned-byte 32))
   (dpb high (byte 32 32) low))
 
-(defun create-initial-stack-group ()
+(defun create-initial-thread ()
   (let* ((address (allocate 512 :static))
-         (control-stack-size 16384)
-         (control-stack (allocate-stack control-stack-size :control))
+         (control-stack-size (* 16 1024))
+         (control-stack (allocate-stack :control control-stack-size))
          (binding-stack-size 1024)
-         (binding-stack (allocate-stack binding-stack-size :binding)))
+         (binding-stack (allocate-stack :binding binding-stack-size)))
     ;; Array tag.
-    (setf (word (+ address 0)) (array-header sys.int::+object-tag-stack-group+ 511))
-    ;; Binding stack pointer.
-    (setf (word (+ address 1)) (* (+ binding-stack binding-stack-size) 8))
-    ;; State word. Unsafe, active.
-    (setf (word (+ address 2)) (make-fixnum 0))
-    ;; Saved control stack pointer.
-    (setf (word (+ address 3)) (* (+ control-stack control-stack-size) 8))
+    (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
-    (setf (word (+ address 4)) (make-value (store-string "Initial stack group") sys.int::+tag-object+))
-    ;; Control stack base. Byte pointer stored as ub64.
-    (setf (word (+ address 5)) (* control-stack 8))
-    ;; Control stack size.
-    (setf (word (+ address 6)) (* control-stack-size 8))
-    ;; Binding stack base.
-    (setf (word (+ address 7)) (* binding-stack 8))
-    ;; Binding stack size.
-    (setf (word (+ address 8)) (* binding-stack-size 8))
-    ;; Start of TLS slots.
-    (dotimes (i (- 512 9))
-      (setf (word (+ address 9 i)) (make-value *unbound-tls-slot-address*
-                                               sys.int::+tag-object+)))
-    (setf (cold-symbol-value 'sys.int::*initial-stack-group*)
+    (setf (word (+ address 1)) (make-value (store-string "Initial stack group")
+                                           sys.int::+tag-object+))
+    ;; State.
+    (setf (word (+ address 2)) (make-value (symbol-address "ACTIVE" "KEYWORD")
+                                           sys.int::+tag-object+))
+    ;; Lock.
+    (setf (word (+ address 3)) (make-value (symbol-address "UNLOCKED" "KEYWORD")
+                                           sys.int::+tag-object+))
+    ;; Control stack.
+    (setf (word (+ address 4)) (stack-value control-stack))
+    ;; Control stack pointer.
+    (setf (word (+ address 5)) (+ (stack-base control-stack) control-stack-size))
+    ;; Binding stack.
+    (setf (word (+ address 6)) (stack-value binding-stack))
+    ;; Binding stack pointer.
+    (setf (word (+ address 7)) (+ (stack-base binding-stack) binding-stack-size))
+    ;; Preemption disable depth.
+    (setf (word (+ address 8)) (make-fixnum 1))
+    ;; Preemption pending.
+    (setf (word (+ address 9)) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                           sys.int::+tag-object+))
+    ;; Next.
+    (setf (word (+ address 10)) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                            sys.int::+tag-object+))
+    ;; Prev.
+    (setf (word (+ address 11)) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                            sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*initial-thread*)
           (make-value address sys.int::+tag-object+))))
 
 (defun canonical-symbol-package (symbol)
@@ -961,17 +983,17 @@ The bootloader provides a per-cpu GDT & TSS."
         (*undefined-function-address* nil)
         (*function-map* '())
         (*string-dedup-table* (make-hash-table :test 'equal))
-        (initial-process)
+        (initial-thread)
         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
         (system-symbol-names (remove-duplicates
                               (iter (for sym in-package :system external-only t)
                                     (collect (symbol-name sym)))
                               :test #'string=))
         idt-size idt-pointer)
-    ;; Generate the support objects. NIL/T/etc, and the initial process.
+    ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
-    (setf initial-process (create-initial-stack-group))
+    (setf initial-thread (create-initial-thread))
     ;; The system needs to know where the undefined function value is.
     ;; Put it in the value cell of a symbol, not the function cell.
     ;; If it were in the function cell, then the symbol would appear to be unbound.
@@ -1060,7 +1082,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (write-image image-name
                  (make-value (function-reference 'sys.int::bootloader-entry-point)
                              sys.int::+tag-object+)
-                 initial-process
+                 initial-thread
                  idt-size idt-pointer)))
 
 (defun load-source-files (files set-fdefinitions)
