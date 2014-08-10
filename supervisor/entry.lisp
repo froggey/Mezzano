@@ -230,11 +230,50 @@
 (defun endp (list)
   (null list))
 
+(defvar sys.int::*active-catch-handlers*)
+(defun sys.int::%catch (tag fn)
+  ;; Catch is used in low levelish code, so must avoid allocation.
+  (let ((vec (sys.c::make-dx-simple-vector 3)))
+    (setf (svref vec 0) sys.int::*active-catch-handlers*
+          (svref vec 1) tag
+          (svref vec 2) (flet ((exit-fn (values)
+                                 (return-from sys.int::%catch (values-list values))))
+                          (declare (dynamic-extent (function exit-fn)))
+                          #'exit-fn))
+    (let ((sys.int::*active-catch-handlers* vec))
+      (funcall fn))))
+
+(defun sys.int::%throw (tag values)
+  (do ((current sys.int::*active-catch-handlers* (svref current 0)))
+      ((not current)
+       (error 'bad-catch-tag-error :tag tag))
+    (when (eq (svref current 1) tag)
+      (funcall (svref current 2) values))))
+
+(defvar *tls-lock*)
+(defvar sys.int::*next-symbol-tls-slot*)
+(defconstant +maximum-tls-slot+ (1+ +thread-tls-slots-end+))
+(defun sys.int::%allocate-tls-slot (symbol)
+  (with-spinlock (*tls-lock*)
+    ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
+    (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
+           (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
+             (error "Critial error! TLS slots exhausted!"))
+           (let ((slot sys.int::*next-symbol-tls-slot*))
+             (incf sys.int::*next-symbol-tls-slot*)
+             ;; Twiddle TLS bits directly in the symbol header.
+             (setf (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)) slot)
+             slot))
+          (t (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))))
+
 ;;; <<<<<<
 
 (defun sys.int::bootloader-entry-point ()
   (initialize-initial-thread)
-  (setf *allocator-lock* :unlocked)
+  ;; FIXME: Should be done by cold generator
+  (setf *allocator-lock* :unlocked
+        *tls-lock* :unlocked
+        sys.int::*active-catch-handlers* 'nil)
   (initialize-interrupts)
   (initialize-i8259)
   (sys.int::%sti)

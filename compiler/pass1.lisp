@@ -302,7 +302,11 @@
 
 (defun pass1-catch (form env)
   (destructuring-bind (tag &body body) (cdr form)
-    (pass1-form `(sys.int::%catch ,tag #'(lambda () (progn ,@body))) env)))
+    (pass1-form `(sys.int::%catch ,tag
+                                  (flet ((%%catch-body%% () (progn ,@body)))
+                                    (declare (dynamic-extent (function %%catch-body%%)))
+                                    (function %%catch-body%%)))
+                env)))
 
 (defun pass1-eval-when (form env)
   (destructuring-bind (situations &body forms) (cdr form)

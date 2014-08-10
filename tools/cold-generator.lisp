@@ -1053,7 +1053,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
-    ;; Initialize GC twiddly bits.
+    ;; Initialize GC twiddly bits and stuff.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
@@ -1068,7 +1068,8 @@ The bootloader provides a per-cpu GDT & TSS."
       (set-value 'sys.int::*static-mark-bit* 0)
       (set-value 'sys.int::*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
       (set-value 'sys.int::*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
-      (set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*)))
+      (set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
+      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+"))))
     ;; Write the boundary tag for the static area's free part.
     ;; This does not write the boundary tag for the small static area!
     (let ((*static-offset* (+ *static-offset* 2)))
