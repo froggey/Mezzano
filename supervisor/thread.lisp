@@ -32,12 +32,16 @@
 ;;  7 preemption-disable-depth
 ;;    Zero when the thread can be preempted, incremented each time the thread
 ;;    disables preemption. A fixnum.
+;;    This must only be modified by the thread.
 ;;  8 preemption-pending
 ;;    Set when the thread should be preempted, but has a non-zero preemption-disable-depth. When p-d-d returns to 0, the thread will be preempted.
 ;;  9 next
 ;;    Forward link to the next thread in whatever list the thread is in.
 ;; 10 prev
 ;;    Backward link to the previous thread in whatever list the thread is in.
+;; 11 inhibit-interrupt
+;;    When true, prevent INTERRUPT-THREAD from interrupting the thread.
+;;    DESTROY-THREAD will also be unable to destroy the thread unless the abort option is set.
 ;; 32-127 MV slots
 ;;    Slots used as part of the multiple-value return convention.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
@@ -59,6 +63,7 @@
 (defconstant +thread-preemption-pending+ 8)
 (defconstant +thread-next+ 9)
 (defconstant +thread-prev+ 10)
+(defconstant +thread-inhibit-interrupt+ 11)
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
 (defconstant +thread-tls-slots-start+ 128)
@@ -140,6 +145,24 @@
   (check-type thread thread)
   (setf (sys.int::%array-like-ref-t thread +thread-prev+) value))
 
+(defun thread-inhibit-interrupt (thread)
+  (check-type thread thread)
+  (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+))
+
+(defun (setf thread-inhibit-interrupt) (value thread)
+  (check-type thread thread)
+  (setf (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+) value))
+
+(defmacro with-thread-lock ((thread) &body body)
+  (let ((sym (gensym "thread")))
+    `(let ((,sym ,thread))
+       (without-interrupts
+         (unwind-protect
+              (progn
+                (%lock-thread ,sym)
+                ,@body)
+           (%unlock-thread ,sym))))))
+
 (defun %lock-thread (thread)
   (check-type thread thread)
   (let ((current-thread (current-thread)))
@@ -154,6 +177,27 @@
   (assert (eql (sys.int::%array-like-ref-t thread +thread-lock+)
                (current-thread)))
   (setf (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked))
+
+(defun push-run-queue (thread)
+  (cond ((null *thread-run-queue-head*)
+         (setf *thread-run-queue-head* thread
+               *thread-run-queue-tail* thread)
+         (setf (%thread-next thread) nil
+               (%thread-prev thread) nil))
+        (t
+         (setf (%thread-next *thread-run-queue-tail*) thread
+               (%thread-prev thread) *thread-run-queue-tail*
+               (%thread-next thread) nil
+               *thread-run-queue-tail* thread))))
+
+(defun pop-run-queue ()
+  (when *thread-run-queue-head*
+    (prog1 *thread-run-queue-head*
+      (cond ((%thread-next *thread-run-queue-head*)
+             (setf (%thread-prev (%thread-next *thread-run-queue-head*)) nil)
+             (setf *thread-run-queue-head* (%thread-next *thread-run-queue-head*)))
+            (t (setf *thread-run-queue-head* nil
+                     *thread-run-queue-tail* nil))))))
 
 (defun current-thread ()
   "Returns the thread object for the calling thread."
@@ -173,7 +217,9 @@
             (sys.int::%array-like-ref-t thread +thread-control-stack+) control-stack
             (sys.int::%array-like-ref-t thread +thread-binding-stack+) binding-stack
             (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
-            (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil)
+            (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
+            ;; Cleared by the trampoline when it calls the thread function.
+            (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+) t)
       ;; Clear the binding stack.
       (dotimes (i (truncate (stack-size binding-stack) 8))
         (setf (sys.int::memref-unsigned-byte-64 (stack-base binding-stack) i) 0))
@@ -222,27 +268,20 @@
                               :control-stack-size control-stack-size
                               :binding-stack-size binding-stack-size)))
     (with-spinlock (*global-thread-lock*)
-      ;; Attach to the run-queue.
-      (cond ((null *thread-run-queue-head*)
-             (setf *thread-run-queue-head* thread
-                   *thread-run-queue-tail* thread)
-             (setf (%thread-next thread) nil
-                   (%thread-prev thread) nil))
-            (t
-             (setf (%thread-next *thread-run-queue-tail*) thread
-                   (%thread-prev thread) *thread-run-queue-tail*
-                   *thread-run-queue-tail* thread))))
+      (push-run-queue thread))
     thread))
 
 (defun thread-entry-trampoline (function)
-  (sys.int::%sti)
-  (unwind-protect
-       (funcall function)
-    (without-interrupts
-      (let ((self (current-thread)))
-        (%lock-thread self)
-        (setf (%thread-state self) :dead)
-        (%reschedule)))))
+  (let ((self (current-thread)))
+    (unwind-protect
+         (catch 'terminate-thread
+           (setf (thread-inhibit-interrupt self) nil)
+           (funcall function))
+      ;; Cleanup, terminate the thread.
+      (sys.int::%cli)
+      (%lock-thread self)
+      (setf (%thread-state self) :dead)
+      (%reschedule))))
 
 (sys.int::define-lap-function %%thread-entry-trampoline ()
   (:gc :no-frame :layout #*1)
@@ -250,7 +289,7 @@
   ;; The regular stack contains the function to call.
   (sys.lap-x86:pop :r8)
   (:gc :no-frame)
-  ;; Call the high-level trampoline function..
+  ;; Call the high-level trampoline function.
   (sys.lap-x86:mov64 :r13 (:function thread-entry-trampoline))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
@@ -283,39 +322,24 @@
     (setf (%thread-state thread) :active)
     (setf (thread-preemption-disable-depth thread) 1)))
 
-(defun pick-next-thread ()
-  (when *thread-run-queue-head*
-    ;; Pop thread from run-queue.
-    (prog1 *thread-run-queue-head*
-      (when (%thread-next *thread-run-queue-head*)
-        (setf (%thread-prev (%thread-next *thread-run-queue-head*)) nil))
-      (setf *thread-run-queue-head* (%thread-next *thread-run-queue-head*)))))
-
 (defun thread-yield ()
-  (without-interrupts
-    (%lock-thread (current-thread))
-    (setf (thread-state current) :runnable)
+  (let ((current (current-thread)))
+    (sys.int::%cli)
+    (%lock-thread current)
+    (setf (%thread-state current) :runnable)
     (%reschedule)))
 
 (defun %reschedule ()
   ;; Interrupts must be off and the current thread's lock must be held.
-  ;; Releases the thread lock.
+  ;; Releases the thread lock and reenables interrupts.
   (let ((current (current-thread))
         next)
     ;; Return the current thread to the run queue and fetch the next thread.
     (with-spinlock (*global-thread-lock*)
       (when (and (eql (thread-state current) :runnable)
                  (not (eql current *idle-thread*)))
-        (cond ((null *thread-run-queue-head*)
-               (setf *thread-run-queue-head* thread
-                     *thread-run-queue-tail* thread)
-               (setf (%thread-next thread) nil
-                     (%thread-prev thread) nil))
-              (t
-               (setf (%thread-next *thread-run-queue-tail*) thread
-                     (%thread-prev thread) *thread-run-queue-tail*
-                     *thread-run-queue-tail* thread))))
-      (setf next (or (pick-next-thread)
+        (push-run-queue current))
+      (setf next (or (pop-run-queue)
                      *idle-thread*)))
     ;; todo: reset preemption timer here.
     (when (eql next current)
@@ -353,9 +377,61 @@
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
-  ;; Restore frame pointer & rip.
+  ;; Restore frame pointer.
   (sys.lap-x86:pop :rbp)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (:gc :no-frame)
+  ;; Reenable interrupts and restore RIP.
+  (sys.lap-x86:sti)
   (sys.lap-x86:ret))
+
+(defun interrupt-thread (thread function)
+  (cond ((eql thread (current-thread))
+         (assert (not (thread-inhibit-interrupt thread)))
+         (funcall function))
+        (t (with-thread-lock (thread)
+             (tagbody
+              AGAIN
+                (ecase (thread-state thread)
+                  ;; todo: SMP.
+                  (:active (error "what?"))
+                  (:runnable
+                   ;; Wait for THREAD-INHIBIT-INTERRUPT to become false.
+                   (do ()
+                       ((not (thread-inhibit-interrupt thread)))
+                     ;; Drop the lock & reschedule.
+                     (%unlock-thread thread)
+                     (sys.int::%sti)
+                     (thread-yield)
+                     (sys.int::%cli)
+                     (%lock-thread thread)
+                     (go AGAIN))
+                   ;; Top stack element is the rbp, 2nd is return rip.
+                   (let* ((rsp (thread-control-stack-pointer thread))
+                          (rbp (sys.int::memref-signed-byte-64 rsp 0)))
+                     ;; %%SWITCH-TO-THREAD is kind enough to clear rcx for us,
+                     ;; so no thunk required.
+                     ;; +1 RIP
+                     ;; +0 RBP
+                     ;; becomes
+                     ;; +2 RIP
+                     ;; +1 function-entry
+                     ;; +0 RBP
+                     (setf (sys.int::memref-signed-byte-64 rsp 0)
+                           (sys.int::%array-like-ref-signed-byte-64 (sys.int::%coerce-to-callable function) 0))
+                     (setf (sys.int::memref-signed-byte-64 rsp -1) rbp)
+                     (setf (sys.int::%array-like-ref-signed-byte-64 thread +thread-control-stack-pointer+) (- rsp 8))))
+                  ;; todo.
+                  (:sleeping (error "Thread is sleeping."))
+                  (:dead (error "Trying to interrupt dead thread."))))))))
+
+(defun destroy-thread (thread &optional abort)
+  "Terminate THREAD.
+If abort is false, then cleanup forms will be run before the thread exits;
+otherwise the thread will exit immediately, and not execute cleanup forms."
+  (interrupt-thread thread
+                    (lambda ()
+                      (throw 'terminate-thread nil))))
 
 (defun finish-initial-thread ()
   "Called when the boot code is done with the initial thread."
@@ -368,8 +444,8 @@
   ;; The initial thread must finish with no values on the binding stack, and
   ;; all TLS slots initialized. This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
-    (without-interrupts
-      (%lock-thread thread)
-      (setf (%thread-state thread) :sleeping)
-      (%reschedule)))
-  (error "Initial thread woken??"))
+    (sys.int::%cli)
+    (%lock-thread thread)
+    (setf (%thread-state thread) :sleeping)
+    (%reschedule)
+    (error "Initial thread woken??")))

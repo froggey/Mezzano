@@ -230,6 +230,12 @@
 (defun endp (list)
   (null list))
 
+(defun cons (car cdr)
+  (sys.int::cons-in-area car cdr nil))
+
+(defun list (&rest objects)
+  objects)
+
 (defvar sys.int::*active-catch-handlers*)
 (defun sys.int::%catch (tag fn)
   ;; Catch is used in low levelish code, so must avoid allocation.
@@ -266,7 +272,143 @@
              slot))
           (t (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))))
 
+sys.int::(define-lap-function values-list ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  (sys.lap-x86:sub64 :rsp 16) ; 2 slots
+  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:jne bad-arguments)
+  ;; RBX = iterator, (:stack 0) = list.
+  (sys.lap-x86:mov64 :rbx :r8)
+  (sys.lap-x86:mov64 (:stack 0) :r8)
+  (:gc :frame :layout #*10)
+  ;; ECX = value count.
+  (sys.lap-x86:xor32 :ecx :ecx)
+  ;; Pop into R8.
+  ;; If LIST is NIL, then R8 must be NIL, so no need to
+  ;; set R8 to NIL in the 0-values case.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r8 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  ;; Pop into R9.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r9 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  ;; Pop into R10.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r10 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  ;; Pop into R11.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r11 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  ;; Pop into R12.
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :r12 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  ;; Registers are populated, now unpack into the MV-area
+  (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-object+)
+                               (* +stack-group-offset-mv-slots+ 8)))
+  (:gc :frame :layout #*10 :multiple-values 0)
+  unpack-loop
+  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:cmp32 :ecx #.(ash (+ +stack-group-mv-slots-size+ 5) +n-fixnum-bits+))
+  (sys.lap-x86:jae too-many-values)
+  (sys.lap-x86:mov64 :r13 (:car :rbx))
+  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:rdi) :r13)
+  (:gc :frame :layout #*10 :multiple-values 1)
+  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (:gc :frame :layout #*10 :multiple-values 0)
+  (sys.lap-x86:add64 :rdi 8)
+  (sys.lap-x86:jmp unpack-loop)
+  done
+  (sys.lap-x86:leave)
+  (:gc :no-frame :multiple-values 0)
+  (sys.lap-x86:ret)
+  type-error
+  (:gc :frame :layout #*10)
+  (sys.lap-x86:mov64 :r8 (:stack 0))
+  (sys.lap-x86:mov64 :r9 (:constant proper-list))
+  (sys.lap-x86:mov64 :r13 (:function raise-type-error))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:ud2)
+  too-many-values
+  (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
+  (sys.lap-x86:mov64 :r9 (:stack 0))
+  (sys.lap-x86:mov64 :r13 (:function error))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:ud2)
+  bad-arguments
+  (:gc :frame)
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:ud2))
+
+sys.int::(defun %%unwind-to (target-special-stack-pointer)
+  (declare (suppress-ssp-checking))
+  (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
+          (return))
+     (assert (< (%%special-stack-pointer) target-special-stack-pointer))
+     (etypecase (memref-t (ash (%%special-stack-pointer) +n-fixnum-bits+) 0)
+       (symbol
+        (%%unbind))
+       (simple-vector
+        (%%disestablish-block-or-tagbody))
+       (function
+        (%%disestablish-unwind-protect)))))
+
 ;;; <<<<<<
+
+(defun main ()
+  (let ((thread (make-thread
+                 (lambda ()
+                   (debug-write-line "Entering loop.")
+                   (unwind-protect
+                        (loop (thread-yield))
+                     (debug-write-line "I die."))))))
+    (debug-write-line "Attempting to interrupt thread.")
+    (destroy-thread thread)))
 
 (defun sys.int::bootloader-entry-point ()
   (initialize-initial-thread)
@@ -281,13 +423,5 @@
   (debug-write-line "Hello, Debug World!")
   (initialize-ata)
   (initialize-threads)
-  (make-thread
-   (lambda ()
-     (debug-write-line "Reading page...")
-     (ata-read (car *ata-devices*) 0 8 (logior (ash -1 48) #x800000001000))
-     (debug-write-line "Complete!")
-     (debug-write-line "Writing page...")
-     (ata-write (car *ata-devices*) 0 8 (logior (ash -1 48) #x800000000000))
-     (debug-write-line "Complete!"))
-   :name "Main thread")
+  (make-thread #'main :name "Main thread")
   (finish-initial-thread))
