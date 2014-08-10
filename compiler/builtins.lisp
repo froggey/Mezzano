@@ -356,7 +356,7 @@
           `(sys.lap-x86:mov64 :rcx :r9)
 	  ;; Convert to raw integers.
 	  `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
-	  `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
           ;; Read.
           `(sys.lap-x86:mov64 :rax (:rax (:rcx 8)))
           ;; Convert to fixnum & check for signed overflow.
