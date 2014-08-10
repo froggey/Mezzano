@@ -329,6 +329,16 @@
                                       name)
                             ,@body))))))
 
+(defun function-declared-dynamic-extent-p (name declares)
+  "Look for a (dynamic-extent (function NAME)) declaration for NAME in DECLARES."
+  (dolist (dec declares)
+    (when (eql (first dec) 'dynamic-extent)
+      (dolist (item (rest dec))
+        (when (and (typep item '(cons (eql function)
+                                 (cons t null)))
+                   (equal (second item) name))
+          (return-from function-declared-dynamic-extent-p t))))))
+
 (defun pass1-flet (form env)
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
@@ -338,7 +348,10 @@
 			 (multiple-value-bind (sym var lambda)
 			     (frob-flet-function x)
 			   (push (cons sym var) (cdr bindings))
-			   (list var (pass1-lambda lambda env))))
+                           (let ((lambda (pass1-lambda lambda env)))
+                             (when (function-declared-dynamic-extent-p sym declares)
+                               (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                             (list var lambda))))
 		       functions)
 	   ;; TODO: special vars.
 	   ,@(pass1-implicit-progn body (cons bindings env)))))))

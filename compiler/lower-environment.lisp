@@ -112,7 +112,8 @@
       (when (and *allow-dx-environment*
                  (every (lambda (var)
                           (every (lambda (l)
-                                   (eql (getf (lambda-information-plist l) 'extent) :dynamic))
+                                   (or (eql (getf (lambda-information-plist l) 'extent) :dynamic)
+                                       (getf (lambda-information-plist l) 'declared-dynamic-extent)))
                                  (lexical-variable-used-in var)))
                         (gethash lambda *environment-layout*)))
         (setf (gethash lambda *environment-layout-dx*) t)
@@ -137,7 +138,8 @@ of statements opens a new contour."
                    (when (and *allow-dx-environment*
                               (every (lambda (var)
                                        (every (lambda (l)
-                                                (eql (getf (lambda-information-plist l) 'extent) :dynamic))
+                                                (or (eql (getf (lambda-information-plist l) 'extent) :dynamic)
+                                                    (getf (lambda-information-plist l) 'declared-dynamic-extent)))
                                               (lexical-variable-used-in var)))
                                      (gethash last-tag *environment-layout*)))
                      (setf (gethash last-tag *environment-layout-dx*) t)
@@ -184,7 +186,9 @@ of statements opens a new contour."
     (lexical-variable (le-variable form))
     (lambda-information
      (if *environment-chain*
-         `(sys.int::make-closure
+         `(,(if (getf (lambda-information-plist form) 'declared-dynamic-extent)
+                'sys.c::make-dx-closure
+                'sys.int::make-closure)
            ,(le-lambda form)
            ,(second (first *environment-chain*)))
          (le-lambda form)))))

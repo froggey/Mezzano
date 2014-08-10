@@ -2400,3 +2400,39 @@
   (load-in-r8 value t)
   (emit `(sys.lap-x86:cmp64 :r8 :unbound-tls-slot))
   (predicate-result :e))
+
+(defbuiltin sys.c::make-dx-closure (code env) (nil)
+  (smash-r8)
+  (let ((slots (allocate-control-stack-slots 6)))
+    (load-in-reg :r9 code t)
+    (load-in-reg :r10 env t)
+    (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 8 -1)))
+          ;; Function tag, flags and MC size.
+          `(sys.lap-x86:mov32 (:rax) ,(logior #x00020000
+                                              (ash sys.int::+object-tag-closure+
+                                                   sys.int::+array-type-shift+)))
+          ;; Constant pool size and slot count.
+          `(sys.lap-x86:mov32 (:rax 4) #x00000003)
+          ;; Entry point
+          `(sys.lap-x86:mov64 (:rax 8) :rax)
+          `(sys.lap-x86:add64 (:rax 8) 16)
+          ;; The code.
+          ;; DX closures use a full indirect branch here as the stack
+          ;; is not in the low part of the address space, making rel32 jumps impossible.
+          `(sys.lap-x86:mov32 (:rax 16) #x111D8B48)
+          `(sys.lap-x86:mov32 (:rax 20) #xFF000000)
+          `(sys.lap-x86:mov32 (:rax 24) #x00001325)
+          `(sys.lap-x86:mov32 (:rax 28) #xCCCCCC00)
+          ;; Clear constant pool.
+          `(sys.lap-x86:mov64 (:rax 32) nil)
+          `(sys.lap-x86:mov64 (:rax 40) nil)
+          `(sys.lap-x86:mov64 (:rax 48) nil)
+          `(sys.lap-x86:mov64 (:rax 56) nil)
+          ;; Materialize value.
+          `(sys.lap-x86:lea64 :r8 (:rax ,sys.int::+tag-object+))
+          ;; Initiaize constant pool.
+          `(sys.lap-x86:mov64 (:rax 32) :r9)
+          `(sys.lap-x86:mov64 (:rax 40) :r10)
+          `(sys.lap-x86:mov64 :rcx ,(object-ea :r9 :slot 0))
+          `(sys.lap-x86:mov64 (:rax 48) :rcx)))
+  (setf *r8-value* (list (gensym))))
