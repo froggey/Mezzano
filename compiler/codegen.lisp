@@ -23,7 +23,7 @@ be generated instead.")
 (defvar *gc-info-fixups* nil)
 (defvar *used-dynamic-extent* nil)
 
-(defconstant +binding-stack-gs-offset+ (- (* 1 8) sys.int::+tag-object+))
+(defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-object+))
 (defconstant +tls-offset-shift+ (+ sys.int::+array-length-shift+ 2))
 
@@ -862,8 +862,10 @@ be generated instead.")
                  (t (let ((register (cond ((integerp (first value-locations))
                                            (emit `(sys.lap-x86:gs)
                                                  `(sys.lap-x86:mov64 :r13 (,(+ (- 8 sys.int::+tag-object+)
-                                                                               (* (+ sys.int::+stack-group-offset-mv-slots+
-                                                                                     (pop value-locations)) 8)))))
+                                                                               (* (+ #+(or)sys.int::+stack-group-offset-mv-slots+
+                                                                                     32 ; fixme. should be +thread-mv-slots-start+
+                                                                                     (pop value-locations))
+                                                                                  8)))))
                                            :r13)
                                           (t (pop value-locations)))))
                       (emit `(sys.lap-x86:mov64 (:stack ,(position (cons var :home)
@@ -922,7 +924,8 @@ Returns an appropriate tag."
                             ;; Copy values.
                             `(sys.lap-x86:mov64 :rdi :rsp)
                             `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                                         (* sys.int::+stack-group-offset-mv-slots+ 8))))
+                                                         ;; fixme. should be +thread-mv-slots-start+
+                                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
                       ;; Switch to the right GC mode.
                       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
                       (emit loop-head
@@ -1018,7 +1021,8 @@ Returns an appropriate tag."
                    ;; Copy values out of the MV area.
                    `(sys.lap-x86:lea64 :rdi (:rsp 8))
                    `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                                (* sys.int::+stack-group-offset-mv-slots+ 8)))
+                                                ;; fixme. should be +thread-mv-slots-start+
+                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)))
                    save-loop-head
                    `(sys.lap-x86:gs)
                    `(sys.lap-x86:mov64 :rbx (:rsi))
@@ -1050,7 +1054,8 @@ Returns an appropriate tag."
                    `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
                    `(sys.lap-x86:shr64 :rax ,(- 8 sys.int::+n-fixnum-bits+))
                    `(sys.lap-x86:mov32 :edi ,(+ (- 8 sys.int::+tag-object+)
-                                                (* sys.int::+stack-group-offset-mv-slots+ 8)))
+                                                ;; fixme. should be +thread-mv-slots-start+
+                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)))
                    `(sys.lap-x86:lea64 :rsi (:r8 ,(+ (- sys.int::+tag-object+) 8)))
                    loop-head
                    `(sys.lap-x86:mov64 :rbx (:rsi))
@@ -1437,7 +1442,8 @@ Returns an appropriate tag."
                 (load-in-reg :r13 value t)
                 (emit `(sys.lap-x86:gs)
                       `(sys.lap-x86:mov64 (,(+ (- 8 sys.int::+tag-object+)
-                                               (* sys.int::+stack-group-offset-mv-slots+ 8)
+                                               ;; fixme. should be +thread-mv-slots-start+
+                                               (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)
                                                (* i 8)))
                                           :r13))
                 (emit-gc-info :multiple-values 1)
