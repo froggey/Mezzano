@@ -500,3 +500,235 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     (setf (%thread-state thread) :sleeping)
     (%reschedule)
     (error "Initial thread woken??")))
+
+;;; Common structure for sleepable things.
+(defstruct wait-queue
+  name
+  (%lock :unlocked) ; must be 2nd slot.
+  (head nil)
+  (tail nil))
+
+(defun push-wait-queue (thread wait-queue)
+  (cond ((null (wait-queue-head wait-queue))
+         (setf (wait-queue-head wait-queue) thread
+               (wait-queue-tail wait-queue) thread)
+         (setf (%thread-next thread) nil
+               (%thread-prev thread) nil))
+        (t
+         (setf (%thread-next (wait-queue-tail wait-queue)) thread
+               (%thread-prev thread) (wait-queue-tail wait-queue)
+               (%thread-next thread) nil
+               (wait-queue-tail wait-queue) thread))))
+
+(defun pop-wait-queue (wait-queue)
+  (let ((thread (wait-queue-head wait-queue)))
+    (when thread
+      (cond ((%thread-next thread)
+             (setf (%thread-prev (%thread-next thread)) nil)
+             (setf (wait-queue-head wait-queue) (%thread-next thread)))
+            (t (setf (wait-queue-head wait-queue) nil
+                     (wait-queue-tail wait-queue) nil)))
+      thread)))
+
+(defun lock-wait-queue (wait-queue)
+  (do ((current-thread (current-thread)))
+      ((sys.int::%cas-array-like wait-queue
+                                 2
+                                 :unlocked
+                                 current-thread))
+    (sys.int::cpu-relax)))
+
+(defun unlock-wait-queue (wait-queue)
+  (setf (wait-queue-%lock wait-queue) :unlocked))
+
+(defmacro with-wait-queue-lock ((wait-queue) &body body)
+  (let ((sym (gensym "WAIT-QUEUE")))
+    `(let ((,sym ,wait-queue))
+       (without-interrupts
+         (unwind-protect
+              (progn
+                (lock-wait-queue ,sym)
+                ,@body)
+           (unlock-wait-queue ,sym))))))
+
+(defstruct (mutex
+             (:include wait-queue)
+             (:constructor make-mutex (&optional name))
+             (:area :wired))
+  ;; When NIL, the lock is free, otherwise is set to
+  ;; the thread that holds the lock.
+  (owner nil))
+
+(defun acquire-mutex (mutex wait-p)
+  (let ((self (current-thread)))
+    (assert (sys.int::%interrupt-state))
+    (assert (not (thread-footholds-enabled-p self)))
+    ;; Fast path - try to lock.
+    (when (sys.int::%cas-struct-slot mutex 4 nil self)
+      ;; We got it.
+      (return-from acquire-mutex t))
+    ;; Idiot check.
+    (assert (not (mutex-held-p mutex)) (mutex)
+            "Recursive locking detected.")
+    (when wait-p
+      ;; Slow path.
+      (sys.int::%cli)
+      (lock-wait-queue mutex)
+      ;; Try to acquire again, release may have been running.
+      (when (sys.int::%cas-struct-slot mutex 4 nil self)
+        ;; We got it.
+        (sys.int::%sti)
+        (unlock-wait-queue mutex)
+        (return-from acquire-mutex t))
+      ;; No good, have to sleep. Release will directly transfer ownership
+      ;; to this thread.
+      (push-wait-queue self mutex)
+      ;; Now sleep.
+      ;; Must take the thread lock before dropping the mutex lock or release
+      ;; may be able to remove the thread from the sleep queue before it goes
+      ;; to sleep.
+      ;; todo: reenable footholds when the thread is sleeping, but only one level.
+      (%lock-thread self)
+      (unlock-wait-queue mutex)
+      (setf (%thread-state self) :sleeping)
+      (%reschedule)
+      t)))
+
+(defun mutex-held-p (mutex)
+  "Return true if this thread holds MUTEX."
+  (eql (mutex-owner mutex) (current-thread)))
+
+(defun release-mutex (mutex)
+  (assert (mutex-held-p mutex))
+  (with-wait-queue-lock (mutex)
+    ;; Look for a thread to wake.
+    (let ((thread (pop-wait-queue mutex)))
+      (cond (thread
+             ;; Found one, wake it & transfer the lock.
+             (with-thread-lock (thread)
+               (with-symbol-spinlock (*global-thread-lock*)
+                 (setf (%thread-state thread) :runnable)
+                 (push-run-queue thread))
+               (setf (mutex-owner mutex) thread)))
+            (t
+             ;; No threads sleeping, just drop the lock.
+             (setf (mutex-owner mutex) nil)))))
+  (values))
+
+(defun call-with-mutex (thunk mutex wait-p)
+  (let ((got-it nil))
+    ;; Disable footholds while taking the lock, this prevents a
+    ;; foothold from running after the mutex has been locked, but
+    ;; before GOT-IT has been set to true. If it were to unwind
+    ;; at that point, then the mutex would never be released.
+    (with-footholds-inhibited
+      (unwind-protect
+           (when (setf got-it (acquire-mutex mutex wait-p))
+             (with-footholds-permitted
+               (funcall thunk)))
+        (when got-it
+          (release-mutex mutex))))))
+
+(defmacro with-mutex ((mutex &optional (wait-p t)) &body body)
+  ;; Cold generator has some odd problems with uninterned symbols...
+  `(flet ((call-with-mutex-thunk () ,@body))
+     (declare (dynamic-extent #'call-with-mutex-thunk))
+     (call-with-mutex #'call-with-mutex-thunk
+                      ,mutex
+                      ,wait-p)))
+
+(defstruct (condition-variable
+             (:include wait-queue)
+             (:constructor make-condition-variable (&optional name))
+             (:area :wired)))
+
+(defun condition-wait (condition-variable lock)
+  (assert (mutex-held-p mutex))
+  (assert (sys.int::%interrupt-state))
+  (let ((self (current-thread)))
+    (with-footholds-inhibited
+        (sys.int::%cli)
+      (lock-wait-queue condition-variable)
+      ;; Attach to the list.
+      (push-wait-queue self condition-variable)
+      ;; Drop the mutex.
+      (release-mutex lock)
+      ;; Sleep.
+      ;; todo: reenable footholds when the thread is sleeping, but only one level.
+      ;; need to be careful with that, returning or unwinding from condition-wait
+      ;; with the lock unlocked would be quite bad.
+      (%lock-thread self)
+      (setf (%thread-state self) :sleeping)
+      (unlock-wait-queue condition-variable)
+      (%reschedule)
+      ;; Got woken up. Reacquire the mutex.
+      (acquire-mutex lock t)))
+  (values))
+
+(defun condition-notify (condition-variable &optional broadcast)
+  (flet ((pop-one ()
+           (let ((thread (pop-wait-queue condition-variable)))
+             (with-thread-lock (thread)
+               (with-symbol-spinlock (*global-thread-lock*)
+                 (setf (%thread-state thread) :runnable)
+                 (push-run-queue thread))))))
+    (declare (dynamic-extent #'pop-one))
+    (with-wait-queue-lock (condition-variable)
+      (cond (broadcast
+             ;; Loop until all the threads have been woken.
+             (do ()
+                 ((null (condition-variable-head condition-variable)))
+               (pop-one)))
+            (t
+             ;; Wake exactly one.
+             (when (condition-variable-head condition-variable)
+               (pop-one))))))
+  (values))
+
+(defstruct (semaphore
+             (:include wait-queue)
+             (:constructor make-semaphore (value &optional name))
+             (:area :wired))
+  (value 0 :type (integer 0)))
+
+(defun semaphore-up (semaphore)
+  (with-wait-queue-lock (semaphore)
+    ;; If there is a thread, wake it instead of incrementing.
+    (let ((thread (pop-wait-queue semaphore)))
+      (cond (thread
+             ;; Found one, wake it.
+             (with-thread-lock (thread)
+               (with-symbol-spinlock (*global-thread-lock*)
+                 (setf (%thread-state thread) :runnable)
+                 (push-run-queue thread))))
+            (t
+             ;; No threads sleeping, increment.
+             (incf (semaphore-value semaphore)))))))
+
+(defun semaphore-down (semaphore &optional (wait-p t))
+  (let ((self (current-thread)))
+    (assert (sys.int::%interrupt-state))
+    (assert (not (thread-footholds-enabled-p self)))
+    (sys.int::%cli)
+    (lock-wait-queue semaphore)
+    (when (not (zerop (semaphore-value semaphore)))
+      (decf (semaphore-value semaphore))
+      (unlock-wait-queue semaphore)
+      (sys.int::%sti)
+      (return-from semaphore-down t))
+    (cond (wait-p
+           ;; Go to sleep.
+           (push-wait-queue self mutex)
+           ;; Now sleep.
+           ;; Must take the thread lock before dropping the semaphore lock or up
+           ;; may be able to remove the thread from the sleep queue before it goes
+           ;; to sleep.
+           ;; todo: reenable footholds when the thread is sleeping, but only one level.
+           (%lock-thread self)
+           (unlock-wait-queue semaphore)
+           (setf (%thread-state self) :sleeping)
+           (%reschedule)
+           t)
+          (t (unlock-wait-queue semaphore)
+             (sys.int::%sti)
+             nil))))
