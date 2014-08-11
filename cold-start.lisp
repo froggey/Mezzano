@@ -439,7 +439,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (repl)
   (loop (%hlt)))
 
-(define-lap-function %%common-entry ()
+#+(or)(define-lap-function %%common-entry ()
   (:gc :no-frame)
   ;; This is the common entry code.
   ;; The KBoot & GRUB setup code both jump here.

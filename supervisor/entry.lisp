@@ -340,7 +340,7 @@ sys.int::(define-lap-function values-list ()
   (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   ;; Registers are populated, now unpack into the MV-area
   (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-object+)
-                               (* +stack-group-offset-mv-slots+ 8)))
+                               (* mezzanine.supervisor::+thread-mv-slots-start+ 8)))
   (:gc :frame :layout #*10 :multiple-values 0)
   unpack-loop
   (sys.lap-x86:cmp64 :rbx nil)
@@ -349,7 +349,7 @@ sys.int::(define-lap-function values-list ()
   (sys.lap-x86:and8 :al #b1111)
   (sys.lap-x86:cmp8 :al #.+tag-cons+)
   (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(ash (+ +stack-group-mv-slots-size+ 5) +n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+) 5) +n-fixnum-bits+))
   (sys.lap-x86:jae too-many-values)
   (sys.lap-x86:mov64 :r13 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))

@@ -31,7 +31,7 @@
   end)
 
 ;; Run once during cold load to create the first stack range objects.
-(defun gc-init-stack-area ()
+#+(or)(defun gc-init-stack-area ()
   (let* ((sg (current-stack-group))
          (cs-base (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-base+))
 	 (cs-size (%array-like-ref-unsigned-byte-64 sg +stack-group-offset-control-stack-size+))
@@ -228,7 +228,7 @@
 ;;; This only scavenges the stacks/register. Scavenging the actual
 ;;; stack-group object is done by scan-stack-group, assuming the
 ;;; current stack-group is actually reachable.
-(defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
+#+(or)(defun scavenge-current-stack-group (a1 a2 a3 a4 a5)
   (let* ((object (current-stack-group))
          (address (ash (%pointer-field object) 4))
          (bs-base (%array-like-ref-unsigned-byte-64 object +stack-group-offset-binding-stack-base+))
@@ -499,7 +499,7 @@
      (go LOOP))
   (when *gc-debug-scavenge-stack* (mumble "Done scav stack.")))
 
-(defun scan-stack-group (object)
+#+(or)(defun scan-stack-group (object)
   ;; Always scavenge the name & stack ranges.
   (scavengef (%array-like-ref-t object +stack-group-offset-name+))
   (scavengef (%array-like-ref-t object +stack-group-offset-control-stack-range+))
@@ -718,7 +718,7 @@
         #.+object-tag-complex-long-float+
         #.+object-tag-xmm-vector+
         #.+object-tag-unbound-value+))
-      (#.+object-tag-stack-group+
+      #+(or)(#.+object-tag-stack-group+
        (scan-stack-group object))
       (t (scan-error object)))))
 

@@ -2,6 +2,8 @@
 
 (in-package :sys.int)
 
+(defconstant +msr-ia32-gs-base+ #xC0000101)
+
 (declaim (inline null not))
 
 (defun null (object)

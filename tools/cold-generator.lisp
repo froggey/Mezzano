@@ -119,9 +119,9 @@
                                (* sys.int::+fref-entry-point+ 8)))))
   "Code for the undefined function thunk.")
 
-(defparameter *small-static-area-size* (* 8 1024 1024))
-(defparameter *large-static-area-size* (* 56 1024 1024))
-(defparameter *dynamic-area-semispace-limit* (* 32 1024 1024))
+(defparameter *small-static-area-size* (* 2 1024 1024))
+(defparameter *large-static-area-size* (* 6 1024 1024))
+(defparameter *dynamic-area-semispace-limit* (* 4 1024 1024))
 
 (defparameter *static-area-base*  #x0000200000)
 (defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
