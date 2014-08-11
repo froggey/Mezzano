@@ -39,8 +39,8 @@
 ;;    Forward link to the next thread in whatever list the thread is in.
 ;; 10 prev
 ;;    Backward link to the previous thread in whatever list the thread is in.
-;; 11 inhibit-interrupt
-;;    When true, prevent INTERRUPT-THREAD from interrupting the thread.
+;; 11 foothold-disable-depth
+;;    Zero when ESTABLISH-THREAD-FOOTHOLD may break into the thread.
 ;;    DESTROY-THREAD will also be unable to destroy the thread unless the abort option is set.
 ;; 32-127 MV slots
 ;;    Slots used as part of the multiple-value return convention.
@@ -63,7 +63,7 @@
 (defconstant +thread-preemption-pending+ 8)
 (defconstant +thread-next+ 9)
 (defconstant +thread-prev+ 10)
-(defconstant +thread-inhibit-interrupt+ 11)
+(defconstant +thread-foothold-disable-depth+ 11)
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
 (defconstant +thread-tls-slots-start+ 128)
@@ -145,13 +145,56 @@
   (check-type thread thread)
   (setf (sys.int::%array-like-ref-t thread +thread-prev+) value))
 
-(defun thread-inhibit-interrupt (thread)
+(defun thread-foothold-disable-depth (thread)
   (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+))
+  (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+))
 
-(defun (setf thread-inhibit-interrupt) (value thread)
+(defun (setf thread-foothold-disable-depth) (value thread)
   (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+) value))
+  (setf (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) value))
+
+(defun thread-footholds-enabled-p (thread)
+  (zerop (thread-foothold-disable-depth thread)))
+
+(defmacro with-footholds-inhibited (&body body)
+  "Inhibit thread footholds within body."
+  (let ((self (gensym "SELF"))
+        ;; Footholds are active at this point, so another thread may
+        ;; be able to establish a foothold which unwinds after the unwind-protect
+        ;; begins, but before with-thread-lock takes the thread lock.
+        ;; Use a variable to prevent decrementing the disable depth if this occurs.
+        (have-incremented (gensym)))
+    `(let ((,self (current-thread))
+           (,have-incremented nil))
+       (unwind-protect
+            (progn
+              (with-thread-lock (self)
+                (incf (thread-foothold-disable-depth ,self))
+                (setf ,have-incremented t))
+              ,@body)
+         (when ,have-incremented
+           (with-thread-lock (self)
+             (decf (thread-foothold-disable-depth ,self)))
+           (when (zerop (thread-foothold-disable-depth ,self))
+             (establish-deferred-footholds ,self)))))))
+
+(defmacro with-footholds-permitted (&body body)
+  "Permit thread footholds within body.
+Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
+  (let ((self (gensym "SELF")))
+    `(let ((,self (current-thread)))
+       ;; Footholds are initially inhibited, no need for a protection variable.
+       (unwind-protect
+            (progn
+              (with-thread-lock (self)
+                (assert (not (zerop (thread-foothold-disable-depth ,self))))
+                (decf (thread-foothold-disable-depth ,self)))
+              ;; Establish any deferred footholds.
+              (when (zerop (thread-foothold-disable-depth ,self))
+                (establish-deferred-footholds ,self))
+              ,@body)
+         (with-thread-lock (self)
+           (incf (thread-foothold-disable-depth ,self)))))))
 
 (defmacro with-thread-lock ((thread) &body body)
   (let ((sym (gensym "thread")))
@@ -218,8 +261,8 @@
             (sys.int::%array-like-ref-t thread +thread-binding-stack+) binding-stack
             (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
             (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
-            ;; Cleared by the trampoline when it calls the thread function.
-            (sys.int::%array-like-ref-t thread +thread-inhibit-interrupt+) t)
+            ;; Decremented by the trampoline when it calls the thread function.
+            (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
       ;; Clear the binding stack.
       (dotimes (i (truncate (stack-size binding-stack) 8))
         (setf (sys.int::memref-unsigned-byte-64 (stack-base binding-stack) i) 0))
@@ -275,8 +318,8 @@
   (let ((self (current-thread)))
     (unwind-protect
          (catch 'terminate-thread
-           (setf (thread-inhibit-interrupt self) nil)
-           (funcall function))
+           (with-footholds-permitted
+             (funcall function)))
       ;; Cleanup, terminate the thread.
       (sys.int::%cli)
       (%lock-thread self)
@@ -316,12 +359,6 @@
                                     :control-stack-size (* 4 1024)
                                     :binding-stack-size 256)))
 
-(defun initialize-initial-thread ()
-  "Called very early after boot to reset the initial thread."
-  (let* ((thread (current-thread)))
-    (setf (%thread-state thread) :active)
-    (setf (thread-preemption-disable-depth thread) 1)))
-
 (defun thread-yield ()
   (let ((current (current-thread)))
     (sys.int::%cli)
@@ -345,11 +382,13 @@
     (when (eql next current)
       ;; Staying on the same thread, unlock and return.
       (%unlock-thread current)
+      (sys.int::%sti)
       (return-from %reschedule))
     (%lock-thread next)
     (setf (%thread-state next) :active)
     (%%switch-to-thread current next)))
 
+;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
 (sys.int::define-lap-function %%switch-to-thread ()
   (:gc :no-frame)
   ;; Save frame pointer.
@@ -373,21 +412,26 @@
   ;; Restore fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
+  ;; Restore frame pointer.
+  (sys.lap-x86:pop :rbp)
+  (:gc :no-frame)
   ;; Drop the locks on both threads.
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
-  ;; Restore frame pointer.
-  (sys.lap-x86:pop :rbp)
-  (sys.lap-x86:xor32 :ecx :ecx)
-  (:gc :no-frame)
-  ;; Reenable interrupts and restore RIP.
+  ;; Reenable interrupts.
   (sys.lap-x86:sti)
+  ;; No value return, restoring RIP.
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:mov64 :r8 nil)
   (sys.lap-x86:ret))
 
-(defun interrupt-thread (thread function)
+(defun establish-deferred-footholds (thread)
+  (declare (ignore thread)))
+
+(defun establish-thread-foothold (thread function)
   (cond ((eql thread (current-thread))
-         (assert (not (thread-inhibit-interrupt thread)))
+         (assert (thread-footholds-enabled-p thread))
          (funcall function))
         (t (with-thread-lock (thread)
              (tagbody
@@ -396,9 +440,9 @@
                   ;; todo: SMP.
                   (:active (error "what?"))
                   (:runnable
-                   ;; Wait for THREAD-INHIBIT-INTERRUPT to become false.
+                   ;; Wait for the thread to allow footholds.
                    (do ()
-                       ((not (thread-inhibit-interrupt thread)))
+                       ((thread-footholds-enabled-p thread))
                      ;; Drop the lock & reschedule.
                      (%unlock-thread thread)
                      (sys.int::%sti)
@@ -429,9 +473,16 @@
   "Terminate THREAD.
 If abort is false, then cleanup forms will be run before the thread exits;
 otherwise the thread will exit immediately, and not execute cleanup forms."
-  (interrupt-thread thread
-                    (lambda ()
-                      (throw 'terminate-thread nil))))
+  (establish-thread-foothold thread
+                             (lambda ()
+                               (throw 'terminate-thread nil))))
+
+(defun initialize-initial-thread ()
+  "Called very early after boot to reset the initial thread."
+  (let* ((thread (current-thread)))
+    (setf (%thread-state thread) :active)
+    (setf (thread-foothold-disable-depth thread) 1)
+    (setf (thread-preemption-disable-depth thread) 1)))
 
 (defun finish-initial-thread ()
   "Called when the boot code is done with the initial thread."
