@@ -142,7 +142,7 @@
 
 (defun debug-serial-irq-handler (irq)
   (declare (ignore irq))
-  (with-spinlock (*debug-serial-lock*)
+  (with-symbol-spinlock (*debug-serial-lock*)
     (let ((iir (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IIR+))))
       ;; Read any received data.
       (do ()
@@ -182,7 +182,7 @@
 (defun debug-serial-write-byte (byte)
   (without-interrupts
     (loop
-       (with-spinlock (*debug-serial-lock*)
+       (with-symbol-spinlock (*debug-serial-lock*)
          ;; Try to write directly to the serial port if the TX buffer is empty.
          (when (and (debug-fifo-emptyp *debug-serial-tx-buffer*
                                        +debug-serial-buffer-size+
@@ -224,7 +224,7 @@
 (defun debug-serial-read-byte ()
   (without-interrupts
     (loop
-       (with-spinlock (*debug-serial-lock*)
+       (with-symbol-spinlock (*debug-serial-lock*)
          ;; Maybe there's stuff in the RX buffer.
          (when (not (debug-fifo-emptyp *debug-serial-rx-buffer*
                                        +debug-serial-buffer-size+

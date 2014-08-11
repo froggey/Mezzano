@@ -9,19 +9,18 @@
             (progn ,@body)
          (sys.int::%restore-irq-state ,irq-state)))))
 
-(defmacro with-spinlock ((lock-place) &body body)
-  (check-type lock-place symbol)
+(defmacro with-symbol-spinlock ((lock) &body body)
+  (check-type lock symbol)
   (let ((current-thread (gensym)))
     `(without-interrupts
-       (let ((,current-thread (sys.int::current-thread)))
-         (do ()
-             ((sys.int::%cas-symbol-global-value ',lock-place
-                                                 :unlocked
-                                                 ,current-thread))
-           (sys.int::cpu-relax))
-         (unwind-protect
-              (progn ,@body)
-           (setf (sys.int::symbol-global-value ',lock-place) :unlocked))))))
+       (do ((,current-thread (sys.int::current-thread)))
+           ((sys.int::%cas-symbol-global-value ',lock
+                                               :unlocked
+                                               ,current-thread))
+         (sys.int::cpu-relax))
+       (unwind-protect
+            (progn ,@body)
+         (setf (sys.int::symbol-global-value ',lock) :unlocked)))))
 
 ;;; Low-level interrupt support.
 
@@ -123,14 +122,14 @@
     (when handler
       (funcall handler irq))
     ;; Send EOI.
-    (with-spinlock (*i8259-spinlock*)
+    (with-symbol-spinlock (*i8259-spinlock*)
       (setf (sys.int::io-port/8 #x20) #x20)
       (when (>= irq 8)
         (setf (sys.int::io-port/8 #xA0) #x20)))))
 
 (defun i8259-mask-irq (irq)
   (check-type irq (integer 0 15))
-  (with-spinlock (*i8259-spinlock*)
+  (with-symbol-spinlock (*i8259-spinlock*)
     (when (not (logbitp irq *i8259-shadow-mask*))
       ;; Currently unmasked, mask it.
       (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 1)
@@ -140,7 +139,7 @@
 
 (defun i8259-unmask-irq (irq)
   (check-type irq (integer 0 15))
-  (with-spinlock (*i8259-spinlock*)
+  (with-symbol-spinlock (*i8259-spinlock*)
     (when (logbitp irq *i8259-shadow-mask*)
       ;; Currently masked, unmask it.
       (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 0)

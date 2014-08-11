@@ -267,7 +267,7 @@
                               :initial-bindings initial-bindings
                               :control-stack-size control-stack-size
                               :binding-stack-size binding-stack-size)))
-    (with-spinlock (*global-thread-lock*)
+    (with-symbol-spinlock (*global-thread-lock*)
       (push-run-queue thread))
     thread))
 
@@ -335,7 +335,7 @@
   (let ((current (current-thread))
         next)
     ;; Return the current thread to the run queue and fetch the next thread.
-    (with-spinlock (*global-thread-lock*)
+    (with-symbol-spinlock (*global-thread-lock*)
       (when (and (eql (thread-state current) :runnable)
                  (not (eql current *idle-thread*)))
         (push-run-queue current))

@@ -59,7 +59,7 @@
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
-    (with-spinlock (*allocator-lock*)
+    (with-symbol-spinlock (*allocator-lock*)
       ;; Assume we have enough memory to do the allocation...
       ;; And that the memory is already zero initialized.
       (let ((addr (+ sys.int::*newspace* (ash sys.int::*newspace-offset* 3))))
@@ -78,7 +78,7 @@
 
 (defun sys.int::cons-in-area (car cdr &optional area)
   (declare (ignore area))
-  (with-spinlock (*allocator-lock*)
+  (with-symbol-spinlock (*allocator-lock*)
     ;; Assume we have enough memory to do the allocation...
     (let ((addr (+ sys.int::*newspace* (ash sys.int::*newspace-offset* 3))))
       (incf sys.int::*newspace-offset* 2)
@@ -97,7 +97,7 @@
   ;; Page align stacks.
   (incf size #xFFF)
   (setf size (logand size (lognot #xFFF)))
-  (let ((addr (with-spinlock (*allocator-lock*)
+  (let ((addr (with-symbol-spinlock (*allocator-lock*)
                 (prog1 sys.int::*stack-bump-pointer*
                   (incf sys.int::*stack-bump-pointer* size)))))
     (sys.int::cons-in-area addr size :wired)))
@@ -260,7 +260,7 @@
 (defvar sys.int::*next-symbol-tls-slot*)
 (defconstant +maximum-tls-slot+ (1+ +thread-tls-slots-end+))
 (defun sys.int::%allocate-tls-slot (symbol)
-  (with-spinlock (*tls-lock*)
+  (with-symbol-spinlock (*tls-lock*)
     ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
     (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
            (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
