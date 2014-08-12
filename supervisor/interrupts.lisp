@@ -176,3 +176,49 @@
   (setf *i8259-shadow-mask* #xFFFF)
   ;; Unmask the cascade IRQ, required for the 2nd chip to function.
   (i8259-unmask-irq 2))
+
+;;; Introspection.
+
+(defun interrupt-frame-register-offset (register)
+  (ecase register
+    (:ss   5)
+    (:rsp  4)
+    (:rflags 3)
+    (:cs   2)
+    (:rip  1)
+    (:rbp  0)
+    (:rax -1)
+    (:rcx -2)
+    (:rdx -3)
+    (:rbx -4)
+    (:rsi -5)
+    (:rdi -6)
+    (:r8  -7)
+    (:r9  -8)
+    (:r10 -9)
+    (:r11 -10)
+    (:r12 -11)
+    (:r13 -12)
+    (:r14 -13)
+    (:r15 -14)))
+
+(defun interrupt-frame-pointer (frame)
+  (sys.int::%array-like-ref-t frame 0))
+
+(defun interrupt-frame-raw-register (frame register)
+  (sys.int::memref-unsigned-byte-64 (interrupt-frame-pointer frame)
+                                    (interrupt-frame-register-offset register)))
+
+(defun (setf interrupt-frame-raw-register) (value frame register)
+  (setf (sys.int::memref-unsigned-byte-64 (interrupt-frame-pointer frame)
+                                          (interrupt-frame-register-offset register))
+        value))
+
+(defun interrupt-frame-value-register (frame register)
+  (sys.int::memref-t (interrupt-frame-pointer frame)
+                     (interrupt-frame-register-offset register)))
+
+(defun (setf interrupt-frame-value-register) (value frame register)
+  (setf (sys.int::memref-t (interrupt-frame-pointer frame)
+                           (interrupt-frame-register-offset register))
+        value))
