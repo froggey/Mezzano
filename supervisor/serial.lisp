@@ -306,7 +306,7 @@
     (:write-string (debug-serial-write-string arg))
     (:force-output)))
 
-(defun initialize-debug-serial (io-port irq)
+(defun initialize-debug-serial (io-port irq baud)
   (setf *debug-serial-io-port* io-port
         *debug-serial-irq* irq
         *debug-serial-lock* :unlocked
@@ -317,8 +317,7 @@
         *debug-serial-rx-buffer-head* 0
         *debug-serial-rx-buffer-tail* 0)
   ;; Initialize port.
-  (let* ((baud 38400)
-         (divisor (truncate 115200 baud)))
+  (let ((divisor (truncate 115200 baud)))
     (setf
      ;; Turn interrupts off.
      (sys.int::io-port/8 (+ io-port +serial-IER+)) #x00
