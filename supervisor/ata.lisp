@@ -47,9 +47,9 @@
 (defstruct (ata-controller
              (:area :wired))
   ;; Taken when accessing the controller. Disables interrupts.
-  (lock :unlocked) ; must be first slot.
+  (access-lock :unlocked) ; must be first slot.
   ;; Taken while there's a command in progress. Does not disable interrupts.
-  (use-lock :unlocked) ; must be second slot.
+  (command-lock (make-mutex))
   command
   control
   irq
@@ -76,21 +76,11 @@
                                          ,current-thread))
            (sys.int::cpu-relax))
          (multiple-value-prog1 (progn ,@body)
-           (setf (sys.int::%struct-slot ,controller-sym 1) :unlocked))))))
+           (setf (ata-controller-access-lock ,controller-sym) :unlocked))))))
 
 (defmacro with-ata-use-lock ((controller) &body body)
-  (let ((current-thread (gensym))
-        (controller-sym (gensym)))
-    `(let ((,controller-sym ,controller))
-       (without-interrupts
-         (let ((,current-thread (sys.int::current-thread)))
-           (do ()
-               ((sys.int::%cas-struct-slot ,controller-sym 2
-                                           :unlocked
-                                           ,current-thread))
-             (sys.int::cpu-relax))))
-       (multiple-value-prog1 (progn ,@body)
-         (setf (sys.int::%struct-slot ,controller-sym 2) :unlocked)))))
+  `(with-mutex (,controller)
+     ,@body))
 
 (defun ata-alt-status (controller)
   "Read the alternate status register."
@@ -133,12 +123,12 @@ Returns true when the bits are equal, false when the timeout expires or if the d
   t)
 
 (defun ata-detect-drive (controller channel)
-  (with-ata-spinlock (controller)
-    ;; Select the device.
-    (when (not (ata-select-device controller channel))
-      (debug-write-line "Could not select ata device when probing.")
-      (return-from ata-detect-drive nil))
-    (let ((buf (sys.int::make-simple-vector 256)))
+  (let ((buf (sys.int::make-simple-vector 256)))
+    (with-ata-spinlock (controller)
+      ;; Select the device.
+      (when (not (ata-select-device controller channel))
+        (debug-write-line "Could not select ata device when probing.")
+        (return-from ata-detect-drive nil))
       ;; Issue IDENTIFY.
       (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
                                    +ata-register-command+))
@@ -166,22 +156,22 @@ Returns true when the bits are equal, false when the timeout expires or if the d
         (let ((data (sys.int::io-port/16 (+ (ata-controller-command controller)
                                             +ata-register-data+))))
           (setf (svref buf i) (logior (ash (logand data #xFF) 8)
-                                      (ash data -8)))))
-      (setf *ata-devices*
-            (sys.int::cons-in-area
-             (make-ata-device :controller controller
-                              :channel channel
-                              ;; Check for large sector drives.
-                              :block-size (if (and (logbitp 14 (svref buf 106))
-                                                   (not (logbitp 13 (svref buf 106))))
-                                              (logior (ash (svref buf 117) 16)
-                                                      (svref buf 118))
-                                              512)
-                              ;; TODO: LBA48 support.
-                              :sector-count (logior (ash (svref buf 60) 16)
-                                                    (svref buf 61)))
-             *ata-devices*
-             :wired)))))
+                                      (ash data -8))))))
+    (setf *ata-devices*
+          (sys.int::cons-in-area
+           (make-ata-device :controller controller
+                            :channel channel
+                            ;; Check for large sector drives.
+                            :block-size (if (and (logbitp 14 (svref buf 106))
+                                                 (not (logbitp 13 (svref buf 106))))
+                                            (logior (ash (svref buf 117) 16)
+                                                    (svref buf 118))
+                                            512)
+                            ;; TODO: LBA48 support.
+                            :sector-count (logior (ash (svref buf 60) 16)
+                                                  (svref buf 61)))
+           *ata-devices*
+           :wired))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
