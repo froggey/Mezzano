@@ -292,11 +292,21 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
 ;; idle thread will be run.
+;; FIXME: SMP-safety.
 (defun idle-thread ()
-  (without-interrupts
-    (loop
-       (sys.int::%stihlt)
-       (sys.int::%cli))))
+  (loop
+     (sys.int::%cli)
+     ;; Look for a thread to switch to.
+     (let ((next (with-symbol-spinlock (*global-thread-lock*)
+                   (pop-run-queue))))
+       (cond (next
+              ;; Switch to thread.
+              (%lock-thread *idle-thread*)
+              (%lock-thread next)
+              (setf (thread-state next) :active)
+              (%%switch-to-thread *idle-thread* next))
+             (t ;; Wait for an interrupt.
+              (sys.int::%stihlt))))))
 
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
@@ -378,7 +388,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   (sys.lap-x86:ret))
 
 (defun establish-deferred-footholds (thread)
-  (declare (ignore thread)))
+  (declare (ignore self)))
 
 (defun establish-thread-foothold (thread function)
   (cond ((eql thread (current-thread))
@@ -657,15 +667,19 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     ;; TODO: Track how many spin mutexes are currently taken and assert when
     ;; count != 1.
     (:spin (assert (mutex-%lock mutex))))
-  (let ((self (current-thread)))
+  (let ((self (current-thread))
+        (prior-istate (mutex-%lock mutex)))
     (with-footholds-inhibited
-        (sys.int::%cli)
+      (sys.int::%cli)
       (lock-wait-queue condition-variable)
       (%lock-thread self)
       ;; Attach to the list.
       (push-wait-queue self condition-variable)
       ;; Drop the mutex.
-      (release-mutex lock)
+      ;; Make sure spin mutexes don't reenable interrupts.
+      (when (eql (mutex-kind mutex) :spin)
+        (setf (mutex-%lock mutex) nil))
+      (release-mutex mutex)
       ;; Sleep.
       ;; todo: reenable footholds when the thread is sleeping, but only one level.
       ;; need to be careful with that, returning or unwinding from condition-wait
@@ -674,7 +688,10 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       (unlock-wait-queue condition-variable)
       (%reschedule)
       ;; Got woken up. Reacquire the mutex.
-      (acquire-mutex lock t)))
+      (acquire-mutex mutex t)
+      ;; And restore :spin istate.
+      (when (eql (mutex-kind mutex) :spin)
+        (setf (mutex-%lock mutex) prior-istate))))
   (values))
 
 (defun condition-notify (condition-variable &optional broadcast)
