@@ -54,7 +54,8 @@
   control
   irq
   current-channel
-  (irq-cvar (make-condition-variable "ATA IRQ Notifier")))
+  (irq-cvar (make-condition-variable "ATA IRQ Notifier"))
+  irq-delivered)
 
 (defstruct (ata-device
              (:area :wired))
@@ -213,8 +214,12 @@ This is used to implement the INTRQ_Wait state."
   (declare (ignore timeout))
   ;; FIXME: Timeouts.
   (let ((controller (ata-device-controller device)))
-    (condition-wait (ata-controller-irq-cvar controller)
-                    (ata-controller-access-lock controller))))
+    (setf (ata-controller-irq-delivered controller) nil)
+    (loop
+       (condition-wait (ata-controller-irq-cvar controller)
+                       (ata-controller-access-lock controller))
+       (when (ata-controller-irq-delivered controller)
+         (return)))))
 
 (defun ata-pio-data-in (device count mem-addr)
   "Implement the PIO data-in protocol."
@@ -284,7 +289,7 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-read nil))
     (when (eql count 0)
       (return-from ata-read t))
-    (with-mutex ((ata-controller-use-lock controller))
+    (with-mutex ((ata-controller-command-lock controller))
       (with-mutex ((ata-controller-access-lock controller))
         (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
           (return-from ata-read nil))
@@ -302,7 +307,7 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-write nil))
     (when (eql count 0)
       (return-from ata-write t))
-    (with-mutex ((ata-controller-use-lock controller))
+    (with-mutex ((ata-controller-command-lock controller))
       (with-mutex ((ata-controller-access-lock controller))
         (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
           (return-from ata-write nil))
@@ -312,12 +317,14 @@ This is used to implement the INTRQ_Wait state."
 
 (defun ata-irq-handler (irq)
   (dolist (drive *ata-devices*)
-    (when (eql (ata-controller-irq (ata-device-controller drive)) irq)
-      (with-mutex ((ata-controller-access-lock controller))
-        ;; Read the status register to clear the interrupt pending state.
-        (sys.int::io-port/8 (+ (ata-controller-command (ata-device-controller drive))
-                               +ata-register-status+))
-        (condition-notify (ata-controller-irq-cvar controller))))))
+    (let ((controller (ata-device-controller drive)))
+      (when (eql (ata-controller-irq controller) irq)
+        (with-mutex ((ata-controller-access-lock controller))
+          ;; Read the status register to clear the interrupt pending state.
+          (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                 +ata-register-status+))
+          (setf (ata-controller-irq-delivered controller) t)
+          (condition-notify (ata-controller-irq-cvar controller)))))))
 
 (defun init-ata-controller (command-base control-base irq)
   (let ((controller (make-ata-controller :command command-base
