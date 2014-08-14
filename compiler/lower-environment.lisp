@@ -112,7 +112,8 @@
       (when (and *allow-dx-environment*
                  (every (lambda (var)
                           (every (lambda (l)
-                                   (or (eql (getf (lambda-information-plist l) 'extent) :dynamic)
+                                   (or (eql (lexical-variable-definition-point var) l)
+                                       (eql (getf (lambda-information-plist l) 'extent) :dynamic)
                                        (getf (lambda-information-plist l) 'declared-dynamic-extent)))
                                  (lexical-variable-used-in var)))
                         (gethash lambda *environment-layout*)))
@@ -138,7 +139,8 @@ of statements opens a new contour."
                    (when (and *allow-dx-environment*
                               (every (lambda (var)
                                        (every (lambda (l)
-                                                (or (eql (getf (lambda-information-plist l) 'extent) :dynamic)
+                                                (or (eql (lexical-variable-definition-point var) l)
+                                                    (eql (getf (lambda-information-plist l) 'extent) :dynamic)
                                                     (getf (lambda-information-plist l) 'declared-dynamic-extent)))
                                               (lexical-variable-used-in var)))
                                      (gethash last-tag *environment-layout*)))
