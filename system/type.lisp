@@ -280,10 +280,22 @@
       (return t))))
 (%define-compound-type 'member 'member-type)
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-member-type (object type)
+  `(member ,object ',(cdr type)))
+(%define-compound-type-optimizer 'member 'compile-member-type)
+)
+
 (defun eql-type (object type)
   (destructuring-bind (other-object) (rest type)
     (eql object other-object)))
 (%define-compound-type 'eql 'eql-type)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun compile-eql-type (object type)
+  `(eql ,object ',(second type)))
+(%define-compound-type-optimizer 'eql 'compile-eql-type)
+)
 
 (deftype boolean ()
   '(member t nil))
