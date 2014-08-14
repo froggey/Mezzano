@@ -686,10 +686,12 @@
          ;; Return success and the old value.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
          ;; End GC danger.
+         (emit `(sys.lap-x86:mov64 :r8 nil)
+               `(sys.lap-x86:cmov64z :r8 (:constant t)))
          (load-constant :rcx 2)
          :multiple)
         (t ;; Just return the success state.
-         (setf *r8-value* (list (gensym))))))
+         (predicate-result :z))))
 
 (defbuiltin sys.int::%simple-1d-array-p (object) ()
   (let ((false-out (gensym))
@@ -1287,11 +1289,13 @@
   ;; GC issues.
   (emit `(sys.lap-x86:mov64 :rax :r8)
         `(sys.lap-x86:lock)
-        `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot +symbol-value+) :r11)
-        )
+        `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot +symbol-value+) :r11))
   (cond ((member *for-value* '(:multiple :tail))
          ;; Return success and the old value.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
+         ;; End GC danger.
+         (emit `(sys.lap-x86:mov64 :r8 nil)
+               `(sys.lap-x86:cmov64z :r8 (:constant t)))
          (load-constant :rcx 2)
          :multiple)
         (t ;; Just return the success state.
@@ -1757,10 +1761,12 @@
            ;; Return success and the old value.
            (emit `(sys.lap-x86:mov64 :r9 :rax))
            ;; End GC danger.
+           (emit `(sys.lap-x86:mov64 :r8 nil)
+                 `(sys.lap-x86:cmov64z :r8 (:constant t)))
            (load-constant :rcx 2)
            :multiple)
           (t ;; Just return the success state.
-           (setf *r8-value* (list (gensym)))))))
+           (predicate-result :z)))))
 
 (defbuiltin char-code (char) ()
   (let ((type-error-label (gensym)))
