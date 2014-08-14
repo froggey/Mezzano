@@ -2409,7 +2409,7 @@
 
 (defbuiltin sys.c::make-dx-closure (code env) (nil)
   (smash-r8)
-  (let ((slots (allocate-control-stack-slots 6)))
+  (let ((slots (allocate-control-stack-slots 8)))
     (load-in-reg :r9 code t)
     (load-in-reg :r10 env t)
     (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 8 -1)))
