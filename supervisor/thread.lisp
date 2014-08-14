@@ -494,20 +494,26 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 
 (defstruct (mutex
              (:include wait-queue)
-             (:constructor make-mutex (&optional name))
+             (:constructor make-mutex (&optional name (kind :block)))
              (:area :wired))
   ;; When NIL, the lock is free, otherwise is set to
   ;; the thread that holds the lock.
-  (owner nil))
+  (owner nil) ; must be slot 5, after wait-queue is included.
+  (kind nil :type (member :block :spin) :read-only t))
 
-(defun acquire-mutex (mutex wait-p)
+(defun acquire-mutex (mutex &optional (wait-p t))
+  (ecase (mutex-kind mutex)
+    (:block (acquire-block-mutex mutex wait-p))
+    (:spin (acquire-spin-mutex mutex wait-p))))
+
+(defun acquire-block-mutex (mutex wait-p)
   (let ((self (current-thread)))
     (assert (sys.int::%interrupt-state))
     (assert (not (thread-footholds-enabled-p self)))
     ;; Fast path - try to lock.
-    (when (sys.int::%cas-struct-slot mutex 4 nil self)
+    (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
-      (return-from acquire-mutex t))
+      (return-from acquire-block-mutex t))
     ;; Idiot check.
     (assert (not (mutex-held-p mutex)) (mutex)
             "Recursive locking detected.")
@@ -516,11 +522,11 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       (sys.int::%cli)
       (lock-wait-queue mutex)
       ;; Try to acquire again, release may have been running.
-      (when (sys.int::%cas-struct-slot mutex 4 nil self)
+      (when (sys.int::%cas-struct-slot mutex 5 nil self)
         ;; We got it.
         (sys.int::%sti)
         (unlock-wait-queue mutex)
-        (return-from acquire-mutex t))
+        (return-from acquire-block-mutex t))
       ;; No good, have to sleep. Release will directly transfer ownership
       ;; to this thread.
       (push-wait-queue self mutex)
@@ -535,12 +541,41 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       (%reschedule)
       t)))
 
+(defun acquire-spin-mutex (mutex wait-p)
+  (let ((self (current-thread))
+        (istate (sys.int::%interrupt-state)))
+    (sys.int::%cli)
+    ;; Fast path - try to lock.
+    (when (sys.int::%cas-struct-slot mutex 5 nil self)
+      ;; We got it.
+      (setf (mutex-%lock mutex) istate)
+      (return-from acquire-spin-mutex t))
+    ;; Idiot check.
+    (assert (not (mutex-held-p mutex)) (mutex)
+            "Recursive locking detected.")
+    (cond (wait-p
+           ;; Spin path.
+           (do ()
+               ((sys.int::%cas-struct-slot mutex 5 nil self))
+             (sys.int::cpu-relax))
+           (setf (mutex-%lock mutex) istate)
+           t)
+          (t ;; Trylock path.
+           (when istate
+             (sys.int::%sti))))))
+
 (defun mutex-held-p (mutex)
   "Return true if this thread holds MUTEX."
   (eql (mutex-owner mutex) (current-thread)))
 
 (defun release-mutex (mutex)
   (assert (mutex-held-p mutex))
+  (ecase (mutex-kind mutex)
+    (:block (release-block-mutex mutex))
+    (:spin (release-spin-mutex mutex)))
+  (values))
+
+(defun release-block-mutex (mutex)
   (with-wait-queue-lock (mutex)
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
@@ -553,10 +588,20 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
                (setf (mutex-owner mutex) thread)))
             (t
              ;; No threads sleeping, just drop the lock.
-             (setf (mutex-owner mutex) nil)))))
-  (values))
+             (setf (mutex-owner mutex) nil))))))
+
+(defun release-spin-mutex (mutex)
+  (let ((istate (mutex-%lock mutex)))
+    (setf (mutex-owner mutex) nil)
+    (when istate
+      (sys.int::%sti))))
 
 (defun call-with-mutex (thunk mutex wait-p)
+  (ecase (mutex-kind mutex)
+    (:block (call-with-block-mutex thunk mutex wait-p))
+    (:spin (call-with-spin-mutex thunk mutex wait-p))))
+
+(defun call-with-block-mutex (thunk mutex wait-p)
   (let ((got-it nil))
     ;; Disable footholds while taking the lock, this prevents a
     ;; foothold from running after the mutex has been locked, but
@@ -569,6 +614,15 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
                (funcall thunk)))
         (when got-it
           (release-mutex mutex))))))
+
+(defun call-with-spin-mutex (thunk mutex wait-p)
+  ;; No foothold messing around required here. These locks disable interrupts.
+  (let ((got-it nil))
+    (unwind-protect
+         (when (setf got-it (acquire-mutex mutex wait-p))
+           (funcall thunk))
+      (when got-it
+        (release-mutex mutex)))))
 
 (defmacro with-mutex ((mutex &optional (wait-p t)) &body body)
   ;; Cold generator has some odd problems with uninterned symbols...
@@ -583,13 +637,20 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
              (:constructor make-condition-variable (&optional name))
              (:area :wired)))
 
-(defun condition-wait (condition-variable lock)
+(defun condition-wait (condition-variable mutex)
   (assert (mutex-held-p mutex))
-  (assert (sys.int::%interrupt-state))
+  (ecase (mutex-kind mutex)
+    ;; Interrupts must be enabled.
+    (:block (assert (sys.int::%interrupt-state)))
+    ;; Interrupts must have been enabled when the lock was take.
+    ;; TODO: Track how many spin mutexes are currently taken and assert when
+    ;; count != 1.
+    (:spin (assert (mutex-%lock mutex))))
   (let ((self (current-thread)))
     (with-footholds-inhibited
         (sys.int::%cli)
       (lock-wait-queue condition-variable)
+      (%lock-thread self)
       ;; Attach to the list.
       (push-wait-queue self condition-variable)
       ;; Drop the mutex.
@@ -598,7 +659,6 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; todo: reenable footholds when the thread is sleeping, but only one level.
       ;; need to be careful with that, returning or unwinding from condition-wait
       ;; with the lock unlocked would be quite bad.
-      (%lock-thread self)
       (setf (thread-state self) :sleeping)
       (unlock-wait-queue condition-variable)
       (%reschedule)
