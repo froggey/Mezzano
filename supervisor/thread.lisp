@@ -98,43 +98,54 @@
 
 (defmacro with-footholds-inhibited (&body body)
   "Inhibit thread footholds within body."
-  (let ((self (gensym "SELF"))
-        ;; Footholds are active at this point, so another thread may
-        ;; be able to establish a foothold which unwinds after the unwind-protect
-        ;; begins, but before with-thread-lock takes the thread lock.
-        ;; Use a variable to prevent decrementing the disable depth if this occurs.
-        (have-incremented (gensym)))
-    `(let ((,self (current-thread))
-           (,have-incremented nil))
-       (unwind-protect
-            (progn
-              (with-thread-lock (self)
-                (incf (thread-foothold-disable-depth ,self))
-                (setf ,have-incremented t))
-              ,@body)
-         (when ,have-incremented
-           (with-thread-lock (self)
-             (decf (thread-foothold-disable-depth ,self)))
-           (when (zerop (thread-foothold-disable-depth ,self))
-             (establish-deferred-footholds ,self)))))))
+  `(call-with-footholds-inhibited
+    (flet ((%%with-footholds-inhibited-thunk%% ()
+             ,@body))
+      (declare (dynamic-extent #'%%with-footholds-inhibited-thunk%%))
+      #'%%with-footholds-inhibited-thunk%%)))
 
 (defmacro with-footholds-permitted (&body body)
   "Permit thread footholds within body.
 Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
-  (let ((self (gensym "SELF")))
-    `(let ((,self (current-thread)))
-       ;; Footholds are initially inhibited, no need for a protection variable.
-       (unwind-protect
-            (progn
-              (with-thread-lock (self)
-                (assert (not (zerop (thread-foothold-disable-depth ,self))))
-                (decf (thread-foothold-disable-depth ,self)))
-              ;; Establish any deferred footholds.
-              (when (zerop (thread-foothold-disable-depth ,self))
-                (establish-deferred-footholds ,self))
-              ,@body)
-         (with-thread-lock (self)
-           (incf (thread-foothold-disable-depth ,self)))))))
+  `(call-with-footholds-permitted
+    (flet ((%%with-footholds-permitted-thunk%% ()
+             ,@body))
+      (declare (dynamic-extent #'%%with-footholds-permitted-thunk%%))
+      #'%%with-footholds-permitted-thunk%%)))
+
+(defun call-with-footholds-inhibited (thunk)
+  ;; Footholds are active at this point, so another thread may
+  ;; be able to establish a foothold which unwinds after the unwind-protect
+  ;; begins, but before with-thread-lock takes the thread lock.
+  ;; Use a variable to prevent decrementing the disable depth if this occurs.
+  (let ((self (current-thread))
+        (have-incremented nil))
+    (unwind-protect
+         (progn
+           (with-thread-lock (self)
+             (incf (thread-foothold-disable-depth self))
+             (setf have-incremented t))
+           (funcall thunk))
+      (when have-incremented
+        (with-thread-lock (self)
+          (decf (thread-foothold-disable-depth self)))
+        (when (zerop (thread-foothold-disable-depth self))
+          (establish-deferred-footholds self))))))
+
+(defun call-with-footholds-permitted (thunk)
+  (let ((self (current-thread)))
+    ;; Footholds are initially inhibited, no need for a protection variable.
+    (unwind-protect
+         (progn
+           (with-thread-lock (self)
+             (assert (not (zerop (thread-foothold-disable-depth self))))
+             (decf (thread-foothold-disable-depth self)))
+           ;; Establish any deferred footholds.
+           (when (zerop (thread-foothold-disable-depth self))
+             (establish-deferred-footholds self))
+           (funcall thunk))
+      (with-thread-lock (self)
+        (incf (thread-foothold-disable-depth self))))))
 
 (defmacro with-thread-lock ((thread) &body body)
   (let ((sym (gensym "thread")))
