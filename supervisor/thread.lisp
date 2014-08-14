@@ -35,9 +35,9 @@
 ;;    This must only be modified by the thread.
 ;;  8 preemption-pending
 ;;    Set when the thread should be preempted, but has a non-zero preemption-disable-depth. When p-d-d returns to 0, the thread will be preempted.
-;;  9 next
+;;  9 %next
 ;;    Forward link to the next thread in whatever list the thread is in.
-;; 10 prev
+;; 10 %prev
 ;;    Backward link to the previous thread in whatever list the thread is in.
 ;; 11 foothold-disable-depth
 ;;    Zero when ESTABLISH-THREAD-FOOTHOLD may break into the thread.
@@ -52,24 +52,6 @@
 ;;    Unboxed area where the FPU/SSE state is saved.
 ;; COLD-GENERATOR::CREATE-INITIAL-THREAD must match.
 
-(defconstant +thread-name+ 0)
-(defconstant +thread-state+ 1)
-(defconstant +thread-lock+ 2)
-(defconstant +thread-control-stack+ 3)
-(defconstant +thread-control-stack-pointer+ 4)
-(defconstant +thread-binding-stack+ 5)
-(defconstant +thread-binding-stack-pointer+ 6)
-(defconstant +thread-preemption-disable-depth+ 7)
-(defconstant +thread-preemption-pending+ 8)
-(defconstant +thread-next+ 9)
-(defconstant +thread-prev+ 10)
-(defconstant +thread-foothold-disable-depth+ 11)
-(defconstant +thread-mv-slots-start+ 32)
-(defconstant +thread-mv-slots-end+ 128)
-(defconstant +thread-tls-slots-start+ 128)
-(defconstant +thread-tls-slots-end+ 447)
-(defconstant +thread-fx-save-area+ 447)
-
 (deftype thread ()
   `(satisfies threadp))
 
@@ -77,81 +59,39 @@
   (and (eql (sys.int::%tag-field object) sys.int::+tag-object+)
        (eql (sys.int::%object-tag object) sys.int::+object-tag-thread+)))
 
-(defun thread-name (thread)
-  "Return THREAD's name."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-name+))
+(macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%array-like-ref-t))
+             (let ((field-name (intern (format nil "+THREAD-~A+" (symbol-name name))
+                                       (symbol-package name)))
+                   (accessor-name (intern (format nil "THREAD-~A" (symbol-name name))
+                                          (symbol-package name))))
+               `(progn
+                  (defconstant ,field-name ,offset)
+                  (defun ,accessor-name (thread)
+                    (check-type thread thread)
+                    (,accessor thread ,field-name))
+                  (defun (setf ,accessor-name) (value thread)
+                    (check-type thread thread)
+                    ,@(when (not (eql type 't))
+                        `((check-type value ,type)))
+                    (setf (,accessor thread ,field-name) value))))))
+  (field name                     0)
+  (field state                    1 :type (member :active :runnable :sleeping :dead))
+  (field lock                     2)
+  (field control-stack            3)
+  (field control-stack-pointer    4 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field binding-stack            5)
+  (field binding-stack-pointer    6 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field preemption-disable-depth 7)
+  (field preemption-pending       8)
+  (field %next                    9)
+  (field %prev                   10)
+  (field foothold-disable-depth  11))
 
-(defun thread-state (thread)
-  "Return THREAD's state."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-state+))
-
-(defun (setf %thread-state) (value thread)
-  "Internal function to set the state of THREAD."
-  (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-state+) value))
-
-(defun thread-control-stack (thread)
-  "Return THREAD's control stack."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-control-stack+))
-
-(defun thread-control-stack-pointer (thread)
-  "Return THREAD's control stack pointer."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-signed-byte-64 thread +thread-control-stack-pointer+))
-
-(defun thread-binding-stack (thread)
-  "Return THREAD's binding stack."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-binding-stack+))
-
-(defun thread-binding-stack-pointer (thread)
-  "Return THREAD's binding stack pointer."
-  (check-type thread thread)
-  (sys.int::%array-like-ref-signed-byte-64 thread +thread-binding-stack-pointer+))
-
-(defun thread-preemption-disable-depth (thread)
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+))
-
-(defun (setf thread-preemption-disable-depth) (value thread)
-  (check-type thread thread)
-  (check-type value (and fixnum (integer 0)))
-  (setf (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) value))
-
-(defun thread-preemption-pending (thread)
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-preemption-pending+))
-
-(defun (setf thread-preemption-pending) (value thread)
-  (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-preemption-pending+) value))
-
-(defun %thread-next (thread)
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-next+))
-
-(defun (setf %thread-next) (value thread)
-  (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-next+) value))
-
-(defun %thread-prev (thread)
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-prev+))
-
-(defun (setf %thread-prev) (value thread)
-  (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-prev+) value))
-
-(defun thread-foothold-disable-depth (thread)
-  (check-type thread thread)
-  (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+))
-
-(defun (setf thread-foothold-disable-depth) (value thread)
-  (check-type thread thread)
-  (setf (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) value))
+(defconstant +thread-mv-slots-start+ 32)
+(defconstant +thread-mv-slots-end+ 128)
+(defconstant +thread-tls-slots-start+ 128)
+(defconstant +thread-tls-slots-end+ 447)
+(defconstant +thread-fx-save-area+ 447)
 
 (defun thread-footholds-enabled-p (thread)
   (zerop (thread-foothold-disable-depth thread)))
@@ -225,20 +165,20 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   (cond ((null *thread-run-queue-head*)
          (setf *thread-run-queue-head* thread
                *thread-run-queue-tail* thread)
-         (setf (%thread-next thread) nil
-               (%thread-prev thread) nil))
+         (setf (thread-%next thread) nil
+               (thread-%prev thread) nil))
         (t
-         (setf (%thread-next *thread-run-queue-tail*) thread
-               (%thread-prev thread) *thread-run-queue-tail*
-               (%thread-next thread) nil
+         (setf (thread-%next *thread-run-queue-tail*) thread
+               (thread-%prev thread) *thread-run-queue-tail*
+               (thread-%next thread) nil
                *thread-run-queue-tail* thread))))
 
 (defun pop-run-queue ()
   (when *thread-run-queue-head*
     (prog1 *thread-run-queue-head*
-      (cond ((%thread-next *thread-run-queue-head*)
-             (setf (%thread-prev (%thread-next *thread-run-queue-head*)) nil)
-             (setf *thread-run-queue-head* (%thread-next *thread-run-queue-head*)))
+      (cond ((thread-%next *thread-run-queue-head*)
+             (setf (thread-%prev (thread-%next *thread-run-queue-head*)) nil)
+             (setf *thread-run-queue-head* (thread-%next *thread-run-queue-head*)))
             (t (setf *thread-run-queue-head* nil
                      *thread-run-queue-tail* nil))))))
 
@@ -323,7 +263,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
       ;; Cleanup, terminate the thread.
       (sys.int::%cli)
       (%lock-thread self)
-      (setf (%thread-state self) :dead)
+      (setf (thread-state self) :dead)
       (%reschedule))))
 
 (sys.int::define-lap-function %%thread-entry-trampoline ()
@@ -363,7 +303,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   (let ((current (current-thread)))
     (sys.int::%cli)
     (%lock-thread current)
-    (setf (%thread-state current) :runnable)
+    (setf (thread-state current) :runnable)
     (%reschedule)))
 
 (defun %reschedule ()
@@ -385,7 +325,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
       (sys.int::%sti)
       (return-from %reschedule))
     (%lock-thread next)
-    (setf (%thread-state next) :active)
+    (setf (thread-state next) :active)
     (%%switch-to-thread current next)))
 
 ;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
@@ -480,7 +420,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
-    (setf (%thread-state thread) :active)
+    (setf (thread-state thread) :active)
     (setf (thread-foothold-disable-depth thread) 1)
     (setf (thread-preemption-disable-depth thread) 1)))
 
@@ -497,13 +437,14 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   (let ((thread (current-thread)))
     (sys.int::%cli)
     (%lock-thread thread)
-    (setf (%thread-state thread) :sleeping)
+    (setf (thread-state thread) :sleeping)
     (%reschedule)
     (error "Initial thread woken??")))
 
 ;;; Common structure for sleepable things.
 (defstruct wait-queue
   name
+  ;; Spin mutexes also abuse this field as a place to store the old interrupt state.
   (%lock :unlocked) ; must be 2nd slot.
   (head nil)
   (tail nil))
@@ -512,20 +453,20 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   (cond ((null (wait-queue-head wait-queue))
          (setf (wait-queue-head wait-queue) thread
                (wait-queue-tail wait-queue) thread)
-         (setf (%thread-next thread) nil
-               (%thread-prev thread) nil))
+         (setf (thread-%next thread) nil
+               (thread-%prev thread) nil))
         (t
-         (setf (%thread-next (wait-queue-tail wait-queue)) thread
-               (%thread-prev thread) (wait-queue-tail wait-queue)
-               (%thread-next thread) nil
+         (setf (thread-%next (wait-queue-tail wait-queue)) thread
+               (thread-%prev thread) (wait-queue-tail wait-queue)
+               (thread-%next thread) nil
                (wait-queue-tail wait-queue) thread))))
 
 (defun pop-wait-queue (wait-queue)
   (let ((thread (wait-queue-head wait-queue)))
     (when thread
-      (cond ((%thread-next thread)
-             (setf (%thread-prev (%thread-next thread)) nil)
-             (setf (wait-queue-head wait-queue) (%thread-next thread)))
+      (cond ((thread-%next thread)
+             (setf (thread-%prev (thread-%next thread)) nil)
+             (setf (wait-queue-head wait-queue) (thread-%next thread)))
             (t (setf (wait-queue-head wait-queue) nil
                      (wait-queue-tail wait-queue) nil)))
       thread)))
@@ -590,7 +531,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; todo: reenable footholds when the thread is sleeping, but only one level.
       (%lock-thread self)
       (unlock-wait-queue mutex)
-      (setf (%thread-state self) :sleeping)
+      (setf (thread-state self) :sleeping)
       (%reschedule)
       t)))
 
@@ -607,7 +548,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
              ;; Found one, wake it & transfer the lock.
              (with-thread-lock (thread)
                (with-symbol-spinlock (*global-thread-lock*)
-                 (setf (%thread-state thread) :runnable)
+                 (setf (thread-state thread) :runnable)
                  (push-run-queue thread))
                (setf (mutex-owner mutex) thread)))
             (t
@@ -658,7 +599,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; need to be careful with that, returning or unwinding from condition-wait
       ;; with the lock unlocked would be quite bad.
       (%lock-thread self)
-      (setf (%thread-state self) :sleeping)
+      (setf (thread-state self) :sleeping)
       (unlock-wait-queue condition-variable)
       (%reschedule)
       ;; Got woken up. Reacquire the mutex.
@@ -670,7 +611,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
            (let ((thread (pop-wait-queue condition-variable)))
              (with-thread-lock (thread)
                (with-symbol-spinlock (*global-thread-lock*)
-                 (setf (%thread-state thread) :runnable)
+                 (setf (thread-state thread) :runnable)
                  (push-run-queue thread))))))
     (declare (dynamic-extent #'pop-one))
     (with-wait-queue-lock (condition-variable)
@@ -699,7 +640,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
              ;; Found one, wake it.
              (with-thread-lock (thread)
                (with-symbol-spinlock (*global-thread-lock*)
-                 (setf (%thread-state thread) :runnable)
+                 (setf (thread-state thread) :runnable)
                  (push-run-queue thread))))
             (t
              ;; No threads sleeping, increment.
@@ -726,7 +667,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
            ;; todo: reenable footholds when the thread is sleeping, but only one level.
            (%lock-thread self)
            (unlock-wait-queue semaphore)
-           (setf (%thread-state self) :sleeping)
+           (setf (thread-state self) :sleeping)
            (%reschedule)
            t)
           (t (unlock-wait-queue semaphore)
