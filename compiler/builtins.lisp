@@ -1934,8 +1934,7 @@
   (def sys.int::%cr0 :cr0)
   (def sys.int::%cr2 :cr2)
   (def sys.int::%cr3 :cr3)
-  (def sys.int::%cr4 :cr4)
-  (def sys.int::%cr8 :cr8))
+  (def sys.int::%cr4 :cr4))
 
 (define-array-like-predicate sys.int::bignump sys.int::+object-tag-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)

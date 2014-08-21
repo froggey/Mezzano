@@ -429,15 +429,180 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
 
 (defvar *boot-information-page*)
 
-(defun main ()
-  (let ((thread (make-thread
-                 (lambda ()
-                   (debug-write-line "Entering loop.")
-                   (unwind-protect
-                        (loop (thread-yield))
-                     (debug-write-line "I die."))))))
-    (debug-write-line "Attempting to interrupt thread.")
-    (destroy-thread thread)))
+(defstruct (disk
+             (:area :wired))
+  device
+  n-sectors
+  sector-size
+  max-transfer
+  read-fn
+  write-fn)
+
+(defvar *disks*)
+
+(defstruct (store-extent
+             (:area :wired))
+  store-base
+  virtual-base
+  size
+  wired-p
+  type)
+
+(defvar *paging-disk*)
+(defvar *extent-table*)
+
+(defconstant +n-physical-buddy-bins+ 32)
+(defconstant +buddy-bin-size+ 16)
+
+(defconstant +boot-information-boot-uuid-offset+ 0)
+(defconstant +boot-information-physical-buddy-bins-offset+ 16)
+
+(defun boot-uuid (offset)
+  (check-type offset (integer 0 15))
+  (sys.int::memref-unsigned-byte-8 *boot-information-page* offset))
+
+(defun register-disk (device n-sectors sector-size max-transfer read-fn write-fn)
+  (when (> sector-size +4k-page-size+)
+    (debug-write-line "Ignoring device with sector size larger than 4k."))
+  (let* ((disk (make-disk :device device
+                          :sector-size sector-size
+                          :n-sectors n-sectors
+                          :max-transfer max-transfer
+                          :read-fn read-fn
+                          :write-fn write-fn))
+         (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
+                   ;; I guess this could happen on strange devices with sector sizes > 4k.
+                   (error "Unable to allocate memory when examining device ~S!" device)))
+         (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
+    (setf *disks* (sys.int::cons-in-area disk *disks* :wired))
+    ;; Read first 4k, figure out what to do with it.
+    (or (funcall read-fn device 0 (ceiling +4k-page-size+ sector-size) page-addr)
+        (progn
+          (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
+          (error "Unable to read first sector on device ~S!" device)))
+    ;; Search for a Mezzanine header here.
+    ;; TODO: Scan for partition maps.
+    (when (and
+           (not *paging-disk*)
+           ;; Match magic.
+           (loop
+              for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+              for offset from 0
+              do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
+                   (return nil))
+              finally (return t))
+           ;; Match boot UUID.
+           (loop
+              for offset from 0 below 16
+              do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
+                                 (boot-uuid offset)))
+                   (return nil))
+              finally (return t)))
+      (debug-write-line "Found boot image!")
+      (setf *paging-disk* disk)
+      ;; Initialize the extent table.
+      (setf *extent-table* '())
+      (dotimes (i (sys.int::memref-unsigned-byte-32 (+ page-addr 36) 0))
+        (let* ((addr (+ page-addr 80 (* i 32)))
+               (flags (sys.int::memref-unsigned-byte-64 addr 3)))
+          (setf *extent-table*
+                (sys.int::cons-in-area
+                 (make-store-extent :store-base (sys.int::memref-unsigned-byte-64 addr 0)
+                                    :virtual-base (sys.int::memref-unsigned-byte-64 addr 1)
+                                    :size (sys.int::memref-unsigned-byte-64 addr 2)
+                                    :wired-p (logbitp 3 flags)
+                                    :type (ecase (ldb (byte 3 0) flags)
+                                            (0 :pinned)
+                                            (1 :pinned-2g)
+                                            (2 :dynamic)
+                                            (3 :dynamic-cons)
+                                            (4 :nursery)
+                                            (6 :control-stack)
+                                            (7 :binding-stack)))
+                 *extent-table*
+                 :wired)))))
+    ;; Release the pages.
+    (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))
+
+(defvar *vm-lock*)
+
+(defconstant +page-table-present+        #x001)
+(defconstant +page-table-write+          #x002)
+(defconstant +page-table-user+           #x004)
+(defconstant +page-table-write-through+  #x008)
+(defconstant +page-table-cache-disabled+ #x010)
+(defconstant +page-table-accessed+       #x020)
+(defconstant +page-table-dirty+          #x040)
+(defconstant +page-table-page-size+      #x080)
+(defconstant +page-table-global+         #x100)
+(defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
+
+(defun wait-for-page-via-interrupt (interrupt-frame extent address)
+  (declare (ignore interrupt-frame))
+  (with-mutex (*vm-lock*)
+    ;; Examine the page table, if there's a present entry then the page
+    ;; was mapped while acquiring the VM lock. Just return.
+    (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+          (pml4e (ldb (byte 9 39) address))
+          (pdpe (ldb (byte 9 30) address))
+          (pde (ldb (byte 9 21) address))
+          (pte (ldb (byte 9 12) address)))
+      (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 cr3 pml4e)))
+        ;; No PDP. Allocate one.
+        (let* ((frame (or (allocate-physical-pages 1)
+                          (progn (debug-write-line "Aiee. No memory.")
+                                 (loop))))
+               (addr (+ +physical-map-base+ (ash frame 12))))
+          (dotimes (i 512)
+            (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+          (setf (sys.int::memref-unsigned-byte-64 cr3 pml4e) (logior (ash frame 12)
+                                                                     +page-table-present+
+                                                                     +page-table-write+))))
+      (let ((pdp (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 cr3 pml4e) +page-table-address-mask+))))
+        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdp pdpe)))
+          ;; No PDir. Allocate one.
+          (let* ((frame (or (allocate-physical-pages 1)
+                            (progn (debug-write-line "Aiee. No memory.")
+                                   (loop))))
+                 (addr (+ +physical-map-base+ (ash frame 12))))
+            (dotimes (i 512)
+              (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+            (setf (sys.int::memref-unsigned-byte-64 pdp pdpe) (logior (ash frame 12)
+                                                                      +page-table-present+
+                                                                      +page-table-write+))))
+        (let ((pdir (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdp pdpe) +page-table-address-mask+))))
+          (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdir pde)))
+            ;; No PT. Allocate one.
+            (let* ((frame (or (allocate-physical-pages 1)
+                              (progn (debug-write-line "Aiee. No memory.")
+                                     (loop))))
+                   (addr (+ +physical-map-base+ (ash frame 12))))
+              (dotimes (i 512)
+                (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+              (setf (sys.int::memref-unsigned-byte-64 pdir pde) (logior (ash frame 12)
+                                                                        +page-table-present+
+                                                                        +page-table-write+))))
+          (let ((pt (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdir pde) +page-table-address-mask+))))
+            (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pt pte)))
+              ;; No page allocated. Allocate a page and read the data.
+              (let* ((frame (or (allocate-physical-pages 1)
+                                (progn (debug-write-line "Aiee. No memory.")
+                                       (loop))))
+                     (addr (+ +physical-map-base+ (ash frame 12))))
+                (debug-write-line "Reading page...")
+                (or (funcall (disk-read-fn *paging-disk*)
+                             (disk-device *paging-disk*)
+                             (* (truncate (+ (store-extent-store-base extent)
+                                             (- address (store-extent-virtual-base extent)))
+                                          +4k-page-size+)
+                                (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                             (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                             addr)
+                    (progn (debug-write-line "Unable to read page from disk")
+                           (loop)))
+                (setf (sys.int::memref-unsigned-byte-64 pt pte) (logior (ash frame 12)
+                                                                        +page-table-present+
+                                                                        +page-table-write+))))))))))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
@@ -450,9 +615,18 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
   (initialize-i8259)
   (initialize-physical-allocator)
   (initialize-threads)
+  (when (not (boundp '*vm-lock*))
+    (setf *vm-lock* (make-mutex "Global VM Lock")))
   (sys.int::%sti)
   (initialize-debug-serial #x3F8 4 38400)
+  ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
   (debug-write-line "Hello, Debug World!")
+  (setf *disks* '()
+        *paging-disk* nil)
   (initialize-ata)
-  (make-thread #'main :name "Main thread")
+  (when (not *paging-disk*)
+    (debug-write-line "Could not find boot device. Sorry.")
+    (loop))
+  ;; Load the extent table.
+  (make-thread #'sys.int::initialize-lisp :name "Main thread")
   (finish-initial-thread))

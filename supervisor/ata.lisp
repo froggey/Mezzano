@@ -55,7 +55,8 @@
   irq
   current-channel
   (irq-cvar (make-condition-variable "ATA IRQ Notifier"))
-  irq-delivered)
+  irq-delivered
+  hotunplug)
 
 (defstruct (ata-device
              (:area :wired))
@@ -105,7 +106,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
   t)
 
 (defun ata-detect-drive (controller channel)
-  (let ((buf (sys.int::make-simple-vector 256)))
+  (let ((buf (sys.int::make-simple-vector 256 :wired)))
     (with-mutex ((ata-controller-access-lock controller))
       ;; Select the device.
       (when (not (ata-select-device controller channel))
@@ -132,6 +133,9 @@ Returns true when the bits are equal, false when the timeout expires or if the d
         (when (not success)
           (debug-write-line "Timeout while waiting for DRQ during IDENTIFY.")
           (return-from ata-detect-drive)))
+      ;; Read the status register to clear the pending interrupt flag.
+      (sys.int::io-port/8 (+ (ata-controller-command controller)
+                             +ata-register-status+))
       ;; Read data.
       (dotimes (i 256)
         ;; IDENTIFY data from the drive is big-endian, byteswap.
@@ -139,21 +143,23 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                             +ata-register-data+))))
           (setf (svref buf i) (logior (ash (logand data #xFF) 8)
                                       (ash data -8))))))
-    (setf *ata-devices*
-          (sys.int::cons-in-area
-           (make-ata-device :controller controller
-                            :channel channel
-                            ;; Check for large sector drives.
-                            :block-size (if (and (logbitp 14 (svref buf 106))
-                                                 (not (logbitp 13 (svref buf 106))))
-                                            (logior (ash (svref buf 117) 16)
-                                                    (svref buf 118))
-                                            512)
-                            ;; TODO: LBA48 support.
-                            :sector-count (logior (ash (svref buf 60) 16)
-                                                  (svref buf 61)))
-           *ata-devices*
-           :wired))))
+    (let ((device (make-ata-device :controller controller
+                                   :channel channel
+                                   ;; Check for large sector drives.
+                                   :block-size (if (and (logbitp 14 (svref buf 106))
+                                                        (not (logbitp 13 (svref buf 106))))
+                                                   (logior (ash (svref buf 117) 16)
+                                                           (svref buf 118))
+                                                   512)
+                                   ;; TODO: LBA48 support.
+                                   :sector-count (logior (ash (svref buf 60) 16)
+                                                         (svref buf 61)))))
+      (setf *ata-devices*
+            (sys.int::cons-in-area
+             device
+             *ata-devices*
+             :wired))
+      (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
@@ -218,7 +224,8 @@ This is used to implement the INTRQ_Wait state."
     (loop
        (condition-wait (ata-controller-irq-cvar controller)
                        (ata-controller-access-lock controller))
-       (when (ata-controller-irq-delivered controller)
+       (when (or (ata-controller-irq-delivered controller)
+                 (ata-controller-hotunplug controller))
          (return)))))
 
 (defun ata-pio-data-in (device count mem-addr)
@@ -227,6 +234,9 @@ This is used to implement the INTRQ_Wait state."
     (loop
        ;; HPIOI0: INTRQ_wait
        (ata-intrq-wait device)
+       (when (ata-controller-hotunplug controller)
+         (debug-write-line "Pending PIO read aborted due to device hot-unplug.")
+         (return-from ata-pio-data-in nil))
        ;; HPIOI1: Check_Status
        (multiple-value-bind (drq timed-out)
            (ata-check-status device)
@@ -276,6 +286,9 @@ This is used to implement the INTRQ_Wait state."
          (incf mem-addr 2))
        ;; HPIOO2: INTRQ_Wait
        (ata-intrq-wait device)
+       (when (ata-controller-hotunplug controller)
+         (debug-write-line "Pending PIO read aborted due to device hot-unplug.")
+         (return-from ata-pio-data-out nil))
        ;; Return to HPIOO0.
        (decf count))))
 
@@ -344,14 +357,22 @@ This is used to implement the INTRQ_Wait state."
       (debug-write-line "No devices on ata controller.")
       (return-from init-ata-controller))
     (debug-write-line "Probing ata controller.")
+    ;; Enable controller interrupts.
     (i8259-hook-irq irq 'ata-irq-handler) ; fixme: should clear pending irqs?
     (i8259-unmask-irq irq)
+    (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)
+    ;; Probe drives.
     (ata-detect-drive controller :master)
-    (ata-detect-drive controller :slave)
-    ;; Enable controller interrupts.
-    (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
+    (ata-detect-drive controller :slave)))
 
 (defun initialize-ata ()
+  (when (boundp '*ata-devices*)
+    ;; Abort any pending commands.
+    (dolist (dev *ata-devices*)
+      (let ((controller (ata-device-controller dev)))
+        (with-mutex ((ata-controller-access-lock controller))
+          (setf (ata-controller-hotunplug controller) t)
+          (condition-notify (ata-controller-irq-cvar controller))))))
   (setf *ata-devices* '())
   (init-ata-controller +ata-compat-primary-command+ +ata-compat-primary-control+ +ata-compat-primary-irq+)
   (init-ata-controller +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+))

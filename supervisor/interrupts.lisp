@@ -41,7 +41,11 @@
 
 (defun unhandled-interrupt (interrupt-frame info name)
   (declare (ignore interrupt-frame info))
-  (error "Unhandled ~A interrupt." name))
+  (sys.int::%sti)
+  (debug-write-string "Unhandled ")
+  (debug-write-string name)
+  (debug-write-line " interrupt.")
+  (loop))
 
 ;;; Mid-level interrupt handlers, called by the low-level assembly code.
 
@@ -84,8 +88,39 @@
 (defun sys.int::%general-protection-fault-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "general protection fault"))
 
+;;; Bits in the page-fault error code.
+(defconstant +page-fault-error-present+ 0
+  "If set, the fault was caused by a page-level protection violation.
+If clear, the fault was caused by a non-present page.")
+(defconstant +page-fault-error-write+ 1
+  "If set, the fault was caused by a write.
+If clear, the fault was caused by a read.")
+(defconstant +page-fault-error-user+ 2
+  "If set, the fault occured in user mode.
+If clear, the fault occured in supervisor mode.")
+(defconstant +page-fault-error-reserved-violation+ 3
+  "If set, the fault was caused by a reserved bit violation in a page directory.")
+(defconstant +page-fault-error-instruction+ 4
+  "If set, the fault was caused by an instruction fetch.")
+
 (defun sys.int::%page-fault-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "page fault"))
+  (sys.int::%sti)
+  (let* ((fault-addr (sys.int::%cr2))
+         (extent (dolist (extent *extent-table*)
+                   (when (and (<= (store-extent-virtual-base extent) fault-addr)
+                              (< fault-addr (+ (store-extent-virtual-base extent)
+                                               (store-extent-size extent))))
+                     (return extent)))))
+    (cond ((or (not extent)
+               (logbitp +page-fault-error-present+ info)
+               (logbitp +page-fault-error-user+ info)
+               (logbitp +page-fault-error-reserved-violation+ info))
+           (unhandled-interrupt interrupt-frame info "page fault"))
+          (t ;; Non-present page in extent.
+           (when (store-extent-wired-p extent)
+             (unhandled-interrupt interrupt-frame info "non-present page fault in wired area"))
+           (debug-write-line "Page fault in accessible page.")
+           (wait-for-page-via-interrupt interrupt-frame extent fault-addr)))))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "math fault"))
@@ -184,6 +219,7 @@
 
 ;;; Introspection.
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun interrupt-frame-register-offset (register)
   (ecase register
     (:ss   5)
@@ -206,6 +242,35 @@
     (:r13 -12)
     (:r14 -13)
     (:r15 -14)))
+)
+
+(define-compiler-macro interrupt-frame-raw-register (&whole whole frame register)
+  (let ((offset (ignore-errors (interrupt-frame-register-offset register))))
+    (if offset
+        `(sys.int::memref-signed-byte-64 (interrupt-frame-pointer ,frame)
+                                         ,offset)
+        whole)))
+
+(define-compiler-macro (setf interrupt-frame-raw-register) (&whole whole value frame register)
+  (let ((offset (ignore-errors (interrupt-frame-register-offset register))))
+    (if offset
+        `(setf (sys.int::memref-signed-byte-64 (interrupt-frame-pointer ,frame)
+                                               ,offset)
+               ,value)
+        whole)))
+
+(define-compiler-macro interrupt-frame-value-register (&whole whole frame register)
+  (let ((offset (ignore-errors (interrupt-frame-register-offset register))))
+    (if offset
+        `(sys.int::memref-t (interrupt-frame-pointer ,frame) ,offset)
+        whole)))
+
+(define-compiler-macro (setf interrupt-frame-value-register) (&whole whole value frame register)
+  (let ((offset (ignore-errors (interrupt-frame-register-offset register))))
+    (if offset
+        `(setf (sys.int::memref-t (interrupt-frame-pointer ,frame) ,offset)
+               ,value)
+        whole)))
 
 (defun interrupt-frame-pointer (frame)
   (sys.int::%array-like-ref-t frame 0))
