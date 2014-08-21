@@ -588,6 +588,7 @@
     "supervisor/thread.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/entry.lisp"
+    "supervisor/physical.lisp"
 )
   "These files are loaded into the compiler environment so other source
 files will be compiled correctly.")

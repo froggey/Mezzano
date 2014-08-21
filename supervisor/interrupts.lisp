@@ -29,6 +29,8 @@
 (defun initialize-interrupts ()
   "Called when the system is booted to reset all user interrupt handlers."
   ;; Avoid high-level array/seq functions.
+  ;; fixme: allocation should be done once (by the cold-gen?)
+  ;; but the reset should be done every boot.
   (setf *user-interrupt-handlers* (sys.int::make-simple-vector 256 :wired))
   (dotimes (i 256)
     (setf (svref *user-interrupt-handlers* i) nil)))
@@ -153,7 +155,10 @@
 
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
+  ;; fixme: allocation should be done once (by the cold-gen?)
+  ;; but the reset should be done every boot.
   (setf *i8259-handlers* (sys.int::make-simple-vector 256 :wired)
+        ;; fixme: do at cold-gen time.
         *i8259-spinlock* :unlocked)
   (dotimes (i 16)
     (setf (svref *i8259-handlers* i) nil))

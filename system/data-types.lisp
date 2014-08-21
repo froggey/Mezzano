@@ -6,6 +6,7 @@
 (defconstant +array-type-size+ 6)
 (defconstant +array-length-shift+ 8)
 (defconstant +array-length-size+ 56)
+(defconstant +array-like-mark-bit+ #b10)
 
 (defconstant +tag-fixnum-000+    #b0000)
 ;;#b0001
@@ -98,8 +99,13 @@
 (defconstant +object-tag-unbound-value+           #b110101)
 (defconstant +object-tag-function-reference+      #b110110)
 (defconstant +object-tag-interrupt-frame+         #b110111)
+;; Conses get an object header when allocated in a non-cons area, purely
+;; to allow heap walking. The header is two words long, with the length
+;; field containing 0 and the second header word containing 0.
+;; Cons values always point to the pair of pointers, never to the header.
+(defconstant +object-tag-cons+                    #b111000)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-interrupt-frame+)
+(defconstant +last-misc-object-tag+ +object-tag-cons+)
 ;;#b111000
 ;;#b111001
 ;;#b111010

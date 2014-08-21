@@ -3,13 +3,17 @@
 
 (in-package :cold-generator)
 
-(defparameter *source-files*
+(defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
     "supervisor/ata.lisp"
-    "supervisor/thread.lisp"))
+    "supervisor/thread.lisp"
+    "supervisor/physical.lisp"))
+
+(defparameter *source-files*
+  '("cold-start.lisp"))
 
 
   #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
@@ -119,26 +123,6 @@
                                (* sys.int::+fref-entry-point+ 8)))))
   "Code for the undefined function thunk.")
 
-(defparameter *small-static-area-size* (* 2 1024 1024))
-(defparameter *large-static-area-size* (* 6 1024 1024))
-(defparameter *dynamic-area-semispace-limit* (* 4 1024 1024))
-
-(defparameter *static-area-base*  #x0000200000)
-(defparameter *static-area-size*  (- #x0080000000 *static-area-base*))
-(defparameter *dynamic-area-base* #x0080000000)
-(defparameter *dynamic-area-size* #x0080000000) ; 2GB
-(defparameter *stack-area-base*   #x0100000000)
-(defparameter *stack-area-size*   #x0040000000) ; 1GB
-(defparameter *linear-map*        #x8000000000)
-(defparameter *physical-load-address* #x0000200000)
-
-(defvar *static-offset*)
-(defvar *dynamic-offset*)
-(defvar *stack-offset*)
-
-(defvar *static-data*)
-(defvar *dynamic-data*)
-
 (defvar *symbol-table*)
 (defvar *reverse-symbol-table*)
 ;; Hash-table mapping function names to function references.
@@ -153,61 +137,89 @@
 (defvar *function-map*)
 (defvar *pending-fixups*)
 
-(defun allocate (word-count &optional (area :dynamic))
-  (when (oddp word-count) (incf word-count))
-  (ecase area
-    (:dynamic
-     (prog1 (+ (truncate *dynamic-area-base* 8) *dynamic-offset*)
-       (incf *dynamic-offset* word-count)
-       (when (> *dynamic-offset* (truncate (/ *dynamic-area-size* 2) 8))
-         (error "Allocation of ~S words exceeds dynamic area size." word-count))))
-    (:static
-     (let ((address (+ (truncate *static-area-base* 8) *static-offset* 2)))
-       (incf *static-offset* (+ word-count 2))
-       (when (> *static-offset* (truncate *static-area-size* 8))
-         (error "Allocation of ~S words exceeds static area size." word-count))
-       (setf (ldb (byte 1 1) (word (- address 1))) 1
-             (word (- address 2)) word-count)
-       address))))
+(defvar *default-general-allocation-area* :dynamic)
+(defvar *default-cons-allocation-area* :dynamic-cons)
+(defvar *default-pinned-allocation-area* :pinned)
 
-(defstruct stack
-  style
-  base
+(defconstant +small-area-size+ (* 2 1024 1024))
+(defconstant +small-area-limit+ (* 256 1024))
+
+(defstruct area
+  type
+  address
+  data
   size
-  value)
+  bump
+  largep
+  finishedp)
 
-(defun allocate-stack (style size)
-  (check-type style (member :control :binding))
-  ;; Force page alignment.
-  (incf size #xFFF)
-  (setf size (logand size (lognot #xFFF)))
-  (let ((stack (prog1 (make-stack :style style
-                                  :base (+ *stack-area-base* (* *stack-offset* 8))
-                                  :size size)
-                 (incf *stack-offset* (truncate size 8))
-                 (when (> (* *stack-offset* 8) *stack-area-size*)
-                   (error "Allocation of ~S words exceeds stack area size." size))))
-        (info (allocate 2 :static)))
-    (setf (word info) (make-fixnum (stack-base stack))
-          (word (1+ info)) (make-fixnum size))
-    (setf (stack-value stack) (make-value info sys.int::+tag-cons+))
-    stack))
+(defvar *2g-allocation-bump*)
+(defvar *allocation-bump*)
+(defvar *area-list*)
 
-(defun storage-info-for-address (address)
+(defun align-up (value boundary)
+  (incf value (1- boundary))
+  (- value (rem value boundary)))
+
+(defun create-area (type is-large &optional (size +small-area-size+))
+  (check-type type (member :nursery :control-stack :binding-stack
+                           :wired :wired-2g
+                           :pinned :pinned-2g
+                           :dynamic :dynamic-cons))
+  (setf size (align-up size #x1000))
+  (let ((area (make-area :type type
+                         :address (if (member type '(:wired-2g :pinned-2g))
+                                      (prog1 *2g-allocation-bump*
+                                        (setf *2g-allocation-bump* (align-up (+ *2g-allocation-bump* #x1000)
+                                                                             #x200000)))
+                                      (prog1 *allocation-bump*
+                                        ;; Dynamic areas are semispaces and require twice as much memory.
+                                        (setf *allocation-bump* (align-up (+ *allocation-bump* (* size (if (member type '(:nursery :dynamic :dynamic-cons)) 2 1)))
+                                                                          #x200000))))
+                         :data (make-array size :element-type '(unsigned-byte 8))
+                         :size size
+                         :bump 0
+                         :largep is-large
+                         :finishedp nil)))
+    (push area *area-list*)
+    area))
+
+(defun finish-area (area)
+  (setf (area-finishedp area) t))
+
+(defun fetch-area (type largep)
+  (dolist (area *area-list*)
+    (when (and (eql (area-type area) type)
+               (eql (area-largep area) largep)
+               (not (area-finishedp area)))
+      (return area))))
+
+(defun allocate (word-count &optional area)
+  (check-type area (member nil
+                           :wired :wired-2g
+                           :pinned :pinned-2g
+                           :dynamic :dynamic-cons))
+  (when (oddp word-count) (incf word-count))
+  (setf area (or area *default-general-allocation-area*))
+  (let* ((size (* word-count 8))
+         (is-large (> size +small-area-limit+))
+         (info (fetch-area area is-large)))
+    (when (or (not info) (< (- (area-size info) (area-bump info)) size))
+      ;; No space left in this area. Finish it and create a new one.
+      (when info
+        (finish-area info))
+      (setf info (create-area area is-large (align-up size +small-area-size+))))
+    (let ((address (+ (area-address info) (area-bump info))))
+      (incf (area-bump info) size)
+      (/ address 8))))
+
+(defun area-for-address (address)
   (let ((byte-address (* address 8)))
-    (cond ((<= *static-area-base* byte-address (+ *static-area-base* *static-area-size* -1))
-           (let ((offset (- address (truncate *static-area-base* 8))))
-             (assert (< offset *static-offset*))
-             (when (>= (* offset 8) (length *static-data*))
-               (adjust-array *static-data* (* (ceiling *static-offset* #x40000) #x200000)))
-             (values offset *static-data*)))
-          ((<= *dynamic-area-base* byte-address (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
-           (let ((offset (- address (truncate *dynamic-area-base* 8))))
-             (assert (< offset *dynamic-offset*))
-             (when (>= (* offset 8) (length *dynamic-data*))
-               (adjust-array *dynamic-data* (* (ceiling *dynamic-offset* #x40000) #x200000)))
-             (values offset *dynamic-data*)))
-          (t (error "Unknown address #x~X.~%" address)))))
+    (dolist (area *area-list*
+             (error "Unknown address #x~X.~%" address))
+      (when (<= (area-address area) byte-address (1- (+ (area-address area) (area-size area))))
+        (return (values (/ (- byte-address (area-address area)) 8)
+                        (area-data area)))))))
 
 (defvar *word-locks*)
 
@@ -218,21 +230,20 @@
   (when (gethash address *word-locks*)
     (error "Attempted to write locked word at ~X~%" address))
   (multiple-value-bind (offset data-vector)
-      (storage-info-for-address address)
+      (area-for-address address)
     (setf (ub64ref/le data-vector (* offset 8)) new-value)))
 
 (defun word (address)
   (multiple-value-bind (offset data-vector)
-      (storage-info-for-address address)
+      (area-for-address address)
     (ub64ref/le data-vector (* offset 8))))
 
-(defun compile-lap-function (code &key (area :static) extra-symbols constant-values (position-independent t))
+(defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t))
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (let ((base-address (if position-independent
                           0
-                          (ecase area
-                            (:static
-                             (+ *static-area-base* (* *static-offset* 8) 16))))))
+                          (+ (area-address (fetch-area area nil))
+                             (area-bump (fetch-area area nil))))))
     (multiple-value-bind (mc constants fixups symbols gc-info)
         (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
           (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
@@ -305,9 +316,9 @@
 (defun unbound-value ()
   (make-value *unbound-value-address* sys.int::+tag-object+))
 
-(defun store-string (string)
-  (let ((object-address (allocate 6 :static))
-        (data-address (allocate (1+ (ceiling (length string) 8)) :static)))
+(defun store-string (string &optional area)
+  (let ((object-address (allocate 6 area))
+        (data-address (allocate (1+ (ceiling (length string) 8)) area)))
     ;; String container
     (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
           (word (+ object-address 1)) (make-value data-address sys.int::+tag-object+)
@@ -332,11 +343,12 @@
         (error "Symbol ~A::~A does not exist."
                package
                name))
-      (let ((address (allocate 6 :static)))
+      ;; Symbols are always wired.
+      (let ((address (allocate 6 :wired)))
         ;; fixme, keywords should be constant.
         (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
-              (word (+ address 1)) (make-value (store-string name)
-                                         sys.int::+tag-object+)
+              (word (+ address 1)) (make-value (store-string name :wired)
+                                               sys.int::+tag-object+)
               (word (+ address 2)) (make-value (symbol-address package "KEYWORD") sys.int::+tag-object+)
               (word (+ address 3)) (if (string= package "KEYWORD")
                                        (make-value address sys.int::+tag-object+)
@@ -349,13 +361,13 @@
 ;; fixme, nil and t should be constant.
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
-  (let ((nil-value (allocate 6 :static))
-        (t-value (allocate 6 :static))
-        (keyword-keyword (allocate 6 :static))
-        (cl-keyword (allocate 6 :static))
-        (unbound-val (allocate 2 :static))
-        (unbound-tls-val (allocate 2 :static))
-        (undef-fn (compile-lap-function *undefined-function-thunk*)))
+  (let ((nil-value (allocate 6 :wired-2g))
+        (t-value (allocate 6 :wired-2g))
+        (keyword-keyword (allocate 6 :wired))
+        (cl-keyword (allocate 6 :wired))
+        (unbound-val (allocate 2 :wired-2g))
+        (unbound-tls-val (allocate 2 :wired-2g))
+        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired-2g)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -372,28 +384,28 @@
           *unbound-value-address* unbound-val
           *unbound-tls-slot-address* unbound-tls-val)
     (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
-          (word (+ nil-value 1)) (make-value (store-string "NIL")
+          (word (+ nil-value 1)) (make-value (store-string "NIL" :wired)
                                        sys.int::+tag-object+) ; name
           (word (+ nil-value 2)) (make-value cl-keyword sys.int::+tag-object+) ; package
           (word (+ nil-value 3)) (make-value nil-value sys.int::+tag-object+) ; value
           (word (+ nil-value 4)) (make-value nil-value sys.int::+tag-object+) ; function
           (word (+ nil-value 5)) (make-value nil-value sys.int::+tag-object+)) ; plist
     (setf (word (+ t-value 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ t-value 1)) (make-value (store-string "T")
+          (word (+ t-value 1)) (make-value (store-string "T" :wired)
                                      sys.int::+tag-object+)
           (word (+ t-value 2)) (make-value cl-keyword sys.int::+tag-object+)
           (word (+ t-value 3)) (make-value t-value sys.int::+tag-object+)
           (word (+ t-value 4)) (make-value nil-value sys.int::+tag-object+)
           (word (+ t-value 5)) (make-value nil-value sys.int::+tag-object+))
     (setf (word (+ keyword-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ keyword-keyword 1)) (make-value (store-string "KEYWORD")
+          (word (+ keyword-keyword 1)) (make-value (store-string "KEYWORD" :wired)
                                      sys.int::+tag-object+)
           (word (+ keyword-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
           (word (+ keyword-keyword 3)) (make-value keyword-keyword sys.int::+tag-object+)
           (word (+ keyword-keyword 4)) (make-value nil-value sys.int::+tag-object+)
           (word (+ keyword-keyword 5)) (make-value nil-value sys.int::+tag-object+))
     (setf (word (+ cl-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ cl-keyword 1)) (make-value (store-string "COMMON-LISP")
+          (word (+ cl-keyword 1)) (make-value (store-string "COMMON-LISP" :wired)
                                      sys.int::+tag-object+)
           (word (+ cl-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
           (word (+ cl-keyword 3)) (make-value cl-keyword sys.int::+tag-object+)
@@ -402,13 +414,15 @@
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
     (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
 
-(defun write-image (name entry-fref initial-process idt-size idt-pointer)
+(defun write-image (name entry-fref initial-thread idt-size idt-pointer)
+  (write *area-list* :length 50)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
     ;; Image header.
-    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
+    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0))
+          (store-base #x1000))
       ;; Magic.
       (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
                :start1 0)
@@ -421,13 +435,16 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 2)
+      (setf (ub16ref/le header 34) 5)
       ;; Number of extents.
-      (setf (ub32ref/le header 36) 4)
+      (setf (ub32ref/le header 36) (length *area-list*))
       ;; Entry fref.
       (setf (ub64ref/le header 40) entry-fref)
-      ;; Initial process.
-      (setf (ub64ref/le header 48) initial-process)
+      ;; Initial thread.
+      (setf (ub64ref/le header 48) initial-thread)
+      ;; NIL.
+      (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                               sys.int::+tag-object+))
       ;; System IDT info.
       (setf (ub16ref/le header 64) idt-size
             (ub64ref/le header 66) idt-pointer)
@@ -435,67 +452,38 @@
                (setf (ub64ref/le header (+ 80 (* id 32) 0)) store-base
                      (ub64ref/le header (+ 80 (* id 32) 8)) virtual-base
                      (ub64ref/le header (+ 80 (* id 32) 16)) size
-                     (ub64ref/le header (+ 80 (* id 32) 32)) flags)))
-        ;; The static area extent.
-        (extent 0
-                #x1000
-                *static-area-base*
-                (+ *small-static-area-size* *large-static-area-size*)
-                0)
-        ;; The dynamic area extent (newspace).
-        (extent 1
-                (+ #x1000
-                   *small-static-area-size*
-                   *large-static-area-size*)
-                *dynamic-area-base*
-                *dynamic-area-semispace-limit*
-                0)
-        ;; The dynamic area extent (oldspace).
-        (extent 2
-                (+ #x1000
-                   *small-static-area-size*
-                   *large-static-area-size*
-                   *dynamic-area-semispace-limit*)
-                (+ *dynamic-area-base* (/ *dynamic-area-size* 2))
-                *dynamic-area-semispace-limit*
-                0)
-        ;; The stack area extent.
-        (extent 3
-                (+ #x1000
-                   *small-static-area-size*
-                   *large-static-area-size*
-                   (* *dynamic-area-semispace-limit* 2))
-                *stack-area-base*
-                (* (1+ (ceiling *stack-offset* #x40000)) #x200000)
-                0))
+                     (ub64ref/le header (+ 80 (* id 32) 24)) flags)))
+        (loop
+           for i from 0
+           for area in *area-list*
+           do (extent i
+                      store-base
+                      (area-address area)
+                      (area-size area)
+                      (logior
+                       ;; Wired bit.
+                       ;; Initial control & bindings stacks are wired.
+                       (if (member (area-type area)
+                                   '(:wired :wired-2g :control-stack :binding-stack))
+                           #b1000
+                           0)
+                       ;; Type bits.
+                       (ecase (area-type area)
+                         ((:wired    :pinned)    #b000)
+                         ((:wired-2g :pinned-2g) #b001)
+                         (:dynamic               #b010)
+                         (:dynamic-cons          #b011)
+                         (:nursery               #b100)
+                         (:control-stack         #b110)
+                         (:binding-stack         #b111))))
+             (incf store-base (area-size area))))
       ;; Write it out.
       (write-sequence header s))
-    ;; Touch the very end of the image, to make it the right size.
-    (file-position s (1- (+ #x1000
-                            *small-static-area-size*
-                            *large-static-area-size*
-                            (* *dynamic-area-semispace-limit* 2)
-                            (* (1+ (ceiling *stack-offset* #x40000)) #x200000))))
-    (write-byte 0 s)
-    ;; First, the static area.
-    (file-position s #x1000)
-    (write-sequence *static-data* s)
-    ;; Then, the dynamic area.
-    (file-position s (+ #x1000
-                        *small-static-area-size*
-                        *large-static-area-size*))
-    (write-sequence *dynamic-data* s))
+    ;; Write areas.
+    (loop
+       for area in *area-list*
+       do (write-sequence (area-data area) s)))
   (values))
-
-(defun total-image-size ()
-  (+ (* (/ *small-static-area-size* 8) 2)
-     (* (/ *large-static-area-size* 8) 2)
-     (/ (* *dynamic-area-semispace-limit* 2) 8)
-     (* (1+ (ceiling *stack-offset* #x40000)) #x40000)))
-
-(defun image-data-size ()
-  (+ (* (ceiling *static-offset* #x40000) #x40000)
-     (* (ceiling *dynamic-offset* #x40000) #x40000)))
 
 (defun array-header (tag length)
   (logior (ash tag sys.int::+array-type-shift+)
@@ -506,33 +494,34 @@
   (check-type high (unsigned-byte 32))
   (dpb high (byte 32 32) low))
 
-(defun create-initial-thread ()
-  (let* ((address (allocate 512 :static))
-         (control-stack-size (* 16 1024))
-         (control-stack (allocate-stack :control control-stack-size))
-         (binding-stack-size 1024)
-         (binding-stack (allocate-stack :binding binding-stack-size)))
+(defun create-thread (name &key control-stack-size binding-stack-size (initial-state :runnable) (preemption-disable-depth 0) (foothold-disable-depth 0))
+  (check-type initial-state (member :active :runnable :sleeping :dead))
+  (let* ((address (allocate 512 :wired))
+         (control-stack (create-area :control-stack nil (* control-stack-size 8)))
+         (binding-stack (create-area :binding-stack nil (* binding-stack-size 8))))
     ;; Array tag.
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
-    (setf (word (+ address 1)) (make-value (store-string "Initial stack group")
+    (setf (word (+ address 1)) (make-value (store-string name)
                                            sys.int::+tag-object+))
     ;; State.
-    (setf (word (+ address 2)) (make-value (symbol-address "ACTIVE" "KEYWORD")
+    (setf (word (+ address 2)) (make-value (symbol-address (symbol-name initial-state) "KEYWORD")
                                            sys.int::+tag-object+))
     ;; Lock.
     (setf (word (+ address 3)) (make-value (symbol-address "UNLOCKED" "KEYWORD")
                                            sys.int::+tag-object+))
     ;; Control stack.
-    (setf (word (+ address 4)) (stack-value control-stack))
+    ;(setf (word (+ address 4)) (stack-value control-stack)) FIXME
     ;; Control stack pointer.
-    (setf (word (+ address 5)) (+ (stack-base control-stack) control-stack-size))
+    (setf (word (+ address 5)) (+ (area-address control-stack)
+                                  (area-size control-stack)))
     ;; Binding stack.
-    (setf (word (+ address 6)) (stack-value binding-stack))
+    ;(setf (word (+ address 6)) (stack-value binding-stack)) FIXME
     ;; Binding stack pointer.
-    (setf (word (+ address 7)) (+ (stack-base binding-stack) binding-stack-size))
+    (setf (word (+ address 7)) (+ (area-address binding-stack)
+                                  (area-size binding-stack)))
     ;; Preemption disable depth.
-    (setf (word (+ address 8)) (make-fixnum 1))
+    (setf (word (+ address 8)) (make-fixnum preemption-disable-depth))
     ;; Preemption pending.
     (setf (word (+ address 9)) (make-value (symbol-address "NIL" "COMMON-LISP")
                                            sys.int::+tag-object+))
@@ -542,8 +531,18 @@
     ;; Prev.
     (setf (word (+ address 11)) (make-value (symbol-address "NIL" "COMMON-LISP")
                                             sys.int::+tag-object+))
-    (setf (cold-symbol-value 'sys.int::*initial-thread*)
-          (make-value address sys.int::+tag-object+))))
+    ;; foothold disable depth.
+    (setf (word (+ address 12)) (make-fixnum foothold-disable-depth))
+    (make-value address sys.int::+tag-object+)))
+
+(defun create-initial-thread ()
+  (setf (cold-symbol-value 'sys.int::*initial-thread*)
+        (create-thread "Initial thread"
+                       :control-stack-size (* 16 1024)
+                       :binding-stack-size 1024
+                       :initial-state :active
+                       :preemption-disable-depth 1
+                       :foothold-disable-depth 1)))
 
 (defun canonical-symbol-package (symbol)
   (when (keywordp symbol)
@@ -622,9 +621,9 @@
 ;; Ugh.
 (defun load-compiler-builtins ()
   (sys.c::save-compiler-builtins "%%compiler-builtins.llf")
-  (load-source-file "%%compiler-builtins.llf" t))
+  (load-source-file "%%compiler-builtins.llf" t t))
 
-(defun save-ub1-vector (vec &optional (area :dynamic))
+(defun save-ub1-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 64)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-bit+ (length vec)))
     (dotimes (i (ceiling (length vec) 64))
@@ -636,7 +635,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub2-vector (vec &optional (area :dynamic))
+(defun save-ub2-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 32)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-2+ (length vec)))
     (dotimes (i (ceiling (length vec) 32))
@@ -648,7 +647,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub4-vector (vec &optional (area :dynamic))
+(defun save-ub4-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 16)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-4+ (length vec)))
     (dotimes (i (ceiling (length vec) 16))
@@ -660,7 +659,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub8-vector (vec &optional (area :dynamic))
+(defun save-ub8-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 8)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-8+ (length vec)))
     (dotimes (i (ceiling (length vec) 8))
@@ -672,7 +671,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub16-vector (vec &optional (area :dynamic))
+(defun save-ub16-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 4)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-16+ (length vec)))
     (dotimes (i (ceiling (length vec) 4))
@@ -684,7 +683,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub32-vector (vec &optional (area :dynamic))
+(defun save-ub32-vector (vec &optional area)
   (let ((address (allocate (1+ (ceiling (length vec) 2)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-32+ (length vec)))
     (dotimes (i (ceiling (length vec) 2))
@@ -696,7 +695,7 @@
         (setf (word (+ address 1 i)) value)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-ub64-vector (vec &optional (area :dynamic))
+(defun save-ub64-vector (vec &optional area)
   (let ((address (allocate (1+ (length vec)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-unsigned-byte-64+ (length vec)))
     (iter (for x in-sequence vec)
@@ -704,7 +703,7 @@
           (setf (word (+ address i)) x))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-simple-vector (vec &optional (area :dynamic))
+(defun save-simple-vector (vec &optional area)
   (let ((address (allocate (1+ (length vec)) area)))
     (setf (word address) (array-header sys.int::+object-tag-array-t+ (length vec)))
     (iter (for x in-sequence vec)
@@ -712,35 +711,35 @@
           (setf (word (+ address i)) (save-object x area)))
     (make-value address sys.int::+tag-object+)))
 
-(defun save-object (object &optional (area :dynamic))
+(defun save-object (object &optional area)
   (etypecase object
     ((signed-byte 63) (make-fixnum object))
     (string
      (let ((value (gethash object *string-dedup-table*)))
        (unless value
-         (setf value (make-value (store-string object)
+         (setf value (make-value (store-string object area)
                                  sys.int::+tag-object+))
          (setf (gethash object *string-dedup-table*) value))
        value))
-    (cons (vcons (save-object (car object))
-                 (save-object (cdr object))))
+    (cons (vcons (save-object (car object) area)
+                 (save-object (cdr object) area)))
     (symbol (make-value (symbol-address (symbol-name object)
                                         (canonical-symbol-package object))
                         sys.int::+tag-object+))
     ((vector (unsigned-byte 1))
-     (save-ub1-vector object :static))
+     (save-ub1-vector object area))
     ((vector (unsigned-byte 2))
-     (save-ub2-vector object :static))
+     (save-ub2-vector object area))
     ((vector (unsigned-byte 4))
-     (save-ub4-vector object :static))
+     (save-ub4-vector object area))
     ((vector (unsigned-byte 8))
-     (save-ub8-vector object :static))
+     (save-ub8-vector object area))
     ((vector (unsigned-byte 16))
-     (save-ub16-vector object :static))
+     (save-ub16-vector object area))
     ((vector (unsigned-byte 32))
-     (save-ub32-vector object :static))
+     (save-ub32-vector object area))
     ((vector (unsigned-byte 64))
-     (save-ub64-vector object :static))
+     (save-ub64-vector object area))
     ((vector t)
      (save-simple-vector object area))))
 
@@ -748,8 +747,8 @@
   (multiple-value-bind (tree data)
       (with-open-file (s path)
         (build-unicode:generate-unifont-table s))
-    (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-object tree :static))
-    (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :static))))
+    (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-object tree :pinned))
+    (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :pinned))))
 
 ;; Handlers for the defined CPU exceptions, and a bool indicating if they take
 ;; an error code or not.
@@ -928,7 +927,7 @@ setup code into the supervisor.
 The bootloader provides a per-cpu GDT & TSS."
   ;; For maximum flexibility, make the IDT as large as possible.
   (let* ((idt-size 256)
-         (idt (allocate (1+ (* idt-size 2)) :static))) ; IDT entries are 16 bytes.
+         (idt (allocate (1+ (* idt-size 2)) :wired))) ; IDT entries are 16 bytes.
     ;; Create IDT.
     ;; IDT entries in 64-bit mode are 128 bits long, there is no ub128 vector type,
     ;; so a doubled-up ub64 vector is used instead.
@@ -947,10 +946,10 @@ The bootloader provides a per-cpu GDT & TSS."
                                    for i from 32 below idt-size
                                    collect (create-user-interrupt-isr i)))
            (common-code (compile-lap-function *common-interrupt-code*
-                                              :area :static ; ### should be :support.
+                                              :area :wired-2g
                                               :position-independent nil))
            (common-user-code (compile-lap-function *common-user-interrupt-code*
-                                                   :area :static ; ### should be :support.
+                                                   :area :wired-2g
                                                    :position-independent nil
                                                    :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))))))
       (loop
@@ -959,7 +958,7 @@ The bootloader provides a per-cpu GDT & TSS."
          when isr do
            ;; Assemble the ISR and update the IDT entry
            (let* ((addr (compile-lap-function isr
-                                              :area :static ; ### should be :support.
+                                              :area :wired-2g
                                               :position-independent nil
                                               :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
                                                                    (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))))
@@ -969,12 +968,10 @@ The bootloader provides a per-cpu GDT & TSS."
     (values (1- (* idt-size 16)) (+ (* idt 8) 8))))
 
 (defun make-image (image-name &key extra-source-files)
-  (let ((*word-locks* (make-hash-table))
-        (*static-offset* 0)
-        (*dynamic-offset* 0)
-        (*stack-offset* 0)
-        (*static-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
-        (*dynamic-data* (make-array #x200000 :element-type '(unsigned-byte 8) :adjustable t))
+  (let ((*2g-allocation-bump* #x200000)
+        (*allocation-bump* #x100000000)
+        (*area-list* '())
+        (*word-locks* (make-hash-table))
         (*pending-fixups* '())
         (*symbol-table* (make-hash-table :test 'equal))
         (*reverse-symbol-table* (make-hash-table))
@@ -989,7 +986,8 @@ The bootloader provides a per-cpu GDT & TSS."
                               (iter (for sym in-package :system external-only t)
                                     (collect (symbol-name sym)))
                               :test #'string=))
-        idt-size idt-pointer)
+        idt-size idt-pointer
+        boot-area)
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
@@ -1004,6 +1002,7 @@ The bootloader provides a per-cpu GDT & TSS."
     ;;        this should be a vector of callable functions, not evalable forms.
     (let ((*load-time-evals* '()))
       (load-compiler-builtins)
+      (load-source-files *supervisor-source-files* t t)
       (load-source-files *source-files* t)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*cold-toplevel-forms*))
     ;; Certain cold LLF files are special and must be deferred until after the
@@ -1041,7 +1040,15 @@ The bootloader provides a per-cpu GDT & TSS."
             #+nil sys.int::*unifont-bmp* #+nil sys.int::*unifont-bmp-data*
             #+nil sys.int::*unicode-info* #+nil sys.int::*unicode-name-store*
             #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
+            sys.int::*bsp-idle-thread*
+            sys.int::*boot-area-base* sys.int::*boot-area-bump*
             ))
+    (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
+          (create-thread "BSP idle thread"
+                         :control-stack-size 1024
+                         :binding-stack-size 128
+                         :preemption-disable-depth 1
+                         :foothold-disable-depth 1))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
@@ -1053,31 +1060,33 @@ The bootloader provides a per-cpu GDT & TSS."
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
+    ;; Locate & finish any :wired area.
+    (dolist (area *area-list*)
+      (when (eql (area-type area) :wired)
+        (finish-area area)))
+    ;; And create an empty wired area for allocating from.
+    (setf boot-area (create-area :wired nil))
     ;; Initialize GC twiddly bits and stuff.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value 'sys.int::*newspace-offset* *dynamic-offset*)
-      (set-value 'sys.int::*semispace-size* (/ *dynamic-area-semispace-limit* 8))
-      (set-value 'sys.int::*newspace* *dynamic-area-base*)
-      (set-value 'sys.int::*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
-      (set-value 'sys.int::*large-static-area* *static-area-base*)
-      (set-value 'sys.int::*large-static-area-hint* 0)
-      (set-value 'sys.int::*small-static-area* (+ *static-area-base* *large-static-area-size*))
-      (set-value 'sys.int::*small-static-area-hint* 0)
-      (set-value 'sys.int::*static-mark-bit* 0)
-      (set-value 'sys.int::*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
-      (set-value 'sys.int::*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
-      (set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
-      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+"))))
-    ;; Write the boundary tag for the static area's free part.
-    ;; This does not write the boundary tag for the small static area!
-    (let ((*static-offset* (+ *static-offset* 2)))
-      (format t "~:D/~:D words free in static space.~%"
-              (- (truncate *large-static-area-size* 8) (- *static-offset* 2))
-              (truncate *large-static-area-size* 8))
-      (setf (word (+ (truncate *static-area-base* 8) *static-offset* -2)) (- (truncate *large-static-area-size* 8) *static-offset*)
-            (word (+ (truncate *static-area-base* 8) *static-offset* -1)) #b100))
+      ;(set-value 'sys.int::*newspace-offset* *dynamic-offset*)
+      ;(set-value 'sys.int::*semispace-size* (/ *dynamic-area-semispace-limit* 8))
+      ;(set-value 'sys.int::*newspace* *dynamic-area-base*)
+      ;(set-value 'sys.int::*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
+      ;(set-value 'sys.int::*large-static-area* *static-area-base*)
+      ;(set-value 'sys.int::*large-static-area-hint* 0)
+      ;(set-value 'sys.int::*small-static-area* (+ *static-area-base* *large-static-area-size*))
+      ;(set-value 'sys.int::*small-static-area-hint* 0)
+      ;(set-value 'sys.int::*static-mark-bit* 0)
+      ;(set-value 'sys.int::*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
+      ;(set-value 'sys.int::*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
+      ;(set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
+      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
+      (set-value 'sys.int::*2g-allocation-bump* *2g-allocation-bump*)
+      (set-value 'sys.int::*allocation-bump* *allocation-bump*)
+      (set-value 'sys.int::*boot-area-base* (area-address boot-area))
+      (set-value 'sys.int::*boot-area-bump* (area-bump boot-area)))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name
@@ -1086,8 +1095,8 @@ The bootloader provides a per-cpu GDT & TSS."
                  initial-thread
                  idt-size idt-pointer)))
 
-(defun load-source-files (files set-fdefinitions)
-  (mapc (lambda (f) (load-source-file f set-fdefinitions)) files))
+(defun load-source-files (files set-fdefinitions &optional wired)
+  (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
 
 (defvar *load-should-set-fdefinitions*)
 
@@ -1116,7 +1125,7 @@ The bootloader provides a per-cpu GDT & TSS."
 
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
-         (address (allocate (1+ length) :static)))
+         (address (allocate (1+ length))))
     (setf (word address) (array-header sys.int::+object-tag-bignum+ length))
     (dotimes (i length)
       (setf (word (+ address 1 i)) (ldb (byte 64 (* i 64)) value)))
@@ -1166,7 +1175,6 @@ The bootloader provides a per-cpu GDT & TSS."
 
 (defun load-string (stream)
   (let* ((len (load-integer stream))
-         (object-address (allocate 6 :static))
          (string-data (make-array len :element-type '(unsigned-byte 32)))
          (min-width 1))
     ;; Read all characters and figure out how wide the data vector must be.
@@ -1177,17 +1185,23 @@ The bootloader provides a per-cpu GDT & TSS."
                              (cond ((>= ch (expt 2 16)) 4)
                                    ((>= ch (expt 2 8)) 2)
                                    (t 1))))))
-    (let ((data-value (ecase min-width
-                        (4 (save-ub32-vector string-data :static))
-                        (2 (save-ub16-vector string-data :static))
-                        (1 (save-ub8-vector string-data :static)))))
-      ;; String container
-      (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
-            (word (+ object-address 1)) data-value
-            (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-            (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
-            (word (+ object-address 4)) (make-fixnum len))
-      (make-value object-address sys.int::+tag-object+))))
+    (let* ((as-string (map 'string #'code-char string-data))
+           (existing (gethash as-string *string-dedup-table*)))
+      (unless existing
+        (let ((object-address (allocate 6))
+              (data-value (ecase min-width
+                            (4 (save-ub32-vector string-data))
+                            (2 (save-ub16-vector string-data))
+                            (1 (save-ub8-vector string-data)))))
+          ;; String container
+          (setf (word (+ object-address 0)) (array-header sys.int::+object-tag-string+ 1)
+                (word (+ object-address 1)) data-value
+                (word (+ object-address 2)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+                (word (+ object-address 3)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+)
+                (word (+ object-address 4)) (make-fixnum len))
+          (setf existing (make-value object-address sys.int::+tag-object+)
+                (gethash as-string *string-dedup-table*) existing)))
+      existing)))
 
 (defun load-string* (stream)
   (let* ((len (load-integer stream))
@@ -1207,7 +1221,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
-          (t (let ((address (allocate 7 :static)))
+          (t (let ((address (allocate 7)))
                (setf (word address) (array-header sys.int::+object-tag-structure-object+ 6))
                (setf (word (+ address 1)) 0) ; uninitialized definition
                (setf (word (+ address 2)) name*)
@@ -1271,10 +1285,17 @@ The bootloader provides a per-cpu GDT & TSS."
   (make-value (symbol-address name package) sys.int::+tag-object+))
 
 (defun vcons (car cdr)
-  (let ((address (allocate 2)))
-    (setf (word address) car
-          (word (1+ address)) cdr)
-    (make-value address sys.int::+tag-cons+)))
+  (cond ((eql *default-cons-allocation-area* :dynamic-cons)
+         (let ((address (allocate 2 :dynamic-cons)))
+           (setf (word address) car
+                 (word (1+ address)) cdr)
+           (make-value address sys.int::+tag-cons+)))
+        (t
+         (let ((address (allocate 4 *default-cons-allocation-area*)))
+           (setf (word address) (array-header sys.int::+object-tag-cons+ 0)
+                 (word (+ address 2)) car
+                 (word (+ address 3)) cdr)
+           (make-value (+ address 2) sys.int::+tag-cons+)))))
 
 (defun vlist (&rest args)
   (if args
@@ -1307,7 +1328,7 @@ The bootloader provides a per-cpu GDT & TSS."
          (total-size (+ (* (ceiling (+ mc-length 16) 16) 2)
                         n-constants
                         (ceiling gc-info-length 8)))
-         (address (allocate total-size :static)))
+         (address (allocate total-size *default-pinned-allocation-area*)))
     ;; Pop constants off.
     (decf (fill-pointer stack) n-constants)
     ;; Read mc bytes.
@@ -1385,9 +1406,8 @@ The bootloader provides a per-cpu GDT & TSS."
 Tag with +TAG-OBJECT+."
   (let ((fref (gethash name *fref-table*)))
     (unless fref
-      ;; They don't need to go in the dynamic area, but they'll probably last forever.
-      ;; So they go in the static area for now.
-      (setf fref (allocate 4 :static))
+      ;; Frefs are wired, just like symbols.
+      (setf fref (allocate 4 :wired))
       (setf (word (+ fref 0)) (array-header sys.int::+object-tag-function-reference+ 0)
             (word (+ fref 1)) (generate-fref-name name)
             (word (+ fref 2)) (vintern "NIL" "COMMON-LISP")
@@ -1544,9 +1564,12 @@ Tag with +TAG-OBJECT+."
            (make-value (resolve-setf-symbol (second name)) sys.int::+tag-object+))
           (t (error "Unknown function name ~S." name)))))
 
-(defun load-source-file (file set-fdefinitions)
+(defun load-source-file (file set-fdefinitions &optional wired)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
-        (*load-should-set-fdefinitions* set-fdefinitions))
+        (*load-should-set-fdefinitions* set-fdefinitions)
+        (*default-general-allocation-area* (if wired :wired :dynamic))
+        (*default-cons-allocation-area* (if wired :wired :dynamic-cons))
+        (*default-pinned-allocation-area* (if wired :wired :pinned)))
     (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
                (or (not (probe-file llf-path))
                    (<= (file-write-date llf-path) (file-write-date file))))

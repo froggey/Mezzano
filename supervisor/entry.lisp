@@ -49,21 +49,26 @@
 
 (defvar *allocator-lock*)
 
+(defvar *2g-allocation-bump*)
+(defvar *allocation-bump*)
+
+(defvar sys.int::*boot-area-base*)
+(defvar sys.int::*boot-area-bump*)
+
 ;; TODO?
 (defmacro with-gc-deferred (&body body)
   `(progn
      ,@body))
 
 (defun %allocate-object (tag data size area)
-  (declare (ignore area))
+  (assert (eql area :wired))
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
+    (assert (<= (+ sys.int::*boot-area-bump* (* words 8)) #x200000))
     (with-symbol-spinlock (*allocator-lock*)
-      ;; Assume we have enough memory to do the allocation...
-      ;; And that the memory is already zero initialized.
-      (let ((addr (+ sys.int::*newspace* (ash sys.int::*newspace-offset* 3))))
-        (incf sys.int::*newspace-offset* words)
+      (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
+        (incf sys.int::*boot-area-bump* (* words 8))
         ;; Write array header.
         (setf (sys.int::memref-unsigned-byte-64 addr 0)
               (logior (ash tag sys.int::+array-type-shift+)
@@ -77,15 +82,17 @@
   (%allocate-object sys.int::+object-tag-structure-object+ size size area))
 
 (defun sys.int::cons-in-area (car cdr &optional area)
-  (declare (ignore area))
+  (assert (eql area :wired))
+  (assert (<= (+ sys.int::*boot-area-bump* (* 4 8)) #x200000))
   (with-symbol-spinlock (*allocator-lock*)
-    ;; Assume we have enough memory to do the allocation...
-    (let ((addr (+ sys.int::*newspace* (ash sys.int::*newspace-offset* 3))))
-      (incf sys.int::*newspace-offset* 2)
+    (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
+      (incf sys.int::*boot-area-bump* (* 4 8))
+      ;; Set header.
+      (setf (sys.int::memref-t addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
       ;; Set car/cdr.
-      (setf (sys.int::memref-t addr 0) car
-            (sys.int::memref-t addr 1) cdr)
-      (sys.int::%%assemble-value addr sys.int::+tag-cons+))))
+      (setf (sys.int::memref-t addr 2) car
+            (sys.int::memref-t addr 3) cdr)
+      (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))
 
 (defun stack-base (stack)
   (car stack))
@@ -95,11 +102,11 @@
 
 (defun %allocate-stack (style size)
   ;; Page align stacks.
-  (incf size #xFFF)
-  (setf size (logand size (lognot #xFFF)))
+  (incf size #x1FFFFF)
+  (setf size (logand size (lognot #x1FFFFF)))
   (let ((addr (with-symbol-spinlock (*allocator-lock*)
-                (prog1 sys.int::*stack-bump-pointer*
-                  (incf sys.int::*stack-bump-pointer* size)))))
+                (prog1 sys.int::*allocation-bump*
+                  (incf sys.int::*allocation-bump* (+ size #x200000))))))
     (sys.int::cons-in-area addr size :wired)))
 
 ;; TODO.
@@ -207,6 +214,26 @@
 
 (defun sys.int::generic->= (x y)
   (not (sys.int::generic-< x y)))
+
+;;; From SBCL 1.0.55
+(defun ceiling (number &optional (divisor 1))
+  ;; If the numbers do not divide exactly and the result of
+  ;; (/ NUMBER DIVISOR) would be positive then increment the quotient
+  ;; and decrement the remainder by the divisor.
+  (multiple-value-bind (tru rem) (truncate number divisor)
+    (if (and (not (zerop rem))
+             (if (minusp divisor)
+                 (minusp number)
+                 (plusp number)))
+        (values (+ tru 1) (- rem divisor))
+        (values tru rem))))
+
+(defun integer-length (integer)
+  (when (minusp integer) (setf integer (- integer)))
+  (do ((len 0 (1+ len)))
+      ((zerop integer)
+       len)
+    (setf integer (ash integer -1))))
 
 (defun sys.int::raise-undefined-function (fref)
   (debug-write-string "Undefined function ")
@@ -400,6 +427,8 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
 
 ;;; <<<<<<
 
+(defvar *boot-information-page*)
+
 (defun main ()
   (let ((thread (make-thread
                  (lambda ()
@@ -410,14 +439,16 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
     (debug-write-line "Attempting to interrupt thread.")
     (destroy-thread thread)))
 
-(defun sys.int::bootloader-entry-point ()
+(defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
+  (setf *boot-information-page* boot-information-page)
   ;; FIXME: Should be done by cold generator
   (setf *allocator-lock* :unlocked
         *tls-lock* :unlocked
         sys.int::*active-catch-handlers* 'nil)
   (initialize-interrupts)
   (initialize-i8259)
+  (initialize-physical-allocator)
   (initialize-threads)
   (sys.int::%sti)
   (initialize-debug-serial #x3F8 4 38400)

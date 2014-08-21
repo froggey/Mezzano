@@ -5,8 +5,9 @@
 (defvar *thread-run-queue-head*)
 (defvar *thread-run-queue-tail*)
 
-;; FIXME: This must be per cpu.
-(defvar *idle-thread*)
+;; FIXME: There must be one idle thread per cpu.
+;; The cold-generator creates an idle thread for the BSP.
+(defvar sys.int::*bsp-idle-thread*)
 
 ;; Thread object layout:
 ;;  0 name.
@@ -301,10 +302,10 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
                    (pop-run-queue))))
        (cond (next
               ;; Switch to thread.
-              (%lock-thread *idle-thread*)
+              (%lock-thread sys.int::*bsp-idle-thread*)
               (%lock-thread next)
               (setf (thread-state next) :active)
-              (%%switch-to-thread *idle-thread* next))
+              (%%switch-to-thread sys.int::*bsp-idle-thread* next))
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
@@ -314,11 +315,14 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     ;; FIXME: Patch up initial thread's stack objects.
     (setf *global-thread-lock* :unlocked)
     (setf *thread-run-queue-head* nil)
-    (setf *thread-run-queue-tail* nil))
-  (setf *idle-thread* (%make-thread #'idle-thread
-                                    :name "Initial Idle Thread"
-                                    :control-stack-size (* 4 1024)
-                                    :binding-stack-size 256)))
+    (setf *thread-run-queue-tail* nil)
+    ;; The idle thread starts of with an empty stack. Fix it.
+    (let ((rsp (thread-control-stack-pointer sys.int::*bsp-idle-thread*)))
+      (decf rsp 8)
+      (setf (sys.int::memref-signed-byte-64 rsp 0) (sys.int::%array-like-ref-signed-byte-64 #'idle-thread 0))
+      (decf rsp 8)
+      (setf (sys.int::memref-signed-byte-64 rsp 0) 0)
+      (setf (thread-control-stack-pointer sys.int::*bsp-idle-thread*) rsp))))
 
 (defun thread-yield ()
   (let ((current (current-thread)))
@@ -335,10 +339,10 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     ;; Return the current thread to the run queue and fetch the next thread.
     (with-symbol-spinlock (*global-thread-lock*)
       (when (and (eql (thread-state current) :runnable)
-                 (not (eql current *idle-thread*)))
+                 (not (eql current sys.int::*bsp-idle-thread*)))
         (push-run-queue current))
       (setf next (or (pop-run-queue)
-                     *idle-thread*)))
+                     sys.int::*bsp-idle-thread*)))
     ;; todo: reset preemption timer here.
     (when (eql next current)
       ;; Staying on the same thread, unlock and return.
@@ -380,11 +384,12 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
-  ;; Reenable interrupts.
-  (sys.lap-x86:sti)
-  ;; No value return, restoring RIP.
+  ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
+  ;; Reenable interrupts.
+  (sys.lap-x86:sti)
+  ;; Return, restoring RIP.
   (sys.lap-x86:ret))
 
 (defun establish-deferred-footholds (thread)
@@ -441,18 +446,13 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
-    (setf (thread-state thread) :active)
-    (setf (thread-foothold-disable-depth thread) 1)
-    (setf (thread-preemption-disable-depth thread) 1)))
+    (setf (thread-state thread) :active)))
 
 (defun finish-initial-thread ()
   "Called when the boot code is done with the initial thread."
   ;; The initial thread never dies, it just sleeps until the next boot.
   ;; The bootloader will partially wake it up, then initialize-initial-thread
   ;; will finish initialization.
-  ;; It's not a true thread, and doesn't appear in the all-threads list, and
-  ;; it is never preempted, so will never appear on any run-queue.
-  ;; It is kept live by the sys.int::*initial-thread* symbol.
   ;; The initial thread must finish with no values on the binding stack, and
   ;; all TLS slots initialized. This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
