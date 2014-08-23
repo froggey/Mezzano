@@ -535,8 +535,8 @@ VALUE may be nil to make the fref unbound."
   (declare (suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
           (return))
-     (assert (< (%%special-stack-pointer) target-special-stack-pointer))
-     (etypecase (memref-t (ash (%%special-stack-pointer) +n-fixnum-bits+) 0)
+     (assert (%%special-stack-pointer))
+     (etypecase (svref (%%special-stack-pointer) 1)
        (symbol
         (%%unbind))
        (simple-vector

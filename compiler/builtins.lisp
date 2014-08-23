@@ -1972,6 +1972,12 @@
         `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+)))
   (setf *r8-value* (list (gensym))))
 
+(defbuiltin (setf sys.int::%%special-stack-pointer) (value) ()
+  (load-in-r8 value t)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r8))
+  value)
+
 (defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) ()
   ;; Read the saved binding stack pointer from a block-info.
   (load-in-r8 block-info t)
@@ -1985,6 +1991,27 @@
   (smash-r8)
   (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
   (setf *r8-value* (list (gensym))))
+
+(defun push-special-stack (object value &optional (tmp :rbx) (tmp2 :r12))
+  (let ((slots (allocate-control-stack-slots 4)))
+    ;; Flush slots.
+    (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+array-length-shift+))
+          `(sys.lap-x86:mov64 (:stack ,(+ slots 2)) nil)
+          `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) nil)
+          `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) nil))
+    ;; Generate pointer.
+    (emit `(sys.lap-x86:lea64 ,tmp (:rbp ,(+ (control-stack-frame-offset (+ slots 3))
+                                             sys.int::+tag-object+))))
+    ;; Store bits.
+    (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) ,object)
+          `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) ,value))
+    ;; Store link.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 ,tmp2 (,+binding-stack-gs-offset+))
+          `(sys.lap-x86:mov64 (:stack ,(+ slots 2)) ,tmp2))
+    ;; Push.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) ,tmp))))
 
 ;;; TODO: Check for constants here.
 (defbuiltin sys.int::%%bind (symbol value) (t nil)
@@ -2003,22 +2030,12 @@
     (load-in-reg :r9 symbol t)
     (emit `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
-          has-tls-slot
-          ;; Save the old value on the binding stack.
-          ;; See also: http://www.sbcl.org/sbcl-internals/Binding-and-unbinding.html
-          ;; Bump binding stack.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
-          ;; Load binding stack pointer into RDX.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :rdx (,+binding-stack-gs-offset+))
-          ;; Read the old symbol value.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+))
-          ;; Store the old value on the stack.
-          `(sys.lap-x86:mov64 (:rdx 8) :r10)
-          ;; Store the symbol.
-          `(sys.lap-x86:mov64 (:rdx) :r9)))
+          has-tls-slot)
+    ;; Save the old value on the binding stack.
+    ;; Read the old symbol value.
+    `(sys.lap-x86:gs)
+    `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+))
+    (push-special-stack :r9 :r10))
   ;; Store new value.
   (load-in-r8 value t)
   (emit `(sys.lap-x86:gs)
@@ -2029,12 +2046,7 @@
 (defbuiltin sys.int::%%push-special-stack (a b) (t nil)
   (load-in-reg :r9 b t)
   (load-in-reg :r8 a t)
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:sub64 (,+binding-stack-gs-offset+) 16)
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 (:rax 8) :r9)
-        `(sys.lap-x86:mov64 (:rax 0) :r8))
+  (push-special-stack :r8 :r9)
   ''nil)
 
 (defbuiltin sys.int::%%unbind () (t nil)
@@ -2043,18 +2055,17 @@
   ;; Pop the stack & restore the old value.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 :r8 (:rax))
-        `(sys.lap-x86:mov64 :r9 (:rax 8))
+        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 ,(object-ea :rbx :slot 1))
+        `(sys.lap-x86:mov64 :r9 ,(object-ea :rbx :slot 2))
         `(sys.lap-x86:mov32 :edx ,(object-ea :r8 :slot -1))
         `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
         `(sys.lap-x86:and32 :edx #xFFFF)
         `(sys.lap-x86:gs)
         `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r9)
-        `(sys.lap-x86:mov64 (:rax 0) 0)
-        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
+        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :rbx))
   ''nil)
 
 (defbuiltin sys.int::%%disestablish-block-or-tagbody () (t nil)
@@ -2063,14 +2074,13 @@
   ;; Pop the stack & set env[offset] = NIL.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 :r8 (:rax 0))
-        `(sys.lap-x86:mov64 :rcx (:rax 8))
+        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r8 ,(object-ea :rbx :slot 1))
+        `(sys.lap-x86:mov64 :rcx ,(object-ea :rbx :slot 2))
         `(sys.lap-x86:mov64 ,(object-ea :r8 :index `(:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+)))) nil)
-        `(sys.lap-x86:mov64 (:rax 0) 0)
-        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16))
+        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :rbx))
   ''nil)
 
 (defbuiltin sys.int::%%disestablish-unwind-protect () (t nil)
@@ -2079,13 +2089,12 @@
   ;; Pop the stack & call the function with the environment object.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 :r13 (:rax 0))
-        `(sys.lap-x86:mov64 :rbx (:rax 8))
-        `(sys.lap-x86:mov64 (:rax 0) 0)
-        `(sys.lap-x86:mov64 (:rax 8) 0)
+        `(sys.lap-x86:mov64 :r8 (,+binding-stack-gs-offset+))
+        `(sys.lap-x86:mov64 :r13 ,(object-ea :r8 :slot 1))
+        `(sys.lap-x86:mov64 :rbx ,(object-ea :r8 :slot 2))
+        `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:add64 (,+binding-stack-gs-offset+) 16)
+        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r8)
         `(sys.lap-x86:xor32 :ecx :ecx)
         `(sys.lap-x86:call ,(object-ea :r13 :slot 0)))
   ''nil)
