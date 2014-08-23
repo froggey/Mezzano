@@ -100,13 +100,20 @@
 (defun stack-size (stack)
   (cdr stack))
 
-(defun %allocate-stack (style size)
-  ;; Page align stacks.
+(defun %allocate-stack (size)
+  ;; 2M align stacks.
   (incf size #x1FFFFF)
   (setf size (logand size (lognot #x1FFFFF)))
-  (let ((addr (with-symbol-spinlock (*allocator-lock*)
-                (prog1 sys.int::*allocation-bump*
-                  (incf sys.int::*allocation-bump* (+ size #x200000))))))
+  (let* ((addr (with-symbol-spinlock (*allocator-lock*)
+                 (prog1 sys.int::*allocation-bump*
+                   (incf sys.int::*allocation-bump* (+ size #x200000)))))
+         (extent (make-store-extent :store-base nil
+                                    :virtual-base addr
+                                    :size size
+                                    :wired-p nil
+                                    :type :stack
+                                    :zero-fill t)))
+    (setf *extent-table* (sys.int::cons-in-area extent *extent-table* :wired))
     (sys.int::cons-in-area addr size :wired)))
 
 ;; TODO.
@@ -416,8 +423,8 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
   (declare (suppress-ssp-checking))
   (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
           (return))
-     (assert (< (%%special-stack-pointer) target-special-stack-pointer))
-     (etypecase (memref-t (ash (%%special-stack-pointer) +n-fixnum-bits+) 0)
+     (assert (%%special-stack-pointer))
+     (etypecase (svref (%%special-stack-pointer) 1)
        (symbol
         (%%unbind))
        (simple-vector
@@ -446,7 +453,8 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
   virtual-base
   size
   wired-p
-  type)
+  type
+  zero-fill)
 
 (defvar *paging-disk*)
 (defvar *extent-table*)
@@ -503,7 +511,7 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
       ;; Initialize the extent table.
       (setf *extent-table* '())
       (dotimes (i (sys.int::memref-unsigned-byte-32 (+ page-addr 36) 0))
-        (let* ((addr (+ page-addr 80 (* i 32)))
+        (let* ((addr (+ page-addr 96 (* i 32)))
                (flags (sys.int::memref-unsigned-byte-64 addr 3)))
           (setf *extent-table*
                 (sys.int::cons-in-area
@@ -517,8 +525,7 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
                                             (2 :dynamic)
                                             (3 :dynamic-cons)
                                             (4 :nursery)
-                                            (6 :control-stack)
-                                            (7 :binding-stack)))
+                                            (5 :stack)))
                  *extent-table*
                  :wired)))))
     ;; Release the pages.
@@ -589,17 +596,20 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
                                 (progn (debug-write-line "Aiee. No memory.")
                                        (loop))))
                      (addr (+ +physical-map-base+ (ash frame 12))))
-                (debug-write-line "Reading page...")
-                (or (funcall (disk-read-fn *paging-disk*)
-                             (disk-device *paging-disk*)
-                             (* (truncate (+ (store-extent-store-base extent)
-                                             (- address (store-extent-virtual-base extent)))
-                                          +4k-page-size+)
-                                (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                             (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                             addr)
-                    (progn (debug-write-line "Unable to read page from disk")
-                           (loop)))
+                (cond ((store-extent-zero-fill extent)
+                       (dotimes (i 512)
+                         (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+                      (t (debug-write-line "Reading page...")
+                         (or (funcall (disk-read-fn *paging-disk*)
+                                      (disk-device *paging-disk*)
+                                      (* (truncate (+ (store-extent-store-base extent)
+                                                      (- address (store-extent-virtual-base extent)))
+                                                   +4k-page-size+)
+                                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                                      (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                                      addr)
+                             (progn (debug-write-line "Unable to read page from disk")
+                                    (loop)))))
                 (setf (sys.int::memref-unsigned-byte-64 pt pte) (logior (ash frame 12)
                                                                         +page-table-present+
                                                                         +page-table-write+))))))))))

@@ -20,15 +20,13 @@
 ;;      :dead     - the thread has exited or been killed and cannot run.
 ;;  2 lock
 ;;    Spinlock protecting access to the thread.
-;;  3 control stack
-;;    Stack object for the control stack.
-;;  4 control stack pointer
+;;  3 stack
+;;    Stack object for the stack.
+;;  4 stack pointer
 ;;    The thread's current RSP value. Not valid when :active or :dead. An SB64.
-;;  5 binding stack
-;;    Stack object for the binding stack.
-;;    Base address of the binding stack, a fixnum.
-;;  6 binding stack pointer
-;;    The thread's current binding stack pointer RSP value. An SB64.
+;;  5 unused
+;;  6 special stack pointer
+;;    The thread's current special stack pointer.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
 ;;  7 preemption-disable-depth
 ;;    Zero when the thread can be preempted, incremented each time the thread
@@ -78,10 +76,9 @@
   (field name                     0)
   (field state                    1 :type (member :active :runnable :sleeping :dead))
   (field lock                     2)
-  (field control-stack            3)
-  (field control-stack-pointer    4 :accessor sys.int::%array-like-ref-signed-byte-64)
-  (field binding-stack            5)
-  (field binding-stack-pointer    6 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field stack                    3)
+  (field stack-pointer            4 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field special-stack-pointer    6)
   (field preemption-disable-depth 7)
   (field preemption-pending       8)
   (field %next                    9)
@@ -198,28 +195,22 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   "Returns the thread object for the calling thread."
   (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
 
-(defun %make-thread (function &key name initial-bindings control-stack-size binding-stack-size)
+(defun %make-thread (function &key name initial-bindings stack-size)
   (check-type function (or function symbol))
   ;; Defer the GC until the thread object is created. Scanning a partially initialized thread
   ;; is bad news.
   (with-gc-deferred
     (let* ((thread (%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
-           (control-stack (%allocate-stack :control control-stack-size))
-           (binding-stack (%allocate-stack :binding binding-stack-size)))
+           (stack (%allocate-stack stack-size)))
       (setf (sys.int::%array-like-ref-t thread +thread-name+) name
             (sys.int::%array-like-ref-t thread +thread-state+) :runnable
             (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked
-            (sys.int::%array-like-ref-t thread +thread-control-stack+) control-stack
-            (sys.int::%array-like-ref-t thread +thread-binding-stack+) binding-stack
+            (sys.int::%array-like-ref-t thread +thread-stack+) stack
+            (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
             (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
             (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
             ;; Decremented by the trampoline when it calls the thread function.
             (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
-      ;; Clear the binding stack.
-      (dotimes (i (truncate (stack-size binding-stack) 8))
-        (setf (sys.int::memref-unsigned-byte-64 (stack-base binding-stack) i) 0))
-      (setf (sys.int::%array-like-ref-signed-byte-64 thread +thread-binding-stack-pointer+)
-            (+ (stack-base binding-stack) (stack-size binding-stack)))
       ;; Reset TLS slots.
       (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
         (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
@@ -238,9 +229,9 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
             #x037F) ; FCW
       (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
             #x00001F80) ; MXCSR
-      ;; Push initial state on the control stack.
+      ;; Push initial state on the stack.
       ;; This must match the frame %%switch-to-thread expects.
-      (let ((pointer (+ (stack-base control-stack) (stack-size control-stack))))
+      (let ((pointer (+ (stack-base stack) (stack-size stack))))
         (flet ((push-t (value)
                  (setf (sys.int::memref-t (decf pointer 8) 0) value))
                (push-ub64 (value)
@@ -252,16 +243,15 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
           ;; Saved frame pointer.
           (push-ub64 0))
         ;; Update the control stack pointer.
-        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-control-stack-pointer+)
+        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
               pointer))
       thread)))
 
-(defun make-thread (function &key name initial-bindings (control-stack-size (* 256 1024)) (binding-stack-size (* 8 1024)))
+(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
   (let ((thread (%make-thread function
                               :name name
                               :initial-bindings initial-bindings
-                              :control-stack-size control-stack-size
-                              :binding-stack-size binding-stack-size)))
+                              :stack-size stack-size)))
     (with-symbol-spinlock (*global-thread-lock*)
       (push-run-queue thread))
     thread))
@@ -280,7 +270,6 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
 
 (sys.int::define-lap-function %%thread-entry-trampoline ()
   (:gc :no-frame :layout #*1)
-  ;; The binding stack is empty.
   ;; The regular stack contains the function to call.
   (sys.lap-x86:pop :r8)
   (:gc :no-frame)
@@ -316,13 +305,13 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (setf *global-thread-lock* :unlocked)
     (setf *thread-run-queue-head* nil)
     (setf *thread-run-queue-tail* nil)
-    ;; The idle thread starts of with an empty stack. Fix it.
-    (let ((rsp (thread-control-stack-pointer sys.int::*bsp-idle-thread*)))
+    ;; The idle thread starts off with an empty stack. Fix it.
+    (let ((rsp (thread-stack-pointer sys.int::*bsp-idle-thread*)))
       (decf rsp 8)
       (setf (sys.int::memref-signed-byte-64 rsp 0) (sys.int::%array-like-ref-signed-byte-64 #'idle-thread 0))
       (decf rsp 8)
       (setf (sys.int::memref-signed-byte-64 rsp 0) 0)
-      (setf (thread-control-stack-pointer sys.int::*bsp-idle-thread*) rsp))))
+      (setf (thread-stack-pointer sys.int::*bsp-idle-thread*) rsp))))
 
 (defun thread-yield ()
   (let ((current (current-thread)))
@@ -362,18 +351,18 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   ;; Save fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Save control stack pointer.
+  ;; Save stack pointer.
   (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-control-stack-pointer+) :rsp)
+  (sys.lap-x86:mov64 (:object nil #.+thread-stack-pointer+) :rsp)
   ;; Switch threads.
   (sys.lap-x86:mov32 :ecx #.sys.int::+msr-ia32-gs-base+)
   (sys.lap-x86:mov64 :rax :r9)
   (sys.lap-x86:mov64 :rdx :r9)
   (sys.lap-x86:shr64 :rdx 32)
   (sys.lap-x86:wrmsr)
-  ;; Restore control stack pointer.
+  ;; Restore stack pointer.
   (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-control-stack-pointer+))
+  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-stack-pointer+))
   ;; Restore fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
@@ -417,7 +406,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
                      (%lock-thread thread)
                      (go AGAIN))
                    ;; Top stack element is the rbp, 2nd is return rip.
-                   (let* ((rsp (thread-control-stack-pointer thread))
+                   (let* ((rsp (thread-stack-pointer thread))
                           (rbp (sys.int::memref-signed-byte-64 rsp 0)))
                      ;; %%SWITCH-TO-THREAD is kind enough to clear rcx for us,
                      ;; so no thunk required.
@@ -430,7 +419,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
                      (setf (sys.int::memref-signed-byte-64 rsp 0)
                            (sys.int::%array-like-ref-signed-byte-64 (sys.int::%coerce-to-callable function) 0))
                      (setf (sys.int::memref-signed-byte-64 rsp -1) rbp)
-                     (setf (sys.int::%array-like-ref-signed-byte-64 thread +thread-control-stack-pointer+) (- rsp 8))))
+                     (setf (sys.int::%array-like-ref-signed-byte-64 thread +thread-stack-pointer+) (- rsp 8))))
                   ;; todo.
                   (:sleeping (error "Thread is sleeping."))
                   (:dead (error "Trying to interrupt dead thread."))))))))
@@ -453,7 +442,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   ;; The initial thread never dies, it just sleeps until the next boot.
   ;; The bootloader will partially wake it up, then initialize-initial-thread
   ;; will finish initialization.
-  ;; The initial thread must finish with no values on the binding stack, and
+  ;; The initial thread must finish with no values on the special stack, and
   ;; all TLS slots initialized. This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
     (sys.int::%cli)
