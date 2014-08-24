@@ -259,13 +259,6 @@
 (defun raise-stack-alignment-error ()
   (error "Stack was misaligned."))
 
-(defun endp (list)
-  (cond ((null list) t)
-        ((consp list) nil)
-        (t (error 'type-error
-                  :datum list
-                  :expected-type 'list))))
-
 (defun list (&rest args)
   args)
 

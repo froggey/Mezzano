@@ -498,3 +498,11 @@
                       (eql d (cdr tree)))
                  tree
                  (cons a d))))))
+
+(declaim (inline endp))
+(defun endp (list)
+  (cond ((null list) t)
+        ((consp list) nil)
+        (t (error 'type-error
+                  :datum list
+                  :expected-type 'list))))
