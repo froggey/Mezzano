@@ -66,8 +66,8 @@
                (*print-length* 5))
            (format t "  ~S: ~S~%" (first slot) (%struct-slot object i))))))
 
-(defun describe-stack-group (object stream)
-  (format stream "~S is a stack-group, with address ~X~%"
+(defun describe-thread (object stream)
+  (format stream "~S is a thread with address ~X~%"
           object (lisp-object-address object)))
 
 (defun describe-function-reference (object stream)
@@ -104,7 +104,7 @@
                       ((#.+object-tag-std-instance+
                         #.+object-tag-funcallable-instance+)
                        (describe-object object stream))
-                      (#.+object-tag-stack-group+
+                      (#.+object-tag-thread+
                        (describe-stack-group object stream))
                       (#.+object-tag-unbound-value+
                        (format stream "This is an unbound value marker.~%"))
