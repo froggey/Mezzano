@@ -36,5 +36,8 @@
   (funcall *debug-pesudostream* :write-char #\Newline)
   (funcall *debug-pesudostream* :force-output))
 
+(defun debug-start-line-p ()
+  (funcall *debug-pesudostream* :start-line-p))
+
 (defun debug-force-output ()
   (funcall *debug-pesudostream* :force-output))

@@ -108,6 +108,7 @@
 (defvar *debug-serial-rx-buffer-head*)
 (defvar *debug-serial-rx-buffer-tail*)
 (defvar *debug-serial-lock*)
+(defvar *serial-at-line-start*)
 
 (defmacro debug-fifo-push (value buffer buffer-size head tail)
   `(let ((next (1+ ,tail)))
@@ -259,12 +260,12 @@
              (return #\REPLACEMENT_CHARACTER))
            (setf leader (logior (ash leader 6)
                                 (logand byte #b00111111)))))
-       ;; Reject overlong forms and non-unicode values.
-       (when (or (and (< code #x80) (not (eql extra-bytes 0)))
-                 (and (< code #x800) (not (eql extra-bytes 1)))
-                 (and (< code #x10000) (not (eql extra-bytes 2)))
-                 (<= #xD800 code #xDFFF)
-                 (< #x10FFFF code))
+       ;; Reject overlong forms and non-unileader values.
+       (when (or (cond ((< leader #x80) (not (eql extra-bytes 0)))
+                       ((< leader #x800) (not (eql extra-bytes 1)))
+                       ((< leader #x10000) (not (eql extra-bytes 2))))
+                 (<= #xD800 leader #xDFFF)
+                 (< #x10FFFF leader))
          (return #\REPLACEMENT_CHARACTER))
        ;; Ignore CR characters.
        (unless (eql leader #x0D)
@@ -272,9 +273,11 @@
 
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
+    (setf *serial-at-line-start* nil)
     ;; FIXME: Should write all the bytes to the buffer in one go.
     ;; Other processes may interfere.
     (cond ((eql char #\Newline)
+           (setf *serial-at-line-start* t)
            ;; Turn #\Newline into CRLF
            (debug-serial-write-byte #x0D)
            (debug-serial-write-byte #x0A))
@@ -295,7 +298,7 @@
            (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code)))))))
 
 (defun debug-serial-write-string (string)
-  (dotimes (i (length string))
+  (dotimes (i (string-length string))
     (debug-serial-write-char (char string i))))
 
 (defun debug-serial-stream (op &optional arg)
@@ -304,12 +307,14 @@
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
-    (:force-output)))
+    (:force-output)
+    (:start-line-p *serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port irq baud)
   (setf *debug-serial-io-port* io-port
         *debug-serial-irq* irq
         *debug-serial-lock* :unlocked
+        *serial-at-line-start* t
         *debug-serial-tx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
         *debug-serial-tx-buffer-head* 0
         *debug-serial-tx-buffer-tail* 0
