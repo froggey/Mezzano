@@ -2030,11 +2030,11 @@
     (load-in-reg :r9 symbol t)
     (emit `(sys.lap-x86:mov64 :rax :r8)
           `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
-          has-tls-slot)
-    ;; Save the old value on the binding stack.
-    ;; Read the old symbol value.
-    `(sys.lap-x86:gs)
-    `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+))
+          has-tls-slot
+          ;; Save the old value on the binding stack.
+          ;; Read the old symbol value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+)))
     (push-special-stack :r9 :r10))
   ;; Store new value.
   (load-in-r8 value t)
