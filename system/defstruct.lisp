@@ -4,65 +4,6 @@
 
 (in-package :sys.int)
 
-(defvar *structure-type-type* nil)
-
-(defun make-struct-type (name slots parent area)
-  (let ((x (%make-struct 6 :static)))
-    (setf (%struct-slot x 0) *structure-type-type*
-	  (%struct-slot x 1) name
-	  (%struct-slot x 2) slots
-          (%struct-slot x 3) parent
-          (%struct-slot x 4) area
-          (%struct-slot x 5) nil)
-    x))
-
-(defun structure-name (object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (%struct-slot object 1))
-
-(defun structure-slots (object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (%struct-slot object 2))
-
-(defun structure-parent (object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (%struct-slot object 3))
-
-(defun structure-area (object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (%struct-slot object 4))
-
-(defun structure-class (object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (%struct-slot object 5))
-
-(defun (setf structure-class) (value object)
-  (unless (eq (%struct-slot object 0) *structure-type-type*)
-    (error 'type-error :datum object :expected-type 'structure-definition))
-  (setf (%struct-slot object 5) value))
-
-;;; Bootstrap the defstruct system.
-(defun bootstrap-defstruct ()
-  (setf *structure-type-type* nil
-        *structure-type-type* (make-struct-type 'structure-definition
-						'((name structure-name nil t t nil)
-						  (slots structure-slots nil t t nil)
-                                                  (parent structure-parent nil t t nil)
-                                                  (area structure-area nil t t nil)
-                                                  (class structure-class nil t nil nil))
-                                                nil
-                                                :static))
-  (setf (%struct-slot *structure-type-type* 0) *structure-type-type*)
-  (setf (get 'structure-definition 'structure-type) *structure-type-type*))
-
-(unless *structure-type-type*
-  (bootstrap-defstruct))
-
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun parse-defstruct-options (name-and-options)
@@ -387,7 +328,7 @@
                                            included-structure
                                            included-slot-descriptions))
 	   (struct-type (or (get name 'structure-type)
-                            (make-struct-type name slots included-structure area))))
+                            (make-struct-definition name slots included-structure area))))
       `(progn
 	 (eval-when (:compile-toplevel :load-toplevel :execute)
 	   (%defstruct ',struct-type))
@@ -517,20 +458,6 @@
                  constructors)
        ',name)))
 )
-
-(defun structure-type-p (object struct-type)
-  (when (structure-object-p object)
-    (do ((object-type (%struct-slot object 0) (structure-parent object-type)))
-        ;; Stop when the object-type stops being a structure-definition, not
-        ;; when it becomes NIL.
-        ;; This avoids a race condition in the GC when it is
-        ;; scavenging a partially initialized structure.
-        ((not (and (structure-object-p object-type)
-                   (eql (%struct-slot object-type 0)
-                        *structure-type-type*)))
-         nil)
-      (when (eq object-type struct-type)
-        (return t)))))
 
 (defun copy-structure (structure)
   (assert (structure-object-p structure) (structure) "STRUCTURE is not a structure!")

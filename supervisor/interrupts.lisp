@@ -13,7 +13,7 @@
   (check-type lock symbol)
   (let ((current-thread (gensym)))
     `(without-interrupts
-       (do ((,current-thread (sys.int::current-thread)))
+       (do ((,current-thread (current-thread)))
            ((sys.int::%cas-symbol-global-value ',lock
                                                :unlocked
                                                ,current-thread))
@@ -119,7 +119,7 @@ If clear, the fault occured in supervisor mode.")
           (t ;; Non-present page in extent.
            (when (store-extent-wired-p extent)
              (unhandled-interrupt interrupt-frame info "non-present page fault in wired area"))
-           (debug-write-line "Page fault in accessible page.")
+           ;(debug-write-line "Page fault in accessible page.")
            (wait-for-page-via-interrupt interrupt-frame extent fault-addr)))))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)

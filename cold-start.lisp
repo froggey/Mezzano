@@ -260,41 +260,6 @@
     (symbol (symbol-value form))
     (t form)))
 
-;;; Load bootloader-provided modules.
-(defun load-modules ()
-  (when *kboot-tag-list*
-    (flet ((p/8 (addr) (memref-unsigned-byte-8 (+ #x8000000000 addr) 0))
-           (p/16 (addr) (memref-unsigned-byte-16 (+ #x8000000000 addr) 0))
-           (p/32 (addr) (memref-unsigned-byte-32 (+ #x8000000000 addr) 0))
-           (p/64 (addr) (memref-unsigned-byte-64 (+ #x8000000000 addr) 0)))
-      (let ((addr *kboot-tag-list*)
-            ;; For sanity checking.
-            (max-addr (+ *kboot-tag-list* 1024)))
-        (loop (when (>= addr max-addr) (return))
-           (let ((type (p/32 (+ addr 0)))
-                 (size (p/32 (+ addr 4))))
-             (when (and (eql addr *kboot-tag-list*)
-                        (not (eql type +kboot-tag-core+)))
-               (format t "CORE tag not first in the list?~%")
-               (return))
-             (case type
-               (#.+kboot-tag-none+ (return))
-               (#.+kboot-tag-core+
-                (unless (eql addr *kboot-tag-list*)
-                  (format t "CORE tag not first in the list?~%")
-                  (return))
-                (setf max-addr (+ *kboot-tag-list* (p/32 (+ addr 16)))))
-               (#.+kboot-tag-module+
-                (let* ((address (p/64 (+ addr 8)))
-                       (size (p/32 (+ addr 16)))
-                       (array (make-array size
-                                          :element-type '(unsigned-byte 8)
-                                          :memory (+ #x8000000000 address)))
-                       (stream (mini-vector-stream array)))
-                  (format t "Loading KBoot module at ~X~%" address)
-                  (mini-load-llf stream))))
-             (incf addr (round-up size 8))))))))
-
 ;;; Used during cold-image bringup, various files will redefine packages before
 ;;; the package system is loaded.
 
@@ -315,8 +280,7 @@
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
 structures to exist, and for memory to be allocated, but not much beyond that."
-  (setf *next-symbol-tls-slot* 256
-        *array-types* #(t
+  (setf *array-types* #(t
                         fixnum
                         bit
                         (unsigned-byte 2)
@@ -341,18 +305,12 @@ structures to exist, and for memory to be allocated, but not much beyond that."
                         (complex short-float)
                         (complex long-float)
                         xmm-vector)
-        ;; Ugh! Set the small static area boundary tag.
-        (memref-unsigned-byte-64 *small-static-area* 0) (- (* 1 1024 1024) 2)
-        (memref-unsigned-byte-64 *small-static-area* 1) #b100
         *package* nil
         *cold-stream* (make-cold-stream)
         *terminal-io* *cold-stream*
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
         *debug-io* *cold-stream*
-        *screen-offset* (cons 0 0)
-        *cold-stream-screen* '(:serial #x3F8)
-        *keyboard-shifted* nil
         *early-initialize-hook* '()
         *initialize-hook* '()
         * nil
@@ -363,9 +321,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         / nil
         +++ nil
         ++ nil
-        + nil
-        *default-control-stack-size* 16384
-        *default-binding-stack-size* 512)
+        + nil)
   (setf *print-base* 10.
         *print-escape* t
         *print-readably* nil
@@ -375,9 +331,11 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
   ;; Initialize defstruct and patch up all the structure types.
-  (bootstrap-defstruct)
+  (setf (get 'sys.int::structure-definition 'sys.int::structure-type) sys.int::*structure-type-type*)
   (dotimes (i (length *initial-structure-obarray*))
-    (setf (%struct-slot (svref *initial-structure-obarray* i) 0) *structure-type-type*))
+    (let ((defn (svref *initial-structure-obarray* i)))
+      (setf (%struct-slot defn 0) *structure-type-type*)
+      (setf (get (structure-name defn) 'structure-type) defn)))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.
   (dotimes (i (length *initial-fref-obarray*))
@@ -415,104 +373,16 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*initial-fref-obarray*)
   (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
-  (gc)
+  ;(gc)
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()
-  (init-isa-pic)
-  (cold-stream-init)
-  (gc-init-system-memory)
-  (setf *cold-stream-log* (make-array 10000 :element-type 'character :adjustable t :fill-pointer 0))
   (mapc 'funcall *early-initialize-hook*)
-  (%sti)
-  (pci-device-scan)
   (write-line "Hello, world.")
-  (load-modules)
   (mapc 'funcall *initialize-hook*)
   (terpri)
   (write-char #\*)
   (write-char #\O)
   (write-char #\K)
   (terpri)
-  (setf *bootlog* *cold-stream-log*)
-  (makunbound '*cold-stream-log*)
-  (repl)
-  (loop (%hlt)))
-
-#+(or)(define-lap-function %%common-entry ()
-  (:gc :no-frame)
-  ;; This is the common entry code.
-  ;; The KBoot & GRUB setup code both jump here.
-  ;; The stack is not valid, the machine is in 64-bit mode with
-  ;; our page tables, GDT & IDT loaded.
-  ;; Calling this from Lisp is probably a bad idea.
-  ;; Preset the initial stack group.
-  (sys.lap-x86:mov64 :r8 (:constant *initial-stack-group*))
-  (sys.lap-x86:mov64 :r8 (:r8 #.(+ (- sys.int::+tag-object+) 8 (* sys.c::+symbol-value+ 8))))
-  (sys.lap-x86:mov64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-base+) 8) +tag-object+)))
-  (sys.lap-x86:add64 :csp (:r8 #.(- (* (1+ +stack-group-offset-control-stack-size+) 8) +tag-object+)))
-  ;; Clear binding stack.
-  (sys.lap-x86:mov64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-base+) 8) +tag-object+)))
-  (sys.lap-x86:mov64 :rcx (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-size+) 8) +tag-object+)))
-  (sys.lap-x86:sar64 :rcx 3)
-  (sys.lap-x86:xor32 :eax :eax)
-  (sys.lap-x86:rep)
-  (sys.lap-x86:stos64)
-  ;; Set the binding stack pointer.
-  (sys.lap-x86:mov64 (:r8 #.(- (* (1+ +stack-group-offset-binding-stack-pointer+) 8)
-                               +tag-object+))
-                     :rdi)
-  ;; Clear TLS binding slots.
-  (sys.lap-x86:lea64 :rdi (:r8 #.(- (* (1+ +stack-group-offset-tls-slots+) 8)
-                                    +tag-object+)))
-  (sys.lap-x86:mov64 :rax :unbound-tls-slot)
-  (sys.lap-x86:mov32 :ecx #.+stack-group-tls-slots-size+)
-  (sys.lap-x86:rep)
-  (sys.lap-x86:stos64)
-  ;; Initialize GS.
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:mov64 :rdx :r8)
-  (sys.lap-x86:sar64 :rdx 32)
-  (sys.lap-x86:mov64 :rcx #xC0000101)
-  (sys.lap-x86:wrmsr)
-  ;; Mark the SG as active.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:and64 (#.(+ (- +tag-object+)
-                           (ash (1+ +stack-group-offset-flags+)
-                                +n-fixnum-bits+)))
-                     #.(ash (lognot (1- (ash 1 +stack-group-state-size+)))
-                            (+ +stack-group-state-position+
-                               +n-fixnum-bits+)))
-  ;; SSE init.
-  ;; Set CR4.OSFXSR and CR4.OSXMMEXCPT.
-  (sys.lap-x86:movcr :rax :cr4)
-  (sys.lap-x86:or64 :rax #x00000600)
-  (sys.lap-x86:movcr :cr4 :rax)
-  ;; Clear CR0.EM and set CR0.MP.
-  (sys.lap-x86:movcr :rax :cr0)
-  (sys.lap-x86:and64 :rax -5)
-  (sys.lap-x86:or64 :rax #x00000002)
-  (sys.lap-x86:movcr :cr0 :rax)
-  ;; Clear FPU/SSE state.
-  (sys.lap-x86:push #x1F80)
-  (sys.lap-x86:ldmxcsr (:rsp))
-  (sys.lap-x86:add64 :rsp 8)
-  (sys.lap-x86:fninit)
-  ;; Clear frame pointer.
-  (sys.lap-x86:mov64 :cfp 0)
-  ;; Clear data registers.
-  (sys.lap-x86:xor32 :r8d :r8d)
-  (sys.lap-x86:xor32 :r9d :r9d)
-  (sys.lap-x86:xor32 :r10d :r10d)
-  (sys.lap-x86:xor32 :r11d :r11d)
-  (sys.lap-x86:xor32 :r12d :r12d)
-  (sys.lap-x86:xor32 :ebx :ebx)
-  ;; Prepare for call.
-  (sys.lap-x86:mov64 :r13 (:function initialize-lisp))
-  (sys.lap-x86:xor32 :ecx :ecx)
-  ;; Call the entry function.
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  ;; Crash if it returns.
-  here
-  (sys.lap-x86:ud2)
-  (sys.lap-x86:jmp here))
+  (repl))

@@ -10,50 +10,52 @@
     "supervisor/serial.lisp"
     "supervisor/ata.lisp"
     "supervisor/thread.lisp"
-    "supervisor/physical.lisp"))
+    "supervisor/physical.lisp"
+    "runtime/runtime.lisp"
+    "runtime/numbers.lisp"
+    "runtime/string.lisp"))
 
 (defparameter *source-files*
-  '("cold-start.lisp"))
-
-
-  #+nil'("kboot.lisp" ; ### must be before cold-start.lisp, for the constants.
-    "cold-start.lisp"
-    "system/gc.lisp"
+  '("cold-start.lisp"
+    "system/defstruct.lisp"
+    "system/early-cons.lisp"
+    "system/sequence.lisp"
     "system/runtime-array.lisp"
-    "system/runtime-numbers.lisp"
+    "system/array.lisp"
+    "system/printer.lisp"
+    "system/stuff.lisp"
     "system/runtime-support.lisp"
-    "system/stack-group.lisp"
+    "system/type.lisp"
     "system/setf.lisp"
     "system/string.lisp"
-    "system/type.lisp"
-    "system/sequence.lisp"
-    "system/array.lisp"
-    "system/numbers.lisp"
-    "system/defstruct.lisp"
     "system/hash-table.lisp"
-    "system/early-cons.lisp"
+    "system/runtime-numbers.lisp"
+    "system/numbers.lisp"
     "system/reader.lisp"
-    "system/backquote.lisp"
     "system/character.lisp"
-    "system/printer.lisp"
-    "cold-stream.lisp"
-    "system/load.lisp"
+    "system/backquote.lisp"
     "system/format.lisp"
-    "system/interrupt.lisp"
-    "memory.lisp"
-    "dump.lisp"
     "system/cons-compiler-macros.lisp"
     "system/defmacro.lisp"
     "system/basic-macros.lisp"
     "system/data-types.lisp"
     "system/parse.lisp"
-    "pci.lisp"
-    "framebuffer.lisp"
     "system/describe.lisp"
-    "system/stuff.lisp")
+))
+
+
+  #+nil'(
+    "system/gc.lisp"
+    "cold-stream.lisp"
+    "system/load.lisp"
+    "system/interrupt.lisp"
+    "memory.lisp"
+    "dump.lisp"
+    "pci.lisp"
+    "framebuffer.lisp")
 
 (defparameter *special-source-files*
-  '(#+nil("system/packages.lisp" sys.int::*package-system*)))
+  '(("system/packages.lisp" sys.int::*package-system*)))
 
 (defparameter *warm-source-files*
   '("system/closette.lisp"
@@ -178,7 +180,9 @@
                                                                           #x200000))))
                          :data (make-array size :element-type '(unsigned-byte 8))
                          :size size
-                         :bump 0
+                         :bump (if (eql type :stack)
+                                   size
+                                   0)
                          :largep is-large
                          :finishedp nil)))
     (push area *area-list*)
@@ -435,7 +439,7 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 8)
+      (setf (ub16ref/le header 34) 9)
       ;; Number of extents.
       (setf (ub32ref/le header 36) (length *area-list*))
       ;; Entry fref.
@@ -451,11 +455,12 @@
       ;; System GDT info.
       (setf (ub16ref/le header 80) gdt-size
             (ub64ref/le header 82) gdt-pointer)
-      (flet ((extent (id store-base virtual-base size flags)
-               (setf (ub64ref/le header (+ 96 (* id 32) 0)) store-base
-                     (ub64ref/le header (+ 96 (* id 32) 8)) virtual-base
-                     (ub64ref/le header (+ 96 (* id 32) 16)) size
-                     (ub64ref/le header (+ 96 (* id 32) 24)) flags)))
+      (flet ((extent (id store-base virtual-base size bump flags)
+               (setf (ub64ref/le header (+ 96 (* id 40) 0)) store-base
+                     (ub64ref/le header (+ 96 (* id 40) 8)) virtual-base
+                     (ub64ref/le header (+ 96 (* id 40) 16)) size
+                     (ub64ref/le header (+ 96 (* id 40) 24)) bump
+                     (ub64ref/le header (+ 96 (* id 40) 32)) flags)))
         (loop
            for i from 0
            for area in *area-list*
@@ -463,7 +468,16 @@
                       store-base
                       (area-address area)
                       (area-size area)
+                      (area-bump area)
                       (logior
+                       ;; Large bit
+                       (if (area-largep area)
+                           #b10000
+                           0)
+                       ;; Finished bit.
+                       (if (area-finishedp area)
+                           #b100000
+                           0)
                        ;; Wired bit.
                        ;; Initial stacks are wired.
                        (if (member (area-type area)
@@ -1057,13 +1071,13 @@ The bootloader provides a per-cpu GDT & TSS."
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*additional-cold-toplevel-forms*))
     #+nil(format t "Saving Unifont...~%")
     #+nil(save-unifont-data "tools/unifont-5.1.20080820.hex")
-    #+nil(format t "Saving Unicode data...~%")
-    #+nil(multiple-value-bind (planes name-store encoding-table name-trie)
+    (format t "Saving Unicode data...~%")
+    (multiple-value-bind (planes name-store encoding-table name-trie)
         (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "tools/UnicodeData.txt"))
-      (setf (cold-symbol-value 'sys.int::*unicode-info*) (save-object planes :static)
-            (cold-symbol-value 'sys.int::*unicode-name-store*) (save-ub8-vector name-store :static)
-            (cold-symbol-value 'sys.int::*unicode-encoding-table*) (save-object encoding-table :static)
-            (cold-symbol-value 'sys.int::*unicode-name-trie*) (save-object name-trie :static)))
+      (setf (cold-symbol-value 'sys.int::*unicode-info*) (save-object planes :pinned)
+            (cold-symbol-value 'sys.int::*unicode-name-store*) (save-ub8-vector name-store :pinned)
+            (cold-symbol-value 'sys.int::*unicode-encoding-table*) (save-object encoding-table :pinned)
+            (cold-symbol-value 'sys.int::*unicode-name-trie*) (save-object name-trie :pinned)))
     #+nil(format t "Saving PCI IDs...~%")
     #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
            (object (save-object pci-ids :static)))
@@ -1260,7 +1274,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
-          (t (let ((address (allocate 7)))
+          (t (let ((address (allocate 7 :pinned)))
                (setf (word address) (array-header sys.int::+object-tag-structure-object+ 6))
                (setf (word (+ address 1)) 0) ; uninitialized definition
                (setf (word (+ address 2)) name*)

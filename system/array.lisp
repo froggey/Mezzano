@@ -624,7 +624,7 @@ This must be sorted from most-specific to least-specific.")
   (check-type bit-array (simple-array bit))
   (apply #'(setf aref) value bit-array subscripts))
 
-(defun char (string index)
+#+(or)(defun char (string index)
   (check-type string string)
   (aref string index))
 

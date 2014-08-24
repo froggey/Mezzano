@@ -3,77 +3,65 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-(defun sys.int::current-thread ()
-  (current-thread))
-
-(defun integerp (object)
-  (sys.int::fixnump object))
-
-(defun sys.int::%coerce-to-callable (object)
-  (etypecase object
-    (function object)
-    (symbol
-     (sys.int::%array-like-ref-t
-      (sys.int::%array-like-ref-t object sys.c::+symbol-function+)
-      sys.int::+fref-function+))))
-
-;; Hardcoded string accessor, the support stuff for arrays doesn't function at this point.
-(defun char (string index)
-  (assert (sys.int::character-array-p string) (string))
-  (let ((data (sys.int::%array-like-ref-t string 0)))
-    (assert (and (<= 0 index)
-                 (< index (sys.int::%object-header-data data)))
-            (string index))
-    (code-char
-     (case (sys.int::%object-tag data)
-       (#.sys.int::+object-tag-array-unsigned-byte-8+
-        (sys.int::%array-like-ref-unsigned-byte-8 data index))
-       (#.sys.int::+object-tag-array-unsigned-byte-16+
-        (sys.int::%array-like-ref-unsigned-byte-16 data index))
-       (#.sys.int::+object-tag-array-unsigned-byte-32+
-        (sys.int::%array-like-ref-unsigned-byte-32 data index))
-       (t 0)))))
-
-(defun length (sequence)
-  (if (sys.int::character-array-p sequence)
-      (sys.int::%array-like-ref-t sequence 3)
-      nil))
-
-(defun code-char (code)
-  (sys.int::%%assemble-value (ash code 4) sys.int::+tag-character+))
-
-(defun char-code (character)
-  (logand (ash (sys.int::lisp-object-address character) -4) #x1FFFFF))
-
-(declaim (special sys.int::*newspace* sys.int::*newspace-offset*))
+(defun string-length (string)
+  (assert (sys.int::character-array-p string))
+  (sys.int::%array-like-ref-t string 3))
 
 (defvar *allocator-lock*)
+(defvar *boot-allocation-mode*)
 
-(defvar *2g-allocation-bump*)
-(defvar *allocation-bump*)
+(defvar sys.int::*2g-allocation-bump*)
+(defvar sys.int::*allocation-bump*)
 
 (defvar sys.int::*boot-area-base*)
 (defvar sys.int::*boot-area-bump*)
 
-;; TODO?
 (defmacro with-gc-deferred (&body body)
-  `(progn
-     ,@body))
+  `(call-with-gc-deferred (flet ((with-gc-deferred-thunk () ,@body))
+                            (declare (dynamic-extent #'with-gc-deferred-thunk))
+                            #'with-gc-deferred-thunk)))
+
+;; TODO?
+(defun call-with-gc-deferred (thunk)
+  (funcall thunk))
+
+(defun find-extent-named (name largep)
+  (cond ((store-extent-p name) name)
+        (t (dolist (extent *extent-table*
+                    (error "can't find extent..."))
+             (when (and (or (eql (store-extent-type extent) name)
+                            (and (eql name :wired)
+                                 (eql (store-extent-type extent) :pinned)
+                                 (store-extent-wired-p extent)))
+                        (not (store-extent-finished-p extent))
+                        (eql (store-extent-large-p extent) largep))
+               (return extent))))))
 
 (defun %allocate-object (tag data size area)
-  (assert (eql area :wired))
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
-    (assert (<= (+ sys.int::*boot-area-bump* (* words 8)) #x200000))
-    (with-symbol-spinlock (*allocator-lock*)
-      (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
-        (incf sys.int::*boot-area-bump* (* words 8))
-        ;; Write array header.
-        (setf (sys.int::memref-unsigned-byte-64 addr 0)
-              (logior (ash tag sys.int::+array-type-shift+)
-                      (ash data sys.int::+array-length-shift+)))
-        (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
+    (cond (*boot-allocation-mode*
+           (assert (eql area :wired))
+           (assert (<= (+ sys.int::*boot-area-bump* (* words 8)) #x200000))
+           (with-symbol-spinlock (*allocator-lock*)
+             (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
+               (incf sys.int::*boot-area-bump* (* words 8))
+               ;; Write array header.
+               (setf (sys.int::memref-unsigned-byte-64 addr 0)
+                     (logior (ash tag sys.int::+array-type-shift+)
+                             (ash data sys.int::+array-length-shift+)))
+               (sys.int::%%assemble-value addr sys.int::+tag-object+))))
+          (t (with-symbol-spinlock (*allocator-lock*)
+               (let* ((area (find-extent-named (or area :dynamic) (>= (* words 8) (* 256 1024))))
+                      (addr (+ (store-extent-virtual-base area) (store-extent-bump area))))
+                 (assert (<= (+ (store-extent-bump area) (* words 8)) (store-extent-size area)))
+                 (incf (store-extent-bump area) (* words 8))
+                 ;; Write array header.
+                 (setf (sys.int::memref-unsigned-byte-64 addr 0)
+                       (logior (ash tag sys.int::+array-type-shift+)
+                               (ash data sys.int::+array-length-shift+)))
+                 (sys.int::%%assemble-value addr sys.int::+tag-object+)))))))
 
 (defun sys.int::make-simple-vector (size &optional area)
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
@@ -82,23 +70,87 @@
   (%allocate-object sys.int::+object-tag-structure-object+ size size area))
 
 (defun sys.int::cons-in-area (car cdr &optional area)
-  (assert (eql area :wired))
-  (assert (<= (+ sys.int::*boot-area-bump* (* 4 8)) #x200000))
-  (with-symbol-spinlock (*allocator-lock*)
-    (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
-      (incf sys.int::*boot-area-bump* (* 4 8))
-      ;; Set header.
-      (setf (sys.int::memref-t addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
-      ;; Set car/cdr.
-      (setf (sys.int::memref-t addr 2) car
-            (sys.int::memref-t addr 3) cdr)
-      (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))
+  (cond (*boot-allocation-mode*
+         (assert (eql area :wired))
+         (assert (<= (+ sys.int::*boot-area-bump* (* 4 8)) #x200000))
+         (with-symbol-spinlock (*allocator-lock*)
+           (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
+             (incf sys.int::*boot-area-bump* (* 4 8))
+             ;; Set header.
+             (setf (sys.int::memref-unsigned-byte-64 addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
+             ;; Set car/cdr.
+             (setf (sys.int::memref-t addr 2) car
+                   (sys.int::memref-t addr 3) cdr)
+             (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))
+        (t (with-symbol-spinlock (*allocator-lock*)
+               (let* ((area (find-extent-named (or area :dynamic-cons) nil))
+                      (addr (+ (store-extent-virtual-base area) (store-extent-bump area))))
+                 (case (store-extent-type area)
+                   (:dynamic-cons
+                    (assert (<= (+ (store-extent-bump area) 16) (store-extent-size area)))
+                    (incf (store-extent-bump area) 16)
+                    (setf (sys.int::memref-t addr 0) car
+                          (sys.int::memref-t addr 1) cdr)
+                    (sys.int::%%assemble-value addr sys.int::+tag-cons+))
+                   (t (assert (<= (+ (store-extent-bump area) 32) (store-extent-size area)))
+                      (incf (store-extent-bump area) 32)
+                      ;; Write array header.
+                      (setf (sys.int::memref-unsigned-byte-64 addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
+                      ;; Set car/cdr.
+                      (setf (sys.int::memref-t addr 2) car
+                            (sys.int::memref-t addr 3) cdr)
+                      (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))))))
+
+(defun cons (car cdr)
+  (sys.int::cons-in-area car cdr))
+
+(defun sys.int::make-closure (function environment)
+  "Allocate a closure object."
+  ;; FIXME: Obey the +/-2GB jmp limit. (switch to indirect when exceeded.)
+  (check-type function function)
+  (with-gc-deferred
+    (let* ((fn (%allocate-object sys.int::+object-tag-closure+ #x2000200 5 :pinned))
+           (address (logand (sys.int::lisp-object-address fn) (lognot 15)))
+           (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0))
+           ;; Jmp's address is entry-point - <address-of-instruction-after-jmp>
+           (rel-entry-point (- entry-point (+ address (* 7 4)))))
+      (setf
+       ;; Entry point
+       (sys.int::memref-unsigned-byte-64 address 1) (+ address 16)
+       ;; The code.
+       ;; mov64 :rbx (:rip 17)/pool[1]
+       (sys.int::memref-unsigned-byte-32 address 4) #x111D8B48
+       ;; jmp entry-point
+       (sys.int::memref-unsigned-byte-32 address 5) #xE9000000
+       ;; jmp's rel32 address ended up being nicely aligned. lucky!
+       (sys.int::memref-signed-byte-32 address 6) rel-entry-point
+       (sys.int::memref-unsigned-byte-32 address 7) #xCCCCCCCC
+       ;; Initialize constant pool
+       (sys.int::memref-t address 4) function
+       (sys.int::memref-t address 5) environment)
+      fn)))
+
+(defun make-symbol (name)
+  (check-type name string)
+  ;; FIXME: Copy name into the wired area and unicode normalize it.
+  (with-gc-deferred ()
+    (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
+      ;; symbol-name.
+      (setf (sys.int::%array-like-ref-t symbol 0) name)
+      (makunbound symbol)
+      (setf (sys.int::symbol-fref symbol) nil
+            (symbol-plist symbol) nil
+            (symbol-package symbol) nil)
+      symbol)))
+
+(defun sys.int::%allocate-array-like (tag word-count length &optional area)
+  (%allocate-object tag length word-count area))
 
 (defun stack-base (stack)
-  (car stack))
+  (store-extent-virtual-base stack))
 
 (defun stack-size (stack)
-  (cdr stack))
+  (store-extent-size stack))
 
 (defun %allocate-stack (size)
   ;; 2M align stacks.
@@ -110,137 +162,16 @@
          (extent (make-store-extent :store-base nil
                                     :virtual-base addr
                                     :size size
+                                    :bump size
                                     :wired-p nil
                                     :type :stack
                                     :zero-fill t)))
     (setf *extent-table* (sys.int::cons-in-area extent *extent-table* :wired))
-    (sys.int::cons-in-area addr size :wired)))
+    extent))
 
 ;; TODO.
 (defun sleep (seconds)
   nil)
-
-(sys.int::define-lap-function sys.int::%%coerce-fixnum-to-float ()
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:cvtsi2ss64 :xmm0 :rax)
-  (sys.lap-x86:movd :eax :xmm0)
-  (sys.lap-x86:shl64 :rax 32)
-  (sys.lap-x86:lea64 :r8 (:rax #.sys.int::+tag-single-float+))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
-
-(sys.int::define-lap-function sys.int::%%float-+ ()
-  ;; Unbox the floats.
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:shr64 :rax 32)
-  (sys.lap-x86:mov64 :rdx :r9)
-  (sys.lap-x86:shr64 :rdx 32)
-  ;; Load into XMM registers.
-  (sys.lap-x86:movd :xmm0 :eax)
-  (sys.lap-x86:movd :xmm1 :edx)
-  ;; Add.
-  (sys.lap-x86:addss :xmm0 :xmm1)
-  ;; Box.
-  (sys.lap-x86:movd :eax :xmm0)
-  (sys.lap-x86:shl64 :rax 32)
-  (sys.lap-x86:lea64 :r8 (:rax #.sys.int::+tag-single-float+))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
-
-(sys.int::define-lap-function sys.int::%%float-- ()
-  ;; Unbox the floats.
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:shr64 :rax 32)
-  (sys.lap-x86:mov64 :rdx :r9)
-  (sys.lap-x86:shr64 :rdx 32)
-  ;; Load into XMM registers.
-  (sys.lap-x86:movd :xmm0 :eax)
-  (sys.lap-x86:movd :xmm1 :edx)
-  ;; Add.
-  (sys.lap-x86:subss :xmm0 :xmm1)
-  ;; Box.
-  (sys.lap-x86:movd :eax :xmm0)
-  (sys.lap-x86:shl64 :rax 32)
-  (sys.lap-x86:lea64 :r8 (:rax #.sys.int::+tag-single-float+))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
-
-(sys.int::define-lap-function sys.int::%%float-< ()
-  ;; Unbox the floats.
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:shr64 :rax 32)
-  (sys.lap-x86:mov64 :rdx :r9)
-  (sys.lap-x86:shr64 :rdx 32)
-  ;; Load into XMM registers.
-  (sys.lap-x86:movd :xmm0 :eax)
-  (sys.lap-x86:movd :xmm1 :edx)
-  ;; Compare.
-  (sys.lap-x86:ucomiss :xmm0 :xmm1)
-  (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:mov64 :r9 t)
-  (sys.lap-x86:cmov64b :r8 :r9)
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:ret))
-
-(defun sys.int::generic-+ (x y)
-  (cond ((or (floatp x)
-             (floatp y))
-         (when (sys.int::fixnump x)
-           (setf x (sys.int::%%coerce-fixnum-to-float x)))
-         (when (sys.int::fixnump y)
-           (setf y (sys.int::%%coerce-fixnum-to-float y)))
-         (sys.int::%%float-+ x y))
-        (t (error "Unsupported argument combination."))))
-
-(defun sys.int::generic-- (x y)
-  (cond ((or (floatp x)
-             (floatp y))
-         (when (sys.int::fixnump x)
-           (setf x (sys.int::%%coerce-fixnum-to-float x)))
-         (when (sys.int::fixnump y)
-           (setf y (sys.int::%%coerce-fixnum-to-float y)))
-         (sys.int::%%float-- x y))
-        (t (error "Unsupported argument combination."))))
-
-(defun sys.int::generic-< (x y)
-  (cond ((or (floatp x)
-             (floatp y))
-         (when (sys.int::fixnump x)
-           (setf x (sys.int::%%coerce-fixnum-to-float x)))
-         (when (sys.int::fixnump y)
-           (setf y (sys.int::%%coerce-fixnum-to-float y)))
-         (sys.int::%%float-< x y))
-        (t (error "Unsupported argument combination."))))
-
-(defun sys.int::generic-> (x y)
-  (sys.int::generic-< y x))
-
-(defun sys.int::generic-<= (x y)
-  (not (sys.int::generic-< y x)))
-
-(defun sys.int::generic->= (x y)
-  (not (sys.int::generic-< x y)))
-
-;;; From SBCL 1.0.55
-(defun ceiling (number &optional (divisor 1))
-  ;; If the numbers do not divide exactly and the result of
-  ;; (/ NUMBER DIVISOR) would be positive then increment the quotient
-  ;; and decrement the remainder by the divisor.
-  (multiple-value-bind (tru rem) (truncate number divisor)
-    (if (and (not (zerop rem))
-             (if (minusp divisor)
-                 (minusp number)
-                 (plusp number)))
-        (values (+ tru 1) (- rem divisor))
-        (values tru rem))))
-
-(defun integer-length (integer)
-  (when (minusp integer) (setf integer (- integer)))
-  (do ((len 0 (1+ len)))
-      ((zerop integer)
-       len)
-    (setf integer (ash integer -1))))
 
 (defun sys.int::raise-undefined-function (fref)
   (debug-write-string "Undefined function ")
@@ -261,176 +192,34 @@
   (sys.int::%sti)
   (loop))
 
-(defun endp (list)
-  (null list))
+(in-package :sys.int)
 
-(defun cons (car cdr)
-  (sys.int::cons-in-area car cdr nil))
+(defstruct (cold-stream (:area :wired)))
 
-(defun list (&rest objects)
-  objects)
+(in-package :mezzanine.supervisor)
 
-(defvar sys.int::*active-catch-handlers*)
-(defun sys.int::%catch (tag fn)
-  ;; Catch is used in low levelish code, so must avoid allocation.
-  (let ((vec (sys.c::make-dx-simple-vector 3)))
-    (setf (svref vec 0) sys.int::*active-catch-handlers*
-          (svref vec 1) tag
-          (svref vec 2) (flet ((exit-fn (values)
-                                 (return-from sys.int::%catch (values-list values))))
-                          (declare (dynamic-extent (function exit-fn)))
-                          #'exit-fn))
-    (let ((sys.int::*active-catch-handlers* vec))
-      (funcall fn))))
+(defvar *cold-unread-char*)
 
-(defun sys.int::%throw (tag values)
-  (do ((current sys.int::*active-catch-handlers* (svref current 0)))
-      ((not current)
-       (error 'bad-catch-tag-error :tag tag))
-    (when (eq (svref current 1) tag)
-      (funcall (svref current 2) values))))
+(defun sys.int::cold-write-char (c stream)
+  (declare (ignore stream))
+  (debug-write-char c))
 
-(defvar *tls-lock*)
-(defvar sys.int::*next-symbol-tls-slot*)
-(defconstant +maximum-tls-slot+ (1+ +thread-tls-slots-end+))
-(defun sys.int::%allocate-tls-slot (symbol)
-  (with-symbol-spinlock (*tls-lock*)
-    ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
-    (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
-           (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
-             (error "Critial error! TLS slots exhausted!"))
-           (let ((slot sys.int::*next-symbol-tls-slot*))
-             (incf sys.int::*next-symbol-tls-slot*)
-             ;; Twiddle TLS bits directly in the symbol header.
-             (setf (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)) slot)
-             slot))
-          (t (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))))
+(defun sys.int::cold-start-line-p (stream)
+  (declare (ignore stream))
+  (debug-start-line-p))
 
-sys.int::(define-lap-function values-list ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:sub64 :rsp 16) ; 2 slots
-  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:jne bad-arguments)
-  ;; RBX = iterator, (:stack 0) = list.
-  (sys.lap-x86:mov64 :rbx :r8)
-  (sys.lap-x86:mov64 (:stack 0) :r8)
-  (:gc :frame :layout #*10)
-  ;; ECX = value count.
-  (sys.lap-x86:xor32 :ecx :ecx)
-  ;; Pop into R8.
-  ;; If LIST is NIL, then R8 must be NIL, so no need to
-  ;; set R8 to NIL in the 0-values case.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r8 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R9.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r9 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R10.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r10 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R11.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r11 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  ;; Pop into R12.
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:mov64 :r12 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  ;; Registers are populated, now unpack into the MV-area
-  (sys.lap-x86:mov32 :edi #.(+ (- 8 +tag-object+)
-                               (* mezzanine.supervisor::+thread-mv-slots-start+ 8)))
-  (:gc :frame :layout #*10 :multiple-values 0)
-  unpack-loop
-  (sys.lap-x86:cmp64 :rbx nil)
-  (sys.lap-x86:je done)
-  (sys.lap-x86:mov8 :al :bl)
-  (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
-  (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+) 5) +n-fixnum-bits+))
-  (sys.lap-x86:jae too-many-values)
-  (sys.lap-x86:mov64 :r13 (:car :rbx))
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:rdi) :r13)
-  (:gc :frame :layout #*10 :multiple-values 1)
-  (sys.lap-x86:add64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (:gc :frame :layout #*10 :multiple-values 0)
-  (sys.lap-x86:add64 :rdi 8)
-  (sys.lap-x86:jmp unpack-loop)
-  done
-  (sys.lap-x86:leave)
-  (:gc :no-frame :multiple-values 0)
-  (sys.lap-x86:ret)
-  type-error
-  (:gc :frame :layout #*10)
-  (sys.lap-x86:mov64 :r8 (:stack 0))
-  (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function raise-type-error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2)
-  too-many-values
-  (sys.lap-x86:mov64 :r8 (:constant "Too many values in list ~S."))
-  (sys.lap-x86:mov64 :r9 (:stack 0))
-  (sys.lap-x86:mov64 :r13 (:function error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2)
-  bad-arguments
-  (:gc :frame)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:ud2))
+(defun sys.int::cold-read-char (stream)
+  (declare (ignore stream))
+  (cond (*cold-unread-char*
+         (prog1 *cold-unread-char*
+           (setf *cold-unread-char* nil)))
+        (t (debug-read-char))))
 
-sys.int::(defun %%unwind-to (target-special-stack-pointer)
-  (declare (suppress-ssp-checking))
-  (loop (when (eq target-special-stack-pointer (%%special-stack-pointer))
-          (return))
-     (assert (%%special-stack-pointer))
-     (etypecase (svref (%%special-stack-pointer) 1)
-       (symbol
-        (%%unbind))
-       (simple-vector
-        (%%disestablish-block-or-tagbody))
-       (function
-        (%%disestablish-unwind-protect)))))
+(defun sys.int::cold-unread-char (character stream)
+  (declare (ignore stream))
+  (when *cold-unread-char*
+    (error "Multiple unread-char!"))
+  (setf *cold-unread-char* character))
 
 ;;; <<<<<<
 
@@ -452,7 +241,10 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
   store-base
   virtual-base
   size
+  bump
   wired-p
+  large-p
+  finished-p
   type
   zero-fill)
 
@@ -511,23 +303,31 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
       ;; Initialize the extent table.
       (setf *extent-table* '())
       (dotimes (i (sys.int::memref-unsigned-byte-32 (+ page-addr 36) 0))
-        (let* ((addr (+ page-addr 96 (* i 32)))
-               (flags (sys.int::memref-unsigned-byte-64 addr 3)))
+        (let* ((addr (+ page-addr 96 (* i 40)))
+               (flags (sys.int::memref-unsigned-byte-64 addr 4))
+               (extent (make-store-extent :store-base (sys.int::memref-unsigned-byte-64 addr 0)
+                                          :virtual-base (sys.int::memref-unsigned-byte-64 addr 1)
+                                          :size (sys.int::memref-unsigned-byte-64 addr 2)
+                                          :bump (sys.int::memref-unsigned-byte-64 addr 3)
+                                          :wired-p (logbitp 3 flags)
+                                          :large-p (logbitp 4 flags)
+                                          :finished-p (logbitp 5 flags)
+                                          :type (ecase (ldb (byte 3 0) flags)
+                                                  (0 :pinned)
+                                                  (1 :pinned-2g)
+                                                  (2 :dynamic)
+                                                  (3 :dynamic-cons)
+                                                  (4 :nursery)
+                                                  (5 :stack)))))
           (setf *extent-table*
                 (sys.int::cons-in-area
-                 (make-store-extent :store-base (sys.int::memref-unsigned-byte-64 addr 0)
-                                    :virtual-base (sys.int::memref-unsigned-byte-64 addr 1)
-                                    :size (sys.int::memref-unsigned-byte-64 addr 2)
-                                    :wired-p (logbitp 3 flags)
-                                    :type (ecase (ldb (byte 3 0) flags)
-                                            (0 :pinned)
-                                            (1 :pinned-2g)
-                                            (2 :dynamic)
-                                            (3 :dynamic-cons)
-                                            (4 :nursery)
-                                            (5 :stack)))
+                 extent
                  *extent-table*
-                 :wired)))))
+                 :wired))
+          ;; Consider switching over to proper allocation.
+          (when (eql sys.int::*boot-area-base* (store-extent-virtual-base extent))
+            (setf (store-extent-bump extent) sys.int::*boot-area-bump*
+                  *boot-allocation-mode* nil)))))
     ;; Release the pages.
     (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))
 
@@ -599,8 +399,7 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
                 (cond ((store-extent-zero-fill extent)
                        (dotimes (i 512)
                          (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
-                      (t (debug-write-line "Reading page...")
-                         (or (funcall (disk-read-fn *paging-disk*)
+                      (t (or (funcall (disk-read-fn *paging-disk*)
                                       (disk-device *paging-disk*)
                                       (* (truncate (+ (store-extent-store-base extent)
                                                       (- address (store-extent-virtual-base extent)))
@@ -616,11 +415,30 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
-  (setf *boot-information-page* boot-information-page)
+  (setf *boot-information-page* boot-information-page
+        *boot-allocation-mode* t
+        *cold-unread-char* nil)
   ;; FIXME: Should be done by cold generator
-  (setf *allocator-lock* :unlocked
-        *tls-lock* :unlocked
-        sys.int::*active-catch-handlers* 'nil)
+  (when (not (boundp '*allocator-lock*))
+    (setf *allocator-lock* :unlocked
+          mezzanine.runtime::*tls-lock* :unlocked
+          mezzanine.runtime::*active-catch-handlers* 'nil)
+    ;; Bootstrap the defstruct system.
+    ;; 1) Initialize *structure-type-type* so make-struct-definition works.
+    (setf sys.int::*structure-type-type* nil)
+    ;; 2) Create the real definition, with broken type.
+    (setf sys.int::*structure-type-type* (sys.int::make-struct-definition
+                                          'sys.int::structure-definition
+                                          ;; (name accessor initial-value type read-only atomic).
+                                          '((sys.int::name sys.int::structure-name nil t t nil)
+                                            (sys.int::slots sys.int::structure-slots nil t t nil)
+                                            (sys.int::parent sys.int::structure-parent nil t t nil)
+                                            (sys.int::area sys.int::structure-area nil t t nil)
+                                            (sys.int::class sys.int::structure-class nil t nil nil))
+                                          nil
+                                          :wired))
+    ;; 3) Patch up the broken structure type.
+    (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
   (initialize-interrupts)
   (initialize-i8259)
   (initialize-physical-allocator)
@@ -634,7 +452,8 @@ sys.int::(defun %%unwind-to (target-special-stack-pointer)
   (setf *disks* '()
         *paging-disk* nil)
   (initialize-ata)
-  (when (not *paging-disk*)
+  (when (or (not *paging-disk*)
+            *boot-allocation-mode*)
     (debug-write-line "Could not find boot device. Sorry.")
     (loop))
   ;; Load the extent table.

@@ -19,6 +19,9 @@
   (parent)
   (area))
 
+(defun sys.int::make-struct-definition (&rest blah)
+  (apply #'sys.int::make-struct-type blah))
+
 (defvar *structure-types* (make-hash-table :test 'eq))
 
 (defvar *cross-readtable* (copy-readtable nil))
