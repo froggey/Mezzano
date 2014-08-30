@@ -104,31 +104,19 @@
 (defun cons (car cdr)
   (sys.int::cons-in-area car cdr))
 
-(defun sys.int::make-closure (function environment)
+(defun sys.int::make-closure (function environment &optional area)
   "Allocate a closure object."
-  ;; FIXME: Obey the +/-2GB jmp limit. (switch to indirect when exceeded.)
   (check-type function function)
   (with-gc-deferred
-    (let* ((fn (%allocate-object sys.int::+object-tag-closure+ #x2000200 5 :pinned))
-           (address (logand (sys.int::lisp-object-address fn) (lognot 15)))
-           (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0))
-           ;; Jmp's address is entry-point - <address-of-instruction-after-jmp>
-           (rel-entry-point (- entry-point (+ address (* 7 4)))))
+    (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 5 (or area :dynamic)))
+           (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0)))
       (setf
        ;; Entry point
-       (sys.int::memref-unsigned-byte-64 address 1) (+ address 16)
-       ;; The code.
-       ;; mov64 :rbx (:rip 17)/pool[1]
-       (sys.int::memref-unsigned-byte-32 address 4) #x111D8B48
-       ;; jmp entry-point
-       (sys.int::memref-unsigned-byte-32 address 5) #xE9000000
-       ;; jmp's rel32 address ended up being nicely aligned. lucky!
-       (sys.int::memref-signed-byte-32 address 6) rel-entry-point
-       (sys.int::memref-unsigned-byte-32 address 7) #xCCCCCCCC
+       (sys.int::%array-like-ref-unsigned-byte-64 closure 0) entry-point
        ;; Initialize constant pool
-       (sys.int::memref-t address 4) function
-       (sys.int::memref-t address 5) environment)
-      fn)))
+       (sys.int::%array-like-ref-t closure 1) function
+       (sys.int::%array-like-ref-t closure 2) environment)
+      closure)))
 
 (defun make-symbol (name)
   (check-type name string)

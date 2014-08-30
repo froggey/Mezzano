@@ -128,7 +128,8 @@
 ;;; Supervisor manages the hardware, doing paging and memory management.
 (defpackage :mezzanine.supervisor
   (:use :cross-cl)
-  (:export :current-thread))
+  (:export :current-thread
+           #:without-interrupts))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

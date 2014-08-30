@@ -693,6 +693,33 @@
         (t ;; Just return the success state.
          (predicate-result :z))))
 
+(defbuiltin sys.int::%dcas-array-like (object offset old-1 old-2 new-1 new-2) ()
+  (load-in-reg :r10 offset t)
+  (fixnum-check :r10)
+  (load-in-reg :r8 object t)
+  ;; All the GC danger.
+  (load-in-reg :rcx new-2 t)
+  (load-in-reg :rbx new-1 t)
+  (load-in-reg :rdx old-2 t)
+  (load-in-reg :rax old-1 t)
+  (smash-r8)
+  (emit
+   ;; Convert size and slot number to integers.
+   `(sys.lap-x86:mov64 :rdi :r10)
+   `(sys.lap-x86:shr64 :rdi ,sys.int::+n-fixnum-bits+)
+   `(sys.lap-x86:lock)
+   `(sys.lap-x86:cmpxchg16b ,(object-ea :r8 :index '(:rdi 8))))
+  (cond ((member *for-value* '(:multiple :tail))
+         ;; Return status and the old values.
+         (emit `(sys.lap-x86:mov64 :r9 :rax))
+         (emit `(sys.lap-x86:mov64 :r10 :rdx))
+         (emit `(sys.lap-x86:mov64 :r8 nil)
+               `(sys.lap-x86:cmov64z :r8 (:constant t)))
+         (load-constant :rcx 3)
+         :multiple)
+        (t ;; Just return the status.
+         (predicate-result :z))))
+
 (defbuiltin sys.int::%simple-1d-array-p (object) ()
   (let ((false-out (gensym))
         (out (gensym)))
@@ -2421,38 +2448,47 @@
   (emit `(sys.lap-x86:cmp64 :r8 :unbound-tls-slot))
   (predicate-result :e))
 
+(defbuiltin sys.int::%undefined-function () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:mov32 :r8d :undefined-function))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%undefined-function-p (value) ()
+  (load-in-r8 value t)
+  (emit `(sys.lap-x86:cmp64 :r8 :undefined-function))
+  (predicate-result :e))
+
+(defbuiltin sys.int::%closure-trampoline () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:mov32 :r8d :closure-trampoline))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%closure-trampoline-p (value) ()
+  (load-in-r8 value t)
+  (emit `(sys.lap-x86:cmp64 :r8 :closure-trampoline))
+  (predicate-result :e))
+
 (defbuiltin sys.c::make-dx-closure (code env) (nil)
   (smash-r8)
-  (let ((slots (allocate-control-stack-slots 8)))
+  (let ((slots (allocate-control-stack-slots 4)))
     (load-in-reg :r9 code t)
     (load-in-reg :r10 env t)
-    (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 8 -1)))
+    (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 4 -1)))
           ;; Function tag, flags and MC size.
-          `(sys.lap-x86:mov32 (:rax) ,(logior #x00020000
+          `(sys.lap-x86:mov32 (:rax) ,(logior #x00010000
                                               (ash sys.int::+object-tag-closure+
                                                    sys.int::+array-type-shift+)))
           ;; Constant pool size and slot count.
-          `(sys.lap-x86:mov32 (:rax 4) #x00000003)
-          ;; Entry point
-          `(sys.lap-x86:mov64 (:rax 8) :rax)
-          `(sys.lap-x86:add64 (:rax 8) 16)
-          ;; The code.
-          ;; DX closures use a full indirect branch here as the stack
-          ;; is not in the low part of the address space, making rel32 jumps impossible.
-          `(sys.lap-x86:mov32 (:rax 16) #x111D8B48)
-          `(sys.lap-x86:mov32 (:rax 20) #xFF000000)
-          `(sys.lap-x86:mov32 (:rax 24) #x00001325)
-          `(sys.lap-x86:mov32 (:rax 28) #xCCCCCC00)
+          `(sys.lap-x86:mov32 (:rax 4) #x00000002)
+          ;; Entry point is CODE's entry point.
+          `(sys.lap-x86:mov64 :rcx ,(object-ea :r9 :slot 0))
+          `(sys.lap-x86:mov64 (:rax 8) :rcx)
           ;; Clear constant pool.
-          `(sys.lap-x86:mov64 (:rax 32) nil)
-          `(sys.lap-x86:mov64 (:rax 40) nil)
-          `(sys.lap-x86:mov64 (:rax 48) nil)
-          `(sys.lap-x86:mov64 (:rax 56) nil)
+          `(sys.lap-x86:mov64 (:rax 16) nil)
+          `(sys.lap-x86:mov64 (:rax 24) nil)
           ;; Materialize value.
           `(sys.lap-x86:lea64 :r8 (:rax ,sys.int::+tag-object+))
           ;; Initiaize constant pool.
-          `(sys.lap-x86:mov64 (:rax 32) :r9)
-          `(sys.lap-x86:mov64 (:rax 40) :r10)
-          `(sys.lap-x86:mov64 :rcx ,(object-ea :r9 :slot 0))
-          `(sys.lap-x86:mov64 (:rax 48) :rcx)))
+          `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
+          `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 2) :r10)))
   (setf *r8-value* (list (gensym))))

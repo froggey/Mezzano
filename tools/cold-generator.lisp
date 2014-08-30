@@ -125,6 +125,16 @@
                                (* sys.int::+fref-entry-point+ 8)))))
   "Code for the undefined function thunk.")
 
+(defparameter *closure-trampoline*
+  `(;; Load the real function from the fref.
+    (sys.lap-x86:mov64 :rbx (:object :r13 1))
+    ;; Invoke the real function via the FUNCTION calling convention.
+    ;; This will work even if the fref was altered or made funbound.
+    ;; (SETF FUNCTION-REFERENCE-FUNCTION) will set the function to the
+    ;; undefined-function thunk in that case, so everything works fine.
+    (sys.lap-x86:jmp (:rbx ,(+ (- sys.int::+tag-object+) 8))))
+  "Trampoline used for calling a closure via an fref.")
+
 (defvar *symbol-table*)
 (defvar *reverse-symbol-table*)
 ;; Hash-table mapping function names to function references.
@@ -133,6 +143,7 @@
 (defvar *unbound-value-address*)
 (defvar *unbound-tls-slot-address*)
 (defvar *undefined-function-address*)
+(defvar *closure-trampoline-address*)
 (defvar *load-time-evals*)
 (defvar *string-dedup-table*)
 
@@ -371,7 +382,8 @@
         (cl-keyword (allocate 6 :wired))
         (unbound-val (allocate 2 :wired-2g))
         (unbound-tls-val (allocate 2 :wired-2g))
-        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired-2g)))
+        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired-2g))
+        (closure-tramp (compile-lap-function *closure-trampoline-address* :area :wired-2g)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -385,6 +397,7 @@
           (gethash '("COMMON-LISP" . "KEYWORD") *symbol-table*) cl-keyword
           (gethash cl-keyword *reverse-symbol-table*) '("COMMON-LISP" . "KEYWORD")
           *undefined-function-address* undef-fn
+          *closure-trampoline-address* closure-tramp
           *unbound-value-address* unbound-val
           *unbound-tls-slot-address* unbound-tls-val)
     (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
@@ -1026,6 +1039,7 @@ The bootloader provides a per-cpu GDT & TSS."
          (*fref-table* (make-hash-table :test 'equal))
          (*struct-table* (make-hash-table))
          (*undefined-function-address* nil)
+         (*closure-trampoline-address* nil)
          (*function-map* '())
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
@@ -1045,11 +1059,6 @@ The bootloader provides a per-cpu GDT & TSS."
     (setf (values gdt-size gdt-pointer) (create-gdt tss-size tss-pointer))
     (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
     (setf initial-thread (create-initial-thread))
-    ;; The system needs to know where the undefined function value is.
-    ;; Put it in the value cell of a symbol, not the function cell.
-    ;; If it were in the function cell, then the symbol would appear to be unbound.
-    ;; Might not be up to date with the fref changes?
-    (setf (cold-symbol-value 'sys.int::*undefined-function-thunk*) (make-value *undefined-function-address* sys.int::+tag-object+))
     ;; Load all cold source files, emitting the top-level forms into an array
     ;; FIXME: Top-level forms generally show up as functions in .LLF files,
     ;;        this should be a vector of callable functions, not evalable forms.
@@ -1463,7 +1472,7 @@ Tag with +TAG-OBJECT+."
       (setf fref (allocate 4 :wired))
       (setf (word (+ fref 0)) (array-header sys.int::+object-tag-function-reference+ 0)
             (word (+ fref 1)) (generate-fref-name name)
-            (word (+ fref 2)) (vintern "NIL" "COMMON-LISP")
+            (word (+ fref 2)) (make-value *undefined-function-address* sys.int::+tag-object+)
             (word (+ fref 3)) (word (1+ *undefined-function-address*)))
       (setf (gethash name *fref-table*) fref)
       (when (symbolp name)
@@ -1643,6 +1652,7 @@ Tag with +TAG-OBJECT+."
 
 (defun apply-fixup (fixup)
   (destructuring-bind (what address byte-offset type debug-info) fixup
+    (declare (ignore debug-info))
     (let* ((value (if (consp what)
                       (etypecase (second what)
                         (symbol
@@ -1661,7 +1671,9 @@ Tag with +TAG-OBJECT+."
                                      sys.int::+tag-object+))
                         (:unbound-value (unbound-value))
                         ((:undefined-function undefined-function)
-                         (make-value *undefined-function-address* sys.int::+tag-object+)))))
+                         (make-value *undefined-function-address* sys.int::+tag-object+))
+                        ((:closure-trampoline closure-trampoline)
+                         (make-value *closure-trampoline-address* sys.int::+tag-object+)))))
            (length (ecase type
                      (:signed32 (check-type value (signed-byte 32))
                                 4)

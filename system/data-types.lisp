@@ -123,5 +123,6 @@
 (defconstant +symbol-mode-symbol-macro+ 3)
 
 (defconstant +fref-name+ 0)
+;; Layout of this to slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
 (defconstant +fref-function+ 1)
 (defconstant +fref-entry-point+ 2)

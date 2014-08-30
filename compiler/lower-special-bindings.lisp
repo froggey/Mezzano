@@ -214,13 +214,23 @@
 (defun lsb-unwind-protect (form)
   (let ((*special-bindings* (cons (list :unwind-protect) *special-bindings*)))
     (destructuring-bind (protected-form cleanup-function) (cdr form)
+      ;; The cleanup function must either be a naked lambda or a
+      ;; call to make-closure with a known lambda.
+      (assert (or (lambda-information-p cleanup-function)
+                  (and (listp cleanup-function)
+                       (eql (first cleanup-function) 'sys.int::make-closure)
+                       (= (list-length cleanup-function) 3)
+                       (lambda-information-p (second cleanup-function)))))
+      (when (not (lambda-information-p cleanup-function))
+        ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
+        (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t))
       `(progn
-         ;; Check for calls to MAKE-CLOSURE and elide them.
-         ,(if (and (listp cleanup-function)
-                   (eql (first cleanup-function) 'sys.int::make-closure)
-                   (= (list-length cleanup-function) 3))
-              `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))
-                                              ,(lsb-form (third cleanup-function)))
-              `(sys.int::%%push-special-stack ,(lsb-form cleanup-function) '0))
+         ,(cond
+           ((lambda-information-p cleanup-function)
+            `(sys.int::%%push-special-stack ,(lsb-form cleanup-function) '0))
+           (t
+            (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t)
+            `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))
+                                            ,(lsb-form (third cleanup-function)))))
          (multiple-value-prog1 ,(lsb-form protected-form)
            (sys.int::%%disestablish-unwind-protect))))))

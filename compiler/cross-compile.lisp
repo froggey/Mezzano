@@ -230,8 +230,11 @@
                              (t . :fixup)
                              (undefined-function . :fixup)
                              (:unbound-value . :fixup)
-                             (:unbound-tls-slot . :fixup))
+                             (:unbound-tls-slot . :fixup)
+                             (:undefined-function . :fixup)
+                             (:closure-trampoline . :fixup))
           :info (list name debug-info)))
+    (declare (ignore symbols))
     (make-cross-function :mc mc
                          :constants constants
                          :fixups fixups

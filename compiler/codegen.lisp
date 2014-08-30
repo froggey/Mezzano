@@ -130,6 +130,9 @@ be generated instead.")
       (when env-arg
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons env-arg :home))
+          (when (not (getf (lambda-information-plist lambda) 'unwind-protect-cleanup))
+            ;; Read environment pointer from closure object.
+            (emit `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 2))))
           (emit `(sys.lap-x86:mov64 (:stack ,ofs) :rbx)))))
     ;; Compile argument setup code.
     (let ((current-arg-index 0))
@@ -603,7 +606,7 @@ be generated instead.")
             `(sys.lap-x86:jmp ,resume)))
     (emit `(sys.lap-x86:mov64 :r8 (:function ,name))
           `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot sys.int::+fref-function+))
-          `(sys.lap-x86:cmp64 :r8 nil)
+          `(sys.lap-x86:cmp64 :r8 :undefined-function)
           `(sys.lap-x86:je ,undefined)
           resume)
     (setf *r8-value* (list (gensym)))))
@@ -878,9 +881,9 @@ be generated instead.")
 
 (defun emit-funcall-common ()
   "Emit the common code for funcall, argument registers must
-be set up and the function must be in R13.
+be set up and the function must be in RBX.
 Returns an appropriate tag."
-  (emit `(sys.lap-x86:call ,(object-ea :r13 :slot 0)))
+  (emit `(sys.lap-x86:call ,(object-ea :rbx :slot 0)))
   (cond ((member *for-value* '(:multiple :tail))
          (emit-gc-info :multiple-values 0)
          :multiple)
@@ -940,11 +943,11 @@ Returns an appropriate tag."
                       ;; All done with the MV area.
                       (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
                     (smash-r8)
-                    (load-in-reg :r13 fn-tag t)
+                    (load-in-reg :rbx fn-tag t)
                     (prog1 (emit-funcall-common)
                       (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area))))))
                  (t ;; Single value.
-                  (load-in-reg :r13 fn-tag t)
+                  (load-in-reg :rbx fn-tag t)
                   (load-constant :rcx 1)
                   (load-in-reg :r8 value-tag t)
                   (emit-funcall-common))))))
@@ -1501,12 +1504,12 @@ Returns an appropriate tag."
                                                               `(sys.int::%coerce-to-callable ,(second form)))))))
 	     (cond ((prep-arguments-for-call (cddr form))
                     (comment 'funcall)
-		    (load-in-reg :r13 fn-tag t)
+		    (load-in-reg :rbx fn-tag t)
 		    (smash-r8)
 		    (load-constant :rcx (length (cddr form)))
                     (cond ((can-tail-call (cddr form))
-                           (emit-tail-call (object-ea :r13 :slot 0) (second form)))
-                          (t (emit `(sys.lap-x86:call ,(object-ea :r13 :slot 0)))))
+                           (emit-tail-call (object-ea :rbx :slot 0) (second form)))
+                          (t (emit `(sys.lap-x86:call ,(object-ea :rbx :slot 0)))))
                     (if (member *for-value* '(:multiple :tail))
                         (emit-gc-info :multiple-values 0)
                         (emit-gc-info))

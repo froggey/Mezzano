@@ -1299,3 +1299,6 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (:gpr-16 (modrm :gpr-16 place new '(#x0F #xB1)))
     (:gpr-32 (modrm :gpr-32 place new '(#x0F #xB1)))
     (:gpr-64 (modrm :gpr-64 place new '(#x0F #xB1)))))
+
+(define-instruction cmpxchg16b (place)
+  (modrm-single :gpr-64 place '(#x0F #xC7) 1))

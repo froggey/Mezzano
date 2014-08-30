@@ -71,8 +71,8 @@
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
-  ;; Function goes in R13.
-  (sys.lap-x86:mov64 :r13 :r8)
+  ;; Function goes in RBX.
+  (sys.lap-x86:mov64 :rbx :r8)
   ;; Argument count.
   (sys.lap-x86:xor32 :ecx :ecx)
   ;; Words pushed for alignment.
@@ -82,23 +82,23 @@
   (sys.lap-x86:je do-call)
   ;; Unpack the list.
   ;; Known to have at least one cons, so we can drop directly into the body.
-  (sys.lap-x86:mov64 :rbx :r9)
+  (sys.lap-x86:mov64 :r13 :r9)
   unpack-loop
   (:gc :frame :pushed-values-register :rcx)
   ;; Typecheck list, part 2. consp
-  (sys.lap-x86:mov8 :al :bl)
+  (sys.lap-x86:mov8 :al :r13l)
   (sys.lap-x86:and8 :al #b1111)
   (sys.lap-x86:cmp8 :al #.+tag-cons+)
   (sys.lap-x86:jne list-type-error)
   ;; Push car & increment arg count
-  (sys.lap-x86:push (:car :rbx))
+  (sys.lap-x86:push (:car :r13))
   (:gc :frame :pushed-values-register :rcx :pushed-values 1)
   (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
   (:gc :frame :pushed-values-register :rcx)
   ;; Advance.
-  (sys.lap-x86:mov64 :rbx (:cdr :rbx))
+  (sys.lap-x86:mov64 :r13 (:cdr :r13))
   ;; Typecheck list, part 1. null
-  (sys.lap-x86:cmp64 :rbx nil)
+  (sys.lap-x86:cmp64 :r13 nil)
   (sys.lap-x86:jne unpack-loop)
   ;; Arguments have been pushed on the stack in reverse.
   ;; Ensure the stack is misaligned.
@@ -161,7 +161,7 @@
   (:gc :frame :pushed-values-register :rcx :pushed-values -5)
   ;; Everything is ready. Call the function!
   do-call
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8)))
+  (sys.lap-x86:call (:rbx #.(+ (- sys.int::+tag-object+) 8)))
   (:gc :frame)
   ;; Finish up & return.
   (sys.lap-x86:leave)
@@ -417,21 +417,43 @@
 
 (defun function-reference-function (fref)
   (check-type fref function-reference)
-  (%array-like-ref-t fref +fref-function+))
+  (let ((fn (%array-like-ref-t fref +fref-function+)))
+    (if (%undefined-function-p fn)
+        nil
+        fn)))
 
 (defun (setf function-reference-function) (value fref)
   "Update the function & entry-point fields of a function-reference.
 VALUE may be nil to make the fref unbound."
   (check-type value (or function null))
   (check-type fref function-reference)
-  ;; mhmm. This should really be a DCAS to avoid racing.
-  ;; a lock would work, but writes are infrequent.
-  (cond (value
-         (setf (%array-like-ref-t fref +fref-function+) value
-               (%array-like-ref-unsigned-byte-64 fref +fref-entry-point+) (%array-like-ref-unsigned-byte-64 value 0)))
-        (t ;; making the fref unbound.
-         (setf (%array-like-ref-t fref +fref-function+) nil
-               (%array-like-ref-unsigned-byte-64 fref +fref-entry-point+) (%array-like-ref-unsigned-byte-64 sys.int::*undefined-function-thunk* 0))))
+  (multiple-value-bind (new-fn new-entry-point)
+      (cond
+        ((not value)
+         ;; Use the undefined function trampoline.
+         ;; This must be stored in function slot so the closure-trampoline
+         ;; works correctly.
+         (values (%undefined-function)
+                 (%array-like-ref-t (%undefined-function) 0)))
+        ((eql (%object-tag value) +object-tag-closure+)
+         ;; Use the closure trampoline.
+         (values value
+                 (%array-like-ref-t (%closure-trampoline) 0)))
+        (t ;; Normal call.
+         (values value
+                 (%array-like-ref-t value 0))))
+    ;; Atomically update both values.
+    ;; Functions is followed by entry point.
+    ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
+    ;; Interrupts must be disabled for CAS.
+    (mezzanine.supervisor:without-interrupts
+      (let ((old-1 (%array-like-ref-t fref +fref-function+))
+            (old-2 (%array-like-ref-t fref +fref-entry-point+)))
+        ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
+        ;; this write succeeded, but was immediately overwritten.
+        (%dcas-array-like fref +fref-function+
+                          old-1 old-2
+                          new-fn new-entry-point))))
   value)
 
 (defun fdefinition (name)
