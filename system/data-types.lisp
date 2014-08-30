@@ -126,3 +126,18 @@
 ;; Layout of this to slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
 (defconstant +fref-function+ 1)
 (defconstant +fref-entry-point+ 2)
+
+;; Some bits are stored in the high(ish) bits of the address.
+;; These are used to support the GC.
+
+(defconstant +address-tag-shift+ 45)
+(defconstant +address-tag-size+ 2)
+
+(defconstant +address-mark-bit+ 44)
+
+;; Pinned must be zero, a number of critical objects are pinned and stored
+;; below 2GB to permit fast access to them.
+(defconstant +address-tag-pinned+       #b00)
+(defconstant +address-tag-stack+        #b01)
+(defconstant +address-tag-dynamic+      #b10)
+;; #b11 unused.

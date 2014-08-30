@@ -166,6 +166,7 @@
   largep
   finishedp)
 
+;; FIXME: This way of allocating area memory is dumb.
 (defvar *2g-allocation-bump*)
 (defvar *allocation-bump*)
 (defvar *area-list*)
@@ -181,15 +182,26 @@
                            :dynamic :dynamic-cons))
   (setf size (align-up size #x1000))
   (let ((area (make-area :type type
-                         :address (if (member type '(:wired-2g :pinned-2g))
-                                      (prog1 *2g-allocation-bump*
-                                        (setf *2g-allocation-bump* (align-up (+ *2g-allocation-bump* #x1000)
-                                                                             #x200000)))
-                                      (prog1 *allocation-bump*
-                                        ;; Dynamic areas are semispaces and require twice as much memory.
-                                        (setf *allocation-bump* (align-up (+ *allocation-bump* (* size (if (member type '(:nursery :dynamic :dynamic-cons)) 2 1)))
-                                                                          #x200000))))
+                         :address (logior
+                                   (if (member type '(:wired-2g :pinned-2g))
+                                       (prog1 *2g-allocation-bump*
+                                         (setf *2g-allocation-bump* (align-up (+ *2g-allocation-bump* size)
+                                                                              #x200000)))
+                                       (prog1 *allocation-bump*
+                                         (setf *allocation-bump* (align-up (+ *allocation-bump* size)
+                                                                           #x200000))))
+                                   (ash (ecase type
+                                          ((:wired :wired-2g :pinned :pinned-2g)
+                                           sys.int::+address-tag-pinned+)
+                                          (:stack
+                                           sys.int::+address-tag-stack+)
+                                          ((:dynamic :dynamic-cons :nursery)
+                                           sys.int::+address-tag-dynamic+))
+                                        sys.int::+address-tag-shift+))
                          :data (make-array size :element-type '(unsigned-byte 8))
+                         ;; Dynamic areas are semispaces and require twice as much store.
+                         ;; If the area type is dynamic, size must be doubled to find the true
+                         ;; store size.
                          :size size
                          :bump (if (eql type :stack)
                                    size
@@ -452,7 +464,7 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 9)
+      (setf (ub16ref/le header 34) 10)
       ;; Number of extents.
       (setf (ub32ref/le header 36) (length *area-list*))
       ;; Entry fref.
@@ -822,7 +834,9 @@
     (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+array-type-shift+)) ; header
     (sys.lap-x86:lea64 :rax (:rbp :rbp)) ; Convert frame pointer to fixnum.
     (sys.lap-x86:mov64 (:rsp 8) :rax) ; 2nd element.
-    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
+    (sys.lap-x86:mov64 :rbx (:constant sys.int::*current-stack-mark-bit*))
+    (sys.lap-x86:mov64 :rax ,(sys.c::object-ea :rbx :slot sys.c::+symbol-value+))
+    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+ :rax))
     (sys.lap-x86:mov32 :ecx ,(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args.
     (:gc :frame :interrupt t)
     (sys.lap-x86:call (:object :r13 ,sys.int::+fref-entry-point+))
@@ -1147,7 +1161,8 @@ The bootloader provides a per-cpu GDT & TSS."
       (set-value 'sys.int::*2g-allocation-bump* *2g-allocation-bump*)
       (set-value 'sys.int::*allocation-bump* *allocation-bump*)
       (set-value 'sys.int::*boot-area-base* (area-address boot-area))
-      (set-value 'sys.int::*boot-area-bump* (area-bump boot-area)))
+      (set-value 'sys.int::*boot-area-bump* (area-bump boot-area))
+      (set-value 'sys.int::*current-stack-mark-bit* 0))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name
