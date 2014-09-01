@@ -104,8 +104,9 @@
 ;; field containing 0 and the second header word containing 0.
 ;; Cons values always point to the pair of pointers, never to the header.
 (defconstant +object-tag-cons+                    #b111000)
+(defconstant +object-tag-freelist-entry+          #b111001)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-cons+)
+(defconstant +last-misc-object-tag+ +object-tag-freelist-entry+)
 ;;#b111000
 ;;#b111001
 ;;#b111010

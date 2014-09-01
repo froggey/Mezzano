@@ -12,6 +12,7 @@
     "supervisor/thread.lisp"
     "supervisor/physical.lisp"
     "runtime/runtime.lisp"
+    "runtime/allocate.lisp"
     "runtime/numbers.lisp"
     "runtime/string.lisp"))
 
@@ -159,31 +160,33 @@
 
 (defstruct area
   type
+  extent-start
   address
   data
   size
   bump
-  largep
   finishedp)
 
 ;; FIXME: This way of allocating area memory is dumb.
 (defvar *2g-allocation-bump*)
 (defvar *allocation-bump*)
+
+(defvar *store-bump*)
 (defvar *area-list*)
 
 (defun align-up (value boundary)
   (incf value (1- boundary))
   (- value (rem value boundary)))
 
-(defun create-area (type is-large &optional (size +small-area-size+))
+(defun create-area (type &optional (size +small-area-size+))
   (check-type type (member :nursery :stack
                            :wired :wired-2g
-                           :pinned :pinned-2g
-                           :dynamic :dynamic-cons))
+                           :pinned
+                           :dynamic :dynamic-cons :dynamic-large))
   (setf size (align-up size #x1000))
   (let ((area (make-area :type type
                          :address (logior
-                                   (if (member type '(:wired-2g :pinned-2g))
+                                   (if (member type '(:wired-2g))
                                        (prog1 *2g-allocation-bump*
                                          (setf *2g-allocation-bump* (align-up (+ *2g-allocation-bump* size)
                                                                               #x200000)))
@@ -191,11 +194,11 @@
                                          (setf *allocation-bump* (align-up (+ *allocation-bump* size)
                                                                            #x200000))))
                                    (ash (ecase type
-                                          ((:wired :wired-2g :pinned :pinned-2g)
+                                          ((:wired :wired-2g :pinned)
                                            sys.int::+address-tag-pinned+)
                                           (:stack
                                            sys.int::+address-tag-stack+)
-                                          ((:dynamic :dynamic-cons :nursery)
+                                          ((:dynamic :dynamic-large :dynamic-cons :nursery)
                                            sys.int::+address-tag-dynamic+))
                                         sys.int::+address-tag-shift+))
                          :data (make-array size :element-type '(unsigned-byte 8))
@@ -206,36 +209,38 @@
                          :bump (if (eql type :stack)
                                    size
                                    0)
-                         :largep is-large
-                         :finishedp nil)))
+                         :finishedp nil
+                         :extent-start *store-bump*)))
     (push area *area-list*)
+    (incf *store-bump* size)
     area))
 
 (defun finish-area (area)
   (setf (area-finishedp area) t))
 
-(defun fetch-area (type largep)
+(defun fetch-area (type)
   (dolist (area *area-list*)
     (when (and (eql (area-type area) type)
-               (eql (area-largep area) largep)
                (not (area-finishedp area)))
       (return area))))
 
 (defun allocate (word-count &optional area)
   (check-type area (member nil
                            :wired :wired-2g
-                           :pinned :pinned-2g
+                           :pinned
                            :dynamic :dynamic-cons))
   (when (oddp word-count) (incf word-count))
   (setf area (or area *default-general-allocation-area*))
+  (when (and (eql area :dynamic) (> (* word-count 8) +small-area-limit+))
+    (setf area :dynamic-large))
   (let* ((size (* word-count 8))
-         (is-large (> size +small-area-limit+))
-         (info (fetch-area area is-large)))
+         (info (fetch-area area)))
     (when (or (not info) (< (- (area-size info) (area-bump info)) size))
       ;; No space left in this area. Finish it and create a new one.
       (when info
         (finish-area info))
-      (setf info (create-area area is-large (align-up size +small-area-size+))))
+      (setf info (create-area area (align-up size +small-area-size+))))
+    ;; FIXME: Objects in :dynamic-large should be page (4k) aligned.
     (let ((address (+ (area-address info) (area-bump info))))
       (incf (area-bump info) size)
       (/ address 8))))
@@ -269,8 +274,8 @@
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (let ((base-address (if position-independent
                           0
-                          (+ (area-address (fetch-area area nil))
-                             (area-bump (fetch-area area nil))))))
+                          (+ (area-address (fetch-area area))
+                             (area-bump (fetch-area area))))))
     (multiple-value-bind (mc constants fixups symbols gc-info)
         (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
           (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
@@ -450,8 +455,7 @@
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
     ;; Image header.
-    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0))
-          (store-base #x1000))
+    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
       ;; Magic.
       (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
                :start1 0)
@@ -490,15 +494,11 @@
            for i from 0
            for area in *area-list*
            do (extent i
-                      store-base
+                      (area-extent-start area)
                       (area-address area)
                       (area-size area)
                       (area-bump area)
                       (logior
-                       ;; Large bit
-                       (if (area-largep area)
-                           #b10000
-                           0)
                        ;; Finished bit.
                        (if (area-finishedp area)
                            #b100000
@@ -512,18 +512,20 @@
                        ;; Type bits.
                        (ecase (area-type area)
                          ((:wired    :pinned)    #b000)
-                         ((:wired-2g :pinned-2g) #b001)
+                         ((:wired-2g)            #b001)
                          (:dynamic               #b010)
                          (:dynamic-cons          #b011)
                          (:nursery               #b100)
-                         (:stack                 #b101))))
-             (incf store-base (area-size area))))
+                         (:stack                 #b101)
+                         (:dynamic-large         #b110))))))
       ;; Write it out.
       (write-sequence header s))
     ;; Write areas.
     (loop
        for area in *area-list*
-       do (write-sequence (area-data area) s)))
+       do
+         (file-position s (area-extent-start area))
+         (write-sequence (area-data area) s)))
   (values))
 
 (defun array-header (tag length)
@@ -538,7 +540,9 @@
 (defun create-thread (name &key stack-size (initial-state :runnable) (preemption-disable-depth 0) (foothold-disable-depth 0))
   (check-type initial-state (member :active :runnable :sleeping :dead))
   (let* ((address (allocate 512 :wired))
-         (stack (create-area :stack nil (* stack-size 8))))
+         (stack (create-area :stack (* stack-size 8))))
+    (format t "~X ~X  ~X~%" (area-address stack) (area-size stack)
+            (+ (area-address stack) (area-size stack)))
     ;; Array tag.
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
@@ -1042,9 +1046,60 @@ The bootloader provides a per-cpu GDT & TSS."
     (setf (cold-symbol-value 'sys.int::+task-state-segment+) (make-value tss sys.int::+tag-object+))
     (values (1- tss-size) (+ (* tss 8) 8))))
 
+(defun make-area-descriptor (struct-descriptor layout area)
+  (let ((desc (allocate (+ (length layout) 2) :wired)))
+    (setf (word desc) (array-header sys.int::+object-tag-structure-object+ (1+ (length layout)))
+          (word (1+ desc)) (make-value struct-descriptor sys.int::+tag-object+))
+    (flet ((set-slot (name value)
+             (setf (word (+ desc 2 (position name layout :key #'first :test #'string=))) value)))
+      (set-slot 'base (make-fixnum (area-address area)))
+      (set-slot 'size (make-fixnum (area-size area)))
+      (set-slot 'type (make-value (symbol-address (symbol-name (area-type area)) "KEYWORD")
+                                  sys.int::+tag-object+))
+      (set-slot 'extent (make-fixnum (area-extent-start area))))
+    desc))
+
+(defun generate-initial-area-table ()
+  (destructuring-bind (struct-descriptor name layout)
+      (gethash (intern "AREA" "MEZZANINE.RUNTIME") *struct-table*)
+    (declare (ignore name))
+    (format t "~S~%" layout)
+    (assert struct-descriptor)
+    (let ((initial-area-vector (allocate (1+ (length *area-list*)) :wired))
+          (area-structs (loop
+                           for area in *area-list*
+                           collect (make-area-descriptor struct-descriptor layout area))))
+      (setf (cold-symbol-value 'sys.int::*initial-areas*) (make-value initial-area-vector sys.int::+tag-object+)
+            (word initial-area-vector) (array-header sys.int::+object-tag-array-t+ (length *area-list*)))
+      (loop
+         for i from 1
+         for desc in area-structs
+         for area in *area-list*
+         do
+           (setf (word (+ desc 2 (position 'bump layout :key #'first :test #'string=))) (make-fixnum (area-bump area)))
+           (setf (word (+ initial-area-vector i)) (make-value desc sys.int::+tag-object+)))
+      ;; While we're here, build the freelists for the pinned/wired areas.
+      (loop
+         for area in *area-list*
+         for desc in area-structs
+         when (member (area-type area) '(:wired :wired-2g :pinned)) do
+           (setf (word (+ desc 2 (position 'bump layout :key #'first :test #'string=)))
+                 (cond ((eql (area-bump area) (area-size area))
+                        ;; Area is full!
+                        (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+                       (t
+                        (let ((addr (truncate (+ (area-address area) (area-bump area)) 8)))
+                          (setf (word addr) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+                                                    (ash (truncate (- (area-size area) (area-bump area)) 8) sys.int::+array-length-shift+))
+                                (word (1+ addr)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+                          ;; Make sure the freelist actaully gets written/loaded.
+                          (incf (area-bump area) 16)
+                          (make-value addr sys.int::+tag-object+)))))))))
+
 (defun make-image (image-name &key extra-source-files)
   (let* ((*2g-allocation-bump* #x200000)
          (*allocation-bump* #x100000000)
+         (*store-bump* #x1000)
          (*area-list* '())
          (*word-locks* (make-hash-table))
          (*pending-fixups* '())
@@ -1065,7 +1120,7 @@ The bootloader provides a per-cpu GDT & TSS."
          idt-size idt-pointer
          tss-size tss-pointer
          gdt-size gdt-pointer
-         (pf-exception-stack (create-area :stack nil (* 128 1024)))
+         (pf-exception-stack (create-area :stack (* 128 1024)))
          boot-area)
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
@@ -1106,7 +1161,7 @@ The bootloader provides a per-cpu GDT & TSS."
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist.
-    (mapc (lambda (sym) (symbol-address (string sym) "SYSTEM.INTERNALS"))
+    (mapc (lambda (sym) (symbol-address (string sym) (package-name (symbol-package sym))))
           '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
             sys.int::*newspace-offset* sys.int::*semispace-size* sys.int::*newspace* sys.int::*oldspace*
@@ -1118,6 +1173,8 @@ The bootloader provides a per-cpu GDT & TSS."
             #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
             sys.int::*bsp-idle-thread*
             sys.int::*boot-area-base* sys.int::*boot-area-bump*
+            sys.int::*initial-areas*
+            :wired :wired-2g :pinned :dynamic :dynamic-large :dynamic-cons :nursery :stack
             ))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
@@ -1139,24 +1196,13 @@ The bootloader provides a per-cpu GDT & TSS."
     (dolist (area *area-list*)
       (when (eql (area-type area) :wired)
         (finish-area area)))
-    ;; And create an empty wired area for allocating from.
-    (setf boot-area (create-area :wired nil))
+    ;; And create an empty wired area for the supervisor to allocate from during boot.
+    ;; This allows for up to 2MB(ish) of allocation to be done.
+    (setf boot-area (create-area :wired))
     ;; Initialize GC twiddly bits and stuff.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      ;(set-value 'sys.int::*newspace-offset* *dynamic-offset*)
-      ;(set-value 'sys.int::*semispace-size* (/ *dynamic-area-semispace-limit* 8))
-      ;(set-value 'sys.int::*newspace* *dynamic-area-base*)
-      ;(set-value 'sys.int::*oldspace* (+ *dynamic-area-base* (/ *dynamic-area-size* 2)))
-      ;(set-value 'sys.int::*large-static-area* *static-area-base*)
-      ;(set-value 'sys.int::*large-static-area-hint* 0)
-      ;(set-value 'sys.int::*small-static-area* (+ *static-area-base* *large-static-area-size*))
-      ;(set-value 'sys.int::*small-static-area-hint* 0)
-      ;(set-value 'sys.int::*static-mark-bit* 0)
-      ;(set-value 'sys.int::*bump-pointer* (+ *linear-map* *physical-load-address* (* (total-image-size) 8)))
-      ;(set-value 'sys.int::*stack-bump-pointer* (+ (* *stack-offset* 8) *stack-area-base*))
-      ;(set-value 'sys.int::*stack-bump-pointer-limit* (+ (* (1+ (ceiling *stack-offset* #x40000)) #x200000) *stack-area-base*))
       (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
       (set-value 'sys.int::*2g-allocation-bump* *2g-allocation-bump*)
       (set-value 'sys.int::*allocation-bump* *allocation-bump*)
@@ -1164,6 +1210,8 @@ The bootloader provides a per-cpu GDT & TSS."
       (set-value 'sys.int::*boot-area-bump* (area-bump boot-area))
       (set-value 'sys.int::*current-stack-mark-bit* 0))
     (apply-fixups *pending-fixups*)
+    ;; Populate initial area vector. This must be done last, as it must contain accurate bump pointers.
+    (generate-initial-area-table)
     (write-map-file image-name *function-map*)
     (write-image image-name
                  (make-value (function-reference 'sys.int::bootloader-entry-point)

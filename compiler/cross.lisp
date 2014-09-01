@@ -129,7 +129,10 @@
 (defpackage :mezzanine.supervisor
   (:use :cross-cl)
   (:export #:current-thread
+           #:with-symbol-spinlock
+           #:with-gc-deferred
            #:without-interrupts
+           #:with-world-stopped
            #:thread-name
            #:thread-state
            #:thread-lock

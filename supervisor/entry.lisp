@@ -7,9 +7,6 @@
   (assert (sys.int::character-array-p string))
   (sys.int::%array-like-ref-t string 3))
 
-(defvar *allocator-lock*)
-(defvar *boot-allocation-mode*)
-
 (defvar sys.int::*2g-allocation-bump*)
 (defvar sys.int::*allocation-bump*)
 
@@ -37,103 +34,6 @@
                         (eql (store-extent-large-p extent) largep))
                (return extent))))))
 
-(defun %allocate-object (tag data size area)
-  (let ((words (1+ size)))
-    (when (oddp words)
-      (incf words))
-    (cond (*boot-allocation-mode*
-           (assert (eql area :wired))
-           (assert (<= (+ sys.int::*boot-area-bump* (* words 8)) #x200000))
-           (with-symbol-spinlock (*allocator-lock*)
-             (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
-               (incf sys.int::*boot-area-bump* (* words 8))
-               ;; Write array header.
-               (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                     (logior (ash tag sys.int::+array-type-shift+)
-                             (ash data sys.int::+array-length-shift+)))
-               (sys.int::%%assemble-value addr sys.int::+tag-object+))))
-          (t (with-symbol-spinlock (*allocator-lock*)
-               (let* ((area (find-extent-named (or area :dynamic) (>= (* words 8) (* 256 1024))))
-                      (addr (+ (store-extent-virtual-base area) (store-extent-bump area))))
-                 (assert (<= (+ (store-extent-bump area) (* words 8)) (store-extent-size area)))
-                 (incf (store-extent-bump area) (* words 8))
-                 ;; Write array header.
-                 (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                       (logior (ash tag sys.int::+array-type-shift+)
-                               (ash data sys.int::+array-length-shift+)))
-                 (sys.int::%%assemble-value addr sys.int::+tag-object+)))))))
-
-(defun sys.int::make-simple-vector (size &optional area)
-  (%allocate-object sys.int::+object-tag-array-t+ size size area))
-
-(defun sys.int::%make-struct (size &optional area)
-  (%allocate-object sys.int::+object-tag-structure-object+ size size area))
-
-(defun sys.int::cons-in-area (car cdr &optional area)
-  (cond (*boot-allocation-mode*
-         (assert (eql area :wired))
-         (assert (<= (+ sys.int::*boot-area-bump* (* 4 8)) #x200000))
-         (with-symbol-spinlock (*allocator-lock*)
-           (let ((addr (+ sys.int::*boot-area-base* sys.int::*boot-area-bump*)))
-             (incf sys.int::*boot-area-bump* (* 4 8))
-             ;; Set header.
-             (setf (sys.int::memref-unsigned-byte-64 addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
-             ;; Set car/cdr.
-             (setf (sys.int::memref-t addr 2) car
-                   (sys.int::memref-t addr 3) cdr)
-             (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))
-        (t (with-symbol-spinlock (*allocator-lock*)
-               (let* ((area (find-extent-named (or area :dynamic-cons) nil))
-                      (addr (+ (store-extent-virtual-base area) (store-extent-bump area))))
-                 (case (store-extent-type area)
-                   (:dynamic-cons
-                    (assert (<= (+ (store-extent-bump area) 16) (store-extent-size area)))
-                    (incf (store-extent-bump area) 16)
-                    (setf (sys.int::memref-t addr 0) car
-                          (sys.int::memref-t addr 1) cdr)
-                    (sys.int::%%assemble-value addr sys.int::+tag-cons+))
-                   (t (assert (<= (+ (store-extent-bump area) 32) (store-extent-size area)))
-                      (incf (store-extent-bump area) 32)
-                      ;; Write array header.
-                      (setf (sys.int::memref-unsigned-byte-64 addr 0) (ash sys.int::+object-tag-cons+ sys.int::+array-type-shift+))
-                      ;; Set car/cdr.
-                      (setf (sys.int::memref-t addr 2) car
-                            (sys.int::memref-t addr 3) cdr)
-                      (sys.int::%%assemble-value (+ addr 16) sys.int::+tag-cons+))))))))
-
-(defun cons (car cdr)
-  (sys.int::cons-in-area car cdr))
-
-(defun sys.int::make-closure (function environment &optional area)
-  "Allocate a closure object."
-  (check-type function function)
-  (with-gc-deferred
-    (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 5 (or area :dynamic)))
-           (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0)))
-      (setf
-       ;; Entry point
-       (sys.int::%array-like-ref-unsigned-byte-64 closure 0) entry-point
-       ;; Initialize constant pool
-       (sys.int::%array-like-ref-t closure 1) function
-       (sys.int::%array-like-ref-t closure 2) environment)
-      closure)))
-
-(defun make-symbol (name)
-  (check-type name string)
-  ;; FIXME: Copy name into the wired area and unicode normalize it.
-  (with-gc-deferred ()
-    (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
-      ;; symbol-name.
-      (setf (sys.int::%array-like-ref-t symbol 0) name)
-      (makunbound symbol)
-      (setf (sys.int::symbol-fref symbol) nil
-            (symbol-plist symbol) nil
-            (symbol-package symbol) nil)
-      symbol)))
-
-(defun sys.int::%allocate-array-like (tag word-count length &optional area)
-  (%allocate-object tag length word-count area))
-
 (defun stack-base (stack)
   (store-extent-virtual-base stack))
 
@@ -144,7 +44,7 @@
   ;; 2M align stacks.
   (incf size #x1FFFFF)
   (setf size (logand size (lognot #x1FFFFF)))
-  (let* ((addr (with-symbol-spinlock (*allocator-lock*)
+  (let* ((addr (with-symbol-spinlock (mezzanine.runtime::*allocator-lock*)
                  (prog1 sys.int::*allocation-bump*
                    (incf sys.int::*allocation-bump* (+ size #x200000)))))
          (extent (make-store-extent :store-base nil
@@ -406,10 +306,10 @@
   (setf *boot-information-page* boot-information-page
         *boot-allocation-mode* t
         *cold-unread-char* nil)
-  ;; FIXME: Should be done by cold generator
-  (when (not (boundp '*allocator-lock*))
-    (setf *allocator-lock* :unlocked
-          mezzanine.runtime::*tls-lock* :unlocked
+  (when (not (boundp 'mezzanine.runtime::*tls-lock*))
+    (mezzanine.runtime::first-run-initialize-allocator)
+    ;; FIXME: Should be done by cold generator
+    (setf mezzanine.runtime::*tls-lock* :unlocked
           mezzanine.runtime::*active-catch-handlers* 'nil)
     ;; Bootstrap the defstruct system.
     ;; 1) Initialize *structure-type-type* so make-struct-definition works.

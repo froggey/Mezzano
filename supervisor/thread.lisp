@@ -200,7 +200,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   ;; Defer the GC until the thread object is created. Scanning a partially initialized thread
   ;; is bad news.
   (with-gc-deferred
-    (let* ((thread (%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
+    (let* ((thread (mezzanine.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
            (stack (%allocate-stack stack-size)))
       (setf (sys.int::%array-like-ref-t thread +thread-name+) name
             (sys.int::%array-like-ref-t thread +thread-state+) :runnable
@@ -450,6 +450,17 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     (setf (thread-state thread) :sleeping)
     (%reschedule)
     (error "Initial thread woken??")))
+
+(defmacro dx-lambda (lambda-list &body body)
+  `(flet ((dx-lambda ,lambda-list ,@body))
+     (declare (dynamic-extent #'dx-lambda))
+     #'dx-lambda))
+
+(defun call-with-world-stopped (fn)
+  (funcall fn))
+
+(defmacro with-world-stopped (&body body)
+  `(call-with-world-stopped (dx-lambda () ,@body)))
 
 ;;; Common structure for sleepable things.
 (defstruct wait-queue
