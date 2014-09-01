@@ -158,8 +158,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
             (sys.int::cons-in-area
              device
              *ata-devices*
-             :wired))
-      (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
+             :wired)))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
@@ -357,13 +356,14 @@ This is used to implement the INTRQ_Wait state."
       (debug-write-line "No devices on ata controller.")
       (return-from init-ata-controller))
     (debug-write-line "Probing ata controller.")
-    ;; Enable controller interrupts.
+    ;; Attach interrupt handler.
     (i8259-hook-irq irq 'ata-irq-handler) ; fixme: should clear pending irqs?
     (i8259-unmask-irq irq)
-    (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)
     ;; Probe drives.
     (ata-detect-drive controller :master)
-    (ata-detect-drive controller :slave)))
+    (ata-detect-drive controller :slave)
+    ;; Enable controller interrupts.
+    (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
 
 (defun initialize-ata ()
   (when (boundp '*ata-devices*)
@@ -375,4 +375,6 @@ This is used to implement the INTRQ_Wait state."
           (condition-notify (ata-controller-irq-cvar controller))))))
   (setf *ata-devices* '())
   (init-ata-controller +ata-compat-primary-command+ +ata-compat-primary-control+ +ata-compat-primary-irq+)
-  (init-ata-controller +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+))
+  (init-ata-controller +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+)
+  (dolist (device *ata-devices*)
+    (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write)))
