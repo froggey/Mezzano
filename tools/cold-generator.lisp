@@ -618,14 +618,6 @@
                                  (/ (stack-size stack) #x1000)
                                  (logior sys.int::+block-map-present+
                                          sys.int::+block-map-writable+
-                                         sys.int::+block-map-zero-fill+))
-        (add-region-to-block-map bml4
-                                 (/ (stack-store stack) #x1000)
-                                 (logior (stack-base stack)
-                                         (ash 1 sys.int::+address-mark-bit+))
-                                 (/ (stack-size stack) #x1000)
-                                 (logior sys.int::+block-map-present+
-                                         sys.int::+block-map-writable+
                                          sys.int::+block-map-zero-fill+)))
       ;; Now write it out.
       (write-block-map s bml4-block bml4)

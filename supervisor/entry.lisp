@@ -312,41 +312,61 @@
         (return-from block-info-for-virtual-address nil))
       (sys.int::memref-unsigned-byte-64 bml1 bml1e))))
 
-(defun wait-for-page-via-interrupt (interrupt-frame address)
+(defun wait-for-page-via-interrupt-1 (interrupt-frame address)
   (declare (ignore interrupt-frame))
+  ;; Stack pages with the mark bit set are aliased to the same
+  ;; address with the mark bit clear.
+  (when (and (logbitp sys.int::+address-mark-bit+ address)
+             (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
+                  sys.int::+address-tag-stack+))
+    (return-from wait-for-page-via-interrupt-1
+      (when (wait-for-page-via-interrupt-1 interrupt-frame
+                                           (logand address (lognot (ash 1 sys.int::+address-mark-bit+))))
+        ;; Page actually exists, fetch the pte for it and mash it into the pte for this address.
+        ;; FIXME: Alias page tables at the PML4 level, not at the PTE level.
+        (let ((other-pte (get-pte-for-address (logand address (lognot (ash 1 sys.int::+address-mark-bit+)))))
+              (pte (get-pte-for-address address)))
+          (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
+            (return-from wait-for-page-via-interrupt-1 t))
+          (setf (sys.int::memref-unsigned-byte-64 pte 0) (sys.int::memref-unsigned-byte-64 other-pte 0))
+          t))))
+  (let ((block-info (block-info-for-virtual-address address)))
+    (when (or (not block-info)
+              (not (logtest sys.int::+block-map-present+ block-info)))
+      (return-from wait-for-page-via-interrupt-1 nil))
+    ;; Examine the page table, if there's a present entry then the page
+    ;; was mapped while acquiring the VM lock. Just return.
+    (let ((pte (get-pte-for-address address)))
+      (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
+        (return-from wait-for-page-via-interrupt-1 t))
+      ;; No page allocated. Allocate a page and read the data.
+      (let* ((frame (or (allocate-physical-pages 1)
+                        (progn (debug-write-line "Aiee. No memory.")
+                               (loop))))
+             (addr (+ +physical-map-base+ (ash frame 12))))
+        (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
+               ;; Block is zero-filled.
+               (dotimes (i 512)
+                 (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+              (t ;; Block must be read from disk.
+               (or (funcall (disk-read-fn *paging-disk*)
+                            (disk-device *paging-disk*)
+                            (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+                               (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                            (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                            addr)
+                   (progn (debug-write-line "Unable to read page from disk")
+                          (loop)))))
+        (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
+                                                               +page-table-present+
+                                                               (if (logtest sys.int::+block-map-writable+ block-info)
+                                                                   +page-table-write+
+                                                                   0)))))
+    t))
+
+(defun wait-for-page-via-interrupt (interrupt-frame address)
   (with-mutex (*vm-lock*)
-    (let ((block-info (block-info-for-virtual-address address)))
-      (when (or (not block-info)
-                (not (logtest sys.int::+block-map-present+ block-info)))
-        (return-from wait-for-page-via-interrupt nil))
-      ;; Examine the page table, if there's a present entry then the page
-      ;; was mapped while acquiring the VM lock. Just return.
-      (let ((pte (get-pte-for-address address)))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
-          ;; No page allocated. Allocate a page and read the data.
-          (let* ((frame (or (allocate-physical-pages 1)
-                            (progn (debug-write-line "Aiee. No memory.")
-                                   (loop))))
-                 (addr (+ +physical-map-base+ (ash frame 12))))
-            (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
-                   ;; Block is zero-filled.
-                   (dotimes (i 512)
-                     (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
-                  (t ;; Block must be read from disk.
-                   (or (funcall (disk-read-fn *paging-disk*)
-                                (disk-device *paging-disk*)
-                                (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
-                                   (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                                (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                                addr)
-                       (progn (debug-write-line "Unable to read page from disk")
-                              (loop)))))
-            (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
-                                                                   +page-table-present+
-                                                                   (if (logtest sys.int::+block-map-writable+ block-info)
-                                                                       +page-table-write+
-                                                                       0))))))
-      t)))
+    (wait-for-page-via-interrupt-1 interrupt-frame address)))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
