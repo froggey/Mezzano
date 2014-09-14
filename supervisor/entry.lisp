@@ -7,12 +7,6 @@
   (assert (sys.int::character-array-p string))
   (sys.int::%array-like-ref-t string 3))
 
-(defvar sys.int::*2g-allocation-bump*)
-(defvar sys.int::*allocation-bump*)
-
-(defvar sys.int::*boot-area-base*)
-(defvar sys.int::*boot-area-bump*)
-
 (defmacro with-gc-deferred (&body body)
   `(call-with-gc-deferred (flet ((with-gc-deferred-thunk () ,@body))
                             (declare (dynamic-extent #'with-gc-deferred-thunk))
@@ -35,27 +29,37 @@
                (return extent))))))
 
 (defun stack-base (stack)
-  (store-extent-virtual-base stack))
+  (car stack))
 
 (defun stack-size (stack)
-  (store-extent-size stack))
+  (cdr stack))
 
+;; TODO: Actually allocate virtual memory & store.
 (defun %allocate-stack (size)
-  ;; 2M align stacks.
-  (incf size #x1FFFFF)
-  (setf size (logand size (lognot #x1FFFFF)))
-  (let* ((addr (with-symbol-spinlock (mezzanine.runtime::*allocator-lock*)
-                 (prog1 sys.int::*allocation-bump*
-                   (incf sys.int::*allocation-bump* (+ size #x200000)))))
-         (extent (make-store-extent :store-base nil
-                                    :virtual-base addr
-                                    :size size
-                                    :bump size
-                                    :wired-p nil
-                                    :type :stack
-                                    :zero-fill t)))
-    (setf *extent-table* (sys.int::cons-in-area extent *extent-table* :wired))
-    extent))
+  ;; 4k align the size.
+  (setf size (logand (+ size #xFFF) (lognot #xFFF)))
+  (let* ((addr (with-symbol-spinlock (mezzanine.runtime::*wired-allocator-lock*)
+                 (prog1 (logior (+ sys.int::*stack-area-bump* #x200000)
+                                (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+                   ;; 2m align the memory region.
+                   (incf sys.int::*stack-area-bump* (+ (logand (+ size #x1FFFFF) (lognot #x1FFFFF))
+                                                       #x200000)))))
+         (stack (sys.int::cons-in-area addr size :wired)))
+    ;; Map the memory in, should allocate this from the store instead... sigh.
+    (with-mutex (*vm-lock*)
+      (dotimes (i (ceiling size #x1000))
+        (let* ((address (+ addr (* i #x1000)))
+               (pte (get-pte-for-address address)))
+          (assert (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))))
+          ;; No page allocated. Allocate a page and read the data.
+          (let* ((frame (or (allocate-physical-pages 1)
+                            (progn (debug-write-line "Aiee. No memory.")
+                                   (loop))))
+                 (addr (+ +physical-map-base+ (ash frame 12))))
+            (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
+                                                                   +page-table-present+
+                                                                   +page-table-write+))))))
+    stack))
 
 ;; TODO.
 (defun sleep (seconds)
@@ -124,20 +128,8 @@
 
 (defvar *disks*)
 
-(defstruct (store-extent
-             (:area :wired))
-  store-base
-  virtual-base
-  size
-  bump
-  wired-p
-  large-p
-  finished-p
-  type
-  zero-fill)
-
 (defvar *paging-disk*)
-(defvar *extent-table*)
+(defvar *bml4-block*)
 
 (defconstant +n-physical-buddy-bins+ 32)
 (defconstant +buddy-bin-size+ 16)
@@ -167,7 +159,7 @@
     (or (funcall read-fn device 0 (ceiling +4k-page-size+ sector-size) page-addr)
         (progn
           (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-          (error "Unable to read first sector on device ~S!" device)))
+          (error "Unable to read first block on device ~S!" device)))
     ;; Search for a Mezzanine header here.
     ;; TODO: Scan for partition maps.
     (when (and
@@ -188,34 +180,7 @@
               finally (return t)))
       (debug-write-line "Found boot image!")
       (setf *paging-disk* disk)
-      ;; Initialize the extent table.
-      (setf *extent-table* '())
-      (dotimes (i (sys.int::memref-unsigned-byte-32 (+ page-addr 36) 0))
-        (let* ((addr (+ page-addr 96 (* i 40)))
-               (flags (sys.int::memref-unsigned-byte-64 addr 4))
-               (extent (make-store-extent :store-base (sys.int::memref-unsigned-byte-64 addr 0)
-                                          :virtual-base (sys.int::memref-unsigned-byte-64 addr 1)
-                                          :size (sys.int::memref-unsigned-byte-64 addr 2)
-                                          :bump (sys.int::memref-unsigned-byte-64 addr 3)
-                                          :wired-p (logbitp 3 flags)
-                                          :large-p (logbitp 4 flags)
-                                          :finished-p (logbitp 5 flags)
-                                          :type (ecase (ldb (byte 3 0) flags)
-                                                  (0 :pinned)
-                                                  (1 :pinned-2g)
-                                                  (2 :dynamic)
-                                                  (3 :dynamic-cons)
-                                                  (4 :nursery)
-                                                  (5 :stack)))))
-          (setf *extent-table*
-                (sys.int::cons-in-area
-                 extent
-                 *extent-table*
-                 :wired))
-          ;; Consider switching over to proper allocation.
-          (when (eql sys.int::*boot-area-base* (store-extent-virtual-base extent))
-            (setf (store-extent-bump extent) sys.int::*boot-area-bump*
-                  *boot-allocation-mode* nil)))))
+      (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0)))
     ;; Release the pages.
     (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))
 
@@ -232,79 +197,161 @@
 (defconstant +page-table-global+         #x100)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
-(defun wait-for-page-via-interrupt (interrupt-frame extent address)
-  (declare (ignore interrupt-frame))
-  (with-mutex (*vm-lock*)
-    ;; Examine the page table, if there's a present entry then the page
-    ;; was mapped while acquiring the VM lock. Just return.
-    (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
-          (pml4e (ldb (byte 9 39) address))
-          (pdpe (ldb (byte 9 30) address))
-          (pde (ldb (byte 9 21) address))
-          (pte (ldb (byte 9 12) address)))
-      (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 cr3 pml4e)))
-        ;; No PDP. Allocate one.
+(defun get-pte-for-address (address &optional (allocate t))
+  (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+        (pml4e (ldb (byte 9 39) address))
+        (pdpe (ldb (byte 9 30) address))
+        (pde (ldb (byte 9 21) address))
+        (pte (ldb (byte 9 12) address)))
+    (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 cr3 pml4e)))
+      ;; No PDP. Allocate one.
+      (when (not allocate)
+        (return-from get-pte-for-address nil))
+      (let* ((frame (or (allocate-physical-pages 1)
+                        (progn (debug-write-line "Aiee. No memory.")
+                               (loop))))
+             (addr (+ +physical-map-base+ (ash frame 12))))
+        (dotimes (i 512)
+          (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+        (setf (sys.int::memref-unsigned-byte-64 cr3 pml4e) (logior (ash frame 12)
+                                                                   +page-table-present+
+                                                                   +page-table-write+))))
+    (let ((pdp (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 cr3 pml4e) +page-table-address-mask+))))
+      (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdp pdpe)))
+        ;; No PDir. Allocate one.
+        (when (not allocate)
+          (return-from get-pte-for-address nil))
         (let* ((frame (or (allocate-physical-pages 1)
                           (progn (debug-write-line "Aiee. No memory.")
                                  (loop))))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (dotimes (i 512)
             (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-          (setf (sys.int::memref-unsigned-byte-64 cr3 pml4e) (logior (ash frame 12)
-                                                                     +page-table-present+
-                                                                     +page-table-write+))))
-      (let ((pdp (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 cr3 pml4e) +page-table-address-mask+))))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdp pdpe)))
-          ;; No PDir. Allocate one.
+          (setf (sys.int::memref-unsigned-byte-64 pdp pdpe) (logior (ash frame 12)
+                                                                    +page-table-present+
+                                                                    +page-table-write+))))
+      (let ((pdir (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdp pdpe) +page-table-address-mask+))))
+        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdir pde)))
+          ;; No PT. Allocate one.
+          (when (not allocate)
+            (return-from get-pte-for-address nil))
           (let* ((frame (or (allocate-physical-pages 1)
                             (progn (debug-write-line "Aiee. No memory.")
                                    (loop))))
                  (addr (+ +physical-map-base+ (ash frame 12))))
             (dotimes (i 512)
               (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-            (setf (sys.int::memref-unsigned-byte-64 pdp pdpe) (logior (ash frame 12)
+            (setf (sys.int::memref-unsigned-byte-64 pdir pde) (logior (ash frame 12)
                                                                       +page-table-present+
                                                                       +page-table-write+))))
-        (let ((pdir (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdp pdpe) +page-table-address-mask+))))
-          (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdir pde)))
-            ;; No PT. Allocate one.
-            (let* ((frame (or (allocate-physical-pages 1)
-                              (progn (debug-write-line "Aiee. No memory.")
-                                     (loop))))
-                   (addr (+ +physical-map-base+ (ash frame 12))))
-              (dotimes (i 512)
-                (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-              (setf (sys.int::memref-unsigned-byte-64 pdir pde) (logior (ash frame 12)
-                                                                        +page-table-present+
-                                                                        +page-table-write+))))
-          (let ((pt (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdir pde) +page-table-address-mask+))))
-            (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pt pte)))
-              ;; No page allocated. Allocate a page and read the data.
-              (let* ((frame (or (allocate-physical-pages 1)
-                                (progn (debug-write-line "Aiee. No memory.")
-                                       (loop))))
-                     (addr (+ +physical-map-base+ (ash frame 12))))
-                (cond ((store-extent-zero-fill extent)
-                       (dotimes (i 512)
-                         (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
-                      (t (or (funcall (disk-read-fn *paging-disk*)
-                                      (disk-device *paging-disk*)
-                                      (* (truncate (+ (store-extent-store-base extent)
-                                                      (- address (store-extent-virtual-base extent)))
-                                                   +4k-page-size+)
-                                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                                      (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                                      addr)
-                             (progn (debug-write-line "Unable to read page from disk")
-                                    (loop)))))
-                (setf (sys.int::memref-unsigned-byte-64 pt pte) (logior (ash frame 12)
-                                                                        +page-table-present+
-                                                                        +page-table-write+))))))))))
+        (let ((pt (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdir pde) +page-table-address-mask+))))
+          (+ pt (* pte 8)))))))
+
+(defun read-cached-block-from-disk (block-id)
+  (let* ((frame (or (allocate-physical-pages 1)
+                    (progn (debug-write-line "Aiee. No memory.")
+                           (loop))))
+         (addr (+ +physical-map-base+ (ash frame 12))))
+    (or (funcall (disk-read-fn *paging-disk*)
+                 (disk-device *paging-disk*)
+                 (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                 (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                 addr)
+        (progn (debug-write-line "Unable to read page from disk")
+               (loop)))
+    ;; Insert it into the cache.
+    (block cache-insert
+      (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
+          ((null cache-page)
+           ;; Expand the cache.
+           (let* ((frame (or (allocate-physical-pages 1)
+                             (progn (debug-write-line "Aiee. No memory.")
+                                    (loop))))
+                  (cache-addr (+ +physical-map-base+ (ash frame 12))))
+             (dotimes (i 512)
+               (setf (sys.int::memref-unsigned-byte-64 cache-addr i) 0))
+             (setf (sys.int::memref-t cache-addr 511) *block-cache*
+                   *block-cache* cache-addr)
+             (setf (sys.int::memref-unsigned-byte-64 cache-addr 0) block-id
+                   (sys.int::memref-signed-byte-64 cache-addr 1) addr)))
+        (dotimes (i 255)
+          (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) 0)
+            (setf (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id
+                  (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))) addr)
+            (return-from cache-insert)))))
+    addr))
+
+(defun read-cached-block (block-id)
+  ;; Scan the block cache.
+  (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
+      ((null cache-page)
+       (read-cached-block-from-disk block-id))
+    (dotimes (i 255)
+      (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
+        (return-from read-cached-block (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))))))))
+
+(defun block-info-for-virtual-address (address)
+  (flet ((read-level (map entry)
+           ;; Stop if there is no block, or if the level is not present.
+           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
+                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
+             (when (or (zerop id)
+                       (not (logtest sys.int::+block-map-present+ info)))
+               (return-from block-info-for-virtual-address nil))
+             (read-cached-block id))))
+    (let* ((bml4e (ldb (byte 9 39) address))
+           (bml3e (ldb (byte 9 30) address))
+           (bml2e (ldb (byte 9 21) address))
+           (bml1e (ldb (byte 9 12) address))
+           (bml4 (read-cached-block *bml4-block*))
+           (bml3 (read-level bml4 bml4e))
+           (bml2 (read-level bml3 bml3e))
+           (bml1 (read-level bml2 bml2e)))
+      (when (zerop (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+)
+                        (sys.int::memref-unsigned-byte-64 bml1 bml1e)))
+        (return-from block-info-for-virtual-address nil))
+      (sys.int::memref-unsigned-byte-64 bml1 bml1e))))
+
+(defun wait-for-page-via-interrupt (interrupt-frame address)
+  (declare (ignore interrupt-frame))
+  (with-mutex (*vm-lock*)
+    (let ((block-info (block-info-for-virtual-address address)))
+      (when (or (not block-info)
+                (not (logtest sys.int::+block-map-present+ block-info)))
+        (return-from wait-for-page-via-interrupt nil))
+      ;; Examine the page table, if there's a present entry then the page
+      ;; was mapped while acquiring the VM lock. Just return.
+      (let ((pte (get-pte-for-address address)))
+        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+          ;; No page allocated. Allocate a page and read the data.
+          (let* ((frame (or (allocate-physical-pages 1)
+                            (progn (debug-write-line "Aiee. No memory.")
+                                   (loop))))
+                 (addr (+ +physical-map-base+ (ash frame 12))))
+            (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
+                   ;; Block is zero-filled.
+                   (dotimes (i 512)
+                     (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+                  (t ;; Block must be read from disk.
+                   (or (funcall (disk-read-fn *paging-disk*)
+                                (disk-device *paging-disk*)
+                                (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+                                   (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                                (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                                addr)
+                       (progn (debug-write-line "Unable to read page from disk")
+                              (loop)))))
+            (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
+                                                                   +page-table-present+
+                                                                   (if (logtest sys.int::+block-map-writable+ block-info)
+                                                                       +page-table-write+
+                                                                       0))))))
+      t)))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
   (setf *boot-information-page* boot-information-page
-        *boot-allocation-mode* t
+        *block-cache* nil
         *cold-unread-char* nil)
   (when (not (boundp 'mezzanine.runtime::*tls-lock*))
     (mezzanine.runtime::first-run-initialize-allocator)
@@ -340,8 +387,7 @@
   (setf *disks* '()
         *paging-disk* nil)
   (initialize-ata)
-  (when (or (not *paging-disk*)
-            *boot-allocation-mode*)
+  (when (not *paging-disk*)
     (debug-write-line "Could not find boot device. Sorry.")
     (loop))
   ;; Load the extent table.

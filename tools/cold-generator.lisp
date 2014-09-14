@@ -151,107 +151,108 @@
 (defvar *function-map*)
 (defvar *pending-fixups*)
 
-(defvar *default-general-allocation-area* :dynamic)
-(defvar *default-cons-allocation-area* :dynamic-cons)
-(defvar *default-pinned-allocation-area* :pinned)
+;;; Memory allocation.
 
-(defconstant +small-area-size+ (* 2 1024 1024))
-(defconstant +small-area-limit+ (* 256 1024))
+;; Wired area starts at 2M.
+(defconstant +wired-area-base+ (* 2 1024 1024))
+;; Pinned at 2G.
+(defconstant +pinned-area-base+ (* 2 1024 1024 1024))
+;; Wired area stops at 2G, below the pinned area.
+(defconstant +wired-area-limit+ (* 2 1024 1024 1024))
 
-(defstruct area
-  type
-  extent-start
-  address
-  data
+;; Past this, the address starts to infringe on the address info bits.
+;; Technically, the pinned and stack areas don't care about bit 44, but be consistent.
+(defconstant +area-limit+ (expt 2 44))
+
+(defvar *wired-area-bump*)
+(defvar *wired-area-data*)
+(defvar *wired-area-store*)
+(defvar *pinned-area-bump*)
+(defvar *pinned-area-data*)
+(defvar *pinned-area-store*)
+(defvar *general-area-bump*)
+(defvar *general-area-data*)
+(defvar *general-area-store*)
+(defvar *cons-area-bump*)
+(defvar *cons-area-data*)
+(defvar *cons-area-store*)
+
+(defstruct stack
+  base
   size
-  bump
-  finishedp)
+  store)
 
-;; FIXME: This way of allocating area memory is dumb.
-(defvar *2g-allocation-bump*)
-(defvar *allocation-bump*)
+(defvar *stack-list*)
+(defvar *stack-area-bump*)
 
 (defvar *store-bump*)
-(defvar *area-list*)
+
+(defvar *default-general-allocation-area* :general)
+(defvar *default-cons-allocation-area* :cons)
+(defvar *default-pinned-allocation-area* :pinned)
 
 (defun align-up (value boundary)
   (incf value (1- boundary))
   (- value (rem value boundary)))
 
-(defun create-area (type &optional (size +small-area-size+))
-  (check-type type (member :nursery :stack
-                           :wired :wired-2g
-                           :pinned
-                           :dynamic :dynamic-cons :dynamic-large))
-  (setf size (align-up size #x1000))
-  (let ((area (make-area :type type
-                         :address (logior
-                                   (if (member type '(:wired-2g))
-                                       (prog1 *2g-allocation-bump*
-                                         (setf *2g-allocation-bump* (align-up (+ *2g-allocation-bump* size)
-                                                                              #x200000)))
-                                       (prog1 *allocation-bump*
-                                         (setf *allocation-bump* (align-up (+ *allocation-bump* size)
-                                                                           #x200000))))
-                                   (ash (ecase type
-                                          ((:wired :wired-2g :pinned)
-                                           sys.int::+address-tag-pinned+)
-                                          (:stack
-                                           sys.int::+address-tag-stack+)
-                                          ((:dynamic :dynamic-large :dynamic-cons :nursery)
-                                           sys.int::+address-tag-dynamic+))
-                                        sys.int::+address-tag-shift+))
-                         :data (make-array size :element-type '(unsigned-byte 8))
-                         ;; Dynamic areas are semispaces and require twice as much store.
-                         ;; If the area type is dynamic, size must be doubled to find the true
-                         ;; store size.
-                         :size size
-                         :bump (if (eql type :stack)
-                                   size
-                                   0)
-                         :finishedp nil
-                         :extent-start *store-bump*)))
-    (push area *area-list*)
-    (incf *store-bump* size)
-    area))
-
-(defun finish-area (area)
-  (setf (area-finishedp area) t))
-
-(defun fetch-area (type)
-  (dolist (area *area-list*)
-    (when (and (eql (area-type area) type)
-               (not (area-finishedp area)))
-      (return area))))
+(defun allocate-1 (size bump-symbol data-symbol data-offset limit tag name)
+  (when (>= (+ (symbol-value bump-symbol) size) limit)
+    (error "~A area exceeded limit." name))
+  (let ((address (symbol-value bump-symbol)))
+    (incf (symbol-value bump-symbol) size)
+    ;; Keep data vector page aligned, but don't expand it too often.
+    (let ((dv-size (align-up (symbol-value bump-symbol) #x200000)))
+      (when (not (eql (- dv-size data-offset)
+                      (length (symbol-value data-symbol))))
+        (setf (symbol-value data-symbol) (adjust-array (symbol-value data-symbol)
+                                                       (- dv-size data-offset)
+                                                       :element-type '(unsigned-byte 8)))))
+    (/ (logior address (ash tag sys.int::+address-tag-shift+)) 8)))
 
 (defun allocate (word-count &optional area)
-  (check-type area (member nil
-                           :wired :wired-2g
-                           :pinned
-                           :dynamic :dynamic-cons))
   (when (oddp word-count) (incf word-count))
-  (setf area (or area *default-general-allocation-area*))
-  (when (and (eql area :dynamic) (> (* word-count 8) +small-area-limit+))
-    (setf area :dynamic-large))
-  (let* ((size (* word-count 8))
-         (info (fetch-area area)))
-    (when (or (not info) (< (- (area-size info) (area-bump info)) size))
-      ;; No space left in this area. Finish it and create a new one.
-      (when info
-        (finish-area info))
-      (setf info (create-area area (align-up size +small-area-size+))))
-    ;; FIXME: Objects in :dynamic-large should be page (4k) aligned.
-    (let ((address (+ (area-address info) (area-bump info))))
-      (incf (area-bump info) size)
-      (/ address 8))))
+  (let ((size (* word-count 8)))
+    (ecase (or area *default-general-allocation-area*)
+      (:wired
+       (allocate-1 size '*wired-area-bump* '*wired-area-data* +wired-area-base+ +wired-area-limit+ sys.int::+address-tag-pinned+ "wired"))
+      (:pinned
+       (allocate-1 size '*pinned-area-bump* '*pinned-area-data* +pinned-area-base+ +area-limit+ sys.int::+address-tag-pinned+ "pinned"))
+      (:general
+       (allocate-1 size '*general-area-bump* '*general-area-data* 0 +area-limit+ sys.int::+address-tag-general+ "general"))
+      (:cons
+       (allocate-1 size '*cons-area-bump* '*cons-area-data* 0 +area-limit+ sys.int::+address-tag-cons+ "cons")))))
 
 (defun area-for-address (address)
   (let ((byte-address (* address 8)))
-    (dolist (area *area-list*
-             (error "Unknown address #x~X.~%" address))
-      (when (<= (area-address area) byte-address (1- (+ (area-address area) (area-size area))))
-        (return (values (/ (- byte-address (area-address area)) 8)
-                        (area-data area)))))))
+    (case (ldb (byte sys.int::+address-tag-size+
+                     sys.int::+address-tag-shift+)
+               byte-address)
+      (#.sys.int::+address-tag-pinned+
+       (cond ((<= +pinned-area-base+ byte-address (1- +area-limit+))
+              (values (/ (- (logand byte-address (1- +area-limit+)) +pinned-area-base+) 8)
+                      *pinned-area-data*))
+             ((<= +wired-area-base+ byte-address (1- +wired-area-limit+))
+              (values (/ (- (logand byte-address (1- +area-limit+)) +wired-area-base+) 8)
+                      *wired-area-data*))
+             (t (error "Unknown address #x~X" address))))
+      ;;(#.sys.int::+address-tag-stack+)
+      (#.sys.int::+address-tag-general+
+       (values (/ (logand byte-address (1- +area-limit+)) 8)
+               *general-area-data*))
+      (#.sys.int::+address-tag-cons+
+       (values (/ (logand byte-address (1- +area-limit+)) 8)
+               *cons-area-data*))
+      (t (error "Unknown address #x~X" address)))))
+
+(defun create-stack (size)
+  (incf *stack-area-bump* #x200000)
+  (setf size (align-up size #x200000))
+  (let* ((address (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                          *stack-area-bump*))
+         (info (make-stack :base address :size size)))
+    (incf *stack-area-bump* size)
+    (push info *stack-list*)
+    info))
 
 (defvar *word-locks*)
 
@@ -274,8 +275,7 @@
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (let ((base-address (if position-independent
                           0
-                          (+ (area-address (fetch-area area))
-                             (area-bump (fetch-area area))))))
+                          *wired-area-bump*)))
     (multiple-value-bind (mc constants fixups symbols gc-info)
         (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
           (sys.lap-x86:assemble (list* (list :d64/le 0 0) code) ; 16 byte header.
@@ -393,14 +393,14 @@
 ;; fixme, nil and t should be constant.
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
-  (let ((nil-value (allocate 6 :wired-2g))
-        (t-value (allocate 6 :wired-2g))
+  (let ((nil-value (allocate 6 :wired))
+        (t-value (allocate 6 :wired))
         (keyword-keyword (allocate 6 :wired))
         (cl-keyword (allocate 6 :wired))
-        (unbound-val (allocate 2 :wired-2g))
-        (unbound-tls-val (allocate 2 :wired-2g))
-        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired-2g))
-        (closure-tramp (compile-lap-function *closure-trampoline-address* :area :wired-2g)))
+        (unbound-val (allocate 2 :wired))
+        (unbound-tls-val (allocate 2 :wired))
+        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired))
+        (closure-tramp (compile-lap-function *closure-trampoline-address* :area :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -448,84 +448,197 @@
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
     (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
 
+(defun add-page-to-block-map (bml4 block virtual-address flags)
+  (let ((bml4e (ldb (byte 9 39) virtual-address))
+        (bml3e (ldb (byte 9 30) virtual-address))
+        (bml2e (ldb (byte 9 21) virtual-address))
+        (bml1e (ldb (byte 9 12) virtual-address)))
+    (unless (aref bml4 bml4e)
+      (setf (aref bml4 bml4e) (make-array 512 :initial-element nil)))
+    (let ((bml3 (aref bml4 bml4e)))
+      (unless (aref bml3 bml3e)
+        (setf (aref bml3 bml3e) (make-array 512 :initial-element nil)))
+      (let ((bml2 (aref bml3 bml3e)))
+        (unless (aref bml2 bml2e)
+          (setf (aref bml2 bml2e) (make-array 512 :initial-element nil)))
+        (let ((bml1 (aref bml2 bml2e)))
+          (assert (not (aref bml1 bml1e)))
+          (setf (aref bml1 bml1e) (logior (ash block sys.int::+block-map-id-shift+)
+                                          flags)))))))
+
+(defun add-region-to-block-map (bml4 store-base virtual-base size flags)
+  (dotimes (i size)
+    (add-page-to-block-map bml4 (+ store-base i) (+ virtual-base (* i #x1000)) flags)))
+
+(defun write-block-map (s block-offset level)
+  (let ((data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
+    (dotimes (i 512)
+      (let ((e (aref level i)))
+        (etypecase e
+          (null)
+          (vector
+           ;; Next level
+           (let* ((next-block *store-bump*))
+             (incf *store-bump* #x1000)
+             (write-block-map s next-block e)
+             (setf (nibbles:ub64ref/le data (* i 8)) (logior (ash (/ next-block #x1000) sys.int::+block-map-id-shift+)
+                                                             sys.int::+block-map-present+
+                                                             sys.int::+block-map-writable+))))
+          ((unsigned-byte 64)
+           ;; Value.
+           (setf (nibbles:ub64ref/le data (* i 8)) e)))))
+    (file-position s block-offset)
+    (write-sequence data s)))
+
 (defun write-image (name entry-fref initial-thread idt-size idt-pointer gdt-size gdt-pointer)
-  (write *area-list* :length 50)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
-    ;; Image header.
-    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
-      ;; Magic.
-      (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
-               :start1 0)
-      ;; UUID.
-      (dotimes (i 16)
-        (setf (aref header (+ 16 i)) (case i
-                                       (9 (logior #x40 (random 16)))
-                                       (7 (logior (random 64) #x80))
-                                       (t (random 256)))))
-      ;; Major version.
-      (setf (ub16ref/le header 32) 0)
-      ;; Minor version.
-      (setf (ub16ref/le header 34) 10)
-      ;; Number of extents.
-      (setf (ub32ref/le header 36) (length *area-list*))
-      ;; Entry fref.
-      (setf (ub64ref/le header 40) entry-fref)
-      ;; Initial thread.
-      (setf (ub64ref/le header 48) initial-thread)
-      ;; NIL.
-      (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                               sys.int::+tag-object+))
-      ;; System IDT info.
-      (setf (ub16ref/le header 64) idt-size
-            (ub64ref/le header 66) idt-pointer)
-      ;; System GDT info.
-      (setf (ub16ref/le header 80) gdt-size
-            (ub64ref/le header 82) gdt-pointer)
-      (flet ((extent (id store-base virtual-base size bump flags)
-               (setf (ub64ref/le header (+ 96 (* id 40) 0)) store-base
-                     (ub64ref/le header (+ 96 (* id 40) 8)) virtual-base
-                     (ub64ref/le header (+ 96 (* id 40) 16)) size
-                     (ub64ref/le header (+ 96 (* id 40) 24)) bump
-                     (ub64ref/le header (+ 96 (* id 40) 32)) flags)))
-        (loop
-           for i from 0
-           for area in *area-list*
-           do (extent i
-                      (area-extent-start area)
-                      (area-address area)
-                      (area-size area)
-                      (area-bump area)
-                      (logior
-                       ;; Finished bit.
-                       (if (area-finishedp area)
-                           #b100000
-                           0)
-                       ;; Wired bit.
-                       ;; Initial stacks are wired.
-                       (if (member (area-type area)
-                                   '(:wired :wired-2g :stack))
-                           #b1000
-                           0)
-                       ;; Type bits.
-                       (ecase (area-type area)
-                         ((:wired    :pinned)    #b000)
-                         ((:wired-2g)            #b001)
-                         (:dynamic               #b010)
-                         (:dynamic-cons          #b011)
-                         (:nursery               #b100)
-                         (:stack                 #b101)
-                         (:dynamic-large         #b110))))))
-      ;; Write it out.
-      (write-sequence header s))
-    ;; Write areas.
-    (loop
-       for area in *area-list*
-       do
-         (file-position s (area-extent-start area))
-         (write-sequence (area-data area) s)))
+    (let ((bml4-block *store-bump*)
+          (bml4 (make-array 512 :initial-element nil))
+          (free-block-list (+ *store-bump* #x1000))
+          (image-size (* 256 1024 1024)))
+      (format t "Generating ~:D byte image.~%" image-size)
+      (format t "BML4 at offset ~X~%" bml4-block)
+      (format t "FBL  at offset ~X~%" free-block-list)
+      (incf *store-bump* #x2000)
+      (file-position s (1- image-size))
+      (write-byte 0 s)
+      (file-position s 0)
+      ;; Image header.
+      (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
+        ;; Magic.
+        (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+                 :start1 0)
+        ;; UUID.
+        (dotimes (i 16)
+          (setf (aref header (+ 16 i)) (case i
+                                         (9 (logior #x40 (random 16)))
+                                         (7 (logior (random 64) #x80))
+                                         (t (random 256)))))
+        ;; Major version.
+        (setf (ub16ref/le header 32) 0)
+        ;; Minor version.
+        (setf (ub16ref/le header 34) 11)
+        ;; Number of extents.
+        (setf (ub32ref/le header 36) (+ 1 (length *stack-list*)))
+        ;; Entry fref.
+        (setf (ub64ref/le header 40) entry-fref)
+        ;; Initial thread.
+        (setf (ub64ref/le header 48) initial-thread)
+        ;; NIL.
+        (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                                 sys.int::+tag-object+))
+        ;; System IDT info.
+        (setf (ub16ref/le header 64) idt-size
+              (ub64ref/le header 66) idt-pointer)
+        ;; System GDT info.
+        (setf (ub16ref/le header 80) gdt-size
+              (ub64ref/le header 82) gdt-pointer)
+        ;; Top-level block map.
+        (setf (ub64ref/le header 96) (/ bml4-block #x1000))
+        ;; Free block list.
+        (setf (ub64ref/le header 104) (/ free-block-list #x1000))
+        (flet ((extent (id store-base virtual-base size bump flags)
+                 (setf (ub64ref/le header (+ 112 (* id 40) 0)) store-base
+                       (ub64ref/le header (+ 112 (* id 40) 8)) virtual-base
+                       (ub64ref/le header (+ 112 (* id 40) 16)) size
+                       (ub64ref/le header (+ 112 (* id 40) 24)) bump
+                       (ub64ref/le header (+ 112 (* id 40) 32)) flags)))
+          (extent 0 *wired-area-store* +wired-area-base+ (- *wired-area-bump* +wired-area-base+) (- *wired-area-bump* +wired-area-base+)
+                  ;; A wired pinned area.
+                  (logior #b1000 #b000))
+          (loop
+             for stack in *stack-list*
+             for i from 1
+             do (extent i (stack-store stack) (stack-base stack) (stack-size stack) (stack-size stack)
+                        ;; A wired stack area.
+                        (logior #b1000 #b101))))
+        ;; Write it out.
+        (write-sequence header s))
+      ;; Write areas.
+      (file-position s *wired-area-store*)
+      (format t "Wired area at ~X, ~:D bytes.~%"
+              *wired-area-store* (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
+      (write-sequence *wired-area-data* s :end (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
+      (format t "Pinned area at ~X, ~:D bytes.~%"
+              *pinned-area-store* (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+      (file-position s *pinned-area-store*)
+      (write-sequence *pinned-area-data* s :end (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+      (format t "General area at ~X, ~:D bytes.~%"
+              *general-area-store* (align-up *general-area-bump* #x1000))
+      (file-position s *general-area-store*)
+      (write-sequence *general-area-data* s :end (align-up *general-area-bump* #x1000))
+      (format t "Cons area at ~X, ~:D bytes.~%"
+              *cons-area-store* (align-up *cons-area-bump* #x1000))
+      (file-position s *cons-area-store*)
+      (write-sequence *cons-area-data* s :end (align-up *cons-area-bump* #x1000))
+      ;; Generate the block map.
+      (add-region-to-block-map bml4
+                               (/ *wired-area-store* #x1000)
+                               +wired-area-base+
+                               (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
+      (add-region-to-block-map bml4
+                               (/ *pinned-area-store* #x1000)
+                               +pinned-area-base+
+                               (/ (- (align-up *pinned-area-bump* #x200000) +pinned-area-base+) #x1000)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
+      (add-region-to-block-map bml4
+                               (/ *general-area-store* #x1000)
+                               (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                               (/ (align-up *general-area-bump* #x200000) #x1000)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
+      (add-region-to-block-map bml4
+                               (/ (+ *general-area-store* (align-up *general-area-bump* #x200000)) #x1000)
+                               (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                       (ash 1 sys.int::+address-mark-bit+))
+                               (/ (align-up *general-area-bump* #x200000) #x1000)
+                               sys.int::+block-map-zero-fill+)
+      (add-region-to-block-map bml4
+                               (/ *cons-area-store* #x1000)
+                               (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                               (/ (align-up *cons-area-bump* #x200000) #x1000)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
+      (add-region-to-block-map bml4
+                               (/ (+ *cons-area-store* (align-up *cons-area-bump* #x200000)) #x1000)
+                               (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                       (ash 1 sys.int::+address-mark-bit+))
+                               (/ (align-up *cons-area-bump* #x200000) #x1000)
+                               sys.int::+block-map-zero-fill+)
+      (dolist (stack *stack-list*)
+        (add-region-to-block-map bml4
+                                 (/ (stack-store stack) #x1000)
+                                 (stack-base stack)
+                                 (/ (stack-size stack) #x1000)
+                                 (logior sys.int::+block-map-present+
+                                         sys.int::+block-map-writable+
+                                         sys.int::+block-map-zero-fill+))
+        (add-region-to-block-map bml4
+                                 (/ (stack-store stack) #x1000)
+                                 (logior (stack-base stack)
+                                         (ash 1 sys.int::+address-mark-bit+))
+                                 (/ (stack-size stack) #x1000)
+                                 (logior sys.int::+block-map-present+
+                                         sys.int::+block-map-writable+
+                                         sys.int::+block-map-zero-fill+)))
+      ;; Now write it out.
+      (write-block-map s bml4-block bml4)
+      ;; Create the freelist.
+      ;; Two entries, one free and one not.
+      (let ((freelist-data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
+        (setf (nibbles:ub64ref/le freelist-data 0) 0
+              (nibbles:ub64ref/le freelist-data 8) (logior (ash (/ image-size #x1000) 1)
+                                                           1))
+        (setf (nibbles:ub64ref/le freelist-data 16) 0
+              (nibbles:ub64ref/le freelist-data 24) (ash (/ *store-bump* #x1000) 1))
+        (file-position s free-block-list)
+        (write-sequence freelist-data s))))
   (values))
 
 (defun array-header (tag length)
@@ -540,9 +653,9 @@
 (defun create-thread (name &key stack-size (initial-state :runnable) (preemption-disable-depth 0) (foothold-disable-depth 0))
   (check-type initial-state (member :active :runnable :sleeping :dead))
   (let* ((address (allocate 512 :wired))
-         (stack (create-area :stack (* stack-size 8))))
-    (format t "~X ~X  ~X~%" (area-address stack) (area-size stack)
-            (+ (area-address stack) (area-size stack)))
+         (stack (create-stack (* stack-size 8))))
+    (format t "~X ~X  ~X~%" (stack-base stack) (stack-size stack)
+            (+ (stack-base stack) (stack-size stack)))
     ;; Array tag.
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
@@ -557,8 +670,8 @@
     ;; Stack.
     ;(setf (word (+ address 4)) (stack-value control-stack)) FIXME
     ;; Stack pointer.
-    (setf (word (+ address 5)) (+ (area-address stack)
-                                  (area-size stack)))
+    (setf (word (+ address 5)) (+ (stack-base stack)
+                                  (stack-size stack)))
     ;; +6, unused
     ;; Special stack pointer.
     (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP")
@@ -990,10 +1103,10 @@ The bootloader provides a per-cpu GDT & TSS."
                                    for i from 32 below idt-size
                                    collect (create-user-interrupt-isr i)))
            (common-code (compile-lap-function *common-interrupt-code*
-                                              :area :wired-2g
+                                              :area :wired
                                               :position-independent nil))
            (common-user-code (compile-lap-function *common-user-interrupt-code*
-                                                   :area :wired-2g
+                                                   :area :wired
                                                    :position-independent nil
                                                    :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))))))
       (loop
@@ -1002,7 +1115,7 @@ The bootloader provides a per-cpu GDT & TSS."
          when isr do
            ;; Assemble the ISR and update the IDT entry
            (let* ((addr (compile-lap-function isr
-                                              :area :wired-2g
+                                              :area :wired
                                               :position-independent nil
                                               :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
                                                                    (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))))
@@ -1059,48 +1172,58 @@ The bootloader provides a per-cpu GDT & TSS."
       (set-slot 'extent (make-fixnum (area-extent-start area))))
     desc))
 
-(defun generate-initial-area-table ()
-  (destructuring-bind (struct-descriptor name layout)
-      (gethash (intern "AREA" "MEZZANINE.RUNTIME") *struct-table*)
-    (declare (ignore name))
-    (format t "~S~%" layout)
-    (assert struct-descriptor)
-    (let ((initial-area-vector (allocate (1+ (length *area-list*)) :wired))
-          (area-structs (loop
-                           for area in *area-list*
-                           collect (make-area-descriptor struct-descriptor layout area))))
-      (setf (cold-symbol-value 'sys.int::*initial-areas*) (make-value initial-area-vector sys.int::+tag-object+)
-            (word initial-area-vector) (array-header sys.int::+object-tag-array-t+ (length *area-list*)))
-      (loop
-         for i from 1
-         for desc in area-structs
-         for area in *area-list*
-         do
-           (setf (word (+ desc 2 (position 'bump layout :key #'first :test #'string=))) (make-fixnum (area-bump area)))
-           (setf (word (+ initial-area-vector i)) (make-value desc sys.int::+tag-object+)))
-      ;; While we're here, build the freelists for the pinned/wired areas.
-      (loop
-         for area in *area-list*
-         for desc in area-structs
-         when (member (area-type area) '(:wired :wired-2g :pinned)) do
-           (setf (word (+ desc 2 (position 'bump layout :key #'first :test #'string=)))
-                 (cond ((eql (area-bump area) (area-size area))
-                        ;; Area is full!
-                        (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-                       (t
-                        (let ((addr (truncate (+ (area-address area) (area-bump area)) 8)))
-                          (setf (word addr) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
-                                                    (ash (truncate (- (area-size area) (area-bump area)) 8) sys.int::+array-length-shift+))
-                                (word (1+ addr)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
-                          ;; Make sure the freelist actaully gets written/loaded.
-                          (incf (area-bump area) 16)
-                          (make-value addr sys.int::+tag-object+)))))))))
+(defun finalize-areas ()
+  "Assign store addresses to each area, and build pinned/wired area freelists."
+  ;; Ensure a minium amount of free space in :wired.
+  ;; And :pinned as well, but that matters less.
+  (let ((wired-free-area (allocate (* 256 1024) :wired))
+        (pinned-free-area (allocate (* 256 1024) :pinned)))
+    (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
+    (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+                                         (ash (truncate (- *wired-area-bump*
+                                                           (ldb (byte 44 0) (* wired-free-area 8)))
+                                                        8)
+                                              sys.int::+array-length-shift+))
+          (word (1+ wired-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*wired-area-freelist*) (make-fixnum (* wired-free-area 8)))
+    (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
+    (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+                                          (ash (truncate (- *pinned-area-bump*
+                                                            (ldb (byte 44 0) (* pinned-free-area 8)))
+                                                         8)
+                                               sys.int::+array-length-shift+))
+          (word (1+ pinned-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*pinned-area-freelist*) (make-fixnum (* pinned-free-area 8)))
+    (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
+    (setf *wired-area-store* *store-bump*)
+    (incf *store-bump* (- *wired-area-bump* +wired-area-base+))
+    (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
+    (setf *pinned-area-store* *store-bump*)
+    (incf *store-bump* (- *pinned-area-bump* +pinned-area-base+))
+    (setf *general-area-store* *store-bump*)
+    (incf *store-bump* (* (align-up *general-area-bump* #x200000) 2))
+    (setf *cons-area-store* *store-bump*)
+    (incf *store-bump* (* (align-up *cons-area-bump* #x200000) 2))
+    (dolist (stack *stack-list*)
+      (setf (stack-store stack) *store-bump*)
+      (incf *store-bump* (stack-size stack)))))
 
 (defun make-image (image-name &key extra-source-files)
-  (let* ((*2g-allocation-bump* #x200000)
-         (*allocation-bump* #x100000000)
-         (*store-bump* #x1000)
-         (*area-list* '())
+  (let* ((*wired-area-bump* +wired-area-base+)
+         (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
+         (*wired-area-store* nil)
+         (*pinned-area-bump* +pinned-area-base+)
+         (*pinned-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
+         (*pinned-area-store* nil)
+         (*general-area-bump* 0)
+         (*general-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
+         (*general-area-store* nil)
+         (*cons-area-bump* 0)
+         (*cons-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
+         (*cons-area-store* nil)
+         (*stack-area-bump* 0)
+         (*stack-list* '())
+         (*store-bump* #x1000) ; header is 4k
          (*word-locks* (make-hash-table))
          (*pending-fixups* '())
          (*symbol-table* (make-hash-table :test 'equal))
@@ -1120,11 +1243,10 @@ The bootloader provides a per-cpu GDT & TSS."
          idt-size idt-pointer
          tss-size tss-pointer
          gdt-size gdt-pointer
-         (pf-exception-stack (create-area :stack (* 128 1024)))
-         boot-area)
+         (pf-exception-stack (create-stack (* 128 1024))))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
-    (setf (values tss-size tss-pointer) (create-tss (+ (area-address pf-exception-stack) (area-size pf-exception-stack))))
+    (setf (values tss-size tss-pointer) (create-tss (+ (stack-base pf-exception-stack) (stack-size pf-exception-stack))))
     (setf (values gdt-size gdt-pointer) (create-gdt tss-size tss-pointer))
     (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
     (setf initial-thread (create-initial-thread))
@@ -1160,21 +1282,25 @@ The bootloader provides a per-cpu GDT & TSS."
     #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
-    ;; Poke a few symbols to ensure they exist.
+    ;; Poke a few symbols to ensure they exist. This avoids memory allocation after finalize-areas runs.
     (mapc (lambda (sym) (symbol-address (string sym) (package-name (symbol-package sym))))
           '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
-            sys.int::*newspace-offset* sys.int::*semispace-size* sys.int::*newspace* sys.int::*oldspace*
-            sys.int::*static-bump-pointer* sys.int::*static-area-size* sys.int::*static-mark-bit*
-            sys.int::*stack-bump-pointer*
-            sys.int::*static-area* sys.int::*static-area-hint*
             #+nil sys.int::*unifont-bmp* #+nil sys.int::*unifont-bmp-data*
             #+nil sys.int::*unicode-info* #+nil sys.int::*unicode-name-store*
             #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
             sys.int::*bsp-idle-thread*
-            sys.int::*boot-area-base* sys.int::*boot-area-bump*
             sys.int::*initial-areas*
-            :wired :wired-2g :pinned :dynamic :dynamic-large :dynamic-cons :nursery :stack
+            sys.int::*next-symbol-tls-slot*
+            sys.int::*wired-area-freelist*
+            sys.int::*wired-area-bump*
+            sys.int::*pinned-area-freelist*
+            sys.int::*pinned-area-bump*
+            sys.int::*general-area-bump*
+            sys.int::*cons-area-bump*
+            sys.int::*stack-area-bump*
+            sys.int::*current-stack-mark-bit*
+            :wired :pinned :general :cons :nursery :stack
             ))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
@@ -1192,26 +1318,19 @@ The bootloader provides a per-cpu GDT & TSS."
     (generate-obarray *symbol-table* 'sys.int::*initial-obarray*)
     (generate-fref-obarray *fref-table* 'sys.int::*initial-fref-obarray*)
     (generate-struct-obarray *struct-table* 'sys.int::*initial-structure-obarray*)
-    ;; Locate & finish any :wired area.
-    (dolist (area *area-list*)
-      (when (eql (area-type area) :wired)
-        (finish-area area)))
-    ;; And create an empty wired area for the supervisor to allocate from during boot.
-    ;; This allows for up to 2MB(ish) of allocation to be done.
-    (setf boot-area (create-area :wired))
+    (finalize-areas)
     ;; Initialize GC twiddly bits and stuff.
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
       (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
-      (set-value 'sys.int::*2g-allocation-bump* *2g-allocation-bump*)
-      (set-value 'sys.int::*allocation-bump* *allocation-bump*)
-      (set-value 'sys.int::*boot-area-base* (area-address boot-area))
-      (set-value 'sys.int::*boot-area-bump* (area-bump boot-area))
+      (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
+      (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
+      (set-value 'sys.int::*general-area-bump* *general-area-bump*)
+      (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)
+      (set-value 'sys.int::*stack-area-bump* *stack-area-bump*)
       (set-value 'sys.int::*current-stack-mark-bit* 0))
     (apply-fixups *pending-fixups*)
-    ;; Populate initial area vector. This must be done last, as it must contain accurate bump pointers.
-    (generate-initial-area-table)
     (write-map-file image-name *function-map*)
     (write-image image-name
                  (make-value (function-reference 'sys.int::bootloader-entry-point)
@@ -1410,8 +1529,8 @@ The bootloader provides a per-cpu GDT & TSS."
   (make-value (symbol-address name package) sys.int::+tag-object+))
 
 (defun vcons (car cdr)
-  (cond ((eql *default-cons-allocation-area* :dynamic-cons)
-         (let ((address (allocate 2 :dynamic-cons)))
+  (cond ((eql *default-cons-allocation-area* :cons)
+         (let ((address (allocate 2 :cons)))
            (setf (word address) car
                  (word (1+ address)) cdr)
            (make-value address sys.int::+tag-cons+)))
@@ -1679,21 +1798,11 @@ Tag with +TAG-OBJECT+."
                    (when value
                      (vector-push-extend value stack)))))))))
 
-(defun resolve-function-name (value)
-  (let ((name (extract-object value)))
-    (cond ((symbolp name)
-           value)
-          ((and (= (list-length name) 2)
-                (eql (first name) 'setf)
-                (symbolp (second name)))
-           (make-value (resolve-setf-symbol (second name)) sys.int::+tag-object+))
-          (t (error "Unknown function name ~S." name)))))
-
 (defun load-source-file (file set-fdefinitions &optional wired)
   (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file)))
         (*load-should-set-fdefinitions* set-fdefinitions)
-        (*default-general-allocation-area* (if wired :wired :dynamic))
-        (*default-cons-allocation-area* (if wired :wired :dynamic-cons))
+        (*default-general-allocation-area* (if wired :wired :general))
+        (*default-cons-allocation-area* (if wired :wired :cons))
         (*default-pinned-allocation-area* (if wired :wired :pinned)))
     (when (and (not (string-equal (pathname-type (pathname file)) "llf"))
                (or (not (probe-file llf-path))

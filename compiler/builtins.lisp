@@ -2469,7 +2469,6 @@
   (predicate-result :e))
 
 (defbuiltin sys.c::make-dx-closure (code env) (nil)
-  (setf *used-dynamic-extent* t)
   (smash-r8)
   (let ((slots (allocate-control-stack-slots 4)))
     (load-in-reg :r9 code t)
@@ -2486,12 +2485,9 @@
           `(sys.lap-x86:mov64 (:rax 8) :rcx)
           ;; Clear constant pool.
           `(sys.lap-x86:mov64 (:rax 16) nil)
-          `(sys.lap-x86:mov64 (:rax 24) nil)
-          ;; Materialize value.
-          `(sys.lap-x86:mov64 :rbx (:constant sys.int::*current-stack-mark-bit*))
-          `(sys.lap-x86:mov64 :rcx ,(object-ea :rbx :slot +symbol-value+))
-          `(sys.lap-x86:lea64 :r8 (:rax ,sys.int::+tag-object+ :rcx))
-          ;; Initiaize constant pool.
-          `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
+          `(sys.lap-x86:mov64 (:rax 24) nil))
+    (materialize-dx-value :r8 `(:rax ,sys.int::+tag-object+) :rbx)
+    ;; Initiaize constant pool.
+    (emit `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
           `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 2) :r10)))
   (setf *r8-value* (list (gensym))))

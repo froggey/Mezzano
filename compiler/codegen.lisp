@@ -304,6 +304,23 @@ be generated instead.")
                                                  1))
                                   'bit-vector))))))
 
+(defun materialize-dx-value (dest location symbol-temp &optional (set-used-dynamic-extent t))
+  (when set-used-dynamic-extent
+    (setf *used-dynamic-extent* t))
+  ;; Materialize the value.
+  (emit
+   `(sys.lap-x86:mov64 ,symbol-temp (:constant sys.int::*current-stack-mark-bit*))
+   ;; This must be done verrry carefully. Cannot disable interrupts,
+   ;; because this may be in a non-wired page. Code in a non-wired
+   ;; page may fault at any time, and require the page to be read from
+   ;; store. Instead, the value is created ignoring the current mark bit
+   ;; then the mark bit is read from the value and set in the value in
+   ;; one instruction. This works correctly no matter when a GC occurs.
+   `(sys.lap-x86:lea64 ,dest ,location)
+   ;; Now use a reg/mem operation to load and set the mark bit.
+   ;; Past this, the mark bit is set correctly.
+   `(sys.lap-x86:or64 ,dest ,(object-ea symbol-temp :slot +symbol-value+))))
+
 (defun emit-rest-list (lambda arg-registers)
   (let* ((rest-arg (lambda-information-rest-arg lambda))
          (regular-argument-count (+ (length (lambda-information-required-args lambda))
@@ -317,8 +334,6 @@ be generated instead.")
          (rest-head nil)
          (rest-tail nil)
          (reg-save-done (gensym "REG-SAVE-DONE")))
-    (when dx-rest
-      (setf *used-dynamic-extent* t))
     (setf rest-head (find-stack-slot)
           (aref *stack-values* rest-head) (cons :rest-head :home))
     (setf rest-tail (find-stack-slot)
@@ -351,10 +366,8 @@ be generated instead.")
     ;; Create the result cell. Always create this as dynamic-extent, it
     ;; is only used during rest-list creation.
     (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 2)) nil)
-          `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 3)) nil)
-          `(sys.lap-x86:mov64 :rbx (:constant sys.int::*current-stack-mark-bit*))
-          `(sys.lap-x86:mov64 :rax ,(object-ea :rbx :slot +symbol-value+))
-          `(sys.lap-x86:lea64 :rbx (:rbp ,(+ (control-stack-frame-offset (+ control-slots 3)) sys.int::+tag-cons+) :rax)))
+          `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 3)) nil))
+    (materialize-dx-value :rbx `(:rbp ,(+ (control-stack-frame-offset (+ control-slots 3)) sys.int::+tag-cons+)) :r13 nil)
     ;; Stash in the result slot and the tail slot.
     (emit `(sys.lap-x86:mov64 (:stack ,rest-head) :rbx)
           `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))
@@ -363,18 +376,17 @@ be generated instead.")
       (dx-rest
        (loop for i from regular-argument-count
           for reg in arg-registers
-          do (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
-                   `(sys.lap-x86:jle ,rest-loop-end)
-                   `(sys.lap-x86:sub64 :csp 16)
-                   `(sys.lap-x86:mov64 (:csp 0) nil)
-                   `(sys.lap-x86:mov64 (:csp 8) nil)
-                   `(sys.lap-x86:mov64 :r13 (:constant sys.int::*current-stack-mark-bit*))
-                   `(sys.lap-x86:mov64 :rax ,(object-ea :r13 :slot +symbol-value+))
-                   `(sys.lap-x86:lea64 :rbx (:rsp #.sys.int::+tag-cons+ :rax))
-                   `(sys.lap-x86:mov64 (:car :rbx) ,reg)
-                   `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
-                   `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
-                   `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))))
+          do
+            (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
+                  `(sys.lap-x86:jle ,rest-loop-end)
+                  `(sys.lap-x86:sub64 :csp 16)
+                  `(sys.lap-x86:mov64 (:csp 0) nil)
+                  `(sys.lap-x86:mov64 (:csp 8) nil))
+            (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-cons+) :r13)
+            (emit `(sys.lap-x86:mov64 (:car :rbx) ,reg)
+                  `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
+                  `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
+                  `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))))
       (t
        (loop for i from regular-argument-count
           for tag in reg-arg-tags do
@@ -400,11 +412,9 @@ be generated instead.")
       (dx-rest
        (emit `(sys.lap-x86:sub64 :csp 16)
              `(sys.lap-x86:mov64 (:csp 0) nil)
-             `(sys.lap-x86:mov64 (:csp 8) nil)
-             `(sys.lap-x86:mov64 :r13 (:constant sys.int::*current-stack-mark-bit*))
-             `(sys.lap-x86:mov64 :rax ,(object-ea :r13 :slot +symbol-value+))
-             `(sys.lap-x86:lea64 :rbx (:rsp #.sys.int::+tag-cons+ :rax))
-             `(sys.lap-x86:mov64 (:car :rbx) :r8)
+             `(sys.lap-x86:mov64 (:csp 8) nil))
+       (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-cons+) :r13)
+       (emit `(sys.lap-x86:mov64 (:car :rbx) :r8)
              `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
              `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
              `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx)))
@@ -494,7 +504,6 @@ be generated instead.")
          tag)))))
 
 (defun cg-make-dx-simple-vector (form)
-  (setf *used-dynamic-extent* t)
   (destructuring-bind (size) (rest form)
     (assert (and (quoted-form-p size)
                  (fixnump (second size)))
@@ -509,15 +518,11 @@ be generated instead.")
         (dotimes (i (second size))
           (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -2 (- i))) nil)))
         ;; Set the header.
-        (load-constant :rax (ash (second size) sys.int::+array-length-shift+))
-        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) :rax))
-        ;; Load.
-        (emit `(sys.lap-x86:mov64 :r13 (:constant sys.int::*current-stack-mark-bit*))
-              `(sys.lap-x86:mov64 :rax ,(object-ea :r13 :slot +symbol-value+))
-              `(sys.lap-x86:lea64 :r8 (:rbp
-                                       ,(+ (control-stack-frame-offset (+ slots words -1))
-                                           sys.int::+tag-object+)
-                                       :rax))))))
+        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (second size) sys.int::+array-length-shift+)))
+        (materialize-dx-value :r8
+                              `(:rbp ,(+ (control-stack-frame-offset (+ slots words -1))
+                                         sys.int::+tag-object+))
+                              :r13))))
   (setf *r8-value* (list (gensym))))
 
 (defun cg-block (form)
@@ -1029,11 +1034,10 @@ Returns an appropriate tag."
                    clear-loop-head
                    `(sys.lap-x86:mov64 (:rsp :rdx) 0)
                    `(sys.lap-x86:sub64 :rdx 8)
-                   `(sys.lap-x86:jnz ,clear-loop-head)
-                   ;; Create pointer.
-                   `(sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
-                   ;; Copy values out of the MV area.
-                   `(sys.lap-x86:lea64 :rdi (:rsp 8))
+                   `(sys.lap-x86:jnz ,clear-loop-head))
+             (materialize-dx-value :r8 `(:rsp ,sys.int::+tag-object+) :rbx)
+             ;; Copy values out of the MV area.
+             (emit `(sys.lap-x86:lea64 :rdi (:rsp 8))
                    `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
                                                 ;; fixme. should be +thread-mv-slots-start+
                                                 (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)))

@@ -1,201 +1,157 @@
 (in-package :mezzanine.runtime)
 
-;; Note: The cold generator will create a few of these structs to
-;; describe the initial areas. If they layout changes, then it
-;; must be updated.
-(defstruct (area (:area :wired))
-  base
-  size
-  ;; Actually a freelist pointer when allocating from a pinned area.
-  bump
-  type
-  extent
-  next)
+(defvar sys.int::*wired-area-bump*)
+(defvar sys.int::*wired-area-freelist*)
+(defvar sys.int::*pinned-area-bump*)
+(defvar sys.int::*pinned-area-freelist*)
+(defvar sys.int::*general-area-bump*)
+(defvar sys.int::*general-area-limit*)
+(defvar sys.int::*cons-area-bump*)
+(defvar sys.int::*cons-area-limit*)
+(defvar sys.int::*stack-area-bump*)
 
-;;; Lists of the various areas for default allocating from.
-(defvar *wired-area-chain*)
-(defvar *wired-2g-area-chain*)
-(defvar *pinned-area-chain*)
-(defvar *dynamic-area-chain*)
-(defvar *dynamic-area-full-chain*)
-(defvar *dynamic-cons-area-chain*)
-(defvar *dynamic-cons-area-full-chain*)
-
+(defvar *wired-allocator-lock*)
 (defvar *allocator-lock*)
 
 (defun freelist-entry-next (entry)
-  (sys.int::%array-like-ref-t entry 0))
+  (sys.int::memref-t entry 1))
 
 (defun (setf freelist-entry-next) (value entry)
-  (setf (sys.int::%array-like-ref-t entry 0) value))
+  (setf (sys.int::memref-t entry 1) value))
 
 (defun freelist-entry-size (entry)
-  (sys.int::%object-header-data entry))
+  (ash (sys.int::memref-unsigned-byte-64 entry 0) (- sys.int::+array-length-shift+)))
 
 (defun first-run-initialize-allocator ()
-  (setf *allocator-lock* :unlocked
-        *wired-area-chain* nil
-        *wired-2g-area-chain* nil
-        *pinned-area-chain* nil
-        *dynamic-area-chain* nil
-        *dynamic-area-full-chain* nil
-        *dynamic-cons-area-chain* nil
-        *dynamic-cons-area-full-chain* nil)
-  (dotimes (i (sys.int::%object-header-data sys.int::*initial-areas*))
-    (let ((area (svref sys.int::*initial-areas* i)))
-      (ecase (area-type area)
-        (:wired
-         (setf (area-next area) *wired-area-chain*
-               *wired-area-chain* area))
-        (:wired-2g
-         (setf (area-next area) *wired-2g-area-chain*
-               *wired-2g-area-chain* area))
-        (:pinned
-         (setf (area-next area) *pinned-area-chain*
-               *pinned-area-chain* area))
-        (:dynamic
-         (setf (area-next area) *dynamic-area-chain*
-               *dynamic-area-chain* area))
-        (:dynamic-cons
-         (setf (area-next area) *dynamic-cons-area-chain*
-               *dynamic-cons-area-chain* area))
-        (:stack)))))
+  (setf *wired-allocator-lock* :unlocked
+        sys.int::*gc-in-progress* nil
+        sys.int::*pinned-mark-bit* 0
+        sys.int::*dynamic-mark-bit* 0
+        sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
+        sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
+        *allocator-lock* (mezzanine.supervisor:make-mutex "Allocator")))
+
+;;; FIXME: The pinned/general/cons allocators must somehow initialize their objects with the
+;;; allocator lock released. taking a pagefault with it taken is bad, as it will cause
+;;; IRQs to be reenabled. What to do? Make it a mutex? actaully reasonable, but a bit heavy?
 
 ;; Simple first-fit freelist allocator for pinned areas.
-(defun %allocate-from-pinned-area (tag data words chain-symbol wiredp 2g)
-  (do ((area (symbol-value chain-symbol) (area-next area)))
-      ((null area)
-       ;; No memory. Run a GC cycle, try the allocation again, then allocate a new area.
+(defun %allocate-from-pinned-area (tag data words freelist-symbol)
+  ;; Traverse the freelist.
+  (do ((freelist (symbol-value freelist-symbol) (freelist-entry-next freelist))
+       (prev nil freelist))
+      ((null freelist)
+       ;; No memory. Run a GC cycle, try the allocation again, then enlarge the area.
        (error "No memory!!!"))
-    ;; Traverse the area's freelist.
-    (do ((freelist (area-bump area) (freelist-entry-next freelist))
-         (prev nil freelist))
-        ((null freelist))
-      (let ((size (freelist-entry-size freelist))
-            (addr (logand (sys.int::lisp-object-address freelist) -16)))
-        (when (>= size words)
-          ;; This freelist entry is large enough, use it.
-          (let ((next (cond ((eql size words)
-                             ;; Entry is exactly the right size.
-                             (freelist-entry-next freelist))
-                            (t
-                             ;; Entry is too large, split it.
-                             (let ((next (+ addr (* words 8))))
-                               (setf (sys.int::memref-unsigned-byte-64 next 0) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
-                                                                                       (ash (- size words) sys.int::+array-length-shift+))
-                                     (sys.int::memref-t next 1) (freelist-entry-next freelist))
-                               (sys.int::%%assemble-value next sys.int::+tag-object+))))))
-            ;; Update the prev's next pointer.
-            (cond (prev
-                   (setf (freelist-entry-next freelist) next))
-                  (t
-                   (setf (area-bump area) next))))
-          ;; Write object header.
-          (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                (logior (ash tag sys.int::+array-type-shift+)
-                        (ash data sys.int::+array-length-shift+)))
-          ;; Clear data.
-          (dotimes (i (1- words))
-            (setf (sys.int::memref-unsigned-byte-64 addr (1+ i)) 0))
-          ;; Return address.
-          (return-from %allocate-from-pinned-area addr))))))
-
-(defun %allocate-from-dynamic-area (tag data words)
-  ;; FIXME: Large objects.
-  (do ((area *dynamic-area-chain* *dynamic-area-chain*))
-      ((null area)
-       ;; No memory. Run a GC cycle, try the allocation again, then allocate a new area.
-       (error "No memory!!!"))
-    (let* ((bump (area-bump area))
-           (next-bump (+ bump (* words 8))))
-      (when (<= next-bump (area-size area))
-        ;; Enough size, allocate here.
-        (let ((addr (+ (area-base area) bump)))
-          (setf (area-bump area) next-bump)
-          ;; Write array header.
-          (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                (logior (ash tag sys.int::+array-type-shift+)
-                        (ash data sys.int::+array-length-shift+)))
-          (return addr)))
-      ;; This area is full. Put it on the full chain.
-      (setf *dynamic-area-chain* (area-next area)
-            (area-next area) *dynamic-area-full-chain*
-            *dynamic-area-full-chain* area))))
+    (let ((size (freelist-entry-size freelist)))
+      (when (>= size words)
+        ;; This freelist entry is large enough, use it.
+        (let ((next (cond ((eql size words)
+                           ;; Entry is exactly the right size.
+                           (freelist-entry-next freelist))
+                          (t
+                           ;; Entry is too large, split it.
+                           ;; Always create new entries with the pinned mark bit
+                           ;; set. A GC will flip it, making all the freelist
+                           ;; entries unmarked. No object can ever point to a freelist entry, so
+                           ;; they will never be marked during a gc.
+                           (let ((next (+ freelist (* words 8))))
+                             (setf (sys.int::memref-unsigned-byte-64 next 0) (logior sys.int::*pinned-mark-bit*
+                                                                                     (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+                                                                                     (ash (- size words) sys.int::+array-length-shift+))
+                                   (sys.int::memref-t next 1) (freelist-entry-next freelist))
+                             next)))))
+          ;; Update the prev's next pointer.
+          (cond (prev
+                 (setf (freelist-entry-next freelist) next))
+                (t
+                 (setf (symbol-value freelist-symbol) next))))
+        ;; Write object header.
+        (setf (sys.int::memref-unsigned-byte-64 freelist 0)
+              (logior sys.int::*pinned-mark-bit*
+                      (ash tag sys.int::+array-type-shift+)
+                      (ash data sys.int::+array-length-shift+)))
+        ;; Clear data.
+        (dotimes (i (1- words))
+          (setf (sys.int::memref-unsigned-byte-64 freelist (1+ i)) 0))
+        ;; Return address.
+        (return-from %allocate-from-pinned-area freelist)))))
 
 (defun %allocate-object (tag data size area)
+  (when sys.int::*gc-in-progress*
+    (sys.int::emergency-halt "Allocating during GC!"))
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
     (ecase area
       ((nil)
-       (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-         (sys.int::%%assemble-value
-          (%allocate-from-dynamic-area tag data words)
-          sys.int::+tag-object+)))
+       (mezzanine.supervisor:with-mutex (*allocator-lock*)
+         (mezzanine.supervisor:with-gc-deferred
+           (when (> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
+             ;; No memory. Run a GC cycle, try the allocation again, then allocate a new area.
+             (error "No memory!!!"))
+           ;; Enough size, allocate here.
+           (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                               sys.int::*general-area-bump*
+                               sys.int::*dynamic-mark-bit*)))
+             (incf sys.int::*general-area-bump* (* words 8))
+             ;; Write array header.
+             (setf (sys.int::memref-unsigned-byte-64 addr 0)
+                   (logior (ash tag sys.int::+array-type-shift+)
+                           (ash data sys.int::+array-length-shift+)))
+             (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
       (:pinned
-       (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-         (sys.int::%%assemble-value
-          (%allocate-from-pinned-area tag data words '*pinned-area-chain* nil t)
-          sys.int::+tag-object+)))
+       (mezzanine.supervisor:with-mutex (*allocator-lock*)
+         (mezzanine.supervisor:with-gc-deferred
+           (sys.int::%%assemble-value
+            (%allocate-from-pinned-area tag data words 'sys.int::*pinned-area-freelist*)
+            sys.int::+tag-object+))))
       (:wired
-       (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
+       (mezzanine.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
          (sys.int::%%assemble-value
-          (%allocate-from-pinned-area tag data words '*wired-area-chain* t nil)
-          sys.int::+tag-object+)))
-      (:wired-2g
-       (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-         (sys.int::%%assemble-value
-          (%allocate-from-pinned-area tag data words '*wired-2g-area-chain* t t)
+          (%allocate-from-pinned-area tag data words 'sys.int::*wired-area-freelist*)
           sys.int::+tag-object+))))))
 
 (defun sys.int::cons-in-area (car cdr &optional area)
+  (when sys.int::*gc-in-progress*
+    (sys.int::emergency-halt "Allocating during GC!"))
   (ecase area
     ((nil) (cons car cdr))
-    (:wired
-     (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-       (let ((val (sys.int::%%assemble-value
-                   (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 '*wired-area-chain* t nil) 16)
-                   sys.int::+tag-cons+)))
-         (setf (car val) car
-               (cdr val) cdr)
-         val)))
     (:pinned
-     (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
+     (mezzanine.supervisor:with-mutex (*allocator-lock*)
+       (mezzanine.supervisor:with-gc-deferred
+         (let ((val (sys.int::%%assemble-value
+                     (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*pinned-area-freelist*) 16)
+                     sys.int::+tag-cons+)))
+           (setf (car val) car
+                 (cdr val) cdr)
+           val))))
+    (:wired
+     (mezzanine.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
        (let ((val (sys.int::%%assemble-value
-                   (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 '*pinned-area-chain* nil nil) 16)
-                   sys.int::+tag-cons+)))
-         (setf (car val) car
-               (cdr val) cdr)
-         val)))
-    (:wired-2g
-     (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-       (let ((val (sys.int::%%assemble-value
-                   (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 '*wired-area-chain* t t) 16)
+                   (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*wired-area-freelist*) 16)
                    sys.int::+tag-cons+)))
          (setf (car val) car
                (cdr val) cdr)
          val)))))
 
 (defun cons (car cdr)
-  (mezzanine.supervisor:with-symbol-spinlock (*allocator-lock*)
-    (do ((area *dynamic-cons-area-chain* *dynamic-cons-area-chain*))
-        ((null area)
-         ;; No memory. Run a GC cycle, try the allocation again, then allocate a new area.
-         (error "No memory!!!"))
-      (let* ((bump (area-bump area))
-             (next-bump (+ bump 16)))
-        (when (<= next-bump (area-size area))
-          ;; Enough size, allocate here.
-          (let* ((addr (+ (area-base area) bump))
-                 (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
-            (setf (area-bump area) next-bump)
-            (setf (car val) car
-                  (cdr val) cdr)
-            (return val))))
-      ;; This area is full. Put it on the full chain.
-      (setf *dynamic-cons-area-chain* (area-next area)
-            (area-next area) *dynamic-cons-area-full-chain*
-            *dynamic-cons-area-full-chain* area))))
+  (when sys.int::*gc-in-progress*
+    (sys.int::emergency-halt "Allocating during GC!"))
+  (mezzanine.supervisor:with-mutex (*allocator-lock*)
+    (mezzanine.supervisor:with-gc-deferred
+      (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
+        ;; No memory. Run a GC cycle, try the allocation again, then allocate a new area.
+        (error "No memory!!!"))
+      ;; Enough size, allocate here.
+      (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                           sys.int::*cons-area-bump*
+                           sys.int::*dynamic-mark-bit*))
+             (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
+        (incf sys.int::*cons-area-bump* 16)
+        (setf (car val) car
+              (cdr val) cdr)
+        val))))
 
 (defun sys.int::make-simple-vector (size &optional area)
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
@@ -233,7 +189,7 @@
 (defun sys.int::%allocate-array-like (tag word-count length &optional area)
   (%allocate-object tag length word-count area))
 
-(define-lap-function sys.int::%%make-bignum-128-rdx-rax ()
+(sys.int::define-lap-function sys.int::%%make-bignum-128-rdx-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
@@ -251,7 +207,7 @@
   (:gc :no-frame)
   (sys.lap-x86:ret))
 
-(define-lap-function sys.int::%%make-bignum-64-rax ()
+(sys.int::define-lap-function sys.int::%%make-bignum-64-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
@@ -277,3 +233,87 @@
 
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
+
+(defun sys.int::allocate-std-instance (class slots &optional area)
+  (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 2 2 area)))
+    (setf (std-instance-class value) class
+          (std-instance-slots value) slots)
+    value))
+
+#|
+
+
+(defun make-function-with-fixups (tag machine-code fixups constants gc-info)
+  (with-interrupts-disabled ()
+    (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
+           (gc-info-size (ceiling (length gc-info) 8))
+           (pool-size (length constants))
+           (total (+ (* mc-size 2) pool-size gc-info-size)))
+      (when (oddp total)
+        (incf total))
+      (let ((address (%raw-allocate total :static)))
+        ;; Initialize header.
+        (setf (memref-unsigned-byte-64 address 0) 0
+              (memref-unsigned-byte-64 address 1) (+ address 16)
+              (memref-unsigned-byte-16 address 0) (ash tag +array-type-shift+)
+              (memref-unsigned-byte-16 address 1) mc-size
+              (memref-unsigned-byte-16 address 2) pool-size
+              (memref-unsigned-byte-16 address 3) (length gc-info))
+        ;; Initialize code.
+        (dotimes (i (length machine-code))
+          (setf (memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
+        ;; Apply fixups.
+        (dolist (fixup fixups)
+          (let ((value (case (car fixup)
+                         ((nil t)
+                          (lisp-object-address (car fixup)))
+                         (undefined-function
+                          (lisp-object-address *undefined-function-thunk*))
+                         (:unbound-tls-slot
+                          (lisp-object-address (%unbound-tls-slot)))
+                         (:unbound-value
+                          (lisp-object-address (%unbound-value)))
+                         (t (error "Unsupported fixup ~S." (car fixup))))))
+            (dotimes (i 4)
+              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i))
+                    (logand (ash value (* i -8)) #xFF)))))
+        ;; Initialize constant pool.
+        (dotimes (i (length constants))
+          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+        ;; Initialize GC info.
+        (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
+          (dotimes (i (length gc-info))
+            (setf (memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
+        (%%assemble-value address +tag-object+)))))
+
+(defun make-function (machine-code constants gc-info)
+  (make-function-with-fixups +object-tag-function+ machine-code '() constants gc-info))
+
+(defun allocate-funcallable-std-instance (function class slots)
+  "Allocate a funcallable instance."
+  (check-type function function)
+  (with-interrupts-disabled ()
+    (let ((address (%raw-allocate 8 :static))
+          (entry-point (%array-like-ref-unsigned-byte-64 function 0)))
+      ;; Initialize and clear constant slots.
+      ;; Function tag, flags and MC size.
+      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
+                                                        (ash +object-tag-funcallable-instance+
+                                                             +array-type-shift+))
+            ;; Constant pool size and slot count.
+            (memref-unsigned-byte-32 address 1) #x00000003
+            ;; Entry point
+            (memref-unsigned-byte-64 address 1) (+ address 16)
+            ;; The code.
+            ;; jmp (:rip 2)/pool[-1]
+            (memref-unsigned-byte-32 address 4) #x000225FF
+            (memref-unsigned-byte-32 address 5) #xCCCC0000
+            ;; entry-point
+            (memref-unsigned-byte-64 address 3) entry-point)
+      (let ((value (%%assemble-value address +tag-object+)))
+        ;; Initialize constant pool
+        (setf (memref-t address 4) function
+              (memref-t address 5) class
+              (memref-t address 6) slots)
+        value))))
+|#

@@ -132,13 +132,19 @@
 ;; These are used to support the GC.
 
 (defconstant +address-tag-shift+ 45)
-(defconstant +address-tag-size+ 2)
+(defconstant +address-tag-size+ 3)
 
 (defconstant +address-mark-bit+ 44)
 
-;; Pinned must be zero, a number of critical objects are pinned and stored
+;; Pinned must be zero, a number of critical objects are pinned & wired and stored
 ;; below 2GB to permit fast access to them.
-(defconstant +address-tag-pinned+       #b00)
-(defconstant +address-tag-stack+        #b01)
-(defconstant +address-tag-dynamic+      #b10)
-;; #b11 unused.
+(defconstant +address-tag-pinned+       #b000)
+(defconstant +address-tag-stack+        #b001)
+(defconstant +address-tag-general+      #b010)
+(defconstant +address-tag-cons+         #b011)
+
+(defconstant +block-map-present+ 1 "Entry is present. This entry may still have a block associated with it, even if it is not present.")
+(defconstant +block-map-writable+ 2 "Entry is writable.")
+(defconstant +block-map-zero-fill+ 4 "Entry should be zero-filled.")
+(defconstant +block-map-id-shift+ 8)
+(defconstant +block-map-id-size+ 56)
