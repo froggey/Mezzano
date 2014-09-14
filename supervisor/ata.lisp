@@ -148,12 +148,15 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                    ;; Check for large sector drives.
                                    :block-size (if (and (logbitp 14 (svref buf 106))
                                                         (not (logbitp 13 (svref buf 106))))
-                                                   (logior (ash (svref buf 117) 16)
-                                                           (svref buf 118))
+                                                   (logior (ash (svref buf 118) 16)
+                                                           (svref buf 117))
                                                    512)
                                    ;; TODO: LBA48 support.
-                                   :sector-count (logior (ash (svref buf 60) 16)
-                                                         (svref buf 61)))))
+                                   ;; fixme: this seems kind of bogus.
+                                   ;; a 256MB image is giving me 128M sectors, which isn't right.
+                                   ;; Swapping these gives 2k sectors, also wrong. Should be 512k.
+                                   :sector-count (logior (ash (svref buf 61) 16)
+                                                         (svref buf 60)))))
       (setf *ata-devices*
             (sys.int::cons-in-area
              device
