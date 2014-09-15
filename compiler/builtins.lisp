@@ -40,8 +40,10 @@
             `(sys.lap-x86:and8 :al #b1111)
             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:cmp8 (,reg ,(- sys.int::+tag-object+))
-                               ,(ash object-tag sys.int::+array-type-shift+))
+            `(sys.lap-x86:mov8 :al (,reg ,(- sys.int::+tag-object+)))
+            `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
+            `(sys.lap-x86:cmp8 :al ,(ash object-tag sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)))))
 
 (defmacro define-reader (name type tag slot)
@@ -82,8 +84,10 @@
              `(sys.lap-x86:and8 :al #b1111)
              `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
              `(sys.lap-x86:jne ,out)
-             `(sys.lap-x86:cmp8 ,(object-ea :r9 :slot -1)
-                                ,(ash ,array-type sys.int::+array-type-shift+))
+             `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+             `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                          sys.int::+array-type-shift+))
+             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
              ;; Subtle. OUT can be reached through either the tag check
              ;; or through the array type check. Both checks clear ZF when
              ;; they fail.
@@ -243,6 +247,8 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
@@ -377,6 +383,8 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
@@ -501,6 +509,8 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
@@ -620,6 +630,8 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                         sys.int::+array-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+array-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
@@ -728,9 +740,11 @@
           `(sys.lap-x86:and8 :al #b1111)
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,false-out)
-          `(sys.lap-x86:cmp8 ,(object-ea :r8 :slot -1)
-                             ,(ash sys.int::+last-simple-1d-array-object-tag+
-                                   sys.int::+array-type-shift+))
+          `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-simple-1d-array-object-tag+
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:jnbe ,false-out)
           `(sys.lap-x86:mov64 :r8 t)
           `(sys.lap-x86:jmp ,out)
@@ -751,6 +765,8 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
 	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-simple-1d-array-object-tag+
                                        sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
@@ -772,6 +788,8 @@
 	  `(sys.lap-x86:jne ,type-error-label)
 	  ;; Ensure that it is a simple-array, not a struct or bignum or similar.
 	  `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
 	  `(sys.lap-x86:cmp8 :al ,(ash sys.int::+last-simple-1d-array-object-tag+
                                        sys.int::+array-type-shift+))
 	  `(sys.lap-x86:jnbe ,type-error-label)
@@ -1574,7 +1592,8 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,out)
           `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
-          `(sys.lap-x86:test8 :al :al)
+          `(sys.lap-x86:test8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                        sys.int::+array-type-shift+))
           ;; Subtle. OUT can be reached through either the tag check
           ;; or through the array type check. Both checks clear ZF when
           ;; they fail.
@@ -1602,7 +1621,8 @@
           ;; Load header word.
           `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
           ;; Check array type.
-          `(sys.lap-x86:test8 :al :al)
+          `(sys.lap-x86:test8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:jnz ,type-error-label)
           ;; Check bounds.
           `(sys.lap-x86:mov64 :rcx :r9)
@@ -1647,7 +1667,8 @@
           ;; Load header word.
           `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
           ;; Check array type.
-          `(sys.lap-x86:test8 :al :al)
+          `(sys.lap-x86:test8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:jnz ,type-error-label)
           ;; Check bounds.
           `(sys.lap-x86:mov64 :rcx :r10)
@@ -1702,6 +1723,8 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
@@ -1735,6 +1758,8 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
@@ -1770,6 +1795,8 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,type-error-label)
           `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:jne ,type-error-label)
@@ -1897,6 +1924,8 @@
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-function-object-tag+
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-function-object-tag+
                                           sys.int::+first-function-object-tag+)
@@ -2182,6 +2211,8 @@
                      `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
                      `(sys.lap-x86:jne ,type-error-label)
                      `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
+                     `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                                  sys.int::+array-type-shift+))
                      `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                                   sys.int::+array-type-shift+))
                      `(sys.lap-x86:jne ,type-error-label)
@@ -2241,6 +2272,8 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,out)
           `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:or8 :al ,(ash sys.int::+array-type-simple-bit+
                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-string+
@@ -2264,7 +2297,10 @@
           `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
           `(sys.lap-x86:jne ,out)
           ;; Check object tag.
-          `(sys.lap-x86:cmp8 ,(object-ea :r9 :slot -1)
+          `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
+          `(sys.lap-x86:cmp8 :al
                              ;; Complex arrays include simple arrays.
                              ,(ash sys.int::+last-complex-array-object-tag+
                                    sys.int::+array-type-shift+))
@@ -2284,6 +2320,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
@@ -2305,6 +2343,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
@@ -2326,6 +2366,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
@@ -2347,6 +2389,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
@@ -2368,6 +2412,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
@@ -2389,6 +2435,8 @@
           `(sys.lap-x86:jne ,type-error)
           ;; Check object tag.
           `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                       sys.int::+array-type-shift+))
           `(sys.lap-x86:sub8 :al ,(ash sys.int::+first-complex-array-object-tag+
                                        sys.int::+array-type-shift+))
           `(sys.lap-x86:cmp8 :al ,(ash (- sys.int::+last-complex-array-object-tag+
