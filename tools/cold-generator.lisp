@@ -42,11 +42,11 @@
     "system/data-types.lisp"
     "system/parse.lisp"
     "system/describe.lisp"
+    "system/gc.lisp"
 ))
 
 
   #+nil'(
-    "system/gc.lisp"
     "cold-stream.lisp"
     "system/load.lisp"
     "system/interrupt.lisp"
@@ -598,7 +598,8 @@
                                (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
                                        (ash 1 sys.int::+address-mark-bit+))
                                (/ (align-up *general-area-bump* #x200000) #x1000)
-                               sys.int::+block-map-zero-fill+)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
       (add-region-to-block-map bml4
                                (/ *cons-area-store* #x1000)
                                (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
@@ -610,7 +611,8 @@
                                (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                        (ash 1 sys.int::+address-mark-bit+))
                                (/ (align-up *cons-area-bump* #x200000) #x1000)
-                               sys.int::+block-map-zero-fill+)
+                               (logior sys.int::+block-map-present+
+                                       sys.int::+block-map-writable+))
       (dolist (stack *stack-list*)
         (add-region-to-block-map bml4
                                  (/ (stack-store stack) #x1000)

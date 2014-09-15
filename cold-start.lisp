@@ -371,7 +371,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*initial-fref-obarray*)
   (makunbound '*initial-structure-obarray*)
   (setf (fdefinition 'initialize-lisp) #'reinitialize-lisp)
-  ;(gc)
+  (gc)
   (reinitialize-lisp))
 
 (defun reinitialize-lisp ()

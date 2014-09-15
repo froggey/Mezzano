@@ -1,34 +1,85 @@
 (in-package :sys.int)
 
 (defvar *gc-debug-scavenge-stack* nil)
+(defvar *gc-debug-freelist-rebuild* nil)
 
 ;;; GC Meters.
 (defvar *objects-copied* 0)
 (defvar *words-copied* 0)
 
-;;; Current GC generation, this is set to a new object every time addresses flip.
-;;; This will eventually be used to implement eq/eql hash-tables.
-(defvar *gc-generation* nil)
-
 (defvar *gc-in-progress* nil)
 
-;; Set in a dynamic value's pointer after the GC has marked through it.
+;; State of the dynamic pointer mark bit. This is part of the pointer, not part
+;; of the object itself.
 (defvar *dynamic-mark-bit* 0)
-;; Set in a pinned object's header after the GC has scanned it.
+;; State of the object header mark bit, used for pinned objects.
 (defvar *pinned-mark-bit* 0)
 
-(defconstant +marked-through-bit+ (expt 2 44))
+;; Current state of the stack mark bit. The value in this symbol is accessed
+;; as a raw, untagged value by the DX allocation code. The value must be a
+;; fixnum shifted n-fixnum-bits right to work correctly.
+(declaim (special *current-stack-mark-bit*))
 
 (defun room (&optional (verbosity :default))
-  (dolist (extent mezzanine.supervisor::*extent-table*)
-    (format t "~A~%" extent))
+  (let ((total-used 0)
+        (total 0))
+    (format t "General area: ~:D/~:D (~D%) words used.~%"
+            (truncate *general-area-bump* 8) (truncate *general-area-limit* 8)
+            (truncate (* *general-area-bump* 100) *general-area-limit*))
+    (incf total-used (truncate *general-area-bump* 8))
+    (incf total (truncate *general-area-limit* 8))
+    (format t "Cons area: ~:D/~:D (~D%) words used.~%"
+            (truncate *cons-area-bump* 8) (truncate *cons-area-limit* 8)
+            (truncate (* *cons-area-bump* 100) *cons-area-limit*))
+    (incf total-used (truncate *cons-area-bump* 8))
+    (incf total (truncate *cons-area-limit* 8))
+    (multiple-value-bind (allocated-words total-words largest-free-space)
+        (pinned-area-info (* 2 1024 1024) *wired-area-bump*)
+      (format t "Wired area: ~:D/~:D words allocated (~D%).~%"
+              allocated-words total-words
+              (truncate (* allocated-words 100) total-words))
+      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total-used allocated-words)
+      (incf total total-words))
+    (multiple-value-bind (allocated-words total-words largest-free-space)
+        (pinned-area-info (* 2 1024 1024 1024) *pinned-area-bump*)
+      (format t "Pinned area: ~:D/~:D words allocated (~D%).~%"
+              allocated-words total-words
+              (truncate (* allocated-words 100) total-words))
+      (format t "  Largest free area: ~:D words.~%" largest-free-space)
+      (incf total-used allocated-words)
+      (incf total total-words))
+    (format t "Total ~:D/~:D words used (~D%).~%"
+            total-used total
+            (truncate (* total-used 100) total)))
   (values))
+
+(defun pinned-area-info (base limit)
+  ;; Yup. Scanning a pinned area atomically requires the world to be stopped.
+  (mezzanine.supervisor:with-world-stopped
+    (let ((allocated-words 0)
+          (total-words 0)
+          (offset 0)
+          (largest-free-space 0))
+      (loop
+         (when (>= (+ base (* offset 8)) limit)
+           (return))
+         (let ((size (align-up (size-of-pinned-area-allocation (+ base (* offset 8))) 2))
+               (type (ldb (byte +array-type-size+ +array-type-shift+)
+                          (memref-unsigned-byte-64 base offset))))
+           (incf total-words size)
+           (cond ((not (eql type +object-tag-freelist-entry+))
+                  (incf allocated-words size))
+                 (t ; free block.
+                  (setf largest-free-space (max largest-free-space size))))
+           (incf offset size)))
+      (values allocated-words total-words largest-free-space))))
 
 (defun gc ()
   "Run a garbage-collection cycle."
   (when *gc-in-progress*
     (error "Nested GC?!"))
-  (mezzanine.supervisor::with-world-stopped
+  (mezzanine.supervisor:with-world-stopped
     ;; Set *GC-IN-PROGRESS* globally, not with a binding.
     (unwind-protect
          (progn
@@ -65,18 +116,18 @@ This is required to make the GC interrupt safe."
     (scavengef (memref-t address i))))
 
 ;;; This only scavenges the stack/registers. Scavenging the actual
-;;; stack-group object is done by scan-stack-group, assuming the
-;;; current stack-group is actually reachable.
+;;; thread object is done by scan-thread.
 (defun scavenge-current-thread ()
   ;; Grovel around in the current stack frame to grab needed stuff.
   (let* ((frame-pointer (read-frame-pointer))
          (return-address (memref-unsigned-byte-64 frame-pointer 1))
          (stack-pointer (+ frame-pointer 16)))
-    ;; Unconditonally scavenge the TLS area and the binding stack.
+    (scan-thread (mezzanine.supervisor:current-thread))
     (mumble "Scav GC stack")
     (scavenge-stack stack-pointer
                     (memref-unsigned-byte-64 frame-pointer 0)
                     return-address
+                    ;; ?
                     nil)))
 
 (defun scavenge-object (object)
@@ -85,21 +136,25 @@ This is required to make the GC interrupt safe."
     ;; Don't care about immediate objects, return them unchanged.
     (return-from scavenge-object object))
   (let ((address (ash (%pointer-field object) 4)))
-    (ecase (ldb (byte 3 45) address)
-      (1 ;; dyn/dyn-c/nursery
-       (when (eql (logand +marked-through-bit+ address) *mark-bit*)
+    (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
+      (#.+address-tag-general+
+       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
          (return-from scavenge-object object))
        (transport-object object))
-      (2 ;; pinned
+      (#.+address-tag-cons+
+       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
+         (return-from scavenge-object object))
+       (transport-object object))
+      (#.+address-tag-pinned+
        (mark-pinned-object object)
        object)
-      (3 ;; stack
-       ;; TODO: Track scanned stack objects. Allocate a cons with dynamic-extent
-       ;; and push on some symbol.
-       ;; Alternatively, could use the address marked through bit, and make the
-       ;; compiler set it correctly when it creates DX objects.
+      (#.+address-tag-stack+
+       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
+         (return-from scavenge-object object))
+       ;; FIXME: When scavenging a place, the value needs to be written back
+       ;; with the mark bit correct before the object is scanned.
        (scan-object object)
-       object))))
+       (%%assemble-value (logxor (ash 1 +address-mark-bit+) address) (%tag-field object))))))
 
 (defun scan-error (object)
   (mumble-hex (lisp-object-address object))
@@ -341,15 +396,16 @@ This is required to make the GC interrupt safe."
     (let* ((address (ash (%pointer-field object) 4))
            (stack-pointer (mezzanine.supervisor:thread-stack-pointer object))
            (frame-pointer (memref-unsigned-byte-64 stack-pointer 0))
-           (return-address (memref-unsigned-byte-64 stack-pointer 2)))
+           (return-address (memref-unsigned-byte-64 stack-pointer 1)))
       ;; Unconditonally scavenge the TLS area and the binding stack.
       (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-mv-slots-start+ 8))
                      (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+))
       (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-tls-slots-start+ 8))
                      (- mezzanine.supervisor::+thread-tls-slots-end+ mezzanine.supervisor::+thread-tls-slots-start+))
-      (scavenge-stack (+ stack-pointer (* 3 8)) frame-pointer return-address
-                      ;; FIXME: Was it interrupted or not???
-                      nil))))
+      (when (not (eql object (mezzanine.supervisor:current-thread)))
+        (scavenge-stack stack-pointer frame-pointer return-address
+                        ;; FIXME: Was it interrupted or not???
+                        nil)))))
 
 (defun gc-info-for-function-offset (function offset)
   (multiple-value-bind (info-address length)
@@ -569,126 +625,172 @@ This is required to make the GC interrupt safe."
   (mumble-hex (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
   (emergency-halt "untransportable object"))
 
-(defun transport-generic (object length)
+(defun transport-object (object)
   "Transport LENGTH words from oldspace to newspace, returning
 a pointer to the new object. Leaves a forwarding pointer in place."
-  (let* ((address (ash (%pointer-field object) 4))
+  (let* ((length nil)
+         (address (ash (%pointer-field object) 4))
          (first-word (memref-t address 0))
          (new-address nil))
     ;; Check for a GC forwarding pointer.
+    ;; Do this before getting the length.
     (when (eql (%tag-field first-word) +tag-gc-forward+)
-      (return-from transport-generic
+      (return-from transport-object
         (%%assemble-value (ash (%pointer-field first-word) 4)
                           (%tag-field object))))
+    (setf length (object-size object))
+    (when (not length)
+      (transport-error object))
     ;; Update meters.
     (incf *objects-copied*)
     (incf *words-copied* length)
-    ;; Copy words.
-    (setf new-address (+ *newspace* (ash *newspace-offset* 3)))
-    (%fast-copy new-address address (ash length 3))
-    ;; Update newspace size.
-    (incf *newspace-offset* length)
-    (when (oddp length)
-      (setf (memref-t new-address length) 0)
-      (incf *newspace-offset*))
+    ;; Find a new location.
+    (cond ((consp object)
+           (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                     *cons-area-bump*
+                                     *dynamic-mark-bit*))
+           (incf *cons-area-bump* (* length 8)))
+          (t
+           (setf new-address (logior (ash +address-tag-general+ +address-tag-shift+)
+                                     *general-area-bump*
+                                     *dynamic-mark-bit*))
+           (incf *general-area-bump* (* length 8))
+           (when (oddp length)
+             (setf (memref-t new-address length) 0)
+             (incf *general-area-bump* 8))))
+    ;; Energize!
+    (%fast-copy new-address address (* length 8))
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
     ;; Complete! Return the new object
     (%%assemble-value new-address (%tag-field object))))
 
-(defun transport-array-like (object)
-  (let* ((address (ash (%pointer-field object) 4))
-         (header (memref-unsigned-byte-64 address 0))
-         (length (ldb (byte +array-length-size+ +array-length-shift+) header))
-         (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
-    ;; Check for a forwarding pointer before the type check.
-    ;; This test is duplicated from transport-generic.
-    (when (eql (ldb (byte 4 0) header) +tag-gc-forward+)
-      (return-from transport-array-like
-        (%%assemble-value (logand header (lognot #b1111))
-                          +tag-object+)))
-    (when (hash-table-p object)
-      (setf (hash-table-rehash-required object) 't))
-    ;; Dispatch again based on the type.
-    (case type
-      ((#.+object-tag-array-t+
-        #.+object-tag-array-fixnum+
-        #.+object-tag-structure-object+)
-       ;; simple-vector, std-instance or structure-object.
-       ;; 1+ to account for the header word.
-       (transport-generic object (1+ length)))
-      (#.+object-tag-symbol+
-       (transport-generic object 6))
-      (#.+object-tag-std-instance+
-       (transport-generic object 3))
-      (#.+object-tag-function-reference+
-       (transport-generic object 4))
-      ((#.+object-tag-memory-array+
-        #.+object-tag-simple-string+
-        #.+object-tag-string+
-        #.+object-tag-simple-array+
-        #.+object-tag-array+)
-       (transport-generic object (+ 4 length)))
-      ;; Nothing else can be transported
-      (t (transport-error object)))))
-
-(defun transport-object (object)
-  "Transport an object in oldspace to newspace.
-Leaves pointer fields unchanged and returns the new object."
+(defun object-size (object)
   (case (%tag-field object)
-    (#.+tag-cons+
-     (transport-generic object 2))
+    ;; FIXME? conses are 4 words when not in the cons area.
+    (#.+tag-cons+ 2)
     (#.+tag-object+
-     (transport-array-like object))
-    (t (transport-error object))))
+     (let* ((header (%array-like-ref-unsigned-byte-64 object -1))
+            (length (ldb (byte +array-length-size+ +array-length-shift+) header))
+            (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
+       ;; Dispatch again based on the type.
+       (case type
+         ((#.+object-tag-array-t+
+           #.+object-tag-array-fixnum+
+           #.+object-tag-structure-object+)
+          ;; simple-vector, std-instance or structure-object.
+          ;; 1+ to account for the header word.
+          (1+ length))
+         ((#.+object-tag-array-bit+
+           #.+object-tag-array-signed-byte-1+)
+          (1+ (ceiling length 64)))
+         ((#.+object-tag-array-unsigned-byte-2+
+           #.+object-tag-array-signed-byte-2+)
+          (1+ (ceiling length 32)))
+         ((#.+object-tag-array-unsigned-byte-4+
+           #.+object-tag-array-signed-byte-4+)
+          (1+ (ceiling length 16)))
+         ((#.+object-tag-array-unsigned-byte-8+
+           #.+object-tag-array-signed-byte-8+)
+          (1+ (ceiling length 8)))
+         ((#.+object-tag-array-unsigned-byte-16+
+           #.+object-tag-array-signed-byte-16+
+           #.+object-tag-array-short-float+)
+          (1+ (ceiling length 4)))
+         ((#.+object-tag-array-unsigned-byte-32+
+           #.+object-tag-array-signed-byte-32+
+           #.+object-tag-array-single-float+
+           #.+object-tag-array-complex-short-float+)
+          (1+ (ceiling length 2)))
+         ((#.+object-tag-array-unsigned-byte-64+
+           #.+object-tag-array-signed-byte-64+
+           #.+object-tag-array-double-float+
+           #.+object-tag-array-complex-single-float+
+           #.+object-tag-bignum+)
+          (1+ length))
+         ((#.+object-tag-array-long-float+
+           #.+object-tag-array-complex-double-float+
+           #.+object-tag-array-xmm-vector+)
+          (1+ (* length 2)))
+         ((#.+object-tag-array-complex-long-float+)
+          (1+ (* length 4)))
+         (#.+object-tag-double-float+
+          2)
+         (#.+object-tag-long-float+
+          4)
+         (#.+object-tag-short-float+
+          2)
+         (#.+object-tag-complex-rational+
+          4)
+         (#.+object-tag-complex-short-float+
+          2)
+         (#.+object-tag-complex-single-float+
+          2)
+         (#.+object-tag-complex-double-float+
+          4)
+         (#.+object-tag-complex-long-float+
+          8)
+         (#.+object-tag-ratio+
+          4)
+         (#.+object-tag-xmm-vector+
+          4)
+         (#.+object-tag-symbol+
+          6)
+         (#.+object-tag-std-instance+
+          3)
+         (#.+object-tag-function-reference+
+          4)
+         ((#.+object-tag-function+
+           #.+object-tag-closure+
+           #.+object-tag-funcallable-instance+)
+          ;; The size of a function is the sum of the MC, the GC info and the constant pool.
+          (ceiling (+ (* (ldb (byte 16 8) length) 16)  ; mc size
+                      (* (ldb (byte 16 24) length) 8)  ; pool size
+                      (ldb (byte 16 40) length)) ; gc-info size.
+                   8))
+         ((#.+object-tag-memory-array+
+           #.+object-tag-simple-string+
+           #.+object-tag-string+
+           #.+object-tag-simple-array+
+           #.+object-tag-array+)
+          (+ 4 length))
+         (#.+object-tag-unbound-value+
+          2)
+         (#.+object-tag-thread+
+          512))))))
 
-(defun mark-static-object (object)
+(defun mark-pinned-object (object)
   (let ((address (ash (%pointer-field object) 4)))
-    (when (not (logbitp +static-header-used-bit+ (memref-unsigned-byte-64 address -1)))
-      (mumble-hex object)
-      (emergency-halt "Marking free static object."))
-    (when (eql (ldb (byte 1 +static-header-mark-bit+)
-                    (memref-unsigned-byte-64 address -1))
-               *static-mark-bit*)
-      ;; Object has already been marked.
-      (return-from mark-static-object))
-    (setf (ldb (byte 1 +static-header-mark-bit+)
-               (memref-unsigned-byte-64 address -1))
-          *static-mark-bit*)
-    (with-gc-trace (object #\s)
-      (scan-object object))))
+    (cond ((consp object)
+           ;; The object header for conses is 16 bytes behind the address.
+           (when (not (eql (ldb (byte +array-type-size+ +array-type-shift+)
+                                (memref-unsigned-byte-64 address -2))
+                           +object-tag-cons+))
+             (mumble-hex object)
+             (emergency-halt "Invalid pinned cons."))
+           (when (not (eql (logand (memref-unsigned-byte-64 address -2)
+                                   +array-like-mark-bit+)
+                           *pinned-mark-bit*))
+             ;; Not marked, mark it.
+             (setf (memref-unsigned-byte-64 address -2) (logior (logand (memref-unsigned-byte-64 address -2)
+                                                                        (lognot +array-like-mark-bit+))
+                                                                *pinned-mark-bit*))
+             ;; And scan.
+             (scan-object object)))
+          (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
+               (mumble-hex object)
+               (emergency-halt "Marking freelist entry."))
+             (when (not (eql (logand (memref-unsigned-byte-64 address 0)
+                                          +array-like-mark-bit+)
+                                  *pinned-mark-bit*))
+               ;; Not marked, mark it.
+               (setf (memref-unsigned-byte-64 address 0) (logior (logand (memref-unsigned-byte-64 address 0)
+                                                                         (lognot +array-like-mark-bit+))
+                                                                 *pinned-mark-bit*))
+               ;; And scan.
+               (scan-object object))))))
 
-(defun sweep-static-space (space)
-  (mumble "Sweeping static space")
-  (let ((offset 0)
-        (last-free-tag nil))
-    (loop (let ((size (memref-unsigned-byte-64 space offset))
-                (info (memref-unsigned-byte-64 space (+ offset 1))))
-            (when (and (logbitp +static-header-used-bit+ info)
-                       (not (eql (ldb (byte 1 +static-header-mark-bit+) info)
-                                 *static-mark-bit*)))
-              ;; Allocated, but not marked. Must not be reachable.
-              (setf (ldb (byte 1 +static-header-used-bit+) (memref-unsigned-byte-64 space (+ offset 1))) 0))
-            (if (not (logbitp +static-header-used-bit+ (memref-unsigned-byte-64 space (+ offset 1))))
-                ;; Free tag.
-                (cond (last-free-tag
-                       ;; Merge adjacent free tags.
-                       (incf (memref-unsigned-byte-64 space last-free-tag) (+ size 2))
-                       (when (logbitp +static-header-end-bit+ info)
-                         ;; Last tag.
-                         (setf (ldb (byte 1 +static-header-end-bit+)
-                                    (memref-unsigned-byte-64 space (1+ last-free-tag)))
-                               1)
-                         (return)))
-                      (t ;; Previous free tag.
-                       (setf last-free-tag offset)))
-                ;; Allocated tag.
-                (setf last-free-tag nil))
-            (when (logbitp +static-header-end-bit+ info)
-              (return))
-            (incf offset (+ size 2))))))
-
-(defun sweep-stacks ()
+#+(or)(defun sweep-stacks ()
   (mumble "sweeping stacks")
   (do* ((reversed-result nil)
         (last-free nil)
@@ -720,302 +822,160 @@ Leaves pointer fields unchanged and returns the new object."
                  (rest current) reversed-result
                  reversed-result current)))))
 
+(defun scavenge-dynamic ()
+  (let ((general-finger 0)
+        (cons-finger 0))
+    (loop
+       ;; Stop when both area sets have been fully scavenged.
+       (when (and (eql general-finger *general-area-bump*)
+                  (eql cons-finger *cons-area-bump*))
+         (return))
+       (mumble "Scav main seq")
+       ;; Scavenge general area.
+       (loop
+          (when (eql general-finger *general-area-bump*)
+            (return))
+          (let* ((object (%%assemble-value (logior general-finger
+                                                   (ash +address-tag-general+ +address-tag-shift+)
+                                                   *dynamic-mark-bit*)
+                                           +tag-object+))
+                 (size (object-size object)))
+            (when (oddp size)
+              (incf size))
+            (scan-object object)
+            (incf general-finger (* size 8))))
+       ;; Scavenge cons area.
+       (loop
+          (when (eql cons-finger *cons-area-bump*)
+            (return))
+          ;; Cons region is just pointers.
+          (let ((addr (logior cons-finger
+                              (ash +address-tag-cons+ +address-tag-shift+)
+                              *dynamic-mark-bit*)))
+            (scavengef (memref-t addr 0))
+            (scavengef (memref-t addr 1)))
+          (incf cons-finger 16)))))
+
+(defun size-of-pinned-area-allocation (address)
+  "Return the size of an allocation in the wired or pinned area."
+  (let ((type (ash (memref-unsigned-byte-8 address 0) (- +array-type-shift+))))
+    (case type
+      (#.+object-tag-cons+ 4)
+      (#.+object-tag-freelist-entry+ (ash (memref-unsigned-byte-64 address 0)
+                                          (- +array-length-shift+)))
+      (t (object-size (%%assemble-value address +tag-object+))))))
+
+(defun align-up (value boundary)
+  (logand (+ value (1- boundary)) (lognot (1- boundary))))
+
+(defun find-next-free-object (start limit)
+  (loop
+     (when (>= start limit)
+       (return nil))
+     (when (not (eql (logand (memref-unsigned-byte-64 start 0) +array-like-mark-bit+)
+                     *pinned-mark-bit*))
+       ;; Not marked, must be free.
+       (return start))
+     (incf start (* (align-up (size-of-pinned-area-allocation start) 2) 8))))
+
+(defun make-freelist-header (len)
+  (logior *pinned-mark-bit*
+          (ash +object-tag-freelist-entry+ +array-type-shift+)
+          (ash (align-up len 2) +array-length-shift+)))
+
+(defun rebuild-freelist (freelist-symbol base limit)
+  "Sweep the pinned/wired area chain and rebuild the freelist."
+  (mumble "rebuild freelist")
+  (mumble (symbol-name freelist-symbol))
+  ;; Set initial freelist entry.
+  (let ((initial (find-next-free-object base limit)))
+    (when (not initial)
+      (setf (symbol-value freelist-symbol) '())
+      (when *gc-debug-freelist-rebuild*
+        (mumble "done (empty)"))
+      (return-from rebuild-freelist))
+    (when *gc-debug-freelist-rebuild*
+      (mumble-hex initial "initial: " t))
+    (setf (memref-unsigned-byte-64 initial 0) (make-freelist-header (size-of-pinned-area-allocation initial))
+          (memref-t initial 1) '()
+          (symbol-value freelist-symbol) initial))
+  ;; Build the freelist.
+  (let ((current (symbol-value freelist-symbol)))
+    (loop
+       ;; Expand this entry as much as possible.
+       (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +array-length-shift+)))
+              (next-addr (+ current (* len 8))))
+         (when *gc-debug-freelist-rebuild*
+           (mumble-hex len)
+           (mumble-hex next-addr "  next: " t))
+         (when (>= next-addr limit)
+           (return))
+         ;; Test the mark bit.
+         (cond ((eql (logand (memref-unsigned-byte-64 next-addr 0) +array-like-mark-bit+)
+                     *pinned-mark-bit*)
+                ;; Is marked, finish this entry and start the next one.
+                (setf next-addr (find-next-free-object current limit))
+                (when (not next-addr)
+                  (when *gc-debug-freelist-rebuild*
+                    (mumble "done"))
+                  (return))
+                (when *gc-debug-freelist-rebuild*
+                  (mumble-hex next-addr "adv: " t))
+                (setf (memref-unsigned-byte-64 next-addr 0) (make-freelist-header (size-of-pinned-area-allocation next-addr))
+                      (memref-t next-addr 1) '())
+                (setf (memref-t current 1) next-addr
+                      current next-addr))
+               (t ;; Not marked, expand to cover this entry.
+                (setf (memref-unsigned-byte-64 current 0) (make-freelist-header (+ len (size-of-pinned-area-allocation next-addr))))))))))
+
 (defun gc-cycle ()
-  (let ((old-offset *newspace-offset*))
-    (set-gc-light)
-    (mumble "GC in progress...")
-    ;; Allow access to the soon-to-be-newspace.
-    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 3)
-    ;; Clear per-cycle meters
-    (setf *objects-copied* 0
-          *words-copied* 0)
-    ;; Flip.
-    (psetf *oldspace* *newspace*
-           *newspace* *oldspace*
-           *oldspace-paging-bits* *newspace-paging-bits*
-           *newspace-paging-bits* *oldspace-paging-bits*
-           *newspace-offset* 0
-           *static-mark-bit* (logxor *static-mark-bit* 1))
-    ;; Wipe stack mark bits.
-    (dolist (entry *gc-stack-ranges*)
-      (setf (gc-stack-range-marked entry) nil))
-    ;; Scavenge NIL to start things off.
-    (scavenge-object 'nil)
-    ;; And scavenge the current registers and stacks.
-    (scavenge-current-stack-group 1 2 3 4 5)
-    ;; Now do the bulk of the work by scavenging newspace.
-    (scavenge-newspace)
-    ;; Make oldspace inaccessible.
-    (setf (ldb (byte 2 0) (memref-unsigned-byte-32 *oldspace-paging-bits* 0)) 0)
-    ;; Flush TLB.
-    (setf (%cr3) (%cr3))
-    ;; Sweep static space.
-    (sweep-static-space *small-static-area*)
-    (setf *small-static-area-hint* 0)
-    (sweep-static-space *large-static-area*)
-    (setf *large-static-area-hint* 0)
-    (sweep-stacks)
-    (mumble "complete")
-    (clear-gc-light)))
-
-
-(defun cons (car cdr)
-  (cons-in-area car cdr))
-
-(defun cons-in-area (car cdr &optional area)
-  (with-interrupts-disabled ()
-    (let ((cons (%%assemble-value (%raw-allocate 2 area) +tag-cons+)))
-      (setf (car cons) car
-            (cdr cons) cdr)
-      cons)))
-
-(defun %allocate-array-like (tag word-count length &optional area)
-  "Allocate a array-like object. All storage is initialized to zero.
-WORD-COUNT must be the number of words used to store the data, not including
-the header word. LENGTH is the number of elements in the array."
-  (with-interrupts-disabled ()
-    ;; Align and account for the header word.
-    (if (oddp word-count)
-        (incf word-count 1)
-        (incf word-count 2))
-    (let ((address (%raw-allocate word-count area)))
-      ;; Clear memory.
-      (dotimes (i word-count)
-        (setf (memref-unsigned-byte-64 address i) 0))
-      ;; Set header word.
-      (setf (memref-unsigned-byte-64 address 0)
-            (logior (ash length +array-length-shift+)
-                    (ash tag +array-type-shift+)))
-      ;; Return value.
-      (%%assemble-value address +tag-object+))))
-
-(defun allocate-std-instance (class slots &optional area)
-  (let ((value (%allocate-array-like +object-tag-std-instance+ 2 2 area)))
-    (setf (std-instance-class value) class
-          (std-instance-slots value) slots)
-    value))
-
-(defun %make-struct (length &optional area)
-  (%allocate-array-like +object-tag-structure-object+ length length area))
-
-(defun make-function-with-fixups (tag machine-code fixups constants gc-info)
-  (with-interrupts-disabled ()
-    (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
-           (gc-info-size (ceiling (length gc-info) 8))
-           (pool-size (length constants))
-           (total (+ (* mc-size 2) pool-size gc-info-size)))
-      (when (oddp total)
-        (incf total))
-      (let ((address (%raw-allocate total :static)))
-        ;; Initialize header.
-        (setf (memref-unsigned-byte-64 address 0) 0
-              (memref-unsigned-byte-64 address 1) (+ address 16)
-              (memref-unsigned-byte-16 address 0) (ash tag +array-type-shift+)
-              (memref-unsigned-byte-16 address 1) mc-size
-              (memref-unsigned-byte-16 address 2) pool-size
-              (memref-unsigned-byte-16 address 3) (length gc-info))
-        ;; Initialize code.
-        (dotimes (i (length machine-code))
-          (setf (memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
-        ;; Apply fixups.
-        (dolist (fixup fixups)
-          (let ((value (case (car fixup)
-                         ((nil t)
-                          (lisp-object-address (car fixup)))
-                         (undefined-function
-                          (lisp-object-address *undefined-function-thunk*))
-                         (:unbound-tls-slot
-                          (lisp-object-address (%unbound-tls-slot)))
-                         (:unbound-value
-                          (lisp-object-address (%unbound-value)))
-                         (t (error "Unsupported fixup ~S." (car fixup))))))
-            (dotimes (i 4)
-              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i))
-                    (logand (ash value (* i -8)) #xFF)))))
-        ;; Initialize constant pool.
-        (dotimes (i (length constants))
-          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
-        ;; Initialize GC info.
-        (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
-          (dotimes (i (length gc-info))
-            (setf (memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
-        (%%assemble-value address +tag-object+)))))
-
-(defun make-function (machine-code constants gc-info)
-  (make-function-with-fixups +object-tag-function+ machine-code '() constants gc-info))
-
-(defun make-closure (function environment)
-  "Allocate a closure object."
-  (check-type function function)
-  (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate 6 :static))
-           (entry-point (%array-like-ref-unsigned-byte-64 function 0))
-           ;; Jmp's address is entry-point - <address-of-instruction-after-jmp>
-           (rel-entry-point (- entry-point (+ address (* 7 4)))))
-      ;; Initialize and clear constant slots.
-      ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
-                                                        (ash +object-tag-closure+
-                                                             +array-type-shift+))
-            ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000002
-            ;; Entry point
-            (memref-unsigned-byte-64 address 1) (+ address 16)
-            ;; The code.
-            ;; mov64 :rbx (:rip 17)/pool[1]
-            (memref-unsigned-byte-32 address 4) #x111D8B48
-            ;; jmp entry-point
-            (memref-unsigned-byte-32 address 5) #xE9000000
-            ;; jmp's rel32 address ended up being nicely aligned. lucky!
-            (memref-signed-byte-32 address 6) rel-entry-point
-            (memref-unsigned-byte-32 address 7) #xCCCCCCCC)
-      (let ((value (%%assemble-value address +tag-object+)))
-        ;; Initialize constant pool
-        (setf (memref-t address 4) function
-              (memref-t address 5) environment)
-        value))))
-
-(defun allocate-funcallable-std-instance (function class slots)
-  "Allocate a funcallable instance."
-  (check-type function function)
-  (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 8 :static))
-          (entry-point (%array-like-ref-unsigned-byte-64 function 0)))
-      ;; Initialize and clear constant slots.
-      ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
-                                                        (ash +object-tag-funcallable-instance+
-                                                             +array-type-shift+))
-            ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000003
-            ;; Entry point
-            (memref-unsigned-byte-64 address 1) (+ address 16)
-            ;; The code.
-            ;; jmp (:rip 2)/pool[-1]
-            (memref-unsigned-byte-32 address 4) #x000225FF
-            (memref-unsigned-byte-32 address 5) #xCCCC0000
-            ;; entry-point
-            (memref-unsigned-byte-64 address 3) entry-point)
-      (let ((value (%%assemble-value address +tag-object+)))
-        ;; Initialize constant pool
-        (setf (memref-t address 4) function
-              (memref-t address 5) class
-              (memref-t address 6) slots)
-        value))))
-
-(defun make-symbol-in-area (name &optional area)
-  (check-type name string)
-  (with-interrupts-disabled ()
-    (let* ((symbol (%allocate-array-like +object-tag-symbol+ 6 0 area)))
-      ;; symbol-name.
-      (setf (%array-like-ref-t symbol 0) name)
-      (makunbound symbol)
-      (setf (symbol-fref symbol) nil
-            (symbol-plist symbol) nil
-            (symbol-package symbol) nil)
-      symbol)))
-
-(defun make-symbol (name)
-  (check-type name string)
-  (make-symbol-in-area name nil))
-
-(define-lap-function %%make-bignum-128-rdx-rax ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:push :rdx)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 16)))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
-
-(define-lap-function %%make-bignum-64-rax ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:pop (:r8 #.(+ (- +tag-object+) 8)))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
-
-;;; This is used by the bignum code so that bignums and fixnums don't have
-;;; to be directly compared.
-(defun %make-bignum-from-fixnum (n)
-  (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate 2 :static)))
-      (setf (memref-unsigned-byte-64 address 0) (logior (ash 1 +array-length-shift+)
-                                                        (ash +object-tag-bignum+ +array-type-shift+))
-            (memref-signed-byte-64 address 1) n)
-      (%%assemble-value address +tag-object+))))
-
-(defun %make-bignum-of-length (words)
-  (with-interrupts-disabled ()
-    (let* ((address (%raw-allocate (+ 1 words (if (logtest words 1) 0 1)) :static)))
-      (setf (memref-unsigned-byte-64 address 0) (logior (ash words +array-length-shift+)
-                                                        (ash +object-tag-bignum+ +array-type-shift+)))
-      (%%assemble-value address +tag-object+))))
-
-(defun %allocate-stack (length)
-  (when (oddp length)
-    (incf length))
-  (setf length (* length 8))
-  ;; Arrange for the error to be thrown after we leave the w-i-disabled region.
-  (or (with-interrupts-disabled ()
-        (dolist (entry *gc-stack-ranges*)
-          (when (and (not (gc-stack-range-allocated entry))
-                     (>= (- (gc-stack-range-end entry)
-                            (gc-stack-range-start entry))
-                         length))
-            (cond ((= (- (gc-stack-range-end entry)
-                         (gc-stack-range-start entry))
-                      length)
-                   ;; Same length, just mark as allocated.
-                   (setf (gc-stack-range-allocated entry) t)
-                   (return entry))
-                  (t ;; Split & resort.
-                   (let ((new (make-gc-stack-range :allocated t
-                                                   :start (gc-stack-range-start entry)
-                                                   :end (+ (gc-stack-range-start entry)
-                                                           length))))
-                     (setf (gc-stack-range-start entry) (gc-stack-range-end new))
-                     #+(or)(setf *gc-stack-ranges* (merge 'list (list new) *gc-stack-ranges*
-                                                          #'< :key #'gc-stack-range-start))
-                     (setf *gc-stack-ranges* (sort (list* new *gc-stack-ranges*)
-                                                   #'< :key #'gc-stack-range-start))
-                     (return new)))))))
-        (error "No more space for stacks!")))
+  (set-gc-light)
+  (mumble "GC in progress...")
+  ;; Clear per-cycle meters
+  (setf *objects-copied* 0
+        *words-copied* 0)
+  ;; Flip.
+  (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+         *pinned-mark-bit* (logxor *pinned-mark-bit* +array-like-mark-bit+)
+         *current-stack-mark-bit* (logxor *current-stack-mark-bit* (ash 1 (- +address-mark-bit+ +n-fixnum-bits+))))
+  (setf *general-area-bump* 0
+        *cons-area-bump* 0)
+  ;; Scavenge NIL to start things off.
+  (scavenge-object 'nil)
+  ;; And various important other roots.
+  ;; FIXME: interrupt handlers are also roots.
+  (scavenge-object (%unbound-value))
+  (scavenge-object (%unbound-tls-slot))
+  (scavenge-object (%undefined-function))
+  (scavenge-object (%closure-trampoline))
+  ;; Scavenge the current thread's stack.
+  (scavenge-current-thread)
+  ;; Now do the bulk of the work by scavenging the dynamic areas.
+  ;; No scavenging can take place after this.
+  (scavenge-dynamic)
+  ;; Rebuild freelists.
+  (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
+  (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
+  (mumble "complete")
+  (clear-gc-light))
 
 (defun base-address-of-internal-pointer (address)
   "Find the base address of the object pointed to be ADDRESS.
 Address should be an internal pointer to a live object in static space.
 No type information will be provided."
-  (flet ((search (space)
-           (let ((offset 0))
-             (with-interrupts-disabled ()
-               (loop (let ((size (memref-unsigned-byte-64 space offset))
-                           (info (memref-unsigned-byte-64 space (+ offset 1))))
-                       (when (and (<= (+ space (* (+ offset 2) 8)) address)
-                                  (< address (+ space (* (+ offset size 2) 8))))
-                         (return-from base-address-of-internal-pointer
-                           (values (+ space (* (+ offset 2) 8)) t)))
-                       (when (logbitp +static-header-end-bit+ info)
-                         (return))
-                       (incf offset (+ size 2))))))))
-    (search *large-static-area*)
-    (search *small-static-area*)))
+  (flet ((search (start limit)
+           (let ((offset start))
+             (loop
+                (when (>= offset limit)
+                  (return))
+                (let* ((type (ash (memref-unsigned-byte-8 offset 0) (- +array-type-shift+)))
+                       (size (size-of-pinned-area-allocation offset)))
+                  (when (and (not (eql type +object-tag-freelist-entry+))
+                             (<= offset address (+ offset (* size 8) -1)))
+                    (return-from base-address-of-internal-pointer
+                      offset))
+                  (incf offset (* (align-up size 2) 8)))))))
+    ;; Search wired area.
+    (search (* 2 1024 1024) *wired-area-bump*)
+    ;; Search pinned area.
+    (search (* 2 1024 1024 1024) *pinned-area-bump*)))
