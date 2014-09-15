@@ -287,7 +287,7 @@
       (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
       (let ((total-size (+ (* (truncate (length mc) 16) 2)
                            (length constants)
-                           (* (ceiling (length gc-info) 8) 8))))
+                           (ceiling (length gc-info) 8))))
         (when (oddp total-size) (incf total-size))
         (let ((address (allocate total-size area)))
           ;; Copy machine code into the area.
