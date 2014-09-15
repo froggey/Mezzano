@@ -198,9 +198,7 @@
       (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
       (setf (io-port/8 #x3F8) #x0D))
     (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
-    (setf (io-port/8 #x3F8) code)
-    (setf (sys.int::memref-unsigned-byte-16 #x80000B8000 position)
-          (logior code #x7000))))
+    (setf (io-port/8 #x3F8) code)))
 
 (defun mumble-string (message)
   (dotimes (i (array-dimension message 0))
