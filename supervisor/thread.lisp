@@ -298,6 +298,15 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
+(sys.int::define-lap-function %%idle-thread-trampoline ()
+  (:gc :no-frame :layout #*1)
+  ;; The regular stack contains the function to call.
+  (sys.lap-x86:pop :rbx)
+  (:gc :no-frame)
+  (sys.lap-x86:xor32 :ecx :ecx) ; fixnum 0
+  (sys.lap-x86:call (:object :rbx 0))
+  (sys.lap-x86:ud2))
+
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
     ;; First-run stuff.
@@ -307,10 +316,12 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (setf *thread-run-queue-tail* nil)
     ;; The idle thread starts off with an empty stack. Fix it.
     (let ((rsp (thread-stack-pointer sys.int::*bsp-idle-thread*)))
-      (decf rsp 8)
-      (setf (sys.int::memref-signed-byte-64 rsp 0) (sys.int::%array-like-ref-signed-byte-64 #'idle-thread 0))
-      (decf rsp 8)
-      (setf (sys.int::memref-signed-byte-64 rsp 0) 0)
+      ;; Function to call.
+      (setf (sys.int::memref-t (decf rsp 8) 0) #'idle-thread)
+      ;; Trampoline for switch threads.
+      (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%idle-thread-trampoline 0))
+      ;; Saved rbp.
+      (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) 0)
       (setf (thread-stack-pointer sys.int::*bsp-idle-thread*) rsp))))
 
 (defun thread-yield ()
@@ -343,6 +354,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (%%switch-to-thread current next)))
 
 ;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
+;;; Watch out. The GC grovels around in the stack of not-running threads, if the
+;;; layout changes, it must be updated.
 (sys.int::define-lap-function %%switch-to-thread ()
   (:gc :no-frame)
   ;; Save frame pointer.

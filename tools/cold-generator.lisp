@@ -1325,7 +1325,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name
-                 (make-value (function-reference 'sys.int::bootloader-entry-point)
+                 (make-value (function-reference 'sys.int::%%bootloader-entry-point)
                              sys.int::+tag-object+)
                  initial-thread
                  idt-size idt-pointer

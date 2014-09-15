@@ -368,6 +368,17 @@
   (with-mutex (*vm-lock*)
     (wait-for-page-via-interrupt-1 interrupt-frame address)))
 
+;; This thunk exists purely so that the GC knows when to stop unwinding the initial process' stack.
+;; I'd like to get rid of it somehow...
+(sys.int::define-lap-function sys.int::%%bootloader-entry-point ()
+  (:gc :no-frame)
+  ;; Drop the bootloader's return address.
+  (sys.lap-x86::add64 :rsp 8)
+  ;; Call the real entry point.
+  (sys.lap-x86:mov64 :r13 (:function sys.int::bootloader-entry-point))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2))
+
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (initialize-initial-thread)
   (setf *boot-information-page* boot-information-page
