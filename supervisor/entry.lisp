@@ -330,39 +330,42 @@
             (return-from wait-for-page-via-interrupt-1 t))
           (setf (sys.int::memref-unsigned-byte-64 pte 0) (sys.int::memref-unsigned-byte-64 other-pte 0))
           t))))
-  (let ((block-info (block-info-for-virtual-address address)))
+  (let ((pte (get-pte-for-address address))
+        (block-info (block-info-for-virtual-address address)))
+    ;; Examine the page table, if there's a present entry then the page
+    ;; was mapped while acquiring the VM lock. Just return.
+    (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
+      (return-from wait-for-page-via-interrupt-1 t))
+    ;; Note that this test is done after the pte test. this is a hack to make
+    ;; runtime-allocated stacks work before allocate-stack actually modifies the
+    ;; block map.
     (when (or (not block-info)
               (not (logtest sys.int::+block-map-present+ block-info)))
       (return-from wait-for-page-via-interrupt-1 nil))
-    ;; Examine the page table, if there's a present entry then the page
-    ;; was mapped while acquiring the VM lock. Just return.
-    (let ((pte (get-pte-for-address address)))
-      (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
-        (return-from wait-for-page-via-interrupt-1 t))
-      ;; No page allocated. Allocate a page and read the data.
-      (let* ((frame (or (allocate-physical-pages 1)
-                        (progn (debug-write-line "Aiee. No memory.")
-                               (loop))))
-             (addr (+ +physical-map-base+ (ash frame 12))))
-        (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
-               ;; Block is zero-filled.
-               (dotimes (i 512)
-                 (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
-              (t ;; Block must be read from disk.
-               (or (funcall (disk-read-fn *paging-disk*)
-                            (disk-device *paging-disk*)
-                            (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
-                               (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                            (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                            addr)
-                   (progn (debug-write-line "Unable to read page from disk")
-                          (loop)))))
-        (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
-                                                               +page-table-present+
-                                                               (if (logtest sys.int::+block-map-writable+ block-info)
-                                                                   +page-table-write+
-                                                                   0)))))
-    t))
+    ;; No page allocated. Allocate a page and read the data.
+    (let* ((frame (or (allocate-physical-pages 1)
+                      (progn (debug-write-line "Aiee. No memory.")
+                             (loop))))
+           (addr (+ +physical-map-base+ (ash frame 12))))
+      (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
+             ;; Block is zero-filled.
+             (dotimes (i 512)
+               (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+            (t ;; Block must be read from disk.
+             (or (funcall (disk-read-fn *paging-disk*)
+                          (disk-device *paging-disk*)
+                          (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+                             (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                          (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                          addr)
+                 (progn (debug-write-line "Unable to read page from disk")
+                        (loop)))))
+      (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
+                                                             +page-table-present+
+                                                             (if (logtest sys.int::+block-map-writable+ block-info)
+                                                                 +page-table-write+
+                                                                 0)))))
+  t)
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
   (with-mutex (*vm-lock*)
