@@ -5,6 +5,8 @@
 (defvar *thread-run-queue-head*)
 (defvar *thread-run-queue-tail*)
 
+(defvar *world-stopper*)
+
 ;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
 (defvar sys.int::*bsp-idle-thread*)
@@ -171,6 +173,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   (setf (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked))
 
 (defun push-run-queue (thread)
+  (when (eql thread *world-stopper*)
+    (return-from push-run-queue))
   (cond ((null *thread-run-queue-head*)
          (setf *thread-run-queue-head* thread
                *thread-run-queue-tail* thread)
@@ -288,7 +292,10 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
      (sys.int::%cli)
      ;; Look for a thread to switch to.
      (let ((next (with-symbol-spinlock (*global-thread-lock*)
-                   (pop-run-queue))))
+                   (cond (*world-stopper*
+                          (when (eql (thread-state *world-stopper*) :runnable)
+                            *world-stopper*))
+                         (t (pop-run-queue))))))
        (cond (next
               ;; Switch to thread.
               (%lock-thread sys.int::*bsp-idle-thread*)
@@ -298,7 +305,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
-(sys.int::define-lap-function %%idle-thread-trampoline ()
+(sys.int::define-lap-function %%simple-thread-entry-trampoline ()
   (:gc :no-frame :layout #*1)
   ;; The regular stack contains the function to call.
   (sys.lap-x86:pop :rbx)
@@ -313,16 +320,25 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     ;; FIXME: Patch up initial thread's stack objects.
     (setf *global-thread-lock* :unlocked)
     (setf *thread-run-queue-head* nil)
-    (setf *thread-run-queue-tail* nil)
-    ;; The idle thread starts off with an empty stack. Fix it.
-    (let ((rsp (thread-stack-pointer sys.int::*bsp-idle-thread*)))
-      ;; Function to call.
-      (setf (sys.int::memref-t (decf rsp 8) 0) #'idle-thread)
-      ;; Trampoline for switch threads.
-      (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%idle-thread-trampoline 0))
-      ;; Saved rbp.
-      (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) 0)
-      (setf (thread-stack-pointer sys.int::*bsp-idle-thread*) rsp))))
+    (setf *thread-run-queue-tail* nil))
+  ;; The idle thread starts off with an empty stack. Fix it. (FIXME: Use the right stack pointer.)
+  (let ((rsp (thread-stack-pointer sys.int::*bsp-idle-thread*)))
+    ;; Function to call.
+    (setf (sys.int::memref-t (decf rsp 8) 0) #'idle-thread)
+    ;; Trampoline for switch threads.
+    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%simple-thread-entry-trampoline 0))
+    ;; Saved rbp.
+    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) 0)
+    (setf (thread-stack-pointer sys.int::*bsp-idle-thread*) rsp))
+  ;; Reset the snapshot thread every boot. (FIXME: Use the right stack pointer.)
+  (let ((rsp (thread-stack-pointer sys.int::*snapshot-thread*)))
+    ;; Function to call.
+    (setf (sys.int::memref-t (decf rsp 8) 0) #'snapshot-thread)
+    ;; Trampoline for switch threads.
+    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%simple-thread-entry-trampoline 0))
+    ;; Saved rbp.
+    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) 0)
+    (setf (thread-stack-pointer sys.int::*snapshot-thread*) rsp)))
 
 (defun thread-yield ()
   (let ((current (current-thread)))
@@ -331,11 +347,34 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (setf (thread-state current) :runnable)
     (%reschedule)))
 
+(defun %reschedule-with-world-stopped ()
+  ;; Thread scheduling works differently when the world is stopped.
+  ;; The only threads that can run are the idle thread and the
+  ;; world stopper.
+  (let ((current (current-thread))
+        next)
+    (with-symbol-spinlock (*global-thread-lock*)
+      (cond
+        ((eql current *world-stopper*)
+         (if (eql (thread-state current) :runnable)
+             (return-from %reschedule-with-world-stopped)
+             (setf next sys.int::*bsp-idle-thread*)))
+        ((eql current sys.int::*bsp-idle-thread*)
+         (if (eql (thread-state *world-stopper*) :runnable)
+             (setf next *world-stopper*)
+             (return-from %reschedule-with-world-stopped)))
+        (t (error "Aieee"))))
+    (%lock-thread next)
+    (setf (thread-state next) :active)
+    (%%switch-to-thread current next)))
+
 (defun %reschedule ()
   ;; Interrupts must be off and the current thread's lock must be held.
   ;; Releases the thread lock and reenables interrupts.
   (let ((current (current-thread))
         next)
+    (when *world-stopper*
+      (return-from %reschedule (%reschedule-with-world-stopped)))
     ;; Return the current thread to the run queue and fetch the next thread.
     (with-symbol-spinlock (*global-thread-lock*)
       (when (and (eql (thread-state current) :runnable)
@@ -379,18 +418,18 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   ;; Restore fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
-  ;; Restore frame pointer.
-  (sys.lap-x86:pop :rbp)
-  (:gc :no-frame)
-  ;; Drop the locks on both threads.
+  ;; Drop the locks on both threads. Must be done before touching the thread stack.
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
+  ;; Reenable interrupts. Must be done before touching the thread stack.
+  (sys.lap-x86:sti)
+  ;; Restore frame pointer.
+  (sys.lap-x86:pop :rbp)
+  (:gc :no-frame)
   ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
-  ;; Reenable interrupts.
-  (sys.lap-x86:sti)
   ;; Return, restoring RIP.
   (sys.lap-x86:ret))
 
@@ -448,6 +487,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
+    (setf *world-stopper* thread)
     (setf (thread-state thread) :active)))
 
 (defun finish-initial-thread ()
@@ -458,6 +498,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   ;; The initial thread must finish with no values on the special stack, and
   ;; all TLS slots initialized. This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
+    (setf *world-stopper* nil)
     (sys.int::%cli)
     (%lock-thread thread)
     (setf (thread-state thread) :sleeping)
@@ -470,7 +511,14 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
      #'dx-lambda))
 
 (defun call-with-world-stopped (fn)
-  (funcall fn))
+  ;; Globally bind it, allow for recursive stoppage.
+  (let ((prev *world-stopper*))
+    (assert (or (not prev) (eql prev (current-thread))))
+    (unwind-protect
+         (progn
+           (setf *world-stopper* (current-thread))
+           (funcall fn))
+      (setf *world-stopper* prev))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
