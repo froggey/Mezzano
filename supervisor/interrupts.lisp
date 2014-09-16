@@ -1,3 +1,5 @@
+;;; High-level interrupt management.
+
 (in-package :mezzanine.supervisor)
 
 (defmacro without-interrupts (&body body)
@@ -31,7 +33,8 @@
   ;; Avoid high-level array/seq functions.
   ;; fixme: allocation should be done once (by the cold-gen?)
   ;; but the reset should be done every boot.
-  (setf *user-interrupt-handlers* (sys.int::make-simple-vector 256 :wired))
+  (when (not (boundp '*user-interrupt-handlers*))
+    (setf *user-interrupt-handlers* (sys.int::make-simple-vector 256 :wired)))
   (dotimes (i 256)
     (setf (svref *user-interrupt-handlers* i) nil)))
 
@@ -185,11 +188,10 @@ If clear, the fault occured in supervisor mode.")
 
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
-  ;; fixme: allocation should be done once (by the cold-gen?)
-  ;; but the reset should be done every boot.
-  (setf *i8259-handlers* (sys.int::make-simple-vector 256 :wired)
-        ;; fixme: do at cold-gen time.
-        *i8259-spinlock* :unlocked)
+  (when (not (boundp '*i8259-handlers*))
+    (setf *i8259-handlers* (sys.int::make-simple-vector 16 :wired)
+          ;; fixme: do at cold-gen time.
+          *i8259-spinlock* :unlocked))
   (dotimes (i 16)
     (setf (svref *i8259-handlers* i) nil))
   ;; Hook interrupts.

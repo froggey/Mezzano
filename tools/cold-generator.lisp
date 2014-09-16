@@ -5,6 +5,7 @@
 
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
+    "supervisor/cpu.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
@@ -49,7 +50,6 @@
   #+nil'(
     "cold-stream.lisp"
     "system/load.lisp"
-    "system/interrupt.lisp"
     "memory.lisp"
     "dump.lisp"
     "pci.lisp"
@@ -490,7 +490,7 @@
     (file-position s block-offset)
     (write-sequence data s)))
 
-(defun write-image (name entry-fref initial-thread idt-size idt-pointer gdt-size gdt-pointer)
+(defun write-image (name entry-fref initial-thread)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
@@ -520,7 +520,7 @@
         ;; Major version.
         (setf (ub16ref/le header 32) 0)
         ;; Minor version.
-        (setf (ub16ref/le header 34) 11)
+        (setf (ub16ref/le header 34) 12)
         ;; Number of extents.
         (setf (ub32ref/le header 36) (+ 1 (length *stack-list*)))
         ;; Entry fref.
@@ -530,12 +530,7 @@
         ;; NIL.
         (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
                                                  sys.int::+tag-object+))
-        ;; System IDT info.
-        (setf (ub16ref/le header 64) idt-size
-              (ub64ref/le header 66) idt-pointer)
-        ;; System GDT info.
-        (setf (ub16ref/le header 80) gdt-size
-              (ub64ref/le header 82) gdt-pointer)
+        ;; + 64-96 free.
         ;; Top-level block map.
         (setf (ub64ref/le header 96) (/ bml4-block #x1000))
         ;; Free block list.
@@ -1051,42 +1046,14 @@
     (sys.lap-x86:mov32 :eax ,(ash index sys.int::+n-fixnum-bits+))
     (sys.lap-x86:jmp user-interrupt-common)))
 
-(defun make-idt-entry (&key (offset 0) (segment #x0008)
-                         (present t) (dpl 0) (ist nil)
-                         (interrupt-gate-p t))
-  (check-type offset (signed-byte 64))
-  (check-type segment (unsigned-byte 16))
-  (check-type dpl (unsigned-byte 2))
-  (check-type ist (or null (unsigned-byte 3)))
-  (let ((value 0))
-    (setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
-          (ldb (byte 1 47) value) (if present 1 0)
-          (ldb (byte 2 45) value) dpl
-          (ldb (byte 4 40) value) (if interrupt-gate-p
-                                      #b1110
-                                      #b1111)
-          (ldb (byte 3 32) value) (or ist 0)
-          (ldb (byte 16 16) value) segment
-          (ldb (byte 16 0) value) (ldb (byte 16 0) offset))
-    value))
-
 (defun create-low-level-interrupt-support ()
-  "Generate the IDT and the ISR thunks that call into Lisp.
-Return the size & address of the IDT, suitable for use with LIDT.
-Doing this in the cold-generator avoids needing to put low-level single-use
-setup code into the supervisor.
-The bootloader provides a per-cpu GDT & TSS."
-  ;; For maximum flexibility, make the IDT as large as possible.
+  "Generate the ISR thunks that call into Lisp."
+  ;; For maximum flexibility, create ISRs for all the IDT entries.
   (let* ((idt-size 256)
-         (idt (allocate (1+ (* idt-size 2)) :wired))) ; IDT entries are 16 bytes.
-    ;; Create IDT.
-    ;; IDT entries in 64-bit mode are 128 bits long, there is no ub128 vector type,
-    ;; so a doubled-up ub64 vector is used instead.
-    (setf (word idt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ (* idt-size 2)))
-    (dotimes (i idt-size)
-      (setf (word (+ idt 1 (* i 2))) 0
-            (word (+ idt 1 (* i 2) 1)) 0))
-    (setf (cold-symbol-value 'sys.int::+interrupt-descriptor-table+) (make-value idt sys.int::+tag-object+))
+         (isr-table (allocate (1+ idt-size) :wired)))
+    ;; Create the ISR table.
+    (setf (word isr-table) (array-header sys.int::+object-tag-array-t+ idt-size))
+    (setf (cold-symbol-value 'sys.int::*interrupt-service-routines*) (make-value isr-table sys.int::+tag-object+))
     ;; Generate the ISR thunks.
     (let* ((exception-isrs (loop
                               for (handler error-code-p ist) in *cpu-exception-info*
@@ -1103,68 +1070,25 @@ The bootloader provides a per-cpu GDT & TSS."
                                                    :area :wired
                                                    :position-independent nil
                                                    :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))))))
+      (let ((fref (function-reference 'sys.int::%%common-isr-thunk)))
+        (setf (word (+ fref 1 sys.int::+fref-function+)) (make-value common-code sys.int::+tag-object+)
+              (word (+ fref 1 sys.int::+fref-entry-point+)) (+ (* common-code 8) 16)))
+      (let ((fref (function-reference 'sys.int::%%common-user-isr-thunk)))
+        (setf (word (+ fref 1 sys.int::+fref-function+)) (make-value common-user-code sys.int::+tag-object+)
+              (word (+ fref 1 sys.int::+fref-entry-point+)) (+ (* common-user-code 8) 16)))
       (loop
          for isr in (append exception-isrs user-interrupt-isrs)
          for i from 0
          when isr do
-           ;; Assemble the ISR and update the IDT entry
-           (let* ((addr (compile-lap-function isr
-                                              :area :wired
-                                              :position-independent nil
-                                              :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
-                                                                   (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))))
-                  (entry (make-idt-entry :offset (+ (* addr 8) 16)
-                                         :segment 8
-                                         :ist (when (< i (length *cpu-exception-info*))
-                                                (third (elt *cpu-exception-info* i))))))
-             (setf (word (+ idt 1 (* i 2))) (ldb (byte 64 0) entry)
-                   (word (+ idt 1 (* i 2) 1)) (ldb (byte 64 64) entry)))))
-    (values (1- (* idt-size 16)) (+ (* idt 8) 8))))
-
-(defun create-gdt (tss-size tss-base)
-  ;; Segment 0 is the null segment.
-  ;; Segment 1 is the 64-bit kernel code segment.
-  ;; Segment 2/3 is the 64-bit TSS.
-  (let* ((gdt-size 32)
-         (gdt (allocate (1+ gdt-size) :wired))) ; GDT entries are 8 bytes.
-    ;; Create GDT.
-    (setf (word gdt) (array-header sys.int::+object-tag-array-unsigned-byte-64+ gdt-size))
-    (dotimes (i gdt-size)
-      (setf (word (+ gdt (1+ i))) 0))
-    (setf (word (+ gdt 2)) #x00209A0000000000)
-    (setf (word (+ gdt 3)) (logior (ldb (byte 16 0) tss-size)
-                                   (ash (ldb (byte 24 0) tss-base) 16)
-                                   (ash #x89 40)
-                                   (ash (ldb (byte 4 16) tss-size) 48)
-                                   (ash (ldb (byte 8 24) tss-base) 56)))
-    (setf (word (+ gdt 4)) (ldb (byte 32 32) tss-base))
-    (setf (cold-symbol-value 'sys.int::+global-descriptor-table+) (make-value gdt sys.int::+tag-object+))
-    (values (1- (* gdt-size 8)) (+ (* gdt 8) 8))))
-
-(defun create-tss (ist1)
-  (let* ((tss-size 104)
-         (tss (allocate (1+ (ceiling tss-size 8)) :wired)))
-    ;; The TSS layout is pretty weird. Treat it as a byte array.
-    (setf (word tss) (array-header sys.int::+object-tag-array-unsigned-byte-8+ tss-size))
-    ;; Ugh.
-    (setf (ldb (byte 32 32) (word (+ 1 tss 4))) (ldb (byte 32 0) ist1)
-          (ldb (byte 32 0) (word (+ 1 tss 5))) (ldb (byte 32 32) ist1))
-    (setf (ldb (byte 16 48) (word (+ 1 tss 12))) 104) ; IO bitmap follows TSS.
-    (setf (cold-symbol-value 'sys.int::+task-state-segment+) (make-value tss sys.int::+tag-object+))
-    (values (1- tss-size) (+ (* tss 8) 8))))
-
-(defun make-area-descriptor (struct-descriptor layout area)
-  (let ((desc (allocate (+ (length layout) 2) :wired)))
-    (setf (word desc) (array-header sys.int::+object-tag-structure-object+ (1+ (length layout)))
-          (word (1+ desc)) (make-value struct-descriptor sys.int::+tag-object+))
-    (flet ((set-slot (name value)
-             (setf (word (+ desc 2 (position name layout :key #'first :test #'string=))) value)))
-      (set-slot 'base (make-fixnum (area-address area)))
-      (set-slot 'size (make-fixnum (area-size area)))
-      (set-slot 'type (make-value (symbol-address (symbol-name (area-type area)) "KEYWORD")
-                                  sys.int::+tag-object+))
-      (set-slot 'extent (make-fixnum (area-extent-start area))))
-    desc))
+           ;; Assemble the ISR and update the ISR entry.
+           (let ((addr (compile-lap-function isr
+                                             :area :wired
+                                             :position-independent nil
+                                             :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
+                                                                  (cons 'user-interrupt-common (+ (* common-user-code 8) 16))))))
+             (setf (word (+ isr-table 1 i)) (make-value addr sys.int::+tag-object+)))
+         else do
+           (setf (word (+ isr-table 1 i)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))))))
 
 (defun finalize-areas ()
   "Assign store addresses to each area, and build pinned/wired area freelists."
@@ -1234,15 +1158,12 @@ The bootloader provides a per-cpu GDT & TSS."
                                (iter (for sym in-package :system external-only t)
                                      (collect (symbol-name sym)))
                                :test #'string=))
-         idt-size idt-pointer
-         tss-size tss-pointer
-         gdt-size gdt-pointer
          (pf-exception-stack (create-stack (* 128 1024))))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
-    (setf (values tss-size tss-pointer) (create-tss (+ (stack-base pf-exception-stack) (stack-size pf-exception-stack))))
-    (setf (values gdt-size gdt-pointer) (create-gdt tss-size tss-pointer))
-    (setf (values idt-size idt-pointer) (create-low-level-interrupt-support))
+    (create-low-level-interrupt-support)
+    (setf (cold-symbol-value 'sys.int::*exception-stack-base*) (make-fixnum (stack-base pf-exception-stack))
+          (cold-symbol-value 'sys.int::*exception-stack-size*) (make-fixnum (stack-size pf-exception-stack)))
     (setf initial-thread (create-initial-thread))
     ;; Load all cold source files, emitting the top-level forms into an array
     ;; FIXME: Top-level forms generally show up as functions in .LLF files,
@@ -1329,9 +1250,7 @@ The bootloader provides a per-cpu GDT & TSS."
     (write-image image-name
                  (make-value (function-reference 'sys.int::%%bootloader-entry-point)
                              sys.int::+tag-object+)
-                 initial-thread
-                 idt-size idt-pointer
-                 gdt-size gdt-pointer)))
+                 initial-thread)))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
   (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))

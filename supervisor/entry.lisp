@@ -383,47 +383,49 @@
   (sys.lap-x86:ud2))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
-  (initialize-initial-thread)
-  (setf *boot-information-page* boot-information-page
-        *block-cache* nil
-        *cold-unread-char* nil)
-  (when (not (boundp 'mezzanine.runtime::*tls-lock*))
-    (mezzanine.runtime::first-run-initialize-allocator)
-    ;; FIXME: Should be done by cold generator
-    (setf mezzanine.runtime::*tls-lock* :unlocked
-          mezzanine.runtime::*active-catch-handlers* 'nil)
-    ;; Bootstrap the defstruct system.
-    ;; 1) Initialize *structure-type-type* so make-struct-definition works.
-    (setf sys.int::*structure-type-type* nil)
-    ;; 2) Create the real definition, with broken type.
-    (setf sys.int::*structure-type-type* (sys.int::make-struct-definition
-                                          'sys.int::structure-definition
-                                          ;; (name accessor initial-value type read-only atomic).
-                                          '((sys.int::name sys.int::structure-name nil t t nil)
-                                            (sys.int::slots sys.int::structure-slots nil t t nil)
-                                            (sys.int::parent sys.int::structure-parent nil t t nil)
-                                            (sys.int::area sys.int::structure-area nil t t nil)
-                                            (sys.int::class sys.int::structure-class nil t nil nil))
-                                          nil
-                                          :wired))
-    ;; 3) Patch up the broken structure type.
-    (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
-  (initialize-interrupts)
-  (initialize-i8259)
-  (initialize-physical-allocator)
-  (initialize-threads)
-  (when (not (boundp '*vm-lock*))
-    (setf *vm-lock* (make-mutex "Global VM Lock")))
-  (sys.int::%sti)
-  (initialize-debug-serial #x3F8 4 38400)
-  ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
-  (debug-write-line "Hello, Debug World!")
-  (setf *disks* '()
-        *paging-disk* nil)
-  (initialize-ata)
-  (when (not *paging-disk*)
-    (debug-write-line "Could not find boot device. Sorry.")
-    (loop))
-  ;; Load the extent table.
-  (make-thread #'sys.int::initialize-lisp :name "Main thread")
-  (finish-initial-thread))
+  (let ((first-run-p nil))
+    (initialize-initial-thread)
+    (setf *boot-information-page* boot-information-page
+          *block-cache* nil
+          *cold-unread-char* nil)
+    (initialize-physical-allocator)
+    (initialize-boot-cpu)
+    (when (not (boundp 'mezzanine.runtime::*tls-lock*))
+      (setf first-run-p t)
+      (mezzanine.runtime::first-run-initialize-allocator)
+      ;; FIXME: Should be done by cold generator
+      (setf mezzanine.runtime::*tls-lock* :unlocked
+            mezzanine.runtime::*active-catch-handlers* 'nil)
+      ;; Bootstrap the defstruct system.
+      ;; 1) Initialize *structure-type-type* so make-struct-definition works.
+      (setf sys.int::*structure-type-type* nil)
+      ;; 2) Create the real definition, with broken type.
+      (setf sys.int::*structure-type-type* (sys.int::make-struct-definition
+                                            'sys.int::structure-definition
+                                            ;; (name accessor initial-value type read-only atomic).
+                                            '((sys.int::name sys.int::structure-name nil t t nil)
+                                              (sys.int::slots sys.int::structure-slots nil t t nil)
+                                              (sys.int::parent sys.int::structure-parent nil t t nil)
+                                              (sys.int::area sys.int::structure-area nil t t nil)
+                                              (sys.int::class sys.int::structure-class nil t nil nil))
+                                            nil
+                                            :wired))
+      ;; 3) Patch up the broken structure type.
+      (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
+    (initialize-interrupts)
+    (initialize-i8259)
+    (initialize-threads)
+    (setf *vm-lock* (make-mutex "Global VM Lock"))
+    (sys.int::%sti)
+    (initialize-debug-serial #x3F8 4 38400)
+    ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
+    (debug-write-line "Hello, Debug World!")
+    (setf *disks* '()
+          *paging-disk* nil)
+    (initialize-ata)
+    (when (not *paging-disk*)
+      (debug-write-line "Could not find boot device. Sorry.")
+      (loop))
+    (when first-run-p
+      (make-thread #'sys.int::initialize-lisp :name "Main thread"))
+    (finish-initial-thread)))

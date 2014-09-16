@@ -1038,6 +1038,9 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (when (consp idtr)
     (modrm-single :gpr-32 idtr '(#x0f #x01) 3)))
 
+(define-instruction ltr (selector)
+  (modrm-single :gpr-16 selector '(#x0F 00) 3))
+
 (define-instruction idiv8 (rhs)
   (modrm-single :gpr-8 rhs #xF6 7))
 (define-instruction idiv16 (rhs)
