@@ -145,7 +145,8 @@
            #:thread-%prev
            #:thread-foothold-disable-depth
            #:make-mutex
-           #:with-mutex))
+           #:with-mutex
+           #:snapshot))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

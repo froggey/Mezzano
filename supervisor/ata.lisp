@@ -369,7 +369,7 @@ This is used to implement the INTRQ_Wait state."
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
 
 (defun initialize-ata ()
-  (when (boundp '*ata-devices*)
+  #+(or)(when (boundp '*ata-devices*)
     ;; Abort any pending commands.
     (dolist (dev *ata-devices*)
       (let ((controller (ata-device-controller dev)))

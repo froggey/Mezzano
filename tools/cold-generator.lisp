@@ -12,6 +12,7 @@
     "supervisor/ata.lisp"
     "supervisor/thread.lisp"
     "supervisor/physical.lisp"
+    "supervisor/snapshot.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
@@ -1204,6 +1205,7 @@
             #+nil sys.int::*unicode-info* #+nil sys.int::*unicode-name-store*
             #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
             sys.int::*bsp-idle-thread*
+            sys.int::*snapshot-thread*
             sys.int::*initial-areas*
             sys.int::*next-symbol-tls-slot*
             sys.int::*wired-area-freelist*
@@ -1221,6 +1223,12 @@
                          :stack-size 1024
                          :preemption-disable-depth 1
                          :foothold-disable-depth 1))
+    (setf (cold-symbol-value 'sys.int::*snapshot-thread*)
+          (create-thread "Snapshot thread"
+                         :stack-size (* 128 1024)
+                         :preemption-disable-depth 1
+                         :foothold-disable-depth 1
+                         :initial-state :sleeping))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))

@@ -369,7 +369,14 @@
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
   (with-mutex (*vm-lock*)
-    (wait-for-page-via-interrupt-1 interrupt-frame address)))
+    ;; This is a big ol' hack. w-f-p-v-i is called from the #PF handler,
+    ;; which runs on the #PF stack. Reading a block in may cause the current
+    ;; thread to sleep, allowing another thread to run. If another thread
+    ;; faults, then it'll smash our stack frames and things will go wrong.
+    ;; So stop the world.
+    ;; Need a better way to deal with disk waits. :(
+    (with-world-stopped
+      (wait-for-page-via-interrupt-1 interrupt-frame address))))
 
 ;; This thunk exists purely so that the GC knows when to stop unwinding the initial process' stack.
 ;; I'd like to get rid of it somehow...
