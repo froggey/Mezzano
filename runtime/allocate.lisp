@@ -63,7 +63,7 @@
                              next)))))
           ;; Update the prev's next pointer.
           (cond (prev
-                 (setf (freelist-entry-next freelist) next))
+                 (setf (freelist-entry-next prev) next))
                 (t
                  (setf (symbol-value freelist-symbol) next))))
         ;; Write object header.
