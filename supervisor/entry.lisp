@@ -34,7 +34,7 @@
 (defun stack-size (stack)
   (cdr stack))
 
-;; TODO: Actually allocate virtual memory & store.
+;; TODO: Actually allocate virtual memory.
 (defun %allocate-stack (size)
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
@@ -45,20 +45,11 @@
                    (incf sys.int::*stack-area-bump* (+ (logand (+ size #x1FFFFF) (lognot #x1FFFFF))
                                                        #x200000)))))
          (stack (sys.int::cons-in-area addr size :wired)))
-    ;; Map the memory in, should allocate this from the store instead... sigh.
+    ;; Allocate blocks.
     (with-mutex (*vm-lock*)
       (dotimes (i (ceiling size #x1000))
-        (let* ((address (+ addr (* i #x1000)))
-               (pte (get-pte-for-address address)))
-          (assert (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))))
-          ;; No page allocated. Allocate a page and read the data.
-          (let* ((frame (or (allocate-physical-pages 1)
-                            (progn (debug-write-line "Aiee. No memory.")
-                                   (loop))))
-                 (addr (+ +physical-map-base+ (ash frame 12))))
-            (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
-                                                                   +page-table-present+
-                                                                   +page-table-write+))))))
+        (allocate-new-block-for-virtual-address (+ addr (* i #x1000)) (logior sys.int::+block-map-present+
+                                                                              sys.int::+block-map-writable+))))
     stack))
 
 ;; TODO.
@@ -180,7 +171,9 @@
               finally (return t)))
       (debug-write-line "Found boot image!")
       (setf *paging-disk* disk)
-      (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0)))
+      (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
+      (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
+                                 (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
     ;; Release the pages.
     (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))
 
@@ -247,39 +240,62 @@
         (let ((pt (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdir pde) +page-table-address-mask+))))
           (+ pt (* pte 8)))))))
 
+(defun insert-into-block-cache (block-id addr)
+  ;; Insert it into the cache.
+  (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
+      ((null cache-page)
+       ;; Expand the cache.
+       (let* ((frame (or (allocate-physical-pages 1)
+                         (progn (debug-write-line "Aiee. No memory.")
+                                (loop))))
+              (cache-addr (+ +physical-map-base+ (ash frame 12))))
+         (dotimes (i 512)
+           (setf (sys.int::memref-unsigned-byte-64 cache-addr i) 0))
+         (setf (sys.int::memref-t cache-addr 511) *block-cache*
+               *block-cache* cache-addr)
+         (setf (sys.int::memref-unsigned-byte-64 cache-addr 0) block-id
+               (sys.int::memref-signed-byte-64 cache-addr 1) addr)))
+    (dotimes (i 255)
+      (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) 0)
+        (setf (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id
+              (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))) addr)
+        (return-from insert-into-block-cache)))))
+
 (defun read-cached-block-from-disk (block-id)
   (let* ((frame (or (allocate-physical-pages 1)
                     (progn (debug-write-line "Aiee. No memory.")
                            (loop))))
          (addr (+ +physical-map-base+ (ash frame 12))))
-    (or (funcall (disk-read-fn *paging-disk*)
-                 (disk-device *paging-disk*)
-                 (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                 (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                 addr)
-        (progn (debug-write-line "Unable to read page from disk")
-               (loop)))
-    ;; Insert it into the cache.
-    (block cache-insert
-      (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
-          ((null cache-page)
-           ;; Expand the cache.
-           (let* ((frame (or (allocate-physical-pages 1)
-                             (progn (debug-write-line "Aiee. No memory.")
-                                    (loop))))
-                  (cache-addr (+ +physical-map-base+ (ash frame 12))))
-             (dotimes (i 512)
-               (setf (sys.int::memref-unsigned-byte-64 cache-addr i) 0))
-             (setf (sys.int::memref-t cache-addr 511) *block-cache*
-                   *block-cache* cache-addr)
-             (setf (sys.int::memref-unsigned-byte-64 cache-addr 0) block-id
-                   (sys.int::memref-signed-byte-64 cache-addr 1) addr)))
-        (dotimes (i 255)
-          (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) 0)
-            (setf (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id
-                  (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))) addr)
-            (return-from cache-insert)))))
+    (unless (funcall (disk-read-fn *paging-disk*)
+                     (disk-device *paging-disk*)
+                     (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                     addr)
+      (debug-write-line "Unable to read page from disk")
+      (loop))
+    (insert-into-block-cache block-id addr)
+    ;; TODO: clear addr's dirty bit.
     addr))
+
+(defun zero-cached-block (block-id)
+  ;; Scan the block cache.
+  (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
+      ((null cache-page)
+       ;; Not present in cache, allocate a new page and insert it.
+       (let* ((frame (or (allocate-physical-pages 1)
+                         (progn (debug-write-line "Aiee. No memory.")
+                                (loop))))
+              (data (+ +physical-map-base+ (ash frame 12))))
+         (dotimes (i 512)
+           (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+         (insert-into-block-cache block-id data)
+         data))
+    (dotimes (i 255)
+      (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
+        (let ((data (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2)))))
+          (dotimes (i 512)
+            (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+          (return-from zero-cached-block data))))))
 
 (defun read-cached-block (block-id)
   ;; Scan the block cache.
@@ -311,6 +327,35 @@
                         (sys.int::memref-unsigned-byte-64 bml1 bml1e)))
         (return-from block-info-for-virtual-address nil))
       (sys.int::memref-unsigned-byte-64 bml1 bml1e))))
+
+(defun allocate-new-block-for-virtual-address (address flags)
+  (let ((new-block (store-alloc 1)))
+    (when (not new-block)
+      (error "Aiiee, out of store."))
+    ;; Update the block info for this address.
+    (flet ((read-level (map entry)
+             ;; Allocate a new block if there is no block.
+             (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
+                    (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
+               (when (zerop id)
+                 (setf id (or (store-alloc 1)
+                              (error "Aiiee, out of store."))
+                       (sys.int::memref-unsigned-byte-64 map entry) (logior (ash id sys.int::+block-map-id-shift+)
+                                                                            sys.int::+block-map-present+))
+                 (zero-cached-block id))
+               (read-cached-block id))))
+      (let* ((bml4e (ldb (byte 9 39) address))
+             (bml3e (ldb (byte 9 30) address))
+             (bml2e (ldb (byte 9 21) address))
+             (bml1e (ldb (byte 9 12) address))
+             (bml4 (read-cached-block *bml4-block*))
+             (bml3 (read-level bml4 bml4e))
+             (bml2 (read-level bml3 bml3e))
+             (bml1 (read-level bml2 bml2e)))
+        (when (not (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e)))
+          (error "Block entry not zero!"))
+        (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (ash new-block sys.int::+block-map-id-shift+)
+                                                                    flags))))))
 
 (defun wait-for-page-via-interrupt-1 (interrupt-frame address)
   (declare (ignore interrupt-frame))
@@ -394,7 +439,8 @@
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *block-cache* nil
-          *cold-unread-char* nil)
+          *cold-unread-char* nil
+          *snapshot-in-progress* nil)
     (initialize-physical-allocator)
     (initialize-boot-cpu)
     (when (not (boundp 'mezzanine.runtime::*tls-lock*))

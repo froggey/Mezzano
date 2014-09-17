@@ -13,6 +13,7 @@
     "supervisor/thread.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
+    "supervisor/store.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
@@ -530,7 +531,8 @@
         ;; NIL.
         (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
                                                  sys.int::+tag-object+))
-        ;; + 64-96 free.
+        (setf (ub64ref/le header 64) (/ image-size #x1000))
+        ;; 72-96 free.
         ;; Top-level block map.
         (setf (ub64ref/le header 96) (/ bml4-block #x1000))
         ;; Free block list.
@@ -619,13 +621,10 @@
       ;; Now write it out.
       (write-block-map s bml4-block bml4)
       ;; Create the freelist.
-      ;; Two entries, one free and one not.
+      ;; One entry, allocating our storage area.
       (let ((freelist-data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
         (setf (nibbles:ub64ref/le freelist-data 0) 0
-              (nibbles:ub64ref/le freelist-data 8) (logior (ash (/ image-size #x1000) 1)
-                                                           1))
-        (setf (nibbles:ub64ref/le freelist-data 16) 0
-              (nibbles:ub64ref/le freelist-data 24) (ash (/ *store-bump* #x1000) 1))
+              (nibbles:ub64ref/le freelist-data 8) (ash (/ *store-bump* #x1000) 1))
         (file-position s free-block-list)
         (write-sequence freelist-data s))))
   (values))
