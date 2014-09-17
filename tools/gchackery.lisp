@@ -28,63 +28,48 @@
 (defmethod initialize-instance :after ((instance file-image) &key &allow-other-keys)
   (with-open-file (s (file-image-path instance)
                      :element-type '(unsigned-byte 8))
-    (file-position s :end)
-    (let ((size (- (file-position s) 512)))
-      (file-position s 512)
+    (let ((size (file-length s)))
       (setf (slot-value instance 'data) (make-array size :element-type '(unsigned-byte 8)))
       (read-sequence (file-image-data instance) s))))
 
 (defmethod image-nil ((image file-image))
-  #x200019)
+  (image-physical-word image 56))
 
 (defmethod image-physical-word ((image file-image) address)
-  (nibbles:ub64ref/le (file-image-data image) (- address #x200000)))
+  (nibbles:ub64ref/le (file-image-data image) address))
 
 (defun ptbl-lookup (image address)
   "Convert ADDRESS to a physical address."
-  (assert (zerop (ldb (byte 16 48) address)) (address) "Non-canonical or upper-half address.")
-  (let ((pml4 (image-physical-word image (+ #x400000 (* (ldb (byte 9 39) address) 8)))))
-    (when (not (logtest pml4 1))
-      (error "Address ~X not present." address))
-    (let ((pml3 (image-physical-word image (+ (logand pml4 (lognot #xFFF))
-                                              (* (ldb (byte 9 30) address) 8)))))
-      (when (not (logtest pml3 1))
+  (when (and (logbitp sys.int::+address-mark-bit+ address)
+             (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
+                  sys.int::+address-tag-stack+))
+    (setf (ldb (byte 1 sys.int::+address-mark-bit+) address) 0))
+  (let ((bml4e (ldb (byte 9 39) address))
+        (bml3e (ldb (byte 9 30) address))
+        (bml2e (ldb (byte 9 21) address))
+        (bml1e (ldb (byte 9 12) address))
+        (bml4 (image-physical-word image 96)))
+    (let ((bml4ent (image-physical-word image (+ (* bml4 #x1000) (* bml4e 8)))))
+      (when (zerop bml4ent)
         (error "Address ~X not present." address))
-      (let ((pml2 (image-physical-word image (+ (logand pml3 (lognot #xFFF))
-                                                (* (ldb (byte 9 21) address) 8)))))
-        (when (not (logtest pml2 1))
+      (let* ((bml3 (ldb (byte 56 8) bml4ent))
+             (bml3ent (image-physical-word image (+ (* bml3 #x1000) (* bml3e 8)))))
+        (when (zerop bml3ent)
           (error "Address ~X not present." address))
-        (when (logtest pml2 #x80)
-          ;; Large page.
-          (return-from ptbl-lookup (logior (logand pml2 (lognot #xFFF))
-                                           (ldb (byte 21 0) address))))
-        (let ((pml1 (image-physical-word image (+ (logand pml2 (lognot #xFFF))
-                                                  (* (ldb (byte 9 12) address) 8)))))
-          (when (not (logtest pml2 1))
+        (let* ((bml2 (ldb (byte 56 8) bml3ent))
+               (bml2ent (image-physical-word image (+ (* bml2 #x1000) (* bml2e 8)))))
+          (when (zerop bml2ent)
             (error "Address ~X not present." address))
-          (logior (logand pml1 (lognot #xFFF))
-                  (ldb (byte 12 0) address)))))))
+          (let* ((bml1 (ldb (byte 56 8) bml2ent))
+                 (bml1ent (image-physical-word image (+ (* bml1 #x1000) (* bml1e 8)))))
+            (when (zerop bml1ent)
+              (error "Address ~X not present." address))
+            (logior (* (ldb (byte 56 8) bml1ent) #x1000)
+                    (logand address #xFFF))))))))
 
 (defun image-word (image address)
   "Read a word at ADDRESS from IMAGE."
   (image-physical-word image (ptbl-lookup image address)))
-
-(defun map-array-like-object (fn image seen-objects address)
-  (let* ((header (image-word image address))
-         (type (ldb (byte 5 3) header))
-         (length (ldb (byte 48 8) header)))
-    (ecase type
-      ((0 29 31) ; simple-vector, std-instance and structure-object
-       (dotimes (i length)
-         (map-object fn image seen-objects (image-word image (+ address 8 (* i 8))))))
-      (30 ; stack-group
-       (dotimes (i (- 511 64))
-         (map-object fn image seen-objects (image-word image (+ address 8 (* i 8))))))
-      ((1 2 3 4 5 6 7 8 9
-        10 11 12 13 14 15
-        16 17 18 19 20 21
-        22 23)) ; numeric arrays
-      (25)))) ; bignum
 
 (defun map-object (fn image seen-objects object)
   (unless (gethash object seen-objects)
@@ -121,7 +106,7 @@
                                      #.sys.int::+object-tag-structure-object+)
                                     (1+ len))
                                    (#.sys.int::+object-tag-std-instance+ 3)
-                                   (#.sys.int::+object-tag-stack-group+ (- 511 64))
+                                   (#.sys.int::+object-tag-thread+ (- 511 64))
                                    (#.sys.int::+object-tag-symbol+ 6)
                                    ((#.sys.int::+object-tag-memory-array+
                                      #.sys.int::+object-tag-simple-string+
@@ -129,7 +114,11 @@
                                      #.sys.int::+object-tag-simple-array+
                                      #.sys.int::+object-tag-array+)
                                     (+ 4 len))
-                                   (#.sys.int::+object-tag-bignum+ 0))))
+                                   (#.sys.int::+object-tag-function-reference+
+                                    4)
+                                   ((#.sys.int::+object-tag-bignum+
+                                     #.sys.int::+object-tag-unbound-value+)
+                                    0))))
                    (map-object fn image seen-objects (image-word image (+ address (* i 8))))))))
           (#b1011) ; character
           (#b1101) ; single-float
@@ -221,7 +210,10 @@ Assumes that everything can be reached from NIL."
           (extract-image-array image address 32))
          (#.sys.int::+object-tag-std-instance+
           (cons (extract-image-object image (image-word image (+ address 8)))
-                (extract-image-object image (image-word image (+ address 16))))))))))
+                (extract-image-object image (image-word image (+ address 16)))))
+         (#.sys.int::+object-tag-function-reference+
+          (format nil "#<FREF to ~S>" (extract-image-object image (image-word image (+ address 8)))))
+         )))))
 
 (defun identify-symbols (image)
   "Detect all symbols in IMAGE, returning a list of (symbol-name address)."
