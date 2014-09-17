@@ -240,80 +240,81 @@
           (std-instance-slots value) slots)
     value))
 
-#|
-
-
-(defun make-function-with-fixups (tag machine-code fixups constants gc-info)
-  (with-interrupts-disabled ()
+(defun sys.int::make-function-with-fixups (tag machine-code fixups constants gc-info &optional wired)
+  (mezzanine.supervisor:with-gc-deferred ()
     (let* ((mc-size (ceiling (+ (length machine-code) 16) 16))
            (gc-info-size (ceiling (length gc-info) 8))
            (pool-size (length constants))
            (total (+ (* mc-size 2) pool-size gc-info-size)))
       (when (oddp total)
         (incf total))
-      (let ((address (%raw-allocate total :static)))
+      (let ((address (ash (sys.int::%pointer-field (%allocate-object tag 0 total (if wired :wired :pinned))) 4)))
         ;; Initialize header.
-        (setf (memref-unsigned-byte-64 address 0) 0
-              (memref-unsigned-byte-64 address 1) (+ address 16)
-              (memref-unsigned-byte-16 address 0) (ash tag +array-type-shift+)
-              (memref-unsigned-byte-16 address 1) mc-size
-              (memref-unsigned-byte-16 address 2) pool-size
-              (memref-unsigned-byte-16 address 3) (length gc-info))
+        (setf (sys.int::memref-unsigned-byte-64 address 0) 0
+              (sys.int::memref-unsigned-byte-64 address 1) (+ address 16)
+              (sys.int::memref-unsigned-byte-16 address 0) (ash tag sys.int::+array-type-shift+)
+              (sys.int::memref-unsigned-byte-16 address 1) mc-size
+              (sys.int::memref-unsigned-byte-16 address 2) pool-size
+              (sys.int::memref-unsigned-byte-16 address 3) (length gc-info))
         ;; Initialize code.
         (dotimes (i (length machine-code))
-          (setf (memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
+          (setf (sys.int::memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
         ;; Apply fixups.
         (dolist (fixup fixups)
           (let ((value (case (car fixup)
                          ((nil t)
-                          (lisp-object-address (car fixup)))
-                         (undefined-function
-                          (lisp-object-address *undefined-function-thunk*))
+                          (sys.int::lisp-object-address (car fixup)))
+                         (:undefined-function
+                          (sys.int::lisp-object-address (sys.int::%undefined-function)))
+                         (:closure-trampoline
+                          (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
                          (:unbound-tls-slot
-                          (lisp-object-address (%unbound-tls-slot)))
+                          (sys.int::lisp-object-address (sys.int::%unbound-tls-slot)))
                          (:unbound-value
-                          (lisp-object-address (%unbound-value)))
+                          (sys.int::lisp-object-address (sys.int::%unbound-value)))
                          (t (error "Unsupported fixup ~S." (car fixup))))))
             (dotimes (i 4)
-              (setf (memref-unsigned-byte-8 address (+ (cdr fixup) i))
+              (setf (sys.int::memref-unsigned-byte-8 address (+ (cdr fixup) i))
                     (logand (ash value (* i -8)) #xFF)))))
         ;; Initialize constant pool.
         (dotimes (i (length constants))
-          (setf (memref-t (+ address (* mc-size 16)) i) (aref constants i)))
+          (setf (sys.int::memref-t (+ address (* mc-size 16)) i) (aref constants i)))
         ;; Initialize GC info.
         (let ((gc-info-offset (+ address (* mc-size 16) (* pool-size 8))))
           (dotimes (i (length gc-info))
-            (setf (memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
-        (%%assemble-value address +tag-object+)))))
+            (setf (sys.int::memref-unsigned-byte-8 gc-info-offset i) (aref gc-info i))))
+        (sys.int::%%assemble-value address sys.int::+tag-object+)))))
 
-(defun make-function (machine-code constants gc-info)
-  (make-function-with-fixups +object-tag-function+ machine-code '() constants gc-info))
+(defun sys.int::make-function (machine-code constants gc-info &optional wired)
+  (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
-(defun allocate-funcallable-std-instance (function class slots)
+(defun sys.int::allocate-funcallable-std-instance (function class slots)
   "Allocate a funcallable instance."
   (check-type function function)
-  (with-interrupts-disabled ()
-    (let ((address (%raw-allocate 8 :static))
-          (entry-point (%array-like-ref-unsigned-byte-64 function 0)))
+  (mezzanine.supervisor:with-gc-deferred ()
+    (let ((address (ash (sys.int::%pointer-field (%allocate-object 0 0 8 :pinned)) 4))
+          (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0)))
       ;; Initialize and clear constant slots.
       ;; Function tag, flags and MC size.
-      (setf (memref-unsigned-byte-32 address 0) (logior #x00020000
-                                                        (ash +object-tag-funcallable-instance+
-                                                             +array-type-shift+))
+      (setf (sys.int::memref-unsigned-byte-32 address 0) (logior #x00020000
+                                                                 (ash sys.int::+object-tag-funcallable-instance+
+                                                                      sys.int::+array-type-shift+))
             ;; Constant pool size and slot count.
-            (memref-unsigned-byte-32 address 1) #x00000003
+            (sys.int::memref-unsigned-byte-32 address 1) #x00000004
             ;; Entry point
-            (memref-unsigned-byte-64 address 1) (+ address 16)
+            (sys.int::memref-unsigned-byte-64 address 1) (+ address 16)
             ;; The code.
-            ;; jmp (:rip 2)/pool[-1]
-            (memref-unsigned-byte-32 address 4) #x000225FF
-            (memref-unsigned-byte-32 address 5) #xCCCC0000
+            ;; mov :rbx (:rip 17)/pool[0]
+            ;; jmp (:rip 3)/pool[-1]
+            (sys.int::memref-unsigned-byte-32 address 4) #x111D8B48
+            (sys.int::memref-unsigned-byte-32 address 5) #xFF000000
+            (sys.int::memref-unsigned-byte-32 address 6) #x00000325
+            (sys.int::memref-unsigned-byte-32 address 7) #xCCCCCC00
             ;; entry-point
-            (memref-unsigned-byte-64 address 3) entry-point)
-      (let ((value (%%assemble-value address +tag-object+)))
+            (sys.int::memref-unsigned-byte-64 address 4) entry-point)
+      (let ((value (sys.int::%%assemble-value address sys.int::+tag-object+)))
         ;; Initialize constant pool
-        (setf (memref-t address 4) function
-              (memref-t address 5) class
-              (memref-t address 6) slots)
+        (setf (sys.int::memref-t address 5) function
+              (sys.int::memref-t address 6) class
+              (sys.int::memref-t address 7) slots)
         value))))
-|#

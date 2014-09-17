@@ -312,35 +312,29 @@
 
 (defun funcallable-std-instance-function (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 4)))
+  (%array-like-ref-t funcallable-instance 4))
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16))
-         (entry-point (%array-like-ref-unsigned-byte-64 value 0)))
-    ;; Fixme: should do this atomically.
+  (let ((entry-point (%array-like-ref-unsigned-byte-64 value 0)))
+    ;; Fixme: need to do this atomically (use cmpxchg16b, like the fref code)
     ;; Must update entry-point first to avoid old function from being gc'd away.
-    (setf (memref-unsigned-byte-64 address 3) entry-point
-          (memref-t address 4) value)))
+    (setf (%array-like-ref-unsigned-byte-64 funcallable-instance 3) entry-point
+          (%array-like-ref-t funcallable-instance 4) value)))
 
 (defun funcallable-std-instance-class (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 5)))
+  (%array-like-ref-t funcallable-instance 5))
 (defun (setf funcallable-std-instance-class) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (setf (memref-t address 5) value)))
+  (setf (%array-like-ref-t funcallable-instance 5) value))
 
 (defun funcallable-std-instance-slots (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (memref-t address 6)))
+  (%array-like-ref-t funcallable-instance 6))
 (defun (setf funcallable-std-instance-slots) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let* ((address (logand (lisp-object-address funcallable-instance) -16)))
-    (setf (memref-t address 6) value)))
+  (setf (%array-like-ref-t funcallable-instance 6) value))
 
 (defun compiled-function-p (object)
   ;; FIXME: interpreted functions (of class sys.eval::interpreted-function) shouldn't return true.
