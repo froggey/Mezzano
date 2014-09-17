@@ -52,7 +52,6 @@
   #+nil'(
     "cold-stream.lisp"
     "system/load.lisp"
-    "dump.lisp"
     "pci.lisp"
     "framebuffer.lisp")
 
