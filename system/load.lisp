@@ -154,7 +154,7 @@
            (unless (equal (structure-slots definition) slots)
              (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))
            definition)
-          (t (make-struct-type name slots parent area)))))
+          (t (make-struct-definition name slots parent area)))))
 
 (defun load-llf-array (stream stack)
   (let* ((n-dimensions (load-integer stream))

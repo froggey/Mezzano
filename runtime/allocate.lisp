@@ -236,8 +236,8 @@
 
 (defun sys.int::allocate-std-instance (class slots &optional area)
   (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 2 2 area)))
-    (setf (std-instance-class value) class
-          (std-instance-slots value) slots)
+    (setf (sys.int::std-instance-class value) class
+          (sys.int::std-instance-slots value) slots)
     value))
 
 (defun sys.int::make-function-with-fixups (tag machine-code fixups constants gc-info &optional wired)
