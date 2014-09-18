@@ -31,6 +31,29 @@
         sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         *allocator-lock* (mezzanine.supervisor:make-mutex "Allocator")))
 
+(defun verify-freelist (start base end)
+  (do ((freelist start (freelist-entry-next freelist))
+       (prev nil freelist))
+      ((null freelist))
+    (unless (and
+             ;; A freelist entry must fall within area limits.
+             (<= base freelist)
+             (< freelist end)
+             (<= (+ freelist (* (freelist-entry-size freelist) 8)) end)
+             ;; Must have a non-zero size.
+             (not (zerop (freelist-entry-size freelist)))
+             ;; Must have the correct object tag.
+             (eql (ldb (byte sys.int::+array-type-size+ sys.int::+array-type-shift+)
+                       (sys.int::memref-unsigned-byte-64 freelist 0))
+                  sys.int::+object-tag-freelist-entry+)
+             ;; Must have a fixnum link, or be the end of the list.
+             (or (sys.int::fixnump (freelist-entry-next freelist))
+                 (not (freelist-entry-next freelist)))
+             ;; Must be after the end of the previous freelist entry.
+             (or (not prev)
+                 (> freelist (+ prev (* (freelist-entry-size prev) 8)))))
+      (error "Corrupt freelist."))))
+
 ;;; FIXME: The pinned/general/cons allocators must somehow initialize their objects with the
 ;;; allocator lock released. taking a pagefault with it taken is bad, as it will cause
 ;;; IRQs to be reenabled. What to do? Make it a mutex? actaully reasonable, but a bit heavy?
@@ -103,11 +126,13 @@
       (:pinned
        (mezzanine.supervisor:with-mutex (*allocator-lock*)
          (mezzanine.supervisor:with-gc-deferred
+           (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*)
            (sys.int::%%assemble-value
             (%allocate-from-pinned-area tag data words 'sys.int::*pinned-area-freelist*)
             sys.int::+tag-object+))))
       (:wired
        (mezzanine.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
+         (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*)
          (sys.int::%%assemble-value
           (%allocate-from-pinned-area tag data words 'sys.int::*wired-area-freelist*)
           sys.int::+tag-object+))))))
@@ -120,6 +145,7 @@
     (:pinned
      (mezzanine.supervisor:with-mutex (*allocator-lock*)
        (mezzanine.supervisor:with-gc-deferred
+         (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*)
          (let ((val (sys.int::%%assemble-value
                      (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*pinned-area-freelist*) 16)
                      sys.int::+tag-cons+)))
@@ -128,6 +154,7 @@
            val))))
     (:wired
      (mezzanine.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
+       (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*)
        (let ((val (sys.int::%%assemble-value
                    (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*wired-area-freelist*) 16)
                    sys.int::+tag-cons+)))
