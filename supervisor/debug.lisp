@@ -36,6 +36,36 @@
   (funcall *debug-pesudostream* :write-char #\Newline)
   (funcall *debug-pesudostream* :force-output))
 
+;;; Print a negative fixnum. Use negative numbers to avoid problems
+;;; near most-negative-fixnum.
+(defun debug-write-fixnum-1 (fixnum base)
+  (unless (zerop fixnum)
+    (multiple-value-bind (quot rem)
+        (truncate fixnum base)
+      (debug-write-fixnum-1 quot base)
+      (debug-write-char (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" (- rem))))))
+
+(defun debug-write-fixnum (fixnum &optional (base 16))
+  (cond ((plusp fixnum)
+         (debug-write-fixnum-1 (- fixnum) base))
+        ((minusp fixnum)
+         (debug-write-char #\-)
+         (debug-write-fixnum-1 fixnum base))
+        (t (debug-write-char #\0))))
+
+(defun debug-print-line (&rest things)
+  (declare (dynamic-extent things))
+  (dolist (thing things)
+    (cond ((sys.int::character-array-p thing)
+           (debug-write-string thing))
+          ((sys.int::fixnump thing)
+           (debug-write-fixnum thing))
+          (t (debug-write-string "#<")
+             (debug-write-fixnum (sys.int::lisp-object-address thing))
+             (debug-write-string ">"))))
+  (funcall *debug-pesudostream* :write-char #\Newline)
+  (funcall *debug-pesudostream* :force-output))
+
 (defun debug-start-line-p ()
   (funcall *debug-pesudostream* :start-line-p))
 
