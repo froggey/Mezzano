@@ -55,6 +55,10 @@
                                (loop))))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (dotimes (i (truncate #x1000 +freelist-metadata-size+))
+          (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
+                (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
+                (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 2) 0
+                (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 3) 0)
           (setf (freelist-metadata-next (+ addr (* i +freelist-metadata-size+))) *store-freelist-metadata-freelist*
                 *store-freelist-metadata-freelist* (+ addr (* i +freelist-metadata-size+))))))
     (let ((new *store-freelist-metadata-freelist*))

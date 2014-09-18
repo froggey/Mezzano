@@ -66,7 +66,9 @@
               (setf (sys.int::memref-unsigned-byte-64 pml3 pml3e)
                     (logand (sys.int::memref-unsigned-byte-64 pml3 pml3e) (lognot +page-table-accessed+))))))
         (setf (sys.int::memref-unsigned-byte-64 pml4 pml4e)
-              (logand (sys.int::memref-unsigned-byte-64 pml4 pml4e) (lognot +page-table-accessed+)))))))
+              (logand (sys.int::memref-unsigned-byte-64 pml4 pml4e) (lognot +page-table-accessed+))))))
+  ;; Flush TLB. I'm not sure if this is needed, but we changed the dirty bits, and the CPU might not notice that?
+  (setf (sys.int::%cr3) (sys.int::%cr3)))
 
 (defun snapshot-block-cache ()
   ;; Write all block metadata (block cache) back.

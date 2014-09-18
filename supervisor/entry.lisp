@@ -7,6 +7,12 @@
   (assert (sys.int::character-array-p string))
   (sys.int::%array-like-ref-t string 3))
 
+(defun sys.int::assert-error (test-form datum &rest arguments)
+  (debug-write-string "Assert error ")
+  (debug-write-line datum)
+  (sys.int::%sti)
+  (loop))
+
 (defmacro with-gc-deferred (&body body)
   `(call-with-gc-deferred (flet ((with-gc-deferred-thunk () ,@body))
                             (declare (dynamic-extent #'with-gc-deferred-thunk))
@@ -357,6 +363,61 @@
         (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (ash new-block sys.int::+block-map-id-shift+)
                                                                     flags))))))
 
+(defun set-address-flags (address flags)
+  ;; Update the block info for this address.
+  (flet ((read-level (map entry)
+           ;; Allocate a new block if there is no block.
+           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
+                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
+             (when (zerop id)
+               (error "Block not present!"))
+             (read-cached-block id))))
+    (let* ((bml4e (ldb (byte 9 39) address))
+           (bml3e (ldb (byte 9 30) address))
+           (bml2e (ldb (byte 9 21) address))
+           (bml1e (ldb (byte 9 12) address))
+           (bml4 (read-cached-block *bml4-block*))
+           (bml3 (read-level bml4 bml4e))
+           (bml2 (read-level bml3 bml3e))
+           (bml1 (read-level bml2 bml2e)))
+      (when (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e))
+        (error "Block not present!"))
+      (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (logand (sys.int::memref-unsigned-byte-64 bml1 bml1e)
+                                                                          (lognot sys.int::+block-map-flag-mask+))
+                                                                  flags)))))
+
+(defun protect-memory-range (base length flags)
+  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (assert (>= (+ base length) (* 2 1024 1024 1024)) () "Wired area can't be protected.")
+  ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
+  (assert (or (logtest sys.int::+block-map-present+ flags)
+              (logtest sys.int::+block-map-zero-fill+ flags))
+          () "TODO: Cannot mark block not-present without zero-fill")
+  (debug-print-line "Protect range " base "-" (+ base length) "  " flags)
+  (with-mutex (*vm-lock*)
+    (dotimes (i (truncate length #x1000))
+      ;; Update block map.
+      (set-address-flags (+ base (* i #x1000)) flags)
+      ;; Update page tables and release pages if possible.
+      (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
+        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+          (cond ((or (not (logtest sys.int::+block-map-present+ flags))
+                     (logtest sys.int::+block-map-zero-fill+ flags))
+                 ;; Page going away, but it's ok. It'll be back, zero-filled.
+                 (debug-print-line "  flush page " (+ base (* i #x1000)) "  " (sys.int::memref-unsigned-byte-64 pte 0))
+                 (release-physical-pages (ash (sys.int::memref-unsigned-byte-64 pte 0) -12) 1)
+                 (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))
+                ((logtest sys.int::+block-map-writable+ flags)
+                 ;; Mark writable.
+                 (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (sys.int::memref-unsigned-byte-64 pte 0)
+                                                                        +page-table-write+)))
+                (t
+                 ;; Mark read-only.
+                 (setf (sys.int::memref-unsigned-byte-64 pte 0) (logand (sys.int::memref-unsigned-byte-64 pte 0)
+                                                                        (lognot +page-table-write+))))))))
+    ;; Flush TLB.
+    (setf (sys.int::%cr3) (sys.int::%cr3))))
+
 (defun wait-for-page-via-interrupt-1 (interrupt-frame address)
   (declare (ignore interrupt-frame))
   ;; Stack pages with the mark bit set are aliased to the same
@@ -364,17 +425,7 @@
   (when (and (logbitp sys.int::+address-mark-bit+ address)
              (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
                   sys.int::+address-tag-stack+))
-    (return-from wait-for-page-via-interrupt-1
-      (when (wait-for-page-via-interrupt-1 interrupt-frame
-                                           (logand address (lognot (ash 1 sys.int::+address-mark-bit+))))
-        ;; Page actually exists, fetch the pte for it and mash it into the pte for this address.
-        ;; FIXME: Alias page tables at the PML4 level, not at the PTE level.
-        (let ((other-pte (get-pte-for-address (logand address (lognot (ash 1 sys.int::+address-mark-bit+)))))
-              (pte (get-pte-for-address address)))
-          (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
-            (return-from wait-for-page-via-interrupt-1 t))
-          (setf (sys.int::memref-unsigned-byte-64 pte 0) (sys.int::memref-unsigned-byte-64 other-pte 0))
-          t))))
+    (setf address (logand address (lognot (ash 1 sys.int::+address-mark-bit+)))))
   (let ((pte (get-pte-for-address address))
         (block-info (block-info-for-virtual-address address)))
     ;; Examine the page table, if there's a present entry then the page
@@ -395,7 +446,11 @@
       (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
              ;; Block is zero-filled.
              (dotimes (i 512)
-               (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+               (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+             ;; Clear the zero-fill flag.
+             (set-address-flags address (logand block-info
+                                                sys.int::+block-map-flag-mask+
+                                                (lognot sys.int::+block-map-zero-fill+))))
             (t ;; Block must be read from disk.
              (or (funcall (disk-read-fn *paging-disk*)
                           (disk-device *paging-disk*)
@@ -409,7 +464,19 @@
                                                              +page-table-present+
                                                              (if (logtest sys.int::+block-map-writable+ block-info)
                                                                  +page-table-write+
-                                                                 0)))))
+                                                                 0)))
+      ;; Perform stack aliasing at the PML4 level.
+      (when (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
+                 sys.int::+address-tag-stack+)
+        (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+              (pml4e (ldb (byte 9 39) address))
+              (other-pml4e (ldb (byte 9 39) (logior address (ash 1 sys.int::+address-mark-bit+)))))
+          ;; Keep access bit set, if already set.
+          (setf (sys.int::memref-unsigned-byte-64 cr3 other-pml4e) (logior (sys.int::memref-unsigned-byte-64 cr3 pml4e)
+                                                                           (logand (sys.int::memref-unsigned-byte-64 cr3 other-pml4e)
+                                                                                   +page-table-accessed+)))))))
+  ;; Flush TLB.
+  (setf (sys.int::%cr3) (sys.int::%cr3))
   t)
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
@@ -440,7 +507,9 @@
     (setf *boot-information-page* boot-information-page
           *block-cache* nil
           *cold-unread-char* nil
-          *snapshot-in-progress* nil)
+          *snapshot-in-progress* nil
+          *disks* '()
+          *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-boot-cpu)
     (when (not (boundp 'mezzanine.runtime::*tls-lock*))
@@ -473,8 +542,6 @@
     (initialize-debug-serial #x3F8 4 38400)
     ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
-    (setf *disks* '()
-          *paging-disk* nil)
     (initialize-ata)
     (when (not *paging-disk*)
       (debug-write-line "Could not find boot device. Sorry.")

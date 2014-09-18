@@ -940,6 +940,20 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          *current-stack-mark-bit* (logxor *current-stack-mark-bit* (ash 1 (- +address-mark-bit+ +n-fixnum-bits+))))
   (setf *general-area-bump* 0
         *cons-area-bump* 0)
+  ;; Unprotect newspace.
+  (mezzanine.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             *general-area-limit*
+                                             (logior +block-map-present+
+                                                     +block-map-writable+
+                                                     +block-map-zero-fill+))
+  (mezzanine.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             *cons-area-limit*
+                                             (logior +block-map-present+
+                                                     +block-map-writable+
+                                                     +block-map-zero-fill+))
+  (mumble "Scav roots")
   ;; Scavenge NIL to start things off.
   (scavenge-object 'nil)
   ;; And various important other roots.
@@ -953,6 +967,15 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Now do the bulk of the work by scavenging the dynamic areas.
   ;; No scavenging can take place after this.
   (scavenge-dynamic)
+  ;; Inhibit access to oldspace.
+  (mezzanine.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             *general-area-limit*
+                                             +block-map-zero-fill+)
+  (mezzanine.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             *cons-area-limit*
+                                             +block-map-zero-fill+)
   ;; Rebuild freelists.
   (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
   (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
