@@ -279,7 +279,8 @@
         ;; Initialize header.
         (setf (sys.int::memref-unsigned-byte-64 address 0) 0
               (sys.int::memref-unsigned-byte-64 address 1) (+ address 16)
-              (sys.int::memref-unsigned-byte-16 address 0) (ash tag sys.int::+array-type-shift+)
+              (sys.int::memref-unsigned-byte-16 address 0) (logior (ash tag sys.int::+array-type-shift+)
+                                                                   sys.int::*pinned-mark-bit*)
               (sys.int::memref-unsigned-byte-16 address 1) mc-size
               (sys.int::memref-unsigned-byte-16 address 2) pool-size
               (sys.int::memref-unsigned-byte-16 address 3) (length gc-info))
@@ -325,7 +326,8 @@
       ;; Function tag, flags and MC size.
       (setf (sys.int::memref-unsigned-byte-32 address 0) (logior #x00020000
                                                                  (ash sys.int::+object-tag-funcallable-instance+
-                                                                      sys.int::+array-type-shift+))
+                                                                      sys.int::+array-type-shift+)
+                                                                 sys.int::*pinned-mark-bit*)
             ;; Constant pool size and slot count.
             (sys.int::memref-unsigned-byte-32 address 1) #x00000004
             ;; Entry point
