@@ -88,6 +88,10 @@
           (decf (physical-buddy-bin-count avail-bin))
           (when (physical-page-frame-next frame)
             (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
+          (when (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)))
+            (sys.int::%sti)
+            (debug-print-line "Allocated allocated page " frame)
+            (loop))
           (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)) 0)
           ;; Split block as required.
           (loop
@@ -110,6 +114,10 @@
 (defun release-physical-pages (page-number n-pages)
   (assert (not (zerop n-pages)))
   (assert (eql (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number)) 0))
+  (when (not (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number))))
+    (sys.int::%sti)
+    (debug-print-line "Freed free page " page-number)
+    (loop))
   (with-symbol-spinlock (*physical-lock*)
     (let ((bin (integer-length (1- n-pages))))
       (loop
@@ -139,6 +147,7 @@
         (setf (physical-page-frame-prev (physical-buddy-bin-head bin)) page-number))
       (setf (physical-page-frame-next page-number) (physical-buddy-bin-head bin)
             (physical-page-frame-prev page-number) nil)
+      (setf (physical-page-frame-bin page-number) bin)
       (setf (physical-buddy-bin-head bin) page-number)
       (incf (physical-buddy-bin-count bin))))
   (values))
