@@ -20,21 +20,26 @@
   (setf *debug-pesudostream* pesudostream))
 
 (defun debug-read-char ()
-  (funcall *debug-pesudostream* :read-char))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :read-char)))
 
 (defun debug-clear-input ()
-  (funcall *debug-pesudostream* :clear-input))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :clear-input)))
 
 (defun debug-write-string (string)
-  (funcall *debug-pesudostream* :write-string string))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :write-string string)))
 
 (defun debug-write-char (char)
-  (funcall *debug-pesudostream* :write-char char))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :write-char char)))
 
 (defun debug-write-line (string)
-  (funcall *debug-pesudostream* :write-string string)
-  (funcall *debug-pesudostream* :write-char #\Newline)
-  (funcall *debug-pesudostream* :force-output))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :write-string string)
+    (funcall *debug-pesudostream* :write-char #\Newline)
+    (funcall *debug-pesudostream* :force-output)))
 
 ;;; Print a negative fixnum. Use negative numbers to avoid problems
 ;;; near most-negative-fixnum.
@@ -63,11 +68,14 @@
           (t (debug-write-string "#<")
              (debug-write-fixnum (sys.int::lisp-object-address thing))
              (debug-write-string ">"))))
-  (funcall *debug-pesudostream* :write-char #\Newline)
-  (funcall *debug-pesudostream* :force-output))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :write-char #\Newline)
+    (funcall *debug-pesudostream* :force-output)))
 
 (defun debug-start-line-p ()
-  (funcall *debug-pesudostream* :start-line-p))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :start-line-p)))
 
 (defun debug-force-output ()
-  (funcall *debug-pesudostream* :force-output))
+  (when (boundp '*debug-pesudostream*)
+    (funcall *debug-pesudostream* :force-output)))
