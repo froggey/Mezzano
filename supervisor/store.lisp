@@ -101,7 +101,8 @@ Should be called with the freelist lock held."
             (setf (sys.int::memref-unsigned-byte-64 blk 511) new-block)
             ;; Advance.
             (setf *store-freelist-block-offset* 1
-                  *store-freelist-block* new-block)))))))
+                  *store-freelist-block* new-block))
+          (return))))))
 
 (defun adjust-freelist-range-start (range new-start)
   (cond ((freelist-metadata-prev range)

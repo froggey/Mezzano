@@ -911,9 +911,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (when (>= next-addr limit)
            (when *gc-debug-freelist-rebuild*
              (mumble "done (limit)"))
-           (when mezzanine.supervisor::*paranoid-allocation*
-             (dotimes (i (- len 2))
-               (setf (memref-signed-byte-64 current (+ i 2)) -1)))
            (return))
          ;; Test the mark bit.
          (cond ((eql (logand (memref-unsigned-byte-64 next-addr 0) +array-like-mark-bit+)
@@ -923,9 +920,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (when (not next-addr)
                   (when *gc-debug-freelist-rebuild*
                     (mumble "done"))
-                  (when mezzanine.supervisor::*paranoid-allocation*
-                    (dotimes (i (- len 2))
-                      (setf (memref-signed-byte-64 current (+ i 2)) -1)))
                   (return))
                 (when *gc-debug-freelist-rebuild*
                   (mumble-hex next-addr "adv: " t))
