@@ -15,6 +15,10 @@
 ;; State of the object header mark bit, used for pinned objects.
 (defvar *pinned-mark-bit* 0)
 
+;; How many bytes the allocators can expand their areas by before a GC must occur.
+;; This is shared between all areas.
+(defvar *memory-expansion-remaining* 0)
+
 ;; Current state of the stack mark bit. The value in this symbol is accessed
 ;; as a raw, untagged value by the DX allocation code. The value must be a
 ;; fixnum shifted n-fixnum-bits right to work correctly.
@@ -911,6 +915,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (when (>= next-addr limit)
            (when *gc-debug-freelist-rebuild*
              (mumble "done (limit)"))
+           (when mezzanine.supervisor::*paranoid-allocation*
+             (dotimes (i (- len 2))
+               (setf (memref-signed-byte-64 current (+ i 2)) -1)))
            (return))
          ;; Test the mark bit.
          (cond ((eql (logand (memref-unsigned-byte-64 next-addr 0) +array-like-mark-bit+)
@@ -920,6 +927,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (when (not next-addr)
                   (when *gc-debug-freelist-rebuild*
                     (mumble "done"))
+                  (when mezzanine.supervisor::*paranoid-allocation*
+                    (dotimes (i (- len 2))
+                      (setf (memref-signed-byte-64 current (+ i 2)) -1)))
                   (return))
                 (when *gc-debug-freelist-rebuild*
                   (mumble-hex next-addr "adv: " t))
@@ -981,6 +991,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Rebuild freelists.
   (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
   (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
+  (setf *memory-expansion-remaining* (* 32 1024 1024)) ; 32MB
   (mumble "complete")
   (clear-gc-light))
 

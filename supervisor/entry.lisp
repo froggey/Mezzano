@@ -54,8 +54,10 @@
     ;; Allocate blocks.
     (with-mutex (*vm-lock*)
       (dotimes (i (ceiling size #x1000))
-        (allocate-new-block-for-virtual-address (+ addr (* i #x1000)) (logior sys.int::+block-map-present+
-                                                                              sys.int::+block-map-writable+))))
+        (allocate-new-block-for-virtual-address (+ addr (* i #x1000))
+                                                (logior sys.int::+block-map-present+
+                                                        sys.int::+block-map-writable+
+                                                        sys.int::+block-map-zero-fill+))))
     stack))
 
 ;; TODO.
