@@ -25,6 +25,8 @@
 (defconstant +page-frame-flag-free+ 0)
 (defconstant +page-frame-flag-cache+ 1)
 
+(defvar *verbose-physical-allocation*)
+
 ;;; Accessors into the page frame information vector.
 (macrolet ((def (name offset)
              `(progn
@@ -68,7 +70,8 @@
 (defun initialize-physical-allocator ()
   (when (not (boundp '*physical-lock*))
     ;; First boot.
-    (setf *physical-lock* :unlocked)))
+    (setf *physical-lock* :unlocked
+          *verbose-physical-allocation* nil)))
 
 (defun allocate-physical-pages (n-pages)
   (assert (not (zerop n-pages)))
@@ -99,6 +102,8 @@
                (return))
              (decf avail-bin)
              (let ((p (+ frame (ash 1 avail-bin))))
+               (when *verbose-physical-allocation*
+                 (debug-print-line "Split frame " frame " buddy " p " order " avail-bin))
                ;; Mark free, and set bin number.
                (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags p)) 1
                      (physical-page-frame-bin p) avail-bin)
@@ -109,11 +114,21 @@
                      (physical-page-frame-next p) (physical-buddy-bin-head avail-bin)
                      (physical-buddy-bin-head avail-bin) p)
                (incf (physical-buddy-bin-count avail-bin))))
+          (when mezzanine.runtime::*paranoid-allocation*
+            (dotimes (i (* n-pages 512))
+              (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
+          (when *verbose-physical-allocation*
+            (debug-print-line "Allocated " n-pages " pages " frame))
           frame)))))
 
 (defun release-physical-pages (page-number n-pages)
   (assert (not (zerop n-pages)))
   (assert (eql (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number)) 0))
+  (when mezzanine.runtime::*paranoid-allocation*
+    (dotimes (i (* n-pages 512))
+      (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash page-number 12)) i) -1)))
+  (when *verbose-physical-allocation*
+    (debug-print-line "Freeing " n-pages " pages " page-number))
   (when (not (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number))))
     (sys.int::%sti)
     (debug-print-line "Freed free page " page-number)
@@ -128,6 +143,8 @@
                      (and (eql (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags buddy)) 1)
                           (not (eql (physical-page-frame-bin buddy) bin))))
              (return))
+           (when *verbose-physical-allocation*
+             (debug-print-line "Merge frame " page-number " buddy " buddy " order " bin " other " (physical-page-frame-bin buddy)))
            ;; Combine with buddy.
            ;; Remove buddy from freelist.
            (when (eql (physical-buddy-bin-head bin) buddy)

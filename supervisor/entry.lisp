@@ -185,6 +185,8 @@
 
 (defvar *vm-lock*)
 
+(defvar *paranoid-allocation*)
+
 (defconstant +page-table-present+        #x001)
 (defconstant +page-table-write+          #x002)
 (defconstant +page-table-user+           #x004)
@@ -404,7 +406,6 @@
           (cond ((or (not (logtest sys.int::+block-map-present+ flags))
                      (logtest sys.int::+block-map-zero-fill+ flags))
                  ;; Page going away, but it's ok. It'll be back, zero-filled.
-                 (debug-print-line "  flush page " (+ base (* i #x1000)) "  " (sys.int::memref-unsigned-byte-64 pte 0))
                  (release-physical-pages (ash (sys.int::memref-unsigned-byte-64 pte 0) -12) 1)
                  (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))
                 ((logtest sys.int::+block-map-writable+ flags)
@@ -508,6 +509,7 @@
           *block-cache* nil
           *cold-unread-char* nil
           *snapshot-in-progress* nil
+          mezzanine.runtime::*paranoid-allocation* nil
           *disks* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
