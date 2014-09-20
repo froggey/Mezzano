@@ -63,6 +63,8 @@
   (dolist (thing things)
     (cond ((sys.int::character-array-p thing)
            (debug-write-string thing))
+          ((symbolp thing)
+           (debug-write-string (symbol-name thing)))
           ((sys.int::fixnump thing)
            (debug-write-fixnum thing))
           (t (debug-write-string "#<")

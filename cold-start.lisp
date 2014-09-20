@@ -266,13 +266,13 @@
 (defun %defpackage (&rest arguments)
   (push arguments *deferred-%defpackage-calls*))
 
+(defun keywordp (object)
+  (and (symbolp object)
+       (eql (symbol-package object) :keyword)))
+
 ;;; Needed for IN-PACKAGE before the package system is bootstrapped.
 (defun find-package-or-die (name)
   t)
-
-;;; Until the process system is loaded.
-(defun %maybe-preempt-from-interrupt-frame ()
-  nil)
 
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
@@ -370,6 +370,20 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*cold-toplevel-forms*)
   (makunbound '*initial-fref-obarray*)
   (makunbound '*initial-structure-obarray*)
+  (room)
+  (gc)
+  (room)
+  (write-line "Cold load complete.")
+  (mezzanine.supervisor:snapshot)
+  (write-line "Loading warm modules.")
+  (dotimes (i (length *warm-llf-files*))
+    (write-line (car (aref *warm-llf-files* i)))
+    (mini-load-llf (mini-vector-stream (cdr (aref *warm-llf-files* i))))
+    (mezzanine.supervisor:snapshot)
+    (room)
+    (gc)
+    (room))
+  (makunbound '*warm-llf-files*)
   (room)
   (gc)
   (room)
