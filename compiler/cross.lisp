@@ -147,7 +147,16 @@
            #:make-mutex
            #:with-mutex
            #:snapshot
-           #:protect-memory-range))
+           #:protect-memory-range
+           #:debug-print-line
+           #:make-fifo
+           #:fifo-push
+           #:fifo-pop
+           #:fifo-reset
+           #:fifo-size
+           #:fifo-element-type
+           #:register-fundamental-driver
+           #:register-fundamental-stream-device))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

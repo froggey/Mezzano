@@ -707,6 +707,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
         (release-mutex mutex)))))
 
 (defmacro with-mutex ((mutex &optional (wait-p t)) &body body)
+  "Run body with MUTEX locked.
+May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin mutex."
   ;; Cold generator has some odd problems with uninterned symbols...
   `(flet ((call-with-mutex-thunk () ,@body))
      (declare (dynamic-extent #'call-with-mutex-thunk))
@@ -756,6 +758,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   (values))
 
 (defun condition-notify (condition-variable &optional broadcast)
+  "Wake one or many threads waiting on CONDITION-VARIABLE.
+May be used from an interrupt handler, assuming the associated mutex is interrupt-safe."
   (flet ((pop-one ()
            (let ((thread (pop-wait-queue condition-variable)))
              (with-thread-lock (thread)
@@ -782,6 +786,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   (value 0 :type (integer 0)))
 
 (defun semaphore-up (semaphore)
+  "Increment the semaphore count, or wake a waiting thread.
+May be used from an interrupt handler."
   (with-wait-queue-lock (semaphore)
     ;; If there is a thread, wake it instead of incrementing.
     (let ((thread (pop-wait-queue semaphore)))
@@ -822,3 +828,73 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
           (t (unlock-wait-queue semaphore)
              (sys.int::%sti)
              nil))))
+
+(defstruct (fifo
+             (:area :wired)
+             (:constructor %make-fifo))
+  (head 0 :type fixnum)
+  (tail 0 :type fixnum)
+  (size)
+  (element-type)
+  (buffer (error "no buffer supplied") :read-only t)
+  (cv (make-condition-variable))
+  (lock (make-mutex "fifo-lock" :spin)))
+
+(defun make-fifo (size &key (element-type 't) interrupt-safe)
+  ;; TODO: non-t element types.
+  (%make-fifo :size size
+              :buffer (sys.int::make-simple-vector size :wired)
+              :element-type 't))
+
+(defun fifo-push (value fifo &optional (wait-p t))
+  "Push a byte onto FIFO. Returns true if successful.
+If the fifo is full, then FIFO-PUSH will wait for space to become available
+when WAIT-P is true, otherwise it will immediately return false.
+May be used from an interrupt handler if WAIT-P is false."
+  (with-mutex ((fifo-lock fifo))
+    (loop
+       (let ((next (1+ (fifo-tail fifo))))
+         (when (>= next (fifo-size fifo))
+           (setf next 0))
+         ;; When next reaches head, the buffer is full.
+         (unless (= next (fifo-head fifo))
+           (setf (svref (fifo-buffer fifo) (fifo-tail fifo)) value
+                 (fifo-tail fifo) next)
+           (condition-notify (fifo-cv fifo))
+           (return t)))
+       (unless wait-p
+         (return nil))
+       (condition-wait (fifo-cv fifo)
+                       (fifo-lock fifo)))))
+
+(defun fifo-pop (fifo &optional (wait-p t))
+  "Pop a byte from FIFO.
+Returns two values. The first value is the value popped from the FIFO.
+The second value is true if a value was popped, false otherwise.
+It is only possible for the second value to be false when wait-p is false.
+May be used from an interrupt handler if WAIT-P is false."
+  (with-mutex ((fifo-lock fifo))
+    (loop
+       (when (not (eql (fifo-head fifo) (fifo-tail fifo)))
+         ;; Fifo not empty, pop byte.
+         (let ((value (svref (fifo-buffer fifo) (fifo-head fifo)))
+               (next (1+ (fifo-head fifo))))
+           (when (>= next (fifo-size fifo))
+             (setf next 0))
+           (setf (fifo-head fifo) next)
+           (condition-notify (fifo-cv fifo))
+           (return (values value t))))
+       ;; Fifo empty, maybe wait?
+       (unless wait-p
+         (return (values nil nil)))
+       (condition-wait (fifo-cv fifo)
+                       (fifo-lock fifo)))))
+
+(defun fifo-reset (fifo)
+  "Flush any waiting data.
+May be used from an interrupt handler."
+  (with-mutex ((fifo-lock fifo))
+    (setf (fifo-head fifo) 0
+          (fifo-tail fifo) 0)
+    ;; Signal the cvar to wake any waiting FIFO-PUSH calls.
+    (condition-notify (fifo-cv fifo))))
