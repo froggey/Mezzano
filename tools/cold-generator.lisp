@@ -69,7 +69,6 @@
     "system/debug.lisp"
     "system/eval.lisp"
     "system/stream.lisp"
-    "process.lisp"
     "lap.lisp"
     "lap-x86.lisp"
     "system/ansi-loop.lisp"
