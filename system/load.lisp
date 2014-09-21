@@ -32,6 +32,7 @@
 (defconstant +llf-function-reference+ #x19)
 
 (defvar *noisy-load* nil)
+(defvar *load-wired* nil)
 
 (defun llf-command-name (command)
   (ecase command
@@ -104,7 +105,9 @@
 
 (defun load-string (stream)
   (let* ((len (load-integer stream))
-         (seq (make-array len :element-type 'character)))
+         (seq (make-array len :element-type 'character :area (if *load-wired*
+                                                                 :wired
+                                                                 nil))))
     (dotimes (i len)
       (setf (aref seq i) (load-character stream)))
     seq))
@@ -135,14 +138,18 @@
     (%read-sequence mc stream)
     ;; Read gc-info bytes.
     (%read-sequence gc-info stream)
-    (make-function-with-fixups tag mc fixups constants gc-info)))
+    (make-function-with-fixups tag mc fixups constants gc-info *load-wired*)))
 
 (defun load-llf-vector (stream stack)
   (let* ((len (load-integer stream))
          (vector (subseq stack (- (length stack) len))))
     ;; Drop vector values.
     (decf (fill-pointer stack) len)
-    vector))
+    (if *load-wired*
+        (make-array (length vector)
+                    :initial-contents vector
+                    :area :wired)
+        vector)))
 
 (defun load-llf-structure-definition (stream stack)
   (let* ((area (vector-pop stack))
@@ -160,7 +167,7 @@
   (let* ((n-dimensions (load-integer stream))
          (dimensions (loop for i from 0 below n-dimensions
                         collect (load-integer stream)))
-         (array (make-array dimensions))
+         (array (make-array dimensions :area (if *load-wired* :wired nil)))
          (n-elements (array-total-size array))
          (start (- (length stack) n-elements)))
     (dotimes (i n-elements)
@@ -179,7 +186,7 @@
     (#.+llf-cons+
      (let* ((car (vector-pop stack))
             (cdr (vector-pop stack)))
-       (cons car cdr)))
+       (cons-in-area car cdr (if *load-wired* :wired nil))))
     (#.+llf-symbol+
      (let* ((name (load-string stream))
             (package (load-string stream)))
@@ -219,7 +226,7 @@
      (let ((list '())
            (len (load-integer stream)))
        (dotimes (i len)
-         (setf list (cons (vector-pop stack) list)))
+         (setf list (cons-in-area (vector-pop stack) list (if *load-wired* :wired nil))))
        list))
     (#.+llf-package+
      (let ((package (load-string stream)))
@@ -227,7 +234,7 @@
            (error "No such package ~S." package))))
     (#.+llf-integer-vector+
      (let* ((len (load-integer stream))
-            (vec (make-array len)))
+            (vec (make-array len :area (if *load-wired* :wired nil))))
        (dotimes (i len)
          (setf (aref vec i) (load-integer stream)))
        vec))
@@ -241,7 +248,7 @@
     (#.+llf-bit-vector+
      (let* ((len (load-integer stream))
             (n-octets (ceiling len 8))
-            (vec (make-array len :element-type 'bit)))
+            (vec (make-array len :element-type 'bit :area (if *load-wired* :wired nil))))
        (dotimes (i n-octets)
          (let ((octet (%read-byte stream)))
            (dotimes (j 8)
@@ -252,7 +259,7 @@
     (#.+llf-function-reference+
      (function-reference (vector-pop stack)))))
 
-(defun mini-load-llf (stream)
+(defun mini-load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
   (let ((*package* *package*)
         (omap (make-hash-table))

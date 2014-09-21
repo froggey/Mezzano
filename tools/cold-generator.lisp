@@ -46,12 +46,12 @@
     "system/parse.lisp"
     "system/describe.lisp"
     "system/gc.lisp"
+    "system/load.lisp"
 ))
 
 
   #+nil'(
     "cold-stream.lisp"
-    "system/load.lisp"
     "pci.lisp"
     "framebuffer.lisp")
 
