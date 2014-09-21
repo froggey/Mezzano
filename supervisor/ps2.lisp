@@ -114,12 +114,11 @@
   (ps/2-aux-write #xF6)
   ;; Read response.
   (ps/2-output-wait)
-  ;(system:io-port/8 +ps/2-data-port+)
-  (debug-print-line "Mouse command #xF6 result " (system:io-port/8 +ps/2-data-port+))
+  (system:io-port/8 +ps/2-data-port+)
   (ps/2-aux-write #xF4)
   (ps/2-output-wait)
-  ;(system:io-port/8 +ps/2-data-port+)
-  (debug-print-line "Mouse command #xF4 result " (system:io-port/8 +ps/2-data-port+))
+  (system:io-port/8 +ps/2-data-port+)
+  ;; Enable both IRQs.
   (i8259-hook-irq +ps/2-key-irq+ 'ps/2-key-irq-handler)
   (i8259-hook-irq +ps/2-aux-irq+ 'ps/2-aux-irq-handler)
   (i8259-unmask-irq +ps/2-key-irq+)
