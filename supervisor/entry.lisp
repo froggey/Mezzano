@@ -548,6 +548,7 @@
     (when (not *paging-disk*)
       (debug-write-line "Could not find boot device. Sorry.")
       (loop))
+    (initialize-ps/2)
     (when first-run-p
       (make-thread #'sys.int::initialize-lisp :name "Main thread"))
     (finish-initial-thread)))

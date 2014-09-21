@@ -14,6 +14,7 @@
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
+    "supervisor/ps2.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
