@@ -96,7 +96,7 @@ Should be called with the freelist lock held."
             (store-insert-range new-block 1 nil)
             ;; First entry covers the new block.
             (setf (sys.int::memref-unsigned-byte-64 data 0) new-block
-                  (sys.int::memref-unsigned-byte-64 data 1) (logior (ash 1 1) 1))
+                  (sys.int::memref-unsigned-byte-64 data 1) (logior (ash 1 1) 0))
             ;; Set next block pointer.
             (setf (sys.int::memref-unsigned-byte-64 blk 511) new-block)
             ;; Advance.

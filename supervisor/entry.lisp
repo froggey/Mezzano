@@ -187,8 +187,6 @@
 
 (defvar *vm-lock*)
 
-(defvar *paranoid-allocation*)
-
 (defconstant +page-table-present+        #x001)
 (defconstant +page-table-write+          #x002)
 (defconstant +page-table-user+           #x004)
