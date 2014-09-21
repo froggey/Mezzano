@@ -15,6 +15,7 @@
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
     "supervisor/ps2.lisp"
+    "supervisor/video.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
@@ -85,7 +86,11 @@
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
-    "drivers/keyboard.lisp"
+    "system/file-compiler.lisp"
+   ))
+
+(defparameter *more-warm-source-files*
+  '(;"drivers/keyboard.lisp"
     "framebuffer-stream.lisp"
     "drivers/bochs-vbe.lisp"
     "ethernet.lisp"
@@ -101,8 +106,7 @@
     "file.lisp"
     "telnet.lisp"
     "irc.lisp"
-    "mandelbrot.lisp"
-    "system/file-compiler.lisp"))
+    "mandelbrot.lisp"))
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
@@ -520,7 +524,7 @@
         ;; Major version.
         (setf (ub16ref/le header 32) 0)
         ;; Minor version.
-        (setf (ub16ref/le header 34) 12)
+        (setf (ub16ref/le header 34) 13)
         ;; Number of extents.
         (setf (ub32ref/le header 36) (+ 1 (length *stack-list*)))
         ;; Entry fref.

@@ -135,6 +135,11 @@
 
 (defconstant +boot-information-boot-uuid-offset+ 0)
 (defconstant +boot-information-physical-buddy-bins-offset+ 16)
+(defconstant +boot-information-framebuffer-physical-address+ 528)
+(defconstant +boot-information-framebuffer-width+ 536)
+(defconstant +boot-information-framebuffer-pitch+ 544)
+(defconstant +boot-information-framebuffer-height+ 552)
+(defconstant +boot-information-framebuffer-layout+ 560)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
@@ -491,6 +496,18 @@
     (with-world-stopped
       (wait-for-page-via-interrupt-1 interrupt-frame address))))
 
+(defun map-physical-memory (base size name)
+  ;; Page alignment required.
+  (assert (zerop (logand base #xFFF)))
+  (assert (zerop (logand size #xFFF)))
+  (with-mutex (*vm-lock*)
+    (dotimes (i (truncate size #x1000))
+      (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))
+        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+          (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (+ base (* i #x1000))
+                                                                 +page-table-present+
+                                                                 +page-table-write+)))))))
+
 ;; This thunk exists purely so that the GC knows when to stop unwinding the initial process' stack.
 ;; I'd like to get rid of it somehow...
 (sys.int::define-lap-function sys.int::%%bootloader-entry-point ()
@@ -549,6 +566,7 @@
       (debug-write-line "Could not find boot device. Sorry.")
       (loop))
     (initialize-ps/2)
+    (initialize-video)
     (when first-run-p
       (make-thread #'sys.int::initialize-lisp :name "Main thread"))
     (finish-initial-thread)))

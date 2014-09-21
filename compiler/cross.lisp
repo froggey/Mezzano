@@ -155,8 +155,16 @@
            #:fifo-reset
            #:fifo-size
            #:fifo-element-type
-           #:register-fundamental-driver
-           #:register-fundamental-stream-device))
+           #:add-boot-hook
+           #:remove-boot-hook
+
+           ;; Temporary drivers.
+           #:ps/2-key-read
+           #:ps/2-aux-read
+           #:current-framebuffer
+           #:framebuffer-blit
+           #:framebuffer-width
+           #:framebuffer-height))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
