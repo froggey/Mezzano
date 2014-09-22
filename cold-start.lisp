@@ -276,16 +276,17 @@
 
 (defun load-additional-modules ()
   (let ((modules (mezzanine.supervisor:fetch-boot-modules)))
-    (dolist (m modules)
-      (write-string "Loading ")
-      (write-line (car m))
-      (handler-case (mini-load-llf (mini-vector-stream (cdr m)))
-        (error (c)
-          (format t "~&Error ~A while loading boot module ~S.~%" c (car m)))))
-    (room)
-    (gc)
-    (room))
-  (mezzanine.supervisor:snapshot))
+    (when modules
+      (dolist (m modules)
+        (write-string "Loading ")
+        (write-line (car m))
+        (handler-case (mini-load-llf (mini-vector-stream (cdr m)))
+          (error (c)
+            (format t "~&Error ~A while loading boot module ~S.~%" c (car m)))))
+      (room)
+      (gc)
+      (room)
+      (mezzanine.supervisor:snapshot))))
 
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
