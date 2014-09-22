@@ -40,6 +40,6 @@
 (defmethod print-object ((object hash-table) stream)
   (print-unreadable-object (object stream :type t :identity t)))
 
-(defmethod print-object ((object stack-group) stream)
+(defmethod print-object ((object thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format t "~S" (stack-group-name object))))
+    (format t "~S" (mezzanine.supervisor:thread-name object))))

@@ -105,7 +105,7 @@
                         #.+object-tag-funcallable-instance+)
                        (describe-object object stream))
                       (#.+object-tag-thread+
-                       (describe-stack-group object stream))
+                       (describe-thread object stream))
                       (#.+object-tag-unbound-value+
                        (format stream "This is an unbound value marker.~%"))
                       (#.+object-tag-function-reference+
