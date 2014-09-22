@@ -104,9 +104,7 @@
 (defvar *debug-serial-tx-buffer*)
 (defvar *debug-serial-tx-buffer-head*)
 (defvar *debug-serial-tx-buffer-tail*)
-(defvar *debug-serial-rx-buffer*)
-(defvar *debug-serial-rx-buffer-head*)
-(defvar *debug-serial-rx-buffer-tail*)
+(defvar *debug-serial-rx-fifo*)
 (defvar *debug-serial-lock*)
 (defvar *serial-at-line-start*)
 
@@ -149,11 +147,9 @@
       (do ()
           ((not (logbitp +serial-lsr-data-available+
                          (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))))
-        (debug-fifo-push (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-RBR+))
-                         *debug-serial-rx-buffer*
-                         +debug-serial-buffer-size+
-                         *debug-serial-rx-buffer-head*
-                         *debug-serial-rx-buffer-tail*))
+        (fifo-push (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-RBR+))
+                   *debug-serial-rx-fifo*
+                   nil))
       ;; Refill the TX FIFO when it becomes empty.
       (when (logbitp +serial-lsr-thr-empty+
                      (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
@@ -222,22 +218,8 @@
        (sys.int::%stihlt)
        (sys.int::%cli))))
 
-(defun debug-serial-read-byte ()
-  (without-interrupts
-    (loop
-       (with-symbol-spinlock (*debug-serial-lock*)
-         ;; Maybe there's stuff in the RX buffer.
-         (when (not (debug-fifo-emptyp *debug-serial-rx-buffer*
-                                       +debug-serial-buffer-size+
-                                       *debug-serial-rx-buffer-head*
-                                       *debug-serial-rx-buffer-tail*))
-           (return (debug-fifo-pop *debug-serial-rx-buffer*
-                                   +debug-serial-buffer-size+
-                                   *debug-serial-rx-buffer-head*
-                                   *debug-serial-rx-buffer-tail*))))
-       ;; Delay until an interrupt.
-       (sys.int::%stihlt)
-       (sys.int::%cli))))
+(defun debug-serial-read-byte (&optional (waitp t))
+  (fifo-pop *debug-serial-rx-fifo* waitp))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
@@ -304,7 +286,7 @@
 (defun debug-serial-stream (op &optional arg)
   (ecase op
     (:read-char (debug-serial-read-char))
-    (:clear-input)
+    (:clear-input (fifo-reset *debug-serial-rx-fifo*))
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
     (:force-output)
@@ -318,9 +300,7 @@
         *debug-serial-tx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
         *debug-serial-tx-buffer-head* 0
         *debug-serial-tx-buffer-tail* 0
-        *debug-serial-rx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
-        *debug-serial-rx-buffer-head* 0
-        *debug-serial-rx-buffer-tail* 0)
+        *debug-serial-rx-fifo* (make-fifo 50 :element-type '(unsigned-byte 8)))
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf
