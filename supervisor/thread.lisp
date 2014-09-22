@@ -840,7 +840,7 @@ May be used from an interrupt handler."
   (cv (make-condition-variable))
   (lock (make-mutex "fifo-lock" :spin)))
 
-(defun make-fifo (size &key (element-type 't) interrupt-safe)
+(defun make-fifo (size &key (element-type 't))
   ;; TODO: non-t element types.
   (%make-fifo :size size
               :buffer (sys.int::make-simple-vector size :wired)

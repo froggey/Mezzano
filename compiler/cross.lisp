@@ -133,6 +133,7 @@
            #:with-gc-deferred
            #:without-interrupts
            #:with-world-stopped
+           #:make-thread
            #:thread-name
            #:thread-state
            #:thread-lock
@@ -144,6 +145,8 @@
            #:thread-%next
            #:thread-%prev
            #:thread-foothold-disable-depth
+           #:establish-thread-foothold
+           #:destroy-thread
            #:make-mutex
            #:with-mutex
            #:snapshot
@@ -157,6 +160,7 @@
            #:fifo-element-type
            #:add-boot-hook
            #:remove-boot-hook
+           #:fetch-boot-modules
 
            ;; Temporary drivers.
            #:ps/2-key-read

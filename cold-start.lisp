@@ -274,6 +274,16 @@
 (defun find-package-or-die (name)
   t)
 
+(defun load-additional-modules ()
+  (let ((modules (mezzanine.supervisor:fetch-boot-modules)))
+    (dolist (m modules)
+      (write-line (car m))
+      (mini-load-llf (mini-vector-stream (cdr m))))
+    (room)
+    (gc)
+    (room))
+  (mezzanine.supervisor:snapshot))
+
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
@@ -379,11 +389,12 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (dotimes (i (length *warm-llf-files*))
     (write-line (car (aref *warm-llf-files* i)))
     (mini-load-llf (mini-vector-stream (cdr (aref *warm-llf-files* i))))
-    (mezzanine.supervisor:snapshot)
     (room)
     (gc)
     (room))
   (makunbound '*warm-llf-files*)
+  (mezzanine.supervisor:add-boot-hook 'load-additional-modules)
+  (load-additional-modules)
   (room)
   (gc)
   (room)

@@ -91,6 +91,8 @@
 
 (defun take-snapshot ()
   (debug-write-line "Begin snapshot.")
+  ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
+  ;; This'll be enough to boot the system.
   (with-mutex (*vm-lock*)
     (with-world-stopped
       (snapshot-all-dirty-pages)

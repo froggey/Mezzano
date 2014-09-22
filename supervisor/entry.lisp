@@ -140,6 +140,8 @@
 (defconstant +boot-information-framebuffer-pitch+ 544)
 (defconstant +boot-information-framebuffer-height+ 552)
 (defconstant +boot-information-framebuffer-layout+ 560)
+(defconstant +boot-information-module-base+ 568)
+(defconstant +boot-information-module-limit+ 576)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
@@ -519,6 +521,57 @@
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
+(defvar *boot-hook-lock* (make-mutex "Boot Hook Lock"))
+(defvar *boot-hooks* '())
+
+(defun add-boot-hook (fn)
+  (with-mutex (*boot-hook-lock*)
+    (push fn *boot-hooks*)))
+
+(defun remove-boot-hook (fn)
+  (with-mutex (*boot-hook-lock*)
+    (setf *boot-hooks* (remove fn *boot-hooks*))))
+
+(defun run-boot-hooks ()
+  (dolist (hook *boot-hooks*)
+    (ignore-errors
+      (funcall hook))))
+
+(defvar *boot-modules*)
+
+(defun align-up (value power-of-two)
+  "Align VALUE up to the nearest multiple of POWER-OF-TWO."
+  (logand (+ value (1- power-of-two))
+          (lognot (1- power-of-two))))
+
+(defun initialize-boot-modules ()
+  (do ((base (+ +physical-map-base+ (sys.int::memref-t (+ *boot-information-page* +boot-information-module-base+) 0)))
+       (limit (sys.int::memref-t (+ *boot-information-page* +boot-information-module-limit+) 0))
+       (offset 0)
+       (new-modules '()))
+      ((>= offset limit)
+       (setf *boot-modules* (append *boot-modules*
+                                    (reverse new-modules))))
+    (let* ((module-base (+ +physical-map-base+ (sys.int::memref-t (+ base offset) 0)))
+           (module-size (sys.int::memref-t (+ base offset) 1))
+           (name-size (sys.int::memref-t (+ base offset) 2))
+           (name-base (+ base offset 24))
+           (module (make-array module-size :element-type '(unsigned-byte 8)))
+           (name (make-array name-size :element-type 'character)))
+      (incf offset (align-up (+ 24 name-size) 16))
+      (dotimes (i module-size)
+        (setf (aref module i) (sys.int::memref-unsigned-byte-8 module-base i)))
+      (dotimes (i name-size)
+        (setf (aref name i) (code-char (sys.int::memref-unsigned-byte-8 name-base i))))
+      (push (cons name module) new-modules))))
+
+(defun fetch-boot-modules ()
+  (loop
+     ;; Grab the modules and reset the symbol atomically.
+     (let ((modules (sys.int::symbol-global-value '*boot-modules*)))
+       (when (sys.int::%cas-symbol-global-value '*boot-modules* modules '())
+         (return modules)))))
+
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (let ((first-run-p nil))
     (initialize-initial-thread)
@@ -536,7 +589,8 @@
       (mezzanine.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
       (setf mezzanine.runtime::*tls-lock* :unlocked
-            mezzanine.runtime::*active-catch-handlers* 'nil)
+            mezzanine.runtime::*active-catch-handlers* 'nil
+            *boot-modules* '())
       ;; Bootstrap the defstruct system.
       ;; 1) Initialize *structure-type-type* so make-struct-definition works.
       (setf sys.int::*structure-type-type* nil)
@@ -567,6 +621,8 @@
       (loop))
     (initialize-ps/2)
     (initialize-video)
-    (when first-run-p
-      (make-thread #'sys.int::initialize-lisp :name "Main thread"))
+    (initialize-boot-modules)
+    (cond (first-run-p
+           (make-thread #'sys.int::initialize-lisp :name "Main thread"))
+          (t (make-thread #'run-boot-hooks :name "Boot hook thread")))
     (finish-initial-thread)))

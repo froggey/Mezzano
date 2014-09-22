@@ -103,6 +103,7 @@
 
 (defun build-kboot-stub (name
                          &key
+                           (modules '())
                            confirm
                            (verbose t)
                            (base-path *default-pathname-defaults*)
@@ -110,12 +111,12 @@
                            (disk "(hd0)"))
   (let* ((stage (merge-pathnames *staging-path*))
          (image-path (merge-pathnames (make-pathname :name name :type "iso")))
-         (*default-pathname-defaults* base-path)
-         (bootloader-name nil))
+         (*default-pathname-defaults* base-path))
     (when (or confirm verbose)
       (format t "Staging path: ~A~%" stage)
       (format t "Image path: ~A~%" image-path)
-      (format t "Base path: ~A~%" base-path))
+      (format t "Base path: ~A~%" base-path)
+      (format t "Modules: ~S~%" modules))
     (when confirm
       (when (not (y-or-n-p "Ok?"))
         (return-from build-kboot-stub nil)))
@@ -135,11 +136,14 @@
              (format s "entry \"Mezzanine\" {~%")
              (loop for (name . value) in kboot-options
                 do (format s "  set ~S ~S~%" name value))
-             (format s "  mezzanine ~S~%" disk)
+             (format s "  mezzanine ~S [~{\"/~A\" ~}]~%"
+                     disk
+                     (mapcar #'pathname-file-part modules))
              (format s "}~%"))
-           (setf bootloader-name "cdkboot")
+           (dolist (f modules)
+             (copy-file f (merge-pathnames (pathname-file-part f) stage)))
            (external-program:run "mkisofs"
-                                 (list "-R" "-J" "-b" bootloader-name "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
+                                 (list "-R" "-J" "-b" "cdkboot" "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
                                        (format nil "~A" image-path)
                                        (format nil "~A" stage))
                                  :output *standard-output*
