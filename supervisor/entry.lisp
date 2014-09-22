@@ -534,8 +534,9 @@
 
 (defun run-boot-hooks ()
   (dolist (hook *boot-hooks*)
-    (ignore-errors
-      (funcall hook))))
+    (handler-case (funcall hook)
+      (error (c)
+        (format t "~&Error ~A while running boot hook ~S.~%" c hook)))))
 
 (defvar *boot-modules*)
 
