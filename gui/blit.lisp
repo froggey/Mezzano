@@ -7,7 +7,7 @@
 ;;;; All other registers are callee save.
 ;;;; Higher-level line blenders must be called with the GC deferred.
 
-(in-package :sys.graphics)
+(in-package :mezzanine.gui)
 
 (defun compute-blit-info-dest-src (nrows ncols from-array from-row from-col to-array to-row to-col)
   "Clamp parameters to array boundaries, return the stride of both arrays and their undisplaced base arrays."
@@ -132,7 +132,7 @@
     (assert (equal (array-element-type to) '(unsigned-byte 32)))
     ;; Stop early for 100% transparent colours.
     (unless (zerop (ldb (byte 8 24) colour))
-      (sys.int::with-deferred-gc ()
+      (mezzanine.supervisor:with-world-stopped
         (setf to (%simple-array-data-pointer to))
         (setf mask (%simple-array-data-pointer mask))
         (dotimes (y nrows)
@@ -183,7 +183,7 @@
 
 (declaim (inline %bitset-mask-1-whole))
 (defun %bitset-mask-1-whole (setter nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
-  (sys.int::with-deferred-gc ()
+  (mezzanine.supervisor:with-world-stopped
     (setf to (%simple-array-data-pointer to))
     (setf mask (%simple-array-data-pointer mask))
     (dotimes (y nrows)
@@ -347,7 +347,7 @@
       (compute-blit-info-dest-src nrows ncols from-array from-row from-col to-array to-row to-col)
     (assert (equal (array-element-type from) '(unsigned-byte 32)))
     (assert (equal (array-element-type to) '(unsigned-byte 32)))
-    (sys.int::with-deferred-gc ()
+    (mezzanine.supervisor:with-world-stopped
       (setf from (%simple-array-data-pointer from))
       (setf to (%simple-array-data-pointer to))
       (dotimes (y nrows)
