@@ -409,8 +409,8 @@ This is required to make the GC interrupt safe."
                      (- mezzanine.supervisor::+thread-tls-slots-end+ mezzanine.supervisor::+thread-tls-slots-start+))
       (when (not (eql object (mezzanine.supervisor:current-thread)))
         (scavenge-stack stack-pointer frame-pointer return-address
-                        ;; FIXME: Was it interrupted or not???
-                        nil)))))
+                        (eql (+ address (* mezzanine.supervisor::+thread-interrupt-save-area+ 8))
+                             stack-pointer))))))
 
 (defun gc-info-for-function-offset (function offset)
   (multiple-value-bind (info-address length)
