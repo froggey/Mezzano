@@ -86,9 +86,9 @@
               (make-idt-entry :offset (sys.int::%array-like-ref-signed-byte-64
                                        (svref sys.int::*interrupt-service-routines* i)
                                        0)
-                              :ist (if (eql i 14) ; page fault.
-                                       1
-                                       0))
+                              :ist (cond ((eql i 14) 1) ; page fault.
+                                         ((>= i 32) 2) ; IRQ
+                                         (t 0)))
               (values 0 0))
         (setf (sys.int::memref-unsigned-byte-64 (+ addr +cpu-info-idt-offset+) (* i 2)) lo
               (sys.int::memref-unsigned-byte-64 (+ addr +cpu-info-idt-offset+) (1+ (* i 2))) hi)))
@@ -109,6 +109,9 @@
     ;; IST1.
     (setf (sys.int::memref-signed-byte-64 (+ tss-base 36) 0) (+ sys.int::*exception-stack-base*
                                                                 sys.int::*exception-stack-size*))
+    ;; IST2.
+    (setf (sys.int::memref-signed-byte-64 (+ tss-base 44) 0) (+ sys.int::*irq-stack-base*
+                                                                sys.int::*irq-stack-size*))
     ;; I/O Map Base Address, follows TSS body.
     (setf (sys.int::memref-unsigned-byte-16 (+ tss-base 102) 0) 104)
     ;; Other stuff.

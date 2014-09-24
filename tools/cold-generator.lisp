@@ -642,7 +642,10 @@
 (defun create-thread (name &key stack-size (initial-state :runnable) (preemption-disable-depth 0) (foothold-disable-depth 0))
   (check-type initial-state (member :active :runnable :sleeping :dead))
   (let* ((address (allocate 512 :wired))
-         (stack (create-stack (* stack-size 8))))
+         (stack (create-stack (* stack-size 8)))
+         (stack-object (let ((*default-cons-allocation-area* :wired))
+                         (vcons (make-fixnum (stack-base stack))
+                                (make-fixnum (stack-size stack))))))
     (format t "~X ~X  ~X~%" (stack-base stack) (stack-size stack)
             (+ (stack-base stack) (stack-size stack)))
     ;; Array tag.
@@ -1158,12 +1161,15 @@
                                (iter (for sym in-package :system external-only t)
                                      (collect (symbol-name sym)))
                                :test #'string=))
-         (pf-exception-stack (create-stack (* 128 1024))))
+         (pf-exception-stack (create-stack (* 128 1024)))
+         (irq-stack (create-stack (* 128 1024))))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (create-low-level-interrupt-support)
     (setf (cold-symbol-value 'sys.int::*exception-stack-base*) (make-fixnum (stack-base pf-exception-stack))
           (cold-symbol-value 'sys.int::*exception-stack-size*) (make-fixnum (stack-size pf-exception-stack)))
+    (setf (cold-symbol-value 'sys.int::*irq-stack-base*) (make-fixnum (stack-base irq-stack))
+          (cold-symbol-value 'sys.int::*irq-stack-size*) (make-fixnum (stack-size irq-stack)))
     (setf initial-thread (create-initial-thread))
     ;; Load all cold source files, emitting the top-level forms into an array
     ;; FIXME: Top-level forms generally show up as functions in .LLF files,
