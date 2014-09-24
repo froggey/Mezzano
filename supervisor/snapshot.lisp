@@ -95,8 +95,10 @@
   ;; This'll be enough to boot the system.
   (with-mutex (*vm-lock*)
     (with-world-stopped
+      (set-snapshot-light t)
       (snapshot-all-dirty-pages)
-      (snapshot-block-cache)))
+      (snapshot-block-cache)
+      (set-snapshot-light nil)))
   (debug-write-line "End snapshot."))
 
 (defun snapshot-thread ()

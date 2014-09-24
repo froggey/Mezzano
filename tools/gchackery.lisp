@@ -241,6 +241,6 @@ Assumes that everything can be reached from NIL."
                             (n-constants (ldb (byte 16 32) header)))
                        (when (and (= tag sys.int::+object-tag-function+)
                                   (/= n-constants 0))
-                         (format t "~8,'0X ~A~%" value (extract-image-object image (image-word image (+ address mc-size)))))))))
+                         (format t "~8,'0X ~A~%" (+ (- value sys.int::+tag-object+) 16) (extract-image-object image (image-word image (+ address mc-size)))))))))
                image)
   (values))

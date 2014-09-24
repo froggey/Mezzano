@@ -10,6 +10,10 @@
 
 (defvar *current-framebuffer*)
 
+(defun initialize-early-video ()
+  ;; Trash old framebuffer.
+  (setf *current-framebuffer* nil))
+
 (defun initialize-video ()
   (let ((phys (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-physical-address+) 0))
         (width (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-width+) 0))
@@ -109,3 +113,22 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:rep)
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
+
+(defmacro deflight (name colour position)
+  (let ((setter (intern (format nil "SET-~A-LIGHT" name))))
+    `(defun ,setter (state)
+       (without-interrupts
+         (when *current-framebuffer*
+           (let ((fb-addr (+ +physical-map-base+
+                             (framebuffer-base-address *current-framebuffer*)
+                             (* ,position 32 4))))
+             (dotimes (i 32)
+               (setf (sys.int::memref-unsigned-byte-32 fb-addr i) (if state
+                                                                      ,colour
+                                                                      0)))))))))
+
+(deflight disk-read #xFF00FF00 0)
+(deflight disk-write #xFFFF0000 1)
+(deflight gc #xFFFF00FF 2)
+(deflight run #xFF00FFFF 3)
+(deflight snapshot #xFFFFFF00 4)

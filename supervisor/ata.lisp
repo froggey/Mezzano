@@ -305,11 +305,15 @@ This is used to implement the INTRQ_Wait state."
     (when (eql count 0)
       (return-from ata-read t))
     (with-mutex ((ata-controller-command-lock controller))
-      (with-mutex ((ata-controller-access-lock controller))
-        (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
-          (return-from ata-read nil))
-        (when (not (ata-pio-data-in device count mem-addr))
-          (return-from ata-read nil)))))
+      (unwind-protect
+           (progn
+             (set-disk-read-light t)
+             (with-mutex ((ata-controller-access-lock controller))
+               (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
+                 (return-from ata-read nil))
+               (when (not (ata-pio-data-in device count mem-addr))
+                 (return-from ata-read nil))))
+        (set-disk-read-light nil))))
   t)
 
 (defun ata-write (device lba count mem-addr)
@@ -323,11 +327,15 @@ This is used to implement the INTRQ_Wait state."
     (when (eql count 0)
       (return-from ata-write t))
     (with-mutex ((ata-controller-command-lock controller))
-      (with-mutex ((ata-controller-access-lock controller))
-        (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
-          (return-from ata-write nil))
-        (when (not (ata-pio-data-out device count mem-addr))
-          (return-from ata-write nil)))))
+      (unwind-protect
+           (progn
+             (set-disk-write-light t)
+             (with-mutex ((ata-controller-access-lock controller))
+               (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
+                 (return-from ata-write nil))
+               (when (not (ata-pio-data-out device count mem-addr))
+                 (return-from ata-write nil))))
+        (set-disk-write-light nil))))
   t)
 
 (defun ata-irq-handler (irq)

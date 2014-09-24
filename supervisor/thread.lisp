@@ -309,11 +309,13 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
                             *world-stopper*))
                          (t (pop-run-queue))))))
        (cond (next
+              (set-run-light t)
               ;; Switch to thread.
               (%lock-thread sys.int::*bsp-idle-thread*)
               (%lock-thread next)
               (setf (thread-state next) :active)
-              (%%switch-to-thread sys.int::*bsp-idle-thread* next))
+              (%%switch-to-thread sys.int::*bsp-idle-thread* next)
+              (set-run-light nil))
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 

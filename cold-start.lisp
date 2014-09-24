@@ -161,8 +161,10 @@
 
 ;;; GC/low level support/logging stuff.
 
-(defun set-gc-light ())
-(defun clear-gc-light ())
+(defun set-gc-light ()
+  (mezzanine.supervisor::set-gc-light t))
+(defun clear-gc-light ()
+  (mezzanine.supervisor::set-gc-light nil))
 
 (defun emergency-halt (message)
   (%cli)

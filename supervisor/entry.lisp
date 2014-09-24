@@ -208,6 +208,7 @@
           *disks* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
+    (initialize-early-video)
     (initialize-boot-cpu)
     (when (not (boundp 'mezzanine.runtime::*tls-lock*))
       (setf first-run-p t)
