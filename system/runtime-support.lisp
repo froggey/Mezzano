@@ -372,8 +372,8 @@
 
 ;;; Function references, FUNCTION, et al.
 
-(defun make-function-reference (name &optional area)
-  (let ((fref (%allocate-array-like +object-tag-function-reference+ 4 0 area)))
+(defun make-function-reference (name)
+  (let ((fref (%allocate-array-like +object-tag-function-reference+ 4 0 :wired)))
     (setf (%array-like-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
