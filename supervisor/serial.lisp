@@ -299,8 +299,10 @@
         *serial-at-line-start* t
         *debug-serial-tx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
         *debug-serial-tx-buffer-head* 0
-        *debug-serial-tx-buffer-tail* 0
-        *debug-serial-rx-fifo* (make-fifo 50 :element-type '(unsigned-byte 8)))
+        *debug-serial-tx-buffer-tail* 0)
+  (when (not (boundp '*debug-serial-rx-fifo*))
+    (setf *debug-serial-rx-fifo* (make-fifo 50 :element-type '(unsigned-byte 8))))
+  (fifo-reset *debug-serial-rx-fifo*)
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf
