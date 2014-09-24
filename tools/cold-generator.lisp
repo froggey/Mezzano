@@ -14,6 +14,7 @@
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
+    "supervisor/pager.lisp"
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "runtime/runtime.lisp"
@@ -660,7 +661,7 @@
     (setf (word (+ address 3)) (make-value (symbol-address "UNLOCKED" "KEYWORD")
                                            sys.int::+tag-object+))
     ;; Stack.
-    ;(setf (word (+ address 4)) (stack-value control-stack)) FIXME
+    (setf (word (+ address 4)) stack-object)
     ;; Stack pointer.
     (setf (word (+ address 5)) (+ (stack-base stack)
                                   (stack-size stack)))
@@ -1226,6 +1227,7 @@
             #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
             sys.int::*bsp-idle-thread*
             sys.int::*snapshot-thread*
+            sys.int::*pager-thread*
             sys.int::*initial-areas*
             sys.int::*next-symbol-tls-slot*
             sys.int::*wired-area-freelist*
@@ -1245,6 +1247,12 @@
                          :foothold-disable-depth 1))
     (setf (cold-symbol-value 'sys.int::*snapshot-thread*)
           (create-thread "Snapshot thread"
+                         :stack-size (* 128 1024)
+                         :preemption-disable-depth 1
+                         :foothold-disable-depth 1
+                         :initial-state :sleeping))
+    (setf (cold-symbol-value 'sys.int::*pager-thread*)
+          (create-thread "Pager thread"
                          :stack-size (* 128 1024)
                          :preemption-disable-depth 1
                          :foothold-disable-depth 1

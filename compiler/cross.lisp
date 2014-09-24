@@ -139,6 +139,7 @@
            #:thread-lock
            #:thread-stack
            #:thread-stack-pointer
+           #:thread-wait-item
            #:thread-special-stack-pointer
            #:thread-preemption-disable-depth
            #:thread-preemption-pending

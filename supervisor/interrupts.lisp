@@ -108,7 +108,6 @@ If clear, the fault occured in supervisor mode.")
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (sys.int::%sti)
     (cond ((< fault-addr (* 2 1024 1024 1024))
            ;; Pages below 2G are wired and should never be unmapped or protected.
            (unhandled-interrupt interrupt-frame info "page fault in wired area"))
@@ -117,8 +116,8 @@ If clear, the fault occured in supervisor mode.")
                (logbitp +page-fault-error-reserved-violation+ info))
            (unhandled-interrupt interrupt-frame info "page fault"))
           (t ;; Non-present page. Try to load it from the store.
-           (when (not (wait-for-page-via-interrupt interrupt-frame fault-addr))
-             (unhandled-interrupt interrupt-frame info "page fault on unmapped page"))))))
+           ;; Will not return.
+           (wait-for-page-via-interrupt interrupt-frame fault-addr)))))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "math fault"))

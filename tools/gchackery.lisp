@@ -106,7 +106,7 @@
                                      #.sys.int::+object-tag-structure-object+)
                                     (1+ len))
                                    (#.sys.int::+object-tag-std-instance+ 3)
-                                   (#.sys.int::+object-tag-thread+ (- 511 64))
+                                   (#.sys.int::+object-tag-thread+ (- 511 64 20))
                                    (#.sys.int::+object-tag-symbol+ 6)
                                    ((#.sys.int::+object-tag-memory-array+
                                      #.sys.int::+object-tag-simple-string+

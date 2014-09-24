@@ -390,6 +390,7 @@ This is required to make the GC interrupt safe."
   ;; FIXME: Mark stack.
   (scavengef (mezzanine.supervisor:thread-stack object))
   (scavengef (mezzanine.supervisor:thread-special-stack-pointer object))
+  (scavengef (mezzanine.supervisor:thread-wait-item object))
   (scavengef (mezzanine.supervisor:thread-preemption-disable-depth object))
   (scavengef (mezzanine.supervisor:thread-preemption-pending object))
   (scavengef (mezzanine.supervisor:thread-%next object))
