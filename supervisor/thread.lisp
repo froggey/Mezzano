@@ -46,6 +46,9 @@
 ;; 11 foothold-disable-depth
 ;;    Zero when ESTABLISH-THREAD-FOOTHOLD may break into the thread.
 ;;    DESTROY-THREAD will also be unable to destroy the thread unless the abort option is set.
+;; 12 frame pointer
+;;    The thread's current RBP value. Not valid when :active or :dead. An SB64.
+;;    Here rather than on the stack to avoid GC problems during thread switch.
 ;; 32-127 MV slots
 ;;    Slots used as part of the multiple-value return convention.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
@@ -92,7 +95,8 @@
   (field preemption-pending       8)
   (field %next                    9)
   (field %prev                   10)
-  (field foothold-disable-depth  11))
+  (field foothold-disable-depth  11)
+  (field frame-pointer           12 :accessor sys.int::%array-like-ref-signed-byte-64))
 
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
@@ -230,7 +234,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
         (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
               (sys.int::%unbound-tls-slot)))
       ;; Perform initial bindings.
-      (loop for (symbol . value) in initial-bindings do
+      (loop for (symbol value) in initial-bindings do
            (let ((slot (or (sys.int::symbol-tls-slot symbol)
                            (sys.int::%allocate-tls-slot symbol))))
              (setf (sys.int::%array-like-ref-t thread slot) value)))
@@ -253,12 +257,11 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
           ;; Function to run.
           (push-t function)
           ;; Saved RIP for %%switch-to-thread.
-          (push-ub64 (sys.int::%array-like-ref-unsigned-byte-64 #'%%thread-entry-trampoline 0))
-          ;; Saved frame pointer.
-          (push-ub64 0))
+          (push-ub64 (sys.int::%array-like-ref-unsigned-byte-64 #'%%thread-entry-trampoline 0)))
         ;; Update the control stack pointer.
         (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
-              pointer))
+              pointer)
+        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
       thread)))
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
@@ -335,9 +338,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (setf (sys.int::memref-t (decf rsp 8) 0) entry-point)
     ;; Trampoline for switch threads.
     (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%simple-thread-entry-trampoline 0))
-    ;; Saved rbp.
-    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) 0)
-    (setf (thread-stack-pointer thread) rsp))
+    (setf (thread-stack-pointer thread) rsp
+          (thread-frame-pointer thread) 0))
   (setf (thread-state thread) state
         (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
@@ -427,8 +429,8 @@ Interrupts must be off, the current thread must be locked."
 (sys.int::define-lap-function %%switch-to-thread ()
   (:gc :no-frame)
   ;; Save frame pointer.
-  (sys.lap-x86:push :rbp)
-  (:gc :frame)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-frame-pointer+) :rbp)
   ;; Save fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
@@ -455,11 +457,11 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:lea64 :rax (:object :r9 #.+thread-interrupt-save-area+))
   (sys.lap-x86:cmp64 :rax :rsp)
   (sys.lap-x86:je INTERRUPT-RESUME)
+  ;; Restore frame pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rbp (:object nil #.+thread-frame-pointer+))
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
-  ;; Restore frame pointer.
-  (sys.lap-x86:pop :rbp)
-  (:gc :no-frame)
   ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
@@ -546,11 +548,11 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:lea64 :rax (:object :r10 #.+thread-interrupt-save-area+))
   (sys.lap-x86:cmp64 :rax :rsp)
   (sys.lap-x86:je INTERRUPT-RESUME)
+  ;; Restore frame pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rbp (:object nil #.+thread-frame-pointer+))
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
-  ;; Restore frame pointer.
-  (sys.lap-x86:pop :rbp)
-  (:gc :no-frame)
   ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)

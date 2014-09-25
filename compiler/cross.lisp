@@ -146,6 +146,7 @@
            #:thread-%next
            #:thread-%prev
            #:thread-foothold-disable-depth
+           #:thread-frame-pointer
            #:establish-thread-foothold
            #:destroy-thread
            #:make-mutex

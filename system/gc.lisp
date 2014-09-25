@@ -131,7 +131,6 @@ This is required to make the GC interrupt safe."
     (scavenge-stack stack-pointer
                     (memref-unsigned-byte-64 frame-pointer 0)
                     return-address
-                    ;; ?
                     nil)))
 
 (defun scavenge-object (object)
@@ -251,8 +250,93 @@ This is required to make the GC interrupt safe."
         (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
         (mumble "no-btt"))))
 
-(defun scavenge-stack (stack-pointer frame-pointer return-address sg-interruptedp)
+(defun scavenge-stack (stack-pointer frame-pointer return-address interruptedp)
   (when *gc-debug-scavenge-stack* (mumble "Scav stack..."))
+  (when interruptedp
+    ;; Thread has stopped due to an interrupted, stack-pointer points the start of
+    ;; the thread's interrupt save area.
+    ;; Examine it, then continue with normal stack scavenging.
+    (when *gc-debug-scavenge-stack* (mumble "Scav interrupted stack..."))
+    (setf frame-pointer (+ stack-pointer (* 14 8))) ; sp => interrupt frame
+    (let* ((other-return-address (memref-unsigned-byte-64 frame-pointer 1))
+           (other-frame-pointer (memref-unsigned-byte-64 frame-pointer 0))
+           (other-stack-pointer (memref-unsigned-byte-64 frame-pointer 4))
+           (other-fn-address (base-address-of-internal-pointer other-return-address))
+           (other-fn-offset (- other-return-address other-fn-address))
+           (other-fn (%%assemble-value other-fn-address +tag-object+)))
+      (when *gc-debug-scavenge-stack*
+        (mumble-hex other-return-address "oRA: " t)
+        (mumble-hex other-frame-pointer "oFP: " t)
+        (mumble-hex other-stack-pointer "oSP: " t)
+        (mumble-hex other-fn-address "oFNa: " t)
+        (mumble-hex other-fn-offset "oFNo: " t))
+      ;; Unconditionally scavenge the saved data registers.
+      (scavengef (memref-t frame-pointer -12)) ; r8
+      (scavengef (memref-t frame-pointer -11)) ; r9
+      (scavengef (memref-t frame-pointer -10)) ; r10
+      (scavengef (memref-t frame-pointer -9)) ; r11
+      (scavengef (memref-t frame-pointer -8)) ; r12
+      (scavengef (memref-t frame-pointer -7)) ; r13
+      (scavengef (memref-t frame-pointer -6)) ; rbx
+      (multiple-value-bind (other-framep other-interruptp other-pushed-values other-pushed-values-register
+                                         other-layout-address other-layout-length
+                                         other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
+          (gc-info-for-function-offset other-fn other-fn-offset)
+        (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
+                           other-layout-address other-layout-length
+                           other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
+        (when (or other-interruptp
+                  (and (not (eql other-pushed-values 0))
+                       (or other-interruptp
+                           (not other-framep)))
+                  (not (eql other-pushed-values-register nil))
+                  #+nil(not (or (eql other-pushed-values-register nil)
+                                (eql other-pushed-values-register :rcx)))
+                  (and other-multiple-values (not (eql other-multiple-values 0)))
+                  (and (keywordp other-incoming-arguments) (not (eql other-incoming-arguments :rcx)))
+                  other-block-or-tagbody-thunk)
+          (let ((*gc-debug-scavenge-stack* t))
+            (mumble-hex other-return-address "oRA: " t)
+            (mumble-hex other-frame-pointer "oFP: " t)
+            (mumble-hex other-stack-pointer "oSP: " t)
+            (mumble-hex other-fn-address "oFNa: " t)
+            (mumble-hex other-fn-offset "oFNo: " t)
+            (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
+                               other-layout-address other-layout-length
+                               other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
+          (emergency-halt "TODO! GC SG stuff. (interrupt)"))
+        (when (keywordp other-incoming-arguments)
+          (when (not (eql other-incoming-arguments :rcx))
+            (let ((*gc-debug-scavenge-stack* t))
+              (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
+                                 other-layout-address other-layout-length
+                                 other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
+            (emergency-halt "TODO? incoming-arguments not in RCX"))
+          (setf other-incoming-arguments nil)
+          (mumble-hex (memref-t frame-pointer -2) "ia-count ")
+          (scavenge-stack-n-incoming-arguments
+           other-frame-pointer other-stack-pointer other-framep
+           other-layout-length
+           ;; RCX.
+           (memref-t frame-pointer -2)))
+        (scavenge-regular-stack-frame other-frame-pointer other-stack-pointer other-framep
+                                      other-layout-address other-layout-length
+                                      other-incoming-arguments other-pushed-values)
+        (cond (other-framep
+               ;; Stop after seeing a zerop frame pointer.
+               (if (eql other-frame-pointer 0)
+                   (return-from scavenge-stack))
+               (psetf return-address (memref-unsigned-byte-64 other-frame-pointer 1)
+                      stack-pointer (+ other-frame-pointer 16)
+                      frame-pointer (memref-unsigned-byte-64 other-frame-pointer 0)))
+              (t ;; No frame, carefully pick out the new values.
+               ;; Frame pointer should be unchanged.
+               (setf frame-pointer other-frame-pointer)
+               ;; Stack pointer needs the return address popped off,
+               ;; and any layout variables.
+               (setf stack-pointer (+ other-stack-pointer (* (1+ other-layout-length) 8)))
+               ;; Return address should be one below the stack pointer.
+               (setf return-address (memref-unsigned-byte-64 stack-pointer -1)))))))
   (tagbody LOOP
      (when *gc-debug-scavenge-stack*
        (mumble-hex stack-pointer "SP: " t)
@@ -269,9 +353,7 @@ This is required to make the GC interrupt safe."
                                     layout-address layout-length
                                     multiple-values incoming-arguments block-or-tagbody-thunk)
            (gc-info-for-function-offset fn fn-offset)
-         (when (or (if sg-interruptedp
-                       (not interruptp)
-                       interruptp)
+         (when (or interruptp
                    (and (not (eql pushed-values 0))
                         (or interruptp
                             (not framep)))
@@ -285,92 +367,9 @@ This is required to make the GC interrupt safe."
                                 layout-address layout-length
                                 multiple-values incoming-arguments block-or-tagbody-thunk))
            (emergency-halt "TODO! GC SG stuff."))
-         (cond (interruptp
-                (when (not framep)
-                  (emergency-halt "non-frame interrupt gc entry"))
-                (let* ((other-return-address (memref-unsigned-byte-64 frame-pointer 1))
-                       (other-frame-pointer (memref-unsigned-byte-64 frame-pointer 0))
-                       (other-stack-pointer (memref-unsigned-byte-64 frame-pointer 4))
-                       (other-fn-address (base-address-of-internal-pointer other-return-address))
-                       (other-fn-offset (- other-return-address other-fn-address))
-                       (other-fn (%%assemble-value other-fn-address +tag-object+)))
-                  (when *gc-debug-scavenge-stack*
-                    (mumble-hex other-return-address "oRA: " t)
-                    (mumble-hex other-frame-pointer "oFP: " t)
-                    (mumble-hex other-stack-pointer "oSP: " t)
-                    (mumble-hex other-fn-address "oFNa: " t)
-                    (mumble-hex other-fn-offset "oFNo: " t))
-                  ;; Unconditionally scavenge the saved data registers.
-                  (scavengef (memref-t frame-pointer -12)) ; r8
-                  (scavengef (memref-t frame-pointer -11)) ; r9
-                  (scavengef (memref-t frame-pointer -10)) ; r10
-                  (scavengef (memref-t frame-pointer -9)) ; r11
-                  (scavengef (memref-t frame-pointer -8)) ; r12
-                  (scavengef (memref-t frame-pointer -7)) ; r13
-                  (scavengef (memref-t frame-pointer -6)) ; rbx
-                  (multiple-value-bind (other-framep other-interruptp other-pushed-values other-pushed-values-register
-                                                     other-layout-address other-layout-length
-                                                     other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
-                      (gc-info-for-function-offset other-fn other-fn-offset)
-                    (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
-                                       other-layout-address other-layout-length
-                                       other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk)
-                    (when (or other-interruptp
-                              (and (not (eql other-pushed-values 0))
-                                   (or other-interruptp
-                                       (not other-framep)))
-                              (not (eql other-pushed-values-register nil))
-                              #+nil(not (or (eql other-pushed-values-register nil)
-                                       (eql other-pushed-values-register :rcx)))
-                              (and other-multiple-values (not (eql other-multiple-values 0)))
-                              (and (keywordp other-incoming-arguments) (not (eql other-incoming-arguments :rcx)))
-                              other-block-or-tagbody-thunk)
-                      (let ((*gc-debug-scavenge-stack* t))
-                        (mumble-hex other-return-address "oRA: " t)
-                        (mumble-hex other-frame-pointer "oFP: " t)
-                        (mumble-hex other-stack-pointer "oSP: " t)
-                        (mumble-hex other-fn-address "oFNa: " t)
-                        (mumble-hex other-fn-offset "oFNo: " t)
-                        (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
-                                           other-layout-address other-layout-length
-                                           other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-                      (emergency-halt "TODO! GC SG stuff. (interrupt)"))
-                    (when (keywordp other-incoming-arguments)
-                      (when (not (eql other-incoming-arguments :rcx))
-                        (let ((*gc-debug-scavenge-stack* t))
-                          (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
-                                             other-layout-address other-layout-length
-                                             other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-                        (emergency-halt "TODO? incoming-arguments not in RCX"))
-                      (setf other-incoming-arguments nil)
-                      (mumble-hex (memref-t frame-pointer -2) "ia-count ")
-                      (scavenge-stack-n-incoming-arguments
-                       other-frame-pointer other-stack-pointer other-framep
-                       other-layout-length
-                       ;; RCX.
-                       (memref-t frame-pointer -2)))
-                    (scavenge-regular-stack-frame other-frame-pointer other-stack-pointer other-framep
-                                                  other-layout-address other-layout-length
-                                                  other-incoming-arguments other-pushed-values)
-                    (setf sg-interruptedp nil)
-                    (cond (other-framep
-                           (psetf stack-pointer other-stack-pointer
-                                  frame-pointer other-frame-pointer))
-                          (t ;; No frame, carefully pick out the new values.
-                           ;; Frame pointer should be unchanged.
-                           (setf frame-pointer other-frame-pointer)
-                           ;; Stack pointer needs the return address popped off,
-                           ;; and any layout variables.
-                           (setf stack-pointer (+ other-stack-pointer (* (1+ other-layout-length) 8)))
-                           ;; Return address should be one below the stack pointer.
-                           (setf return-address (memref-unsigned-byte-64 stack-pointer -1))
-                           ;; Skip other code and just loop again.
-                           (go LOOP))))))
-               (t (when sg-interruptedp
-                    (emergency-halt "interrupted sg, but not interrupt frame?"))
-                  (scavenge-regular-stack-frame frame-pointer stack-pointer framep
-                                                layout-address layout-length
-                                                incoming-arguments pushed-values)))
+         (scavenge-regular-stack-frame frame-pointer stack-pointer framep
+                                       layout-address layout-length
+                                       incoming-arguments pushed-values)
          ;; Stop after seeing a zerop frame pointer.
          (if (eql frame-pointer 0)
              (return-from scavenge-stack))
@@ -400,8 +399,8 @@ This is required to make the GC interrupt safe."
   (when (not (eql (mezzanine.supervisor:thread-state object) :dead))
     (let* ((address (ash (%pointer-field object) 4))
            (stack-pointer (mezzanine.supervisor:thread-stack-pointer object))
-           (frame-pointer (memref-unsigned-byte-64 stack-pointer 0))
-           (return-address (memref-unsigned-byte-64 stack-pointer 1)))
+           (frame-pointer (mezzanine.supervisor:thread-frame-pointer object))
+           (return-address (memref-unsigned-byte-64 stack-pointer 0)))
       ;; Unconditonally scavenge the TLS area and the binding stack.
       (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-mv-slots-start+ 8))
                      (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+))
@@ -409,7 +408,7 @@ This is required to make the GC interrupt safe."
                      (- mezzanine.supervisor::+thread-tls-slots-end+ mezzanine.supervisor::+thread-tls-slots-start+))
       (when (not (eql object (mezzanine.supervisor:current-thread)))
         (scavenge-stack stack-pointer frame-pointer return-address
-                        (eql (+ address (* mezzanine.supervisor::+thread-interrupt-save-area+ 8))
+                        (eql (+ address (* (1+ mezzanine.supervisor::+thread-interrupt-save-area+) 8))
                              stack-pointer))))))
 
 (defun gc-info-for-function-offset (function offset)
