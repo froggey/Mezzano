@@ -57,6 +57,71 @@
             from-array from-offset from-width
             to-array to-offset to-width)))
 
+(defun bitblt (nrows ncols from-array from-row from-col to-array to-row to-col)
+  "Like %BITBLT, but clamps to the array dimensions."
+  (let ((from-width (array-dimension from-array 1))
+        (from-height (array-dimension from-array 0))
+        (to-width (array-dimension to-array 1))
+        (to-height (array-dimension to-array 0)))
+    ;; Only need to clamp values below zero here. nrows/ncols will
+    ;; end up negative if the source/target positions are too large.
+    ;; Clamp to row/column.
+    (when (< to-row 0)
+      (incf nrows to-row)
+      (decf from-row to-row)
+      (setf to-row 0))
+    (when (< to-col 0)
+      (incf ncols to-col)
+      (decf from-col to-col)
+      (setf to-col 0))
+    ;; Clamp from row/column.
+    (when (< from-row 0)
+      (incf nrows from-row)
+      (decf to-row from-row)
+      (setf from-row 0))
+    (when (< from-col 0)
+      (incf ncols from-col)
+      (decf to-col from-col)
+      (setf from-col 0))
+    ;; Clamp nrows/ncols.
+    (setf nrows (min nrows (- to-height to-row) (- from-height from-row)))
+    (setf ncols (min ncols (- to-width to-col) (- from-width from-col)))
+    (when (and (> nrows 0)
+               (> ncols 0))
+      (sys.int::%bitblt nrows ncols from-array from-row from-col to-array to-row to-col))))
+
+(defun bitset (nrows ncols val to-array to-row to-col)
+  "Like %BITSET, but clamps to the array dimensions."
+  (let ((to-width (array-dimension to-array 1))
+        (to-height (array-dimension to-array 0)))
+    ;; Only need to clamp values below zero here. nrows/ncols will
+    ;; end up negative if the source/target positions are too large.
+    ;; Clamp to row/column.
+    (when (< to-row 0)
+      (incf nrows to-row)
+      (setf to-row 0))
+    (when (< to-col 0)
+      (incf ncols to-col)
+      (setf to-col 0))
+    ;; Clamp nrows/ncols.
+    (setf nrows (min nrows (- to-height to-row)))
+    (setf ncols (min ncols (- to-width to-col)))
+    (when (and (> nrows 0)
+               (> ncols 0))
+      (sys.int::%bitset nrows ncols val to-array to-row to-col))))
+
+(defun bitblt-test ()
+  (let ((src (make-array (list 64 32) :element-type '(unsigned-byte 32))))
+    (sys.int::%bitset 64 32 (make-colour '(0.8 0.5 0.2)) src 0 0)
+    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 500 500)
+    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* -16 500)
+    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 500 -16)
+    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 300 1000)
+    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 750 300)
+    (bitblt 128 64 src 0 0 sys.int::*bochs-framebuffer* 600 600)
+    (bitblt -64 -32 src 0 0 sys.int::*bochs-framebuffer* 700 700)
+    (bitblt 64 32 src 20 10 sys.int::*bochs-framebuffer* 400 400)))
+
 (defun %simple-array-data-pointer (array)
   "Find the address of ARRAY's first data element."
   (when (not (sys.int::%simple-1d-array-p array))

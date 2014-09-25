@@ -11,8 +11,8 @@
   "Internal FIFO used to submit events to the compositor.")
 
 (defclass window ()
-  ((%x :initarg :x :reader window-x)
-   (%y :initarg :y :reader window-y)
+  ((%x :initarg :x :accessor window-x)
+   (%y :initarg :y :accessor window-y)
    (%fifo :initarg :fifo :reader fifo)
    (%buffer :initarg :buffer :reader window-buffer)))
 
@@ -23,7 +23,7 @@
   (array-dimension (window-buffer window) 1))
 
 (defmethod height ((window window))
-  (array-dimension (window-buffer window) 2))
+  (array-dimension (window-buffer window) 0))
 
 (defvar *window-list* '())
 (defvar *active-window* nil)
@@ -65,7 +65,7 @@
 (defgeneric process-event (event))
 
 (defmethod process-event :around (event)
-  (format t "Process input event ~S.~%" event)
+  (format t "Process event ~S.~%" event)
   (call-next-method))
 
 ;;;; Keyboard events, including translation from HID scancode.
@@ -286,8 +286,13 @@
                      (list* (second modifier) *keyboard-modifier-state*))))
           (t ;; Normal key, try to translate it.
            (let ((translated (convert-scancode-to-key scancode *keyboard-modifier-state*)))
-             (when translated
-               #+(or)(do-something-with-key translated)))))))
+             (when (and translated *active-window*)
+               (send-event *active-window*
+                           (make-instance 'key-event
+                                          :scancode (key-scancode event)
+                                          :releasep (key-releasep event)
+                                          :key translated
+                                          :modifier-state (copy-list *keyboard-modifier-state*)))))))))
 
 (defun submit-key (scancode releasep)
   "Submit a key event into the input system."
@@ -350,38 +355,36 @@
   (values *mouse-button-state* *mouse-x* *mouse-y*))
 
 ;;;; Window creation event.
-;;;; This is actually a request, the compositor will respond
-;;;; on the supplied FIFO with the new window.
+;;;; From clients to the compositor.
 
 (defclass window-create-event ()
-  ((%window :initarg :window :reader window)
-   (%fifo :initarg :fifo :reader fifo)
-   (%width :initarg :width :reader width)
-   (%height :initarg :width :reader height)))
+  ((%window :initarg :window :reader window)))
 
 (defmethod process-event ((event window-create-event))
-  (format t "Creating new ~Dx~D window, attached to FIFO ~S.~%"
-          (width event) (height event) (fifo event))
-  (let ((win (make-instance 'window
-                            :width (width event)
-                            :height (height event)
-                            :x 0
-                            :y 0
-                            :fifo (fifo event)
-                            :buffer (make-array (list (height event) (width event))
-                                                :element-type '(unsigned-byte 32)
-                                                :initial-element 0))))
-    (send-event win (make-instance 'window-create-event
-                                   :window win
-                                   :fifo (fifo event)
-                                   :width (width win)
-                                   :height (height win)))
+  (let ((win (window event)))
+    (format t "Registered new ~Dx~D window ~S, attached to FIFO ~S.~%"
+            (width win) (height win) win (fifo win))
+    (setf (window-x win) 0
+          (window-y win) 0)
     (push win *window-list*)
     (when (not *active-window*)
       (setf *active-window* win)
       (send-event win (make-instance 'window-activation-event
                                      :window win
                                      :state t)))))
+
+(defun make-window (fifo width height)
+  (let ((window (make-instance 'window
+                               :width width
+                               :height height
+                               :fifo fifo
+                               :buffer (make-array (list height width)
+                                                   :element-type '(unsigned-byte 32)
+                                                   :initial-element 0))))
+    (mezzanine.supervisor:fifo-push (make-instance 'window-create-event
+                                                   :window window)
+                                    *event-queue*)
+    window))
 
 ;;;; Window close event.
 
@@ -392,7 +395,13 @@
   (format t "Closing window ~S. Goodbye!~%" (window event))
   (when (eql *active-window* (window event))
     (setf *active-window* nil))
-  (setf *window-list* (remove (window event) *window-list*)))
+  (setf *window-list* (remove (window event) *window-list*))
+  (send-event win event))
+
+(defun close-window (window)
+  (mezzanine.supervisor:fifo-push (make-instance 'window-close-event
+                                                 :window window)
+                                  *event-queue*))
 
 ;;;; Window activation changed.
 
@@ -403,17 +412,30 @@
 ;;;; Window content updates.
 
 (defclass damage-event ()
-  ((%window :initarg :window :reader damage-window)
-   (%rectangle :initarg :rectangle :reader damage-rectangle)))
+  ((%window :initarg :window :reader window)
+   (%x :initarg :x :reader x)
+   (%y :initarg :y :reader y)
+   (%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
 
 (defmethod process-event ((event damage-event))
   (recompose-windows))
+
+(defun damage-window (window x y width height)
+  "Send a window damage event to the compositor."
+  (mezzanine.supervisor:fifo-push (make-instance 'damage-event
+                                                 :window window
+                                                 :x x
+                                                 :y y
+                                                 :width width
+                                                 :height height)
+                                  *event-queue*))
 
 ;;;; Other event stuff.
 
 (defun send-event (window event)
   "Send an event to a window."
-  (unless (fifo-push event (fifo window) nil)
+  (unless (mezzanine.supervisor:fifo-push event (fifo window) nil)
     (format t "Window ~S/FIFO ~S has stopped accepting events.~%"
             window (fifo window))))
 
