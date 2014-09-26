@@ -160,40 +160,77 @@
       (error (c)
         (format t "~&Error ~A while running boot hook ~S.~%" c hook)))))
 
-(defvar *boot-modules*)
-
 (defun align-up (value power-of-two)
   "Align VALUE up to the nearest multiple of POWER-OF-TWO."
-  (logand (+ value (1- power-of-two))
-          (lognot (1- power-of-two))))
+  (logand (+ value (1- power-of-two)) (lognot (1- power-of-two))))
 
-(defun initialize-boot-modules ()
-  (do ((base (+ +physical-map-base+ (sys.int::memref-t (+ *boot-information-page* +boot-information-module-base+) 0)))
-       (limit (sys.int::memref-t (+ *boot-information-page* +boot-information-module-limit+) 0))
-       (offset 0)
-       (new-modules '()))
-      ((>= offset limit)
-       (setf *boot-modules* (append *boot-modules*
-                                    (reverse new-modules))))
-    (let* ((module-base (+ +physical-map-base+ (sys.int::memref-t (+ base offset) 0)))
-           (module-size (sys.int::memref-t (+ base offset) 1))
-           (name-size (sys.int::memref-t (+ base offset) 2))
-           (name-base (+ base offset 24))
-           (module (make-array module-size :element-type '(unsigned-byte 8)))
-           (name (make-array name-size :element-type 'character)))
-      (incf offset (align-up (+ 24 name-size) 16))
-      (dotimes (i module-size)
-        (setf (aref module i) (sys.int::memref-unsigned-byte-8 module-base i)))
-      (dotimes (i name-size)
-        (setf (aref name i) (code-char (sys.int::memref-unsigned-byte-8 name-base i))))
-      (push (cons name module) new-modules))))
+(defvar *boot-id*)
 
+(defmacro do-boot-modules ((data-address data-size name-address name-size &optional result) &body body)
+  (let ((base-sym (gensym "base"))
+        (limit-sym (gensym "limit"))
+        (offset-sym (gensym "offset")))
+    `(do ((,base-sym (+ +physical-map-base+ (sys.int::memref-t (+ *boot-information-page* +boot-information-module-base+) 0)))
+          (,limit-sym (sys.int::memref-t (+ *boot-information-page* +boot-information-module-limit+) 0))
+          (,offset-sym 0))
+         ((>= ,offset-sym ,limit-sym)
+          ,result)
+       (let* ((,data-address (+ +physical-map-base+ (sys.int::memref-t (+ ,base-sym ,offset-sym) 0)))
+              (,data-size (sys.int::memref-t (+ ,base-sym ,offset-sym) 1))
+              (,name-address (+ ,base-sym ,offset-sym 24))
+              (,name-size (sys.int::memref-t (+ ,base-sym ,offset-sym) 2)))
+         (incf ,offset-sym (align-up (+ 24 ,name-size) 16))
+         (tagbody ,@body)))))
+
+;; This is pretty terrible, it's needed because the boot modules are transient
+;; and it's not safe to return references to transient memory.
 (defun fetch-boot-modules ()
-  (loop
-     ;; Grab the modules and reset the symbol atomically.
-     (let ((modules (sys.int::symbol-global-value '*boot-modules*)))
-       (when (sys.int::%cas-symbol-global-value '*boot-modules* modules '())
-         (return modules)))))
+  (let ((boot-id *boot-id*)
+        (n-modules 0)
+        module-size-vector
+        name-size-vector
+        module-vector
+        name-vector)
+    ;; Count modules.
+    (with-pseudo-atomic
+      (when (not (eql boot-id *boot-id*))
+        (return-from fetch-boot-modules '()))
+      (do-boot-modules (data-address data-size name-address name-size)
+        (debug-print-line n-modules " " data-address " " data-size " " name-address " " name-size)
+        (incf n-modules)))
+    ;; Allocate vector to hold modules.
+    (setf module-size-vector (make-array n-modules)
+          module-vector (make-array n-modules)
+          name-size-vector (make-array n-modules)
+          name-vector (make-array n-modules))
+    ;; Fetch sizes.
+    (with-pseudo-atomic
+      (let ((n 0))
+        (when (not (eql boot-id *boot-id*))
+          (return-from fetch-boot-modules '()))
+        (do-boot-modules (data-address data-size name-address name-size)
+          (setf (aref module-size-vector n) data-size
+                (aref name-size-vector n) name-size)
+          (incf n))))
+    ;; Generate data and name vectors.
+    (dotimes (i n-modules)
+      (setf (aref module-vector i) (make-array (aref module-size-vector i) :element-type '(unsigned-byte 8))
+            (aref name-vector i) (make-array (aref name-size-vector i) :element-type 'character)))
+    ;; Copy modules & names out.
+    (with-pseudo-atomic
+      (let ((n 0))
+        (when (not (eql boot-id *boot-id*))
+          (return-from fetch-boot-modules '()))
+        (do-boot-modules (data-address data-size name-address name-size)
+          (let ((module (aref module-vector n))
+                (name (aref name-vector n)))
+            (dotimes (i data-size)
+              (setf (aref module i) (sys.int::memref-unsigned-byte-8 data-address i)))
+            (dotimes (i name-size)
+              (setf (aref name i) (code-char (sys.int::memref-unsigned-byte-8 name-address i)))))
+          (incf n))))
+    ;; Build & return module list.
+    (map 'list #'cons name-vector module-vector)))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (let ((first-run-p nil))
@@ -213,8 +250,7 @@
       (mezzanine.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
       (setf mezzanine.runtime::*tls-lock* :unlocked
-            mezzanine.runtime::*active-catch-handlers* 'nil
-            *boot-modules* '())
+            mezzanine.runtime::*active-catch-handlers* 'nil)
       ;; Bootstrap the defstruct system.
       ;; 1) Initialize *structure-type-type* so make-struct-definition works.
       (setf sys.int::*structure-type-type* nil)
@@ -231,6 +267,7 @@
                                             :wired))
       ;; 3) Patch up the broken structure type.
       (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
+    (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)
     (initialize-i8259)
     (initialize-threads)
@@ -245,7 +282,6 @@
       (loop))
     (initialize-ps/2)
     (initialize-video)
-    (initialize-boot-modules)
     (cond (first-run-p
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
           (t (make-thread #'run-boot-hooks :name "Boot hook thread")))
