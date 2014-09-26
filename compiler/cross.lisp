@@ -131,6 +131,7 @@
   (:export #:current-thread
            #:with-symbol-spinlock
            #:with-gc-deferred
+           #:with-pseudo-atomic
            #:without-interrupts
            #:with-world-stopped
            #:make-thread

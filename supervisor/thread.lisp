@@ -5,7 +5,12 @@
 (defvar *thread-run-queue-head*)
 (defvar *thread-run-queue-tail*)
 
+(defvar *world-stop-lock*)
+(defvar *world-stop-resume-cvar*)
+(defvar *world-stop-pa-exit-cvar*)
+(defvar *world-stop-pending*)
 (defvar *world-stopper*)
+(defvar *pseudo-atomic-thread-count*)
 
 ;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
@@ -212,59 +217,65 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   "Returns the thread object for the calling thread."
   (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
 
+(defun %%make-thread (function name initial-bindings stack-size)
+  (let* ((thread (mezzanine.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
+         (stack (%allocate-stack stack-size)))
+    (setf (sys.int::%array-like-ref-t thread +thread-name+) name
+          (sys.int::%array-like-ref-t thread +thread-state+) :runnable
+          (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked
+          (sys.int::%array-like-ref-t thread +thread-stack+) stack
+          (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
+          (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
+          (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
+          (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
+          ;; Decremented by the trampoline when it calls the thread function.
+          (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
+    ;; Reset TLS slots.
+    (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
+      (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
+            (sys.int::%unbound-tls-slot)))
+    ;; Perform initial bindings.
+    (loop for (symbol value) in initial-bindings do
+         (let ((slot (or (sys.int::symbol-tls-slot symbol)
+                         (sys.int::%allocate-tls-slot symbol))))
+           (setf (sys.int::%array-like-ref-t thread slot) value)))
+    ;; Initialize the FXSAVE area.
+    ;; All FPU/SSE interrupts masked, round to nearest,
+    ;; x87 using 80 bit precision (long-float).
+    (dotimes (i 64)
+      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
+    (setf (ldb (byte 16 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
+          #x037F) ; FCW
+    (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
+          #x00001F80) ; MXCSR
+    ;; Push initial state on the stack.
+    ;; This must match the frame %%switch-to-thread expects.
+    (let ((pointer (+ (stack-base stack) (stack-size stack))))
+      (flet ((push-t (value)
+               (setf (sys.int::memref-t (decf pointer 8) 0) value))
+             (push-ub64 (value)
+               (setf (sys.int::memref-unsigned-byte-64 (decf pointer 8) 0) value)))
+        ;; Function to run.
+        (push-t function)
+        ;; Saved RIP for %%switch-to-thread.
+        (push-ub64 (sys.int::%array-like-ref-unsigned-byte-64 #'%%thread-entry-trampoline 0)))
+      ;; Update the control stack pointer.
+      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
+            pointer)
+      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
+    thread))
+
 (defun %make-thread (function &key name initial-bindings stack-size)
-  (check-type function (or function symbol))
   ;; Defer the GC until the thread object is created. Scanning a partially initialized thread
   ;; is bad news.
-  (with-gc-deferred
-    (let* ((thread (mezzanine.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
-           (stack (%allocate-stack stack-size)))
-      (setf (sys.int::%array-like-ref-t thread +thread-name+) name
-            (sys.int::%array-like-ref-t thread +thread-state+) :runnable
-            (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked
-            (sys.int::%array-like-ref-t thread +thread-stack+) stack
-            (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
-            (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
-            (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
-            (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
-            ;; Decremented by the trampoline when it calls the thread function.
-            (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
-      ;; Reset TLS slots.
-      (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-        (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
-              (sys.int::%unbound-tls-slot)))
-      ;; Perform initial bindings.
-      (loop for (symbol value) in initial-bindings do
-           (let ((slot (or (sys.int::symbol-tls-slot symbol)
-                           (sys.int::%allocate-tls-slot symbol))))
-             (setf (sys.int::%array-like-ref-t thread slot) value)))
-      ;; Initialize the FXSAVE area.
-      ;; All FPU/SSE interrupts masked, round to nearest,
-      ;; x87 using 80 bit precision (long-float).
-      (dotimes (i 64)
-        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
-      (setf (ldb (byte 16 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
-            #x037F) ; FCW
-      (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
-            #x00001F80) ; MXCSR
-      ;; Push initial state on the stack.
-      ;; This must match the frame %%switch-to-thread expects.
-      (let ((pointer (+ (stack-base stack) (stack-size stack))))
-        (flet ((push-t (value)
-                 (setf (sys.int::memref-t (decf pointer 8) 0) value))
-               (push-ub64 (value)
-                 (setf (sys.int::memref-unsigned-byte-64 (decf pointer 8) 0) value)))
-          ;; Function to run.
-          (push-t function)
-          ;; Saved RIP for %%switch-to-thread.
-          (push-ub64 (sys.int::%array-like-ref-unsigned-byte-64 #'%%thread-entry-trampoline 0)))
-        ;; Update the control stack pointer.
-        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
-              pointer)
-        (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
-      thread)))
+  ;; Do bad things so this works properly during boot when the world is stopped.
+  (if *world-stopper*
+      (%%make-thread function name initial-bindings stack-size)
+      (with-pseudo-atomic
+        (%%make-thread function name initial-bindings stack-size))))
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
+  (check-type function (or function symbol))
   (let ((thread (%make-thread function
                               :name name
                               :initial-bindings initial-bindings
@@ -353,13 +364,18 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
     ;; First-run stuff.
-    ;; FIXME: Patch up initial thread's stack objects.
     (setf *global-thread-lock* :unlocked)
-    (setf *thread-run-queue-head* nil)
-    (setf *thread-run-queue-tail* nil))
+    (setf *thread-run-queue-head* nil
+          *thread-run-queue-tail* nil)
+    (setf *world-stop-lock* (make-mutex "World stop lock" :spin)
+          *world-stop-resume-cvar* (make-condition-variable "World resume cvar")
+          *world-stop-pa-exit-cvar* (make-condition-variable "World stop PA exit cvar")
+          *world-stop-pending* nil
+          *pseudo-atomic-thread-count* 0))
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
-  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable))
+  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
+  (condition-notify *world-stop-resume-cvar*))
 
 (defun thread-yield ()
   (let ((current (current-thread)))
@@ -656,18 +672,58 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
      (declare (dynamic-extent #'dx-lambda))
      #'dx-lambda))
 
-(defun call-with-world-stopped (fn)
-  ;; Globally bind it, allow for recursive stoppage.
-  (let ((prev *world-stopper*))
-    (assert (or (not prev) (eql prev (current-thread))))
-    (unwind-protect
-         (progn
-           (setf *world-stopper* (current-thread))
-           (funcall fn))
-      (setf *world-stopper* prev))))
+;;; WITH-WORLD-STOPPED and WITH-PSEUDO-ATOMIC work together as a sort-of global
+;;; reader/writer lock over the whole system.
+
+(defun call-with-world-stopped (thunk)
+  (let ((self (current-thread)))
+    (when (eql *world-stopper* self)
+      (error "Nested world stop!"))
+    (with-mutex (*world-stop-lock*)
+      ;; First, try to position ourselves as the next thread to stop the world.
+      ;; This prevents any more threads from becoming PA.
+      (loop
+         (when (null *world-stop-pending*)
+           (setf *world-stop-pending* self)
+           (return))
+         ;; Wait for the world to unstop.
+         (condition-wait *world-stop-resume-cvar* *world-stop-lock*))
+      ;; Now wait for any PA threads to finish.
+      (loop
+         (when (zerop *pseudo-atomic-thread-count*)
+           (setf *world-stopper* self
+                 *world-stop-pending* nil)
+           (return))
+         (condition-wait *world-stop-pa-exit-cvar* *world-stop-lock*)))
+    ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
+    (multiple-value-prog1
+        (funcall thunk)
+      (with-mutex (*world-stop-lock*)
+        ;; Release the dogs!
+        (setf *world-stopper* nil)
+        (condition-notify *world-stop-resume-cvar*)))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
+
+(defun call-with-pseudo-atomic (thunk)
+  (when (eql *world-stopper* (current-thread))
+    (error "Going PA with world stopped!"))
+  (with-mutex (*world-stop-lock*)
+    (when *world-stop-pending*
+      ;; Wait for the world to stop & resume.
+      (condition-wait *world-stop-resume-cvar* *world-stop-lock*))
+    ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
+    ;; from being inspected.
+    (incf *pseudo-atomic-thread-count*))
+  (unwind-protect
+       (funcall thunk)
+    (with-mutex (*world-stop-lock*)
+      (decf *pseudo-atomic-thread-count*)
+      (condition-notify *world-stop-pa-exit-cvar*))))
+
+(defmacro with-pseudo-atomic (&body body)
+  `(call-with-pseudo-atomic (dx-lambda () ,@body)))
 
 ;;; Common structure for sleepable things.
 (defstruct wait-queue

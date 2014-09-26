@@ -13,14 +13,12 @@
   (sys.int::%sti)
   (loop))
 
+;; Back-compat.
 (defmacro with-gc-deferred (&body body)
-  `(call-with-gc-deferred (flet ((with-gc-deferred-thunk () ,@body))
-                            (declare (dynamic-extent #'with-gc-deferred-thunk))
-                            #'with-gc-deferred-thunk)))
+  `(with-pseudo-atomic ,@body))
 
-;; TODO?
 (defun call-with-gc-deferred (thunk)
-  (call-with-world-stopped thunk))
+  (call-with-pseudo-atomic thunk))
 
 (defun find-extent-named (name largep)
   (cond ((store-extent-p name) name)
