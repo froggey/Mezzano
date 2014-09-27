@@ -108,7 +108,10 @@ If clear, the fault occured in supervisor mode.")
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (cond ((< fault-addr (* 2 1024 1024 1024))
+    (cond ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
+           ;; IRQs must be enabled when a page fault occurs.
+           (unhandled-interrupt interrupt-frame info "IRQL_NOT_LESS_OR_EQUAL"))
+          ((< fault-addr (* 2 1024 1024 1024))
            ;; Pages below 2G are wired and should never be unmapped or protected.
            (unhandled-interrupt interrupt-frame info "page fault in wired area"))
           ((or (logbitp +page-fault-error-present+ info)
