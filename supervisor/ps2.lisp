@@ -94,8 +94,6 @@
     (setf *ps/2-controller-lock* :unlocked
           *ps/2-key-fifo* (mezzanine.supervisor:make-fifo 50 :element-type '(unsigned-byte 8))
           *ps/2-aux-fifo* (mezzanine.supervisor:make-fifo 50 :element-type '(unsigned-byte 8))))
-  (fifo-reset *ps/2-key-fifo*)
-  (fifo-reset *ps/2-aux-fifo*)
   ;; Enable the aux port.
   (ps/2-input-wait)
   (setf (system:io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
@@ -122,4 +120,7 @@
   (i8259-hook-irq +ps/2-key-irq+ 'ps/2-key-irq-handler)
   (i8259-hook-irq +ps/2-aux-irq+ 'ps/2-aux-irq-handler)
   (i8259-unmask-irq +ps/2-key-irq+)
-  (i8259-unmask-irq +ps/2-aux-irq+))
+  (i8259-unmask-irq +ps/2-aux-irq+)
+  ;; Data may have accumulated in the FIFOs.
+  (fifo-reset *ps/2-key-fifo*)
+  (fifo-reset *ps/2-aux-fifo*))
