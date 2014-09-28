@@ -8,10 +8,8 @@
   (sys.int::%array-like-ref-t string 3))
 
 (defun sys.int::assert-error (test-form datum &rest arguments)
-  (debug-write-string "Assert error ")
-  (debug-write-line datum)
-  (sys.int::%sti)
-  (loop))
+  (declare (dynamic-extent arguments))
+  (panic "Assert error " datum " " arguments))
 
 ;; Back-compat.
 (defmacro with-gc-deferred (&body body)
@@ -63,23 +61,13 @@
   nil)
 
 (defun sys.int::raise-undefined-function (fref)
-  (debug-write-string "Undefined function ")
   (let ((name (sys.int::%array-like-ref-t fref sys.int::+fref-name+)))
     (cond ((consp name)
-           (debug-write-string "(")
-           (debug-write-string (symbol-name (car name)))
-           (debug-write-string " ")
-           (debug-write-string (symbol-name (car (cdr name))))
-           (debug-write-line ")"))
-          (t (debug-write-line (symbol-name name)))))
-  (sys.int::%sti)
-  (loop))
+           (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
+          (t (panic "Undefined function " (symbol-name name))))))
 
 (defun sys.int::raise-unbound-error (symbol)
-  (debug-write-string "Unbound symbol ")
-  (debug-write-line (symbol-name symbol))
-  (sys.int::%sti)
-  (loop))
+  (panic "Unbound symbol " (symbol-name symbol)))
 
 (in-package :sys.int)
 
@@ -278,8 +266,7 @@
     (debug-write-line "Hello, Debug World!")
     (initialize-ata)
     (when (not *paging-disk*)
-      (debug-write-line "Could not find boot device. Sorry.")
-      (loop))
+      (panic "Could not find boot device. Sorry."))
     (initialize-ps/2)
     (initialize-video)
     (cond (first-run-p

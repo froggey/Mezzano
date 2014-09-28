@@ -24,8 +24,7 @@
                       (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
                    (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
                    address)
-          (progn (debug-write-line "Unable to write page to disk! Everything is fucked, sorry.")
-                 (loop))))))
+          (panic "Unable to write page to disk! Everything is fucked, sorry.")))))
 
 (defun snapshot-all-dirty-pages ()
   ;; Write all dirty pages to disk.
@@ -86,8 +85,7 @@
                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
                      (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
                      address)
-            (progn (debug-write-line "Unable to write page to disk! Everything is fucked, sorry.")
-                   (loop)))))))
+            (panic "Unable to write page to disk! Everything is fucked, sorry."))))))
 
 (defun take-snapshot ()
   (debug-write-line "Begin snapshot.")

@@ -51,8 +51,7 @@
     (when (not *store-freelist-metadata-freelist*)
       ;; Repopulate freelist.
       (let* ((frame (or (allocate-physical-pages 1)
-                        (progn (debug-write-line "Aiee. No memory.")
-                               (loop))))
+                        (panic "Aiee. No memory.")))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (dotimes (i (truncate #x1000 +freelist-metadata-size+))
           (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0

@@ -432,9 +432,7 @@ Interrupts must be off, the current thread must be locked."
     (when (<= sys.int::*exception-stack-base*
               (thread-stack-pointer next)
               (1- sys.int::*exception-stack-size*))
-      (debug-print-line "Other thread " next " stopped on exception stack!!!")
-      (sys.int::%sti)
-      (loop))
+      (panic "Other thread " next " stopped on exception stack!!!"))
     (%lock-thread next)
     (setf (thread-state next) :active)
     (%%switch-to-thread current next)))
@@ -511,9 +509,7 @@ Interrupts must be off, the current thread must be locked."
     ;; todo: reset preemption timer here.
     (when (eql next current)
       ;; Can't do this.
-      (debug-print-line "Bad! Returning to interrupted thread through %reschedule-via-interrupt")
-      (sys.int::%sti)
-      (loop))
+      (panic "Bad! Returning to interrupted thread through %reschedule-via-interrupt"))
     (%lock-thread next)
     (setf (thread-state next) :active)
     (%%switch-to-thread-via-interrupt current interrupt-frame next)))

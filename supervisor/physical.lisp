@@ -92,9 +92,7 @@
           (when (physical-page-frame-next frame)
             (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
           (when (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)))
-            (sys.int::%sti)
-            (debug-print-line "Allocated allocated page " frame)
-            (loop))
+            (panic "Allocated allocated page " frame))
           (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)) 0)
           ;; Split block as required.
           (loop
@@ -130,9 +128,7 @@
   (when *verbose-physical-allocation*
     (debug-print-line "Freeing " n-pages " pages " page-number))
   (when (not (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number))))
-    (sys.int::%sti)
-    (debug-print-line "Freed free page " page-number)
-    (loop))
+    (panic "Freed free page " page-number))
   (with-symbol-spinlock (*physical-lock*)
     (let ((bin (integer-length (1- n-pages))))
       (loop

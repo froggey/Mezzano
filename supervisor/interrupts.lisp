@@ -44,11 +44,7 @@
 
 (defun unhandled-interrupt (interrupt-frame info name)
   (declare (ignore interrupt-frame info))
-  (sys.int::%sti)
-  (debug-write-string "Unhandled ")
-  (debug-write-string name)
-  (debug-write-line " interrupt.")
-  (loop))
+  (panic "Unhandled " name " interrupt."))
 
 ;;; Mid-level interrupt handlers, called by the low-level assembly code.
 

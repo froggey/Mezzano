@@ -58,8 +58,7 @@
          (debug-write-fixnum-1 fixnum base))
         (t (debug-write-char #\0))))
 
-(defun debug-print-line (&rest things)
-  (declare (dynamic-extent things))
+(defun debug-print-line-1 (things)
   (dolist (thing things)
     (cond ((sys.int::character-array-p thing)
            (debug-write-string thing))
@@ -74,6 +73,10 @@
     (funcall *debug-pesudostream* :write-char #\Newline)
     (funcall *debug-pesudostream* :force-output)))
 
+(defun debug-print-line (&rest things)
+  (declare (dynamic-extent things))
+  (debug-print-line-1 things))
+
 (defun debug-start-line-p ()
   (when (boundp '*debug-pesudostream*)
     (funcall *debug-pesudostream* :start-line-p)))
@@ -81,3 +84,9 @@
 (defun debug-force-output ()
   (when (boundp '*debug-pesudostream*)
     (funcall *debug-pesudostream* :force-output)))
+
+(defun panic (&rest things)
+  (declare (dynamic-extent things))
+  (sys.int::%sti)
+  (debug-print-line-1 things)
+  (loop))
