@@ -197,7 +197,7 @@
     (assert (equal (array-element-type to) '(unsigned-byte 32)))
     ;; Stop early for 100% transparent colours.
     (unless (zerop (ldb (byte 8 24) colour))
-      (mezzanine.supervisor:with-world-stopped
+      (mezzanine.supervisor:with-pseudo-atomic
         (setf to (%simple-array-data-pointer to))
         (setf mask (%simple-array-data-pointer mask))
         (dotimes (y nrows)
@@ -248,7 +248,7 @@
 
 (declaim (inline %bitset-mask-1-whole))
 (defun %bitset-mask-1-whole (setter nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)
-  (mezzanine.supervisor:with-world-stopped
+  (mezzanine.supervisor:with-pseudo-atomic
     (setf to (%simple-array-data-pointer to))
     (setf mask (%simple-array-data-pointer mask))
     (dotimes (y nrows)
@@ -412,7 +412,7 @@
       (compute-blit-info-dest-src nrows ncols from-array from-row from-col to-array to-row to-col)
     (assert (equal (array-element-type from) '(unsigned-byte 32)))
     (assert (equal (array-element-type to) '(unsigned-byte 32)))
-    (mezzanine.supervisor:with-world-stopped
+    (mezzanine.supervisor:with-pseudo-atomic
       (setf from (%simple-array-data-pointer from))
       (setf to (%simple-array-data-pointer to))
       (dotimes (y nrows)
