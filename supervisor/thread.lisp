@@ -54,6 +54,7 @@
 ;; 12 frame pointer
 ;;    The thread's current RBP value. Not valid when :active or :dead. An SB64.
 ;;    Here rather than on the stack to avoid GC problems during thread switch.
+;; 13 mutex stack
 ;; 32-127 MV slots
 ;;    Slots used as part of the multiple-value return convention.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
@@ -101,7 +102,8 @@
   (field %next                    9)
   (field %prev                   10)
   (field foothold-disable-depth  11)
-  (field frame-pointer           12 :accessor sys.int::%array-like-ref-signed-byte-64))
+  (field frame-pointer           12 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field mutex-stack             13))
 
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
@@ -229,7 +231,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
           (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 0
           (sys.int::%array-like-ref-t thread +thread-preemption-pending+) nil
           ;; Decremented by the trampoline when it calls the thread function.
-          (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
+          (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1
+          (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil)
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
       (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
@@ -782,7 +785,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   ;; When NIL, the lock is free, otherwise is set to
   ;; the thread that holds the lock.
   (owner nil) ; must be slot 5, after wait-queue is included.
-  (kind nil :type (member :block :spin) :read-only t))
+  (kind nil :type (member :block :spin) :read-only t)
+  (stack-next))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (ecase (mutex-kind mutex)
@@ -796,6 +800,9 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     ;; Fast path - try to lock.
     (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
+      (with-thread-lock (self)
+        (setf (mutex-stack-next mutex) (thread-mutex-stack self)
+              (thread-mutex-stack self) mutex))
       (return-from acquire-block-mutex t))
     ;; Idiot check.
     (assert (not (mutex-held-p mutex)) (mutex)
@@ -807,10 +814,14 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; Try to acquire again, release may have been running.
       (when (sys.int::%cas-struct-slot mutex 5 nil self)
         ;; We got it.
+        (with-thread-lock (self)
+          (setf (mutex-stack-next mutex) (thread-mutex-stack self)
+                (thread-mutex-stack self) mutex))
         (sys.int::%sti)
         (unlock-wait-queue mutex)
         (return-from acquire-block-mutex t))
-      ;; No good, have to sleep. Release will directly transfer ownership
+      ;; No good, have to sleep.
+      ;; Add to wait queue. Release will directly transfer ownership
       ;; to this thread.
       (push-wait-queue self mutex)
       ;; Now sleep.
@@ -819,6 +830,24 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; to sleep.
       ;; todo: reenable footholds when the thread is sleeping, but only one level.
       (%lock-thread self)
+      ;; Do some deadlock detection before going to sleep. If the current owner
+      ;; is blocked on a mutex held by self, then a deadlock has occurred.
+      (let ((owner (mutex-owner mutex)))
+        (with-thread-lock (owner)
+          (when (eql (thread-state owner) :sleeping)
+            (do ((lock (thread-mutex-stack self) (mutex-stack-next lock)))
+                ((null lock))
+              (when (eql lock (thread-wait-item thread))
+                (%unlock-thread self)
+                (pop-wait-queue mutex)
+                (unlock-wait-queue mutex)
+                (sys.int::%sti)
+                (panic "Deadlock detected!~%~
+Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
+                       current
+                       mutex
+                       owner
+                       lock))))))
       (unlock-wait-queue mutex)
       (setf (thread-wait-item self) mutex
             (thread-state self) :sleeping)
@@ -861,11 +890,19 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 
 (defun release-block-mutex (mutex)
   (with-wait-queue-lock (mutex)
+    (let ((self (current-thread)))
+      (with-thread-lock (self)
+        (when (not (eql mutex (thread-mutex-stack self)))
+          (panic "Thread " self " releasing mutex " mutex " out of order."))
+        (setf (thread-mutex-stack self) (mutex-stack-next mutex))))
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
       (cond (thread
              ;; Found one, wake it & transfer the lock.
              (setf (mutex-owner mutex) thread)
+             (with-thread-lock (thread)
+               (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
+                     (thread-mutex-stack thread) mutex))
              (wake-thread thread))
             (t
              ;; No threads sleeping, just drop the lock.
@@ -925,7 +962,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
   (ecase (mutex-kind mutex)
     ;; Interrupts must be enabled.
     (:block (assert (sys.int::%interrupt-state)))
-    ;; Interrupts must have been enabled when the lock was take.
+    ;; Interrupts must have been enabled when the lock was taken.
     ;; TODO: Track how many spin mutexes are currently taken and assert when
     ;; count != 1.
     (:spin (assert (mutex-%lock mutex))))

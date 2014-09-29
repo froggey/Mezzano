@@ -395,6 +395,7 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzanine.supervisor:thread-%next object))
   (scavengef (mezzanine.supervisor:thread-%prev object))
   (scavengef (mezzanine.supervisor:thread-foothold-disable-depth object))
+  (scavengef (mezzanine.supervisor:thread-mutex-stack object))
   ;; Only scan the thread's stack, MV area & TLS area when it's alive.
   (when (not (eql (mezzanine.supervisor:thread-state object) :dead))
     (let* ((address (ash (%pointer-field object) 4))
