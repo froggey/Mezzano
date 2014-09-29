@@ -645,6 +645,9 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
     (setf *world-stopper* thread)
+    (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
+      (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
+            (sys.int::%unbound-tls-slot)))
     (setf (thread-state thread) :active)))
 
 (defun finish-initial-thread ()
