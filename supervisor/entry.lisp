@@ -238,7 +238,8 @@
       (mezzanine.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
       (setf mezzanine.runtime::*tls-lock* :unlocked
-            mezzanine.runtime::*active-catch-handlers* 'nil)
+            mezzanine.runtime::*active-catch-handlers* 'nil
+            *pseudo-atomic* nil)
       ;; Bootstrap the defstruct system.
       ;; 1) Initialize *structure-type-type* so make-struct-definition works.
       (setf sys.int::*structure-type-type* nil)

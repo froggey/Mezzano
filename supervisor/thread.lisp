@@ -12,6 +12,8 @@
 (defvar *world-stopper*)
 (defvar *pseudo-atomic-thread-count*)
 
+(defvar *pseudo-atomic* nil)
+
 ;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
 (defvar sys.int::*bsp-idle-thread*)
@@ -390,8 +392,7 @@ Interrupts must be off, the current thread must be locked."
              ;; the pager, the idle thread and the world stopper.
              (unless (or (eql current *world-stopper*)
                          (eql current sys.int::*pager-thread*))
-               (error "Aiee. %UPDATE-RUN-QUEUE called with bad thread ~S."
-                      current))
+               (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
              (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
                     ;; Pager is ready to run.
                     sys.int::*pager-thread*)
@@ -402,7 +403,7 @@ Interrupts must be off, the current thread must be locked."
                     sys.int::*bsp-idle-thread*)))
             (t ;; Return the current thread to the run queue and fetch the next thread.
              (when (eql current sys.int::*bsp-idle-thread*)
-               (error "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
+               (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
              (when (eql (thread-state current) :runnable)
                (push-run-queue current))
              (or (when (eql (thread-state sys.int::*pager-thread*) :runnable)
@@ -659,7 +660,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     (setf (thread-wait-item thread) "The start of a new world"
           (thread-state thread) :sleeping)
     (%reschedule)
-    (error "Initial thread woken??")))
+    (panic "Initial thread woken??")))
 
 (defmacro dx-lambda (lambda-list &body body)
   `(flet ((dx-lambda ,lambda-list ,@body))
@@ -672,7 +673,9 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 (defun call-with-world-stopped (thunk)
   (let ((self (current-thread)))
     (when (eql *world-stopper* self)
-      (error "Nested world stop!"))
+      (panic "Nested world stop!"))
+    (when *pseudo-atomic*
+      (panic "Stopping world while pseudo-atomic!"))
     (with-mutex (*world-stop-lock*)
       ;; First, try to position ourselves as the next thread to stop the world.
       ;; This prevents any more threads from becoming PA.
@@ -702,7 +705,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 
 (defun call-with-pseudo-atomic (thunk)
   (when (eql *world-stopper* (current-thread))
-    (error "Going PA with world stopped!"))
+    (panic "Going PA with world stopped!"))
   (with-mutex (*world-stop-lock*)
     (when *world-stop-pending*
       ;; Wait for the world to stop & resume.
@@ -711,7 +714,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     ;; from being inspected.
     (incf *pseudo-atomic-thread-count*))
   (unwind-protect
-       (funcall thunk)
+       (let ((*pseudo-atomic* t))
+         (funcall thunk))
     (with-mutex (*world-stop-lock*)
       (decf *pseudo-atomic-thread-count*)
       (condition-notify *world-stop-pa-exit-cvar*))))
@@ -787,8 +791,12 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
 
 (defun acquire-block-mutex (mutex wait-p)
   (let ((self (current-thread)))
-    (assert (sys.int::%interrupt-state))
-    (assert (not (thread-footholds-enabled-p self)))
+    (unless (sys.int::%interrupt-state)
+      (panic "Trying to acquire block mutex " mutex " with interrupts disabled."))
+    (unless (not (thread-footholds-enabled-p self))
+      (panic "Trying to acquire block mutex " mutex " with footholds enabled."))
+    (unless (not *pseudo-atomic*)
+      (panic "Trying to acquire block mutex " mutex " while pseudo-atomic."))
     ;; Fast path - try to lock.
     (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
@@ -797,8 +805,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
               (thread-mutex-stack self) mutex))
       (return-from acquire-block-mutex t))
     ;; Idiot check.
-    (assert (not (mutex-held-p mutex)) (mutex)
-            "Recursive locking detected.")
+    (unless (not (mutex-held-p mutex))
+      (panic "Recursive locking detected."))
     (when wait-p
       ;; Slow path.
       (sys.int::%cli)
@@ -856,8 +864,8 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
       (setf (mutex-%lock mutex) istate)
       (return-from acquire-spin-mutex t))
     ;; Idiot check.
-    (assert (not (mutex-held-p mutex)) (mutex)
-            "Recursive locking detected.")
+    (unless (not (mutex-held-p mutex))
+      (panic "Recursive locking detected."))
     (cond (wait-p
            ;; Spin path.
            (do ()
@@ -874,7 +882,8 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
   (eql (mutex-owner mutex) (current-thread)))
 
 (defun release-mutex (mutex)
-  (assert (mutex-held-p mutex))
+  (unless (mutex-held-p mutex)
+    (panic "Tryin to release mutex " mutex " not held by thread."))
   (ecase (mutex-kind mutex)
     (:block (release-block-mutex mutex))
     (:spin (release-spin-mutex mutex)))
