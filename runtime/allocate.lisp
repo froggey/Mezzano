@@ -112,57 +112,63 @@
     (ecase area
       ((nil)
        (tagbody
-        LOOP
-          (return-from %allocate-object
-            (mezzanine.supervisor:with-mutex (*allocator-lock*)
-              (mezzanine.supervisor:with-gc-deferred
-                (when (> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
-                  ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                  ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
-                  (let ((expansion (logand (truncate *general-area-expansion-granularity* 2) (lognot #xFFF))))
-                    (mezzanine.supervisor::debug-print-line "Expanding general area by " expansion)
-                    (when (< sys.int::*memory-expansion-remaining* (* expansion 2))
-                      ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
-                      (go DO-GC))
-                    (decf sys.int::*memory-expansion-remaining* (* expansion 2))
-                    (dotimes (i (truncate expansion #x1000))
-                      ;; Allocate block in newspace.
-                      (mezzanine.supervisor::allocate-new-block-for-virtual-address
-                       (logior sys.int::*dynamic-mark-bit*
-                               (ash sys.int::+address-tag-general+
-                                    sys.int::+address-tag-shift+)
-                               (+ sys.int::*general-area-limit*
-                                  (* i #x1000)))
-                       (logior sys.int::+block-map-present+
-                               sys.int::+block-map-writable+
-                               sys.int::+block-map-zero-fill+))
-                      ;; And in oldspace.
-                      (mezzanine.supervisor::allocate-new-block-for-virtual-address
-                       (logior (logxor sys.int::*dynamic-mark-bit*
-                                       (ash 1 sys.int::+address-mark-bit+))
-                               (ash sys.int::+address-tag-general+
-                                    sys.int::+address-tag-shift+)
-                               (+ sys.int::*general-area-limit*
-                                  (* i #x1000)))
-                       sys.int::+block-map-zero-fill+))
-                    (incf sys.int::*general-area-limit* expansion)))
-                ;; Enough size, allocate here.
-                (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                    sys.int::*general-area-bump*
-                                    sys.int::*dynamic-mark-bit*)))
-                  (incf sys.int::*general-area-bump* (* words 8))
-                  ;; Write array header.
-                  (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                        (logior (ash tag sys.int::+array-type-shift+)
-                                (ash data sys.int::+array-length-shift+)))
-                  (sys.int::%%assemble-value addr sys.int::+tag-object+)))))
+        OUTER-LOOP
+          (mezzanine.supervisor:with-mutex (*allocator-lock*)
+            (tagbody
+             INNER-LOOP
+               (return-from %allocate-object
+                 (mezzanine.supervisor:with-pseudo-atomic
+                   (when (> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
+                     (go EXPAND-AREA))
+                   ;; Enough size, allocate here.
+                   (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                       sys.int::*general-area-bump*
+                                       sys.int::*dynamic-mark-bit*)))
+                     (incf sys.int::*general-area-bump* (* words 8))
+                     ;; Write array header.
+                     (setf (sys.int::memref-unsigned-byte-64 addr 0)
+                           (logior (ash tag sys.int::+array-type-shift+)
+                                   (ash data sys.int::+array-length-shift+)))
+                     (sys.int::%%assemble-value addr sys.int::+tag-object+))))
+             EXPAND-AREA
+               ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+               ;; Cannot be done when pseudo-atomic.
+               ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
+               (let ((expansion (logand (truncate *general-area-expansion-granularity* 2) (lognot #xFFF))))
+                 (mezzanine.supervisor::debug-print-line "Expanding general area by " expansion)
+                 (when (< sys.int::*memory-expansion-remaining* (* expansion 2))
+                   ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
+                   (go DO-GC))
+                 (decf sys.int::*memory-expansion-remaining* (* expansion 2))
+                 (dotimes (i (truncate expansion #x1000))
+                   ;; Allocate block in newspace.
+                   (mezzanine.supervisor::allocate-new-block-for-virtual-address
+                    (logior sys.int::*dynamic-mark-bit*
+                            (ash sys.int::+address-tag-general+
+                                 sys.int::+address-tag-shift+)
+                            (+ sys.int::*general-area-limit*
+                               (* i #x1000)))
+                    (logior sys.int::+block-map-present+
+                            sys.int::+block-map-writable+
+                            sys.int::+block-map-zero-fill+))
+                   ;; And in oldspace.
+                   (mezzanine.supervisor::allocate-new-block-for-virtual-address
+                    (logior (logxor sys.int::*dynamic-mark-bit*
+                                    (ash 1 sys.int::+address-mark-bit+))
+                            (ash sys.int::+address-tag-general+
+                                 sys.int::+address-tag-shift+)
+                            (+ sys.int::*general-area-limit*
+                               (* i #x1000)))
+                    sys.int::+block-map-zero-fill+))
+                 (incf sys.int::*general-area-limit* expansion))
+               (go INNER-LOOP)))
         DO-GC
           ;; Must occur outside the locks.
           (sys.int::gc)
-          (go LOOP)))
+          (go OUTER-LOOP)))
       (:pinned
        (mezzanine.supervisor:with-mutex (*allocator-lock*)
-         (mezzanine.supervisor:with-gc-deferred
+         (mezzanine.supervisor:with-pseudo-atomic
            (when *paranoid-allocation*
              (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*))
            (sys.int::%%assemble-value
@@ -183,7 +189,7 @@
     ((nil) (cons car cdr))
     (:pinned
      (mezzanine.supervisor:with-mutex (*allocator-lock*)
-       (mezzanine.supervisor:with-gc-deferred
+       (mezzanine.supervisor:with-pseudo-atomic
          (when *paranoid-allocation*
            (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*))
          (let ((val (sys.int::%%assemble-value
@@ -207,53 +213,59 @@
   (when sys.int::*gc-in-progress*
     (sys.int::emergency-halt "Allocating during GC!"))
   (tagbody
-   LOOP
-     (return-from cons
-       (mezzanine.supervisor:with-mutex (*allocator-lock*)
-         (mezzanine.supervisor:with-gc-deferred
-           (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
-             ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-             ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
-             (let ((expansion (logand (truncate *cons-area-expansion-granularity* 2) (lognot #xFFF))))
-               (mezzanine.supervisor::debug-print-line "Expanding cons area by " expansion)
-               (when (< sys.int::*memory-expansion-remaining* (* expansion 2))
-                 ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
-                 (go DO-GC))
-               (decf sys.int::*memory-expansion-remaining* (* expansion 2))
-               (dotimes (i (truncate expansion #x1000))
-                 ;; Allocate block in newspace.
-                 (mezzanine.supervisor::allocate-new-block-for-virtual-address
-                  (logior sys.int::*dynamic-mark-bit*
-                          (ash sys.int::+address-tag-cons+
-                               sys.int::+address-tag-shift+)
-                          (+ sys.int::*cons-area-limit*
-                             (* i #x1000)))
-                  (logior sys.int::+block-map-present+
-                          sys.int::+block-map-writable+
-                          sys.int::+block-map-zero-fill+))
-                 ;; And in oldspace.
-                 (mezzanine.supervisor::allocate-new-block-for-virtual-address
-                  (logior (logxor sys.int::*dynamic-mark-bit*
-                                  (ash 1 sys.int::+address-mark-bit+))
-                          (ash sys.int::+address-tag-cons+
-                               sys.int::+address-tag-shift+)
-                          (+ sys.int::*cons-area-limit*
-                             (* i #x1000)))
-                  sys.int::+block-map-zero-fill+))
-               (incf sys.int::*cons-area-limit* expansion)))
-           ;; Enough size, allocate here.
-           (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                sys.int::*cons-area-bump*
-                                sys.int::*dynamic-mark-bit*))
-                  (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
-             (incf sys.int::*cons-area-bump* 16)
-             (setf (car val) car
-                   (cdr val) cdr)
-             val))))
+   OUTER-LOOP
+     (mezzanine.supervisor:with-mutex (*allocator-lock*)
+       (tagbody
+        INNER-LOOP
+          (return-from cons
+            (mezzanine.supervisor:with-pseudo-atomic
+              (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
+                (go EXPAND-AREA))
+              ;; Enough size, allocate here.
+              (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                   sys.int::*cons-area-bump*
+                                   sys.int::*dynamic-mark-bit*))
+                     (val (sys.int::%%assemble-value addr sys.int::+tag-cons+)))
+                (incf sys.int::*cons-area-bump* 16)
+                (setf (car val) car
+                      (cdr val) cdr)
+                val)))
+        EXPAND-AREA
+          ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
+          ;; Cannot be done when pseudo-atomic.
+          ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
+          (let ((expansion (logand (truncate *cons-area-expansion-granularity* 2) (lognot #xFFF))))
+            (mezzanine.supervisor::debug-print-line "Expanding cons area by " expansion)
+            (when (< sys.int::*memory-expansion-remaining* (* expansion 2))
+              ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
+              (go DO-GC))
+            (decf sys.int::*memory-expansion-remaining* (* expansion 2))
+            (dotimes (i (truncate expansion #x1000))
+              ;; Allocate block in newspace.
+              (mezzanine.supervisor::allocate-new-block-for-virtual-address
+               (logior sys.int::*dynamic-mark-bit*
+                       (ash sys.int::+address-tag-cons+
+                            sys.int::+address-tag-shift+)
+                       (+ sys.int::*cons-area-limit*
+                          (* i #x1000)))
+               (logior sys.int::+block-map-present+
+                       sys.int::+block-map-writable+
+                       sys.int::+block-map-zero-fill+))
+              ;; And in oldspace.
+              (mezzanine.supervisor::allocate-new-block-for-virtual-address
+               (logior (logxor sys.int::*dynamic-mark-bit*
+                               (ash 1 sys.int::+address-mark-bit+))
+                       (ash sys.int::+address-tag-cons+
+                            sys.int::+address-tag-shift+)
+                       (+ sys.int::*cons-area-limit*
+                          (* i #x1000)))
+               sys.int::+block-map-zero-fill+))
+            (incf sys.int::*cons-area-limit* expansion))
+          (go INNER-LOOP)))
    DO-GC
      ;; Must occur outside the locks.
      (sys.int::gc)
-     (go LOOP)))
+     (go OUTER-LOOP)))
 
 (defun sys.int::make-simple-vector (size &optional area)
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
