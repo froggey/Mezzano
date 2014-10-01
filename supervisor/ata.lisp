@@ -50,6 +50,7 @@
   (access-lock (make-mutex "ATA Access Lock" :spin))
   ;; Taken while there's a command in progress.
   (command-lock (make-mutex "ATA Command Lock"))
+  pci-location
   command
   control
   irq
@@ -161,7 +162,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
             (sys.int::cons-in-area
              device
              *ata-devices*
-             :wired)))))
+             :wired))
+      (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))
@@ -349,8 +351,10 @@ This is used to implement the INTRQ_Wait state."
           (setf (ata-controller-irq-delivered controller) t)
           (condition-notify (ata-controller-irq-cvar controller)))))))
 
-(defun init-ata-controller (command-base control-base irq)
-  (let ((controller (make-ata-controller :command command-base
+(defun init-ata-controller (pci-location command-base control-base irq)
+  (debug-print-line "New controller at " pci-location " " command-base " " control-base " " irq)
+  (let ((controller (make-ata-controller :pci-location pci-location
+                                         :command command-base
                                          :control control-base
                                          :irq irq)))
     ;; Disable IRQs on the controller and reset both drives.
@@ -377,15 +381,13 @@ This is used to implement the INTRQ_Wait state."
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
 
 (defun initialize-ata ()
-  #+(or)(when (boundp '*ata-devices*)
-    ;; Abort any pending commands.
-    (dolist (dev *ata-devices*)
-      (let ((controller (ata-device-controller dev)))
-        (with-mutex ((ata-controller-access-lock controller))
-          (setf (ata-controller-hotunplug controller) t)
-          (condition-notify (ata-controller-irq-cvar controller))))))
-  (setf *ata-devices* '())
-  (init-ata-controller +ata-compat-primary-command+ +ata-compat-primary-control+ +ata-compat-primary-irq+)
-  (init-ata-controller +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+)
-  (dolist (device *ata-devices*)
-    (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write)))
+  (setf *ata-devices* '()))
+
+(defun ata-pci-register (location)
+  ;; Ignore controllers not in compatibility mode, they share IRQs.
+  ;; It's not a problem for the ATA driver, but the supervisor's IRQ handling
+  ;; doesn't deal with shared IRQs at all.
+  (when (not (logbitp 0 (pci-programming-interface location)))
+    (init-ata-controller location +ata-compat-primary-command+ +ata-compat-primary-control+ +ata-compat-primary-irq+))
+  (when (not (logbitp 2 (pci-programming-interface location)))
+    (init-ata-controller location +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+)))

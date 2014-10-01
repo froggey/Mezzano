@@ -34,48 +34,56 @@
 
 (defun register-disk (device n-sectors sector-size max-transfer read-fn write-fn)
   (when (> sector-size +4k-page-size+)
-    (debug-write-line "Ignoring device with sector size larger than 4k."))
-  (let* ((disk (make-disk :device device
-                          :sector-size sector-size
-                          :n-sectors n-sectors
-                          :max-transfer max-transfer
-                          :read-fn read-fn
-                          :write-fn write-fn))
-         (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-                   ;; I guess this could happen on strange devices with sector sizes > 4k.
-                   (error "Unable to allocate memory when examining device ~S!" device)))
-         (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
-    (setf *disks* (sys.int::cons-in-area disk *disks* :wired))
-    ;; Read first 4k, figure out what to do with it.
-    (or (funcall read-fn device 0 (ceiling +4k-page-size+ sector-size) page-addr)
-        (progn
-          (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-          (error "Unable to read first block on device ~S!" device)))
-    ;; Search for a Mezzanine header here.
-    ;; TODO: Scan for partition maps.
-    (when (and
-           (not *paging-disk*)
-           ;; Match magic.
-           (loop
-              for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
-              for offset from 0
-              do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
-                   (return nil))
-              finally (return t))
-           ;; Match boot UUID.
-           (loop
-              for offset from 0 below 16
-              do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
-                                 (boot-uuid offset)))
-                   (return nil))
-              finally (return t)))
-      (debug-write-line "Found boot image!")
-      (setf *paging-disk* disk)
-      (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
-      (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
-                                 (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
-    ;; Release the pages.
-    (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))
+    (debug-write-line "Ignoring device with sector size larger than 4k.")
+    (return-from register-disk))
+  (let ((disk (make-disk :device device
+                         :sector-size sector-size
+                         :n-sectors n-sectors
+                         :max-transfer max-transfer
+                         :read-fn read-fn
+                         :write-fn write-fn)))
+    (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
+
+(defun detect-paging-disk ()
+  (dolist (disk *disks*)
+    (let* ((sector-size (disk-sector-size disk))
+           (read-fn (disk-read-fn disk))
+           (device (disk-device disk))
+           (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
+                     ;; I guess this could happen on strange devices with sector sizes > 4k.
+                     (error "Unable to allocate memory when examining device ~S!" device)))
+           (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
+      (setf *disks* (sys.int::cons-in-area disk *disks* :wired))
+      ;; Read first 4k, figure out what to do with it.
+      (or (funcall read-fn device 0 (ceiling +4k-page-size+ sector-size) page-addr)
+          (progn
+            (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
+            (error "Unable to read first block on device ~S!" device)))
+      ;; Search for a Mezzanine header here.
+      ;; TODO: Scan for partition maps.
+      (when (and
+             (not *paging-disk*)
+             ;; Match magic.
+             (loop
+                for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+                for offset from 0
+                do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
+                     (return nil))
+                finally (return t))
+             ;; Match boot UUID.
+             (loop
+                for offset from 0 below 16
+                do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
+                                   (boot-uuid offset)))
+                     (return nil))
+                finally (return t)))
+        (debug-write-line "Found boot image!")
+        (setf *paging-disk* disk)
+        (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
+        (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
+                                   (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
+      ;; Release the pages.
+      (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)))))
 
 (defun get-pte-for-address (address &optional (allocate t))
   (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
