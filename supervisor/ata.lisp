@@ -21,6 +21,14 @@
 (defconstant +ata-register-alt-status+ 6) ; read
 (defconstant +ata-register-device-control+ 6) ; write
 
+(defconstant +ata-bmr-command+ 0) ; write
+(defconstant +ata-bmr-status+ 2) ; write
+(defconstant +ata-bmr-prdt-address+ 4) ; write
+
+(defconstant +ata-bmr-command-start+ #x01)
+(defconstant +ata-bmr-direction-read+ #x08)
+(defconstant +ata-bmr-direction-write+ #x00)
+
 ;; Device bits.
 (defconstant +ata-dev+  #x10 "Select device 0 when clear, device 1 when set.")
 (defconstant +ata-lba+  #x40 "Set when using LBA.")
@@ -39,6 +47,7 @@
 
 ;; Commands.
 (defconstant +ata-command-read-sectors+ #x20)
+(defconstant +ata-command-read-dma+ #xC8)
 (defconstant +ata-command-write-sectors+ #x30)
 (defconstant +ata-command-identify+ #xEC)
 
@@ -50,9 +59,10 @@
   (access-lock (make-mutex "ATA Access Lock" :spin))
   ;; Taken while there's a command in progress.
   (command-lock (make-mutex "ATA Command Lock"))
-  pci-location
   command
   control
+  bus-master-register
+  prdt-phys
   irq
   current-channel
   (irq-cvar (make-condition-variable "ATA IRQ Notifier"))
@@ -318,6 +328,29 @@ This is used to implement the INTRQ_Wait state."
         (set-disk-read-light nil))))
   t)
 
+(defun ata-configure-prdt (controller phys-addr n-octets direction)
+  (let* ((prdt (ata-controller-prdt-phys controller))
+         (prdt-virt (+ +physical-map-base+ (ata-controller-prdt-phys controller))))
+    (do ((offset 0))
+        ((<= n-octets #x10000)
+         ;; Write final chunk.
+         (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
+               (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) (logior #x80000000
+                                                                                ;; 0 = 64k
+                                                                                (logand n-octets #xFFFF))))
+      ;; Write 64k chunks.
+      (setf (sys.int::memref-unsigned-byte-32 prdt-virt offset) phys-addr
+            (sys.int::memref-unsigned-byte-32 prdt-virt (1+ offset)) 0)
+      (incf phys-addr #x10000))
+    ;; Write the PRDT location.
+    (setf (pci-io-region/32 (ata-controller-bus-master-register controller) +ata-bmr-prdt-address+) prdt
+          ;; Clear DMA status.
+          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) 0
+          ;; Set direction.
+          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
+                                                                                                      (ecase direction
+                                                                                                        (:read +ata-bmr-direction-read+)
+                                                                                                        (:write +ata-bmr-direction-write+))))))
 (defun ata-write (device lba count mem-addr)
   (let ((controller (ata-device-controller device)))
     (assert (>= lba 0))
@@ -351,11 +384,12 @@ This is used to implement the INTRQ_Wait state."
           (setf (ata-controller-irq-delivered controller) t)
           (condition-notify (ata-controller-irq-cvar controller)))))))
 
-(defun init-ata-controller (pci-location command-base control-base irq)
-  (debug-print-line "New controller at " pci-location " " command-base " " control-base " " irq)
-  (let ((controller (make-ata-controller :pci-location pci-location
-                                         :command command-base
+(defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
+  (debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
+  (let ((controller (make-ata-controller :command command-base
                                          :control control-base
+                                         :bus-master-register bus-master-register
+                                         :prdt-phys prdt-phys
                                          :irq irq)))
     ;; Disable IRQs on the controller and reset both drives.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
@@ -384,10 +418,24 @@ This is used to implement the INTRQ_Wait state."
   (setf *ata-devices* '()))
 
 (defun ata-pci-register (location)
-  ;; Ignore controllers not in compatibility mode, they share IRQs.
-  ;; It's not a problem for the ATA driver, but the supervisor's IRQ handling
-  ;; doesn't deal with shared IRQs at all.
-  (when (not (logbitp 0 (pci-programming-interface location)))
-    (init-ata-controller location +ata-compat-primary-command+ +ata-compat-primary-control+ +ata-compat-primary-irq+))
-  (when (not (logbitp 2 (pci-programming-interface location)))
-    (init-ata-controller location +ata-compat-secondary-command+ +ata-compat-secondary-control+ +ata-compat-secondary-irq+)))
+  (let* ((prdt-page (or (allocate-physical-pages 1)
+                        (panic "Cannot allocate PRDT page for ATA device."))))
+    ;; Make sure to enable PCI bus mastering for this device.
+    (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
+                                                                ;; Bit 2 is Bus Master bit.
+                                                                (ash 1 2)))
+    ;; Ignore controllers not in compatibility mode, they share IRQs.
+    ;; It's not a problem for the ATA driver, but the supervisor's IRQ handling
+    ;; doesn't deal with shared IRQs at all.
+    (when (not (logbitp 0 (pci-programming-interface location)))
+      (init-ata-controller +ata-compat-primary-command+
+                           +ata-compat-primary-control+
+                           (pci-bar location 4)
+                           (* prdt-page +4k-page-size+)
+                           +ata-compat-primary-irq+))
+    (when (not (logbitp 2 (pci-programming-interface location)))
+      (init-ata-controller +ata-compat-secondary-command+
+                           +ata-compat-secondary-control+
+                           (+ (pci-bar location 4) 8)
+                           (+ (* prdt-page +4k-page-size+) 2048)
+                           +ata-compat-secondary-irq+))))
