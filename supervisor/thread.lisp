@@ -353,6 +353,15 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
         (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 1
         (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
+  ;; Initialize the FXSAVE area.
+  ;; All FPU/SSE interrupts masked, round to nearest,
+  ;; x87 using 80 bit precision (long-float).
+  (dotimes (i 64)
+    (setf (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
+  (setf (ldb (byte 16 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
+        #x037F) ; FCW
+  (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
+        #x00001F80) ; MXCSR
   ;; Reset TLS slots.
   (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
     (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
