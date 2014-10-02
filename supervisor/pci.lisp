@@ -100,6 +100,72 @@
 (defun pci-programming-interface (location)
   (ldb (byte 8 8) (pci-config/32 location +pci-config-revid+)))
 
+(defun pci-bar (location bar)
+  (pci-config/32 location (+ +pci-config-bar-start+ (* bar 4))))
+
+(defun pci-io-region/8 (location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (system:io-port/8 (+ (logand location (lognot #b11)) offset))
+      ;; MMIO.
+      (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
+                                          (logand location (lognot #b1111))
+                                          offset)
+                                       0)))
+
+(defun pci-io-region/16 (location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (system:io-port/16 (+ (logand location (lognot #b11)) offset))
+      ;; MMIO.
+      (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
+                                           (logand location (lognot #b1111))
+                                           offset)
+                                        0)))
+
+(defun pci-io-region/32 (location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (system:io-port/32 (+ (logand location (lognot #b11)) offset))
+      ;; MMIO.
+      (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
+                                           (logand location (lognot #b1111))
+                                           offset)
+                                       0)))
+
+(defun (setf pci-io-region/8) (value location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (setf (system:io-port/8 (+ (logand location (lognot #b11)) offset)) value)
+      ;; MMIO.
+      (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
+                                                (logand location (lognot #b1111))
+                                                offset)
+                                             0)
+            value)))
+
+(defun (setf pci-io-region/16) (value location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (setf (system:io-port/16 (+ (logand location (lognot #b11)) offset)) value)
+      ;; MMIO.
+      (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
+                                                 (logand location (lognot #b1111))
+                                                 offset)
+                                              0)
+            value)))
+
+(defun (setf pci-io-region/32) (value location offset)
+  (if (logbitp 0 location)
+      ;; Port IO.
+      (setf (system:io-port/32 (+ (logand location (lognot #b11)) offset)) value)
+      ;; MMIO.
+      (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
+                                                 (logand location (lognot #b1111))
+                                                 offset)
+                                              0)
+            value)))
+
 (defun pci-scan (bus)
   (dotimes (device 32)
     ;; High bit of the header type specifies if a device is multifunction.
