@@ -13,7 +13,6 @@
 
 (defvar *pager-waiting-threads*)
 (defvar *pager-current-thread*)
-(defvar *pager-cvar*)
 (defvar *pager-lock*)
 
 (defvar *disks*)
@@ -372,7 +371,12 @@ It will put the thread to sleep, while it waits for the page."
           (thread-wait-item self) address
           (thread-%next self) *pager-waiting-threads*
           *pager-waiting-threads* self)
-    (condition-notify *pager-cvar*)
+    (with-thread-lock (sys.int::*pager-thread*)
+      (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                 (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+        (setf (thread-state sys.int::*pager-thread*) :runnable)
+        (with-symbol-spinlock (*global-thread-lock*)
+          (push-run-queue sys.int::*pager-thread*))))
     (release-mutex *pager-lock*)
     (%reschedule-via-interrupt interrupt-frame)))
 
@@ -393,7 +397,6 @@ It will put the thread to sleep, while it waits for the page."
   (when (not (boundp '*pager-waiting-threads*))
     (setf *pager-waiting-threads* '()
           *pager-current-thread* nil
-          *pager-cvar* (make-condition-variable "Pager Cvar")
           *pager-lock* (make-mutex "Pager lock" :spin)))
   (when *pager-current-thread*
     ;; Push any current thread back on the waiting threads list.
@@ -413,7 +416,13 @@ It will put the thread to sleep, while it waits for the page."
             (setf *pager-current-thread* *pager-waiting-threads*
                   *pager-waiting-threads* (thread-%next *pager-current-thread*))
             (return))
-          (condition-wait *pager-cvar* *pager-lock*)))
+          ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
+          (%lock-thread sys.int::*pager-thread*)
+          (release-mutex *pager-lock*)
+          (setf (thread-state sys.int::*pager-thread*) :sleeping
+                (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
+          (%reschedule)
+          (acquire-mutex *pager-lock*)))
      ;; Page it in
      (when (not (wait-for-page (thread-wait-item *pager-current-thread*)))
        ;; TODO: Dispatch this to a debugger thread.
