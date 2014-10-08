@@ -1992,6 +1992,28 @@
   (def sys.int::%cr3 :cr3)
   (def sys.int::%cr4 :cr4))
 
+(macrolet ((def (name reg)
+             `(progn
+                (defbuiltin ,name () ()
+                  (smash-r8)
+                  (emit `(sys.lap-x86:movdr :rax ,',reg)
+                        `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
+                        `(sys.lap-x86:mov64 :r8 :rax))
+                  (setf *r8-value* (list (gensym))))
+                (defbuiltin (setf ,name) (value) ()
+                  (load-in-r8 value t)
+                  (fixnum-check :r8)
+                  (emit `(sys.lap-x86:mov64 :rax :r8)
+                        `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
+                        `(sys.lap-x86:movdr ,',reg :rax))
+                  value))))
+  (def sys.int::%dr0 :dr0)
+  (def sys.int::%dr1 :dr1)
+  (def sys.int::%dr2 :dr2)
+  (def sys.int::%dr3 :dr3)
+  (def sys.int::%dr6 :dr6)
+  (def sys.int::%dr7 :dr7))
+
 (define-array-like-predicate sys.int::bignump sys.int::+object-tag-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)
 
