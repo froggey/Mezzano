@@ -16,6 +16,9 @@
 (defconstant +physical-map-base+
   (logior (ash -1 48) #x800000000000))
 
+(defconstant +physical-map-end+
+  (logior (ash -1 48) #x808000000000))
+
 (defconstant +page-frame-information-vector+
   (logior (ash -1 48) #x808000000000))
 

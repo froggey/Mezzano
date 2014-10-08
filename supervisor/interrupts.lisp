@@ -119,15 +119,21 @@ If clear, the fault occured in supervisor mode.")
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (cond ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
+    (cond ((not *paging-disk*)
+           (debug-print-line "Fault addr: " fault-addr)
+           (unhandled-interrupt interrupt-frame info "early page fault"))
+          ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
+           (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "IRQL_NOT_LESS_OR_EQUAL"))
-          ((< fault-addr (* 2 1024 1024 1024))
+          ((<= 0 fault-addr (1- (* 2 1024 1024 1024)))
            ;; Pages below 2G are wired and should never be unmapped or protected.
+           (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "page fault in wired area"))
           ((or (logbitp +page-fault-error-present+ info)
                (logbitp +page-fault-error-user+ info)
                (logbitp +page-fault-error-reserved-violation+ info))
+           (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "page fault"))
           (t ;; Non-present page. Try to load it from the store.
            ;; Will not return.
