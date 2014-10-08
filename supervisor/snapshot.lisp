@@ -106,7 +106,8 @@
      ;; and go back to sleep.
      (%lock-thread sys.int::*snapshot-thread*)
      (setf *snapshot-in-progress* nil)
-     (setf (thread-state sys.int::*snapshot-thread*) :sleeping)
+     (setf (thread-state sys.int::*snapshot-thread*) :sleeping
+           (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
      (%reschedule)))
 
 (defun snapshot ()
