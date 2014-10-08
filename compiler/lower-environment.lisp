@@ -14,6 +14,7 @@
 (defvar *environment-layout-dx*)
 (defvar *active-environment-vector*)
 (defvar *allow-dx-environment*)
+(defvar *environment-allocation-mode* nil)
 
 (defun lower-environment (lambda)
   (let ((*environment-layout* (make-hash-table))
@@ -187,13 +188,20 @@ of statements opens a new contour."
 	    (t (le-form*-cdr form))))
     (lexical-variable (le-variable form))
     (lambda-information
-     (if *environment-chain*
-         `(,(if (getf (lambda-information-plist form) 'declared-dynamic-extent)
-                'sys.c::make-dx-closure
-                'sys.int::make-closure)
-           ,(le-lambda form)
-           ,(second (first *environment-chain*)))
-         (le-lambda form)))))
+     (cond ((not *environment-chain*)
+            (le-lambda form))
+           ((getf (lambda-information-plist form) 'declared-dynamic-extent)
+            `(sys.c::make-dx-closure
+              ,(le-lambda form)
+              ,(second (first *environment-chain*))))
+           (*environment-allocation-mode*
+            `(sys.int::make-closure
+              ,(le-lambda form)
+              ,(second (first *environment-chain*))
+              ',*environment-allocation-mode*))
+           (t `(sys.int::make-closure
+                ,(le-lambda form)
+                ,(second (first *environment-chain*))))))))
 
 (defvar *environment-chain* nil
   "The directly accessible environment vectors in this function.")
@@ -210,11 +218,26 @@ of statements opens a new contour."
                             (gethash env *environment-layout*)))
                   *environment*))))
 
+(defun generate-make-environment (lambda size)
+  (cond ((gethash lambda *environment-layout-dx*)
+         ;; DX allocation.
+         `(sys.c::make-dx-simple-vector ',size))
+        (*environment-allocation-mode*
+         ;; Allocation in an explicit area.
+         `(sys.int::make-simple-vector ',size ',*environment-allocation-mode*))
+        ;; General allocation.
+        (t `(sys.int::make-simple-vector ',size))))
+
 (defun le-lambda (lambda)
   (let ((*environment-chain* '())
         (*environment* *environment*)
         (local-env (gethash lambda *environment-layout*))
-        (*current-lambda* lambda))
+        (*current-lambda* lambda)
+        (*environment-allocation-mode* (let* ((declares (getf (lambda-information-plist lambda) :declares))
+                                              (mode (assoc 'sys.c::closure-allocation declares)))
+                                         (if (and mode (cdr mode))
+                                             (second mode)
+                                             *environment-allocation-mode*))))
     (when *environment*
       ;; The entry environment vector.
       (let ((env (make-lexical-variable :name (gensym "Environment")
@@ -229,10 +252,7 @@ of statements opens a new contour."
              (push lambda *environment*)
              (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
              (setf (lambda-information-body lambda)
-                   `((let ((,new-env (,(if (gethash lambda *environment-layout-dx*)
-                                           'sys.c::make-dx-simple-vector
-                                           'sys.int::make-simple-vector)
-                                       ',(1+ (length local-env)))))
+                   `((let ((,new-env ,(generate-make-environment lambda (1+ (length local-env)))))
                        ,@(when (rest *environment-chain*)
                            (list (list '(setf sys.int::%svref)
                                        (second (second *environment-chain*))
@@ -404,18 +424,12 @@ of statements opens a new contour."
                  ,@(let ((info (assoc (second form) new-envs)))
                      (when info
                        (if *environment*
-                           (list `(setq ,(second info) (,(if (gethash (second form) *environment-layout-dx*)
-                                                             'sys.c::make-dx-simple-vector
-                                                             'sys.int::make-simple-vector)
-                                                         ',(1+ (length (third info)))))
+                           (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))
                                  (list '(setf sys.int::%svref)
                                        (second (first *environment-chain*))
                                        (second info)
                                        ''0))
-                           (list `(setq ,(second info) (,(if (gethash (second form) *environment-layout-dx*)
-                                                             'sys.c::make-dx-simple-vector
-                                                             'sys.int::make-simple-vector)
-                                                         ',(1+ (length (third info)))))))))
+                           (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))))))
                  ,@(frob-inner (second form))))
              (frob-inner (current-env)
                (loop for stmt in (cddr form)
@@ -424,10 +438,7 @@ of statements opens a new contour."
                                 (let ((info (assoc current-env new-envs)))
                                   (append (list stmt)
                                           (when info
-                                            (list `(setq ,(second info) (,(if (gethash current-env *environment-layout-dx*)
-                                                                              'sys.c::make-dx-simple-vector
-                                                                              'sys.int::make-simple-vector)
-                                                                          ',(1+ (length (third info)))))))
+                                            (list `(setq ,(second info) ,(generate-make-environment current-env (1+ (length (third info)))))))
                                           (when (and info *environment*)
                                             (list (list '(setf sys.int::%svref)
                                                         (second (first *environment-chain*))
