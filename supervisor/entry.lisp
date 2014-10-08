@@ -220,6 +220,11 @@
     ;; Build & return module list.
     (map 'list #'cons name-vector module-vector)))
 
+(defvar *deferred-boot-actions*)
+
+(defun add-deferred-boot-action (action)
+  (push-wired action *deferred-boot-actions*))
+
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (let ((first-run-p nil))
     (initialize-initial-thread)
@@ -229,6 +234,7 @@
           *snapshot-in-progress* nil
           mezzanine.runtime::*paranoid-allocation* nil
           *disks* '()
+          *deferred-boot-actions* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
@@ -272,6 +278,9 @@
     (detect-paging-disk)
     (when (not *paging-disk*)
       (panic "Could not find boot device. Sorry."))
+    (dolist (action *deferred-boot-actions*)
+      (funcall action))
+    (makunbound '*deferred-boot-actions*)
     (cond (first-run-p
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
           (t (make-thread #'run-boot-hooks :name "Boot hook thread")))
