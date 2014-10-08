@@ -172,7 +172,12 @@
            #:current-framebuffer
            #:framebuffer-blit
            #:framebuffer-width
-           #:framebuffer-height))
+           #:framebuffer-height
+           #:*nics*
+           #:nic-mac
+           #:nic-mtu
+           #:net-transmit-packet
+           #:net-receive-packet))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

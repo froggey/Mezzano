@@ -18,6 +18,8 @@
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
+    "supervisor/virtio.lisp"
+    "supervisor/virtio-net.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"

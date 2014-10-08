@@ -178,8 +178,13 @@
                (sub-class-code (pci-sub-class location))
                (programming-interface (pci-programming-interface location)))
 	  (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-            (debug-print-line "PCI:" bus ":" device ":" function " " vendor-id ":" device-id " " base-class-code ":" sub-class-code ":" programming-interface)
-            (cond ((and (eql base-class-code #x01)
+            (debug-print-line "PCI:" bus ":" device ":" function " " vendor-id ":" device-id " " base-class-code ":" sub-class-code ":" programming-interface " "
+                              (pci-config/8 location +pci-config-revid+))
+            (cond ((and (eql vendor-id #x1AF4)
+                        (<= #x1000 device-id #x103F))
+                   ;; Some kind of virtio-device.
+                   (virtio-pci-register location))
+                  ((and (eql base-class-code #x01)
                         (eql sub-class-code #x01))
                    ;; A PATA controller.
                    (ata-pci-register location))

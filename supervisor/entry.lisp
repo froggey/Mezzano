@@ -3,6 +3,18 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
+;; fixme: multiple-evaluation of PLACE.
+(defmacro push-wired-locked (item place mutex)
+  (let ((new-cons (gensym)))
+    `(let ((,new-cons (sys.int::cons-in-area ,item nil :wired)))
+       (with-mutex (,mutex)
+         (setf (cdr ,new-cons) ,place
+               place ,new-cons)))))
+
+;; fixme: multiple-evaluation of PLACE.
+(defmacro push-wired (item place)
+  `(setf ,place (sys.int::cons-in-area ,item ,place :wired)))
+
 (defun string-length (string)
   (assert (sys.int::character-array-p string))
   (sys.int::%array-like-ref-t string 3))
@@ -220,6 +232,38 @@
     ;; Build & return module list.
     (map 'list #'cons name-vector module-vector)))
 
+(defstruct (nic
+             (:area :wired))
+  device
+  mac
+  transmit-packet
+  mtu)
+
+(defvar *nics*)
+(defvar *received-packets*)
+
+(defun register-nic (device mac transmit-fn mtu)
+  (debug-print-line "Registered NIC " device " with MAC " mac)
+  (push-wired (make-nic :device device
+                        :mac mac
+                        :transmit-packet transmit-fn
+                        :mtu mtu)
+              *nics*))
+
+(defun net-transmit-packet (nic pkt)
+  (funcall (mezzanine.supervisor::nic-transmit-packet nic)
+           (mezzanine.supervisor::nic-device nic)
+           pkt))
+
+(defun net-receive-packet ()
+  "Wait for a packet to arrive.
+Returns two values, the packet data and the receiving NIC."
+  (let ((info (fifo-pop *received-packets*)))
+    (values (cdr info) (car info))))
+
+(defun nic-received-packet (nic pkt)
+  (fifo-push (cons nic pkt) *received-packets* nil))
+
 (defvar *deferred-boot-actions*)
 
 (defun add-deferred-boot-action (action)
@@ -234,6 +278,7 @@
           *snapshot-in-progress* nil
           mezzanine.runtime::*paranoid-allocation* nil
           *disks* '()
+          *nics* '()
           *deferred-boot-actions* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
@@ -245,7 +290,8 @@
       ;; FIXME: Should be done by cold generator
       (setf mezzanine.runtime::*tls-lock* :unlocked
             mezzanine.runtime::*active-catch-handlers* 'nil
-            *pseudo-atomic* nil)
+            *pseudo-atomic* nil
+            *received-packets* (make-fifo 50))
       ;; Bootstrap the defstruct system.
       ;; 1) Initialize *structure-type-type* so make-struct-definition works.
       (setf sys.int::*structure-type-type* nil)
@@ -272,6 +318,8 @@
     ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
     (initialize-ata)
+    (initialize-virtio)
+    (initialize-virtio-net)
     (initialize-ps/2)
     (initialize-video)
     (initialize-pci)
