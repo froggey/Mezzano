@@ -149,6 +149,7 @@
            #:thread-foothold-disable-depth
            #:thread-frame-pointer
            #:thread-mutex-stack
+           #:thread-yield
            #:establish-thread-foothold
            #:destroy-thread
            #:make-mutex
@@ -174,6 +175,7 @@
            #:framebuffer-width
            #:framebuffer-height
            #:*nics*
+           #:nic
            #:nic-mac
            #:nic-mtu
            #:net-transmit-packet

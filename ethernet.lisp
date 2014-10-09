@@ -8,7 +8,6 @@
   (:export :register-nic
            :ethernet-mac
            :transmit-packet
-           :receive-packet
            :arp-lookup
            :copy-packet :packet-length))
 
@@ -20,6 +19,13 @@
   (push nic *cards*))
 
 (defgeneric ethernet-mac (nic))
+
+(defmethod ethernet-mac ((nic mezzanine.supervisor:nic))
+  (let ((mac (make-array 6 :element-type '(unsigned-byte 8)))
+        (mac-int (mezzanine.supervisor:nic-mac nic)))
+    (dotimes (i 6)
+      (setf (aref mac i) (ldb (byte 8 (* i 8)) mac-int)))
+    mac))
 
 (defun packet-length (packet)
   (reduce '+ (mapcar 'length packet)))
@@ -106,6 +112,7 @@
 	       (eql ptype +ethertype-ipv4+) (eql plen 4))
       (let ((spa (ub32ref/be packet spa-start))
 	    (tpa (ub32ref/be packet tpa-start)))
+        (format t "Got ARP packet. ~X ~X ~X~%" spa tpa address)
 	;; If the pair <protocol type, sender protocol address> is
 	;; already in my translation table, update the sender
 	;; hardware address field of the entry with the new
@@ -134,7 +141,8 @@
 		      (aref packet (+ sha-start i)) (aref mac i))))
 	    (setf (ub32ref/be packet spa-start) address
 		  (ub16ref/be packet 20) +arp-op-reply+)
-	    (transmit-packet interface (list packet))))))))
+	    (transmit-packet interface (list packet))))))
+    (format t "New ARP table: ~S~%" *arp-table*)))
 
 (defun send-arp (interface ptype address)
   "Send an ARP packet out onto the wire."
@@ -196,7 +204,7 @@
   (lock (sys.int::make-mutex :name "TCP connection lock")))
 
 (defmacro with-tcp-connection-locked (connection &body body)
-  `(sys.int::with-mutex ((tcp-connection-lock ,connection))
+  `(mezzanine.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
 (defvar *raw-packet-hooks* nil)
@@ -271,21 +279,22 @@
 
 (define-condition drop-packet () ())
 
-(defvar *pending-packets*
-  (sys.int::make-fifo 500 "TCP/IP packet queue"))
+(defvar *ethernet-thread* nil)
 
-(defun ethernet-worker ()
+(defun ethernet-thread ()
   (loop
      (with-simple-restart (abort "Ignore this packet.")
-       (handler-case (apply '%receive-packet (sys.int::fifo-pop *pending-packets*))
+       (handler-case (multiple-value-bind (packet nic)
+                         (mezzanine.supervisor:net-receive-packet)
+                       (format t "Received packet ~S~%" packet)
+                       (%receive-packet nic packet))
          (drop-packet ())))))
 
-(defvar *ethernet-process* (sys.int::make-process "Ethernet worker"))
-(sys.int::process-preset *ethernet-process* #'ethernet-worker)
-(sys.int::process-enable *ethernet-process*)
-
-(defun receive-packet (interface packet)
-  (sys.int::fifo-push (list interface packet) *pending-packets*))
+(when *ethernet-thread*
+  (format t "Restarting ethernet thread.")
+  (mezzanine.supervisor:destroy-thread *ethernet-thread*))
+(setf *ethernet-thread* (mezzanine.supervisor:make-thread 'ethernet-thread
+                                                          :name "Ethernet thread"))
 
 (defun detach-tcp-connection (connection)
   (setf *tcp-connections* (remove connection *tcp-connections*))
@@ -599,6 +608,15 @@
   (let ((header-length (* (ldb (byte 4 0) (aref packet 14)) 4)))
     (ub16ref/be packet (+ 14 header-length 6))))
 
+(defun sys.int::process-wait-with-timeout (reason timeout fn &rest args)
+  (apply #'sys.int::process-wait reason fn args))
+
+(defun sys.int::process-wait (reason fn &rest args)
+  (loop
+     (when (apply fn args)
+       (return))
+     (mezzanine.supervisor:thread-yield)))
+
 (defun ping-host (host &optional (count 4))
   (let ((in-flight-pings nil)
         (identifier 1234))
@@ -668,6 +686,9 @@
 (defvar *routing-table* nil)
 
 (defgeneric transmit-packet (nic packet-descriptor))
+
+(defmethod transmit-packet ((nic mezzanine.supervisor:nic) packet)
+  (mezzanine.supervisor:net-transmit-packet nic packet))
 
 (defclass tcp-stream (sys.gray:fundamental-character-input-stream
                       sys.gray:fundamental-character-output-stream
@@ -897,6 +918,8 @@
     (sys.int::process-preset process #'eval-server (make-instance 'tcp-stream :connection connection))
     (sys.int::process-enable process)))
 
+(push '(1138 open-eval-server) *server-alist*)
+
 (defun net-setup (&key
                   (local-ip (make-ipv4-address 10 0 2 15))
                   (netmask (make-ipv4-address 255 255 255 0))
@@ -904,8 +927,7 @@
                   (interface (first *cards*)))
   ;; Flush existing route info.
   (setf *ipv4-interfaces* nil
-        *routing-table* nil
-        *server-alist* nil)
+        *routing-table* nil)
   (ifup interface local-ip)
   ;; Default route.
   (push (list nil gateway netmask interface)
@@ -916,7 +938,6 @@
               netmask
               interface)
         *routing-table*)
-  (push '(1138 open-eval-server) *server-alist*)
   t)
 
 (defun resolve-address (address)
@@ -933,17 +954,15 @@
   `(with-open-stream (,var (tcp-stream-connect ,address ,port))
      ,@body))
 
-(defun ethernet-early-initialize ()
-  (setf *cards* '()
+(defun ethernet-boot-hook ()
+  (setf *cards* (copy-list mezzanine.supervisor:*nics*)
         *routing-table* '()
-        *pending-packets* (sys.int::make-fifo 500 "TCP/IP packet queue")
         *ipv4-interfaces* '()
-        *arp-table* '()
-        *tcp-connections* '()
-        *allocated-tcp-ports* '())
-  (sys.int::process-reset *ethernet-process*)
-  (sys.int::process-enable *ethernet-process*))
-(sys.int::add-hook 'sys.int::*early-initialize-hook* 'ethernet-early-initialize)
+        *arp-table* '())
+  (net-setup)
+  (format t "Interfaces: ~S~%" *ipv4-interfaces*))
+(ethernet-boot-hook)
+(mezzanine.supervisor:add-boot-hook 'ethernet-boot-hook)
 
 (defun format-mac (stream mac &optional colon-p at-sign-p)
   (format stream "~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X"

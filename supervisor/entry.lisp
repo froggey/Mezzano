@@ -261,8 +261,10 @@ Returns two values, the packet data and the receiving NIC."
   (let ((info (fifo-pop *received-packets*)))
     (values (cdr info) (car info))))
 
-(defun nic-received-packet (nic pkt)
-  (fifo-push (cons nic pkt) *received-packets* nil))
+(defun nic-received-packet (device pkt)
+  (let ((nic (find device *nics* :key #'nic-device)))
+    (when nic
+      (fifo-push (cons nic pkt) *received-packets* nil))))
 
 (defvar *deferred-boot-actions*)
 
@@ -308,6 +310,7 @@ Returns two values, the packet data and the receiving NIC."
                                             :wired))
       ;; 3) Patch up the broken structure type.
       (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
+    (fifo-reset *received-packets*)
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)
     (initialize-i8259)
