@@ -396,7 +396,7 @@
   (when (eql *active-window* (window event))
     (setf *active-window* nil))
   (setf *window-list* (remove (window event) *window-list*))
-  (send-event win event))
+  (send-event (window event) event))
 
 (defun close-window (window)
   (mezzanine.supervisor:fifo-push (make-instance 'window-close-event
