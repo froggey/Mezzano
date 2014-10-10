@@ -320,6 +320,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-debug-serial #x3F8 4 38400)
     ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
+    (initialize-time)
     (initialize-ata)
     (initialize-virtio)
     (initialize-virtio-net)
