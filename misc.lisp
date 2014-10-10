@@ -170,18 +170,19 @@
                  vars temps)
        ,(first temps))))
 
-(defun assemble-lap (code &optional name debug-info)
+(defun assemble-lap (code &optional name debug-info wired)
   (multiple-value-bind (mc constants fixups symbols gc-data)
       (sys.lap-x86:assemble code
         :base-address 16
-        :initial-symbols (list (cons nil (lisp-object-address 'nil))
-                               (cons t (lisp-object-address 't))
-                               (cons 'undefined-function (lisp-object-address *undefined-function-thunk*))
-                               (cons :unbound-value (lisp-object-address (%unbound-value)))
-                               (cons :unbound-tls-slot (lisp-object-address (%unbound-tls-slot))))
+        :initial-symbols '((nil . :fixup)
+                           (t . :fixup)
+                           (:unbound-value . :fixup)
+                           (:unbound-tls-slot . :fixup)
+                           (:undefined-function . :fixup)
+                           (:closure-trampoline . :fixup))
         :info (list name debug-info))
     (declare (ignore fixups symbols))
-    (make-function mc constants gc-data)))
+    (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
 
 (defun lisp-implementation-type ()
   "LispOS")
