@@ -2056,19 +2056,26 @@
         `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r8))
   value)
 
-(defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) ()
-  ;; Read the saved binding stack pointer from a block-info.
-  (load-in-r8 block-info t)
+(defun get-block/tagbody-info-binding-stack-pointer (info)
+  ;; Read the saved binding stack pointer from a block/tagbody-info.
+  (load-in-r8 info t)
   (smash-r8)
-  (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
+  (let ((over (gensym)))
+    (emit `(sys.lap-x86:mov64 :r8 (:r8 8))
+          ;; Set the stack mark bit, if non-nil.
+          `(sys.lap-x86:cmp64 :r8 nil)
+          `(sys.lap-x86:je ,OVER)
+          ;; Just like materialize-dx-value
+          `(sys.lap-x86:mov64 :r9 (:constant sys.int::*current-stack-mark-bit*))
+          `(sys.lap-x86:or64 :r8 ,(object-ea :r9 :slot +symbol-value+))
+          OVER))
   (setf *r8-value* (list (gensym))))
 
+(defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) ()
+  (get-block/tagbody-info-binding-stack-pointer block-info))
+
 (defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) ()
-  ;; Read the saved binding stack pointer from a tagbody-info.
-  (load-in-r8 tagbody-info t)
-  (smash-r8)
-  (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
-  (setf *r8-value* (list (gensym))))
+  (get-block/tagbody-info-binding-stack-pointer tagbody-info))
 
 (defun push-special-stack (object value &optional (tmp :rbx) (tmp2 :r12))
   (let ((slots (allocate-control-stack-slots 4)))
@@ -2078,8 +2085,10 @@
           `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) nil)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) nil))
     ;; Generate pointer.
-    (emit `(sys.lap-x86:lea64 ,tmp (:rbp ,(+ (control-stack-frame-offset (+ slots 3))
-                                             sys.int::+tag-object+))))
+    (materialize-dx-value tmp
+                          `(:rbp ,(+ (control-stack-frame-offset (+ slots 3))
+                                     sys.int::+tag-object+))
+                          tmp2)
     ;; Store bits.
     (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) ,object)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) ,value))

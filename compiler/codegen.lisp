@@ -548,9 +548,11 @@ be generated instead.")
         (setf (aref *stack-values* slot) (cons info :home))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,thunk-label))
+              ;; Store the special stack pointer with the mark bit clear
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:btr64 :rax ,sys.int::+address-mark-bit+)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
@@ -1198,9 +1200,11 @@ Returns an appropriate tag."
             (control-info (allocate-control-stack-slots 4)))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
+              ;; Store the special stack pointer with the mark bit clear
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
+              `(sys.lap-x86:btr64 :rax ,sys.int::+address-mark-bit+)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
