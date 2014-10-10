@@ -809,9 +809,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
     ;; Fast path - try to lock.
     (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
-      (with-thread-lock (self)
-        (setf (mutex-stack-next mutex) (thread-mutex-stack self)
-              (thread-mutex-stack self) mutex))
+      (setf (mutex-stack-next mutex) (thread-mutex-stack self)
+            (thread-mutex-stack self) mutex)
       (return-from acquire-block-mutex t))
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
@@ -823,9 +822,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       ;; Try to acquire again, release may have been running.
       (when (sys.int::%cas-struct-slot mutex 5 nil self)
         ;; We got it.
-        (with-thread-lock (self)
-          (setf (mutex-stack-next mutex) (thread-mutex-stack self)
-                (thread-mutex-stack self) mutex))
+        (setf (mutex-stack-next mutex) (thread-mutex-stack self)
+              (thread-mutex-stack self) mutex)
         (sys.int::%sti)
         (unlock-wait-queue mutex)
         (return-from acquire-block-mutex t))
@@ -901,18 +899,16 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
 (defun release-block-mutex (mutex)
   (with-wait-queue-lock (mutex)
     (let ((self (current-thread)))
-      (with-thread-lock (self)
-        (when (not (eql mutex (thread-mutex-stack self)))
-          (panic "Thread " self " releasing mutex " mutex " out of order."))
-        (setf (thread-mutex-stack self) (mutex-stack-next mutex))))
+      (when (not (eql mutex (thread-mutex-stack self)))
+        (panic "Thread " self " releasing mutex " mutex " out of order."))
+      (setf (thread-mutex-stack self) (mutex-stack-next mutex)))
     ;; Look for a thread to wake.
     (let ((thread (pop-wait-queue mutex)))
       (cond (thread
              ;; Found one, wake it & transfer the lock.
              (setf (mutex-owner mutex) thread)
-             (with-thread-lock (thread)
-               (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
-                     (thread-mutex-stack thread) mutex))
+             (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
+                   (thread-mutex-stack thread) mutex)
              (wake-thread thread))
             (t
              ;; No threads sleeping, just drop the lock.
