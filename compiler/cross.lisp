@@ -154,6 +154,9 @@
            #:destroy-thread
            #:make-mutex
            #:with-mutex
+           #:make-condition-variable
+           #:condition-wait
+           #:condition-notify
            #:snapshot
            #:protect-memory-range
            #:debug-print-line

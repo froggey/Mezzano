@@ -201,7 +201,8 @@
   window-size
   (max-seg-size 1000)
   rx-data
-  (lock (sys.int::make-mutex :name "TCP connection lock")))
+  (lock (mezzanine.supervisor:make-mutex "TCP connection lock"))
+  (cvar (mezzanine.supervisor:make-condition-variable "TCP connection cvar")))
 
 (defmacro with-tcp-connection-locked (connection &body body)
   `(mezzanine.supervisor:with-mutex ((tcp-connection-lock ,connection))
@@ -286,7 +287,6 @@
      (with-simple-restart (abort "Ignore this packet.")
        (handler-case (multiple-value-bind (packet nic)
                          (mezzanine.supervisor:net-receive-packet)
-                       (format t "Received packet ~S~%" packet)
                        (%receive-packet nic packet))
          (drop-packet ())))))
 
@@ -378,7 +378,8 @@
         (t (tcp4-send-packet connection 0 0 nil :ack-p nil :rst-p t)
            (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
            (detach-tcp-connection connection)
-           (setf (tcp-connection-state connection) :closed))))))
+           (setf (tcp-connection-state connection) :closed))))
+    (mezzanine.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
   (multiple-value-bind (ethernet-mac interface)
@@ -615,7 +616,8 @@
   (loop
      (when (apply fn args)
        (return))
-     (mezzanine.supervisor:thread-yield)))
+     (mezzanine.supervisor:thread-yield))
+  t)
 
 (defun ping-host (host &optional (count 4))
   (let ((in-flight-pings nil)
@@ -740,8 +742,7 @@
     (let ((connection (tcp-stream-connection stream)))
       (refill-tcp-stream-buffer stream)
       (and (null (tcp-stream-packet stream))
-           (not (eql (tcp-connection-state connection) :established))
-           (not (eql (tcp-connection-state connection) :syn-received))))))
+           (not (member (tcp-connection-state connection) '(:established :syn-received :syn-sent)))))))
 
 (defmethod sys.gray:stream-listen ((stream tcp-stream))
   (with-tcp-connection-locked (tcp-stream-connection stream)
@@ -771,19 +772,20 @@
 (defun refill-tcp-packet-buffer (stream)
   (let ((connection (tcp-stream-connection stream)))
     (when (null (tcp-stream-packet stream))
-      (sys.int::with-interrupts-disabled ()
-        (sys.int::release-mutex (tcp-connection-lock connection))
-        (sys.int::process-wait "TCP read" (lambda ()
-                                            (or (tcp-connection-rx-data connection)
-                                                (not (member (tcp-connection-state connection)
-                                                             '(:established :syn-received))))))
-        (sys.int::grab-mutex (tcp-connection-lock connection)))
+      (loop
+         ;; Wait for data or for the connection to close.
+         (when (or (tcp-connection-rx-data connection)
+                   (not (member (tcp-connection-state connection)
+                                '(:established :syn-received :syn-sent))))
+           (return))
+         (mezzanine.supervisor:condition-wait (tcp-connection-cvar connection)
+                                              (tcp-connection-lock connection)))
       ;; Something may have refilled while we were waiting.
       (when (tcp-stream-packet stream)
         (return-from refill-tcp-packet-buffer t))
       (when (and (null (tcp-connection-rx-data connection))
                  (not (member (tcp-connection-state connection)
-                              '(:established :syn-received))))
+                              '(:established :syn-received :syn-sent))))
         (return-from refill-tcp-packet-buffer nil))
       (setf (tcp-stream-packet stream) (pop (tcp-connection-rx-data connection))))
     t))
@@ -871,13 +873,6 @@
                       (tcp-connection-r-next connection)
                       nil
                       :fin-p t)))
-
-#+nil(defun ethernet-init ()
-  (setf *cards* '()
-        *arp-table* '())
-  (dolist (x *tcp-connections*)
-    (detach-tcp-connection x)))
-#+nil(sys.int::add-hook 'sys.int::*early-initialize-hook* 'ethernet-init)
 
 (defun send (stream control-string &rest arguments)
   "Buffered FORMAT."
