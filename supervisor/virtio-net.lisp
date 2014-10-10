@@ -98,7 +98,6 @@ and then some alignment.")
        (let* ((ring-entry (rem (virtqueue-last-seen-used rx-queue)
                                (virtqueue-size rx-queue)))
               (id (virtio-ring-used-elem-id rx-queue ring-entry))
-              (len (virtio-ring-used-elem-len rx-queue ring-entry))
               ;; Cheat slightly, RX descriptor IDs can be converted directly
               ;; to offsets in the RX buffer.
               (rx-offset (+ (* (truncate id 2) +virtio-net-rx-buffer-size+) +virtio-net-hdr-size+))
@@ -109,7 +108,7 @@ and then some alignment.")
          (decf (virtio-net-rx-buffer-count nic))
          #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
          ;; Extract the packet!
-         (dotimes (i (- len +virtio-net-hdr-size+))
+         (dotimes (i +virtio-net-mtu+)
            (setf (aref packet i) (sys.int::memref-unsigned-byte-8 (virtio-net-rx-virt nic) (+ rx-offset i))))
          ;; Re-add the descriptor to the avail ring.
          (virtio-ring-add-to-avail-ring rx-queue id)
@@ -186,7 +185,7 @@ and then some alignment.")
      ;; Refill receive buffers.
      (dotimes (i (- +virtio-net-n-rx-buffers+ (virtio-net-rx-buffer-count nic)))
        (incf (virtio-net-rx-buffer-count nic))
-       (push (make-array +virtio-net-rx-buffer-size+ :element-type '(unsigned-byte 8))
+       (push (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))
              (virtio-net-rx-buffers nic)))
      ;; Do all access pseudo atomically, preventing mid-access snapshotting.
      ;; This is the only thread directly accessing the card, so no more sync is required.
