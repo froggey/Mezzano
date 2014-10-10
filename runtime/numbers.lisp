@@ -236,7 +236,7 @@
              (and (floatp x)
                   (floatp y)))
          (%%float-/ (float x) (float y)))
-        (t sys.int::full-/ x y)))
+        (t (sys.int::full-/ x y))))
 
 (sys.int::define-lap-function %%float-+ ()
   ;; Unbox the floats.
