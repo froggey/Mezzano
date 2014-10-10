@@ -68,12 +68,15 @@
            (mezzanine.gui:bitblt (- win-height 16) win-width
                                  fb 16 0
                                  fb 0 0)
-           (mezzanine.gui.compositor:damage-window window 0 0 win-width (- win-height 16)))
+           ;; Clear line.
+           (mezzanine.gui:bitset 16 win-width (background-colour stream) fb y 0)
+           ;; Damage the whole window.
+           (mezzanine.gui.compositor:damage-window window 0 0 win-width win-height))
           (t (incf y 16)
-             (setf (cursor-y stream) y)))
-    ;; Clear line.
-    (mezzanine.gui:bitset 16 win-width (background-colour stream) fb y 0)
-    (mezzanine.gui.compositor:damage-window window 0 y win-width 16)))
+             (setf (cursor-y stream) y)
+             ;; Clear line.
+             (mezzanine.gui:bitset 16 win-width (background-colour stream) fb y 0)
+             (mezzanine.gui.compositor:damage-window window 0 y win-width 16)))))
 
 (defmethod sys.gray:stream-write-char ((stream basic-repl) character)
   ;; Catch up with window manager events.
