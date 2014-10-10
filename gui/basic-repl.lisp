@@ -188,8 +188,8 @@
                           framebuffer 0 0)
     (mezzanine.gui.compositor:damage-window window
                                             0 0
-                                            (mezzanine.gui.compositor:height window)
-                                            (mezzanine.gui.compositor:width window))
+                                            (mezzanine.gui.compositor:width window)
+                                            (mezzanine.gui.compositor:height window))
     (unwind-protect
          (sys.int::repl)
       (mezzanine.gui.compositor:close-window window))))

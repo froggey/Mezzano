@@ -6,6 +6,7 @@
         (t x)))
 
 (defvar *compositor* nil "Compositor thread.")
+(defvar *compositor-heartbeat* nil "Compositor heartbeat thread. Drives redisplay.")
 
 (defvar *event-queue* (mezzanine.supervisor:make-fifo 50)
   "Internal FIFO used to submit events to the compositor.")
@@ -30,6 +31,30 @@
 
 (defvar *main-screen* nil)
 (defvar *screen-backbuffer* nil)
+
+(defvar *clip-rect-x* 0)
+(defvar *clip-rect-y* 0)
+(defvar *clip-rect-width* 0)
+(defvar *clip-rect-height* 0)
+
+(defun expand-clip-rectangle (x y w h)
+  (when (or (zerop *clip-rect-width*)
+            (zerop *clip-rect-height*))
+    (setf *clip-rect-x* x
+          *clip-rect-y* y
+          *clip-rect-width* w
+          *clip-rect-height* h)
+    (return-from expand-clip-rectangle))
+  (let ((x2 (max (+ x w) (+ *clip-rect-x* *clip-rect-width*)))
+        (y2 (max (+ y h) (+ *clip-rect-y* *clip-rect-height*))))
+    #+debug-dirty-rects(format t "Expanding clip rect from ~D,~D ~D,~D~%"
+            *clip-rect-x* *clip-rect-y* *clip-rect-width* *clip-rect-height*)
+    (setf *clip-rect-x* (min *clip-rect-x* x)
+          *clip-rect-y* (min *clip-rect-y* x)
+          *clip-rect-width* (- x2 *clip-rect-x*)
+          *clip-rect-height* (- y2 *clip-rect-y*))
+    #+debug-dirty-rects(format t "Expanded clip rect to ~D,~D ~D,~D~%"
+            *clip-rect-x* *clip-rect-y* *clip-rect-width* *clip-rect-height*)))
 
 (defun 2d-array (data &optional (element-type 't))
   (let* ((width (length (first data)))
@@ -63,10 +88,6 @@
 (defvar *mouse-hot-y* 0)
 
 (defgeneric process-event (event))
-
-(defmethod process-event :around (event)
-  (format t "Process event ~S.~%" event)
-  (call-next-method))
 
 ;;;; Keyboard events, including translation from HID scancode.
 
@@ -326,8 +347,10 @@
   (let* ((buttons (mouse-button-state event))
          (changes (logxor *mouse-buttons* buttons))
          (x-motion (mouse-x-motion event))
+         (old-x *mouse-x*)
          (new-x (+ *mouse-x* x-motion))
          (y-motion (mouse-y-motion event))
+         (old-y *mouse-y*)
          (new-y (+ *mouse-y* y-motion)))
     (multiple-value-bind (width height)
         (screen-dimensions)
@@ -340,7 +363,8 @@
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       ;; Mouse position changed, redraw the screen.
-      (recompose-windows))))
+      (expand-clip-rectangle old-x old-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0))
+      (expand-clip-rectangle new-x new-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0)))))
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
@@ -419,7 +443,12 @@
    (%height :initarg :height :reader height)))
 
 (defmethod process-event ((event damage-event))
-  (recompose-windows))
+  (let ((window (window event)))
+    (multiple-value-bind (x y w h)
+        (clip-rectangle (x event) (y event) (width event) (height event)
+                        0 0 (width window) (height window))
+      (expand-clip-rectangle (+ x (window-x window)) (+ y (window-y window))
+                             w h))))
 
 (defun damage-window (window x y width height)
   "Send a window damage event to the compositor."
@@ -430,6 +459,13 @@
                                                  :width width
                                                  :height height)
                                   *event-queue*))
+
+;;;; Internal redisplay timer event.
+
+(defclass redisplay-time-event () ())
+
+(defmethod process-event ((event redisplay-time-event))
+  (recompose-windows))
 
 ;;;; Other event stuff.
 
@@ -445,22 +481,77 @@
   (values (mezzanine.supervisor:framebuffer-width *main-screen*)
           (mezzanine.supervisor:framebuffer-height *main-screen*)))
 
-(defun recompose-windows ()
+(defun clip-rectangle (x y w h clip-x clip-y clip-w clip-h)
+  "Clip the rectangle X,Y,W,H so it falls entirely within the clip rectangle."
+  #+(or)(format t "Clipping ~D,~D ~D,~D to rect ~D,~D ~D,~D~%"
+          x y w h clip-x clip-y clip-w clip-h)
+  ;; Trim origin.
+  (when (< x clip-x)
+    (decf w (- clip-x x))
+    (setf x clip-x))
+  (when (< y clip-y)
+    (decf h (- clip-y y))
+    (setf y clip-y))
+  ;; Trim size.
+  (when (> (+ x w) (+ clip-x clip-w))
+    (setf w (- (+ clip-x clip-w) x)))
+  (when (> (+ y h) (+ clip-y clip-h))
+    (setf h (- (+ clip-y clip-h) y)))
+  (values x y (max w 0) (max h 0)))
+
+(defun blit-with-clip (nrows ncols buffer row col)
+  "Blit BUFFER to the screen backbuffer, obeying the global clip region."
+  (multiple-value-bind (c-col c-row c-ncols c-nrows)
+      (clip-rectangle col row ncols nrows
+                      *clip-rect-x* *clip-rect-y*
+                      *clip-rect-width* *clip-rect-height*)
+    (when (and (not (zerop c-ncols))
+               (not (zerop c-nrows)))
+      #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
+              c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
+      (bitblt-argb-xrgb c-nrows c-ncols
+                        buffer (- c-row row) (- c-col col)
+                        *screen-backbuffer* c-row c-col))))
+
+(defun recompose-windows (&optional full)
+  (when (and (not full)
+             (or (zerop *clip-rect-width*)
+                 (zerop *clip-rect-height*)))
+    (return-from recompose-windows))
   ;; Draw windows back-to-front.
   (dolist (window (reverse *window-list*))
-    (bitblt-argb-xrgb (height window) (width window)
-                      (window-buffer window) 0 0
-                      *screen-backbuffer* (window-y window) (window-x window)))
+    (if full
+        (bitblt-argb-xrgb (height window) (width window)
+                          (window-buffer window) 0 0
+                          *screen-backbuffer* (window-y window) (window-x window))
+        (blit-with-clip (height window) (width window)
+                        (window-buffer window)
+                        (window-y window) (window-x window))))
   ;; Then the mouse pointer on top.
-  (bitblt-argb-xrgb (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
-                    *mouse-pointer* 0 0
-                    *screen-backbuffer* (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
+  (if full
+      (bitblt-argb-xrgb (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
+                        *mouse-pointer* 0 0
+                        *screen-backbuffer* (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
+      (blit-with-clip (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
+                      *mouse-pointer*
+                      (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*)))
   ;; Update the actual screen.
-  (mezzanine.supervisor:framebuffer-blit *main-screen*
-                                         (mezzanine.supervisor:framebuffer-height *main-screen*)
-                                         (mezzanine.supervisor:framebuffer-width *main-screen*)
-                                         *screen-backbuffer* 0 0
-                                         0 0))
+  (if full
+      (mezzanine.supervisor:framebuffer-blit *main-screen*
+                                             (mezzanine.supervisor:framebuffer-height *main-screen*)
+                                             (mezzanine.supervisor:framebuffer-width *main-screen*)
+                                             *screen-backbuffer* 0 0
+                                             0 0)
+      (mezzanine.supervisor:framebuffer-blit *main-screen*
+                                             *clip-rect-height*
+                                             *clip-rect-width*
+                                             *screen-backbuffer* *clip-rect-y* *clip-rect-x*
+                                             *clip-rect-y* *clip-rect-x*))
+  ;; Reset clip region.
+  (setf *clip-rect-x* 0
+        *clip-rect-y* 0
+        *clip-rect-width* 0
+        *clip-rect-height* 0))
 
 (defun compositor-thread ()
   (loop
@@ -470,15 +561,29 @@
              *screen-backbuffer* (make-array (list (mezzanine.supervisor:framebuffer-height *main-screen*)
                                                    (mezzanine.supervisor:framebuffer-width *main-screen*))
                                              :element-type '(unsigned-byte 32)))
-       (recompose-windows))
+       (recompose-windows t))
      (handler-case
          (process-event (mezzanine.supervisor:fifo-pop *event-queue*))
        (error (c)
          (ignore-errors
            (format t "~&Error ~A in compositor.~%" c))))))
 
+(defun compositor-heartbeat-thread ()
+  (loop
+     (mezzanine.supervisor:wait-for-heartbeat)
+     (when (and (not (zerop *clip-rect-width*))
+                (not (zerop *clip-rect-height*)))
+       (mezzanine.supervisor:fifo-push (make-instance 'redisplay-time-event)
+                                       *event-queue*))))
+
 (when *compositor*
   (format t "Restarting compositor thread.")
   (mezzanine.supervisor:destroy-thread *compositor*))
 (setf *compositor* (mezzanine.supervisor:make-thread 'compositor-thread
                                                      :name "Compositor"))
+
+(when *compositor-heartbeat*
+  (format t "Restarting compositor heartbeat thread.")
+  (mezzanine.supervisor:destroy-thread *compositor-heartbeat*))
+(setf *compositor-heartbeat* (mezzanine.supervisor:make-thread 'compositor-heartbeat-thread
+                                                               :name "Compositor Heartbeat"))
