@@ -121,12 +121,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x00) output-stream)) ; LLF\x00
 
-(defun check-llf-header (stream)
-  (assert (and (eql (read-byte stream) #x4C)
-               (eql (read-byte stream) #x4C)
-               (eql (read-byte stream) #x46)
-               (eql (read-byte stream) #x00))))
-
 (defun save-integer (integer stream)
   (let ((negativep (minusp integer)))
     (when negativep (setf integer (- integer)))
