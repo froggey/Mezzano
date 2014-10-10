@@ -203,7 +203,7 @@ and then some alignment.")
             (return))
           (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic)))))
      ;; Dispatch received packets.
-     (dolist (pkt (virtio-net-received-packets nic))
+     (dolist (pkt (nreverse (virtio-net-received-packets nic)))
        (nic-received-packet nic pkt))
      (setf (virtio-net-received-packets nic) '())))
 

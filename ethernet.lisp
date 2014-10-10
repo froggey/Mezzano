@@ -336,6 +336,9 @@
                           flags))))
         (:established
          ;; Ignore out-of-order packets.
+         (when (not (eql seq (tcp-connection-r-next connection)))
+           (format t "TCP: Ignoring packet with sequence number ~D, wanted ~D.~%"
+                   seq (tcp-connection-r-next connection)))
          (when (eql seq (tcp-connection-r-next connection))
            (unless (eql data-length 0)
              ;; Send data to the user layer
