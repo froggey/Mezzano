@@ -15,6 +15,7 @@
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
+    "supervisor/time.lisp"
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
@@ -53,6 +54,7 @@
     "system/describe.lisp"
     "system/gc.lisp"
     "system/load.lisp"
+    "system/time.lisp"
 ))
 
 

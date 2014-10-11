@@ -184,7 +184,8 @@
            #:net-transmit-packet
            #:net-receive-packet
            ;; The heartbeat timer is wired directly to the PIT, and beats at 18Hz.
-           #:wait-for-heartbeat))
+           #:wait-for-heartbeat
+           #:read-rtc-time))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
