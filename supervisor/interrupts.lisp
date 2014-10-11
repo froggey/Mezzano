@@ -4,7 +4,9 @@
 
 (sys.int::define-lap-function %stack-probe ()
   (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
   LOOP
   (sys.lap-x86:sub64 :r8 #x1000)
   (sys.lap-x86:jb DONE)
@@ -13,6 +15,7 @@
   (sys.lap-x86:jmp LOOP)
   DONE
   (sys.lap-x86:leave)
+  (:gc :no-frame)
   (sys.lap-x86:ret))
 
 (defmacro without-interrupts (&body body)
