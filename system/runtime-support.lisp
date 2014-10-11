@@ -497,9 +497,9 @@ VALUE may be nil to make the fref unbound."
          (v values (rest v)))
         ((null s))
       (check-type (first s) symbol)
-      (%%bind (first s) (if v
-                            (first v)
-                            (%unbound-value))))
+      (%%progv-bind (first s) (if v
+                                  (first v)
+                                  (%unbound-value))))
     (multiple-value-prog1 (funcall fn)
       ;; Now pop the special stack. This is not done with unwind-protect,
       ;; because a non-local exit will unwind the stack anyway.

@@ -2077,6 +2077,51 @@
 (defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) ()
   (get-block/tagbody-info-binding-stack-pointer tagbody-info))
 
+(defbuiltin sys.int::%%progv-bind (symbol value) (t nil)
+  ;; Don't kill here, going to reload & kill later in the function.
+  (load-in-reg :r9 symbol)
+  (smash-r8)
+  (let ((has-tls-slot (gensym)))
+    ;; Ensure there is a TLS slot.
+    (emit `(sys.lap-x86:mov32 :eax ,(object-ea :r9 :slot -1))
+          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
+          `(sys.lap-x86:and32 :eax #xFFFF)
+          `(sys.lap-x86:jnz ,has-tls-slot))
+    ;; Nope, allocate a new one.
+    (emit `(sys.lap-x86:mov64 :r8 :r9))
+    (call-support-function 'sys.int::%allocate-tls-slot 1)
+    (load-in-reg :r9 symbol t)
+    (emit `(sys.lap-x86:mov64 :rax :r8)
+          `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
+          has-tls-slot
+          ;; Save the old value on the binding stack.
+          ;; Read the old symbol value.
+          `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+)))
+    (emit `(sys.lap-x86:sub64 :rsp ,(* 4 8)))
+    ;; Flush slots.
+    (emit `(sys.lap-x86:mov64 (:rsp 0) ,(ash 3 sys.int::+array-length-shift+))
+          `(sys.lap-x86:mov64 (:rsp 8) nil)
+          `(sys.lap-x86:mov64 (:rsp 16) nil)
+          `(sys.lap-x86:mov64 (:rsp 24) nil))
+      ;; Generate pointer.
+    (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-object+) :r12)
+    ;; Store bits.
+    (emit `(sys.lap-x86:mov64 (:rsp 16) :r9)
+          `(sys.lap-x86:mov64 (:rsp 24) :r10))
+    ;; Store link.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r12 (,+binding-stack-gs-offset+))
+          `(sys.lap-x86:mov64 (:rsp 8) :r12))
+    ;; Push.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) ,:rbx)))
+  ;; Store new value.
+  (load-in-r8 value t)
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8))
+  ''nil)
+
 (defun push-special-stack (object value &optional (tmp :rbx) (tmp2 :r12))
   (let ((slots (allocate-control-stack-slots 4)))
     ;; Flush slots.
