@@ -210,15 +210,17 @@
 
 (defvar *raw-packet-hooks* nil)
 (defvar *tcp-connections* nil)
+(defvar *tcp-connection-lock* (mezzanine.supervisor:make-mutex "TCP connection list"))
 (defvar *allocated-tcp-ports* nil)
 (defvar *server-alist* '())
 
 (defun get-tcp-connection (remote-ip remote-port local-port)
-  (dolist (connection *tcp-connections*)
-    (when (and (eql (tcp-connection-remote-ip connection) remote-ip)
-               (eql (tcp-connection-remote-port connection) remote-port)
-               (eql (tcp-connection-local-port connection) local-port))
-      (return connection))))
+  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+    (dolist (connection *tcp-connections*)
+      (when (and (eql (tcp-connection-remote-ip connection) remote-ip)
+                 (eql (tcp-connection-remote-port connection) remote-port)
+                 (eql (tcp-connection-local-port connection) local-port))
+        (return connection)))))
 
 (defun %tcp4-receive (packet remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))
@@ -241,7 +243,8 @@
                                                :window-size 8192)))
          (let ((server (assoc local-port *server-alist*)))
            (cond (server
-                  (push connection *tcp-connections*)
+                  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+                    (push connection *tcp-connections*))
                   (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                     :ack-p t :syn-p t)
                   (funcall (second server) connection))
@@ -297,7 +300,8 @@
                                                           :name "Ethernet thread"))
 
 (defun detach-tcp-connection (connection)
-  (setf *tcp-connections* (remove connection *tcp-connections*))
+  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+    (setf *tcp-connections* (remove connection *tcp-connections*)))
   (setf *allocated-tcp-ports* (remove (tcp-connection-local-port connection) *allocated-tcp-ports*)))
 
 (defun tcp4-receive (connection packet &optional (start 0) end)
@@ -534,12 +538,16 @@
 					  :s-next (logand #xFFFFFFFF (1+ seq))
 					  :r-next 0
 					  :window-size 8192)))
-    (push connection *tcp-connections*)
+    (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+      (push connection *tcp-connections*))
     (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-    (when (not (sys.int::process-wait-with-timeout "TCP connect" 100
-                                                   (lambda ()
-                                                     (not (eql (tcp-connection-state connection) :syn-sent)))))
-      (setf (tcp-connection-state connection) :closed))
+    ;; FIXME: Timeouts
+    (with-tcp-connection-locked connection
+      (loop
+         (when (not (eql (tcp-connection-state connection) :syn-sent))
+           (return))
+         (mezzanine.supervisor:condition-wait (tcp-connection-cvar connection)
+                                              (tcp-connection-lock connection))))
     connection))
 
 (defun tcp-send (connection data &optional (start 0) end)
