@@ -970,7 +970,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Scavenge NIL to start things off.
   (scavenge-object 'nil)
   ;; And various important other roots.
-  ;; FIXME: interrupt handlers are also roots.
   (scavenge-object (%unbound-value))
   (scavenge-object (%unbound-tls-slot))
   (scavenge-object (%undefined-function))
@@ -992,6 +991,25 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Rebuild freelists.
   (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
   (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
+  ;; Trim the dynamic areas.
+  (let ((new-limit (align-up *general-area-bump* #x200000)))
+    (mezzanine.supervisor:release-memory-range (logior new-limit
+                                                       (ash +address-tag-general+ +address-tag-shift+))
+                                               (- *general-area-limit* new-limit))
+    (mezzanine.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+                                                       new-limit
+                                                       (ash +address-tag-general+ +address-tag-shift+))
+                                               (- *general-area-limit* new-limit))
+    (setf *general-area-limit* new-limit))
+  (let ((new-limit (align-up *cons-area-bump* #x200000)))
+    (mezzanine.supervisor:release-memory-range (logior new-limit
+                                                       (ash +address-tag-cons+ +address-tag-shift+))
+                                               (- *cons-area-limit* new-limit))
+    (mezzanine.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+                                                       new-limit
+                                                       (ash +address-tag-cons+ +address-tag-shift+))
+                                               (- *cons-area-limit* new-limit))
+    (setf *cons-area-limit* new-limit))
   (setf *memory-expansion-remaining* (* 32 1024 1024)) ; 32MB
   (mumble "complete")
   (clear-gc-light))

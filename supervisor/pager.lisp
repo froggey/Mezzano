@@ -244,6 +244,32 @@
         (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (ash new-block sys.int::+block-map-id-shift+)
                                                                     flags))))))
 
+(defun release-block-at-virtual-address (address)
+  ;; Update the block info for this address.
+  (flet ((read-level (map entry)
+           ;; Allocate a new block if there is no block.
+           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
+                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
+             (when (zerop id)
+               (setf id (or (store-alloc 1)
+                            (panic "Aiiee, out of store."))
+                     (sys.int::memref-unsigned-byte-64 map entry) (logior (ash id sys.int::+block-map-id-shift+)
+                                                                          sys.int::+block-map-present+))
+               (zero-cached-block id))
+             (read-cached-block id))))
+    (let* ((bml4e (ldb (byte 9 39) address))
+           (bml3e (ldb (byte 9 30) address))
+           (bml2e (ldb (byte 9 21) address))
+           (bml1e (ldb (byte 9 12) address))
+           (bml4 (read-cached-block *bml4-block*))
+           (bml3 (read-level bml4 bml4e))
+           (bml2 (read-level bml3 bml3e))
+           (bml1 (read-level bml2 bml2e)))
+      (when (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e))
+        (panic "Block " address " entry is zero!"))
+      (store-free (ash (sys.int::memref-unsigned-byte-64 bml1 bml1e) (- sys.int::+block-map-id-shift+)) 1)
+      (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) 0))))
+
 (defun set-address-flags (address flags)
   ;; Update the block info for this address.
   (flet ((read-level (map entry)
@@ -266,6 +292,22 @@
       (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (logand (sys.int::memref-unsigned-byte-64 bml1 bml1e)
                                                                           (lognot sys.int::+block-map-flag-mask+))
                                                                   flags)))))
+
+(defun release-memory-range (base length)
+  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (debug-print-line "Release range " base "-" (+ base length))
+  (%stack-probe (* 32 1024))
+  (with-mutex (*vm-lock*)
+    (dotimes (i (truncate length #x1000))
+      ;; Update block map.
+      (release-block-at-virtual-address (+ base (* i #x1000)))
+      ;; Update page tables and release pages if possible.
+      (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
+        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+          (release-physical-pages (ash (sys.int::memref-unsigned-byte-64 pte 0) -12) 1)
+          (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))))
+    ;; Flush TLB.
+    (setf (sys.int::%cr3) (sys.int::%cr3))))
 
 (defun protect-memory-range (base length flags)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")

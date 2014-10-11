@@ -159,6 +159,7 @@
            #:condition-notify
            #:snapshot
            #:protect-memory-range
+           #:release-memory-range
            #:debug-print-line
            #:make-fifo
            #:fifo-push
