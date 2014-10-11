@@ -140,8 +140,9 @@
                    ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
                    (go DO-GC))
                  (decf sys.int::*memory-expansion-remaining* (* expansion 2))
+                 ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
+                 ;; Allocate newspace.
                  (dotimes (i (truncate expansion #x1000))
-                   ;; Allocate block in newspace.
                    (mezzanine.supervisor::allocate-new-block-for-virtual-address
                     (logior sys.int::*dynamic-mark-bit*
                             (ash sys.int::+address-tag-general+
@@ -150,8 +151,9 @@
                                (* i #x1000)))
                     (logior sys.int::+block-map-present+
                             sys.int::+block-map-writable+
-                            sys.int::+block-map-zero-fill+))
-                   ;; And in oldspace.
+                            sys.int::+block-map-zero-fill+)))
+                 ;; Allocate oldspace.
+                 (dotimes (i (truncate expansion #x1000))
                    (mezzanine.supervisor::allocate-new-block-for-virtual-address
                     (logior (logxor sys.int::*dynamic-mark-bit*
                                     (ash 1 sys.int::+address-mark-bit+))
@@ -240,8 +242,9 @@
               ;; Not enough memory, abandon ship, do a gc and then attempt the allocation again.
               (go DO-GC))
             (decf sys.int::*memory-expansion-remaining* (* expansion 2))
+            ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
+            ;; Allocate newspace.
             (dotimes (i (truncate expansion #x1000))
-              ;; Allocate block in newspace.
               (mezzanine.supervisor::allocate-new-block-for-virtual-address
                (logior sys.int::*dynamic-mark-bit*
                        (ash sys.int::+address-tag-cons+
@@ -250,8 +253,9 @@
                           (* i #x1000)))
                (logior sys.int::+block-map-present+
                        sys.int::+block-map-writable+
-                       sys.int::+block-map-zero-fill+))
-              ;; And in oldspace.
+                       sys.int::+block-map-zero-fill+)))
+            ;; Allocate oldspace.
+            (dotimes (i (truncate expansion #x1000))
               (mezzanine.supervisor::allocate-new-block-for-virtual-address
                (logior (logxor sys.int::*dynamic-mark-bit*
                                (ash 1 sys.int::+address-mark-bit+))

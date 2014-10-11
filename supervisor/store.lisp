@@ -127,6 +127,30 @@ Should be called with the freelist lock held."
                  (freelist-metadata-prev new) range))))
   (setf (freelist-metadata-end range) new-end))
 
+(defun split-freelist-range (range start end)
+  (let ((before (freelist-alloc-metadata (freelist-metadata-start range) start
+                                         (freelist-metadata-free-p range)))
+        (after (freelist-alloc-metadata end (freelist-metadata-end range)
+                                        (freelist-metadata-free-p range))))
+    ;; Insert before.
+    (cond ((freelist-metadata-prev range)
+           (setf (freelist-metadata-next (freelist-metadata-prev range)) before))
+          (t (setf *store-freelist-head* before)))
+    (setf (freelist-metadata-prev before) (freelist-metadata-prev range)
+          (freelist-metadata-next before) range
+          (freelist-metadata-prev range) before)
+    ;; Insert after.
+    (cond ((freelist-metadata-next range)
+           (setf (freelist-metadata-prev (freelist-metadata-next range)) after))
+          (t (setf *store-freelist-tail* after)))
+    (setf (freelist-metadata-next after) (freelist-metadata-next range)
+          (freelist-metadata-prev after) range
+          (freelist-metadata-next range) after)
+    ;; Update range.
+    (setf (freelist-metadata-free-p range) (not (freelist-metadata-free-p range))
+          (freelist-metadata-start range) start
+          (freelist-metadata-end range) end)))
+
 (defun store-insert-range (start n-blocks freep)
   "Internal function. Insert a new range into the in-memory store freelist.
 Should be called with the freelist lock held."
@@ -135,11 +159,16 @@ Should be called with the freelist lock held."
        (range *store-freelist-head*
               (freelist-metadata-next range)))
       ((null range)
-       (error "Tried to insert bad range."))
+       (panic "Tried to insert bad range " start "-" end ":" freep))
     (when (and (<= (freelist-metadata-start range) start)
                (<= end (freelist-metadata-end range)))
       (when (eql (not (not freep)) (freelist-metadata-free-p range))
-        (error "Tried to free a free range or tried to allocate an allocated range."))
+        (do ((range *store-freelist-head*
+                  (freelist-metadata-next range)))
+          ((null range))
+        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
+        (panic "Tried to free a free range or tried to allocate an allocated range. "
+               start "-" end ":" freep " " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (cond
         ((and (eql (freelist-metadata-start range) start)
               (eql (freelist-metadata-end range) end))
@@ -148,12 +177,15 @@ Should be called with the freelist lock held."
          (cond ((and (freelist-metadata-next range)
                      (freelist-metadata-prev range))
                 ;; Both sides exist. Pick one to free and enlarge the other.
-                (setf (freelist-metadata-prev (freelist-metadata-next range)) (freelist-metadata-prev (freelist-metadata-prev range))
-                      (freelist-metadata-start (freelist-metadata-next range)) (freelist-metadata-start (freelist-metadata-prev range)))
-                (unless (freelist-metadata-prev (freelist-metadata-prev range))
-                  (setf *store-freelist-head* (freelist-metadata-next range)))
-                (freelist-free-metadata (freelist-metadata-prev range))
-                (freelist-free-metadata range))
+                (let ((before (freelist-metadata-prev range))
+                      (after (freelist-metadata-next range)))
+                  (setf (freelist-metadata-prev after) (freelist-metadata-prev before)
+                        (freelist-metadata-start after) (freelist-metadata-start before))
+                  (cond ((freelist-metadata-prev before)
+                         (setf (freelist-metadata-next (freelist-metadata-prev before)) after))
+                        (t (setf *store-freelist-head* after)))
+                  (freelist-free-metadata before)
+                  (freelist-free-metadata range)))
                ((freelist-metadata-next range)
                 (setf (freelist-metadata-prev (freelist-metadata-next range)) '()
                       (freelist-metadata-start (freelist-metadata-next range)) (freelist-metadata-start range)
@@ -173,8 +205,7 @@ Should be called with the freelist lock held."
          ;; Shrink, leaving start the same.
          (adjust-freelist-range-end range start))
         (t ;; Shrink from both sides. Feel the squeeze.
-         (adjust-freelist-range-start range end)
-         (adjust-freelist-range-end range start)))
+         (split-freelist-range range start end)))
       (return))))
 
 (defun store-free (start n-blocks)
