@@ -87,6 +87,7 @@
 
 (defun panic (&rest things)
   (declare (dynamic-extent things))
+  (set-panic-light)
   (sys.int::%sti)
   (debug-print-line-1 things)
   (do ((i 0 (1+ i))

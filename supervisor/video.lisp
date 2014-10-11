@@ -42,6 +42,11 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (error 'type-error
            :expected-type '(array (unsigned-byte 32) (* *))
            :datum from-array))
+  ;; Don't write to the top row of pixels, that's where the lights are.
+  (when (zerop to-row)
+    (incf to-row)
+    (incf from-row)
+    (decf nrows))
   ;; Dismember the from-array.
   (let ((from-offset 0)
         (from-storage (sys.int::%complex-array-storage from-array))
@@ -113,6 +118,13 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:rep)
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
+
+(defun set-panic-light ()
+  (when *current-framebuffer*
+    (let ((fb-addr (+ +physical-map-base+
+                      (framebuffer-base-address *current-framebuffer*))))
+      (dotimes (i (framebuffer-width *current-framebuffer*))
+        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) #xFFFF0000)))))
 
 (defmacro deflight (name colour position)
   (let ((setter (intern (format nil "SET-~A-LIGHT" name))))
