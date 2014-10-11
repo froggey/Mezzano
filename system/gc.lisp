@@ -108,12 +108,25 @@
 This is required to make the GC interrupt safe."
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
-    (let ((orig (gensym)))
+    (let ((orig (gensym "ORIG"))
+          (address (gensym "ADDRESS")))
       `(let* (,@(mapcar #'list vars vals)
-              (,orig ,getter)
-              (,(car stores) (scavenge-object ,orig)))
-       (when (not (eq ,orig ,(car stores)))
-         ,setter)))))
+              (,orig ,getter))
+         (cond ((and (not (immediatep ,orig))
+                     (eql (ldb (byte +address-tag-size+ +address-tag-shift+) (ash (%pointer-field ,orig) 4))
+                     +address-tag-stack+))
+                (let ((,address (ash (%pointer-field ,orig) 4)))
+                  ;; Special case stack values here, to avoid chasing cycles within
+                  ;; stack objects.
+                  (unless (eql (logand (ash 1 +address-mark-bit+) ,address) *dynamic-mark-bit*)
+                    ;; Write back first, then scan.
+                    (let ((,(car stores) (%%assemble-value (logxor (ash 1 +address-mark-bit+) ,address) (%tag-field ,orig))))
+                      ,setter
+                      (scan-object ,orig)))))
+               (t ;; Normal object, defer to scavenge-object.
+                (let ((,(car stores) (scavenge-object ,orig)))
+                  (when (not (eq ,orig ,(car stores)))
+                    ,setter))))))))
 
 (defun scavenge-many (address n)
   (dotimes (i n)
