@@ -55,7 +55,8 @@
       (incf total total-words))
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
-            (truncate (* total-used 100) total)))
+            (truncate (* total-used 100) total))
+    (format t "~:D words to next GC.~%" (truncate *memory-expansion-remaining* 8)))
   (values))
 
 (defun pinned-area-info (base limit)
@@ -140,7 +141,7 @@ This is required to make the GC interrupt safe."
          (return-address (memref-unsigned-byte-64 frame-pointer 1))
          (stack-pointer (+ frame-pointer 16)))
     (scan-thread (mezzanine.supervisor:current-thread))
-    (mumble "Scav GC stack")
+    (mezzanine.supervisor:debug-print-line "Scav GC stack")
     (scavenge-stack stack-pointer
                     (memref-unsigned-byte-64 frame-pointer 0)
                     return-address
@@ -173,10 +174,7 @@ This is required to make the GC interrupt safe."
        (%%assemble-value (logxor (ash 1 +address-mark-bit+) address) (%tag-field object))))))
 
 (defun scan-error (object)
-  (mumble-hex (lisp-object-address object))
-  (mumble " ")
-  (mumble-hex (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
-  (emergency-halt "unscannable object"))
+  (mezzanine.supervisor:panic "Unscannable object " object))
 
 (defun scan-generic (object size)
   "Scavenge SIZE words pointed to by OBJECT."
@@ -186,11 +184,12 @@ This is required to make the GC interrupt safe."
                                             layout-length n-args)
   (let ((n-values (max 0 (- n-args 5))))
     (when *gc-debug-scavenge-stack*
-      (mumble-hex n-args "  n-args ")
-      (mumble-hex n-values "  n-values ")
-      (if framep
-          (mumble-hex (+ frame-pointer 16) "  from " t)
-          (mumble-hex (+ stack-pointer (* (1+ layout-length) 8)) "  from " t)))
+      (mezzanine.supervisor:debug-print-line
+       "  n-args " n-args
+       "  n-values " n-values
+       "  from " (if framep
+                     (+ frame-pointer 16)
+                     (+ stack-pointer (* (1+ layout-length) 8)))))
     ;; There are N-VALUES values above the return address.
     (if framep
         ;; Skip saved fp and return address.
@@ -206,30 +205,30 @@ This is required to make the GC interrupt safe."
     (multiple-value-bind (offset bit)
         (truncate slot 8)
       (when *gc-debug-scavenge-stack*
-        (mumble-hex slot "ss: ")
-        (mumble-hex offset " ")
-        (mumble-hex bit ":")
-        (mumble-hex (memref-unsigned-byte-8 layout-address offset) "  " t))
+        (mezzanine.supervisor:debug-print-line
+         "ss: " slot " " offset ":" bit "  " (memref-unsigned-byte-8 layout-address offset)))
       (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
         (cond (framep
                (when *gc-debug-scavenge-stack*
-                 (mumble-hex (- -1 slot) "Scav stack slot ")
-                 (mumble-hex (lisp-object-address (memref-t frame-pointer (- -1 slot))) "  " t))
+                 (mezzanine.supervisor:debug-print-line
+                  "Scav stack slot " (- -1 slot)
+                  "  " (lisp-object-address (memref-t frame-pointer (- -1 slot)))))
                (scavengef (memref-t frame-pointer (- -1 slot))))
               (t
                (when *gc-debug-scavenge-stack*
-                 (mumble-hex slot "Scav no-frame stack slot ")
-                 (mumble-hex (lisp-object-address (memref-t stack-pointer slot)) "  " t))
+                 (mezzanine.supervisor:debug-print-line
+                  "Scav no-frame stack slot " slot
+                  "  " (lisp-object-address (memref-t stack-pointer slot))))
                (scavengef (memref-t stack-pointer slot)))))))
   (dotimes (slot pushed-values)
     (when *gc-debug-scavenge-stack*
-      (mumble-hex slot "Scav pv "))
+      (mezzanine.supervisor:debug-print-line "Scav pv " slot))
     (scavengef (memref-t stack-pointer slot)))
   ;; Scan incoming arguments.
   (when incoming-arguments
     ;; Stored as fixnum on the stack.
     (when *gc-debug-scavenge-stack*
-      (mumble-hex (- -1 incoming-arguments) "IA in slot "))
+      (mezzanine.supervisor:debug-print-line "IA in slot " (- -1 incoming-arguments)))
     (scavenge-stack-n-incoming-arguments
      frame-pointer stack-pointer framep
      layout-length
@@ -242,34 +241,32 @@ This is required to make the GC interrupt safe."
                           multiple-values incoming-arguments block-or-tagbody-thunk)
   (when *gc-debug-scavenge-stack*
     (if framep
-        (mumble "frame")
-        (mumble "no-frame"))
+        (mezzanine.supervisor:debug-print-line "frame")
+        (mezzanine.supervisor:debug-print-line "no-frame"))
     (if interruptp
-        (mumble "interrupt")
-        (mumble "no-interrupt"))
-    (mumble-hex pushed-values "pv: " t)
-    (mumble-hex (lisp-object-address pushed-values-register) "pvr: " t)
+        (mezzanine.supervisor:debug-print-line "interrupt")
+        (mezzanine.supervisor:debug-print-line "no-interrupt"))
+    (mezzanine.supervisor:debug-print-line "pv: " pushed-values)
+    (mezzanine.supervisor:debug-print-line "pvr: " pushed-values-register)
     (if multiple-values
-        (mumble-hex multiple-values "mv: " t)
-        (mumble "no-multiple-values"))
-    (mumble-hex layout-address "Layout addr: ")
-    (mumble-hex layout-length "  Layout len: " t)
-    (cond ((integerp incoming-arguments)
-           (mumble-hex incoming-arguments "ia: " t))
-          (incoming-arguments
-           (mumble-hex (lisp-object-address incoming-arguments) "ia: " t))
-          (t (mumble "no-incoming-arguments")))
+        (mezzanine.supervisor:debug-print-line "mv: " multiple-values)
+        (mezzanine.supervisor:debug-print-line "no-multiple-values"))
+    (mezzanine.supervisor:debug-print-line "Layout addr: " layout-address)
+    (mezzanine.supervisor:debug-print-line "  Layout len: " layout-length)
+    (cond (incoming-arguments
+           (mezzanine.supervisor:debug-print-line "ia: " incoming-arguments))
+          (t (mezzanine.supervisor:debug-print-line "no-incoming-arguments")))
     (if block-or-tagbody-thunk
-        (mumble-hex (lisp-object-address block-or-tagbody-thunk) "btt: " t)
-        (mumble "no-btt"))))
+        (mezzanine.supervisor:debug-print-line "btt: " block-or-tagbody-thunk)
+        (mezzanine.supervisor:debug-print-line "no-btt"))))
 
 (defun scavenge-stack (stack-pointer frame-pointer return-address interruptedp)
-  (when *gc-debug-scavenge-stack* (mumble "Scav stack..."))
+  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav stack..."))
   (when interruptedp
     ;; Thread has stopped due to an interrupted, stack-pointer points the start of
     ;; the thread's interrupt save area.
     ;; Examine it, then continue with normal stack scavenging.
-    (when *gc-debug-scavenge-stack* (mumble "Scav interrupted stack..."))
+    (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav interrupted stack..."))
     (setf frame-pointer (+ stack-pointer (* 14 8))) ; sp => interrupt frame
     (let* ((other-return-address (memref-unsigned-byte-64 frame-pointer 1))
            (other-frame-pointer (memref-unsigned-byte-64 frame-pointer 0))
@@ -278,11 +275,11 @@ This is required to make the GC interrupt safe."
            (other-fn-offset (- other-return-address other-fn-address))
            (other-fn (%%assemble-value other-fn-address +tag-object+)))
       (when *gc-debug-scavenge-stack*
-        (mumble-hex other-return-address "oRA: " t)
-        (mumble-hex other-frame-pointer "oFP: " t)
-        (mumble-hex other-stack-pointer "oSP: " t)
-        (mumble-hex other-fn-address "oFNa: " t)
-        (mumble-hex other-fn-offset "oFNo: " t))
+        (mezzanine.supervisor:debug-print-line "oRA: " other-return-address)
+        (mezzanine.supervisor:debug-print-line "oFP: " other-frame-pointer)
+        (mezzanine.supervisor:debug-print-line "oSP: " other-stack-pointer)
+        (mezzanine.supervisor:debug-print-line "oFNa: " other-fn-address)
+        (mezzanine.supervisor:debug-print-line "oFNo: " other-fn-offset))
       ;; Unconditionally scavenge the saved data registers.
       (scavengef (memref-t frame-pointer -12)) ; r8
       (scavengef (memref-t frame-pointer -11)) ; r9
@@ -309,24 +306,24 @@ This is required to make the GC interrupt safe."
                   (and (keywordp other-incoming-arguments) (not (eql other-incoming-arguments :rcx)))
                   other-block-or-tagbody-thunk)
           (let ((*gc-debug-scavenge-stack* t))
-            (mumble-hex other-return-address "oRA: " t)
-            (mumble-hex other-frame-pointer "oFP: " t)
-            (mumble-hex other-stack-pointer "oSP: " t)
-            (mumble-hex other-fn-address "oFNa: " t)
-            (mumble-hex other-fn-offset "oFNo: " t)
+            (mezzanine.supervisor:debug-print-line "oRA: " other-return-address)
+            (mezzanine.supervisor:debug-print-line "oFP: " other-frame-pointer)
+            (mezzanine.supervisor:debug-print-line "oSP: " other-stack-pointer)
+            (mezzanine.supervisor:debug-print-line "oFNa: " other-fn-address)
+            (mezzanine.supervisor:debug-print-line "oFNo: " other-fn-offset)
             (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
                                other-layout-address other-layout-length
                                other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-          (emergency-halt "TODO! GC SG stuff. (interrupt)"))
+          (mezzanine.supervisor:panic "TODO! GC SG stuff. (interrupt)"))
         (when (keywordp other-incoming-arguments)
           (when (not (eql other-incoming-arguments :rcx))
             (let ((*gc-debug-scavenge-stack* t))
               (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
                                  other-layout-address other-layout-length
                                  other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-            (emergency-halt "TODO? incoming-arguments not in RCX"))
+            (mezzanine.supervisor:panic "TODO? incoming-arguments not in RCX"))
           (setf other-incoming-arguments nil)
-          (mumble-hex (memref-t frame-pointer -2) "ia-count ")
+          (mezzanine.supervisor:debug-print-line "ia-count " (memref-t frame-pointer -2))
           (scavenge-stack-n-incoming-arguments
            other-frame-pointer other-stack-pointer other-framep
            other-layout-length
@@ -352,15 +349,15 @@ This is required to make the GC interrupt safe."
                (setf return-address (memref-unsigned-byte-64 stack-pointer -1)))))))
   (tagbody LOOP
      (when *gc-debug-scavenge-stack*
-       (mumble-hex stack-pointer "SP: " t)
-       (mumble-hex frame-pointer "FP: " t)
-       (mumble-hex return-address "RA: " t))
+       (mezzanine.supervisor:debug-print-line "SP: " stack-pointer)
+       (mezzanine.supervisor:debug-print-line "FP: " frame-pointer)
+       (mezzanine.supervisor:debug-print-line "RA: " return-address))
      (let* ((fn-address (base-address-of-internal-pointer return-address))
             (fn-offset (- return-address fn-address))
             (fn (%%assemble-value fn-address +tag-object+)))
        (when *gc-debug-scavenge-stack*
-         (mumble-hex fn-address "fn: " t)
-         (mumble-hex fn-offset "fnoffs: " t))
+         (mezzanine.supervisor:debug-print-line "fn: " fn-address)
+         (mezzanine.supervisor:debug-print-line "fnoffs: " fn-offset))
        (scavenge-object fn)
        (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                     layout-address layout-length
@@ -379,7 +376,7 @@ This is required to make the GC interrupt safe."
              (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                 layout-address layout-length
                                 multiple-values incoming-arguments block-or-tagbody-thunk))
-           (emergency-halt "TODO! GC SG stuff."))
+           (mezzanine.supervisor:panic "TODO! GC SG stuff."))
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
@@ -387,12 +384,12 @@ This is required to make the GC interrupt safe."
          (if (eql frame-pointer 0)
              (return-from scavenge-stack))
          (if (not framep)
-             (emergency-halt "No frame, but no end in sight?"))
+             (mezzanine.supervisor:panic "No frame, but no end in sight?"))
          (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                 stack-pointer (+ frame-pointer 16)
                 frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))
      (go LOOP))
-  (when *gc-debug-scavenge-stack* (mumble "Done scav stack.")))
+  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack.")))
 
 (defun scan-thread (object)
   ;; Scavenge various parts of the thread.
@@ -446,7 +443,7 @@ This is required to make the GC interrupt safe."
                    `(progn
                       (when (>= position length)
                         ,(if errorp
-                             `(emergency-halt "Reached end of GC Info??")
+                             `(mezzanine.supervisor:panic "Reached end of GC Info??")
                              `(debug-stack-frame framep interruptp pushed-values pushed-values-register
                                                  layout-address layout-length
                                                  multiple-values incoming-arguments block-or-tagbody-thunk))
@@ -638,10 +635,7 @@ This is required to make the GC interrupt safe."
     (t (scan-error object))))
 
 (defun transport-error (object)
-  (mumble-hex (lisp-object-address object))
-  (mumble " ")
-  (mumble-hex (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
-  (emergency-halt "untransportable object"))
+  (mezzanine.supervisor:panic "Untransportable object " object))
 
 (defun transport-object (object)
   "Transport LENGTH words from oldspace to newspace, returning
@@ -784,8 +778,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (when (not (eql (ldb (byte +array-type-size+ +array-type-shift+)
                                 (memref-unsigned-byte-64 address -2))
                            +object-tag-cons+))
-             (mumble-hex object)
-             (emergency-halt "Invalid pinned cons."))
+             (mezzanine.supervisor:debug-print-line "Invalid pinned cons " object))
            (when (not (eql (logand (memref-unsigned-byte-64 address -2)
                                    +array-like-mark-bit+)
                            *pinned-mark-bit*))
@@ -796,8 +789,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
              ;; And scan.
              (scan-object object)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
-               (mumble-hex object)
-               (emergency-halt "Marking freelist entry."))
+               (mezzanine.supervisor:debug-print-line
+                "Marking freelist entry " object))
              (when (not (eql (logand (memref-unsigned-byte-64 address 0)
                                           +array-like-mark-bit+)
                                   *pinned-mark-bit*))
@@ -809,7 +802,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (scan-object object))))))
 
 #+(or)(defun sweep-stacks ()
-  (mumble "sweeping stacks")
+  (mezzanine.supervisor:debug-print-line "sweeping stacks")
   (do* ((reversed-result nil)
         (last-free nil)
         (current *gc-stack-ranges* next)
@@ -844,11 +837,19 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (let ((general-finger 0)
         (cons-finger 0))
     (loop
+       (mezzanine.supervisor:debug-print-line
+        "General. Limit: " *general-area-limit*
+        "  Bump: " *general-area-bump*
+        "  Curr: " general-finger)
+       (mezzanine.supervisor:debug-print-line
+        "Cons.    Limit: " *cons-area-limit*
+        "  Bump: " *cons-area-bump*
+        "  Curr: " cons-finger)
        ;; Stop when both area sets have been fully scavenged.
        (when (and (eql general-finger *general-area-bump*)
                   (eql cons-finger *cons-area-bump*))
          (return))
-       (mumble "Scav main seq")
+       (mezzanine.supervisor:debug-print-line "Scav main seq")
        ;; Scavenge general area.
        (loop
           (when (eql general-finger *general-area-bump*)
@@ -903,17 +904,16 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun rebuild-freelist (freelist-symbol base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist."
-  (mumble "rebuild freelist")
-  (mumble (symbol-name freelist-symbol))
+  (mezzanine.supervisor:debug-print-line "rebuild freelist " freelist-symbol)
   ;; Set initial freelist entry.
   (let ((initial (find-next-free-object base limit)))
     (when (not initial)
       (setf (symbol-value freelist-symbol) '())
       (when *gc-debug-freelist-rebuild*
-        (mumble "done (empty)"))
+        (mezzanine.supervisor:debug-print-line "done (empty)"))
       (return-from rebuild-freelist))
     (when *gc-debug-freelist-rebuild*
-      (mumble-hex initial "initial: " t))
+      (mezzanine.supervisor:debug-print-line "initial: " initial))
     (setf (memref-unsigned-byte-64 initial 0) (make-freelist-header (size-of-pinned-area-allocation initial))
           (memref-t initial 1) '()
           (symbol-value freelist-symbol) initial))
@@ -924,11 +924,10 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +array-length-shift+)))
               (next-addr (+ current (* len 8))))
          (when *gc-debug-freelist-rebuild*
-           (mumble-hex len)
-           (mumble-hex next-addr "  next: " t))
+           (mezzanine.supervisor:debug-print-line "len: " len "  next: " next-addr))
          (when (>= next-addr limit)
            (when *gc-debug-freelist-rebuild*
-             (mumble "done (limit)"))
+             (mezzanine.supervisor:debug-print-line "done (limit)"))
            (when mezzanine.runtime::*paranoid-allocation*
              (dotimes (i (- len 2))
                (setf (memref-signed-byte-64 current (+ i 2)) -1)))
@@ -940,13 +939,13 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (setf next-addr (find-next-free-object current limit))
                 (when (not next-addr)
                   (when *gc-debug-freelist-rebuild*
-                    (mumble "done"))
+                    (mezzanine.supervisor:debug-print-line "done"))
                   (when mezzanine.runtime::*paranoid-allocation*
                     (dotimes (i (- len 2))
                       (setf (memref-signed-byte-64 current (+ i 2)) -1)))
                   (return))
                 (when *gc-debug-freelist-rebuild*
-                  (mumble-hex next-addr "adv: " t))
+                  (mezzanine.supervisor:debug-print-line "adv: " next-addr))
                 (setf (memref-unsigned-byte-64 next-addr 0) (make-freelist-header (size-of-pinned-area-allocation next-addr))
                       (memref-t next-addr 1) '())
                 (setf (memref-t current 1) next-addr
@@ -955,8 +954,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (setf (memref-unsigned-byte-64 current 0) (make-freelist-header (+ len (size-of-pinned-area-allocation next-addr))))))))))
 
 (defun gc-cycle ()
-  (set-gc-light)
-  (mumble "GC in progress...")
+  (mezzanine.supervisor::set-gc-light t)
+  (mezzanine.supervisor:debug-print-line "GC in progress...")
   ;; Clear per-cycle meters
   (setf *objects-copied* 0
         *words-copied* 0)
@@ -979,7 +978,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                              (logior +block-map-present+
                                                      +block-map-writable+
                                                      +block-map-zero-fill+))
-  (mumble "Scav roots")
+  (mezzanine.supervisor:debug-print-line "Scav roots")
   ;; Scavenge NIL to start things off.
   (scavenge-object 'nil)
   ;; And various important other roots.
@@ -1024,8 +1023,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
   (setf *memory-expansion-remaining* (* 32 1024 1024)) ; 32MB
-  (mumble "complete")
-  (clear-gc-light))
+  (mezzanine.supervisor:compact-block-freelist)
+  (mezzanine.supervisor:debug-print-line "GC complete")
+  (mezzanine.supervisor::set-gc-light nil))
 
 (defun base-address-of-internal-pointer (address)
   "Find the base address of the object pointed to be ADDRESS.

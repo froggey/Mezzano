@@ -161,6 +161,7 @@
            #:protect-memory-range
            #:release-memory-range
            #:debug-print-line
+           #:panic
            #:make-fifo
            #:fifo-push
            #:fifo-pop

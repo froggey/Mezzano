@@ -159,58 +159,6 @@
     (setf (symbol-value hook) '()))
   (pushnew function (symbol-value hook)))
 
-;;; GC/low level support/logging stuff.
-
-(defun set-gc-light ()
-  (mezzanine.supervisor::set-gc-light t))
-(defun clear-gc-light ()
-  (mezzanine.supervisor::set-gc-light nil))
-
-(defun emergency-halt (message)
-  (%cli)
-  (mumble-string message)
-  (low-level-backtrace nil nil)
-  (loop (%hlt)))
-
-(defun gc-trace (object direction prefix)
-  (setf (io-port/8 #xE9) (char-code direction))
-  (setf (io-port/8 #xE9) (logand (char-code prefix) #xFF))
-  (let ((pointer (%pointer-field object))
-        (tag (%tag-field object)))
-    (dotimes (i 15)
-      (setf (io-port/8 #xE9) (hexify (logand (ash pointer (* -4 (- 14 i))) #b1111))))
-    (setf (io-port/8 #xE9) (hexify tag))
-    (setf (io-port/8 #xE9) #x0A)))
-
-(defun mumble (message &optional (nl t))
-  (mumble-string message)
-  (when nl
-    (mumble-char #\Newline)))
-
-;;; Used while the GC is copying, so no lookup tables.
-(defun hexify (nibble)
-  (cond ((<= 0 nibble 9)
-         (+ nibble (char-code #\0)))
-        (t (+ (- nibble 10) (char-code #\A)))))
-
-(defun mumble-char (char &optional (position 0))
-  (let ((code (logand (char-code char) #xFF)))
-    (setf (io-port/8 #xE9) code)
-    (when (eql code #x0A)
-      (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
-      (setf (io-port/8 #x3F8) #x0D))
-    (loop (when (logbitp 5 (io-port/8 (+ #x3F8 5))) (return)))
-    (setf (io-port/8 #x3F8) code)))
-
-(defun mumble-string (message)
-  (dotimes (i (array-dimension message 0))
-    (mumble-char (char message i) i)))
-(defun mumble-hex (number &optional (message "") (nl nil))
-  (mumble-string message)
-  (dotimes (i 16)
-    (mumble-char (code-char (hexify (logand (ash number (* -4 (- 15 i))) #b1111))) i))
-  (when nl (mumble-char #\Newline)))
-
 ;;; Fake streams & fake stream functions, used by the mini loader to load
 ;;; multiboot/kboot modules.
 (defun mini-vector-stream (vector)
