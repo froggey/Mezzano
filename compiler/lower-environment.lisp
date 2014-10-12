@@ -81,6 +81,20 @@
              (not (localp variable)))
     (push variable (gethash *active-environment-vector* *environment-layout*))))
 
+(defun finalize-environment-layout (env)
+  ;; Inner environments must be DX, and every variable in this environment
+  ;; must only be accessed by DX lambdas.
+  (when (and *allow-dx-environment*
+             (every (lambda (var)
+                      (every (lambda (l)
+                               (or (eql (lexical-variable-definition-point var) l)
+                                   (eql (getf (lambda-information-plist l) 'extent) :dynamic)
+                                   (getf (lambda-information-plist l) 'declared-dynamic-extent)))
+                             (lexical-variable-used-in var)))
+                    (gethash env *environment-layout*)))
+    (setf (gethash env *environment-layout-dx*) t)
+    t))
+
 (defun compute-lambda-environment-layout (lambda)
   (let ((env-is-dx nil))
     (let ((*active-environment-vector* lambda)
@@ -108,18 +122,7 @@
       (when (lambda-information-rest-arg lambda)
         (maybe-add-environment-variable (lambda-information-rest-arg lambda)))
       (compute-environment-layout `(progn ,@(lambda-information-body lambda)))
-      ;; Inner environments must be DX, and every variable in this environment
-      ;; must only be accessed by DX lambdas.
-      (when (and *allow-dx-environment*
-                 (every (lambda (var)
-                          (every (lambda (l)
-                                   (or (eql (lexical-variable-definition-point var) l)
-                                       (eql (getf (lambda-information-plist l) 'extent) :dynamic)
-                                       (getf (lambda-information-plist l) 'declared-dynamic-extent)))
-                                 (lexical-variable-used-in var)))
-                        (gethash lambda *environment-layout*)))
-        (setf (gethash lambda *environment-layout-dx*) t)
-        (setf env-is-dx t)))
+      (setf env-is-dx (finalize-environment-layout lambda)))
     (unless env-is-dx
       (setf *allow-dx-environment* nil))))
 
@@ -127,28 +130,20 @@
   "TAGBODY defines a single variable in the enclosing environment and each group
 of statements opens a new contour."
   (maybe-add-environment-variable (second form))
-  (let ((last-tag (second form)))
-    (dolist (stmt (cddr form))
-      (cond ((go-tag-p stmt)
-             (setf last-tag stmt))
-            (t (let ((env-is-dx nil))
-                 (let ((*active-environment-vector* last-tag)
-                       (*allow-dx-environment* t))
-                   (compute-environment-layout stmt)
-                   ;; Inner environments must be DX, and every variable in this environment
-                   ;; must only be accessed by DX lambdas.
-                   (when (and *allow-dx-environment*
-                              (every (lambda (var)
-                                       (every (lambda (l)
-                                                (or (eql (lexical-variable-definition-point var) l)
-                                                    (eql (getf (lambda-information-plist l) 'extent) :dynamic)
-                                                    (getf (lambda-information-plist l) 'declared-dynamic-extent)))
-                                              (lexical-variable-used-in var)))
-                                     (gethash last-tag *environment-layout*)))
-                     (setf (gethash last-tag *environment-layout-dx*) t)
-                     (setf env-is-dx t)))
-                 (unless env-is-dx
-                   (setf *allow-dx-environment* nil))))))))
+  (let ((env-is-dx t))
+    (let ((*active-environment-vector* (second form))
+          (*allow-dx-environment* t))
+      (dolist (stmt (cddr form))
+        (cond ((go-tag-p stmt)
+               (unless (finalize-environment-layout *active-environment-vector*)
+                 (setf env-is-dx nil))
+               (setf *active-environment-vector* stmt
+                     *allow-dx-environment* t))
+              (t (compute-environment-layout stmt))))
+      (unless (finalize-environment-layout *active-environment-vector*)
+        (setf env-is-dx nil)))
+    (unless env-is-dx
+      (setf *allow-dx-environment* nil))))
 
 (defun compute-block-environment-layout (form)
   "BLOCK defines one variable."
