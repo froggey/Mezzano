@@ -608,7 +608,7 @@
        (#b111011 'object-tag-111011)
        (#b111100 'compiled-function)
        (#b111101 'closure)
-       (#b111110 '(class-name (class-of object)))
+       (#b111110 (class-name (class-of object)))
        (#b111111 'object-tag-111111)))
     (#b1010 'fixnum)
     (#b1011 (cond ((standard-char-p object)
