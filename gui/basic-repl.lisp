@@ -177,11 +177,16 @@
          (window (mezzanine.gui.compositor:make-window fifo 640 480))
          (framebuffer (mezzanine.gui.compositor:window-buffer window))
          (term (make-instance 'basic-repl
-                                       :fifo fifo
-                                       :window window
-                                       :thread (mezzanine.supervisor:current-thread)))
-         (*standard-input* term)
-         (*standard-output* term))
+                              :fifo fifo
+                              :window window
+                              :thread (mezzanine.supervisor:current-thread)))
+         (*terminal-io* term)
+         (*standard-input* (make-synonym-stream '*terminal-io*))
+         (*standard-output* *standard-input*)
+         (*error-output* *standard-input*)
+         (*query-io* *standard-input*)
+         (*trace-output* *standard-input*)
+         (*debug-io* *standard-input*))
     (mezzanine.gui:bitset (mezzanine.gui.compositor:height window)
                           (mezzanine.gui.compositor:width window)
                           (background-colour term)
