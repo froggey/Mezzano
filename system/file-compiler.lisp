@@ -391,7 +391,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                                    (sys.c::compile-lambda `(lambda () (progn ,f))
                                                                           (cons env nil)))))
                                  (lambda (f env)
-                                   (sys.eval::eval-in-lexenv f env)))
+                                   (eval-in-lexenv f env)))
           (incf *top-level-form-number*))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
