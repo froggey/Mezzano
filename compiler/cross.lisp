@@ -50,6 +50,8 @@
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))
 
+;;; Watch out, package exports below here must be kept in sync with package.lisp
+
 (defpackage :system.compiler
   (:nicknames :sys.c)
   (:export :compile
@@ -121,7 +123,18 @@
            :funcallable-standard-object))
 
 (defpackage :system.closette
-  (:nicknames :sys.clos))
+  (:nicknames :sys.clos :clos)
+  (:use :cross-cl)
+  (:import-from :sys.int
+		:allocate-std-instance
+		:std-instance-p
+		:std-instance-class
+		:std-instance-slots
+                :allocate-funcallable-std-instance
+                :funcallable-std-instance-p
+                :funcallable-std-instance-function
+                :funcallable-std-instance-class
+                :funcallable-std-instance-slots))
 
 (defpackage :sys.format)
 
