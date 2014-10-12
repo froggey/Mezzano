@@ -221,7 +221,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
   "Returns the thread object for the calling thread."
   (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
 
-(defun %make-thread (function &key name initial-bindings stack-size)
+(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
+  (check-type function (or function symbol))
   ;; FIXME: need to make te GC aware of partially initialized threads.
   (let* ((thread (mezzanine.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
@@ -269,14 +270,6 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
       (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
             pointer)
       (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
-    thread))
-
-(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
-  (check-type function (or function symbol))
-  (let ((thread (%make-thread function
-                              :name name
-                              :initial-bindings initial-bindings
-                              :stack-size stack-size)))
     (with-symbol-spinlock (*global-thread-lock*)
       (push-run-queue thread))
     thread))
