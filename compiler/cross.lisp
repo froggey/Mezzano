@@ -160,6 +160,7 @@
            #:snapshot
            #:protect-memory-range
            #:release-memory-range
+           #:compact-block-freelist
            #:debug-print-line
            #:panic
            #:make-fifo

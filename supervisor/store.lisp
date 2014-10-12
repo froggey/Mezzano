@@ -256,3 +256,6 @@ Should be called with the freelist lock held."
              (t (setf *store-freelist-block* freelist-block
                       *store-freelist-block-offset* last-entry-offset)
                 (return))))))
+
+(defun compact-block-freelist ()
+  )
