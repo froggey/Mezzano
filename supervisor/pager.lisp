@@ -405,7 +405,6 @@
 (defun wait-for-page-via-interrupt (interrupt-frame address)
   "Called by the page fault handler when a non-present page is accessed.
 It will put the thread to sleep, while it waits for the page."
-  #+(or)(debug-print-line "WFP " address)
   (let ((self (current-thread)))
     (acquire-mutex *pager-lock*)
     (%lock-thread self)

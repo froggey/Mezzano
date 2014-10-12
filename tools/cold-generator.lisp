@@ -57,12 +57,6 @@
     "system/time.lisp"
 ))
 
-
-  #+nil'(
-    "cold-stream.lisp"
-    "pci.lisp"
-    "framebuffer.lisp")
-
 (defparameter *special-source-files*
   '(("system/packages.lisp" sys.int::*package-system*)))
 
@@ -96,26 +90,16 @@
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
     "system/file-compiler.lisp"
-   ))
-
-(defparameter *more-warm-source-files*
-  '(;"drivers/keyboard.lisp"
-    "framebuffer-stream.lisp"
-    "drivers/bochs-vbe.lisp"
+    "gui/package.lisp"
+    "gui/blit.lisp"
+    "gui/compositor.lisp"
+    "gui/input-drivers.lisp"
+    "system/unifont.lisp"
+    "gui/basic-repl.lisp"
     "ethernet.lisp"
-    "drivers/rtl8139.lisp"
-    "drivers/virtio-net.lisp"
-    "graphics.lisp"
-    "blit.lisp"
-    "windows.lisp"
-    "misc.lisp"
-    "peek.lisp"
-    "xterm.lisp"
-    "system/time.lisp"
-    "file.lisp"
-    "telnet.lisp"
-    "irc.lisp"
-    "mandelbrot.lisp"))
+    "file.lisp"))
+
+;; Apps that need to be updated: peek, xterm, telnet, irc, mandelbrot
 
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)

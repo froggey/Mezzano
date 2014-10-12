@@ -32,31 +32,6 @@
                  (fresh-line)
                  (write v)))))))))
 
-(defun run ()
-  (sys.net::net-setup)
-  (when (null sys.graphics::*screens*)
-    (cond (*bochs-framebuffer*
-           (sys.graphics::register-screen :bochs *bochs-framebuffer* *bochs-back-buffer* 'bochs-flip-buffer))
-          ((eql (first *cold-stream-screen*) :framebuffer)
-           (let ((buffer (make-array (array-dimensions (second *cold-stream-screen*))
-                                     :element-type '(unsigned-byte 32)))
-                 (width (second (array-dimensions (second *cold-stream-screen*))))
-                 (height (first (array-dimensions (second *cold-stream-screen*)))))
-             (sys.graphics::register-screen :cold-framebuffer buffer buffer
-                                            (lambda ()
-                                              (%bitblt height width buffer 0 0 (second *cold-stream-screen*) 0 0)))))
-          ((typep *terminal-io* 'framebuffer-stream)
-           (let ((fb (slot-value *terminal-io* 'framebuffer))
-                 (buffer (make-array (array-dimensions fb)
-                                     :element-type '(unsigned-byte 32)))
-                 (width (second (array-dimensions fb)))
-                 (height (first (array-dimensions fb))))
-             (sys.graphics::register-screen :framebuffer buffer buffer
-                                            (lambda ()
-                                              (%bitblt height width buffer 0 0 fb 0 0)))))
-          (t (error "No screens."))))
-  (sys.graphics::invoke-graphics))
-
 (defun hexdump-range (start end &optional stream)
   (when (< start end)
     (write-sequence (make-array (- end start)
@@ -278,13 +253,6 @@
 (defmethod print-object ((object package) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~:(~S~)" (package-shortest-name object))))
-
-(defmethod print-object ((object pci-device) stream)
-  (print-unreadable-object (object stream :type t)
-    (format stream "~2,'0X:~X:~X"
-            (pci-device-bus object)
-            (pci-device-device object)
-            (pci-device-function object))))
 
 (defmethod print-object ((o structure-definition) stream)
   (print-unreadable-object (o stream :identity t :type t)
