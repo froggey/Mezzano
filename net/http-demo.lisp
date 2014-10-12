@@ -4,11 +4,6 @@
 
 (in-package :http-demo)
 
-(defun send (stream control-string &rest arguments)
-  "Buffered FORMAT."
-  (declare (dynamic-extent argument))
-  (write-sequence (apply 'format nil control-string arguments) stream))
-
 (defun parse-http-request (line)
   (format t "Parsing request ~S.~%" line)
   (let ((request nil)
@@ -106,45 +101,46 @@
                         (demo-file stream))
                        ((and (equalp path '("logo300x100.jpg"))
                              (boundp 'sys.int::*logo300x100.jpg*))
-                        (send stream "HTTP/1.0 200 OK~%~%")
+                        (sys.net:send stream "HTTP/1.0 200 OK~%~%")
                         (write-sequence sys.int::*logo300x100.jpg* stream))
                        ((equalp path '("logo300x100.jpg"))
                         (with-open-file (s "logo300x100.jpg"
                                            :element-type '(unsigned-byte 8)
                                            :if-does-not-exist nil)
-                          (cond (s (send stream "HTTP/1.0 200 OK~%~%")
+                          (cond (s (sys.net:send stream "HTTP/1.0 200 OK~%~%")
                                    (let* ((file-size (file-length s))
                                           (buf (make-array file-size :element-type '(unsigned-byte 8))))
                                      (read-sequence buf s)
                                      (write-sequence buf stream)))
-                                (t (send stream "HTTP/1.0 404 Not Found~%~%")))))
-                       (t (send stream "HTTP/1.0 404 Not Found~%~%"))))
-                (t (send stream "HTTP/1.0 400 Bad Request~%~%"))))))))
+                                (t (sys.net:send stream "HTTP/1.0 404 Not Found~%~%")))))
+                       (t (sys.net:send stream "HTTP/1.0 404 Not Found~%~%"))))
+                (t (sys.net:send stream "HTTP/1.0 400 Bad Request~%~%"))))))))
 
 (defun http-server (connection-queue)
   (loop
-     (let ((connection (sys.int::fifo-pop connection-queue)))
+     (let ((connection (mezzanine.supervisor:fifo-pop connection-queue)))
        (ignore-errors (serve-request connection)))))
 
-(defun start-http-server-1 ()
-  (let ((process (sys.int::make-process "HTTP server"))
-        (connection-queue (sys.int::make-fifo 200 "HTTP connection queue")))
-    (setf (symbol-value connection-queue) '())
-    (sys.int::process-preset process #'http-server connection-queue)
-    (sys.int::process-enable process)
-    (values process
-            (lambda (connection)
-              (when (not (sys.int::fifo-push
-                          (make-instance 'sys.net::tcp-stream :connection connection)
-                          connection-queue))
-                ;; Drop connections when they can't be handled.
-                (close connection)))
-            connection-queue)))
-
 (defun start-http-server (&optional (port 80))
-  (multiple-value-bind (server-process listen-function)
-      (start-http-server-1)
+  (let* ((connection-queue (mezzanine.supervisor:make-fifo 50))
+         (server-thread (mezzanine.supervisor:make-thread (lambda () (http-server connection-queue))
+                                                          :name "HTTP server"))
+         (listen-function (lambda (connection)
+                            (when (not (mezzanine.supervisor:fifo-push
+                                        (make-instance 'sys.net::tcp-stream :connection connection)
+                                        connection-queue
+                                        nil))
+                              ;; Drop connections when they can't be handled.
+                              (close connection)))))
     (setf sys.net::*server-alist* (remove port sys.net::*server-alist*
                                           :key #'first))
     (push (list port listen-function) sys.net::*server-alist*)
-    (values server-process listen-function)))
+    (values server-thread listen-function connection-queue)))
+
+(defvar *http-server-thread* nil)
+(defvar *http-server-listen-function* nil)
+(defvar *http-server-connection-queue* nil)
+
+(when (not *http-server-thread*)
+  (multiple-value-setq (*http-server-thread* *http-server-function* *http-server-connection-queue*)
+    (start-http-server)))

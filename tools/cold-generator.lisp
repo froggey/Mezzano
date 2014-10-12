@@ -96,7 +96,7 @@
     "gui/input-drivers.lisp"
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
-    "ethernet.lisp"
+    "net/ethernet.lisp"
     "file.lisp"))
 
 ;; Apps that need to be updated: peek, xterm, telnet, irc, mandelbrot
