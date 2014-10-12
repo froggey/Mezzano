@@ -274,7 +274,7 @@
       (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
        (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
       (#.+object-tag-closure+ ;; Closure.
-       (function-name (memref-t address 4)))
+       (function-name (%array-like-ref-t function 1)))
       (#.+object-tag-funcallable-instance+
        (multiple-value-bind (lambda closurep name)
            (funcallable-instance-lambda-expression function)
@@ -289,7 +289,7 @@
       (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
        (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
       (#.+object-tag-closure+ ;; Closure.
-       (values nil t (function-name (memref-t address 4))))
+       (values nil t (function-name (%array-like-ref-t function 1))))
       (#.+object-tag-funcallable-instance+
        (funcallable-instance-lambda-expression function)))))
 
@@ -301,7 +301,7 @@
       (#.+object-tag-function+ ;; Regular function. second entry in the constant pool.
        (memref-t address (1+ (* (logand (ash info -16) #xFFFF) 2))))
       (#.+object-tag-closure+ ;; Closure.
-       (function-debug-info (memref-t address 4)))
+       (function-debug-info (%array-like-ref-t function 1)))
       (#.+object-tag-funcallable-instance+
        (funcallable-instance-debug-info function)))))
 
