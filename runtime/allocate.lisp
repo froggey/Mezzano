@@ -105,7 +105,7 @@
 
 (defun %allocate-object (tag data size area)
   (when sys.int::*gc-in-progress*
-    (sys.int::emergency-halt "Allocating during GC!"))
+    (mezzanine.supervisor:panic "Allocating during GC!"))
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
@@ -186,7 +186,7 @@
 
 (defun sys.int::cons-in-area (car cdr &optional area)
   (when sys.int::*gc-in-progress*
-    (sys.int::emergency-halt "Allocating during GC!"))
+    (mezzanine.supervisor:panic "Allocating during GC!"))
   (ecase area
     ((nil) (cons car cdr))
     (:pinned
@@ -213,7 +213,7 @@
 
 (defun cons (car cdr)
   (when sys.int::*gc-in-progress*
-    (sys.int::emergency-halt "Allocating during GC!"))
+    (mezzanine.supervisor:panic "Allocating during GC!"))
   (tagbody
    OUTER-LOOP
      (mezzanine.supervisor:with-mutex (*allocator-lock*)
