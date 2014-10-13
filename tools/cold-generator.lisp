@@ -97,7 +97,8 @@
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
     "net/ethernet.lisp"
-    "file.lisp"))
+    "file/fs.lisp"
+    "file/simple-file-client.lisp"))
 
 ;; Apps that need to be updated: peek, xterm, telnet, irc, mandelbrot
 
