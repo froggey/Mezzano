@@ -72,7 +72,7 @@
       (push (subseq string elt-start i) elements)
       (setf elt-start (1+ i)))))
 
-(defun parse-simple-file-path (host namestring default-pathname)
+(defun parse-simple-file-path (host namestring)
   (let ((start 0)
         (end (length namestring))
         (directory '())
@@ -80,8 +80,7 @@
         (type nil)
         (version nil))
     (when (eql start end)
-      (return-from parse-simple-file-path (make-pathname :host host
-                                                         :defaults default-pathname)))
+      (return-from parse-simple-file-path (make-pathname :host host)))
     (cond ((eql (char namestring start) #\/)
            (push :absolute directory)
            (incf start))
@@ -120,13 +119,12 @@
                    :directory (nreverse directory)
                    :name name
                    :type type
-                   :version version
-                   :defaults default-pathname)))
+                   :version version)))
 
-(defmethod parse-namestring-using-host ((host simple-file-host) namestring default-pathname junk-allowed)
+(defmethod parse-namestring-using-host ((host simple-file-host) namestring junk-allowed)
   (when junk-allowed
     (error "TODO: Junk-allowed"))
-  (parse-simple-file-path host namestring default-pathname))
+  (parse-simple-file-path host namestring))
 
 (defun unparse-simple-file-path (pathname)
   (let ((dir (pathname-directory pathname))

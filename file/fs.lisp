@@ -24,24 +24,38 @@
 
 (defvar *host-alist* '())
 
-(defun find-host (name &optional errorp)
+(define-condition unknown-host (error)
+  ((host :initarg :host :reader unknown-host-host))
+  (:report (lambda (condition stream)
+             (format stream "Unknown host ~S." (unknown-host-host condition)))))
+
+(defun find-host (name &optional (errorp t))
   (setf name (string-upcase (string name)))
   (if (zerop (length name))
       (pathname-host *default-pathname-defaults*)
       (or (second (assoc name *host-alist* :test 'string=))
           (when errorp
-            (error "Unknown host ~S." name)))))
+            (error 'unknown-host :host name)))))
 
 (defun (setf find-host) (new-value name &optional errorp)
   (setf name (string-upcase (string name)))
   (assert (not (zerop (length name))))
   (push (list name new-value) *host-alist*))
 
-(defstruct (pathname (:predicate pathnamep) (:constructor %make-pathname))
-  %host %device %directory %name %type %version)
+(defclass pathname ()
+  ((%host :initarg :host :accessor pathname-%host)
+   (%device :initarg :device :accessor pathname-%device)
+   (%directory :initarg :directory :accessor pathname-%directory)
+   (%name :initarg :name :accessor pathname-%name)
+   (%type :initarg :type :accessor pathname-%type)
+   (%version :initarg :version :accessor pathname-%version))
+  (:default-initargs :device nil :directory nil :name nil :type nil :version nil))
+
+(defun pathnamep (object)
+  (typep object 'pathname))
 
 ;; This should really have a host associated with it...
-(defvar *default-pathname-defaults* (%make-pathname))
+(defvar *default-pathname-defaults* (make-instance 'pathname :host nil))
 
 (defun make-pathname (&key host
                         (device nil devicep)
@@ -52,13 +66,14 @@
                         defaults)
   (if defaults
       (setf defaults (pathname defaults))
-      (setf defaults (%make-pathname :%host (pathname-host *default-pathname-defaults*))))
-  (%make-pathname :%host (or host (pathname-host defaults))
-                  :%device (if devicep device (pathname-device defaults))
-                  :%directory (if directoryp directory (pathname-directory defaults))
-                  :%name (if namep name (pathname-name defaults))
-                  :%type (if typep type (pathname-type defaults))
-                  :%version (if versionp version (pathname-version defaults))))
+      (setf defaults (make-instance 'pathname :host (pathname-host *default-pathname-defaults*))))
+  (make-instance 'pathname
+                 :host (or host (pathname-host defaults))
+                 :device (if devicep device (pathname-device defaults))
+                 :directory (if directoryp directory (pathname-directory defaults))
+                 :name (if namep name (pathname-name defaults))
+                 :type (if typep type (pathname-type defaults))
+                 :version (if versionp version (pathname-version defaults))))
 
 (defun pathname-host (pathname &key (case :local))
   (pathname-%host (pathname pathname)))
@@ -214,7 +229,7 @@
     (:type (eql (pathname-type pathname) :wild))
     (:version (eql (pathname-version pathname) :wild))))
 
-(defgeneric parse-namestring-using-host (host namestring default-pathname junk-allowed))
+(defgeneric parse-namestring-using-host (host namestring junk-allowed))
 
 (defun parse-namestring (thing &optional host (default-pathname *default-pathname-defaults*) &key (start 0) (end nil) junk-allowed)
   (setf thing (sys.int::follow-synonym-stream thing))
@@ -245,7 +260,7 @@
                  (t (setf host other-host)))))
        (setf default-pathname (pathname default-pathname))
        (parse-namestring-using-host (or host (pathname-host default-pathname))
-                                    rest-of-path default-pathname junk-allowed)))))
+                                    rest-of-path junk-allowed)))))
 
 (defun valid-hostname-character-p (character)
   (find character *valid-hostname-characters*))
