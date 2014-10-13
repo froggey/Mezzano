@@ -417,7 +417,7 @@
 
 (defun subclassp (class-1 class-2)
   (let ((c1 (if (typep class-1 'standard-class) class-1 (find-class class-1 nil))))
-    (cond (c1 (values (member class-2 (sys.clos::class-precedence-list class-1)) t))
+    (cond (c1 (values (member class-2 (sys.clos::class-precedence-list c1)) t))
           (t (values nil nil)))))
 
 (defun typep (object type-specifier &optional environment)
