@@ -618,16 +618,16 @@
 (defun ensure-class (name &rest all-keys
                           &key (metaclass the-class-standard-class)
                           &allow-other-keys)
-  (if (find-class name nil)
-      (error "Can't redefine the class named ~S." name)
-      (let ((class (apply (cond ((eq metaclass the-class-standard-class)
-                                 #'make-instance-standard-class)
-                                ((eq metaclass the-class-funcallable-standard-class)
-                                 #'make-instance-funcallable-standard-class)
-                                (t #'make-instance))
-                          metaclass :name name all-keys)))
-        (setf (find-class name) class)
-        class)))
+  (when (find-class name nil)
+    (cerror "Smash the existing class." "Can't redefine the class named ~S." name))
+  (let ((class (apply (cond ((eq metaclass the-class-standard-class)
+                             #'make-instance-standard-class)
+                            ((eq metaclass the-class-funcallable-standard-class)
+                             #'make-instance-funcallable-standard-class)
+                            (t #'make-instance))
+                      metaclass :name name all-keys)))
+    (setf (find-class name) class)
+    class))
 
 ;;; make-instance-standard-class creates and initializes an instance of
 ;;; standard-class without falling into method lookup.  However, it cannot be
