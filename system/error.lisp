@@ -41,10 +41,6 @@
 (define-condition division-by-zero (arithmetic-error)
   ())
 
-(define-condition file-error (error)
-  ((pathname :initarg :pathname
-	     :reader file-error-pathname)))
-
 (define-condition invalid-index-error (error)
   ((array :initarg :array
 	  :reader invalid-index-error-array)

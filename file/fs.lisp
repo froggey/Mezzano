@@ -12,9 +12,17 @@
            #:rename-file-using-host
            #:file-write-date-using-host
            #:delete-file-using-host
-           #:file-stream-pathname))
+           #:file-stream-pathname
+           #:simple-file-error))
 
 (in-package :mezzanine.file-system)
+
+(define-condition file-error (error)
+  ((pathname :initarg :pathname
+	     :reader file-error-pathname)))
+
+(define-condition simple-file-error (file-error simple-error)
+  ())
 
 (defgeneric file-stream-pathname (stream))
 

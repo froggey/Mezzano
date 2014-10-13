@@ -191,8 +191,6 @@
      (with-standard-io-syntax
        ,@body)))
 
-(define-condition simple-file-error (file-error simple-error) ())
-
 (defmethod open-using-host ((host simple-file-host) pathname
                             &key direction element-type if-exists if-does-not-exist external-format)
   (let ((path (unparse-simple-file-path pathname))
