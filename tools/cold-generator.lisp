@@ -397,7 +397,7 @@
         (unbound-val (allocate 2 :wired))
         (unbound-tls-val (allocate 2 :wired))
         (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired))
-        (closure-tramp (compile-lap-function *closure-trampoline-address* :area :wired)))
+        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
