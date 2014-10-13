@@ -276,3 +276,6 @@
           (when x
             (setf *traced-functions* (delete x *traced-functions*))
             (setf (fdefinition (first x)) (second x)))))))
+
+(defmacro untrace (&rest functions)
+  `(%untrace ,(loop for fn in functions collect `',fn)))
