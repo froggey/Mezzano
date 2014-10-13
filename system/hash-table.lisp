@@ -201,7 +201,7 @@ is below the rehash-threshold."
     (eq (eq-hash key))
     (eql (eql-hash key))
     (equal (sxhash key))
-    (equalp (error "Not supported."))))
+    (equalp (equalp-hash key))))
 
 (defun eq-hash (object)
   (lisp-object-address object))
@@ -231,3 +231,23 @@ is below the rehash-threshold."
 
 (defun sxhash (object)
   (sxhash-1 object 10))
+
+(defun equalp-hash (object &optional (depth 10))
+  ;; this is woefully incomplete...
+  (if (zerop depth)
+      #x12345678
+      (typecase object
+        (cons (logxor (equalp-hash (car object) (1- depth))
+                      (equalp-hash (cdr object) (1- depth))))
+        ;;(pathname ...)
+        (character (char-int (char-upcase object)))
+        (string
+         ;; djb2 string hash
+         ;; We use 25-bit characters (unicode+bucky bits), instead of 8-bit chars.
+         ;; I'm unsure how that'll change the behaviour of the hash function
+         (let ((hash 5381))
+           (dotimes (i (length object) hash)
+             (setf hash (logand #xFFFFFFFF (+ (logand #xFFFFFFFF (* hash 33))
+                                              (char-int (char-upcase (char object i)))))))))
+        (symbol (eql-hash object))
+        (t 0))))
