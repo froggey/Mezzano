@@ -10,8 +10,6 @@
                #:alexandria)
   :components ((:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
-               (:file "kboot")
                (:file "tools/cold-generator"
                 :depends-on ("tools/build-unicode"
-                             "tools/build-pci-ids"
-                             "kboot"))))
+                             "tools/build-pci-ids"))))
