@@ -21,6 +21,9 @@
             (host-address object)
             (host-port object))))
 
+(defmethod host-default-device ((host simple-file-host))
+  nil)
+
 (defclass simple-file-stream (sys.gray:fundamental-binary-input-stream
                               sys.gray:fundamental-binary-output-stream
                               file-stream)
@@ -56,7 +59,7 @@
 (defun add-simple-file-host (name address &key (port *default-simple-file-port*))
   (setf (find-host name)
         (make-instance 'simple-file-host
-                       :name name
+                       :name (string-upcase name)
                        :address address
                        :port port)))
 

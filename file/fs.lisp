@@ -1,7 +1,9 @@
 (defpackage :mezzanine.file-system
   (:use #:cl)
   (:export #:find-host
+           #:unknown-host
            #:host-name
+           #:host-default-device
            #:parse-namestring-using-host
            #:unparse-pathname
            #:unparse-pathname-file
@@ -29,6 +31,7 @@
 (defvar *valid-hostname-characters* "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")
 
 (defgeneric host-name (host))
+(defgeneric host-default-device (host))
 
 (defvar *host-alist* '())
 
@@ -38,12 +41,15 @@
              (format stream "Unknown host ~S." (unknown-host-host condition)))))
 
 (defun find-host (name &optional (errorp t))
-  (setf name (string-upcase (string name)))
-  (if (zerop (length name))
-      (pathname-host *default-pathname-defaults*)
-      (or (second (assoc name *host-alist* :test 'string=))
-          (when errorp
-            (error 'unknown-host :host name)))))
+  (typecase name
+    ((or string symbol)
+     (setf name (string-upcase (string name)))
+     (if (zerop (length name))
+         (pathname-host *default-pathname-defaults*)
+         (or (second (assoc name *host-alist* :test 'string=))
+             (when errorp
+               (error 'unknown-host :host name)))))
+    (t name)))
 
 (defun (setf find-host) (new-value name &optional errorp)
   (setf name (string-upcase (string name)))
@@ -76,7 +82,7 @@
       (setf defaults (pathname defaults))
       (setf defaults (make-instance 'pathname :host (pathname-host *default-pathname-defaults*))))
   (make-instance 'pathname
-                 :host (or host (pathname-host defaults))
+                 :host (if host (find-host host) (pathname-host defaults))
                  :device (if devicep device (pathname-device defaults))
                  :directory (if directoryp directory (pathname-directory defaults))
                  :name (if namep name (pathname-name defaults))
@@ -306,6 +312,10 @@ NAMESTRING as the second."
   (check-type if-does-not-exist (member :error :create nil))
   (let* ((path (merge-pathnames filespec))
          (host (pathname-host path)))
+    (when (wild-pathname-p path)
+      (error 'simple-file-error
+             :pathname filespec
+             :format-control "Wild pathname specified."))
     (unless if-exists-p
       (setf if-exists (if (eql (pathname-version path) :newest)
                           :new-version
