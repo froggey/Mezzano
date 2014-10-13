@@ -98,7 +98,8 @@
     "gui/basic-repl.lisp"
     "net/ethernet.lisp"
     "file/fs.lisp"
-    "file/remote.lisp"))
+    "file/remote.lisp"
+    "ipl.lisp"))
 
 ;; Apps that need to be updated: peek, xterm, telnet, irc, mandelbrot
 

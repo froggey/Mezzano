@@ -494,8 +494,3 @@
       (unless (eql x :ok)
         (error "Error: ~A ~S." path x))
       x)))
-
-(add-simple-file-host :that-mac-thing '(192 168 1 13))
-(setf *default-pathname-defaults* (make-pathname :host (second (first mezzanine.file-system::*host-alist*))
-                                                 :directory '(:absolute "Users" "henry" "Documents" "Mezzanine")))
-(setf mezzanine.file-system::*home-directory* (make-pathname :directory '(:absolute "Users" "henry" "Documents" "Old Mezzanine Stuff" "LispOS-home")))
