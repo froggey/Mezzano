@@ -316,12 +316,15 @@
 (defun read-line (&optional (input-stream *standard-input*) (eof-error-p t) eof-value recursive-p)
   (with-stream-editor (input-stream recursive-p)
     (do ((result (make-array 80 :element-type 'character :adjustable t :fill-pointer 0))
-         (c (read-char input-stream eof-error-p nil recursive-p)
-            (read-char input-stream eof-error-p nil recursive-p)))
+         (c (read-char input-stream nil nil recursive-p)
+            (read-char input-stream nil nil recursive-p)))
         ((or (null c)
              (eql c #\Newline))
          (if (and (null c) (eql (length result) 0))
-             (values eof-value t)
+             ;; At EOF and no data read.
+             (if eof-error-p
+                 (error 'end-of-file :stream input-stream)
+                 (values eof-value t))
              (values result (null c))))
       (vector-push-extend c result))))
 
