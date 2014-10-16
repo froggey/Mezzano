@@ -144,3 +144,4 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 (deflight gc #xFFFF00FF 2)
 (deflight run #xFF00FFFF 3)
 (deflight snapshot #xFFFFFF00 4)
+(deflight paging #xFFFF8000 5)
