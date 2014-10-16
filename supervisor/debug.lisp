@@ -85,8 +85,15 @@
   (when (boundp '*debug-pesudostream*)
     (funcall *debug-pesudostream* :force-output)))
 
+(defvar *panic-in-progress* nil)
+
 (defun panic (&rest things)
   (declare (dynamic-extent things))
+  (when (and (boundp '*panic-in-progress*)
+             *panic-in-progress*)
+    (sys.int::%cli)
+    (loop (sys.int::%hlt)))
+  (setf *panic-in-progress* t)
   (set-panic-light)
   (sys.int::%sti)
   (debug-print-line-1 things)
@@ -95,4 +102,4 @@
            (sys.int::memref-unsigned-byte-64 fp 0)))
       ((eql fp 0))
     (debug-print-line fp " " (sys.int::memref-unsigned-byte-64 fp 1)))
-  (loop))
+  (loop (sys.int::%hlt)))
