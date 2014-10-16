@@ -343,11 +343,11 @@ NAMESTRING as the second."
       (close stream)
       pathspec)))
 
-(defgeneric directory-using-host (host path))
+(defgeneric directory-using-host (host path &key))
 
-(defun directory (pathspec &key)
+(defun directory (pathspec &rest args &key &allow-other-keys)
   (let ((path (merge-pathnames pathspec)))
-    (directory-using-host (pathname-host path) path)))
+    (apply #'directory-using-host (pathname-host path) path args)))
 
 (defun translate-logical-pathname (pathname &key)
   (pathname pathname))
