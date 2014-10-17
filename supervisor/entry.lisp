@@ -293,23 +293,7 @@ Returns two values, the packet data and the receiving NIC."
       (setf mezzanine.runtime::*tls-lock* :unlocked
             mezzanine.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil
-            *received-packets* (make-fifo 50))
-      ;; Bootstrap the defstruct system.
-      ;; 1) Initialize *structure-type-type* so make-struct-definition works.
-      (setf sys.int::*structure-type-type* nil)
-      ;; 2) Create the real definition, with broken type.
-      (setf sys.int::*structure-type-type* (sys.int::make-struct-definition
-                                            'sys.int::structure-definition
-                                            ;; (name accessor initial-value type read-only atomic).
-                                            '((sys.int::name sys.int::structure-name nil t t nil)
-                                              (sys.int::slots sys.int::structure-slots nil t t nil)
-                                              (sys.int::parent sys.int::structure-parent nil t t nil)
-                                              (sys.int::area sys.int::structure-area nil t t nil)
-                                              (sys.int::class sys.int::structure-class nil t nil nil))
-                                            nil
-                                            :wired))
-      ;; 3) Patch up the broken structure type.
-      (setf (sys.int::%struct-slot sys.int::*structure-type-type* 0) sys.int::*structure-type-type*))
+            *received-packets* (make-fifo 50)))
     (fifo-reset *received-packets*)
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)

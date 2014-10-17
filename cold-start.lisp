@@ -6,14 +6,14 @@
                   *initial-obarray*
                   *initial-keyword-obarray*
                   *initial-setf-obarray*
-                  *initial-structure-obarray*
-                  *kboot-tag-list*)
+                  *initial-structure-obarray*)
          (special *terminal-io*
                   *standard-output*
                   *standard-input*
+                  *error-output*
+                  *trace-output*
                   *debug-io*
-                  *cold-stream-screen*
-                  *keyboard-shifted*))
+                  *query-io*))
 (declaim (special *features* *macroexpand-hook*))
 
 ;;; Stuff duplicated/reimplemented from stream.lisp.
@@ -292,11 +292,10 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
-  ;; Initialize defstruct and patch up all the structure types.
+  ;; Wire up all the structure types.
   (setf (get 'sys.int::structure-definition 'sys.int::structure-type) sys.int::*structure-type-type*)
   (dotimes (i (length *initial-structure-obarray*))
     (let ((defn (svref *initial-structure-obarray* i)))
-      (setf (%struct-slot defn 0) *structure-type-type*)
       (setf (get (structure-name defn) 'structure-type) defn)))
   (write-line "Cold image coming up...")
   ;; Hook FREFs up where required.

@@ -146,6 +146,7 @@
 (defvar *closure-trampoline-address*)
 (defvar *load-time-evals*)
 (defvar *string-dedup-table*)
+(defvar *structure-definition-definition*)
 
 (defvar *function-map*)
 (defvar *pending-fixups*)
@@ -399,7 +400,8 @@
         (unbound-val (allocate 2 :wired))
         (unbound-tls-val (allocate 2 :wired))
         (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired))
-        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired)))
+        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired))
+        (struct-def-def (allocate 7 :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -445,7 +447,27 @@
           (word (+ cl-keyword 4)) (make-value nil-value sys.int::+tag-object+)
           (word (+ cl-keyword 5)) (make-value nil-value sys.int::+tag-object+))
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
-    (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))))
+    (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))
+    (setf *structure-definition-definition* struct-def-def
+          (word (+ struct-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
+          (word (+ struct-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
+          (word (+ struct-def-def 2)) (vsym 'sys.int::structure-definition)
+          ;; (name accessor initial-value type read-only atomic).
+          (word (+ struct-def-def 3)) (vlist (vlist (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
+                                             (vlist (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
+                                             (vlist (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
+                                             (vlist (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
+                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-class)  (vsym 'nil) (vsym 't) (vsym 'nil) (vsym 'nil)))
+          (word (+ struct-def-def 4)) (vsym 'nil)
+          (word (+ struct-def-def 5)) (vsym :wired)
+          (word (+ struct-def-def 6)) (vsym nil)
+          (gethash 'sys.int::structure-definition *struct-table*) (list struct-def-def
+                                                                        'sys.int::structure-definition
+                                                                        '((sys.int::name sys.int::structure-name nil t t nil)
+                                                                          (sys.int::slots sys.int::structure-slots nil t t nil)
+                                                                          (sys.int::parent sys.int::structure-parent nil t t nil)
+                                                                          (sys.int::area sys.int::structure-area nil t t nil)
+                                                                          (sys.int::class sys.int::structure-class nil t nil nil))))))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))
@@ -699,6 +721,10 @@
           ((eql package (find-package "SYS.FORMAT"))
            "SYS.FORMAT")
           (t (error "Not touching package ~S (for symbol ~A)." package symbol)))))
+
+(defun vsym (symbol)
+  (make-value (symbol-address (symbol-name symbol) (canonical-symbol-package symbol))
+              sys.int::+tag-object+))
 
 (defun (setf cold-symbol-value) (value symbol)
   (setf (word (+ (symbol-address (symbol-name symbol)
@@ -1216,9 +1242,9 @@
     (mapc (lambda (sym) (symbol-address (string sym) (package-name (symbol-package sym))))
           '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
-            #+nil sys.int::*unifont-bmp* #+nil sys.int::*unifont-bmp-data*
-            #+nil sys.int::*unicode-info* #+nil sys.int::*unicode-name-store*
-            #+nil sys.int::*unicode-encoding-table* #+nil sys.int::*unicode-name-trie*
+            sys.int::*unifont-bmp* sys.int::*unifont-bmp-data*
+            sys.int::*unicode-info* sys.int::*unicode-name-store*
+            sys.int::*unicode-encoding-table* sys.int::*unicode-name-trie*
             sys.int::*bsp-idle-thread*
             sys.int::*snapshot-thread*
             sys.int::*pager-thread*
@@ -1274,6 +1300,7 @@
       (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)
       (set-value 'sys.int::*stack-area-bump* *stack-area-bump*)
       (set-value 'sys.int::*current-stack-mark-bit* 0))
+    (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)
     (write-image image-name
@@ -1407,9 +1434,9 @@
     (cond (definition
            (ensure-structure-layout-compatible definition slots)
            (make-value (first definition) sys.int::+tag-object+))
-          (t (let ((address (allocate 7 :pinned)))
+          (t (let ((address (allocate 7 :wired)))
                (setf (word address) (array-header sys.int::+object-tag-structure-object+ 6))
-               (setf (word (+ address 1)) 0) ; uninitialized definition
+               (setf (word (+ address 1)) (make-value *structure-definition-definition* sys.int::+tag-object+))
                (setf (word (+ address 2)) name*)
                (setf (word (+ address 3)) slots*)
                (setf (word (+ address 4)) parent*)
