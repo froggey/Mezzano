@@ -345,7 +345,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
         (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
         (sys.int::%array-like-ref-t thread +thread-preemption-disable-depth+) 1
-        (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1)
+        (sys.int::%array-like-ref-t thread +thread-foothold-disable-depth+) 1
+        (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil)
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
   ;; x87 using 80 bit precision (long-float).
@@ -784,7 +785,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
   ;; the thread that holds the lock.
   (owner nil) ; must be slot 5, after wait-queue is included.
   (kind nil :type (member :block :spin) :read-only t)
-  (stack-next))
+  (stack-next nil))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (ecase (mutex-kind mutex)
@@ -837,7 +838,8 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
           (when (eql (thread-state owner) :sleeping)
             (do ((lock (thread-mutex-stack self) (mutex-stack-next lock)))
                 ((null lock))
-              (when (eql lock (thread-wait-item thread))
+              (when (eql lock (thread-wait-item owner))
+                (%unlock-thread owner)
                 (%unlock-thread self)
                 (pop-wait-queue mutex)
                 (unlock-wait-queue mutex)

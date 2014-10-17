@@ -698,6 +698,8 @@
                                             sys.int::+tag-object+))
     ;; foothold disable depth.
     (setf (word (+ address 12)) (make-fixnum foothold-disable-depth))
+    ;; mutex stack.
+    (setf (word (+ address 14)) (vsym 'nil))
     (make-value address sys.int::+tag-object+)))
 
 (defun create-initial-thread ()
