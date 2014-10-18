@@ -236,9 +236,9 @@ a vector of constants and an alist of symbols & addresses."
     (let ((bytes (make-array 10 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
       (append-vu32 address bytes)
       (vector-push-extend (logior (ecase frame-mode
-                                    (:frame 1)
+                                    (:frame #b0001)
                                     (:no-frame 0))
-                                  (if interrupt 2 0)
+                                  (if interrupt #b0010 0)
                                   (cond
                                     (block-or-tagbody-thunk
                                      (assert (eql block-or-tagbody-thunk :rax))

@@ -510,9 +510,9 @@ This is required to make the GC interrupt safe."
                   (when (logtest flags-and-pvr #b0100)
                     (setf block-or-tagbody-thunk :rax))
                   (when (logtest flags-and-pvr #b1000)
-                    (if (eql (ldb (byte 4 4) mv-and-iabtt) 15)
-                        :rcx
-                        (ldb (byte 4 4) mv-and-iabtt))))
+                    (setf incoming-arguments (if (eql (ldb (byte 4 4) mv-and-iabtt) 15)
+                                                 :rcx
+                                                 (ldb (byte 4 4) mv-and-iabtt)))))
                 ;; Read vs32 pv.
                 (let ((shift 0)
                       (value 0))
