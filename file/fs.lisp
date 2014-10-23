@@ -14,6 +14,7 @@
            #:rename-file-using-host
            #:file-write-date-using-host
            #:delete-file-using-host
+           #:expunge-directory-using-host
            #:file-stream-pathname
            #:simple-file-error))
 
@@ -426,12 +427,19 @@ NAMESTRING as the second."
     (assert (not (wild-pathname-p path)))
     (file-write-date-using-host (pathname-host path) path)))
 
-(defgeneric delete-file-using-host (host path))
+(defgeneric delete-file-using-host (host path &key))
 
-(defun delete-file (filespec)
+(defun delete-file (filespec &rest args &key &allow-other-keys)
   (let ((path (merge-pathnames filespec)))
     (assert (not (wild-pathname-p path)))
-    (delete-file-using-host (pathname-host path) path)))
+    (apply #'delete-file-using-host (pathname-host path) path args)))
+
+(defgeneric expunge-directory-using-host (host path &key))
+
+(defun expunge-directory (filespec &rest args &key &allow-other-keys)
+  (let ((path (merge-pathnames filespec)))
+    (assert (not (wild-pathname-p path)))
+    (apply #'expunge-directory-using-host (pathname-host path) path args)))
 
 (defvar *home-directory* nil)
 

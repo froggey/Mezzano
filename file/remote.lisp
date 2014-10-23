@@ -488,7 +488,7 @@
         (error "Error: ~A ~S." path x))
       x)))
 
-(defmethod delete-file-using-host ((host simple-file-host) path)
+(defmethod delete-file-using-host ((host simple-file-host) path &key)
   (declare (ignore host))
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
@@ -497,3 +497,6 @@
       (unless (eql x :ok)
         (error "Error: ~A ~S." path x))
       x)))
+
+(defmethod expunge-directory-using-host ((host simple-file-host) path &key)
+  t)
