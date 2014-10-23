@@ -1,5 +1,3 @@
-;;;; John McCarthy 1927-2011
-
 (in-package :sys.c)
 
 (defparameter *perform-tce* nil

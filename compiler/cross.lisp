@@ -173,7 +173,6 @@
            #:snapshot
            #:protect-memory-range
            #:release-memory-range
-           #:compact-block-freelist
            #:debug-print-line
            #:panic
            #:make-fifo
@@ -185,6 +184,7 @@
            #:add-boot-hook
            #:remove-boot-hook
            #:fetch-boot-modules
+           #:store-statistics
 
            ;; Temporary drivers.
            #:ps/2-key-read

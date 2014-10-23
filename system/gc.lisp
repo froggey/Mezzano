@@ -56,6 +56,11 @@
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
+    (multiple-value-bind (n-free-blocks total-blocks)
+        (mezzanine.supervisor:store-statistics)
+      (format t "~:D/~:D store blocks used (~D%).~%"
+              (- total-blocks n-free-blocks) total-blocks
+              (truncate (* (- total-blocks n-free-blocks) 100) total-blocks)))
     (format t "~:D words to next GC.~%" (truncate *memory-expansion-remaining* 8)))
   (values))
 
@@ -1023,7 +1028,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
   (setf *memory-expansion-remaining* (* 32 1024 1024)) ; 32MB
-  (mezzanine.supervisor:compact-block-freelist)
   (mezzanine.supervisor:debug-print-line "GC complete")
   (mezzanine.supervisor::set-gc-light nil))
 

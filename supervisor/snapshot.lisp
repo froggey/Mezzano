@@ -77,7 +77,7 @@
     (dotimes (i 255)
       (let ((block-id (sys.int::memref-unsigned-byte-64 cache-page (* i 2)))
             (address (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2)))))
-        (when (zerop block-id)
+        (when (zerop address)
           (return))
         (or (funcall (disk-write-fn *paging-disk*)
                      (disk-device *paging-disk*)
@@ -94,6 +94,7 @@
   (with-mutex (*vm-lock*)
     (with-world-stopped
       (set-snapshot-light t)
+      (regenerate-store-freelist)
       (snapshot-all-dirty-pages)
       (snapshot-block-cache)
       (set-snapshot-light nil)))

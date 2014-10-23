@@ -151,7 +151,7 @@
               (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))) addr)
         (return-from insert-into-block-cache)))))
 
-(defun read-cached-block-from-disk (block-id)
+(defun read-block-from-disk (block-id)
   (let* ((frame (or (allocate-physical-pages 1)
                     (panic "Aiee. No memory.")))
          (addr (+ +physical-map-base+ (ash frame 12))))
@@ -161,6 +161,10 @@
                      (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
                      addr)
       (panic "Unable to read page from disk"))
+    addr))
+
+(defun read-cached-block-from-disk (block-id)
+  (let ((addr (read-block-from-disk block-id)))
     (insert-into-block-cache block-id addr)
     ;; TODO: clear addr's dirty bit.
     addr))
@@ -190,7 +194,8 @@
       ((null cache-page)
        (read-cached-block-from-disk block-id))
     (dotimes (i 255)
-      (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
+      (when (and (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
+                 (not (zerop (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))))))
         (return-from read-cached-block (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))))))))
 
 (defun block-info-for-virtual-address (address)
