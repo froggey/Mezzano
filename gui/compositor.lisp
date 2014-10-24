@@ -571,8 +571,11 @@
 (defun compositor-heartbeat-thread ()
   (loop
      (mezzanine.supervisor:wait-for-heartbeat)
-     (when (and (not (zerop *clip-rect-width*))
-                (not (zerop *clip-rect-height*)))
+     ;; Redisplay only when the system framebuffer changes or when there's
+     ;; nonempty clip rect.
+     (when (or (not (eql *main-screen* (mezzanine.supervisor:current-framebuffer)))
+               (and (not (zerop *clip-rect-width*))
+                    (not (zerop *clip-rect-height*))))
        (mezzanine.supervisor:fifo-push (make-instance 'redisplay-time-event)
                                        *event-queue*))))
 
