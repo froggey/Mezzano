@@ -52,7 +52,7 @@
          (sys.int::%defmacro ',name (lambda (,whole-sym ,env-sym)
                                       (declare (system:lambda-name (defmacro ,name)))
                                       ,@(unless supplied-env-sym
-                                                `((declare (ignore ,env-sym))))
+                                          `((declare (ignore ,env-sym))))
                                       (destructuring-bind ,fixed-lambda-list (cdr ,whole-sym)
                                         (block ,name ,@body))))))))
 
@@ -136,15 +136,6 @@
   (or (gethash name *structure-types*)
       (and errorp
            (error "Unknown structure type ~S." name))))
-
-(macrolet ((def (b-name name)
-             `(def-x-macro ,b-name (&rest rest)
-                (list* ',name rest))))
-  (def sb-impl::backq-list list)
-  (def sb-impl::backq-list* list*)
-  (def sb-impl::backq-append append)
-  (def sb-impl::backq-nconc nconc)
-  (def sb-impl::backq-cons cons))
 
 (defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 62)))

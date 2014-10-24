@@ -218,6 +218,23 @@
 (defvar *cross-readtable* (copy-readtable nil))
 (set-dispatch-macro-character #\# #\\ 'character-reader *cross-readtable*)
 
+(defun read-backquote (stream first)
+  (declare (ignore first))
+  (list 'sys.int::backquote (read stream t nil t)))
+
+(defun read-comma (stream first)
+  (declare (ignore first))
+  (case (peek-char nil stream t)
+    (#\@ (read-char stream t nil t)
+	 (list 'sys.int::bq-comma-atsign (read stream t nil t)))
+    (#\. (read-char stream t nil t)
+	 (list 'sys.int::bq-comma-dot (read stream t nil t)))
+    (otherwise
+     (list 'sys.int::bq-comma (read stream t nil t)))))
+
+(set-macro-character #\` 'read-backquote nil *cross-readtable*)
+(set-macro-character #\, 'read-comma nil *cross-readtable*)
+
 (defun sys.int::symbol-macro-expansion (symbol &optional env)
   (dolist (e env
            (gethash symbol *system-symbol-macros*))
@@ -533,14 +550,6 @@
            (write-byte +llf-cons+ stream))))
 
 (defmethod save-one-object ((object symbol) omap stream)
-  #+sbcl
-  (setf object (case object
-                 (sb-impl::backq-list 'list)
-                 (sb-impl::backq-list* 'list*)
-                 (sb-impl::backq-append 'append)
-                 (sb-impl::backq-nconc 'nconc)
-                 (sb-impl::backq-cons 'cons)
-                 (t object)))
   (cond ((symbol-package object)
          (write-byte +llf-symbol+ stream)
          (save-integer (length (symbol-name object)) stream)

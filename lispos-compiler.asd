@@ -9,8 +9,9 @@
   :components ((:file "compiler/cross")
                (:file "system/data-types" :depends-on ("compiler/cross"))
                (:file "system/parse" :depends-on ("compiler/cross"))
+               (:file "system/backquote" :depends-on ("compiler/cross"))
                (:file "compiler/cross-compile"
-                      :depends-on ("compiler/cross"))
+                      :depends-on ("compiler/cross" "system/backquote"))
                (:file "compiler/compiler"
                       :depends-on ("compiler/cross"))
                (:file "compiler/cross-boot"
