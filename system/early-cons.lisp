@@ -392,7 +392,7 @@
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
-    (setf test (complement test)))
+    (setf test (complement test-not)))
   (unless test
     (setf test 'eql))
   (unless key
@@ -406,7 +406,7 @@
   (when (and test test-not)
     (error "TEST and TEST-NOT specified."))
   (when test-not
-    (setf test (complement test)))
+    (setf test (complement test-not)))
   (unless test
     (setf test 'eql))
   (unless key
