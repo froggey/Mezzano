@@ -235,7 +235,7 @@
 
 (defun read-sequence (sequence stream &key (start 0) end)
   (sys.gray:stream-read-sequence (follow-synonym-stream stream) sequence
-                                 start end))
+                                 start (or end (length sequence))))
 
 (defun generic-read-sequence (sequence stream start end)
   (let ((n (- end start)))
