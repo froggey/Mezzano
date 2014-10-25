@@ -30,15 +30,11 @@
                                 (if super +char-super-bit+ 0)
                                 (if hyper +char-hyper-bit+ 0))))
 
-#+(or)(defun char-code (character)
-  (check-type character character)
-  (logand (ash (lisp-object-address character) -4) #x1FFFFF))
-
 (defun char-int (character)
   (check-type character character)
   (ash (lisp-object-address character) -4))
 
-#+(or)(defun code-char (code)
+(defun code-char (code)
   (%make-character code))
 
 (defun system:char-bits (character)
