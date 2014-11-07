@@ -95,7 +95,7 @@
                                          (expt 10 trailing-digits))))
           (trailing-zeros 0))
       (cond ((zerop adjusted-decimal)
-             (write-char #\0))
+             (write-char #\0 stream))
             (t (let ((x adjusted-decimal))
                  (loop
                     (multiple-value-bind (quot rem)
