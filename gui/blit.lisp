@@ -166,28 +166,19 @@
   (sys.lap-x86:xor32 :r12d :r12d)
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:ret)
+  ;; Multiply colour's alpha channel by the mask.
   blend-alpha
-  ;; ARGB888 colour in R10, A8 alpha in AL.
-  (sys.lap-x86:and32 :eax #x000000FF)
-  (sys.lap-x86:movd :mm0 :eax) ; MM0 = mask (0000000M)
-  (sys.lap-x86:movd :mm1 :r10d) ; MM1 = colour (0000ARGB)
-  (sys.lap-x86:pxor :mm3 :mm3) ; MM3 = 0
-  (sys.lap-x86:pmuludq :mm0 (:rip alpha-shuffle)) ; MM0 = mask (0000MMMM)
-  (sys.lap-x86:punpcklbw :mm1 :mm3) ; MM1 = colour (0A0R0G0B)
-  (sys.lap-x86:punpcklbw :mm0 :mm3) ; MM0 = mask (0M0M0M0M)
-  (sys.lap-x86:pmullw :mm1 :mm0) ; MM1 = result (AxRxGxBx)
-  (sys.lap-x86:paddusw :mm1 (:rip round-thingy))
-  (sys.lap-x86:pmulhuw :mm1 (:rip mul-thingy))
-  ;(sys.lap-x86:psrlw :mm1 8) ; MM1 = result (0A0R0G0B)
-  (sys.lap-x86:packuswb :mm1 :mm3) ; MM1 = result (0000ARGB)
-  (sys.lap-x86:movd :eax :mm1)
-  (sys.lap-x86:jmp invoke-setter)
-  alpha-shuffle
-  (:d64/le #x0000000001010101)
-  round-thingy
-  (:d64/le #x0080008000800080)
-  mul-thingy
-  (:d64/le #x0101010101010101))
+  (sys.lap-x86:and32 :eax #x000000FF) ; eax = alpha (000A)
+  (sys.lap-x86:mov32 :edx :r10d) ; edx = colour (ARGB)
+  (sys.lap-x86:shr32 :edx 24) ; edx = colour's alpha (000A)
+  (sys.lap-x86:mul8 :dl) ; ax = mask * colour alpha (00Ax)
+  (sys.lap-x86:add16 :ax 255) ; round to nearest (00Ax)
+  (sys.lap-x86:shl32 :eax 16) ; (Ax00)
+  (sys.lap-x86:and32 :eax #xFF000000) ; (A000)
+  (sys.lap-x86:mov32 :edx :r10d) ; edx = colour (ARGB)
+  (sys.lap-x86:and32 :edx #x00FFFFFF) ; (0RGB)
+  (sys.lap-x86:or32 :eax :edx) ; create final colour with proper alpha (ARGB)
+  (sys.lap-x86:jmp invoke-setter))
 
 (defun bitset-argb-xrgb-mask-8 (nrows ncols colour mask-array mask-row mask-col to-array to-row to-col)
   "Fill a rectangle with COLOUR using an 8-bit mask."
@@ -279,12 +270,17 @@
 ;;; EAX = ARGB8888 pixel.
 ;;; RDI = XRGB8888 destination.
 ;;; Alpha-blend PIXEL into DEST.
-;;; Uses OpenGL-style Src-alpha/One-minus-src-alpha blending.
+;;; GL_FUNC_ADD
+;;; srcRGB = GL_SRC_ALPHA
+;;; dstRGB = GL_ONE_MINUS_SRC_ALPHA
+;;; srcAlpha = GL_ZERO
+;;; dstAlpha = GL_ONE
+;;; Blend the colour channels, while preserving the destination alpha channel
 (sys.int::define-lap-function %%alpha-blend-one-argb8888-xrgb8888 ()
-  (sys.lap-x86:mov32 :ebx :eax) ; ebx = pixel (ARGB)
-  (sys.lap-x86:and32 :ebx #xFF000000) ; ebx = pixel-alpha (A000)
+  (sys.lap-x86:mov32 :ecx :eax) ; ecx = pixel (ARGB)
+  (sys.lap-x86:and32 :ecx #xFF000000) ; ecx = pixel-alpha (A000)
   (sys.lap-x86:jz out) ; Fully transparent, bail out.
-  (sys.lap-x86:cmp32 :ebx #xFF000000)
+  (sys.lap-x86:cmp32 :ecx #xFF000000)
   (sys.lap-x86:je set-result) ; Fully opaque, just set it.
   ;; Read destination.
   (sys.lap-x86:mov32 :edx (:rdi)) ; rdx = pixel (XRGB)
@@ -292,14 +288,14 @@
   ;; RAX = Source pixel.
   ;; RCX = Alpha channel of source pixel at (byte 8 24).
   ;; RDX = Dest pixel.
-  (sys.lap-x86:shr32 :ebx 24) ; EBX = alpha (000A)
+  (sys.lap-x86:shr32 :ecx 24) ; ECX = alpha (000A)
   (sys.lap-x86:movd :mm0 :eax) ; MM0 = source (0000ARGB)
-  (sys.lap-x86:movd :mm1 :ebx) ; MM1 = source alpha (0000000A)
-  (sys.lap-x86:movd :mm2 :edx) ; MM2 = dest (0000XRGB)
+  (sys.lap-x86:movd :mm1 :ecx) ; MM1 = source alpha (0000000A)
+  (sys.lap-x86:movd :mm2 :edx) ; MM2 = dest (0000ARGB)
   (sys.lap-x86:pxor :mm3 :mm3) ; MM3 = 0
   ;; Swizzle alpha.
-  (sys.lap-x86:pmuludq :mm1 (:rip alpha-shuffle)) ; MM1 = source alpha (0000AAAA)
-  (sys.lap-x86:punpcklbw :mm1 :mm3) ; MM1 = source alpha (0A0A0A0A)
+  (sys.lap-x86:pmuludq :mm1 (:rip alpha-shuffle)) ; MM1 = source alpha (00000AAA)
+  (sys.lap-x86:punpcklbw :mm1 :mm3) ; MM1 = source alpha (000A0A0A)
   ;; Compute inverse alpha.
   (sys.lap-x86:movq :mm4 (:rip inverse-alpha))
   (sys.lap-x86:psubb :mm4 :mm1) ; MM4 = (- 255 alpha)
@@ -325,7 +321,7 @@
   (sys.lap-x86:ret)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle
-  (:d64/le #x0000000001010101)
+  (:d64/le #x0000000000010101)
   inverse-alpha
   (:d64/le #x00FF00FF00FF00FF)
   round-thingy
