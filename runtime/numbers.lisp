@@ -35,7 +35,7 @@
     (ratio (/ (float (numerator number) prototype)
               (float (denominator number) prototype)))))
 
-(sys.int::define-lap-function %%float-< ()
+(sys.int::define-lap-function sys.int::%%float-< ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -66,7 +66,7 @@
            (y* (if (floatp x)
                    (float y x)
                    y)))
-       (%%float-< x* y*)))
+       (sys.int::%%float-< x* y*)))
     (t (sys.int::full-< x y))))
 
 ;; Implement these in terms of <.
@@ -79,7 +79,7 @@
 (defun sys.int::generic-<= (x y)
   (not (sys.int::generic-< y x)))
 
-(sys.int::define-lap-function %%float-= ()
+(sys.int::define-lap-function sys.int::%%float-= ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -113,10 +113,10 @@
            (y* (if (floatp x)
                    (float y x)
                    y)))
-       (%%float-= x* y*)))
+       (sys.int::%%float-= x* y*)))
     (t (sys.int::full-= x y))))
 
-(sys.int::define-lap-function %%truncate-float ()
+(sys.int::define-lap-function sys.int::%%truncate-float ()
   ;; Unbox the float.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -143,7 +143,7 @@
                                  val
                                  most-positive-fixnum)
                               ;; Fits in a fixnum, convert quickly.
-                              (%%truncate-float val)
+                              (sys.int::%%truncate-float val)
                               ;; Grovel inside the float
                               (multiple-value-bind (significand exponent)
                                   (integer-decode-float val)
@@ -210,7 +210,7 @@
     (declare (ignore quot))
     rem))
 
-(sys.int::define-lap-function %%float-/ ()
+(sys.int::define-lap-function sys.int::%%float-/ ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -235,10 +235,10 @@
                   (floatp y))
              (and (floatp x)
                   (floatp y)))
-         (%%float-/ (float x) (float y)))
+         (sys.int::%%float-/ (float x) (float y)))
         (t (sys.int::full-/ x y))))
 
-(sys.int::define-lap-function %%float-+ ()
+(sys.int::define-lap-function sys.int::%%float-+ ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -270,10 +270,10 @@
                (y* (if (floatp x)
                        (float y x)
                        y)))
-           (%%float-+ x* y*)))
+           (sys.int::%%float-+ x* y*)))
         (t (sys.int::full-+ x y))))
 
-(sys.int::define-lap-function %%float-- ()
+(sys.int::define-lap-function sys.int::%%float-- ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -305,10 +305,10 @@
                (y* (if (floatp x)
                        (float y x)
                        y)))
-           (%%float-- x* y*)))
+           (sys.int::%%float-- x* y*)))
         (t (sys.int::full-- x y))))
 
-(sys.int::define-lap-function %%float-* ()
+(sys.int::define-lap-function sys.int::%%float-* ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -340,7 +340,7 @@
                (y* (if (floatp x)
                        (float y x)
                        y)))
-           (%%float-* x* y*)))
+           (sys.int::%%float-* x* y*)))
         (t (sys.int::full-* x y))))
 
 (defun integer-length (integer)
