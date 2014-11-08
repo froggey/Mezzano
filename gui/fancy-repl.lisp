@@ -92,6 +92,13 @@
                                    (normalize-alpha alpha))))
     array))
 
+(defun expand-bit-mask-to-ub8-mask (mask)
+  (let ((new (make-array (array-dimensions mask) :element-type '(unsigned-byte 8))))
+    (dotimes (y (array-dimension mask 0))
+      (dotimes (x (array-dimension mask 1))
+        (setf (aref new y x) (* #xFF (aref mask y x)))))
+    new))
+
 (defun character-to-glyph (window character)
   ;; TODO: char-bits
   (let* ((code (char-code character))
@@ -105,16 +112,26 @@
     (let ((glyph (aref cell-cache cell)))
       (when (not glyph)
         ;; Glyph does not exist in the cache, rasterize it.
-        (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader window)))
-               (scale (font-scale window))
-               (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
-               (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
-          (setf glyph (make-glyph :character (code-char code)
-                                  :mask (rasterize-glyph ttf-glyph scale)
-                                  :yoff (zpb-ttf:ymax bb)
-                                  :xoff (zpb-ttf:xmin bb)
-                                  :advance advance)
-                (aref cell-cache cell) glyph)))
+        (cond ((zpb-ttf:glyph-exists-p code (font-loader window))
+               (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader window)))
+                      (scale (font-scale window))
+                      (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
+                      (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
+                 (setf glyph (make-glyph :character (code-char code)
+                                         :mask (rasterize-glyph ttf-glyph scale)
+                                         :yoff (zpb-ttf:ymax bb)
+                                         :xoff (zpb-ttf:xmin bb)
+                                         :advance advance)
+                       (aref cell-cache cell) glyph)))
+              (t ;; Use Unifont fallback.
+               (let ((mask (or (sys.int::map-unifont-2d (code-char code))
+                               (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
+                 (setf glyph (make-glyph :character (code-char code)
+                                         :mask (expand-bit-mask-to-ub8-mask mask)
+                                         :yoff 14
+                                         :xoff 0
+                                         :advance (array-dimension mask 1))
+                       (aref cell-cache cell) glyph)))))
       glyph)))
 
 (defgeneric dispatch-event (window event)
