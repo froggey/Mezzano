@@ -2615,3 +2615,12 @@
     (emit `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
           `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 2) :r10)))
   (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::tsc () ()
+  (smash-r8)
+  (emit `(sys.lap-x86:rdtsc)
+        ;; Pack result into one register
+        `(sys.lap-x86:shl64 :rdx 32)
+        `(sys.lap-x86:or64 :rax :rdx))
+  (box-unsigned-byte-64-rax)
+  (setf *r8-value* (list (gensym))))

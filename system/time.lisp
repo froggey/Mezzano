@@ -48,9 +48,13 @@
   `(%time (lambda () (progn ,form))))
 
 (defun %time (fn)
-  (let ((start-time (get-universal-time)))
+  (let ((start-time (get-universal-time))
+        (start-cycle (tsc)))
     (multiple-value-prog1 (funcall fn)
-      (format *trace-output* "; Execution took ~D seconds.~%" (- (get-universal-time) start-time)))))
+      (let ((finish-cycle (tsc))
+            (finish-time (get-universal-time)))
+        (format *trace-output* "; Execution took ~:D seconds.~%" (- finish-time start-time))
+        (format *trace-output* "; Execution took ~:D cycles.~%" (- finish-cycle start-cycle))))))
 
 (defconstant internal-time-units-per-second 1)
 
