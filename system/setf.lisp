@@ -5,6 +5,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
 (defun get-setf-expansion (place &optional environment)
+  (assert (not (and (consp place) (eql (first place) 'values))) (place)
+          "SETF VALUES not supported here.")
   (if (consp place)
       (let ((expander (and (symbolp (car place))
 			   (get (car place) 'setf-expander)))
@@ -56,6 +58,32 @@
 		      `(setq ,place ,store-sym)
 		      place))))))
 
+(defun expand-setf-values (place value env)
+  "Expand a (setf (values foo...) bar) place."
+  ;; TODO: Evaluation order & env.
+  (let ((tmp-values (loop for i below (length (rest place))
+                         collect (gensym "VALUE"))))
+    `(multiple-value-bind ,tmp-values ,value
+       (setf ,@(loop
+                  for p in (rest place)
+                  for v in tmp-values
+                  collect p
+                  collect v))
+       ;; Evaluate to all values.
+       (values ,@tmp-values))))
+
+(defun expand-setf (place value env)
+  "Expand a normal setf place."
+  (multiple-value-bind (vars vals stores setter getter)
+      (get-setf-expansion place env)
+    (declare (ignore getter))
+    `(let ,(mapcar #'list vars vals)
+                         ,(if (or (null stores) (cdr stores))
+                              `(multiple-value-bind ,stores
+                                   ,value
+                                 (progn ,setter))
+                              `(let ((,(car stores) ,value))
+                                 (progn ,setter))))))
 )
 
 (defmacro setf (&environment env &rest forms)
@@ -71,20 +99,10 @@
 	(error "Odd number of forms supplied to SETF."))
       (let ((place (car i))
 	    (value (cadr i)))
-	(multiple-value-bind (vars vals stores setter getter)
-	    (get-setf-expansion place env)
-	  (declare (ignore getter))
-	  (funcall #'(setf cdr)
-		   (cons
-		    `(let ,(mapcar #'list vars vals)
-		       ,(if (or (null stores) (cdr stores))
-			    `(multiple-value-bind ,stores
-				 ,value
-			       (progn ,setter))
-			    `(let ((,(car stores) ,value))
-			       (progn ,setter))))
-		    nil)
-		   tail))))))
+        (setf (cdr tail) (cons (cond ((and (consp place) (eql (first place) 'values))
+                                      (expand-setf-values place value env))
+                                     (t (expand-setf place value env)))
+                               nil))))))
 
 (defmacro push (&environment env item place)
   (multiple-value-bind (vars vals stores setter getter)

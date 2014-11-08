@@ -138,12 +138,9 @@
                    (load-from-stream stream))))))))
 
 (defmacro multiple-value-setq (vars form)
-  (let ((temps (mapcar (lambda (sym) (gensym (string sym))) vars)))
-    `(multiple-value-bind ,temps
-         ,form
-       ,@(mapcar (lambda (var temp) (list 'setq var temp))
-                 vars temps)
-       ,(first temps))))
+  (dolist (v vars)
+    (check-type v symbol))
+  `(values (setf (values ,@vars) ,form)))
 
 (defun assemble-lap (code &optional name debug-info wired)
   (multiple-value-bind (mc constants fixups symbols gc-data)
