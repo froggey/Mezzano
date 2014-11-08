@@ -325,13 +325,15 @@
 ;;;; Mouse events
 
 (defclass mouse-event ()
-  ((%button-state :initarg :button-state :reader mouse-button-state)
+  ((%window :initarg :window :reader window)
+   (%button-state :initarg :button-state :reader mouse-button-state)
    (%button-change :initarg :button-change :reader mouse-button-change)
    (%x-position :initarg :x-position :reader mouse-x-position)
    (%y-position :initarg :y-position :reader mouse-y-position)
    (%x-motion :initarg :x-motion :reader mouse-x-motion)
    (%y-motion :initarg :y-motion :reader mouse-y-motion))
-  (:default-initargs :button-state nil
+  (:default-initargs :window nil
+                     :button-state nil
                      :button-change 0
                      :x-position nil
                      :y-position nil
@@ -380,7 +382,19 @@
                 *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
                 *clip-rect-x* 0
                 *clip-rect-y* 0))))
-    #+(or)(do-something)
+    (when (or (not (zerop x-motion))
+              (not (zerop y-motion))
+              (not (zerop changes)))
+      (let ((win (window-at-point *mouse-x* *mouse-y*)))
+        (when win
+          (send-event win (make-instance 'mouse-event
+                                         :window win
+                                         :button-state *mouse-buttons*
+                                         :button-change changes
+                                         :x-position (- *mouse-x* (window-x win))
+                                         :y-position (- *mouse-y* (window-y win))
+                                         :x-motion x-motion
+                                         :y-motion y-motion)))))
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
       ;; Mouse position changed, redraw the screen.
@@ -417,6 +431,10 @@
                                                  :window *active-window*
                                                  :state nil)))
     (setf *active-window* win)
+    (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+          *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+          *clip-rect-x* 0
+          *clip-rect-y* 0)
     (send-event win (make-instance 'window-activation-event
                                    :window win
                                    :state t))))
@@ -448,6 +466,10 @@
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
                                                  :state t))))
+  (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+        *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+        *clip-rect-x* 0
+        *clip-rect-y* 0)
   (send-event (window event) event))
 
 (defun close-window (window)
