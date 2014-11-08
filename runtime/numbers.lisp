@@ -344,8 +344,16 @@
         (t (sys.int::full-* x y))))
 
 (defun integer-length (integer)
-  (when (minusp integer) (setf integer (- integer)))
-  (do ((len 0 (1+ len)))
-      ((zerop integer)
-       len)
-    (setf integer (ash integer -1))))
+  (let ((negativep (minusp integer)))
+    (when negativep
+      (setf integer (- integer)))
+    (do ((len 0 (1+ len))
+         (original integer))
+        ((zerop integer)
+         ;; Negative powers of two require one less bit.
+         (if (and negativep
+                  ;; Test if original is power-of-two.
+                  (zerop (logand original (1- original))))
+             (1- len)
+             len))
+      (setf integer (ash integer -1)))))
