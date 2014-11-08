@@ -376,7 +376,10 @@
           (push win *window-list*)
           ;; Layering change, redraw everything.
           ;; fixme: don't be lazy. set the cliprect properly.
-          (setf *main-screen* nil))))
+          (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+                *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+                *clip-rect-x* 0
+                *clip-rect-y* 0))))
     #+(or)(do-something)
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
