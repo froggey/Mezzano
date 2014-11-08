@@ -20,19 +20,14 @@
    (%line :initarg :line :accessor cursor-line)
    (%background-colour :initarg :background-colour :accessor background-colour)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
-   (%font-loader :initarg :font-loader :reader font-loader)
-   (%line-height :initarg :line-height :reader line-height)
-   (%font-scale :initarg :font-scale :reader font-scale)
-   (%font-ascender :initarg :font-ascender :reader font-ascender)
-   (%glyph-cache :initarg :glyph-cache :reader glyph-cache))
+   (%font :initarg :font :reader font))
   (:default-initargs :input (mezzanine.supervisor:make-fifo 500 :element-type 'character)
                      :x 0
                      :y 0
                      :column 0
                      :line 0
                      :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E
-                     :glyph-cache (make-array 17 :initial-element nil)))
+                     :background-colour #xFF3E3E3E))
 
 (defstruct glyph
   ;; Lisp character this glyph represents.
@@ -99,12 +94,53 @@
         (setf (aref new y x) (* #xFF (aref mask y x)))))
     new))
 
-(defun character-to-glyph (window character)
+(defclass font ()
+  ((%font-loader :initarg :loader :reader font-loader)
+   (%font-size :initarg :size :reader font-size)
+   (%font-scale :reader font-scale)
+   (%line-height :reader line-height)
+   (%font-ascender :reader font-ascender)
+   (%glyph-cache :reader glyph-cache)))
+
+(defmethod initialize-instance :after ((font font) &key loader size &allow-other-keys)
+  (setf (slot-value font '%font-scale) (/ size (float (zpb-ttf:units/em loader)))
+        (slot-value font '%line-height) (round (* (+ (zpb-ttf:ascender loader)
+                                                     (- (zpb-ttf:descender loader))
+                                                     (zpb-ttf:line-gap loader))
+                                                  (font-scale font)))
+        (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
+                                                    (font-scale font)))
+        (slot-value font '%glyph-cache) (make-array 17 :initial-element nil)))
+
+(defun find-font (name &optional (errorp t))
+  "Return the truename of the font named NAME"
+  (truename (make-pathname :name name :type "ttf" :defaults "LOCAL:>Fonts>" #+(or)"SYS:FONTS;")))
+
+(defun open-font (name size)
+  (make-instance 'font
+                 :loader (zpb-ttf:open-font-loader (find-font name))
+                 :size size))
+
+(defun close-font (font)
+  (zpb-ttf:close-font-loader (font-loader font)))
+
+(defmacro with-font ((font name size) &body body)
+  `(let (,font)
+    (unwind-protect
+         (progn
+           (setf ,font (open-font ,name ,size))
+           ,@body)
+      (when ,font
+        (close-font ,font)))))
+
+(defgeneric character-to-glyph (font character))
+
+(defmethod character-to-glyph ((font font) character)
   ;; TODO: char-bits
   (let* ((code (char-code character))
          (plane (ash code -16))
          (cell (logand code #xFFFF))
-         (main-cache (glyph-cache window))
+         (main-cache (glyph-cache font))
          (cell-cache (aref main-cache plane)))
     (when (not cell-cache)
       (setf cell-cache (make-array (expt 2 16) :initial-element nil)
@@ -112,9 +148,9 @@
     (let ((glyph (aref cell-cache cell)))
       (when (not glyph)
         ;; Glyph does not exist in the cache, rasterize it.
-        (cond ((zpb-ttf:glyph-exists-p code (font-loader window))
-               (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader window)))
-                      (scale (font-scale window))
+        (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
+               (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
+                      (scale (font-scale font))
                       (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
                       (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
                  (setf glyph (make-glyph :character (code-char code)
@@ -170,28 +206,29 @@
          (window (window stream))
          (fb (mezzanine.gui.compositor:window-buffer window))
          (win-width (mezzanine.gui.compositor:width window))
-         (win-height (mezzanine.gui.compositor:height window)))
+         (win-height (mezzanine.gui.compositor:height window))
+         (line-height (line-height (font stream))))
     ;; Clear to the end of the current line.
-    (mezzanine.gui:bitset (line-height stream) (- win-width x) (background-colour stream) fb y x)
-    (mezzanine.gui.compositor:damage-window window x y (- win-width x) (line-height stream))
+    (mezzanine.gui:bitset line-height (- win-width x) (background-colour stream) fb y x)
+    (mezzanine.gui.compositor:damage-window window x y (- win-width x) line-height)
     ;; Advance to the next line.
     (setf (cursor-x stream) 0
           (cursor-column stream) 0)
-    (cond ((> (+ y (* (line-height stream) 2)) win-height)
+    (cond ((> (+ y (* line-height 2)) win-height)
            ;; Off the end of the screen. Scroll!
-           (incf (cursor-line stream) (line-height stream))
-           (mezzanine.gui:bitblt (- win-height (line-height stream)) win-width
-                                 fb (line-height stream) 0
+           (incf (cursor-line stream) line-height)
+           (mezzanine.gui:bitblt (- win-height line-height) win-width
+                                 fb line-height 0
                                  fb 0 0)
            ;; Clear line.
-           (mezzanine.gui:bitset (line-height stream) win-width (background-colour stream) fb y 0)
+           (mezzanine.gui:bitset line-height win-width (background-colour stream) fb y 0)
            ;; Damage the whole window.
            (mezzanine.gui.compositor:damage-window window 0 0 win-width win-height))
-          (t (incf y (line-height stream))
+          (t (incf y line-height)
              (setf (cursor-y stream) y)
              ;; Clear line.
-             (mezzanine.gui:bitset (line-height stream) win-width (background-colour stream) fb y 0)
-             (mezzanine.gui.compositor:damage-window window 0 y win-width (line-height stream))))))
+             (mezzanine.gui:bitset line-height win-width (background-colour stream) fb y 0)
+             (mezzanine.gui.compositor:damage-window window 0 y win-width line-height)))))
 
 (defmethod sys.gray:stream-write-char ((stream fancy-repl) character)
   ;; Catch up with window manager events.
@@ -199,22 +236,23 @@
   (cond
     ((eql character #\Newline)
      (sys.gray:stream-terpri stream))
-    (t (let* ((glyph (character-to-glyph stream character))
+    (t (let* ((glyph (character-to-glyph (font stream) character))
               (mask (glyph-mask glyph))
               (width (glyph-advance glyph))
               (window (window stream))
               (fb (mezzanine.gui.compositor:window-buffer window))
               (win-width (mezzanine.gui.compositor:width window))
-              (win-height (mezzanine.gui.compositor:height window)))
+              (win-height (mezzanine.gui.compositor:height window))
+              (line-height (line-height (font stream))))
          (when (> (+ (cursor-x stream) width) win-width)
            (sys.gray:stream-terpri stream))
          (let ((x (cursor-x stream))
                (y (cursor-y stream)))
-           (mezzanine.gui:bitset (line-height stream) width (background-colour stream) fb y x)
+           (mezzanine.gui:bitset line-height width (background-colour stream) fb y x)
            (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
                                                   mask 0 0
-                                                  fb (- (+ y (font-ascender stream)) (glyph-yoff glyph)) (+ x (glyph-xoff glyph)))
-           (mezzanine.gui.compositor:damage-window window x y width (line-height stream))
+                                                  fb (- (+ y (font-ascender (font stream))) (glyph-yoff glyph)) (+ x (glyph-xoff glyph)))
+           (mezzanine.gui.compositor:damage-window window x y width line-height)
            (incf (cursor-x stream) width)
            (incf (cursor-column stream)))))))
 
@@ -236,7 +274,7 @@
         (cursor-y stream) (max (- y (cursor-line stream)) 0)))
 
 (defmethod sys.int::stream-character-width ((stream fancy-repl) character)
-  (glyph-advance (character-to-glyph stream character)))
+  (glyph-advance (character-to-glyph (font stream) character)))
 
 (defmethod sys.int::stream-compute-motion ((stream fancy-repl) string &optional (start 0) end initial-x initial-y)
   (unless end (setf end (length string)))
@@ -247,6 +285,7 @@
         (framebuffer (mezzanine.gui.compositor:window-buffer window))
         (win-width (mezzanine.gui.compositor:width window))
         (win-height (mezzanine.gui.compositor:height window))
+        (line-height (line-height (font stream)))
         (i start (1+ i)))
       ((>= i end)
        (values initial-x initial-y))
@@ -255,9 +294,9 @@
       (when (or (eql ch #\Newline)
                 (> (+ initial-x width) win-width))
         (setf initial-x 0
-              initial-y (if (>= (+ initial-y (line-height stream)) win-height)
+              initial-y (if (>= (+ initial-y line-height) win-height)
                             0
-                            (+ initial-y (line-height stream)))))
+                            (+ initial-y line-height))))
       (unless (eql ch #\Newline)
         (incf initial-x width)))))
 
@@ -266,49 +305,39 @@
          (framebuffer (mezzanine.gui.compositor:window-buffer window))
          (win-width (mezzanine.gui.compositor:width window))
          (win-height (mezzanine.gui.compositor:height window))
-         (colour (background-colour stream)))
+         (colour (background-colour stream))
+         (line-height (line-height (font stream))))
     (setf start-y (- start-y (cursor-line stream))
           end-y (- end-y (cursor-line stream)))
     (cond ((eql start-y end-y)
            ;; Clearing one line.
-           (mezzanine.gui:bitset (line-height stream) (- end-x start-x) colour framebuffer start-y start-x)
-           (mezzanine.gui.compositor:damage-window window start-x start-y (- end-x start-x) (line-height stream)))
+           (mezzanine.gui:bitset line-height (- end-x start-x) colour framebuffer start-y start-x)
+           (mezzanine.gui.compositor:damage-window window start-x start-y (- end-x start-x) line-height))
           (t ;; Clearing many lines.
            ;; Clear top line.
-           (mezzanine.gui:bitset (line-height stream) (- win-width start-x) colour
+           (mezzanine.gui:bitset line-height (- win-width start-x) colour
                                  framebuffer start-y start-x)
-           (mezzanine.gui.compositor:damage-window window start-x start-y (- win-width start-x) (line-height stream))
+           (mezzanine.gui.compositor:damage-window window start-x start-y (- win-width start-x) line-height)
            ;; Clear in-between.
-           (when (> (- end-y start-y) (line-height stream))
-             (mezzanine.gui:bitset (- end-y start-y (line-height stream)) win-width colour
-                                   framebuffer (+ start-y (line-height stream)) 0)
-             (mezzanine.gui.compositor:damage-window window 0 (+ start-y (line-height stream)) win-width (- end-y start-y (line-height stream))))
+           (when (> (- end-y start-y) line-height)
+             (mezzanine.gui:bitset (- end-y start-y line-height) win-width colour
+                                   framebuffer (+ start-y line-height) 0)
+             (mezzanine.gui.compositor:damage-window window 0 (+ start-y line-height) win-width (- end-y start-y line-height)))
            ;; Clear bottom line.
-           (mezzanine.gui:bitset (line-height stream) end-x colour
+           (mezzanine.gui:bitset line-height end-x colour
                                  framebuffer end-y 0)
-           (mezzanine.gui.compositor:damage-window window 0 end-y end-x (line-height stream))))))
-
-(defun find-font (name &optional (errorp t))
-  "Return the truename of the font named NAME"
-  (truename (make-pathname :name name :type "ttf" :defaults "LOCAL:>Fonts>" #+(or)"SYS:FONTS;")))
+           (mezzanine.gui.compositor:damage-window window 0 end-y end-x line-height)))))
 
 (defun repl-main ()
-  (zpb-ttf:with-font-loader (font-loader (find-font *default-font*))
+  (with-font (font *default-font* 12)
     (let* ((fifo (mezzanine.supervisor:make-fifo 50))
            (window (mezzanine.gui.compositor:make-window fifo 800 600))
            (framebuffer (mezzanine.gui.compositor:window-buffer window))
-           (font-scale (/ 12 (float (zpb-ttf:units/em font-loader))))
            (term (make-instance 'fancy-repl
                                 :fifo fifo
                                 :window window
                                 :thread (mezzanine.supervisor:current-thread)
-                                :font-loader font-loader
-                                :font-scale font-scale
-                                :font-ascender (round (* (zpb-ttf:ascender font-loader) font-scale))
-                                :line-height (round (* (+ (zpb-ttf:ascender font-loader)
-                                                          (- (zpb-ttf:descender font-loader))
-                                                          (zpb-ttf:line-gap font-loader))
-                                                       font-scale))))
+                                :font font))
            ;(*standard-input* term)
            ;(*standard-output* term)
            (*terminal-io* term)
