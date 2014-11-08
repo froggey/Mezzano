@@ -91,8 +91,13 @@
   (count-if (complement predicate) sequence :key key))
 
 (declaim (inline find-if find find-if-not))
-(defun find-if (predicate sequence &key key); (start 0) end from-end
+(defun find-if (predicate sequence &key key (start 0) end from-end)
   (unless key (setf key 'identity))
+  (when (or (not (zerop start))
+            end)
+    (setf sequence (subseq sequence start end)))
+  (when from-end
+    (setf sequence (reverse sequence)))
   (if (listp sequence)
       (dolist (e sequence)
 	(when (funcall predicate (funcall key e))
@@ -101,15 +106,15 @@
 	(when (funcall predicate (funcall key (elt sequence i)))
 	  (return (elt sequence i))))))
 
-(defun find (item sequence &key key test test-not); (start 0) end from-end
+(defun find (item sequence &key key test test-not (start 0) end from-end)
   (when (and test test-not)
     (error "Both :test and :test-not specified"))
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
-  (find-if (lambda (x) (funcall test item x)) sequence :key key))
+  (find-if (lambda (x) (funcall test item x)) sequence :key key :start start :end end :from-end from-end))
 
-(defun find-if-not (predicate sequence &key key); (start 0) end from-end
-  (find-if (complement predicate) sequence :key key))
+(defun find-if-not (predicate sequence &key key (start 0) end from-end)
+  (find-if (complement predicate) sequence :key key :start start :end end :from-end from-end))
 
 (declaim (inline remove-if remove remove-if-not))
 (defun remove-if (test sequence &key key); from-end (start 0) end count
