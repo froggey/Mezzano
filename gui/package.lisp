@@ -35,7 +35,9 @@
            #:make-window
            #:damage-window
            #:close-window
-           #:global-mouse-state))
+           #:global-mouse-state
+           #:window-activation-event
+           #:state))
 
 (defpackage :mezzanine.gui.input-drivers
   (:use :cl))
