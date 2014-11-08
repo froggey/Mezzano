@@ -359,6 +359,24 @@
     (setf *mouse-buttons* buttons)
     ;; Dispatch events and stuff...
     ;; Raise windows when clicked on, deal with drag, etc.
+    (when (and (not (logbitp 0 buttons))
+               (logbitp 0 changes))
+      ;; On left click release, select window.
+      (let ((win (window-at-point *mouse-x* *mouse-y*)))
+        (when (and win (not (eql win *active-window*)))
+          (when *active-window*
+            (send-event *active-window* (make-instance 'window-activation-event
+                                                       :window *active-window*
+                                                       :state nil)))
+          (setf *active-window* win)
+          (send-event win (make-instance 'window-activation-event
+                                         :window win
+                                         :state t))
+          (setf *window-list* (remove win *window-list*))
+          (push win *window-list*)
+          ;; Layering change, redraw everything.
+          ;; fixme: don't be lazy. set the cliprect properly.
+          (setf *main-screen* nil))))
     #+(or)(do-something)
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
@@ -391,11 +409,14 @@
     (setf (window-x win) 0
           (window-y win) 0)
     (push win *window-list*)
-    (when (not *active-window*)
-      (setf *active-window* win)
-      (send-event win (make-instance 'window-activation-event
-                                     :window win
-                                     :state t)))))
+    (when *active-window*
+      (send-event *active-window* (make-instance 'window-activation-event
+                                                 :window *active-window*
+                                                 :state nil)))
+    (setf *active-window* win)
+    (send-event win (make-instance 'window-activation-event
+                                   :window win
+                                   :state t))))
 
 (defun make-window (fifo width height)
   (let ((window (make-instance 'window
@@ -417,9 +438,13 @@
 
 (defmethod process-event ((event window-close-event))
   (format t "Closing window ~S. Goodbye!~%" (window event))
-  (when (eql *active-window* (window event))
-    (setf *active-window* nil))
   (setf *window-list* (remove (window event) *window-list*))
+  (when (eql *active-window* (window event))
+    (setf *active-window* (first *window-list*))
+    (when *active-window*
+      (send-event *active-window* (make-instance 'window-activation-event
+                                                 :window *active-window*
+                                                 :state t))))
   (send-event (window event) event))
 
 (defun close-window (window)
@@ -481,6 +506,14 @@
   (values (mezzanine.supervisor:framebuffer-width *main-screen*)
           (mezzanine.supervisor:framebuffer-height *main-screen*)))
 
+(defun window-at-point (x y)
+  (dolist (win *window-list*)
+    (when (and (>= x (window-x win))
+               (< x (+ (window-x win) (width win)))
+               (>= y (window-y win))
+               (< y (+ (window-y win) (height win))))
+      (return win))))
+
 (defun clip-rectangle (x y w h clip-x clip-y clip-w clip-h)
   "Clip the rectangle X,Y,W,H so it falls entirely within the clip rectangle."
   #+(or)(format t "Clipping ~D,~D ~D,~D to rect ~D,~D ~D,~D~%"
@@ -514,39 +547,30 @@
                         *screen-backbuffer* c-row c-col))))
 
 (defun recompose-windows (&optional full)
-  (when (and (not full)
-             (or (zerop *clip-rect-width*)
-                 (zerop *clip-rect-height*)))
+  (when full
+    ;; Expand the cliprect to the entire screen.
+    (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+          *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+          *clip-rect-x* 0
+          *clip-rect-y* 0))
+  (when (or (zerop *clip-rect-width*)
+                 (zerop *clip-rect-height*))
     (return-from recompose-windows))
   ;; Draw windows back-to-front.
   (dolist (window (reverse *window-list*))
-    (if full
-        (bitblt-argb-xrgb (height window) (width window)
-                          (window-buffer window) 0 0
-                          *screen-backbuffer* (window-y window) (window-x window))
-        (blit-with-clip (height window) (width window)
-                        (window-buffer window)
-                        (window-y window) (window-x window))))
+    (blit-with-clip (height window) (width window)
+                    (window-buffer window)
+                    (window-y window) (window-x window)))
   ;; Then the mouse pointer on top.
-  (if full
-      (bitblt-argb-xrgb (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
-                        *mouse-pointer* 0 0
-                        *screen-backbuffer* (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
-      (blit-with-clip (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
-                      *mouse-pointer*
-                      (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*)))
+  (blit-with-clip (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
+                  *mouse-pointer*
+                  (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
   ;; Update the actual screen.
-  (if full
-      (mezzanine.supervisor:framebuffer-blit *main-screen*
-                                             (mezzanine.supervisor:framebuffer-height *main-screen*)
-                                             (mezzanine.supervisor:framebuffer-width *main-screen*)
-                                             *screen-backbuffer* 0 0
-                                             0 0)
-      (mezzanine.supervisor:framebuffer-blit *main-screen*
-                                             *clip-rect-height*
-                                             *clip-rect-width*
-                                             *screen-backbuffer* *clip-rect-y* *clip-rect-x*
-                                             *clip-rect-y* *clip-rect-x*))
+  (mezzanine.supervisor:framebuffer-blit *main-screen*
+                                         *clip-rect-height*
+                                         *clip-rect-width*
+                                         *screen-backbuffer* *clip-rect-y* *clip-rect-x*
+                                         *clip-rect-y* *clip-rect-x*)
   ;; Reset clip region.
   (setf *clip-rect-x* 0
         *clip-rect-y* 0
