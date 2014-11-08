@@ -581,7 +581,7 @@
       (pass1-locally-body body env))))
 
 (defun pass1-tagbody (form env)
-  (let* ((tb (make-tagbody-information :definition-point *current-lambda*))
+  (let* ((tb (make-tagbody-information :name (gensym "TAGBODY") :definition-point *current-lambda*))
 	 (env (cons (list* :tagbody tb (mapcan (lambda (stmt)
 						 (when (or (symbolp stmt) (integerp stmt))
 						   (let ((tag (make-go-tag :name stmt :tagbody tb)))
