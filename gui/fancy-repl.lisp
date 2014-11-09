@@ -38,11 +38,12 @@
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:mouse-event))
   ;; Check for close button click.
-  (when (and (< 5 (mezzanine.gui.compositor:mouse-x-position event) 19)
-             (< 2 (mezzanine.gui.compositor:mouse-y-position event) 16)
+  (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
              ;; Mouse1 up
-             (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-             (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
+             (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event)))
+             (mezzanine.gui.widgets:in-frame-close-button (frame window)
+                                                          (mezzanine.gui.compositor:mouse-x-position event)
+                                                          (mezzanine.gui.compositor:mouse-y-position event)))
     (mezzanine.gui.compositor:close-window (window window))))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:window-close-event))

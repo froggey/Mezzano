@@ -6,6 +6,7 @@
            #:frame-title
            #:close-button-p
            #:activep
+           #:in-frame-close-button
            #:draw-frame
            #:frame-size
            #:text-widget))
@@ -14,6 +15,7 @@
 
 (defgeneric draw-frame (frame))
 (defgeneric frame-size (frame))
+(defgeneric in-frame-close-button (frame x y))
 
 (defclass frame ()
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
@@ -80,6 +82,11 @@
 (defmethod frame-size ((frame frame))
   ;; left, right, top, bottom.
   (values 1 1 19 1))
+
+(defmethod in-frame-close-button ((frame frame) x y)
+  (and (close-button-p frame)
+       (< 5 x 19)
+       (< 2 y 16)))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
