@@ -229,3 +229,7 @@
                  (subseq args 0 (1- (length args)))
                  (rest syms))
        ,(first syms))))
+
+;; Just for now.
+(define-setf-expander the (value-type form &environment env)
+  (get-setf-expansion form env))
