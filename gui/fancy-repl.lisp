@@ -9,27 +9,14 @@
 (defclass fancy-repl (sys.gray:unread-char-mixin
                       sys.int::simple-edit-mixin
                       sys.gray:fundamental-character-input-stream
-                      sys.gray:fundamental-character-output-stream)
+                      mezzanine.gui.widgets:text-widget)
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
    (%thread :initarg :thread :reader thread)
    (%input :initarg :input :reader input-buffer)
-   (%x :initarg :x :accessor cursor-x)
-   (%y :initarg :y :accessor cursor-y)
-   (%column :initarg :column :accessor cursor-column)
-   (%line :initarg :line :accessor cursor-line)
-   (%background-colour :initarg :background-colour :accessor background-colour)
-   (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
-   (%font :initarg :font :reader font)
    (%closed :initarg :window-closed :accessor window-closed)
    (%frame :initarg :frame :reader frame))
   (:default-initargs :input (mezzanine.supervisor:make-fifo 500 :element-type 'character)
-                     :x 0
-                     :y 0
-                     :column 0
-                     :line 0
-                     :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E
                      :window-closed nil))
 
 (defgeneric dispatch-event (window event)
@@ -83,143 +70,13 @@
      ;; Block until the next window event.
      (dispatch-event stream (mezzanine.supervisor:fifo-pop (fifo stream)))))
 
-(defmethod sys.gray:stream-terpri ((stream fancy-repl))
+(defmethod sys.gray:stream-terpri :before ((stream fancy-repl))
   ;; Catch up with window manager events.
-  (pump-event-loop stream)
-  (let* ((x (cursor-x stream))
-         (y (cursor-y stream))
-         (window (window stream))
-         (fb (mezzanine.gui.compositor:window-buffer window))
-         (win-width (mezzanine.gui.compositor:width window))
-         (win-height (mezzanine.gui.compositor:height window))
-         (line-height (line-height (font stream))))
-    (multiple-value-bind (left right top bottom)
-        (mezzanine.gui.widgets:frame-size (frame stream))
-      ;; Clear to the end of the current line.
-      (mezzanine.gui:bitset line-height (- win-width left right x) (background-colour stream) fb (+ top y) (+ left x))
-      (mezzanine.gui.compositor:damage-window window (+ left x) (+ top y) (- win-width left right x) line-height)
-      ;; Advance to the next line.
-      (setf (cursor-x stream) 0
-            (cursor-column stream) 0)
-      (cond ((> (+ y (* line-height 2)) (- win-height top bottom))
-             ;; Off the end of the screen. Scroll!
-             (incf (cursor-line stream) line-height)
-             (mezzanine.gui:bitblt (- win-height top bottom line-height) (- win-width left right)
-                                   fb (+ top line-height) left
-                                   fb top left)
-             ;; Clear line.
-             (mezzanine.gui:bitset line-height (- win-width left right) (background-colour stream) fb (+ top y) left)
-             ;; Damage the whole window.
-             (mezzanine.gui.compositor:damage-window window left top (- win-width left right) (- win-height top bottom)))
-            (t (incf y line-height)
-               (setf (cursor-y stream) y)
-               ;; Clear line.
-               (mezzanine.gui:bitset line-height (- win-width left right) (background-colour stream) fb (+ top y) left)
-               (mezzanine.gui.compositor:damage-window window left (+ top y) (- win-width left right) line-height))))))
+  (pump-event-loop stream))
 
-(defmethod sys.gray:stream-write-char ((stream fancy-repl) character)
+(defmethod sys.gray:stream-write-char :before ((stream fancy-repl) character)
   ;; Catch up with window manager events.
-  (pump-event-loop stream)
-  (cond
-    ((eql character #\Newline)
-     (sys.gray:stream-terpri stream))
-    (t (let* ((glyph (character-to-glyph (font stream) character))
-              (mask (glyph-mask glyph))
-              (width (glyph-advance glyph))
-              (window (window stream))
-              (fb (mezzanine.gui.compositor:window-buffer window))
-              (win-width (mezzanine.gui.compositor:width window))
-              (line-height (line-height (font stream))))
-         (multiple-value-bind (left right top bottom)
-             (mezzanine.gui.widgets:frame-size (frame stream))
-           (when (> (+ (cursor-x stream) width) (- win-width left right))
-             (sys.gray:stream-terpri stream))
-           ;; Fetch x/y after terpri.
-           (let ((x (cursor-x stream))
-                 (y (cursor-y stream)))
-             (mezzanine.gui:bitset line-height width (background-colour stream) fb (+ top y) (+ left x))
-             (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
-                                                    mask 0 0
-                                                    fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
-             (mezzanine.gui.compositor:damage-window window (+ left x) (+ top y) width line-height)
-             (incf (cursor-x stream) width)
-             (incf (cursor-column stream))))))))
-
-(defmethod sys.gray:stream-start-line-p ((stream fancy-repl))
-  (zerop (cursor-x stream)))
-
-(defmethod sys.gray:stream-line-column ((stream fancy-repl))
-  (cursor-column stream))
-
-(defmethod sys.int::stream-cursor-pos ((stream fancy-repl))
-  (values (cursor-x stream)
-          (+ (cursor-line stream)
-             (cursor-y stream))))
-
-(defmethod sys.int::stream-move-to ((stream fancy-repl) x y)
-  (check-type x integer)
-  (check-type y integer)
-  (setf (cursor-x stream) x
-        (cursor-y stream) (max (- y (cursor-line stream)) 0)))
-
-(defmethod sys.int::stream-character-width ((stream fancy-repl) character)
-  (glyph-advance (character-to-glyph (font stream) character)))
-
-(defmethod sys.int::stream-compute-motion ((stream fancy-repl) string &optional (start 0) end initial-x initial-y)
-  (unless end (setf end (length string)))
-  (unless initial-x (setf initial-x (cursor-x stream)))
-  (unless initial-y (setf initial-y (+ (cursor-line stream)
-                                       (cursor-y stream))))
-  (multiple-value-bind (left right top bottom)
-      (mezzanine.gui.widgets:frame-size (frame stream))
-    (do* ((window (window stream))
-          (framebuffer (mezzanine.gui.compositor:window-buffer window))
-          (win-width (mezzanine.gui.compositor:width window))
-          (win-height (mezzanine.gui.compositor:height window))
-          (line-height (line-height (font stream)))
-          (i start (1+ i)))
-         ((>= i end)
-          (values initial-x initial-y))
-      (let* ((ch (char string i))
-             (width (sys.int::stream-character-width stream ch)))
-        (when (or (eql ch #\Newline)
-                  (> (+ initial-x width) (- win-width left right)))
-          (setf initial-x 0
-                initial-y (if (>= (+ initial-y line-height) (- win-height top bottom))
-                              0
-                              (+ initial-y line-height))))
-        (unless (eql ch #\Newline)
-          (incf initial-x width))))))
-
-(defmethod sys.int::stream-clear-between ((stream fancy-repl) start-x start-y end-x end-y)
-  (let* ((window (window stream))
-         (framebuffer (mezzanine.gui.compositor:window-buffer window))
-         (win-width (mezzanine.gui.compositor:width window))
-         (win-height (mezzanine.gui.compositor:height window))
-         (colour (background-colour stream))
-         (line-height (line-height (font stream))))
-    (multiple-value-bind (left right top bottom)
-        (mezzanine.gui.widgets:frame-size (frame stream))
-      (setf start-y (- start-y (cursor-line stream))
-            end-y (- end-y (cursor-line stream)))
-      (cond ((eql start-y end-y)
-             ;; Clearing one line.
-             (mezzanine.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
-             (mezzanine.gui.compositor:damage-window window (+ left start-x) (+ top start-y) (- end-x start-x) line-height))
-            (t ;; Clearing many lines.
-             ;; Clear top line.
-             (mezzanine.gui:bitset line-height (- win-width left right start-x) colour
-                                   framebuffer (+ top start-y) (+ left start-x))
-             (mezzanine.gui.compositor:damage-window window (+ left start-x) (+ top start-y) (- win-width left right start-x) line-height)
-             ;; Clear in-between.
-             (when (> (- end-y start-y) line-height)
-               (mezzanine.gui:bitset (- end-y start-y line-height) (- win-width left right) colour
-                                     framebuffer (+ top start-y line-height) left)
-               (mezzanine.gui.compositor:damage-window window left (+ top start-y line-height) win-width (- end-y start-y line-height)))
-             ;; Clear bottom line.
-             (mezzanine.gui:bitset line-height end-x colour
-                                   framebuffer (+ top end-y) left)
-             (mezzanine.gui.compositor:damage-window window left (+ top end-y) end-x line-height))))))
+  (pump-event-loop stream))
 
 (defun repl-main ()
   (with-font (font *default-font* 12)
@@ -235,7 +92,19 @@
                                 :window window
                                 :thread (mezzanine.supervisor:current-thread)
                                 :font font
-                                :frame frame))
+                                :frame frame
+                                ;; text-widget stuff.
+                                :framebuffer framebuffer
+                                :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                :width (- (mezzanine.gui.compositor:width window)
+                                          (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                          (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
+                                :height (- (mezzanine.gui.compositor:height window)
+                                           (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                           (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
+                                :damage-function (lambda (&rest args)
+                                                   (apply #'mezzanine.gui.compositor:damage-window window args))))
            (*standard-input* term)
            (*standard-output* term)
            ;(*terminal-io* term)
@@ -246,12 +115,6 @@
            ;(*trace-output* *standard-input*)
            ;(*debug-io* *standard-input*)
            )
-      (multiple-value-bind (left right top bottom)
-          (mezzanine.gui.widgets:frame-size frame)
-        (mezzanine.gui:bitset (- (mezzanine.gui.compositor:height window) top bottom)
-                              (- (mezzanine.gui.compositor:width window) left right)
-                              (background-colour term)
-                              framebuffer top left))
       (mezzanine.gui.widgets:draw-frame frame)
       (mezzanine.gui.compositor:damage-window window
                                               0 0
