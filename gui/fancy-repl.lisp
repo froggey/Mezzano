@@ -1,5 +1,5 @@
 (defpackage :mezzanine.gui.fancy-repl
-  (:use :cl)
+  (:use :cl :mezzanine.gui.font)
   (:export #:spawn))
 
 (in-package :mezzanine.gui.fancy-repl)
@@ -30,147 +30,6 @@
                      :foreground-colour #xFFDCDCCC
                      :background-colour #xFF3E3E3E
                      :window-closed nil))
-
-(defstruct glyph
-  ;; Lisp character this glyph represents.
-  character
-  ;; 8-bit alpha mask for this glyph.
-  mask
-  ;; Y offset from baseline.
-  yoff
-  ;; X offset from pen position.
-  xoff
-  ;; Total width of this character.
-  advance)
-
-(defun path-map-line (path function)
-  "Iterate over all the line on the contour of the path."
-  (loop with iterator = (paths:path-iterator-segmented path)
-     for previous-knot = nil then knot
-     for (interpolation knot end-p) = (multiple-value-list (paths:path-iterator-next iterator))
-     while knot
-     when previous-knot
-     do (funcall function previous-knot knot)
-     until end-p
-     finally (when knot
-               (funcall function knot (nth-value 1 (paths:path-iterator-next iterator))))))
-
-(defun rasterize-paths (paths sweep-function &optional (scale 1.0))
-  (let ((state (aa:make-state)))
-    (flet ((do-line (p1 p2)
-             (aa:line-f state
-                        (* scale (paths:point-x p1)) (* scale (paths:point-y p1))
-                        (* scale (paths:point-x p2)) (* scale (paths:point-y p2)))))
-      (loop for path in paths
-         do (path-map-line path #'do-line)))
-    (aa:cells-sweep state sweep-function)))
-
-(defun normalize-alpha (alpha)
-  (min 255 (abs alpha)))
-
-(defun scale-bb (bb scale)
-  (vector (floor (* (zpb-ttf:xmin bb) scale)) (floor (* (zpb-ttf:ymin bb) scale))
-          (ceiling (* (zpb-ttf:xmax bb) scale)) (ceiling (* (zpb-ttf:ymax bb) scale))))
-
-(defun rasterize-glyph (glyph scale)
-  (let* ((bb (scale-bb (zpb-ttf:bounding-box glyph) scale))
-         (width (- (zpb-ttf:xmax bb) (zpb-ttf:xmin bb)))
-         (height (- (zpb-ttf:ymax bb) (zpb-ttf:ymin bb)))
-         (array (make-array (list height width)
-                            :element-type '(unsigned-byte 8)
-                            :initial-element 0))
-         (paths (paths-ttf:paths-from-glyph glyph
-                                            :scale-x scale
-                                            :scale-y (- scale)
-                                            :offset (paths:make-point 0 (zpb-ttf:ymax bb))
-                                            :auto-orient :cw)))
-    (rasterize-paths paths (lambda (x y alpha)
-                             (setf (aref array y (- x (zpb-ttf:xmin bb)))
-                                   (normalize-alpha alpha))))
-    array))
-
-(defun expand-bit-mask-to-ub8-mask (mask)
-  (let ((new (make-array (array-dimensions mask) :element-type '(unsigned-byte 8))))
-    (dotimes (y (array-dimension mask 0))
-      (dotimes (x (array-dimension mask 1))
-        (setf (aref new y x) (* #xFF (aref mask y x)))))
-    new))
-
-(defclass font ()
-  ((%font-loader :initarg :loader :reader font-loader)
-   (%font-size :initarg :size :reader font-size)
-   (%font-scale :reader font-scale)
-   (%line-height :reader line-height)
-   (%font-ascender :reader font-ascender)
-   (%glyph-cache :reader glyph-cache)))
-
-(defmethod initialize-instance :after ((font font) &key loader size &allow-other-keys)
-  (setf (slot-value font '%font-scale) (/ size (float (zpb-ttf:units/em loader)))
-        (slot-value font '%line-height) (round (* (+ (zpb-ttf:ascender loader)
-                                                     (- (zpb-ttf:descender loader))
-                                                     (zpb-ttf:line-gap loader))
-                                                  (font-scale font)))
-        (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
-                                                    (font-scale font)))
-        (slot-value font '%glyph-cache) (make-array 17 :initial-element nil)))
-
-(defun find-font (name &optional (errorp t))
-  "Return the truename of the font named NAME"
-  (truename (make-pathname :name name :type "ttf" :defaults "LOCAL:>Fonts>" #+(or)"SYS:FONTS;")))
-
-(defun open-font (name size)
-  (make-instance 'font
-                 :loader (zpb-ttf:open-font-loader (find-font name))
-                 :size size))
-
-(defun close-font (font)
-  (zpb-ttf:close-font-loader (font-loader font)))
-
-(defmacro with-font ((font name size) &body body)
-  `(let (,font)
-    (unwind-protect
-         (progn
-           (setf ,font (open-font ,name ,size))
-           ,@body)
-      (when ,font
-        (close-font ,font)))))
-
-(defgeneric character-to-glyph (font character))
-
-(defmethod character-to-glyph ((font font) character)
-  ;; TODO: char-bits
-  (let* ((code (char-code character))
-         (plane (ash code -16))
-         (cell (logand code #xFFFF))
-         (main-cache (glyph-cache font))
-         (cell-cache (aref main-cache plane)))
-    (when (not cell-cache)
-      (setf cell-cache (make-array (expt 2 16) :initial-element nil)
-            (aref main-cache plane) cell-cache))
-    (let ((glyph (aref cell-cache cell)))
-      (when (not glyph)
-        ;; Glyph does not exist in the cache, rasterize it.
-        (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
-               (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
-                      (scale (font-scale font))
-                      (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
-                      (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
-                 (setf glyph (make-glyph :character (code-char code)
-                                         :mask (rasterize-glyph ttf-glyph scale)
-                                         :yoff (zpb-ttf:ymax bb)
-                                         :xoff (zpb-ttf:xmin bb)
-                                         :advance advance)
-                       (aref cell-cache cell) glyph)))
-              (t ;; Use Unifont fallback.
-               (let ((mask (or (sys.int::map-unifont-2d (code-char code))
-                               (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
-                 (setf glyph (make-glyph :character (code-char code)
-                                         :mask (expand-bit-mask-to-ub8-mask mask)
-                                         :yoff 14
-                                         :xoff 0
-                                         :advance (array-dimension mask 1))
-                       (aref cell-cache cell) glyph)))))
-      glyph)))
 
 (defgeneric dispatch-event (window event)
   ;; Eat unknown events.
@@ -279,7 +138,7 @@
              (mezzanine.gui:bitset line-height width (background-colour stream) fb (+ top y) (+ left x))
              (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
                                                     mask 0 0
-                                                    fb (+ top (- (+ y (font-ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
+                                                    fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
              (mezzanine.gui.compositor:damage-window window (+ left x) (+ top y) width line-height)
              (incf (cursor-x stream) width)
              (incf (cursor-column stream))))))))
@@ -410,7 +269,7 @@
                 (return))
               (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
                                                      mask 0 0
-                                                     framebuffer (- (+ 3 (font-ascender font)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
+                                                     framebuffer (- (+ 3 (ascender font)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
               (incf pen (glyph-advance glyph)))))))))
 
 (defun window-frame-size (window)
