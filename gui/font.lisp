@@ -12,9 +12,18 @@
            #:glyph-yoff
            #:glyph-xoff
            #:glyph-advance
-           #:character-to-glyph))
+           #:character-to-glyph
+           #:*default-font*
+           #:*default-font-size*
+           #:*default-monospace-font*
+           #:*default-monospace-font-size*))
 
 (in-package :mezzanine.gui.font)
+
+(defvar *default-font* "Helvetica")
+(defvar *default-font-size* 12)
+(defvar *default-monospace-font* "Monaco")
+(defvar *default-monospace-font-size* 12)
 
 (defclass typeface ()
   ((%font-loader :initarg :font-loader :reader font-loader)

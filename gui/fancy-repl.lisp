@@ -4,8 +4,6 @@
 
 (in-package :mezzanine.gui.fancy-repl)
 
-(defvar *default-font* "Monaco")
-
 (defclass fancy-repl (sys.gray:unread-char-mixin
                       sys.int::simple-edit-mixin
                       sys.gray:fundamental-character-input-stream
@@ -80,7 +78,7 @@
   (pump-event-loop stream))
 
 (defun repl-main ()
-  (with-font (font *default-font* 12)
+  (with-font (font *default-monospace-font* *default-monospace-font-size*)
     (let* ((fifo (mezzanine.supervisor:make-fifo 50))
            (window (mezzanine.gui.compositor:make-window fifo 800 300))
            (framebuffer (mezzanine.gui.compositor:window-buffer window))

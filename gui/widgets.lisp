@@ -9,13 +9,15 @@
            #:in-frame-close-button
            #:draw-frame
            #:frame-size
-           #:text-widget))
+           #:text-widget
+           #:reset))
 
 (in-package :mezzanine.gui.widgets)
 
 (defgeneric draw-frame (frame))
 (defgeneric frame-size (frame))
 (defgeneric in-frame-close-button (frame x y))
+(defgeneric reset (object))
 
 (defclass frame ()
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
@@ -95,25 +97,18 @@
    (%width :initarg :width :reader width)
    (%height :initarg :height :reader height)
    (%damage-fn :initarg :damage-function :reader damage-function)
-   (%x :initarg :x :accessor cursor-x)
-   (%y :initarg :y :accessor cursor-y)
-   (%column :initarg :column :accessor cursor-column)
-   (%line :initarg :line :accessor cursor-line)
+   (%x :accessor cursor-x)
+   (%y :accessor cursor-y)
+   (%column :accessor cursor-column)
+   (%line :accessor cursor-line)
    (%background-colour :initarg :background-colour :reader background-colour)
    (%foreground-colour :initarg :foreground-colour :reader foreground-colour)
    (%font :initarg :font :reader font))
-  (:default-initargs :x 0
-                     :y 0
-                     :column 0
-                     :line 0
-                     :foreground-colour #xFFDCDCCC
+  (:default-initargs :foreground-colour #xFFDCDCCC
                      :background-colour #xFF3E3E3E))
 
 (defmethod initialize-instance :after ((widget text-widget) &key &allow-other-keys)
-  (mezzanine.gui:bitset (height widget) (width widget)
-                        (background-colour widget)
-                        (framebuffer widget) (y-position widget) (x-position widget))
-  (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))
+  (reset widget))
 
 (defmethod sys.gray:stream-terpri ((stream text-widget))
   (let* ((x (cursor-x stream))
@@ -244,3 +239,13 @@
            (mezzanine.gui:bitset line-height end-x colour
                                  framebuffer (+ top end-y) left)
            (funcall (damage-function stream) left (+ top end-y) end-x line-height)))))
+
+(defmethod reset ((widget text-widget))
+  (setf (cursor-x widget) 0
+        (cursor-y widget) 0
+        (cursor-column widget) 0
+        (cursor-line widget) 0)
+  (mezzanine.gui:bitset (height widget) (width widget)
+                        (background-colour widget)
+                        (framebuffer widget) (y-position widget) (x-position widget))
+  (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))
