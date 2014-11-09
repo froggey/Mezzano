@@ -21,7 +21,8 @@
    (%background-colour :initarg :background-colour :accessor background-colour)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
    (%font :initarg :font :reader font)
-   (%closed :initarg :window-closed :accessor window-closed))
+   (%closed :initarg :window-closed :accessor window-closed)
+   (%frame :initarg :frame :reader frame))
   (:default-initargs :input (mezzanine.supervisor:make-fifo 500 :element-type 'character)
                      :x 0
                      :y 0
@@ -36,7 +37,8 @@
   (:method (w e)))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:window-activation-event))
-  (draw-window-frame (window window) (mezzanine.gui.compositor:state event) "REPL" (font window))
+  (setf (mezzanine.gui.widgets:activep (frame window)) (mezzanine.gui.compositor:state event))
+  (mezzanine.gui.widgets:draw-frame (frame window))
   (mezzanine.gui.compositor:damage-window (window window)
                                           0 0
                                           (mezzanine.gui.compositor:width (window window))
@@ -92,7 +94,7 @@
          (win-height (mezzanine.gui.compositor:height window))
          (line-height (line-height (font stream))))
     (multiple-value-bind (left right top bottom)
-        (window-frame-size window)
+        (mezzanine.gui.widgets:frame-size (frame stream))
       ;; Clear to the end of the current line.
       (mezzanine.gui:bitset line-height (- win-width left right x) (background-colour stream) fb (+ top y) (+ left x))
       (mezzanine.gui.compositor:damage-window window (+ left x) (+ top y) (- win-width left right x) line-height)
@@ -129,7 +131,7 @@
               (win-width (mezzanine.gui.compositor:width window))
               (line-height (line-height (font stream))))
          (multiple-value-bind (left right top bottom)
-             (window-frame-size window)
+             (mezzanine.gui.widgets:frame-size (frame stream))
            (when (> (+ (cursor-x stream) width) (- win-width left right))
              (sys.gray:stream-terpri stream))
            ;; Fetch x/y after terpri.
@@ -169,7 +171,7 @@
   (unless initial-y (setf initial-y (+ (cursor-line stream)
                                        (cursor-y stream))))
   (multiple-value-bind (left right top bottom)
-      (window-frame-size (window stream))
+      (mezzanine.gui.widgets:frame-size (frame stream))
     (do* ((window (window stream))
           (framebuffer (mezzanine.gui.compositor:window-buffer window))
           (win-width (mezzanine.gui.compositor:width window))
@@ -197,7 +199,7 @@
          (colour (background-colour stream))
          (line-height (line-height (font stream))))
     (multiple-value-bind (left right top bottom)
-        (window-frame-size window)
+        (mezzanine.gui.widgets:frame-size (frame stream))
       (setf start-y (- start-y (cursor-line stream))
             end-y (- end-y (cursor-line stream)))
       (cond ((eql start-y end-y)
@@ -219,73 +221,21 @@
                                    framebuffer (+ top end-y) left)
              (mezzanine.gui.compositor:damage-window window left (+ top end-y) end-x line-height))))))
 
-(defvar *corner-mask*
-  #2A((0.0 0.0 0.0 0.2 0.5)
-      (0.0 0.0 0.5 1.0 1.0)
-      (0.0 0.5 1.0 1.0 1.0)
-      (0.2 1.0 1.0 1.0 1.0)
-      (0.5 1.0 1.0 1.0 1.0))
-  "Alpha values for the rounded window corners.")
-
-(defun draw-window-frame (window active title font)
-  (let ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-        (win-width (mezzanine.gui.compositor:width window))
-        (win-height (mezzanine.gui.compositor:height window))
-        (colour (if active #xFF8CD0D3 #xFF366060)))
-    ;; Top.
-    (mezzanine.gui:bitset 19 win-width colour framebuffer 0 0)
-    ;; Bottom.
-    (mezzanine.gui:bitset 1 win-width colour framebuffer (1- win-height) 0)
-    ;; Left.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 0 0)
-    ;; Right.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 0 (1- win-width))
-    ;; Round off the corners.
-    (let* ((corner-width (array-dimension *corner-mask* 1))
-           (corner-height (array-dimension *corner-mask* 0)))
-      (dotimes (y corner-height)
-        (dotimes (x corner-width)
-          (let ((alpha (truncate (* (aref *corner-mask* y x) 255))))
-            (setf (ldb (byte 8 24) (aref framebuffer y x)) alpha
-                  (ldb (byte 8 24) (aref framebuffer y (- win-width x 1))) alpha)))))
-    ;; Quit button.
-    (mezzanine.gui:bitset 13 13 #xFFBC8383 framebuffer 3 6)
-    ;; Title.
-    (when title
-      (let ((width 0))
-        ;; How wide is the title text?
-        (dotimes (i (length title))
-          (incf width (glyph-advance (character-to-glyph font (char title i)))))
-        ;; Clamp it, corner elements and buttons.
-        (setf width (mezzanine.gui:clamp width 0 (- win-width (+ 16 (* (array-dimension *corner-mask* 1) 2)))))
-        ;; Find leftmost position.
-        (let ((origin (- (truncate win-width 2) (truncate width 2)))
-              (pen 0))
-          ;; Write characters.
-          (dotimes (i (length title))
-            (let* ((glyph (character-to-glyph font (char title i)))
-                   (mask (glyph-mask glyph)))
-              (when (> pen width)
-                (return))
-              (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
-                                                     mask 0 0
-                                                     framebuffer (- (+ 3 (ascender font)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
-              (incf pen (glyph-advance glyph)))))))))
-
-(defun window-frame-size (window)
-  ;; left, right, top, bottom.
-  (values 1 1 19 1))
-
 (defun repl-main ()
   (with-font (font *default-font* 12)
     (let* ((fifo (mezzanine.supervisor:make-fifo 50))
            (window (mezzanine.gui.compositor:make-window fifo 800 300))
            (framebuffer (mezzanine.gui.compositor:window-buffer window))
+           (frame (make-instance 'mezzanine.gui.widgets:frame
+                                 :framebuffer framebuffer
+                                 :title "REPL"
+                                 :close-button-p t))
            (term (make-instance 'fancy-repl
                                 :fifo fifo
                                 :window window
                                 :thread (mezzanine.supervisor:current-thread)
-                                :font font))
+                                :font font
+                                :frame frame))
            (*standard-input* term)
            (*standard-output* term)
            ;(*terminal-io* term)
@@ -297,12 +247,12 @@
            ;(*debug-io* *standard-input*)
            )
       (multiple-value-bind (left right top bottom)
-          (window-frame-size window)
+          (mezzanine.gui.widgets:frame-size frame)
         (mezzanine.gui:bitset (- (mezzanine.gui.compositor:height window) top bottom)
                               (- (mezzanine.gui.compositor:width window) left right)
                               (background-colour term)
                               framebuffer top left))
-      (draw-window-frame window nil "REPL" (font term))
+      (mezzanine.gui.widgets:draw-frame frame)
       (mezzanine.gui.compositor:damage-window window
                                               0 0
                                               (mezzanine.gui.compositor:width window)
