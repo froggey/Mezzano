@@ -15,7 +15,8 @@
 
 (defpackage :mezzanine.gui.compositor
   (:use :cl :mezzanine.gui)
-  (:export #:window-buffer
+  (:export #:window
+           #:window-buffer
            #:width
            #:height
            #:key-event
@@ -32,12 +33,16 @@
            #:mouse-x-motion
            #:mouse-y-motion
            #:submit-mouse
-           #:make-window
-           #:damage-window
-           #:close-window
            #:global-mouse-state
+           #:make-window
+           #:window-close-event
+           #:close-window
            #:window-activation-event
-           #:state))
+           #:state
+           #:damage-window
+           #:subscribe-notification
+           #:unsubscribe-notification
+           #:screen-geometry-update))
 
 (defpackage :mezzanine.gui.input-drivers
   (:use :cl))

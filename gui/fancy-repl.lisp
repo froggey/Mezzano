@@ -197,7 +197,7 @@
              (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
     (mezzanine.gui.compositor:close-window (window window))))
 
-(defmethod dispatch-event (window (event mezzanine.gui.compositor::window-close-event))
+(defmethod dispatch-event (window (event mezzanine.gui.compositor:window-close-event))
   (throw 'mezzanine.supervisor::terminate-thread nil)
   (setf (window-closed window) t))
 

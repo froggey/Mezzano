@@ -15,7 +15,10 @@
   ((%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
    (%fifo :initarg :fifo :reader fifo)
-   (%buffer :initarg :buffer :reader window-buffer)))
+   (%buffer :initarg :buffer :reader window-buffer)
+   (%layer :initarg :layer :reader layer)
+   (%subscribed-notifications :initarg :notifications :reader subscribed-notifications))
+  (:default-initargs :layer nil :notifications '()))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -374,14 +377,15 @@
           (send-event win (make-instance 'window-activation-event
                                          :window win
                                          :state t))
-          (setf *window-list* (remove win *window-list*))
-          (push win *window-list*)
-          ;; Layering change, redraw everything.
-          ;; fixme: don't be lazy. set the cliprect properly.
-          (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-                *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
-                *clip-rect-x* 0
-                *clip-rect-y* 0))))
+          (when (not (eql (layer win) :bottom))
+            (setf *window-list* (remove win *window-list*))
+            (push win *window-list*)
+            ;; Layering change, redraw everything.
+            ;; fixme: don't be lazy. set the cliprect properly.
+            (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+                  *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+                  *clip-rect-x* 0
+                  *clip-rect-y* 0)))))
     (when (or (not (zerop x-motion))
               (not (zerop y-motion))
               (not (zerop changes)))
@@ -425,7 +429,13 @@
             (width win) (height win) win (fifo win))
     (setf (window-x win) 0
           (window-y win) 0)
-    (push win *window-list*)
+    (case (layer win)
+      (:bottom
+       (setf *window-list* (append *window-list* (list win))))
+      (:top
+       (push win *window-list*))
+      (t (setf (slot-value win '%layer) nil)
+         (push win *window-list*)))
     (when *active-window*
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
@@ -439,14 +449,15 @@
                                    :window win
                                    :state t))))
 
-(defun make-window (fifo width height)
+(defun make-window (fifo width height &key layer)
   (let ((window (make-instance 'window
                                :width width
                                :height height
                                :fifo fifo
                                :buffer (make-array (list height width)
                                                    :element-type '(unsigned-byte 32)
-                                                   :initial-element 0))))
+                                                   :initial-element 0)
+                               :layer layer)))
     (mezzanine.supervisor:fifo-push (make-instance 'window-create-event
                                                    :window window)
                                     *event-queue*)
@@ -516,6 +527,52 @@
 
 (defmethod process-event ((event redisplay-time-event))
   (recompose-windows))
+
+;;;; Notifications.
+
+(defclass subscribe-event ()
+  ((%window :initarg :window :reader window)
+   (%category :initarg :category :reader category)))
+
+(defun subscribe-notification (window category)
+  (mezzanine.supervisor:fifo-push (make-instance 'subscribe-event
+                                                 :window window
+                                                 :category category)
+                                  *event-queue*))
+
+(defmethod process-event ((event subscribe-event))
+  (pushnew (category event) (slot-value (window event) '%subscribed-notifications))
+  (case (category event)
+    (:screen-geometry
+     (send-event (window event) (make-instance 'screen-geometry-update
+                                              :width (mezzanine.supervisor:framebuffer-width *main-screen*)
+                                              :height (mezzanine.supervisor:framebuffer-height *main-screen*))))))
+
+(defclass unsubscribe-event ()
+  ((%window :initarg :window :reader window)
+   (%category :initarg :category :reader category)))
+
+(defun unsubscribe-notification (window category)
+  (mezzanine.supervisor:fifo-push (make-instance 'unsubscribe-event
+                                                 :window window
+                                                 :category category)
+                                  *event-queue*))
+
+(defmethod process-event ((event unsubscribe-event))
+  (setf (slot-value (window event) '%subscribed-notifications)
+        (remove (category event) (subscribed-notifications (window event)))))
+
+(defun broadcast-notification (category payload)
+  (dolist (win *window-list*)
+    (when (member category (subscribed-notifications win))
+      ;; Maybe copy the payload?
+      (send-event win payload))))
+
+;;;; Screen geometry change notification.
+
+(defclass screen-geometry-update ()
+  ((%width :initarg :width :reader width)
+   (%height :initarg :height :reader height)))
 
 ;;;; Other event stuff.
 
@@ -610,7 +667,11 @@
              *screen-backbuffer* (make-array (list (mezzanine.supervisor:framebuffer-height *main-screen*)
                                                    (mezzanine.supervisor:framebuffer-width *main-screen*))
                                              :element-type '(unsigned-byte 32)))
-       (recompose-windows t))
+       (recompose-windows t)
+       (broadcast-notification :screen-geometry
+                               (make-instance 'screen-geometry-update
+                                              :width (mezzanine.supervisor:framebuffer-width *main-screen*)
+                                              :height (mezzanine.supervisor:framebuffer-height *main-screen*))))
      (handler-case
          (process-event (mezzanine.supervisor:fifo-pop *event-queue*))
        (error (c)
