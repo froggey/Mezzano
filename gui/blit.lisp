@@ -261,6 +261,50 @@
       ;; Fall back on blend function.
       (t (%bitset-mask-1-whole #'%%alpha-blend-one-argb8888-xrgb8888 nrows ncols colour mask mask-offset mask-stride to to-offset to-stride)))))
 
+;;; SETTER NCOLS COLOUR TO TO-OFFSET
+(sys.int::define-lap-function %bitset-line ()
+  (sys.lap-x86:mov64 :rdi :r11)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; RSI = TO address (byte address)
+  (sys.lap-x86:sar64 :r12 #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
+  (sys.lap-x86:shl64 :r12 2) ; TO-OFFSET * 4(raw)
+  (sys.lap-x86:add64 :rdi :r12) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 :r10 #.sys.int::+n-fixnum-bits+) ; R10 = colour (raw)
+  (sys.lap-x86:test64 :r9 :r9)
+  (sys.lap-x86:jz exit)
+  head
+  (sys.lap-x86:mov32 :eax :r10d)
+  (sys.lap-x86:call (:r8 #.(+ (- sys.int::+tag-object+) 8)))
+  (sys.lap-x86:add64 :rdi 4)
+  (sys.lap-x86:sub64 :r9 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jnz head)
+  exit
+  ;; Clear the two data registers that got smashed.
+  (sys.lap-x86:xor32 :r10d :r10d)
+  (sys.lap-x86:xor32 :r12d :r12d)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:ret))
+
+(declaim (inline %bitset-whole))
+(defun %bitset-whole (setter nrows ncols colour to to-offset to-stride)
+  (mezzanine.supervisor:with-pseudo-atomic
+    (setf to (%simple-array-data-pointer to))
+    (dotimes (y nrows)
+      (%bitset-line setter ncols colour to to-offset)
+      (incf to-offset to-stride))))
+
+(defun bitset-argb-xrgb (nrows ncols colour to-array to-row to-col)
+  "Fill a rectangle with COLOUR."
+  (multiple-value-bind (nrows ncols to to-offset to-stride)
+      (compute-blit-info-dest-src nrows ncols to-array to-row to-col to-array to-row to-col)
+    (assert (equal (array-element-type to) '(unsigned-byte 32)))
+    (case (ldb (byte 8 24) colour)
+      ;; Stop early for 100% transparent colours.
+      (0)
+      ;; Don't blend 100% opaque colours.
+      (#xFF (%bitset-whole #'%%set-one-xrgb8888-xrgb8888 nrows ncols colour to to-offset to-stride))
+      ;; Fall back on blend function.
+      (t (%bitset-whole #'%%alpha-blend-one-argb8888-xrgb8888 nrows ncols colour to to-offset to-stride)))))
+
 ;;; EAX = XRGB8888 pixel.
 ;;; RDI = XRGB8888 destination.
 (sys.int::define-lap-function %%set-one-xrgb8888-xrgb8888 ()

@@ -17,8 +17,9 @@
    (%fifo :initarg :fifo :reader fifo)
    (%buffer :initarg :buffer :reader window-buffer)
    (%layer :initarg :layer :reader layer)
-   (%subscribed-notifications :initarg :notifications :reader subscribed-notifications))
-  (:default-initargs :layer nil :notifications '()))
+   (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
+   (%unresponsive :initarg :unresponsive :accessor window-unresponsive))
+  (:default-initargs :layer nil :notifications '() :unresponsive nil))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -578,9 +579,23 @@
 
 (defun send-event (window event)
   "Send an event to a window."
-  (unless (mezzanine.supervisor:fifo-push event (fifo window) nil)
-    (format t "Window ~S/FIFO ~S has stopped accepting events.~%"
-            window (fifo window))))
+  (cond ((mezzanine.supervisor:fifo-push event (fifo window) nil)
+         (when (window-unresponsive window)
+           (format t "Window ~S/FIFO ~S is accepting events again.~%"
+                   window (fifo window))
+           (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+                 *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+                 *clip-rect-x* 0
+                 *clip-rect-y* 0)
+           (setf (window-unresponsive window) nil)))
+        ((not (window-unresponsive window))
+         (setf (window-unresponsive window) t)
+         (format t "Window ~S/FIFO ~S has stopped accepting events.~%"
+                 window (fifo window))
+         (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
+               *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+               *clip-rect-x* 0
+               *clip-rect-y* 0))))
 
 ;;;; Main body of the compositor.
 
@@ -628,6 +643,20 @@
                         buffer (- c-row row) (- c-col col)
                         *screen-backbuffer* c-row c-col))))
 
+(defun fill-with-clip (nrows ncols colour row col)
+  "Fill a rectangle with COLOUR on the screen backbuffer, obeying the global clip region."
+  (multiple-value-bind (c-col c-row c-ncols c-nrows)
+      (clip-rectangle col row ncols nrows
+                      *clip-rect-x* *clip-rect-y*
+                      *clip-rect-width* *clip-rect-height*)
+    (when (and (not (zerop c-ncols))
+               (not (zerop c-nrows)))
+      #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
+                    c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
+      (bitset-argb-xrgb c-nrows c-ncols
+                        colour
+                        *screen-backbuffer* c-row c-col))))
+
 (defun recompose-windows (&optional full)
   (when full
     ;; Expand the cliprect to the entire screen.
@@ -642,7 +671,11 @@
   (dolist (window (reverse *window-list*))
     (blit-with-clip (height window) (width window)
                     (window-buffer window)
-                    (window-y window) (window-x window)))
+                    (window-y window) (window-x window))
+    (when (window-unresponsive window)
+      (fill-with-clip (height window) (width window)
+                      #x80000000
+                      (window-y window) (window-x window))))
   ;; Then the mouse pointer on top.
   (blit-with-clip (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
                   *mouse-pointer*

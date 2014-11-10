@@ -10,6 +10,7 @@
            #:bitset
            #:bitset-argb-xrgb-mask-8
            #:bitset-argb-xrgb-mask-1
+           #:bitset-argb-xrgb
            #:bitblt
            #:bitblt-argb-xrgb))
 
