@@ -267,14 +267,28 @@
                    (redraw peek) t))))))
 
 (defmethod dispatch-event (peek (event mezzanine.gui.compositor:mouse-event))
-  ;; Check for close button click.
-  (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-             ;; Mouse1 up
-             (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event)))
-             (mezzanine.gui.widgets:in-frame-close-button (frame peek)
-                                                          (mezzanine.gui.compositor:mouse-x-position event)
-                                                          (mezzanine.gui.compositor:mouse-y-position event)))
-    (throw 'quit nil)))
+  (cond ((mezzanine.gui.widgets:in-frame-close-button (frame peek)
+                                                      (mezzanine.gui.compositor:mouse-x-position event)
+                                                      (mezzanine.gui.compositor:mouse-y-position event))
+         (when (not (mezzanine.gui.widgets:close-button-hover (frame peek)))
+           (setf (mezzanine.gui.widgets:close-button-hover (frame peek)) t)
+           (mezzanine.gui.widgets:draw-frame (frame peek))
+           (mezzanine.gui.compositor:damage-window (window peek)
+                                                   0 0
+                                                   (mezzanine.gui.compositor:width (window peek))
+                                                   (mezzanine.gui.compositor:height (window peek))))
+         ;; Check for close button click.
+         (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
+                    ;; Mouse1 up
+                    (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
+           (throw 'quit nil)))
+        (t (when (mezzanine.gui.widgets:close-button-hover (frame peek))
+             (setf (mezzanine.gui.widgets:close-button-hover (frame peek)) nil)
+             (mezzanine.gui.widgets:draw-frame (frame peek))
+             (mezzanine.gui.compositor:damage-window (window peek)
+                                                     0 0
+                                                     (mezzanine.gui.compositor:width (window peek))
+                                                     (mezzanine.gui.compositor:height (window peek)))))))
 
 (defmethod dispatch-event (peek (event mezzanine.gui.compositor:window-close-event))
   (throw 'quit nil))

@@ -5,6 +5,7 @@
   (:export #:frame
            #:frame-title
            #:close-button-p
+           #:close-button-hover
            #:activep
            #:in-frame-close-button
            #:draw-frame
@@ -23,42 +24,114 @@
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
    (%title :initarg :title :accessor frame-title)
    (%close-button-p :initarg :close-button-p :accessor close-button-p)
+   (%close-button-hover :initarg :close-button-hover :accessor close-button-hover)
    (%activep :initarg :activep :accessor activep))
-  (:default-initargs :title "" :close-button-p nil :activep nil))
+  (:default-initargs :title "" :close-button-p nil :close-button-hover nil :activep nil))
 
 (defvar *frame-title-font* (open-font "Helvetica" 12))
 
 (defvar *corner-mask*
-  #2A((0.0 0.0 0.0 0.2 0.5)
-      (0.0 0.0 0.5 1.0 1.0)
-      (0.0 0.5 1.0 1.0 1.0)
-      (0.2 1.0 1.0 1.0 1.0)
-      (0.5 1.0 1.0 1.0 1.0))
+  #2A((0.0  0.0  0.25 0.7 0.9)
+      (0.0  0.47 1.0  1.0 1.0)
+      (0.25 1.0  1.0  1.0 1.0)
+      (0.75 1.0  1.0  1.0 1.0)
+      (0.94 1.0  1.0  1.0 1.0))
   "Alpha values for the rounded window corners.")
+
+;; TODO: Load these from a file, maybe.
+(defvar *close-button*
+  (mezzanine.gui.compositor::2d-array
+   '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
+     (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353E #xFFE5737A #xFFEA949A #xFFE9949A #xFFE5727A #xFFCC313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
+     (#x00000000 #x2213090A #xE1A51D25 #xFFE76F76 #xFFF9DFE1 #xFFFDF6F6 #xFFFDF5F5 #xFFFDF5F5 #xFFFDF6F6 #xFFF9E0E2 #xFFE66F77 #xD7A40E16 #x17140202 #x00000000)
+     (#x02000201 #xBD861A20 #xFFE25059 #xFFF5D1D3 #xFFF3C9CB #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF3C9CB #xFFF5D1D3 #xFFE15059 #xAD880A10 #x00000000)
+     (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEBA5A9 #xFFEA9DA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9DA2 #xFFEBA5A9 #xFFE37980 #xFFD01C26 #x355F393B)
+     (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE47D82 #xFFDD565E #xFFCE1621 #x85CA7377)
+     (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFDF585F #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF585F #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
+     (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFDC3B44 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDC3B44 #xFFDB323B #xFFDA3039 #xFFD82832 #xA6CC6368)
+     (#x897A2125 #xFFE5343C #xFFDE363F #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE353E #xFFDE353E #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE363F #xFFD7262F #x8AD28588)
+     (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
+     (#x00F5F6F5 #xACC44E53 #xFFDF2E37 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE43D45 #xFFDC2C34 #xBBC8676B #x02FDFEFE)
+     (#x00FFFFFF #x16F5E3E3 #xD5CC4248 #xFFDC2C35 #xFFE43C45 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE33D45 #xFFE43C44 #xFFDD2C34 #xDFC2474C #x20F0E7E8 #x00FFFFFF)
+     (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFCF2B32 #xFFDB2C34 #xFFE0323B #xFFE0323B #xFFDB2C34 #xFFCC2B32 #xB9C6666A #x22EFE7E8 #x00FFFFFF #x00FFFFFF)
+     (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
+   '(unsigned-byte 32)))
+
+(defvar *close-button-hover*
+  (mezzanine.gui.compositor::2d-array
+   '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
+     (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353F #xFFE5737A #xFFE9949A #xFFE9949A #xFFE5727A #xFFCD313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
+     (#x00000000 #x2213090A #xE1A51D25 #xFFE76E76 #xFFF6DFE1 #xFFFDF6F6 #xFFFEF5F6 #xFFFEF5F6 #xFFFEF6F7 #xFFF6E0E2 #xFFE56F77 #xD7A40E16 #x17140202 #x00000000)
+     (#x02000201 #xBD861A20 #xFFE25059 #xFFF7D1D3 #xFFD2C4C5 #xFFC0BDBD #xFFEFC4C7 #xFFF6C5C8 #xFFCCBFC0 #xFFC5C2C3 #xFFF4D1D3 #xFFE15159 #xAD880A10 #x00000000)
+     (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEEA5A9 #xFFDD9C9F #xFF8B8E8E #xFFBB9698 #xFFD59A9E #xFF868D8D #xFFC9989B #xFFEFA6AA #xFFE37980 #xFFD01C26 #x355F393B)
+     (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFEB7980 #xFFA06C6E #xFF5F605F #xFF6A6262 #xFF7D6566 #xFFE6787F #xFFE57D83 #xFFDD565E #xFFCE1621 #x85CA7377)
+     (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFE15860 #xFFDB565E #xFF4A3939 #xFF2D3332 #xFFBE5056 #xFFE65961 #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
+     (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFE13C45 #xFFD03B43 #xFF211413 #xFF050D0C #xFFA73237 #xFFE73D47 #xFFDA323B #xFFDA3039 #xFFD82832 #xA6CC6368)
+     (#x897A2125 #xFFE5343C #xFFDE363F #xFFDD353E #xFFEB3841 #xFF5B1619 #xFF0A0202 #xFF220809 #xFF250809 #xFFDF353E #xFFE0363F #xFFDE363F #xFFD7262F #x8AD28588)
+     (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE83C45 #xFFB62F35 #xFF000000 #xFF7C2024 #xFFB93036 #xFF000000 #xFF7E2125 #xFFED3D46 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
+     (#x00F5F6F5 #xACC44E53 #xFFDF2F37 #xFFEA4047 #xFF491416 #xFF260A0C #xFFDD3B43 #xFFF04048 #xFF55171A #xFF1D0809 #xFFD63A41 #xFFE02D35 #xBBC8676B #x02FDFEFE)
+     (#x00FFFFFF #x16F5E3E3 #xD5CD4248 #xFFDB2C34 #xFFCF373E #xFFDA3B42 #xFFE63D45 #xFFE43D45 #xFFE13C44 #xFFD1373E #xFFD62A32 #xDFC3474C #x20F0E7E8 #x00FFFFFF)
+     (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFD32B33 #xFFDD2D35 #xFFE0323A #xFFE0323A #xFFDC2C34 #xFFD02C33 #xB9C7666A #x22EEE7E8 #x00FFFFFF #x00FFFFFF)
+     (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
+   '(unsigned-byte 32)))
+
+(defvar *close-button-x* 5)
+(defvar *close-button-y* 3)
+
+(defun lerp (v0 v1 a)
+  (+ v0 (* (- v1 v0) a)))
+
+(defun lerp-colour (c1 c2 a)
+  (logior (ash (truncate (lerp (ldb (byte 8 24) c1)
+                               (ldb (byte 8 24) c2)
+                               a))
+               24)
+          (ash (truncate (lerp (ldb (byte 8 16) c1)
+                               (ldb (byte 8 16) c2)
+                               a))
+               16)
+          (ash (truncate (lerp (ldb (byte 8 8) c1)
+                               (ldb (byte 8 8) c2)
+                               a))
+               8)
+          (truncate (lerp (ldb (byte 8 0) c1)
+                          (ldb (byte 8 0) c2)
+                          a))))
+
+(defun vertical-gradient (nrows ncols colour1 colour2 to-array to-row to-col)
+  (dotimes (i nrows)
+    (mezzanine.gui:bitset 1 ncols
+                          (lerp-colour colour1 colour2 (/ i (1- nrows)))
+                          to-array (+ to-row i) to-col)))
 
 (defmethod draw-frame ((frame frame))
   (let* ((framebuffer (framebuffer frame))
          (win-width (array-dimension framebuffer 1))
          (win-height (array-dimension framebuffer 0))
          (title (frame-title frame))
-         (colour (if (activep frame) #xFF8CD0D3 #xFF366060)))
+         (colour (if (activep frame) #xFF808080 #xFF404040))
+         (top-colour (if (activep frame) #xFFFFFFFF #xFF808080)))
     ;; Top.
-    (mezzanine.gui:bitset 19 win-width colour framebuffer 0 0)
+    (vertical-gradient 19 win-width
+                       top-colour colour
+                       framebuffer 0 0)
     ;; Bottom.
     (mezzanine.gui:bitset 1 win-width colour framebuffer (1- win-height) 0)
     ;; Left.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 0 0)
+    (mezzanine.gui:bitset win-height 1 colour framebuffer 19 0)
     ;; Right.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 0 (1- win-width))
+    (mezzanine.gui:bitset win-height 1 colour framebuffer 19 (1- win-width))
     ;; Round off the corners.
     (dotimes (y (array-dimension *corner-mask* 0))
       (dotimes (x (array-dimension *corner-mask* 1))
         (let ((alpha (truncate (* (aref *corner-mask* y x) 255))))
           (setf (ldb (byte 8 24) (aref framebuffer y x)) alpha
                 (ldb (byte 8 24) (aref framebuffer y (- win-width x 1))) alpha))))
-    ;; Quit button.
+    ;; Close button.
     (when (close-button-p frame)
-      (mezzanine.gui:bitset 13 13 #xFFBC8383 framebuffer 3 6))
+      (mezzanine.gui:bitblt-argb-xrgb (array-dimension *close-button* 0) (array-dimension *close-button* 1)
+                                      (if (close-button-hover frame) *close-button-hover* *close-button*) 0 0
+                                      framebuffer *close-button-y* *close-button-x*))
     ;; Title.
     (when title
       (let ((width 0))
@@ -87,8 +160,12 @@
 
 (defmethod in-frame-close-button ((frame frame) x y)
   (and (close-button-p frame)
-       (< 5 x 19)
-       (< 2 y 16)))
+       (>= x *close-button-x*)
+       (< x (+ *close-button-x* (array-dimension *close-button* 1)))
+       (>= y *close-button-y*)
+       (< y (+ *close-button-y* (array-dimension *close-button* 0)))
+       ;; Alpha test.
+       (> (ldb (byte 8 24) (aref *close-button* (- y *close-button-y*) (- x *close-button-x*))) 128)))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)

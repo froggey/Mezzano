@@ -35,14 +35,28 @@
     (mezzanine.supervisor:fifo-push (mezzanine.gui.compositor:key-key event) (input-buffer window) nil)))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:mouse-event))
-  ;; Check for close button click.
-  (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-             ;; Mouse1 up
-             (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event)))
-             (mezzanine.gui.widgets:in-frame-close-button (frame window)
-                                                          (mezzanine.gui.compositor:mouse-x-position event)
-                                                          (mezzanine.gui.compositor:mouse-y-position event)))
-    (mezzanine.gui.compositor:close-window (window window))))
+  (cond ((mezzanine.gui.widgets:in-frame-close-button (frame window)
+                                                      (mezzanine.gui.compositor:mouse-x-position event)
+                                                      (mezzanine.gui.compositor:mouse-y-position event))
+         (when (not (mezzanine.gui.widgets:close-button-hover (frame window)))
+           (setf (mezzanine.gui.widgets:close-button-hover (frame window)) t)
+           (mezzanine.gui.widgets:draw-frame (frame window))
+           (mezzanine.gui.compositor:damage-window (window window)
+                                                   0 0
+                                                   (mezzanine.gui.compositor:width (window window))
+                                                   (mezzanine.gui.compositor:height (window window))))
+         ;; Check for close button click.
+         (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
+                    ;; Mouse1 up
+                    (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
+           (mezzanine.gui.compositor:close-window (window window))))
+        (t (when (mezzanine.gui.widgets:close-button-hover (frame window))
+             (setf (mezzanine.gui.widgets:close-button-hover (frame window)) nil)
+             (mezzanine.gui.widgets:draw-frame (frame window))
+             (mezzanine.gui.compositor:damage-window (window window)
+                                                     0 0
+                                                     (mezzanine.gui.compositor:width (window window))
+                                                     (mezzanine.gui.compositor:height (window window)))))))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:window-close-event))
   (throw 'mezzanine.supervisor::terminate-thread nil)
