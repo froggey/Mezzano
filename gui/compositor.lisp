@@ -450,6 +450,14 @@
                                    :window win
                                    :state t))))
 
+(defmacro with-window ((window fifo width height &rest options) &body body)
+  `(let (,window)
+     (unwind-protect
+          (progn (setf ,window (mezzanine.gui.compositor:make-window ,fifo ,width ,height ,@options))
+                 ,@body)
+       (when ,window
+         (mezzanine.gui.compositor:close-window ,window)))))
+
 (defun make-window (fifo width height &key layer)
   (let ((window (make-instance 'window
                                :width width

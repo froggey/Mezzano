@@ -1,13 +1,17 @@
 (defpackage :mezzanine.gui.widgets
   (:use :cl :mezzanine.gui.font)
   (:import-from :mezzanine.gui.compositor
-                #:width #:height)
-  (:export #:frame
+                #:width #:height
+                #:mouse-x-position #:mouse-y-position
+                #:mouse-button-state #:mouse-button-change)
+  (:export #:default-damage-function
+           #:frame
            #:frame-title
            #:close-button-p
            #:close-button-hover
            #:activep
-           #:in-frame-close-button
+           #:frame-mouse-event
+           #:close-button-clicked
            #:draw-frame
            #:frame-size
            #:text-widget
@@ -17,11 +21,18 @@
 
 (defgeneric draw-frame (frame))
 (defgeneric frame-size (frame))
-(defgeneric in-frame-close-button (frame x y))
+(defgeneric frame-mouse-event (frame mouse-event))
 (defgeneric reset (object))
+
+(defun default-damage-function (window)
+  (lambda (&rest args)
+    (apply #'mezzanine.gui.compositor:damage-window window args)))
+
+(define-condition close-button-clicked () ())
 
 (defclass frame ()
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
+   (%damage-function :initarg :damage-function :reader damage-function)
    (%title :initarg :title :accessor frame-title)
    (%close-button-p :initarg :close-button-p :accessor close-button-p)
    (%close-button-hover :initarg :close-button-hover :accessor close-button-hover)
@@ -158,7 +169,7 @@
   ;; left, right, top, bottom.
   (values 1 1 19 1))
 
-(defmethod in-frame-close-button ((frame frame) x y)
+(defun in-frame-close-button (frame x y)
   (and (close-button-p frame)
        (>= x *close-button-x*)
        (< x (+ *close-button-x* (array-dimension *close-button* 1)))
@@ -166,6 +177,28 @@
        (< y (+ *close-button-y* (array-dimension *close-button* 0)))
        ;; Alpha test.
        (> (ldb (byte 8 24) (aref *close-button* (- y *close-button-y*) (- x *close-button-x*))) 128)))
+
+(defmethod frame-mouse-event ((frame frame) event)
+  (cond ((in-frame-close-button frame
+                                (mouse-x-position event)
+                                (mouse-y-position event))
+         (when (not (close-button-hover frame))
+           (setf (close-button-hover frame) t)
+           (draw-frame frame)
+           (funcall (damage-function frame)
+                    0 0
+                    (array-dimension (framebuffer frame) 1) 19))
+         ;; Check for close button click.
+         (when (and (logbitp 0 (mouse-button-change event))
+                    ;; Mouse1 up
+                    (not (logbitp 0 (mouse-button-state event))))
+           (signal 'close-button-clicked)))
+        ((close-button-hover frame)
+         (setf (close-button-hover frame) nil)
+         (draw-frame frame)
+         (funcall (damage-function frame)
+                  0 0
+                  (array-dimension (framebuffer frame) 1) 19))))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)

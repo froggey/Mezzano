@@ -267,28 +267,10 @@
                    (redraw peek) t))))))
 
 (defmethod dispatch-event (peek (event mezzanine.gui.compositor:mouse-event))
-  (cond ((mezzanine.gui.widgets:in-frame-close-button (frame peek)
-                                                      (mezzanine.gui.compositor:mouse-x-position event)
-                                                      (mezzanine.gui.compositor:mouse-y-position event))
-         (when (not (mezzanine.gui.widgets:close-button-hover (frame peek)))
-           (setf (mezzanine.gui.widgets:close-button-hover (frame peek)) t)
-           (mezzanine.gui.widgets:draw-frame (frame peek))
-           (mezzanine.gui.compositor:damage-window (window peek)
-                                                   0 0
-                                                   (mezzanine.gui.compositor:width (window peek))
-                                                   (mezzanine.gui.compositor:height (window peek))))
-         ;; Check for close button click.
-         (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-                    ;; Mouse1 up
-                    (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
-           (throw 'quit nil)))
-        (t (when (mezzanine.gui.widgets:close-button-hover (frame peek))
-             (setf (mezzanine.gui.widgets:close-button-hover (frame peek)) nil)
-             (mezzanine.gui.widgets:draw-frame (frame peek))
-             (mezzanine.gui.compositor:damage-window (window peek)
-                                                     0 0
-                                                     (mezzanine.gui.compositor:width (window peek))
-                                                     (mezzanine.gui.compositor:height (window peek)))))))
+  (handler-case
+      (mezzanine.gui.widgets:frame-mouse-event (frame peek) event)
+    (mezzanine.gui.widgets:close-button-clicked ()
+      (throw 'quit nil))))
 
 (defmethod dispatch-event (peek (event mezzanine.gui.compositor:window-close-event))
   (throw 'quit nil))
@@ -296,54 +278,50 @@
 (defun peek-main ()
   (catch 'quit
     (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
-      (let ((fifo (mezzanine.supervisor:make-fifo 50))
-            (window nil))
-        (unwind-protect
-             (progn
-               (setf window (mezzanine.gui.compositor:make-window fifo 640 700))
-               (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-                      (frame (make-instance 'mezzanine.gui.widgets:frame
-                                            :framebuffer framebuffer
-                                            :title "Peek"
-                                            :close-button-p t))
-                      (peek (make-instance 'peek-window
-                                           :window window
-                                           :frame frame))
-                      (text-pane (make-instance 'mezzanine.gui.widgets:text-widget
-                                                :font font
-                                                :framebuffer framebuffer
-                                                :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                                :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                :width (- (mezzanine.gui.compositor:width window)
-                                                          (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                                          (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                                :height (- (mezzanine.gui.compositor:height window)
-                                                           (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                           (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
-                                                :damage-function (lambda (&rest args)
-                                                                   (loop
-                                                                      (let ((ev (mezzanine.supervisor:fifo-pop fifo nil)))
-                                                                        (when (not ev) (return))
-                                                                        (dispatch-event peek ev)))
-                                                                   (apply #'mezzanine.gui.compositor:damage-window window args)))))
-                 (setf (slot-value peek '%text-pane) text-pane)
-                 (mezzanine.gui.widgets:draw-frame frame)
-                 (mezzanine.gui.compositor:damage-window window
-                                                         0 0
-                                                         (mezzanine.gui.compositor:width window)
-                                                         (mezzanine.gui.compositor:height window))
-                 (loop
-                    (when (redraw peek)
-                      (let ((*standard-output* text-pane))
-                        (setf (redraw peek) nil)
-                        (mezzanine.gui.widgets:reset *standard-output*)
-                        (print-header)
-                        (fresh-line)
-                        (ignore-errors
-                          (funcall (mode peek)))))
-                    (dispatch-event peek (mezzanine.supervisor:fifo-pop fifo)))))
-          (when window
-            (mezzanine.gui.compositor:close-window window)))))))
+      (let ((fifo (mezzanine.supervisor:make-fifo 50)))
+        (mezzanine.gui.compositor:with-window (window fifo 640 700)
+          (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
+                 (frame (make-instance 'mezzanine.gui.widgets:frame
+                                       :framebuffer framebuffer
+                                       :title "Peek"
+                                       :close-button-p t
+                                       :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                 (peek (make-instance 'peek-window
+                                      :window window
+                                      :frame frame))
+                 (text-pane (make-instance 'mezzanine.gui.widgets:text-widget
+                                           :font font
+                                           :framebuffer framebuffer
+                                           :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                           :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                           :width (- (mezzanine.gui.compositor:width window)
+                                                     (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                                     (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
+                                           :height (- (mezzanine.gui.compositor:height window)
+                                                      (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                                      (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
+                                           :damage-function (lambda (&rest args)
+                                                              (loop
+                                                                 (let ((ev (mezzanine.supervisor:fifo-pop fifo nil)))
+                                                                   (when (not ev) (return))
+                                                                   (dispatch-event peek ev)))
+                                                              (apply #'mezzanine.gui.compositor:damage-window window args)))))
+            (setf (slot-value peek '%text-pane) text-pane)
+            (mezzanine.gui.widgets:draw-frame frame)
+            (mezzanine.gui.compositor:damage-window window
+                                                    0 0
+                                                    (mezzanine.gui.compositor:width window)
+                                                    (mezzanine.gui.compositor:height window))
+            (loop
+               (when (redraw peek)
+                 (let ((*standard-output* text-pane))
+                   (setf (redraw peek) nil)
+                   (mezzanine.gui.widgets:reset *standard-output*)
+                   (print-header)
+                   (fresh-line)
+                   (ignore-errors
+                     (funcall (mode peek)))))
+               (dispatch-event peek (mezzanine.supervisor:fifo-pop fifo)))))))))
 
 (defun spawn ()
   (mezzanine.supervisor:make-thread 'peek-main

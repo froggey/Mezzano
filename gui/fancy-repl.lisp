@@ -35,28 +35,7 @@
     (mezzanine.supervisor:fifo-push (mezzanine.gui.compositor:key-key event) (input-buffer window) nil)))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:mouse-event))
-  (cond ((mezzanine.gui.widgets:in-frame-close-button (frame window)
-                                                      (mezzanine.gui.compositor:mouse-x-position event)
-                                                      (mezzanine.gui.compositor:mouse-y-position event))
-         (when (not (mezzanine.gui.widgets:close-button-hover (frame window)))
-           (setf (mezzanine.gui.widgets:close-button-hover (frame window)) t)
-           (mezzanine.gui.widgets:draw-frame (frame window))
-           (mezzanine.gui.compositor:damage-window (window window)
-                                                   0 0
-                                                   (mezzanine.gui.compositor:width (window window))
-                                                   (mezzanine.gui.compositor:height (window window))))
-         ;; Check for close button click.
-         (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-                    ;; Mouse1 up
-                    (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
-           (mezzanine.gui.compositor:close-window (window window))))
-        (t (when (mezzanine.gui.widgets:close-button-hover (frame window))
-             (setf (mezzanine.gui.widgets:close-button-hover (frame window)) nil)
-             (mezzanine.gui.widgets:draw-frame (frame window))
-             (mezzanine.gui.compositor:damage-window (window window)
-                                                     0 0
-                                                     (mezzanine.gui.compositor:width (window window))
-                                                     (mezzanine.gui.compositor:height (window window)))))))
+  (mezzanine.gui.widgets:frame-mouse-event (frame window) event))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:window-close-event))
   (throw 'mezzanine.supervisor::terminate-thread nil)
@@ -93,49 +72,51 @@
 
 (defun repl-main ()
   (with-font (font *default-monospace-font* *default-monospace-font-size*)
-    (let* ((fifo (mezzanine.supervisor:make-fifo 50))
-           (window (mezzanine.gui.compositor:make-window fifo 800 300))
-           (framebuffer (mezzanine.gui.compositor:window-buffer window))
-           (frame (make-instance 'mezzanine.gui.widgets:frame
-                                 :framebuffer framebuffer
-                                 :title "REPL"
-                                 :close-button-p t))
-           (term (make-instance 'fancy-repl
-                                :fifo fifo
-                                :window window
-                                :thread (mezzanine.supervisor:current-thread)
-                                :font font
-                                :frame frame
-                                ;; text-widget stuff.
-                                :framebuffer framebuffer
-                                :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                :width (- (mezzanine.gui.compositor:width window)
-                                          (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                          (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                :height (- (mezzanine.gui.compositor:height window)
-                                           (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                           (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
-                                :damage-function (lambda (&rest args)
-                                                   (apply #'mezzanine.gui.compositor:damage-window window args))))
-           (*standard-input* term)
-           (*standard-output* term)
-           ;(*terminal-io* term)
-           ;(*standard-input* (make-synonym-stream '*terminal-io*))
-           ;(*standard-output* *standard-input*)
-           ;(*error-output* *standard-input*)
-           ;(*query-io* *standard-input*)
-           ;(*trace-output* *standard-input*)
-           ;(*debug-io* *standard-input*)
-           )
-      (mezzanine.gui.widgets:draw-frame frame)
-      (mezzanine.gui.compositor:damage-window window
-                                              0 0
-                                              (mezzanine.gui.compositor:width window)
-                                              (mezzanine.gui.compositor:height window))
-      (unwind-protect
-           (sys.int::repl)
-        (mezzanine.gui.compositor:close-window window)))))
+    (let ((fifo (mezzanine.supervisor:make-fifo 50)))
+      (mezzanine.gui.compositor:with-window (window fifo 800 300)
+        (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzanine.gui.widgets:frame
+                                     :framebuffer framebuffer
+                                     :title "REPL"
+                                     :close-button-p t
+                                     :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+               (term (make-instance 'fancy-repl
+                                    :fifo fifo
+                                    :window window
+                                    :thread (mezzanine.supervisor:current-thread)
+                                    :font font
+                                    :frame frame
+                                    ;; text-widget stuff.
+                                    :framebuffer framebuffer
+                                    :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                    :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                    :width (- (mezzanine.gui.compositor:width window)
+                                              (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                              (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
+                                    :height (- (mezzanine.gui.compositor:height window)
+                                               (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                               (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
+                                    :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+               (*standard-input* term)
+               (*standard-output* term)
+               ;;(*terminal-io* term)
+               ;;(*standard-input* (make-synonym-stream '*terminal-io*))
+               ;;(*standard-output* *standard-input*)
+               ;;(*error-output* *standard-input*)
+               ;;(*query-io* *standard-input*)
+               ;;(*trace-output* *standard-input*)
+               ;;(*debug-io* *standard-input*)
+               )
+          (mezzanine.gui.widgets:draw-frame frame)
+          (mezzanine.gui.compositor:damage-window window
+                                                  0 0
+                                                  (mezzanine.gui.compositor:width window)
+                                                  (mezzanine.gui.compositor:height window))
+          (handler-case
+              (sys.int::repl)
+            ;; Exit when the close button is clicked.
+            (mezzanine.gui.widgets:close-button-clicked ()
+              (return-from repl-main))))))))
 
 (defun spawn ()
   (mezzanine.supervisor:make-thread 'repl-main

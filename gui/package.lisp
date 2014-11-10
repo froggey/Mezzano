@@ -36,6 +36,7 @@
            #:submit-mouse
            #:global-mouse-state
            #:make-window
+           #:with-window
            #:window-close-event
            #:close-window
            #:window-activation-event

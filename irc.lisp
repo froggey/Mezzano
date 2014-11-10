@@ -342,14 +342,6 @@
     (setf (joined-channels irc) (remove (current-channel irc) (joined-channels irc)))
     (setf (current-channel irc) (first (joined-channels irc)))))
 
-(defmacro with-window ((window fifo width height &rest options) &body body)
-  `(let (,window)
-     (unwind-protect
-          (progn (setf ,window (mezzanine.gui.compositor:make-window ,fifo ,width ,height ,@options))
-                 ,@body)
-       (when ,window
-         (mezzanine.gui.compositor:close-window ,window)))))
-
 (defclass irc-client ()
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
@@ -381,28 +373,10 @@
                                           (mezzanine.gui.compositor:height (window irc))))
 
 (defmethod dispatch-event (irc (event mezzanine.gui.compositor:mouse-event))
-  (cond ((mezzanine.gui.widgets:in-frame-close-button (frame irc)
-                                                      (mezzanine.gui.compositor:mouse-x-position event)
-                                                      (mezzanine.gui.compositor:mouse-y-position event))
-         (when (not (mezzanine.gui.widgets:close-button-hover (frame irc)))
-           (setf (mezzanine.gui.widgets:close-button-hover (frame irc)) t)
-           (mezzanine.gui.widgets:draw-frame (frame irc))
-           (mezzanine.gui.compositor:damage-window (window irc)
-                                                   0 0
-                                                   (mezzanine.gui.compositor:width (window irc))
-                                                   (mezzanine.gui.compositor:height (window irc))))
-         ;; Check for close button click.
-         (when (and (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-                    ;; Mouse1 up
-                    (not (logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))))
-           (throw 'quit nil)))
-        (t (when (mezzanine.gui.widgets:close-button-hover (frame irc))
-             (setf (mezzanine.gui.widgets:close-button-hover (frame irc)) nil)
-             (mezzanine.gui.widgets:draw-frame (frame irc))
-             (mezzanine.gui.compositor:damage-window (window irc)
-                                                     0 0
-                                                     (mezzanine.gui.compositor:width (window irc))
-                                                     (mezzanine.gui.compositor:height (window irc)))))))
+  (handler-case
+      (mezzanine.gui.widgets:frame-mouse-event (frame irc) event)
+    (mezzanine.gui.widgets:close-button-clicked ()
+      (throw 'quit nil))))
 
 (defmethod dispatch-event (irc (event mezzanine.gui.compositor:window-close-event))
   (throw 'quit nil))
@@ -447,12 +421,13 @@
   (catch 'quit
     (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
       (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-        (with-window (window fifo 640 480)
+        (mezzanine.gui.compositor:with-window (window fifo 640 480)
           (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
                  (frame (make-instance 'mezzanine.gui.widgets:frame
                                        :framebuffer framebuffer
                                        :title "IRC"
-                                       :close-button-p t))
+                                       :close-button-p t
+                                       :damage-function (mezzanine.gui.widgets:default-damage-function window)))
                  (display-pane (make-instance 'mezzanine.gui.widgets:text-widget
                                               :font font
                                               :framebuffer framebuffer
@@ -466,8 +441,7 @@
                                                          (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
                                                          2
                                                          (mezzanine.gui.font:line-height font))
-                                              :damage-function (lambda (&rest args)
-                                                                 (apply #'mezzanine.gui.compositor:damage-window window args))))
+                                              :damage-function (mezzanine.gui.widgets:default-damage-function window)))
                  (input-pane (make-instance 'mezzanine.gui.widgets:text-widget
                                             :font font
                                             :framebuffer framebuffer
@@ -482,8 +456,7 @@
                                                       (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
                                                       (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
                                             :height (mezzanine.gui.font:line-height font)
-                                            :damage-function (lambda (&rest args)
-                                                               (apply #'mezzanine.gui.compositor:damage-window window args))))
+                                            :damage-function (mezzanine.gui.widgets:default-damage-function window)))
                  (irc (make-instance 'irc-client
                                      :fifo fifo
                                      :window window
