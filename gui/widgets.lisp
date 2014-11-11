@@ -163,7 +163,9 @@
               (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
                                                      mask 0 0
                                                      framebuffer (- (+ 4 (ascender *frame-title-font*)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
-              (incf pen (glyph-advance glyph)))))))))
+              (incf pen (glyph-advance glyph)))))))
+    ;; Damage the whole window.
+    (funcall (damage-function frame) 0 0 win-width win-height)))
 
 (defmethod frame-size ((frame frame))
   ;; left, right, top, bottom.

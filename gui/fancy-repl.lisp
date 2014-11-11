@@ -23,11 +23,7 @@
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:window-activation-event))
   (setf (mezzanine.gui.widgets:activep (frame window)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame window))
-  (mezzanine.gui.compositor:damage-window (window window)
-                                          0 0
-                                          (mezzanine.gui.compositor:width (window window))
-                                          (mezzanine.gui.compositor:height (window window))))
+  (mezzanine.gui.widgets:draw-frame (frame window)))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:key-event))
   ;; should filter out strange keys?

@@ -366,11 +366,7 @@
 
 (defmethod dispatch-event (irc (event mezzanine.gui.compositor:window-activation-event))
   (setf (mezzanine.gui.widgets:activep (frame irc)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame irc))
-  (mezzanine.gui.compositor:damage-window (window irc)
-                                          0 0
-                                          (mezzanine.gui.compositor:width (window irc))
-                                          (mezzanine.gui.compositor:height (window irc))))
+  (mezzanine.gui.widgets:draw-frame (frame irc)))
 
 (defmethod dispatch-event (irc (event mezzanine.gui.compositor:mouse-event))
   (handler-case
