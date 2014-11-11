@@ -198,9 +198,9 @@
                      (values (- tru 1) (+ rem divisor))))
                 (t (values tru rem)))))))
 
-(defun generic-rem (number divisor)
+(defun sys.int::generic-rem (number divisor)
   (multiple-value-bind (quot rem)
-      (generic-truncate number divisor)
+      (sys.int::generic-truncate number divisor)
     (declare (ignore quot))
     rem))
 
