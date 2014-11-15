@@ -161,18 +161,24 @@
 
 ;;; Fake streams & fake stream functions, used by the mini loader to load
 ;;; multiboot/kboot modules.
-(defun mini-vector-stream (vector)
-  (cons vector 0))
+(defstruct (mini-vector-stream
+             (:constructor mini-vector-stream (vector)))
+  vector
+  (offset 0))
 
 (defun %read-byte (stream)
-  (prog1 (aref (car stream) (cdr stream))
-    (incf (cdr stream))))
+  (if (mini-vector-stream-p stream)
+      (prog1 (aref (mini-vector-stream-vector stream) (mini-vector-stream-offset stream))
+        (incf (mini-vector-stream-offset stream)))
+      (read-byte stream)))
 
 (defun %read-sequence (seq stream)
-  (replace seq (car stream)
-           :start2 (cdr stream)
-           :end2 (+ (cdr stream) (length seq)))
-  (incf (cdr stream) (length seq)))
+  (cond ((mini-vector-stream-p stream)
+         (replace seq (mini-vector-stream-vector stream)
+                  :start2 (mini-vector-stream-offset stream)
+                  :end2 (+ (mini-vector-stream-offset stream) (length seq)))
+         (incf (mini-vector-stream-offset stream) (length seq)))
+        (t (read-sequence seq stream))))
 
 ;;;; Simple EVAL for use in cold images.
 (defun eval-cons (form)
