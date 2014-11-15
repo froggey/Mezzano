@@ -60,6 +60,20 @@
     #+debug-dirty-rects(format t "Expanded clip rect to ~D,~D ~D,~D~%"
             *clip-rect-x* *clip-rect-y* *clip-rect-width* *clip-rect-height*)))
 
+(defun expand-clip-rectangle-by-window (window)
+  (expand-clip-rectangle (window-x window) (window-y window)
+                         (width window) (height window)))
+
+(defun screen-to-window-coordinates (window x y)
+  "Convert the screen-relative X,Y coordinates to window-relative coordinates."
+  (values (- x (window-x window))
+          (- y (window-y window))))
+
+(defun window-to-screen-coordinates (window x y)
+  "Convert the window-relative X,Y coordinates to screen-relative coordinates."
+  (values (+ x (window-x window))
+          (+ y (window-y window))))
+
 (defun 2d-array (data &optional (element-type 't))
   (let* ((width (length (first data)))
          (height (length data)))
@@ -348,6 +362,32 @@
 (defvar *mouse-y* 0)
 (defvar *mouse-buttons* 0)
 
+(defvar *drag-window* nil)
+(defvar *drag-x-origin* nil)
+(defvar *drag-y-origin* nil)
+(defvar *drag-x* nil)
+(defvar *drag-y* nil)
+(defvar *passive-drag* nil
+  "Set to true when the drag was compositor-initiated.
+A passive drag sends no drag events to the window.")
+
+(defun activate-window (window)
+  "Make WINDOW the active window."
+  (when (not (eql window *active-window*))
+    (when *active-window*
+      (send-event *active-window* (make-instance 'window-activation-event
+                                                 :window *active-window*
+                                                 :state nil)))
+    (setf *active-window* window)
+    (send-event window (make-instance 'window-activation-event
+                                      :window window
+                                      :state t))
+    (when (not (eql (layer window) :bottom))
+      (setf *window-list* (remove window *window-list*))
+      (push window *window-list*)
+      ;; Layering change, redraw the whole window.
+      (expand-clip-rectangle-by-window window))))
+
 (defmethod process-event ((event mouse-event))
   ;; Update positions and buttons
   (let* ((buttons (mouse-button-state event))
@@ -365,46 +405,54 @@
     (setf *mouse-buttons* buttons)
     ;; Dispatch events and stuff...
     ;; Raise windows when clicked on, deal with drag, etc.
-    (when (and (not (logbitp 0 buttons))
-               (logbitp 0 changes))
-      ;; On left click release, select window.
-      (let ((win (window-at-point *mouse-x* *mouse-y*)))
-        (when (and win (not (eql win *active-window*)))
-          (when *active-window*
-            (send-event *active-window* (make-instance 'window-activation-event
-                                                       :window *active-window*
-                                                       :state nil)))
-          (setf *active-window* win)
-          (send-event win (make-instance 'window-activation-event
-                                         :window win
-                                         :state t))
-          (when (not (eql (layer win) :bottom))
-            (setf *window-list* (remove win *window-list*))
-            (push win *window-list*)
-            ;; Layering change, redraw everything.
-            ;; fixme: don't be lazy. set the cliprect properly.
-            (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-                  *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
-                  *clip-rect-x* 0
-                  *clip-rect-y* 0)))))
-    (when (or (not (zerop x-motion))
-              (not (zerop y-motion))
-              (not (zerop changes)))
-      (let ((win (window-at-point *mouse-x* *mouse-y*)))
-        (when win
-          (send-event win (make-instance 'mouse-event
-                                         :window win
-                                         :button-state *mouse-buttons*
-                                         :button-change changes
-                                         :x-position (- *mouse-x* (window-x win))
-                                         :y-position (- *mouse-y* (window-y win))
-                                         :x-motion x-motion
-                                         :y-motion y-motion)))))
+    (let ((win (window-at-point *mouse-x* *mouse-y*)))
+      (when win
+        (when (and (logbitp 0 buttons)
+                   (logbitp 0 changes)
+                   (member :meta *keyboard-modifier-state*)
+                   (not (eql (layer win) :bottom)))
+          ;; Meta + left down, start a passive drag.
+          (setf *drag-x-origin* *mouse-x*
+                *drag-y-origin* *mouse-y*
+                *drag-window* win
+                (values *drag-x* *drag-y*) (screen-to-window-coordinates win *mouse-x* *mouse-y*)
+                *passive-drag* t)
+          (activate-window win))
+        (when (and (not (logbitp 0 buttons))
+                   (logbitp 0 changes)
+                   (not (eql win *active-window*)))
+          ;; On left click release, select window.
+          (activate-window win))
+        (when (and win
+                   (or (not (zerop x-motion))
+                       (not (zerop y-motion))
+                       (not (zerop changes))))
+          (multiple-value-bind (win-x win-y)
+              (screen-to-window-coordinates win *mouse-x* *mouse-y*)
+            (send-event win (make-instance 'mouse-event
+                                           :window win
+                                           :button-state *mouse-buttons*
+                                           :button-change changes
+                                           :x-position win-x
+                                           :y-position win-y
+                                           :x-motion x-motion
+                                           :y-motion y-motion))))))
     (when (or (not (zerop x-motion))
               (not (zerop y-motion)))
+      (when *drag-window*
+        (expand-clip-rectangle-by-window *drag-window*)
+        ;; Use clipped mouse coordinates instead of relative motion.
+        (setf (window-x *drag-window*) (- *mouse-x* *drag-x*))
+        (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
+        (expand-clip-rectangle-by-window *drag-window*))
       ;; Mouse position changed, redraw the screen.
       (expand-clip-rectangle old-x old-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0))
-      (expand-clip-rectangle new-x new-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0)))))
+      (expand-clip-rectangle new-x new-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0)))
+    (when (and (not (logbitp 0 buttons))
+               (logbitp 0 changes)
+               *drag-window*)
+      ;; Left click release, stop drag.
+      (setf *drag-window* nil))))
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
@@ -514,11 +562,12 @@
 
 (defmethod process-event ((event damage-event))
   (let ((window (window event)))
-    (multiple-value-bind (x y w h)
-        (clip-rectangle (x event) (y event) (width event) (height event)
-                        0 0 (width window) (height window))
-      (expand-clip-rectangle (+ x (window-x window)) (+ y (window-y window))
-                             w h))))
+    (multiple-value-bind (win-x win-y)
+        (window-to-screen-coordinates window (x event) (y event))
+      (multiple-value-bind (clip-x clip-y clip-w clip-h)
+          (clip-rectangle win-x win-y (width event) (height event)
+                          (window-x window) (window-y window) (width window) (height window))
+        (expand-clip-rectangle clip-x clip-y clip-w clip-h)))))
 
 (defun damage-window (window x y width height)
   "Send a window damage event to the compositor."
