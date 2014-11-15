@@ -1,31 +1,30 @@
 ;;;; An XTerm emulator widget.
 
-(cl:defpackage :sys.xterm
+(defpackage :mezzanine.gui.xterm
   (:use :cl)
   (:export #:xterm-terminal
-           #:terminal-interrupt))
+           #:input-translate
+           #:receive-char))
 
-(cl:in-package :sys.xterm)
+(in-package :mezzanine.gui.xterm)
 
-(define-condition terminal-interrupt () ())
-
-(defclass xterm-terminal (sys.gray:fundamental-binary-input-stream
-                          sys.gray:fundamental-binary-output-stream)
+(defclass xterm-terminal ()
   ((framebuffer :initarg :framebuffer :reader terminal-framebuffer)
    ;; Offsets in the framebuffer.
    (x-offs :initarg :x :reader x-offset)
    (y-offs :initarg :y :reader y-offset)
-   (input :initarg :input)
-   (queued-bytes :initarg :queued-bytes)
-   (interrupt-character :initarg :interrupt-character :accessor interrupt-character)
-   (state :initform 'xterm-ground :accessor terminal-state)
+   (damage-function :initarg :damage-function :reader damage-function)
 
+   ;; Parser state.
+   (state :initform 'xterm-ground :accessor terminal-state)
    (intermediate-characters :initform '())
    (parameters :initform (make-array 16 :initial-element nil))
    (n-parameters :initform 0)
    (escape-sequence :initform '())
    (osc-buffer :initform (make-array 100 :fill-pointer 0 :element-type 'character))
 
+   ;; Terminal state.
+   (font :initarg :font :reader font)
    (width :reader terminal-width)
    (height :reader terminal-height)
    (x-pos :initform 0 :accessor x-pos)
@@ -40,14 +39,10 @@
    (saved-y :initform 0 :accessor saved-y)
    (scroll-start :initarg :scroll-start :accessor scroll-start)
    (scroll-end :initarg :scroll-end :accessor scroll-end)
-   (utf-8-state :initform nil :accessor utf-8-state)
-   (utf-8-length :initform nil :accessor utf-8-length)
-   (utf-8-accumulator :initform nil :accessor utf-8-accumulator)
 
    (autowrap :initarg :autowrap :accessor autowrap) ; DECAWM (7)
    )
   (:default-initargs
-   :interrupt-character nil
    :queued-bytes '()
    :foreground nil
    :background nil
@@ -59,12 +54,55 @@
    :scroll-end nil
    :x 0 :y 0))
 
+(defvar *xterm-translations*
+  '((#\Up-Arrow    (#\Esc #\[ #\A))
+    (#\Down-Arrow  (#\Esc #\[ #\B))
+    (#\Right-Arrow (#\Esc #\[ #\C))
+    (#\Left-Arrow  (#\Esc #\[ #\D))
+    (#\Home        (#\Esc #\[ #\H))
+    (#\End         (#\Esc #\[ #\F))
+    (#\Page-Up     (#\Esc #\[ #\5 #\~))
+    (#\Page-Down   (#\Esc #\[ #\6 #\~))
+    (#\KP-Multiply (#\*))
+    (#\KP-Divide   (#\/))
+    (#\KP-Plus     (#\+))
+    (#\KP-Minus    (#\-))
+    (#\KP-Period   (#\.))
+    (#\KP-0        (#\0))
+    (#\KP-1        (#\1))
+    (#\KP-2        (#\2))
+    (#\KP-3        (#\3))
+    (#\KP-4        (#\4))
+    (#\KP-5        (#\5))
+    (#\KP-6        (#\6))
+    (#\KP-7        (#\7))
+    (#\KP-8        (#\8))
+    (#\KP-9        (#\9))))
+
+(defun input-translate (terminal character fn)
+  "Translate a character into a form suitable for consumption by a terminal client.
+Calls FN with each output character."
+  (declare (ignore terminal))
+  (cond ((or (system:char-bit character :meta)
+             (system:char-bit character :super)
+             (system:char-bit character :hyper))
+         ;; Ignore weird characters.
+         ;; FIXME: Do stuff with META.
+         )
+        ((system:char-bit character :control)
+         ;; Control character. Translate to C0 control set or ignore.
+         ;; Wonder how to type the C1 control characters...
+         (when (<= #x3F (char-code (char-upcase character)) #x5F)
+           (funcall fn (code-char (logand (- (char-code (char-upcase character)) 64) #x7F)))))
+        (t
+         (let ((translated (assoc character *xterm-translations*)))
+           (cond (translated
+                  (mapc fn (second translated)))
+                 (t (funcall fn character)))))))
+
 (defun soft-reset (terminal)
   "Reset the terminal to the default state."
   (setf (autowrap terminal) nil))
-
-(defmethod sys.gray:stream-element-type ((stream xterm-terminal))
-  '(unsigned-byte 8))
 
 (defun generate-xterm-colour-table ()
   (let ((colours (make-array 256 :element-type '(unsigned-byte 32))))
@@ -156,44 +194,63 @@
                                        (background-colour terminal))
                                    (if (inverse terminal) 7 0)))))
 
-(defmethod initialize-instance :after ((term xterm-terminal) &key width height)
+(defmethod initialize-instance :after ((term xterm-terminal) &key width height font &allow-other-keys)
   (let* ((fb (terminal-framebuffer term))
          (dims (array-dimensions fb)))
-    (setf (slot-value term 'width) (truncate (or width (- (second dims) (x-offset term))) 8)
-          (slot-value term 'height) (truncate (or height (- (first dims) (y-offset term))) 16))
+    (setf (slot-value term 'width) (truncate width (mezzanine.gui.font:em-square-width font))
+          (slot-value term 'height) (truncate height (mezzanine.gui.font:line-height font)))
     (soft-reset term)
-    (sys.graphics::bitset (* (terminal-height term) 16) (* (terminal-width term) 8)
+    (mezzanine.gui:bitset (* (terminal-height term) (mezzanine.gui.font:line-height font))
+                          (* (terminal-width term) (mezzanine.gui.font:em-square-width font))
                           (true-background-colour term) fb
-                          (y-offset term) (x-offset term))))
+                          (y-offset term) (x-offset term))
+    (funcall (damage-function term)
+             (x-offset term) (y-offset term)
+             (* (terminal-width term) (cell-pixel-width term))
+             (* (terminal-height term) (cell-pixel-height term)))))
 
 (defun report-unknown-escape (term)
   (format t "Failed to parse escape sequence ~S in state ~S.~%"
           (reverse (slot-value term 'escape-sequence))
           (terminal-state term)))
 
+(defun cell-pixel-width (term)
+  (mezzanine.gui.font:em-square-width (font term)))
+
+(defun cell-pixel-height (term)
+  (mezzanine.gui.font:line-height (font term)))
+
+(defun x-pixel-position (term x)
+  (+ (x-offset term) (* x (cell-pixel-width term))))
+
+(defun y-pixel-position (term y)
+  (+ (y-offset term) (* y (cell-pixel-height term))))
+
 (defun write-terminal-at (term char x y)
   (when (and (<= 0 x (1- (terminal-width term)))
              (<= 0 y (1- (terminal-height term))))
-    (sys.graphics::bitset 16 8
-                          (true-background-colour term) (terminal-framebuffer term)
-                          (+ (* y 16) (y-offset term)) (+ (* x 8) (x-offset term)))
-    (unless (eql char #\Space)
-      (let* ((glyph (sys.int::map-unifont-2d char)))
-        (when glyph
-          (sys.graphics::bitset-argb-xrgb-mask-1 16 8 (true-foreground-colour term)
-                                                 glyph 0 0
-                                                 (terminal-framebuffer term)
-                                                 (+ (* y 16) (y-offset term))
-                                                 (+ (* x 8) (x-offset term)))
-          (when (bold term)
-            (sys.graphics::bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
-                                                   glyph 0 0
-                                                   (terminal-framebuffer term)
-                                                   (+ (* y 16) (y-offset term))
-                                                   (+ (* x 8) (x-offset term) 1))))))
-    (when (underline term)
-      (sys.graphics::bitset 1 8 (true-foreground-colour term) (terminal-framebuffer term)
-                            (+ (* y 16) (y-offset term) 15) (+ (* x 8) (x-offset term))))))
+    (let* ((glyph (mezzanine.gui.font:character-to-glyph (font term) char))
+           (mask (mezzanine.gui.font:glyph-mask glyph)))
+      (mezzanine.gui:bitset (cell-pixel-height term) (cell-pixel-width term)
+                            (true-background-colour term) (terminal-framebuffer term)
+                            (y-pixel-position term y) (x-pixel-position term x))
+      (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (true-foreground-colour term)
+                                             mask 0 0
+                                             (terminal-framebuffer term)
+                                             (- (+ (y-pixel-position term y) (mezzanine.gui.font:ascender (font term))) (mezzanine.gui.font:glyph-yoff glyph))
+                                             (+ (x-pixel-position term x) (mezzanine.gui.font:glyph-xoff glyph)))
+      #+nil(when (bold term)
+             (mezzanine.gui:bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
+                                                    glyph 0 0
+                                                    (terminal-framebuffer term)
+                                                    (y-pixel-position term y)
+                                                    (1+ (x-pixel-position term x))))
+      #+nil(when (underline term)
+             (mezzanine.gui:bitset 1 8 (true-foreground-colour term) (terminal-framebuffer term)
+                                   (+ (* y 16) (y-offset term) 15) (+ (* x 8) (x-offset term)))))
+    (funcall (damage-function term)
+             (x-pixel-position term x) (y-pixel-position term y)
+             (cell-pixel-width term) (cell-pixel-height term))))
 
 (defun write-terminal (term char)
   (let ((x (x-pos term)) (y (y-pos term)))
@@ -217,37 +274,42 @@
            ;; Screen goes up.
            (cond ((>= lines rsize)
                   ;; All the way up.
-                  (sys.graphics::bitset (* rsize 16) (* (terminal-width term) 8)
+                  (mezzanine.gui:bitset (* rsize (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                         (true-background-colour term) (terminal-framebuffer term)
-                                        (+ (* rstart 16) (y-offset term)) (x-offset term)))
-                 (t (sys.graphics::bitblt (* (1+ (- rsize lines)) 16) (* (terminal-width term) 8)
+                                        (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term)))
+                 (t (mezzanine.gui:bitblt (* (1+ (- rsize lines)) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                           (terminal-framebuffer term)
-                                          (+ (* (+ rstart lines) 16) (y-offset term))
+                                          (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term))
                                           (x-offset term)
                                           (terminal-framebuffer term)
-                                          (+ (* rstart 16) (y-offset term))
+                                          (+ (* rstart (cell-pixel-height term)) (y-offset term))
                                           (x-offset term))
-                    (sys.graphics::bitset (* lines 16) (* (terminal-width term) 8)
+                    (mezzanine.gui:bitset (* lines (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                           (true-background-colour term) (terminal-framebuffer term)
-                                          (+ (* (1+ (- rend lines)) 16) (y-offset term)) (x-offset term)))))
+                                          (+ (* (1+ (- rend lines)) (cell-pixel-height term)) (y-offset term)) (x-offset term)))))
           ((< lines 0)
            ;; Screen goes down.
            (setf lines (- lines))
            (cond ((>= lines rsize)
                   ;; All the way down.
-                  (sys.graphics::bitset (* rsize 16) (* (terminal-width term) 8)
+                  (mezzanine.gui:bitset (* rsize (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                         (true-background-colour term) (terminal-framebuffer term)
-                                        (+ (* rstart 16) (y-offset term)) (x-offset term)))
-                 (t (sys.graphics::bitblt (* (1+ (- rsize lines)) 16) (* (terminal-width term) 8)
+                                        (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term)))
+                 (t (mezzanine.gui:bitblt (* (1+ (- rsize lines)) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                           (terminal-framebuffer term)
-                                          (+ (* rstart 16) (y-offset term))
+                                          (+ (* rstart (cell-pixel-height term)) (y-offset term))
                                           (x-offset term)
                                           (terminal-framebuffer term)
-                                          (+ (* (+ rstart lines) 16) (y-offset term))
+                                          (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term))
                                           (x-offset term))
-                    (sys.graphics::bitset (* lines 16) (* (terminal-width term) 8)
+                    (mezzanine.gui:bitset (* lines (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                                           (true-background-colour term) (terminal-framebuffer term)
-                                          (+ (* rstart 16) (y-offset term)) (x-offset term))))))))
+                                          (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term))))))
+    ;; Wow. Such lazy. Much damage.
+    (funcall (damage-function term)
+             (x-offset term) (y-offset term)
+             (* (terminal-width term) (cell-pixel-width term))
+             (* (terminal-height term) (cell-pixel-height term)))))
 
 (defun clamp (value min max)
   (cond ((> value max) max)
@@ -258,18 +320,24 @@
   (setf top (clamp top 0 (terminal-height term)))
   (setf bottom (clamp bottom 0 (terminal-height term)))
   (when (< top bottom)
-    (sys.graphics::bitset (* (- bottom top) 16) (* (terminal-width term) 8)
+    (mezzanine.gui:bitset (* (- bottom top) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
                           (true-background-colour term) (terminal-framebuffer term)
-                          (+ (* top 16) (y-offset term)) (x-offset term))))
+                          (+ (* top (cell-pixel-height term)) (y-offset term)) (x-offset term))
+    (funcall (damage-function term)
+             (x-offset term) (+ (* top (cell-pixel-height term)) (y-offset term))
+             (* (terminal-width term) (cell-pixel-width term)) (* (- bottom top) (cell-pixel-height term)))))
 
 (defun erase (term left right)
   (setf left (clamp left 0 (terminal-width term)))
   (setf right (clamp right 0 (terminal-width term)))
   (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
              (< left right))
-    (sys.graphics::bitset 16 (* (- right left) 8)
+    (mezzanine.gui:bitset (cell-pixel-height term) (* (- right left) (cell-pixel-width term))
                           (true-background-colour term) (terminal-framebuffer term)
-                          (+ (* (y-pos term) 16) (y-offset term)) (+ (* left 8) (x-offset term)))))
+                          (+ (* (y-pos term) (cell-pixel-height term)) (y-offset term)) (+ (* left (cell-pixel-width term)) (x-offset term)))
+    (funcall (damage-function term)
+             (+ (* left (cell-pixel-width term)) (x-offset term)) (+ (* (y-pos term) (cell-pixel-height term)) (y-offset term))
+             (* (- right left) (cell-pixel-width term)) (cell-pixel-height term))))
 
 (defun set-character-attributes (terminal attributes)
   (when (endp attributes) (setf attributes '(0)))
@@ -411,7 +479,8 @@
         ((<= (char-code char) #x1F)
          (xterm-execute terminal char)
          'xterm-ground)
-        (t (xterm-print terminal char))))
+        (t (xterm-print terminal char)
+           'xterm-ground)))
 
 (defun xterm-escape (terminal char)
   (cond ((default-action terminal char))
@@ -864,109 +933,12 @@
       (51) ; Reserved for Emacs shell.
       (52 (format t "Manipulate selection data: ~S~%" pt)))))
 
-(defun utf-8-code-point-length (code-point)
-  "Return the number of bytes required to encode CODE-POINT or NIL if it can't be encoded."
-  (cond ((<= code-point #x7F)
-         1)
-        ((<= #x80 code-point #x7FF)
-         2)
-        ;; UTF-16 surrogates can't be encoded.
-        ((or (<= #x800 code-point #xD7FF)
-             (<= #xE000 code-point #xFFFF))
-         3)
-        ((<= #x10000 code-point #x10FFFF)
-         4)))
-
-(defmethod sys.gray:stream-write-byte ((terminal xterm-terminal) byte)
-  (with-simple-restart (continue "Ignore this byte.")
-    (cond ((utf-8-state terminal)
-           ;; Some bytes to go.
-           ;; Each remaining byte must have the top two bits set to #b10.
-           (when (not (eql (ldb (byte 2 6) byte) #b10))
-             (write-char #\REPLACEMENT_CHARACTER terminal)
-             ;; Restart decode from this byte.
-             (setf (utf-8-state terminal) nil)
-             (return-from sys.gray:stream-write-byte
-               (sys.gray:stream-write-char terminal byte)))
-           (setf (utf-8-accumulator terminal) (logior (ash (utf-8-accumulator terminal) 6)
-                                                      (ldb (byte 6 0) byte)))
-           (when (zerop (decf (utf-8-state terminal)))
-             ;; Finish up.
-             (let ((code-point (utf-8-accumulator terminal)))
-               (if (or (> code-point #x0010FFFF)
-                       (<= #xD800 code-point #xDFFF)
-                       (not (eql (utf-8-length terminal)
-                                 (utf-8-code-point-length code-point))))
-                   (write-char #\REPLACEMENT_CHARACTER terminal)
-                   (write-char (code-char code-point) terminal)))
-             (setf (utf-8-state terminal) nil)))
-          (t ;; Starting a UTF-8 sequence.
-           (multiple-value-bind (remaining-bytes partial-code-point)
-               (sys.net::utf-8-decode-leader byte)
-             (case remaining-bytes
-               (0 (write-char (code-char partial-code-point) terminal))
-               ((1 2 3)
-                (setf (utf-8-state terminal) remaining-bytes
-                      (utf-8-length terminal) (1+ remaining-bytes)
-                      (utf-8-accumulator terminal) partial-code-point))
-               (t (write-char #\REPLACEMENT_CHARACTER terminal))))))))
-
-(defmethod sys.gray:stream-write-char ((stream xterm-terminal) char)
-  (push char (slot-value stream 'escape-sequence))
+(defun receive-char (xterm char)
+  (push char (slot-value xterm 'escape-sequence))
   (with-simple-restart (continue "Ignore this character.")
-    (let ((new-state (funcall (terminal-state stream) stream char)))
+    (let ((new-state (funcall (terminal-state xterm) xterm char)))
       (cond (new-state
              (when (eql new-state 'xterm-ground)
-               (setf (slot-value stream 'escape-sequence) '()))
-             (setf (terminal-state stream) new-state))
-            (t (setf (terminal-state stream) 'xterm-ground))))))
-
-(defvar *xterm-translations*
-  (list (list (name-char "Up-Arrow")    '(#\Esc #\[ #\A))
-        (list (name-char "Down-Arrow")  '(#\Esc #\[ #\B))
-        (list (name-char "Right-Arrow") '(#\Esc #\[ #\C))
-        (list (name-char "Left-Arrow")  '(#\Esc #\[ #\D))
-        (list (name-char "Home")        '(#\Esc #\[ #\H))
-        (list (name-char "End")         '(#\Esc #\[ #\F))
-        (list (name-char "Page-Up")     '(#\Esc #\[ #\5 #\~))
-        (list (name-char "Page-Down")   '(#\Esc #\[ #\6 #\~))
-        (list (name-char "KP-Multiply") '(#\*))
-        (list (name-char "KP-Divide")   '(#\/))
-        (list (name-char "KP-Plus")     '(#\+))
-        (list (name-char "KP-Minus")    '(#\-))
-        (list (name-char "KP-Period")   '(#\.))
-        (list (name-char "KP-0")        '(#\0))
-        (list (name-char "KP-1")        '(#\1))
-        (list (name-char "KP-2")        '(#\2))
-        (list (name-char "KP-3")        '(#\3))
-        (list (name-char "KP-4")        '(#\4))
-        (list (name-char "KP-5")        '(#\5))
-        (list (name-char "KP-6")        '(#\6))
-        (list (name-char "KP-7")        '(#\7))
-        (list (name-char "KP-8")        '(#\8))
-        (list (name-char "KP-9")        '(#\9))))
-
-(defmethod sys.gray:stream-read-byte ((stream xterm-terminal))
-  (cond ((slot-value stream 'queued-bytes)
-         (pop (slot-value stream 'queued-bytes)))
-        (t (let ((ch (read-char (slot-value stream 'input))))
-             (when (eql ch (interrupt-character stream))
-               (signal 'terminal-interrupt))
-             (cond ((logtest (system:char-bits ch)
-                             (logior sys.int::+char-meta-bit+
-                                     sys.int::+char-super-bit+
-                                     sys.int::+char-hyper-bit+))
-                    ;; Ignore weird characters.
-                    (sys.gray:stream-read-byte stream))
-                   ((logtest (system:char-bits ch) sys.int::+char-control-bit+)
-                    ;; Control character. Translate to ASCII.
-                    (if (<= #x40 (char-code ch) #x7E)
-                        (logxor (logand (char-code ch) #b01011111) #b00100000)
-                        (sys.gray:stream-read-byte stream)))
-                   (t ;; TODO: UTF-8 translation, etc.
-                    (let ((translated (assoc ch *xterm-translations*)))
-                      (cond (translated
-                             (dolist (c (rest (second translated)))
-                               (push (char-code c) (slot-value stream 'queued-bytes)))
-                             (char-code (first (second translated))))
-                            (t (logand (char-code ch) #xFF))))))))))
+               (setf (slot-value xterm 'escape-sequence) '()))
+             (setf (terminal-state xterm) new-state))
+            (t (setf (terminal-state xterm) 'xterm-ground))))))

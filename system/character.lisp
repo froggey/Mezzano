@@ -37,7 +37,7 @@
 (defun code-char (code)
   (%make-character code))
 
-(defun system:char-bits (character)
+(defun char-bits (character)
   (check-type character character)
   (logand (ash (ash (lisp-object-address character) -4) -21) 15))
 

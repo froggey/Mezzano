@@ -6,6 +6,7 @@
            #:name
            #:size
            #:line-height
+           #:em-square-width
            #:ascender
            #:glyph-character
            #:glyph-mask
@@ -35,6 +36,7 @@
    (%font-size :initarg :size :reader size)
    (%font-scale :reader font-scale)
    (%line-height :reader line-height)
+   (%em-square-width :reader em-square-width)
    (%font-ascender :reader ascender)
    ;; Not protected by a lock. Multiple threads racing just do extra work, nothing incorrect.
    (%glyph-cache :reader glyph-cache)
@@ -171,6 +173,9 @@
                                                        (- (zpb-ttf:descender loader))
                                                        (zpb-ttf:line-gap loader))
                                                     (font-scale font)))
+          (slot-value font '%em-square-width) (round (* (+ (zpb-ttf:xmax (zpb-ttf:bounding-box loader))
+                                                           (- (zpb-ttf:xmin (zpb-ttf:bounding-box loader))))
+                                                        (font-scale font)))
           (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
                                                       (font-scale font)))
           (slot-value font '%glyph-cache) (make-array 17 :initial-element nil))))

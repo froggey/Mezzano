@@ -46,7 +46,7 @@
            :io-port/8
            :io-port/16
            :io-port/32
-           :char-bits
+           :char-bit
            :fixnump))
 
 (defpackage :system.internals

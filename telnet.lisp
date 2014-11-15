@@ -1,5 +1,6 @@
 (defpackage :telnet
-  (:use :cl))
+  (:use :cl)
+  (:export #:spawn #:spawn-nao #:spawn-nyan #:spawn-magic-1))
 
 (in-package :telnet)
 
@@ -68,49 +69,54 @@ party to perform, the indicated option.")
                  (return bytes))))
              (t (vector-push-extend byte bytes))))))
 
-(defun telnet-command (telnet connection command)
-  (case command
-    (#.+command-sb+
-     (let ((option (read-byte connection))
-           (data (read-subnegotiation connection)))
-       (case option
-         (#.+option-terminal-type+
-          (write-sequence (apply 'vector
-                                 (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
-                                         (map 'list 'char-code (telnet-terminal-type telnet))
-                                         (list +command-iac+ +command-se+)))
-                          connection))
-         (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
-                                    +command-iac+ +command-se+)
-                            connection)))))
-    (#.+command-do+
-     (let ((option (read-byte connection)))
-       (case option
-         (#.+option-terminal-type+
-          (write-sequence (vector +command-iac+ +command-will+
-                                  +option-terminal-type+)
-                          connection))
-         (#.+option-window-size+
-          (write-sequence (apply 'vector
-                                 (append (list +command-iac+ +command-sb+ +option-window-size+)
-                                         (list #x00 80 #x00 24)
-                                         (list +command-iac+ +command-se+)))
-                          connection))
-         (t (write-sequence (vector +command-iac+ +command-wont+ option)
-                            connection)))))
-    (#.+command-dont+
-     (write-sequence (vector +command-iac+ +command-wont+
-                             (read-byte connection))
-                     connection))
-    (#.+command-will+
-     (read-byte connection)
-     #+nil(write-sequence (vector +command-iac+ +command-wont+
-                                  (read-byte connection))))
-    (#.+command-wont+
-     (read-byte connection)
-     #+nil(write-sequence (vector +command-iac+ +command-wont+
-                                  (read-byte connection))))))
+(defun telnet-command (telnet command)
+  (let ((connection (connection telnet)))
+    (case command
+      (#.+command-sb+
+       (let ((option (read-byte connection))
+             (data (read-subnegotiation connection)))
+         (case option
+           (#.+option-terminal-type+
+            (write-sequence (apply 'vector
+                                   (append (list +command-iac+ +command-sb+ +option-terminal-type+ +subnegotiation-is+)
+                                           (map 'list 'char-code "xterm-color") ; what's a "color"?
+                                           (list +command-iac+ +command-se+)))
+                            connection))
+           (t (write-sequence (vector +command-iac+ +command-sb+ option +subnegotiation-is+
+                                      +command-iac+ +command-se+)
+                              connection)))))
+      (#.+command-do+
+       (let ((option (read-byte connection)))
+         (case option
+           (#.+option-terminal-type+
+            (write-sequence (vector +command-iac+ +command-will+
+                                    +option-terminal-type+)
+                            connection))
+           (#.+option-window-size+
+            (write-sequence (apply 'vector
+                                   (append (list +command-iac+ +command-sb+ +option-window-size+)
+                                           (let ((width (mezzanine.gui.xterm::terminal-width (xterm telnet)))
+                                                 (height (mezzanine.gui.xterm::terminal-height (xterm telnet))))
+                                             (list (ldb (byte 8 8) width) (ldb (byte 8 0) width)
+                                                   (ldb (byte 8 8) height) (ldb (byte 8 0) height)))
+                                           (list +command-iac+ +command-se+)))
+                            connection))
+           (t (write-sequence (vector +command-iac+ +command-wont+ option)
+                              connection)))))
+      (#.+command-dont+
+       (write-sequence (vector +command-iac+ +command-wont+
+                               (read-byte connection))
+                       connection))
+      (#.+command-will+
+       (read-byte connection)
+       #+nil(write-sequence (vector +command-iac+ +command-wont+
+                                    (read-byte connection))))
+      (#.+command-wont+
+       (read-byte connection)
+       #+nil(write-sequence (vector +command-iac+ +command-wont+
+                                    (read-byte connection)))))))
 
+#|
 (defun telnet-rx (telnet)
   (handler-case
       (with-simple-restart (abort "Give up")
@@ -168,58 +174,146 @@ party to perform, the indicated option.")
                (sys.xterm:terminal-interrupt ()))))
       (sys.graphics::close-window window)
       (sys.int::process-disable (receive-process window)))))
+|#
 
-(defclass telnet-client (sys.gray:fundamental-character-input-stream
-                         sys.gray:fundamental-character-output-stream
-                         sys.gray:unread-char-mixin
-                         sys.graphics::window-with-chrome)
-  ((command-process :reader command-process)
-   (receive-process :reader receive-process)
-   (buffer :initarg :buffer :reader window-buffer)
-   (connection :initform nil :accessor telnet-connection)
-   (terminal :reader telnet-terminal)
-   (server :initarg :server :reader telnet-server)
-   (port :initarg :port :reader telnet-port)
-   (terminal-type :initarg :terminal-type :reader telnet-terminal-type))
-  (:default-initargs :buffer (sys.int::make-fifo 500 "User Input" 'character)))
+(defclass telnet-client ()
+  ((%fifo :initarg :fifo :reader fifo)
+   (%window :initarg :window :reader window)
+   (%frame :initarg :frame :reader frame)
+   (%xterm :initarg :xterm :reader xterm)
+   (%connection :initarg :connection :accessor connection)
+   (%receive-thread :initarg :receive-thread :accessor receive-thread))
+  (:default-initargs :connection nil))
 
-(defmethod sys.gray:stream-read-char ((stream telnet-client))
-  (sys.int::fifo-pop (window-buffer stream)))
+(defclass server-disconnect-event ()
+  ())
 
-(defmethod sys.graphics::key-press-event ((window telnet-client) character)
-  (sys.int::fifo-push character (window-buffer window)))
+(defun compute-telnet-window-size (font cwidth cheight)
+  ;; Make a fake frame to get the frame size.
+  (let ((frame (make-instance 'mezzanine.gui.widgets:frame)))
+    (multiple-value-bind (left right top bottom)
+        (mezzanine.gui.widgets:frame-size frame)
+      (let ((xterm-width (* cwidth (mezzanine.gui.font:em-square-width font)))
+            (xterm-height (* cheight (mezzanine.gui.font:line-height font))))
+        (values (+ left right xterm-width)
+                (+ top bottom xterm-height)
+                xterm-width xterm-height)))))
 
-(defmethod sys.graphics::window-close-event ((window telnet-client))
-  (sys.int::process-disable (command-process window))
-  (sys.int::process-disable (receive-process window))
-  (when (telnet-connection window)
-    (close (telnet-connection window)))
-  (sys.graphics::close-window window))
+(defgeneric dispatch-event (telnet event)
+  (:method (t e)))
 
-(defmethod initialize-instance :after ((instance telnet-client))
-  (let ((cmd (sys.int::make-process "Telnet command"))
-        (rcv (sys.int::make-process "Telnet receive")))
-    (setf (slot-value instance 'command-process) cmd)
-    (setf (slot-value instance 'receive-process) rcv)
-    (sys.int::process-preset cmd 'telnet-top-level instance)
-    (sys.int::process-preset rcv 'telnet-rx instance)
-    (sys.int::process-enable cmd)))
+(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:window-activation-event))
+  (setf (mezzanine.gui.widgets:activep (frame telnet)) (mezzanine.gui.compositor:state event))
+  (mezzanine.gui.widgets:draw-frame (frame telnet)))
 
-(defmethod sys.graphics::window-redraw ((window telnet-client)))
+(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:mouse-event))
+  (handler-case
+      (mezzanine.gui.widgets:frame-mouse-event (frame telnet) event)
+    (mezzanine.gui.widgets:close-button-clicked ()
+      (throw 'quit nil))))
 
-(defun create-telnet-client (server &key (port 23) title (terminal-type "xterm-color"))
-  "Open a telnet window."
-  (sys.graphics::window-set-visibility (sys.graphics::make-window (if title (format nil "Telnet - ~A" title) "Telnet")
-                                                                  640 400
-                                                                  'telnet-client
-                                                                  :server server
-                                                                  :port port
-                                                                  :terminal-type terminal-type) t))
+(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:window-close-event))
+  (throw 'quit nil))
 
-(setf (gethash (name-char "F3") sys.graphics::*global-keybindings*)
-      (lambda () (create-telnet-client '(204 236 130 210) :title "nethack.alt.org")))
-(setf (gethash (name-char "F7") sys.graphics::*global-keybindings*)
-      ;; This server is dumb and treats xterm-color as xterm-256color. Jerk.
-      (lambda () (create-telnet-client '(107 170 207 248) :title "nyancat")))
-(setf (gethash (name-char "F8") sys.graphics::*global-keybindings*)
-      (lambda () (create-telnet-client '(173 164 225 201) :title "magic-1.org")))
+(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:key-event))
+  (when (not (mezzanine.gui.compositor:key-releasep event))
+    (mezzanine.gui.xterm:input-translate (xterm telnet)
+                                         (mezzanine.gui.compositor:key-key event)
+                                         (lambda (ch)
+                                           ;; FIXME: Translate to UTF-8 here.
+                                           (when (eql ch (code-char +command-iac+))
+                                             (write-byte +command-iac+ (connection telnet)))
+                                           (write-byte (char-code ch) (connection telnet))))))
+
+(defmethod dispatch-event (telnet (event server-disconnect-event))
+  (setf (connection telnet) nil)
+  (loop for c across "Disconnected from server"
+     do (mezzanine.gui.xterm::receive-char (xterm telnet) c)))
+
+(defun telnet-receive (telnet)
+  (handler-case
+      (let ((connection (connection telnet))
+            (xterm (xterm telnet))
+            (last-was-cr nil))
+        ;; Announce capabilities.
+        (write-sequence (vector +command-iac+ +command-do+ +option-suppress-go-ahead+
+                                +command-iac+ +command-will+ +option-window-size+)
+                        connection)
+        ;; FIXME: Translate from UTF-8 here. Can't use read-char on the tcp-stream because
+        ;; terminal IO happens on top of the binary telnet layer.
+        (loop
+           (when (not (connection telnet))
+             (return))
+           (let ((byte (read-byte connection)))
+             (cond ((eql byte +command-iac+)
+                    (let ((command (read-byte connection)))
+                      (if (eql command +command-iac+)
+                          (mezzanine.gui.xterm::receive-char (xterm telnet) (code-char +command-iac+))
+                          (telnet-command telnet command))))
+                   ((eql byte #x0D) ; CR
+                    (setf last-was-cr t)
+                    (mezzanine.gui.xterm::receive-char xterm (code-char byte)))
+                   ((and last-was-cr (eql byte #x00))
+                    (setf last-was-cr nil))
+                   (t (setf last-was-cr nil)
+                      (mezzanine.gui.xterm::receive-char xterm (code-char byte)))))))
+    (end-of-file ()
+      (mezzanine.supervisor:fifo-push (make-instance 'server-disconnect-event)
+                                      (fifo (fifo telnet))))))
+
+(defun telnet-main (server port terminal-type cwidth cheight)
+  (catch 'quit
+    (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
+      (let ((fifo (mezzanine.supervisor:make-fifo 50)))
+        (multiple-value-bind (window-width window-height xterm-width xterm-height)
+            (compute-telnet-window-size font cwidth cheight)
+          (mezzanine.gui.compositor:with-window (window fifo window-width window-height)
+            (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
+                   (frame (make-instance 'mezzanine.gui.widgets:frame
+                                         :framebuffer framebuffer
+                                         :title (format nil "Telnet - ~A:~D" server port)
+                                         :close-button-p t
+                                         :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                   (xterm (make-instance 'mezzanine.gui.xterm:xterm-terminal
+                                         :framebuffer framebuffer
+                                         :font font
+                                         :x (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
+                                         :y (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                         :width xterm-width
+                                         :height xterm-height
+                                         :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                   (telnet (make-instance 'telnet-client
+                                          :fifo fifo
+                                          :window window
+                                          :frame frame
+                                          :xterm xterm)))
+            (mezzanine.gui.widgets:draw-frame frame)
+            (mezzanine.gui.compositor:damage-window window
+                                                    0 0
+                                                    (mezzanine.gui.compositor:width window)
+                                                    (mezzanine.gui.compositor:height window))
+            (unwind-protect
+                 (progn
+                   (setf (connection telnet) (sys.net::tcp-stream-connect server port)
+                         (receive-thread telnet) (mezzanine.supervisor:make-thread (lambda () (telnet-receive telnet))
+                                                                                   :name "Telnet receive"))
+                   (loop
+                      (dispatch-event telnet (mezzanine.supervisor:fifo-pop fifo))))
+              (close (connection telnet))
+              (setf (connection telnet) nil)))))))))
+
+(defun spawn (server &key (port 23) (terminal-type "xterm-color") (width 80) (height 24))
+  (mezzanine.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
+                                    :name "Telnet"))
+
+(defun spawn-nao ()
+  "nethack.alt.org"
+  (spawn '(204 236 130 210)))
+
+(defun spawn-nyan ()
+  "Nyancat over telnet."
+  (spawn '(107 170 207 248)))
+
+(defun spawn-magic-1 ()
+  "The only system slower than Mezzanine."
+  (spawn '(173 164 225 201)))
