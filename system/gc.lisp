@@ -19,6 +19,9 @@
 ;; This is shared between all areas.
 (defvar *memory-expansion-remaining* 0)
 
+;; What *MEMORY-EXPANSION-REMAINING* should be set to after a GC.
+(defvar *memory-expansion* (* 32 1024 1024))
+
 ;; Current state of the stack mark bit. The value in this symbol is accessed
 ;; as a raw, untagged value by the DX allocation code. The value must be a
 ;; fixnum shifted n-fixnum-bits right to work correctly.
@@ -1027,7 +1030,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                        (ash +address-tag-cons+ +address-tag-shift+))
                                                (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
-  (setf *memory-expansion-remaining* (* 32 1024 1024)) ; 32MB
+  (setf *memory-expansion-remaining* *memory-expansion*)
   (mezzanine.supervisor:debug-print-line "GC complete")
   (mezzanine.supervisor::set-gc-light nil))
 
