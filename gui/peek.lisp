@@ -38,13 +38,24 @@
 (defun peek-memory ()
   (room))
 
+(defun format-nic (stream card &optional colon-p at-sign-p)
+  (declare (ignore colon-p at-sign-p))
+  (print-unreadable-object (card stream :type t :identity t)))
+
 (defun peek-network ()
   (format t "Network cards:~%")
   (dolist (card sys.net::*cards*)
     (let ((address (sys.net::ipv4-interface-address card nil)))
-      (format t " ~S~%" card)
+      (format t " ~/mezzanine.gui.peek::format-nic/~%" card)
       (when address
-        (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))))
+        (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))
+      (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
+          (mezzanine.supervisor:net-statistics card)
+        (format t "   ~:D/~:D bytes/packets received. ~:D RX errors.~%"
+                rx-bytes rx-packets rx-errors)
+        (format t "   ~:D/~:D bytes/packets transmitted. ~:D TX errors.~%"
+                  tx-bytes tx-packets tx-errors)
+        (format t "   ~:D collisions.~%" collisions))))
   (format t "Routing table:~%")
   (format t " Network~17TGateway~33TNetmask~49TInterface~%")
   (dolist (route sys.net::*routing-table*)
@@ -56,7 +67,7 @@
     (if (second route)
         (sys.net::format-tcp4-address *standard-output* (second route))
         (write-string "N/A"))
-    (format t "~33T~/sys.net::format-tcp4-address/~49T~S~%" (third route) (fourth route)))
+    (format t "~33T~/sys.net::format-tcp4-address/~49T~/mezzanine.gui.peek::format-nic/~%" (third route) (fourth route)))
   (format t "Servers:~%")
   (dolist (server sys.net::*server-alist*)
     (format t "~S  TCPv4 ~D~%" (second server) (first server)))
