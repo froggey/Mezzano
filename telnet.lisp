@@ -259,7 +259,7 @@ party to perform, the indicated option.")
                       (mezzanine.gui.xterm::receive-char xterm (code-char byte)))))))
     (end-of-file ()
       (mezzanine.supervisor:fifo-push (make-instance 'server-disconnect-event)
-                                      (fifo (fifo telnet))))))
+                                      (fifo telnet)))))
 
 (defun telnet-main (server port terminal-type cwidth cheight)
   (catch 'quit
@@ -299,8 +299,9 @@ party to perform, the indicated option.")
                                                                                    :name "Telnet receive"))
                    (loop
                       (dispatch-event telnet (mezzanine.supervisor:fifo-pop fifo))))
-              (close (connection telnet))
-              (setf (connection telnet) nil)))))))))
+              (when (connection telnet)
+                (close (connection telnet))
+                (setf (connection telnet) nil))))))))))
 
 (defun spawn (server &key (port 23) (terminal-type "xterm-color") (width 80) (height 24))
   (mezzanine.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
