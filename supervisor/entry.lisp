@@ -237,18 +237,31 @@
   device
   mac
   transmit-packet
+  stats
   mtu)
 
 (defvar *nics*)
 (defvar *received-packets*)
 
-(defun register-nic (device mac transmit-fn mtu)
+(defun register-nic (device mac transmit-fn stats-fn mtu)
   (debug-print-line "Registered NIC " device " with MAC " mac)
   (push-wired (make-nic :device device
                         :mac mac
                         :transmit-packet transmit-fn
+                        :stats stats-fn
                         :mtu mtu)
               *nics*))
+
+(defun net-statistics (nic)
+  "Get NIC statistics. Returns 7 values:
+Bytes received.
+Packets received.
+Receive errors.
+Bytes transmitted.
+Packets transmitted.
+Transmit errors.
+Collisions."
+  (funcall (nic-stats nic) (mezzanine.supervisor::nic-device nic)))
 
 (defun net-transmit-packet (nic pkt)
   (funcall (mezzanine.supervisor::nic-transmit-packet nic)

@@ -125,6 +125,7 @@
            #:nic
            #:nic-mac
            #:nic-mtu
+           #:net-statistics
            #:net-transmit-packet
            #:net-receive-packet
            ;; The heartbeat timer is wired directly to the PIT, and beats at 18Hz.

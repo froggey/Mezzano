@@ -79,7 +79,11 @@ and then some alignment.")
   rx-phys
   (rx-buffer-count 0)
   (rx-buffers '())
-  (received-packets '()))
+  (received-packets '())
+  (total-rx-bytes 0)
+  (total-tx-bytes 0)
+  (total-rx-packets 0)
+  (total-tx-packets 0))
 
 (defvar *virtio-net-cards*)
 
@@ -108,8 +112,11 @@ and then some alignment.")
          (decf (virtio-net-rx-buffer-count nic))
          #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
          ;; Extract the packet!
+         ;; FIXME: Just how long are the packets supposed to be?
          (dotimes (i +virtio-net-mtu+)
            (setf (aref packet i) (sys.int::memref-unsigned-byte-8 (virtio-net-rx-virt nic) (+ rx-offset i))))
+         (incf (virtio-net-total-rx-bytes nic) +virtio-net-mtu+)
+         (incf (virtio-net-total-rx-packets nic))
          ;; Re-add the descriptor to the avail ring.
          (virtio-ring-add-to-avail-ring rx-queue id)
          ;; Dispatch!
@@ -152,6 +159,8 @@ and then some alignment.")
                       "  old cons is " hdr-desc-cons)
     (setf (cdr hdr-desc-cons) (virtio-net-tx-buffer-freelist nic)
           (virtio-net-tx-buffer-freelist nic) hdr-desc-cons)
+    (incf (virtio-net-total-tx-bytes nic) (length packet))
+    (incf (virtio-net-total-tx-packets nic))
     ;; Copy packet into the descriptor.
     (dotimes (i (length packet))
       (setf (sys.int::memref-unsigned-byte-8 (+ tx-addr +virtio-net-hdr-size+) i) (aref packet i)))
@@ -242,6 +251,15 @@ and then some alignment.")
             (virtio-net-tx-pending nic) cons)
       (condition-notify (virtio-net-cvar nic)))))
 
+(defun virtio-net-stats (nic)
+  (values (virtio-net-total-rx-bytes nic)
+          (virtio-net-total-rx-packets nic)
+          0
+          (virtio-net-total-tx-bytes nic)
+          (virtio-net-total-tx-packets nic)
+          0
+          0))
+
 (defun virtio-net-register (device)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
@@ -275,7 +293,7 @@ and then some alignment.")
         (setf (virtio-device-status device) +virtio-status-failed+)
         (return-from virtio-net-register))
       (push-wired nic *virtio-net-cards*)
-      (register-nic nic mac 'virtio-net-transmit +virtio-net-mtu+)
+      (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
       ;; Attach IRQ handler.
       (virtio-attach-irq device (lambda (irq) (virtio-net-irq-handler nic)))
       (setf (virtio-irq-mask device) nil)
