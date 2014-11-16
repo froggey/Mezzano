@@ -103,7 +103,7 @@
            :io-port/8
            :io-port/16
            :io-port/32
-           :char-bits
+           :char-bit
            :fixnump))
 
 (declaim (declaration system:lambda-name))
@@ -162,7 +162,10 @@
            #:thread-foothold-disable-depth
            #:thread-frame-pointer
            #:thread-mutex-stack
+           #:thread-global-next
+           #:thread-global-prev
            #:thread-yield
+           #:all-threads
            #:establish-thread-foothold
            #:destroy-thread
            #:make-mutex
@@ -173,6 +176,7 @@
            #:snapshot
            #:protect-memory-range
            #:release-memory-range
+           #:compact-block-freelist
            #:debug-print-line
            #:panic
            #:make-fifo
@@ -197,6 +201,7 @@
            #:nic
            #:nic-mac
            #:nic-mtu
+           #:net-statistics
            #:net-transmit-packet
            #:net-receive-packet
            ;; The heartbeat timer is wired directly to the PIT, and beats at 18Hz.

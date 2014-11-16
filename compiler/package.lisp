@@ -116,6 +116,7 @@
            #:add-boot-hook
            #:remove-boot-hook
            #:fetch-boot-modules
+           #:store-statistics
 
            ;; Temporary drivers.
            #:ps/2-key-read

@@ -1838,7 +1838,7 @@
 	  `(sys.lap-x86:shr32 :r8d ,(- 4 sys.int::+n-fixnum-bits+)))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin system:char-bits (character) ()
+(defbuiltin sys.int::char-bits (character) ()
   (let ((type-error-label (gensym)))
     (emit-trailer (type-error-label)
       (raise-type-error :r8 'character))

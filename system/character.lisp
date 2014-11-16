@@ -184,19 +184,19 @@
 
 (defun base-char-p (character)
   (check-type character character)
-  (and (zerop (system:char-bits character))
+  (and (zerop (char-bits character))
        (< (char-code character) 256)))
 
 (defun standard-char-p (character)
   (check-type character character)
-  (and (zerop (system:char-bits character))
+  (and (zerop (char-bits character))
        (or (<= #x20 (char-code character) #x7E)
            (eql character #\Newline))))
 
 (defun graphic-char-p (char)
   "Returns true if CHAR is a graphic character."
   ;; Treat everything but the Latin1 control characters as graphic characters.
-  (and (zerop (system:char-bits char))
+  (and (zerop (char-bits char))
        (not (or (<= #x00 (char-code char) #x1F)
                 (<= #x7F (char-code char) #x9F)))))
 
