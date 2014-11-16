@@ -43,10 +43,10 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
            :expected-type '(array (unsigned-byte 32) (* *))
            :datum from-array))
   ;; Don't write to the top row of pixels, that's where the lights are.
-  (when (zerop to-row)
-    (incf to-row)
-    (incf from-row)
-    (decf nrows))
+  (when (<= to-row 0)
+    (incf from-row (- 1 to-row))
+    (decf nrows (- 1 to-row))
+    (setf to-row 1))
   ;; Dismember the from-array.
   (let ((from-offset 0)
         (from-storage (sys.int::%complex-array-storage from-array))
