@@ -1121,7 +1121,7 @@
   ;; Ensure a minium amount of free space in :wired.
   ;; And :pinned as well, but that matters less.
   (let ((wired-free-area (allocate (* 256 1024) :wired))
-        (pinned-free-area (allocate (* 256 1024) :pinned)))
+        (pinned-free-area (allocate (* 512 1024) :pinned)))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
     (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
                                          (ash (truncate (- *wired-area-bump*

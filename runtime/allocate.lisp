@@ -55,7 +55,7 @@
              ;; Must be after the end of the previous freelist entry.
              (or (not prev)
                  (> freelist (+ prev (* (freelist-entry-size prev) 8)))))
-      (error "Corrupt freelist."))))
+      (mezzanine.supervisor:panic "Corrupt freelist."))))
 
 ;;; FIXME: The pinned/general/cons allocators must somehow initialize their objects with the
 ;;; allocator lock released. taking a pagefault with it taken is bad, as it will cause
@@ -68,7 +68,8 @@
        (prev nil freelist))
       ((null freelist)
        ;; No memory. Run a GC cycle, try the allocation again, then enlarge the area.
-       (error "No memory!!!"))
+       ;; TODO...
+       (mezzanine.supervisor:panic "No memory!!!"))
     (let ((size (freelist-entry-size freelist)))
       (when (>= size words)
         ;; This freelist entry is large enough, use it.
