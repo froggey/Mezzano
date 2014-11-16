@@ -179,6 +179,9 @@ and then some alignment.")
      (let ((tx-pending '()))
        (with-mutex ((virtio-net-lock nic))
          (loop
+            (when (not (eql (virtio-net-boot-id nic) *boot-id*))
+              ;; Reboot occurred, card no longer exists.
+              (return-from virtio-net-worker))
             (when (or (virtio-net-irq-flag nic)
                       (virtio-net-tx-pending nic))
               (setf (virtio-net-irq-flag nic) nil)
@@ -199,9 +202,6 @@ and then some alignment.")
      ;; Do all access pseudo atomically, preventing mid-access snapshotting.
      ;; This is the only thread directly accessing the card, so no more sync is required.
      (with-pseudo-atomic
-       (when (not (eql (virtio-net-boot-id nic) *boot-id*))
-         ;; Reboot occurred, card no longer exists.
-         (return-from virtio-net-worker))
        (virtio-net-do-receive-processing nic)
        (virtio-net-do-transmit-processing nic)
        ;; Send any pending packets.
