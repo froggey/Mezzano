@@ -90,7 +90,10 @@
            #:thread-foothold-disable-depth
            #:thread-frame-pointer
            #:thread-mutex-stack
+           #:thread-global-next
+           #:thread-global-prev
            #:thread-yield
+           #:all-threads
            #:establish-thread-foothold
            #:destroy-thread
            #:make-mutex

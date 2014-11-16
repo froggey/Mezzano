@@ -4,6 +4,7 @@
   "This lock protects the special variables that make up the thread list and run queues.")
 (defvar *thread-run-queue-head*)
 (defvar *thread-run-queue-tail*)
+(defvar *all-threads*)
 
 (defvar *world-stop-lock*)
 (defvar *world-stop-resume-cvar*)
@@ -57,6 +58,9 @@
 ;;    The thread's current RBP value. Not valid when :active or :dead. An SB64.
 ;;    Here rather than on the stack to avoid GC problems during thread switch.
 ;; 13 mutex stack
+;; 14 global-next
+;; 15 global-prev
+;;    Linked list of all living threads.
 ;; 32-127 MV slots
 ;;    Slots used as part of the multiple-value return convention.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
@@ -105,7 +109,9 @@
   (field %prev                   10)
   (field foothold-disable-depth  11)
   (field frame-pointer           12 :accessor sys.int::%array-like-ref-signed-byte-64)
-  (field mutex-stack             13))
+  (field mutex-stack             13)
+  (field global-next             14)
+  (field global-prev             15))
 
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
@@ -271,7 +277,12 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
             pointer)
       (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
     (with-symbol-spinlock (*global-thread-lock*)
-      (push-run-queue thread))
+      (push-run-queue thread)
+      ;; Add thread to global thread list.
+      (setf (thread-global-prev *all-threads*) thread
+            (thread-global-next thread) *all-threads*
+            (thread-global-prev thread) nil
+            *all-threads* thread))
     thread))
 
 (defun thread-entry-trampoline (function)
@@ -284,6 +295,14 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
       (sys.int::%cli)
       (%lock-thread self)
       (setf (thread-state self) :dead)
+      ;; Remove thread from the global list.
+      (with-symbol-spinlock (*global-thread-lock*)
+        (when (thread-global-next self)
+          (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
+        (when (thread-global-prev self)
+          (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
+        (when (eql self *all-threads*)
+          (setf *all-threads* (thread-global-next self))))
       (%reschedule))))
 
 (sys.int::define-lap-function %%thread-entry-trampoline ()
@@ -371,7 +390,12 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
           *world-stop-resume-cvar* (make-condition-variable "World resume cvar")
           *world-stop-pa-exit-cvar* (make-condition-variable "World stop PA exit cvar")
           *world-stop-pending* nil
-          *pseudo-atomic-thread-count* 0))
+          *pseudo-atomic-thread-count* 0)
+    (setf *all-threads* sys.int::*snapshot-thread*
+          (thread-global-next sys.int::*snapshot-thread*) sys.int::*pager-thread*
+          (thread-global-prev sys.int::*snapshot-thread*) nil
+          (thread-global-next sys.int::*pager-thread*) nil
+          (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*))
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
@@ -664,6 +688,13 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
           (thread-state thread) :sleeping)
     (%reschedule)
     (panic "Initial thread woken??")))
+
+(defun all-threads ()
+  (do ((list '())
+       (current *all-threads* (thread-global-next current)))
+      ((null current)
+       list)
+    (push current list)))
 
 (defmacro dx-lambda (lambda-list &body body)
   `(flet ((dx-lambda ,lambda-list ,@body))
