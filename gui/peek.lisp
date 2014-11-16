@@ -6,10 +6,9 @@
 
 (defvar *peek-commands*
   '((#\? "Help" peek-help "Show a help page.")
-    (#\P "Process" peek-process "Show currently active processes.")
+    (#\T "Thread" peek-thread "Show currently active threads.")
     (#\M "Memory" peek-memory "Show memory information.")
     (#\N "Network" peek-network "Show network information.")
-    (#\D "Devices" peek-devices "Show device information.")
     (#\C "CPU" peek-cpu "Show CPU information.")
     (#\Q "Quit" nil "Quit Peek")))
 
@@ -26,14 +25,14 @@
   (dolist (cmd *peek-commands*)
     (format t "~S~6T~A~20T~A~%" (first cmd) (second cmd) (fourth cmd))))
 
-(defun peek-process ()
-  (format t "Process Name~24TState~%")
-  (when sys.int::*run-queue*
-    (loop with start = sys.int::*run-queue*
-       with process = start
-       do (format t " ~A~24T~A~%" (sys.int::process-name process) (sys.int::process-whostate process))
-         (setf process (sys.int::process-next process))
-         (when (eql process start) (return)))))
+(defun peek-thread ()
+  (format t "Thread Name~24TState~%")
+  (dolist (thread (mezzanine.supervisor:all-threads))
+    (format t " ~A~24T~A~%" (mezzanine.supervisor:thread-name thread) (mezzanine.supervisor:thread-state thread))
+    (when (eql (mezzanine.supervisor:thread-state thread) :sleeping)
+      (format t "  Waiting on ")
+      (print-unreadable-object ((mezzanine.supervisor:thread-wait-item thread) *standard-output* :type t :identity t))
+      (terpri))))
 
 (defun peek-memory ()
   (room))
@@ -78,25 +77,6 @@
             (sys.net::tcp-connection-local-port conn)
             (sys.net::tcp-connection-remote-ip conn) (sys.net::tcp-connection-remote-port conn)
             (sys.net::tcp-connection-state conn))))
-
-(defun peek-devices ()
-  (format t "PCI devices:~%")
-  (dolist (dev sys.int::*pci-devices*)
-    (multiple-value-bind (vname dname)
-        (sys.int::pci-find-device (sys.int::pci-device-vendor-id dev)
-                                  (sys.int::pci-device-device-id dev))
-      (format t " ~2,'0X:~X:~X: ~4,'0X ~4,'0X ~S ~S~%"
-              (sys.int::pci-device-bus dev) (sys.int::pci-device-device dev) (sys.int::pci-device-function dev)
-              (sys.int::pci-device-vendor-id dev)
-              (sys.int::pci-device-device-id dev)
-              vname dname)))
-  (format t "PCI drivers:~%")
-  (dolist (drv sys.int::*pci-drivers*)
-    (format t " ~S~%" (first drv))
-    #+nil(dolist (id (second drv))
-      (multiple-value-bind (vname dname)
-          (sys.int::pci-find-device (first id) (second id))
-        (format t "   ~4,'0X ~4,'0X ~S ~S~%" (first id) (second id) vname dname)))))
 
 (defvar *cpuid-1-ecx-features*
   #("SSE3"
