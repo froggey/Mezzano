@@ -231,7 +231,7 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
     (#x0004 "End-Of-Transmission" "Eot")
     (#x0005 "Enquiry" "Enq")
     (#x0006 "Acknowledge" "Ack")
-    (#x0007 "Bell" "Bel")
+    (#x0007 "Bel")                      ; Not to be confused with Unicode BELL.
     (#x0008 "Backspace" "Bs")
     (#x0009 "Tab" "Horizontal-Tab" "Ht")
     (#x000A "Newline" "Linefeed" "Lf")
