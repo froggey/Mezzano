@@ -10,7 +10,8 @@
            :transmit-packet
            :arp-lookup
            :copy-packet :packet-length
-           :send))
+           :buffered-format
+           :send :receive))
 
 (in-package :sys.net)
 
@@ -279,6 +280,8 @@
          (cond
            ((eql protocol +ip-protocol-tcp+)
             (%tcp4-receive packet (ub32ref/be packet (+ 14 12)) (+ 14 header-length) (+ 14 total-length)))
+           ((eql protocol +ip-protocol-udp+)
+            (%udp4-receive packet (ub32ref/be packet (+ 14 12)) (+ 14 header-length) (+ 14 total-length)))
            (t (format t "Unknown IPv4 protocol ~S ~S.~%" protocol packet)))))
       (t (format t "Unknown ethertype ~S ~S.~%" ethertype packet)))))
 
@@ -633,13 +636,14 @@
 
 (defun ping-host (host &optional (count 4))
   (let ((in-flight-pings nil)
-        (identifier 1234))
+        (identifier 1234)
+        (host-ip (resolve-address host)))
     (with-raw-packet-hook
       (lambda (interface p)
         (declare (ignore interface))
         (when (and (eql (ethertype p) +ethertype-ipv4+)
                    (eql (ipv4-protocol p) +ip-protocol-icmp+)
-                   (eql (ipv4-source p) host)
+                   (eql (ipv4-source p) host-ip)
                    (eql (ping4-identifier p) identifier)
                    (find (ping4-sequence-number p) in-flight-pings))
           (setf in-flight-pings (delete (ping4-sequence-number p) in-flight-pings))
@@ -647,7 +651,7 @@
           (signal (make-condition 'drop-packet))))
       (dotimes (i count)
         (push i in-flight-pings)
-        (send-ping host identifier i))
+        (send-ping host-ip identifier i))
       (sys.int::process-wait-with-timeout "Ping" 10 (lambda () (null in-flight-pings)))
       (when in-flight-pings
         (format t "~S pings still in-flight.~%" (length in-flight-pings))))))
@@ -681,9 +685,6 @@
 	 (ub32ref/be ip-header 16) destination
 	 ;; Header checksum.
 	 (ub16ref/be ip-header 10) (compute-ip-checksum ip-header))
-	(format t "TX packet ~S ~S ~S ~S ~S~%"
-		source destination ethernet-mac interface
-		packet)
 	(transmit-ethernet-packet interface ethernet-mac +ethertype-ipv4+ packet)))))
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
@@ -886,11 +887,12 @@
                       nil
                       :fin-p t)))
 
-(defun send (stream control-string &rest arguments)
+(defun buffered-format (stream control-string &rest arguments)
   "Buffered FORMAT."
   (declare (dynamic-extent argument))
   (write-sequence (apply 'format nil control-string arguments) stream))
 
+;;; Hardcode the qemu & virtualbox network layout for now.
 (defun net-setup (&key
                   (local-ip (make-ipv4-address 10 0 2 15))
                   (netmask (make-ipv4-address 255 255 255 0))
@@ -898,7 +900,8 @@
                   (interface (first *cards*)))
   ;; Flush existing route info.
   (setf *ipv4-interfaces* nil
-        *routing-table* nil)
+        *routing-table* nil
+        *dns-servers* '())
   (ifup interface local-ip)
   ;; Default route.
   (push (list nil gateway netmask interface)
@@ -909,14 +912,9 @@
               netmask
               interface)
         *routing-table*)
+  ;; Use Google DNS, as Virtualbox does not provide a DNS server within the NAT.
+  (push (make-ipv4-address 8 8 8 8) *dns-servers*)
   t)
-
-(defun resolve-address (address)
-  (cond ((listp address)
-         (apply 'sys.net::make-ipv4-address address))
-        ((stringp address)
-         (parse-ipv4-address address))
-        (t address)))
 
 (defun tcp-stream-connect (address port)
   (make-instance 'tcp-stream :connection (tcp-connect (resolve-address address) port)))
@@ -998,3 +996,345 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                    octet))
     (check-type value (unsigned-byte 32))
     value))
+
+;;; Generics for working with packet-oriented connections.
+
+(defgeneric send (sequence connection &optional (start 0) end))
+(defgeneric receive (connection &optional timeout))
+(defgeneric disconnect (connection))
+
+;;; UDP stuff.
+
+(defvar *udp-connections* nil)
+(defvar *udp-connection-lock* (mezzanine.supervisor:make-mutex "UDP connection list"))
+(defvar *allocated-udp-ports* nil)
+
+(defun allocate-local-udp-port ()
+  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+    (do ()
+        (nil)
+      (let ((port (+ (random 32768) 32768)))
+        (unless (find port *allocated-udp-ports*)
+          (push port *allocated-udp-ports*)
+          (return port))))))
+
+(defclass udp4-connection ()
+  ((remote-address :initarg :remote-address :reader remote-address)
+   (remote-port :initarg :remote-port :reader remote-port)
+   (local-port :initarg :local-port :reader local-port)
+   (packets :initarg :packets :accessor udp-connection-packets)
+   (lock :initform (mezzanine.supervisor:make-mutex "UDP connection lock")
+         :reader udp-connection-lock)
+   (cvar :initform (mezzanine.supervisor:make-condition-variable "UDP connection cvar")
+         :reader udp-connection-cvar))
+  (:default-initargs :packets '()))
+
+(defmacro with-udp-connection-locked ((connection) &body body)
+  `(mezzanine.supervisor:with-mutex ((udp-connection-lock ,connection))
+     ,@body))
+
+(defun get-udp-connection (remote-ip remote-port local-port)
+  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+    (dolist (connection *udp-connections*)
+      (when (and (eql (remote-address connection) remote-ip)
+                 (eql (remote-port connection) remote-port)
+                 (eql (local-port connection) local-port))
+        (return connection)))))
+
+(defmacro with-udp-connection ((connection remote-host remote-port) &body body)
+  `(call-with-udp-connection ,remote-host ,remote-port (lambda (,connection) ,@body)))
+
+(defun call-with-udp-connection (remote-host remote-port fn)
+  (let ((connection nil))
+    (unwind-protect
+         (progn (setf connection (udp4-connect remote-host remote-port))
+                (funcall fn connection))
+      (when connection
+        (disconnect connection)))))
+
+(defun udp4-connect (remote-host remote-port)
+  (let* ((source-port (allocate-local-udp-port))
+         (remote-address (resolve-address remote-host))
+	 (connection (make-instance 'udp4-connection
+                                    :remote-address remote-address
+                                    :remote-port remote-port
+                                    :local-port source-port)))
+    (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+      (push connection *udp-connections*))
+    connection))
+
+(defmethod disconnect ((connection udp4-connection))
+  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+    (setf *udp-connections* (remove connection *udp-connections*))
+    (setf *allocated-udp-ports* (remove (local-port connection) *allocated-udp-ports*))))
+
+(defmethod send (sequence (connection udp4-connection) &optional (start 0) end)
+  (transmit-udp4-packet (remote-address connection) (local-port connection) (remote-port connection) (list sequence)))
+
+(defmethod receive ((connection udp4-connection) &optional timeout)
+  (with-udp-connection-locked (connection)
+    (loop
+       (when (udp-connection-packets connection)
+         (return (pop (udp-connection-packets connection))))
+       (mezzanine.supervisor:condition-wait (udp-connection-cvar connection)
+                                            (udp-connection-lock connection)))))
+
+(defun %udp4-receive (packet remote-ip start end)
+  (let* ((remote-port (ub16ref/be packet start))
+         (local-port (ub16ref/be packet (+ start 2)))
+         (length (ub16ref/be packet (+ start 4)))
+         (checksum (ub16ref/be packet (+ start 6)))
+         (connection (get-udp-connection remote-ip remote-port local-port)))
+    (cond
+      (connection
+       (with-udp-connection-locked (connection)
+         (let ((payload (make-array (- end (+ start 8)) :displaced-to packet :displaced-index-offset (+ start 8))))
+           ;; Send data to the user layer
+           (setf (udp-connection-packets connection) (append (udp-connection-packets connection)
+                                                             (list payload)))
+           (mezzanine.supervisor:condition-notify (udp-connection-cvar connection) t))))
+      (t (format t "Ignoring UDP4 packet from ~X ~S~%" remote-ip
+                 (subseq packet start end))))))
+
+;;; DNS support.
+
+(defvar *dns-servers* '())
+
+(defvar +dns-port+ 53)
+(defvar +dns-standard-query+ #x0100)
+
+(defun encode-dns-type (type)
+  (ecase type
+    (:a 1)
+    (:ns 2)
+    (:md 3)
+    (:mf 4)
+    (:cname 5)
+    (:soa 6)
+    (:mb 7)
+    (:mg 8)
+    (:mr 9)
+    (:null 10)
+    (:wks 11)
+    (:ptr 12)
+    (:hinfo 13)
+    (:minfo 14)
+    (:mx 15)
+    (:txt 16)
+    (:aaaa 28)))
+
+(defun decode-dns-type (type)
+  (case type
+    (1 :a)
+    (2 :ns)
+    (3 :md)
+    (4 :mf)
+    (5 :cname)
+    (6 :soa)
+    (7 :mb)
+    (8 :mg)
+    (9 :mr)
+    (10 :null)
+    (11 :wks)
+    (12 :ptr)
+    (13 :hinfo)
+    (14 :minfo)
+    (15 :mx)
+    (16 :txt)
+    (28 :aaaa)
+    (t (list :unknown-type type))))
+
+(defun encode-dns-class (class)
+  (ecase class
+    (:in 1)
+    (:cs 2)
+    (:ch 3)
+    (:hs 4)))
+
+(defun decode-dns-class (class)
+  (case class
+    (1 :in)
+    (2 :cs)
+    (3 :ch)
+    (4 :hs)
+    (t (list :unknown-class class))))
+
+(defun explode (string seperator &key (start 0) (end nil))
+  "Break a string apart into a list using SEPERATOR as
+the seperator character."
+  (let ((start start)
+	(list nil))
+    (dotimes (i (- (or end (length string)) start))
+      (when (eql (char string i) seperator)
+	(push (subseq string start i) list)
+	(setf start (1+ i))))
+      (push (subseq string start end) list)
+    (nreverse list)))
+
+(defun write-dns-name (packet offset name)
+  (when (not (zerop (length name)))
+    ;; Domain names can end in a #\., trim it off.
+    (dolist (part (explode name #\. :end (when (eql #\. (char name (1- (length name))))
+                                           (1- (length name)))))
+      (assert (<= (length part) 63))
+      (assert (not (zerop (length part))))
+      (setf (aref packet offset) (length part))
+      (incf offset)
+      (loop for c across part do
+           (setf (aref packet offset) (char-code (char-downcase c)))
+           (incf offset))))
+  (setf (aref packet offset) 0)
+  (incf offset)
+  offset)
+
+(defun build-dns-packet (id flags &key questions answers authority-rrs additional-rrs)
+  (when (or answers authority-rrs additional-rrs)
+    (error "TODO..."))
+  (let ((packet (make-array 512 :element-type '(unsigned-byte 8) :initial-element 0))
+        (offset 12))
+    (setf (ub16ref/be packet  0) id
+          (ub16ref/be packet  2) flags
+          (ub16ref/be packet  4) (length questions)
+          (ub16ref/be packet  6) 0 #+(or)(length answers)
+          (ub16ref/be packet  8) 0 #+(or)(length authority-rrs)
+          (ub16ref/be packet 10) 0 #+(or)(length additional-rrs))
+    (loop for (name type class) in questions do
+         (setf offset (write-dns-name packet offset name))
+         (setf (ub16ref/be packet offset) (encode-dns-type type))
+         (setf (ub16ref/be packet (+ offset 2)) (encode-dns-class class))
+         (incf offset 4))
+    (subseq packet 0 offset)))
+
+(defun read-dns-name (packet offset)
+  (let ((name (make-array 255 :element-type 'character :fill-pointer 0)))
+    (labels ((read-section (offset)
+               (let ((section-size 0))
+                 (loop
+                    (let ((leader (aref packet offset)))
+                      (incf section-size)
+                      (when (zerop leader)
+                        (return))
+                      (ecase (ldb (byte 2 6) leader)
+                        (0 ;; Reading a label from the packet of length LEADER.
+                         (dotimes (i leader)
+                           (vector-push (code-char (aref packet (+ offset 1 i))) name))
+                         (incf section-size leader)
+                         (incf offset (1+ leader))
+                         (vector-push #\. name))
+                        (3 ;; Following a pointer.
+                         (let ((pointer (ldb (byte 14 0) (ub16ref/be packet offset))))
+                           ;; Make sure it doesn't point to a pointer.
+                           ;; This is probably permitted, but seems like a bad idea.
+                           (when (eql (ldb (byte 2 6) (aref packet pointer)) 3)
+                             (error "Pointer points directly to pointer."))
+                           (read-section pointer)
+                           (incf section-size)
+                           (return))))))
+                 section-size)))
+      (incf offset (read-section offset))
+      (when (not (zerop (length name)))
+        ;; Snip trailing #\.
+        (decf (fill-pointer name)))
+      (values name offset))))
+
+(defun decode-resource-record-data (type class packet offset data-len)
+  (when (not (eql class :in))
+    (return-from decode-resource-record-data (list (subseq packet offset (+ offset data-len)))))
+  (case type
+    ((:cname :ptr :mb :md :mf :mg :mr :ns) (list (read-dns-name packet offset)))
+    (:mx (list (ub16ref/be packet offset) (read-dns-name packet (+ offset 2))))
+    (:a (list (ub32ref/be packet offset)))
+    (:soa (multiple-value-bind (mname next-offset)
+              (read-dns-name packet offset)
+            (multiple-value-bind (rname next-offset)
+                (read-dns-name packet next-offset)
+              (let ((serial (ub32ref/be packet next-offset))
+                    (refresh (ub32ref/be packet (+ next-offset 4)))
+                    (retry (ub32ref/be packet (+ next-offset 8)))
+                    (expire (ub32ref/be packet (+ next-offset 12)))
+                    (minimum (ub32ref/be packet (+ next-offset 16))))
+                (list mname rname serial refresh retry expire minimum)))))
+    (t (list (subseq packet offset (+ offset data-len))))))
+
+(defun decode-dns-packet (packet)
+  (let ((id (ub16ref/be packet 0))
+        (flags (ub16ref/be packet 2))
+        (qdcount (ub16ref/be packet 4))
+        (ancount (ub16ref/be packet 6))
+        (nscount (ub16ref/be packet 8))
+        (arcount (ub16ref/be packet 10))
+        (questions '())
+        (answers '())
+        (authority-records '())
+        (additional-records '())
+        (offset 12))
+    (dotimes (i qdcount)
+      (multiple-value-bind (name next-offset)
+          (read-dns-name packet offset)
+        (setf offset next-offset)
+        (let ((type (decode-dns-type (ub16ref/be packet offset)))
+              (class (decode-dns-class (ub16ref/be packet (+ offset 2)))))
+          (incf offset 4)
+          (push (list name type class) questions))))
+    (flet ((decode-resource-record ()
+             (multiple-value-bind (name next-offset)
+                 (read-dns-name packet offset)
+               (setf offset next-offset)
+               (let ((type (decode-dns-type (ub16ref/be packet offset)))
+                     (class (decode-dns-class (ub16ref/be packet (+ offset 2))))
+                     (ttl (ub32ref/be packet (+ offset 4)))
+                     (data-len (ub16ref/be packet (+ offset 8))))
+                 (incf offset 10)
+                 (prog1
+                     (list* name type class ttl (decode-resource-record-data type class packet offset data-len))
+                   (incf offset data-len))))))
+      (dotimes (i ancount)
+        (push (decode-resource-record) answers))
+      (dotimes (i nscount)
+        (push (decode-resource-record) authority-records))
+      (dotimes (i arcount)
+        (push (decode-resource-record) additional-records))
+      (values id flags
+              (reverse questions)
+              (reverse answers)
+              (reverse authority-records)
+              (reverse additional-records)))))
+
+(defun dns-request (domain)
+  (dolist (server *dns-servers*)
+    (let ((id (random (expt 2 16))))
+      (with-udp-connection (conn server +dns-port+)
+        (send (build-dns-packet id +dns-standard-query+
+                                :questions `((,domain :a :in)))
+               conn)
+        (let ((response (receive conn 3)))
+          (when response
+            (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
+                (decode-dns-packet response)
+              (when (eql rx-id id)
+                (dolist (a answers)
+                  (when (eql (second a) :a)
+                    (return-from dns-request (fifth a))))))))))))
+
+;;; High-level address resolution.
+
+(defvar *hosts*
+  ;; FIXME: need a loopback route.
+  `(("localhost" ,(make-ipv4-address 10 0 2 15))))
+
+(defun resolve-address (address &optional (errorp t))
+  (cond ((listp address)
+         (apply 'sys.net::make-ipv4-address address))
+        ((stringp address)
+         (or
+          ;; 1. Try to parse it as an IP address.
+          (ignore-errors
+            (parse-ipv4-address address))
+          ;; 2. Look in the hosts table.
+          (second (assoc address *hosts* :test 'string-equal))
+          ;; 3. Finally do a DNS lookup.
+          (ignore-errors
+            (dns-request address))
+          (when errorp
+            (error "Unknown host ~S." address))))
+        (t address)))

@@ -308,13 +308,13 @@ party to perform, the indicated option.")
                                     :name "Telnet"))
 
 (defun spawn-nao ()
-  "nethack.alt.org"
-  (spawn '(204 236 130 210)))
+  "Nethack!"
+  (spawn "nethack.alt.org"))
 
 (defun spawn-nyan ()
   "Nyancat over telnet."
-  (spawn '(107 170 207 248)))
+  (spawn "nyancat.dakko.us"))
 
 (defun spawn-magic-1 ()
   "The only system slower than Mezzanine."
-  (spawn '(173 164 225 201)))
+  (spawn "magic-1.org"))

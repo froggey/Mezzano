@@ -197,11 +197,6 @@
                    (subseq line (or rest-start (length line)) rest-end))))
         (t (values "say" line))))
 
-(defun send (stream control-string &rest arguments)
-  "Buffered FORMAT."
-  (declare (dynamic-extent argument))
-  (write-sequence (apply 'format nil control-string arguments) stream))
-
 (defvar *command-table* (make-hash-table :test 'equal))
 
 (defmacro define-server-command (name (state . lambda-list) &body body)
@@ -226,10 +221,10 @@
         (t (format t "[~A]<~A> ~A~%" channel from message))))
 
 (define-server-command ping (irc from message)
-  (send (irc-connection irc) "PONG :~A~%" message))
+  (buffered-format (irc-connection irc) "PONG :~A~%" message))
 
 (defvar *known-servers*
-  '((:freenode (64 32 24 176) 6667))
+  '((:freenode "chat.freenode.net" 6667))
   "A list of known/named IRC servers.")
 
 (defun resolve-server-name (name)
@@ -265,7 +260,7 @@
 
 (define-command quit (irc text)
   (when (irc-connection irc)
-    (send (irc-connection irc) "QUIT :~A~%" text))
+    (buffered-format (irc-connection irc) "QUIT :~A~%" text))
   (throw 'quit nil))
 
 (define-command raw (irc text)
@@ -282,15 +277,15 @@
 (define-command say (irc text)
   (cond ((and (irc-connection irc) (current-channel irc))
          (format (display-pane irc) "[~A]<~A> ~A~%" (current-channel irc) (nickname irc) text)
-         (send (irc-connection irc) "PRIVMSG ~A :~A~%"
-               (current-channel irc) text))
+         (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%"
+                          (current-channel irc) text))
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command me (irc text)
   (cond ((and (irc-connection irc) (current-channel irc))
          (format (display-pane irc) "[~A]* ~A ~A~%" (current-channel irc) (nickname irc) text)
-         (send (irc-connection irc) "PRIVMSG ~A :~AACTION ~A~A~%"
-               (current-channel irc) (code-char 1) text (code-char 1)))
+         (buffered-format (irc-connection irc) "PRIVMSG ~A :~AACTION ~A~A~%"
+                          (current-channel irc) (code-char 1) text (code-char 1)))
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command nick (irc text)
@@ -298,7 +293,7 @@
   ;; FIXME: Check status.
   (setf (nickname irc) text)
   (when (irc-connection irc)
-    (send (irc-connection irc) "NICK ~A~%" (nickname irc))))
+    (buffered-format (irc-connection irc) "NICK ~A~%" (nickname irc))))
 
 (define-command connect (irc text)
   (cond ((not (nickname irc))
@@ -317,14 +312,14 @@
              (setf (irc-connection irc) (sys.net::tcp-stream-connect address port)
                    (receive-thread irc) (mezzanine.supervisor:make-thread (lambda () (irc-receive irc))
                                                                           :name "IRC receive"))
-             (send (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
-             (send (irc-connection irc) "NICK ~A~%" (nickname irc))))))
+             (buffered-format (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
+             (buffered-format (irc-connection irc) "NICK ~A~%" (nickname irc))))))
 
 (define-command join (irc text)
   (cond ((find text (joined-channels irc) :test 'string-equal)
          (error "Already joined to channel ~A." text))
         ((irc-connection irc)
-         (send (irc-connection irc) "JOIN ~A~%" text)
+         (buffered-format (irc-connection irc) "JOIN ~A~%" text)
          (push text (joined-channels irc))
          (unless (current-channel irc)
            (setf (current-channel irc) text)))
@@ -338,7 +333,7 @@
 
 (define-command part (irc text)
   (when (and (irc-connection irc) (current-channel irc))
-    (send (irc-connection irc) "PART ~A :~A~%" (current-channel irc) text)
+    (buffered-format (irc-connection irc) "PART ~A :~A~%" (current-channel irc) text)
     (setf (joined-channels irc) (remove (current-channel irc) (joined-channels irc)))
     (setf (current-channel irc) (first (joined-channels irc)))))
 
