@@ -50,9 +50,9 @@
         (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
           (mezzanine.supervisor:net-statistics card)
-        (format t "   ~:D/~:D bytes/packets received. ~:D RX errors.~%"
+        (format t "   ~:D octets, ~:D packets received. ~:D RX errors.~%"
                 rx-bytes rx-packets rx-errors)
-        (format t "   ~:D/~:D bytes/packets transmitted. ~:D TX errors.~%"
+        (format t "   ~:D octets, ~:D packets transmitted. ~:D TX errors.~%"
                   tx-bytes tx-packets tx-errors)
         (format t "   ~:D collisions.~%" collisions))))
   (format t "Routing table:~%")
@@ -76,7 +76,13 @@
     (format t " ~D~8T~/sys.net::format-tcp4-address/:~D~40T~S~%"
             (sys.net::tcp-connection-local-port conn)
             (sys.net::tcp-connection-remote-ip conn) (sys.net::tcp-connection-remote-port conn)
-            (sys.net::tcp-connection-state conn))))
+            (sys.net::tcp-connection-state conn)))
+  (format t "UDPv4 connections:~%")
+  (format t " Local~8TRemote~%")
+  (dolist (conn sys.net::*udp-connections*)
+    (format t " ~D~8T~/sys.net::format-tcp4-address/:~D~%"
+            (sys.net::local-port conn)
+            (sys.net::remote-address conn) (sys.net::remote-port conn))))
 
 (defvar *cpuid-1-ecx-features*
   #("SSE3"
