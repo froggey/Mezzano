@@ -167,9 +167,14 @@
   (etypecase object
     (function object)
     (symbol
-     (sys.int::%array-like-ref-t
-      (sys.int::%array-like-ref-t object sys.c::+symbol-function+)
-      sys.int::+fref-function+))))
+     ;; Fast-path for symbols.
+     (let ((fref (sys.int::symbol-fref object)))
+       (when (not fref)
+         (return-from sys.int::%coerce-to-callable
+           (fdefinition object)))
+       (let ((fn (sys.int::%array-like-ref-t fref sys.int::+fref-function+)))
+         (or fn
+             (fdefinition object)))))))
 
 (defvar sys.int::*structure-type-type* nil)
 
