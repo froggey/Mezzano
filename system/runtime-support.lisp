@@ -238,8 +238,7 @@
 (defun raise-type-error (datum expected-type)
   (error 'type-error :datum datum :expected-type expected-type))
 
-(defun %invalid-argument-error (&rest args)
-  (declare (ignore args))
+(defun raise-invalid-argument-error ()
   (error 'invalid-arguments))
 
 (defun raise-stack-alignment-error ()
