@@ -9,13 +9,16 @@
 (defvar *current-debug-frame* nil)
 
 (defun function-from-frame (frame)
-  (%frame-function (second frame)))
+  (let* ((return-address (memref-signed-byte-64 (second frame) 1))
+         (fn-address (base-address-of-internal-pointer return-address))
+         (fn-offset (- return-address fn-address)))
+    (%%assemble-value fn-address +tag-object+)))
 
 (defun read-frame-slot (frame slot)
-  (memref-t (memref-unsigned-byte-64 (third frame) -1) (- (1+ slot))))
+  (memref-t (memref-unsigned-byte-64 (second frame) 0) (- (1+ slot))))
 
 (defun write-frame-slot (frame slot value)
-  (setf (memref-t (memref-unsigned-byte-64 (third frame) -1) (- (1+ slot)))
+  (setf (memref-t (memref-unsigned-byte-64 (second frame) 0) (- (1+ slot)))
         value))
 
 (defun show-debug-frame ()
@@ -118,7 +121,7 @@
       (fresh-line)
       (backtrace 15)
       (fresh-line)
-      (write-line "Enter a restart number or evaluate a form.")
+      (write-line "Enter a restart number or evaluate a form. :help for help.")
       (loop
          (let ((* nil) (** nil) (*** nil)
                (/ nil) (// nil) (/// nil)
@@ -138,6 +141,26 @@
                          (format t "Restart number ~D out of bounds.~%" form)))
                     (keyword
                      (case form
+                       (:help
+                        (format t "~&You are in the debugger. Commiserations!~%")
+                        (format t "Commands:~%")
+                        (format t "  :help      This help message.~%")
+                        (format t "  :restarts  Display available restarts.~%")
+                        (format t "  :up        Move to a higher (inner) frame.~%")
+                        (format t "  :down      Move to a lower (outer) frame.~%")
+                        (format t "  :bottom    Move to the lowest (outermost) fra\me.~%")
+                        (format t "  :top       Move to the highest (innermost) frame.~%")
+                        (format t "  :current   Print the current frame.~%")
+                        (format t "  :vars      Display variables in the current frame.~%")
+                        (format t "             Beware, *print-line* and *print-level don't work yet.~%")
+                        (format t "  :read      Read a variable by id (from :vars) from the current frame.~%")
+                        (format t "  :write     Write a variable by id (from :vars) to the current frame.~%")
+                        (format t "  :bt        Print a complete backtrace.~%")
+                        (format t "Integers are treated at restart IDs.~%")
+                        (format t "Good luck.~%"))
+                       (:restarts
+                        (fresh-line)
+                        (show-restarts restarts))
                        (:up
                         (if (>= (first *current-debug-frame*) n-frames)
                             (format t "At innermost frame!~%")
@@ -148,7 +171,14 @@
                             (format t "At outermost frame!~%")
                             (setf *current-debug-frame* (nth (1- (first *current-debug-frame*)) frames)))
                         (show-debug-frame))
-                       (:current (show-debug-frame))
+                       (:bottom
+                        (setf *current-debug-frame* (first frames))
+                        (show-debug-frame))
+                       (:top
+                        (setf *current-debug-frame* (first (last frames)))
+                        (show-debug-frame))
+                       (:current
+                        (show-debug-frame))
                        (:vars
                         (show-debug-frame)
                         (debugger-show-variables *current-debug-frame*))
@@ -178,6 +208,8 @@
                           (finish-output)
                           (setf value (eval (read)))
                           (debugger-write-variable *current-debug-frame* slot value)))
+                       (:bt
+                        (backtrace))
                        (t (format t "Unknown command ~S~%" form))))
                     (t (let ((result (multiple-value-list (let ((- form))
                                                             (eval form)))))
