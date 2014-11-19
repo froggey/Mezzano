@@ -446,7 +446,6 @@
       (mapcar 'pathname (rest x)))))
 
 (defmethod ensure-directories-exist-using-host ((host simple-file-host) pathname &key verbose)
-  (declare (ignore host))
   (let ((dirs (pathname-directory pathname))
         (created-one nil))
     (assert (eql (first dirs) :absolute) (pathname) "Absoute pathname required.")
@@ -479,7 +478,6 @@
         (error "Could not rename ~A to ~A: ~S~%" source dest x)))))
 
 (defmethod file-write-date-using-host ((host simple-file-host) path)
-  (declare (ignore host))
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
     (sys.net:buffered-format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
@@ -489,7 +487,6 @@
       x)))
 
 (defmethod delete-file-using-host ((host simple-file-host) path &key)
-  (declare (ignore host))
   (assert (eql (first (pathname-directory path)) :absolute) (path) "Absoute pathname required.")
   (with-connection (con host)
     (sys.net:buffered-format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
@@ -499,4 +496,5 @@
       x)))
 
 (defmethod expunge-directory-using-host ((host simple-file-host) path &key)
+  (declare (ignore host path))
   t)
