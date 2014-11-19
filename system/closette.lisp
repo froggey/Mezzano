@@ -64,6 +64,7 @@
           standard-object funcallable-standard-object
           standard-class funcallable-standard-class
           standard-generic-function standard-method
+          standard-slot-definition
           class-name
 
           class-direct-superclasses class-direct-slots
@@ -247,6 +248,8 @@
     (setf (slot-contents slots location) new-value)))
 
 (defun std-slot-value (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (flet ((cached-location ()
            (let ((cache (slot-contents (std-instance-slots (class-of instance))
                                        *standard-class-slot-cache-position*)))
@@ -270,6 +273,8 @@
         (t (slot-value-using-class (class-of object) object slot-name))))
 
 (defun (setf std-slot-value) (new-value instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (flet ((cached-location ()
            (let ((cache (slot-contents (std-instance-slots (class-of instance))
                                        *standard-class-slot-cache-position*)))
@@ -290,10 +295,14 @@
             new-value (class-of object) object slot-name))))
 
 (defun std-slot-boundp (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (std-instance-slots instance)))
     (not (eq secret-unbound-value (slot-contents slots location)))))
 (defun fc-std-slot-boundp (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (funcallable-std-instance-slots instance)))
     (not (eq secret-unbound-value (slot-contents slots location)))))
@@ -305,11 +314,15 @@
         (t (slot-boundp-using-class (class-of object) object slot-name))))
 
 (defun std-slot-makunbound (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (std-instance-slots instance)))
     (setf (slot-contents slots location) secret-unbound-value))
   instance)
 (defun fc-std-slot-makunbound (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (let ((location (slot-location (class-of instance) slot-name))
         (slots (funcallable-std-instance-slots instance)))
     (setf (slot-contents slots location) secret-unbound-value))
@@ -322,6 +335,8 @@
         (t (slot-makunbound-using-class (class-of object) object slot-name))))
 
 (defun std-slot-exists-p (instance slot-name)
+  (when (not (symbolp slot-name))
+    (setf slot-name (slot-definition-name slot-name)))
   (not (null (find slot-name (class-slots (class-of instance))
                    :key #'slot-definition-name))))
 (defun slot-exists-p (object slot-name)
@@ -694,6 +709,11 @@
 
 ;;; Slot definition metaobjects
 
+;; Simple wrapper over closette's plist implementation just to give them a
+;; dispatchable type.
+(defstruct standard-slot-definition
+  properties)
+
 ;;; N.B. Quietly retain all unknown slot options (rather than signaling an
 ;;; error), so that it's easy to add new ones.
 
@@ -710,7 +730,7 @@
     (setf (getf* slot ':readers) readers)
     (setf (getf* slot ':writers) writers)
     (setf (getf* slot ':allocation) allocation)
-    slot))
+    (make-standard-slot-definition :properties slot)))
 
 (defun make-effective-slot-definition
        (&rest properties
@@ -723,42 +743,42 @@
     (setf (getf* slot ':initform) initform)
     (setf (getf* slot ':initfunction) initfunction)
     (setf (getf* slot ':allocation) allocation)
-    slot))
+    (make-standard-slot-definition :properties slot)))
 
 (defun slot-definition-name (slot)
-  (getf slot ':name))
+  (getf (standard-slot-definition-properties slot) ':name))
 (defun (setf slot-definition-name) (new-value slot)
-  (setf (getf* slot ':name) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':name) new-value))
 
 (defun slot-definition-initfunction (slot)
-  (getf slot ':initfunction))
+  (getf (standard-slot-definition-properties slot) ':initfunction))
 (defun (setf slot-definition-initfunction) (new-value slot)
-  (setf (getf* slot ':initfunction) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':initfunction) new-value))
 
 (defun slot-definition-initform (slot)
-  (getf slot ':initform))
+  (getf (standard-slot-definition-properties slot) ':initform))
 (defun (setf slot-definition-initform) (new-value slot)
-  (setf (getf* slot ':initform) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':initform) new-value))
 
 (defun slot-definition-initargs (slot)
-  (getf slot ':initargs))
+  (getf (standard-slot-definition-properties slot) ':initargs))
 (defun (setf slot-definition-initargs) (new-value slot)
-  (setf (getf* slot ':initargs) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':initargs) new-value))
 
 (defun slot-definition-readers (slot)
-  (getf slot ':readers))
+  (getf (standard-slot-definition-properties slot) ':readers))
 (defun (setf slot-definition-readers) (new-value slot)
-  (setf (getf* slot ':readers) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':readers) new-value))
 
 (defun slot-definition-writers (slot)
-  (getf slot ':writers))
+  (getf (standard-slot-definition-properties slot) ':writers))
 (defun (setf slot-definition-writers) (new-value slot)
-  (setf (getf* slot ':writers) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':writers) new-value))
 
 (defun slot-definition-allocation (slot)
-  (getf slot ':allocation))
+  (getf (standard-slot-definition-properties slot) ':allocation))
 (defun (setf slot-definition-allocation) (new-value slot)
-  (setf (getf* slot ':allocation) new-value))
+  (setf (getf* (standard-slot-definition-properties slot) ':allocation) new-value))
 
 ;;; finalize-inheritance
 
@@ -1900,7 +1920,7 @@ Dispatching on class ~S." gf class))
   (std-slot-exists-p instance slot-name))
 (defmethod slot-exists-p-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (std-slot-exists-p instance slot-name))
+  (fc-std-slot-exists-p instance slot-name))
 
 (defgeneric slot-boundp-using-class (class instance slot-name))
 (defmethod slot-boundp-using-class
@@ -1908,7 +1928,7 @@ Dispatching on class ~S." gf class))
   (std-slot-boundp instance slot-name))
 (defmethod slot-boundp-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (std-slot-boundp instance slot-name))
+  (fc-std-slot-boundp instance slot-name))
 
 (defgeneric slot-makunbound-using-class (class instance slot-name))
 (defmethod slot-makunbound-using-class
@@ -1916,7 +1936,7 @@ Dispatching on class ~S." gf class))
   (std-slot-makunbound instance slot-name))
 (defmethod slot-makunbound-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (std-slot-makunbound instance slot-name))
+  (fc-std-slot-makunbound instance slot-name))
 
 ;;; Instance creation and initialization
 
@@ -2189,13 +2209,13 @@ Dispatching on class ~S." gf class))
   (dolist (slot (class-slots class)
            (error "The slot ~S is missing from the class ~S." slot-name class))
     (when (eql (slot-definition-name slot) slot-name)
-      (return (funcall (getf slot ':accessor-name) instance)))))
+      (return (funcall (getf (standard-slot-definition-properties slot) ':accessor-name) instance)))))
 
 (defmethod (setf slot-value-using-class) (new-value (class structure-class) instance slot-name)
   (dolist (slot (class-slots class)
            (error "The slot ~S is missing from the class ~S." slot-name class))
     (when (eql (slot-definition-name slot) slot-name)
-      (return (funcall (fdefinition `(setf ,(getf slot ':accessor-name))) new-value instance)))))
+      (return (funcall (fdefinition `(setf ,(getf (standard-slot-definition-properties slot) ':accessor-name))) new-value instance)))))
 
 (defmethod finalize-inheritance ((class structure-class))
   (std-finalize-inheritance class)
@@ -2209,7 +2229,7 @@ Dispatching on class ~S." gf class))
   (declare (ignore class))
   (make-effective-slot-definition
    :name (slot-definition-name (car direct-slots))
-   :accessor-name (getf (car direct-slots) :accessor-name)
+   :accessor-name (getf (standard-slot-definition-properties (car direct-slots)) :accessor-name)
    :allocation (slot-definition-allocation (car direct-slots))))
 
 (defclass structure-object (t)
