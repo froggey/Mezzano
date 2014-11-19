@@ -58,6 +58,13 @@
      ;; Block until the next window event.
      (dispatch-event stream (mezzanine.supervisor:fifo-pop (fifo stream)))))
 
+(defmethod sys.gray:stream-read-char-no-hang ((stream fancy-repl))
+  ;; Catch up with window manager events.
+  (pump-event-loop stream)
+  (cond ((window-closed stream)
+         :eof)
+        (t (mezzanine.supervisor:fifo-pop (input-buffer stream) nil))))
+
 (defmethod sys.gray:stream-terpri :before ((stream fancy-repl))
   ;; Catch up with window manager events.
   (pump-event-loop stream))

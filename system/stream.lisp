@@ -130,13 +130,20 @@
         (setf (slot-value stream 'unread-char) nil))
       (call-next-method)))
 
+(defmethod sys.gray:stream-read-char-no-hang :around ((stream unread-char-mixin))
+  (if (slot-value stream 'unread-char)
+      (prog1 (slot-value stream 'unread-char)
+        (setf (slot-value stream 'unread-char) nil))
+      (call-next-method)))
+
 (defmethod sys.gray:stream-unread-char ((stream unread-char-mixin) character)
   (when (slot-value stream 'unread-char)
     (error "Multiple UNREAD-CHAR"))
   (setf (slot-value stream 'unread-char) character))
 
-(defmethod sys.gray:stream-listen ((stream unread-char-mixin))
- (slot-value stream 'unread-char))
+(defmethod sys.gray:stream-listen :around ((stream unread-char-mixin))
+  (or (slot-value stream 'unread-char)
+      (call-next-method)))
 
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
   (setf (slot-value stream 'unread-char) nil))
@@ -306,6 +313,22 @@
                eof-value))
           (t (let ((c (sys.gray:stream-read-char s)))
                (check-type c (or character (eql :eof)))
+               (cond ((eql c :eof)
+                      (when eof-error-p
+                        (error 'end-of-file :stream s))
+                      eof-value)
+                     (c)))))))
+
+(defun read-char-no-hang (&optional (stream *standard-input*) (eof-error-p t) eof-value recursive-p)
+  (declare (ignore recursive-p))
+  (let ((s (frob-input-stream stream)))
+    (cond ((cold-stream-p s)
+           (or (cold-read-char s)
+               (when eof-error-p
+                 (error 'end-of-file :stream s))
+               eof-value))
+          (t (let ((c (sys.gray:stream-read-char-no-hang s)))
+               (check-type c (or character (eql :eof) nil))
                (cond ((eql c :eof)
                       (when eof-error-p
                         (error 'end-of-file :stream s))
