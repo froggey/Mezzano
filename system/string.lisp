@@ -75,3 +75,25 @@ same characters in the corresponding positions; otherwise it returns false."))
                          (char string2 (+ start2 i)))
                   (+ start1 i)
                   nil)))))
+
+(defun string-trim (character-bag string)
+  (let* ((string (string string))
+         (left-position (position-if-not (lambda (x) (find x character-bag)) string))
+         (right-position (position-if-not (lambda (x) (find x character-bag)) string :from-end t)))
+    (cond ((and left-position right-position)
+           (subseq string left-position (1+ right-position)))
+          (t ""))))
+
+(defun string-left-trim (character-bag string)
+  (let* ((string (string string))
+         (left-position (position-if-not (lambda (x) (find x character-bag)) string)))
+    (cond (left-position
+           (subseq string left-position))
+          (t ""))))
+
+(defun string-right-trim (character-bag string)
+  (let* ((string (string string))
+         (right-position (position-if-not (lambda (x) (find x character-bag)) string :from-end t)))
+    (cond (right-position
+           (subseq string 0 (1+ right-position)))
+          (t ""))))
