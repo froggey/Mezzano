@@ -66,14 +66,14 @@
   ;; Catch up with window manager events.
   (pump-event-loop stream))
 
-(defun repl-main ()
+(defun repl-main (&optional initial-function title width height)
   (with-font (font *default-monospace-font* *default-monospace-font-size*)
     (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-      (mezzanine.gui.compositor:with-window (window fifo 800 300)
+      (mezzanine.gui.compositor:with-window (window fifo (or width 800) (or height 300))
         (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
                (frame (make-instance 'mezzanine.gui.widgets:frame
                                      :framebuffer framebuffer
-                                     :title "REPL"
+                                     :title (string (or title initial-function "REPL"))
                                      :close-button-p t
                                      :damage-function (mezzanine.gui.widgets:default-damage-function window)))
                (term (make-instance 'fancy-repl
@@ -106,11 +106,11 @@
                                                   (mezzanine.gui.compositor:width window)
                                                   (mezzanine.gui.compositor:height window))
           (handler-case
-              (sys.int::repl)
+              (funcall (or initial-function #'sys.int::repl))
             ;; Exit when the close button is clicked.
             (mezzanine.gui.widgets:close-button-clicked ()
               (return-from repl-main))))))))
 
-(defun spawn ()
-  (mezzanine.supervisor:make-thread 'repl-main
-                                    :name "Fancy Lisp Listener"))
+(defun spawn (&key initial-function title width height)
+  (mezzanine.supervisor:make-thread (lambda () (repl-main initial-function title width height))
+                                    :name (or title "Fancy Lisp Listener")))
