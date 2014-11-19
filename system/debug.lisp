@@ -8,6 +8,8 @@
 (defvar *debugger-condition* nil)
 (defvar *current-debug-frame* nil)
 
+(defvar *default-frames-to-print* 15)
+
 (defun function-from-frame (frame)
   (let* ((return-address (memref-signed-byte-64 (second frame) 1))
          (fn-address (base-address-of-internal-pointer return-address))
@@ -119,7 +121,7 @@
       (fresh-line)
       (show-restarts restarts)
       (fresh-line)
-      (backtrace 15)
+      (backtrace *default-frames-to-print*)
       (fresh-line)
       (write-line "Enter a restart number or evaluate a form. :help for help.")
       (loop
