@@ -347,10 +347,19 @@
 (defun make-macrolet-env (definitions env)
   (list* (list* :macros (mapcar 'hack-macrolet-definition definitions)) env))
 
+(defun macroexpand-top-level-form (form env)
+  (cond ((and (listp form)
+              (>= (list-length form) 3)
+              (eql (first form) 'sys.int::define-lap-function)
+              (listp (third form)))
+         ;; Don't expand DEFINE-LAP-FUNCTION.
+         (values form nil))
+        (t (macroexpand form env))))
+
 (defun x-compile-top-level (form env &optional (mode :not-compile-time))
   "Cross-compile a top-level form.
 3.2.3.1 Processing of Top Level Forms."
-  (let ((expansion (macroexpand form env)))
+  (let ((expansion (macroexpand-top-level-form form env)))
     (cond ((consp expansion)
            (case (first expansion)
              ;; 3. If the form is a progn form, each of its body forms is sequentially

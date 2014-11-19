@@ -40,6 +40,15 @@
         (push (list* :special (rest dec)) env)))
     (handle-top-level-implicit-progn body load-fn eval-fn mode env)))
 
+(defun macroexpand-top-level-form (form env)
+  (cond ((and (listp form)
+              (>= (list-length form) 3)
+              (eql (first form) 'define-lap-function)
+              (listp (third form)))
+         ;; Don't expand DEFINE-LAP-FUNCTION.
+         (values form nil))
+        (t (macroexpand form env))))
+
 (defun handle-top-level-form (form load-fn eval-fn &optional (mode :not-compile-time) env)
   "Handle top-level forms. If the form should be evaluated at compile-time
 then it is evaluated using EVAL-FN, if it should be loaded then
@@ -50,7 +59,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   ;; 3.2.3.1 Processing of Top Level Forms
   ;; 2. If the form is a macro form, its macro expansion is computed and processed
   ;;    as a top level form in the same processing mode.
-  (let ((expansion (macroexpand form env)))
+  (let ((expansion (macroexpand-top-level-form form env)))
     ;; Symbol-macros, etc will have been expanded by this point
     ;; Normal symbols and self-evaluating objects will not have side-effects and
     ;; can be ignored.
@@ -321,22 +330,18 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (push (list* action objects) *llf-forms*))
 
 (defun fastload-form (form omap stream)
-  (cond ((and (listp form)
-              (= (list-length form) 4)
-              (eql (first form) 'funcall)
-              (equal (second form) '(function (setf fdefinition)))
-              (listp (third form))
-              (= (list-length (third form)) 2)
-              (eql (first (third form)) 'function)
-              (listp (second (third form)))
-              (eql (first (second (third form))) 'lambda)
-              (listp (third form))
-              (= (list-length (fourth form)) 2)
-              (eql (first (fourth form)) 'quote))
-         ;; FORM looks like (FUNCALL #'(SETF FDEFINITION) #'(LAMBDA ...) 'name)
+  (cond ((and (consp form)
+              (eql (first form) 'sys.int::%defun)
+              (= (list-length form) 3)
+              (consp (second form))
+              (eql (first (second form)) 'quote)
+              (= (list-length (second form)) 2)
+              (consp (third form))
+              (eql (first (third form)) 'lambda))
+         ;; Special case (%defun 'name (lambda ...)) forms.
          (add-to-llf +llf-setf-fdefinition+
-                     (compile nil (second (third form)))
-                     (second (fourth form)))
+                     (compile nil (third form))
+                     (second (second form)))
          t)
         ((and (listp form)
               (>= (list-length form) 3)
