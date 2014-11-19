@@ -157,7 +157,7 @@
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
 
 (defun lisp-implementation-type ()
-  "LispOS")
+  "Mezzanine")
 
 (defun lisp-implementation-version ()
   "devel")
@@ -178,7 +178,7 @@
     (declare (ignore cpuid-max))
     (decode-cpuid-vendor vendor-1 vendor-2 vendor-3)))
 
-;;; LispOS uses no supporting software.
+;;; Mezzanine uses no supporting software.
 (defun software-type () nil)
 (defun software-version () nil)
 
@@ -521,3 +521,9 @@
            (merge-vectors vector-1 length-1 vector-2 length-2
                           result predicate key aref))))
     (t (error "Unknown MERGE result-type ~S." result-type))))
+
+(defmethod print-object ((object mezzanine.supervisor::nic) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format t "~:(~A~) ~6,'0,':,2X"
+            (type-of (mezzanine.supervisor::nic-device object))
+            (mezzanine.supervisor:nic-mac object))))

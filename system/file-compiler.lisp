@@ -360,6 +360,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                      (print *compile-print*)
                      (external-format :default))
   (with-open-file (input-stream input-file :external-format external-format)
+    ;; Work around wonkyness in the FS.
+    (ignore-errors (delete-file output-file))
+    ;; FIXME: Really really really need to delete the output file on error.
     (with-open-file (output-stream output-file
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede

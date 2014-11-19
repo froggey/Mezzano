@@ -44,7 +44,9 @@
               (i sequence (cdr i)))
              ((null i) nil)
            (when (funcall predicate (funcall key (car i)))
-             (return p))))
+             (return (if from-end
+                         (- (length sequence) p 1)
+                         p)))))
         (t (unless end (setf end (length sequence)))
            (if from-end
                (let ((len (- end start)))
@@ -62,6 +64,14 @@
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
   (position-if (lambda (x) (funcall test item x)) sequence
+               :key key
+               :from-end from-end
+               :start start
+               :end end))
+
+(declaim (inline position-if-not))
+(defun position-if-not (predicate sequence &key key from-end (start 0) end)
+  (position-if (complement predicate) sequence
                :key key
                :from-end from-end
                :start start
