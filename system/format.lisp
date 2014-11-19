@@ -503,14 +503,15 @@
                          (error "No more format arguments."))
                        (pop args)))))
     (check-type n (or null integer))
-    (loop
-       (when (and (not end-colon) (endp list)) (return))
-       (setf end-colon nil)
-       (if colon
-           (interpret-format-control inner
-                                     (pop list))
-           (setf list (interpret-format-control inner
-                                                list))))
+    (catch 'escape-upwards
+      (loop
+         (when (and (not end-colon) (endp list)) (return))
+         (setf end-colon nil)
+         (if colon
+             (interpret-format-control inner
+                                       (pop list))
+             (setf list (interpret-format-control inner
+                                                  list)))))
     (if at-sign
         list
         args)))
@@ -624,7 +625,9 @@
 ;;;; 22.3.9 FORMAT Miscellaneous Pseudo-Operations.
 
 ;; TODO!
-(define-format-interpreter #\^ (at-sign colon &rest params))
+(define-format-interpreter #\^ (at-sign colon &rest params)
+  (when (not (remaining-arguments))
+    (throw 'escape-upwards nil)))
 
 (define-format-interpreter #\Newline (at-sign colon)
   (when at-sign
