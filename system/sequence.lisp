@@ -309,7 +309,7 @@
       (t (error "Don't understand result-type ~S." result-type)))))
 
 (defun every (predicate first-seq &rest more-sequences)
-  (declare (dynamic-extent sequences))
+  (declare (dynamic-extent more-sequences))
   (cond ((and (listp first-seq)
               (null more-sequences))
          ;; One list, used to implement the other cases.
@@ -338,21 +338,38 @@
              (unless (apply predicate (mapcar (lambda (seq) (elt seq i)) sequences))
                (return nil)))))))
 
-(defun some (predicate first-seq &rest sequences)
-  (declare (dynamic-extent sequences))
-  (do* ((lists (cons first-seq sequences)))
-       (nil)
-    (do* ((call-list (cons nil nil))
-	  (call-tail call-list (cdr call-tail))
-	  (itr lists (cdr itr)))
-	 ((null itr)
-	  (let ((result (apply predicate (cdr call-list))))
-	    (when result
-	      (return-from some result))))
-      (when (null (car itr))
-	(return-from some nil))
-      (setf (cdr call-tail) (cons (caar itr) nil)
-	    (car itr) (cdar itr)))))
+(defun some (predicate first-seq &rest more-sequences)
+  (declare (dynamic-extent more-sequences))
+  (cond ((and (listp first-seq)
+              (null more-sequences))
+         ;; One list.
+         (dolist (x first-seq nil)
+           (let ((result (funcall predicate x)))
+             (when result
+               (return result)))))
+        ((and (listp first-seq)
+              (every 'listp more-sequences))
+         ;; Many lists.
+         (do* ((lists (cons first-seq more-sequences)))
+              (nil)
+           (do* ((call-list (cons nil nil))
+                 (call-tail call-list (cdr call-tail))
+                 (itr lists (cdr itr)))
+                ((null itr)
+                 (let ((result (apply predicate (cdr call-list))))
+                   (when result
+                     (return-from some result))))
+             (when (null (car itr))
+               (return-from some nil))
+             (setf (cdr call-tail) (cons (caar itr) nil)
+                   (car itr) (cdar itr)))))
+        (t ;; One or more non-list sequence.
+         (let* ((sequences (cons first-seq more-sequences))
+                (n-elts (reduce 'min (mapcar 'length sequences))))
+           (dotimes (i n-elts nil)
+             (let ((result (apply predicate (mapcar (lambda (seq) (elt seq i)) sequences))))
+               (when result
+                 (return result))))))))
 
 (defun notany (predicate first-sequence &rest more-sequences)
   (not (apply 'some predicate first-sequence more-sequences)))
