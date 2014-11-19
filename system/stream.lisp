@@ -328,7 +328,7 @@
                  (error 'end-of-file :stream s))
                eof-value))
           (t (let ((c (sys.gray:stream-read-char-no-hang s)))
-               (check-type c (or character (eql :eof) nil))
+               (check-type c (or character (eql :eof) null))
                (cond ((eql c :eof)
                       (when eof-error-p
                         (error 'end-of-file :stream s))
