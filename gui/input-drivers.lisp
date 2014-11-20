@@ -24,8 +24,6 @@
     (#x35 #\KP-Divide)
     (#x1C #\KP-Enter)))
 
-;; FIXME: use the proper character names for the special keys.
-;; Need to modify the cross-compiler to use a custom read-table.
 (defvar *translation-table*
   #(nil #\Esc #\1 #\2 #\3 #\4 #\5 #\6 #\7 #\8 #\9 #\0 #\- #\= #\Backspace
     #\Tab #\Q #\W #\E #\R #\T #\Y #\U #\I #\O #\P #\[ #\] #\Newline
@@ -50,13 +48,15 @@
               ;; Reading extended scan code.
               (setf byte (mezzanine.supervisor:ps/2-key-read))
               (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
-                (when extended-key
-                  ;; Got a recognized extended key, submit it.
-                  (mezzanine.gui.compositor:submit-key extended-key (logtest byte #x80)))))
+                (cond (extended-key
+                       ;; Got a recognized extended key, submit it.
+                       (mezzanine.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
+                      (t (format *error-output* "Ignoring unknown extended scancode ~2,'X~%" byte)))))
              (t (let ((key (aref *translation-table* (logand byte #x7F))))
-                  (when key
-                    ;; Got a regular key, submit it.
-                    (mezzanine.gui.compositor:submit-key key (logtest byte #x80)))))))
+                  (cond (key
+                         ;; Got a regular key, submit it.
+                         (mezzanine.gui.compositor:submit-key key (logtest byte #x80)))
+                        (t (format *error-output* "Ignoring unknown scancode ~2,'X~%" byte)))))))
        (error (c)
          (format t "Aieee ~S.~%" c)))))
 

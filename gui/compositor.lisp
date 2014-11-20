@@ -212,7 +212,9 @@
     (#\KP-Minus . #\-)
     (#\KP-Plus . #\+)
     (#\KP-Period . #\.)
-    (#\KP-Multiply . #\*)))
+    (#\KP-Multiply . #\*)
+    (#\KP-Divide . #\\)
+    (#\KP-Enter . #\Newline)))
 
 (defvar *keyboard-shifted-map*
   '((#\0 . #\))
@@ -293,7 +295,9 @@
     (#\KP-Minus . #\-)
     (#\KP-Plus . #\+)
     (#\KP-Period . #\.)
-    (#\KP-Multiply . #\*)))
+    (#\KP-Multiply . #\*)
+    (#\KP-Divide . #\\)
+    (#\KP-Enter . #\Newline)))
 
 (defun convert-scancode-to-key (scancode modifier-state)
   (let* ((caps (member :caps-lock modifier-state))
