@@ -49,15 +49,16 @@
   (cdr stack))
 
 ;; TODO: Actually allocate virtual memory.
-(defun %allocate-stack (size)
+(defun %allocate-stack (size &optional wired)
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
   (let* ((addr (with-symbol-spinlock (mezzanine.runtime::*wired-allocator-lock*)
-                 (prog1 (logior (+ sys.int::*stack-area-bump* #x200000)
+                 (prog1 (logior (+ (if wired sys.int::*wired-stack-area-bump* sys.int::*stack-area-bump*) #x200000)
                                 (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
                    ;; 2m align the memory region.
-                   (incf sys.int::*stack-area-bump* (+ (logand (+ size #x1FFFFF) (lognot #x1FFFFF))
-                                                       #x200000)))))
+                   (if wired
+                       (incf sys.int::*wired-stack-area-bump* (align-up size #x200000))
+                       (incf sys.int::*stack-area-bump* (align-up size #x200000))))))
          (stack (sys.int::cons-in-area addr size :wired)))
     ;; Allocate blocks.
     (with-mutex (*vm-lock*)

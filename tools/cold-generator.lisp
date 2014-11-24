@@ -160,8 +160,15 @@
 ;; Wired area stops at 2G, below the pinned area.
 (defconstant +wired-area-limit+ (* 2 1024 1024 1024))
 
+;; Wired stack area starts at the bottom of the stack area.
+(defconstant +wired-stack-area-base+ 0)
+;; Not set to 512GB because bootloader is slow & dumb.
+(defconstant +wired-stack-area-limit+ (* 2 1024 1024 1024))
+;; Leave a gap, for future expansion.
+(defconstant +stack-area-base+ (* 512 1024 1024 1024))
+
 ;; Past this, the address starts to infringe on the address info bits.
-;; Technically, the pinned and stack areas don't care about bit 44, but be consistent.
+;; Technically, the pinned area doesn't care about bit 44, but be consistent.
 (defconstant +area-limit+ (expt 2 44))
 
 (defvar *wired-area-bump*)
@@ -245,12 +252,13 @@
       (t (error "Unknown address #x~X" address)))))
 
 (defun create-stack (size)
+  ;; Lower guard region.
   (incf *stack-area-bump* #x200000)
-  (setf size (align-up size #x200000))
+  (setf size (align-up size #x1000))
   (let* ((address (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                           *stack-area-bump*))
          (info (make-stack :base address :size size)))
-    (incf *stack-area-bump* size)
+    (incf *stack-area-bump* (align-up size #x200000))
     (push info *stack-list*)
     info))
 
@@ -541,9 +549,9 @@
         ;; Major version.
         (setf (ub16ref/le header 32) 0)
         ;; Minor version.
-        (setf (ub16ref/le header 34) 15)
+        (setf (ub16ref/le header 34) 17)
         ;; Number of extents.
-        (setf (ub32ref/le header 36) (+ 1 (length *stack-list*)))
+        (setf (ub32ref/le header 36) 3)
         ;; Entry fref.
         (setf (ub64ref/le header 40) entry-fref)
         ;; Initial thread.
@@ -557,21 +565,24 @@
         (setf (ub64ref/le header 96) (/ bml4-block #x1000))
         ;; Free block list.
         (setf (ub64ref/le header 104) (/ free-block-list #x1000))
-        (flet ((extent (id store-base virtual-base size bump flags)
-                 (setf (ub64ref/le header (+ 112 (* id 40) 0)) store-base
-                       (ub64ref/le header (+ 112 (* id 40) 8)) virtual-base
-                       (ub64ref/le header (+ 112 (* id 40) 16)) size
-                       (ub64ref/le header (+ 112 (* id 40) 24)) bump
-                       (ub64ref/le header (+ 112 (* id 40) 32)) flags)))
-          (extent 0 *wired-area-store* +wired-area-base+ (- *wired-area-bump* +wired-area-base+) (- *wired-area-bump* +wired-area-base+)
-                  ;; A wired pinned area.
-                  (logior #b1000 #b000))
-          (loop
-             for stack in *stack-list*
-             for i from 1
-             do (extent i (stack-store stack) (stack-base stack) (stack-size stack) (stack-size stack)
-                        ;; A wired stack area.
-                        (logior #b1000 #b101))))
+        (flet ((extent (id virtual-base size flags &optional (extra 0))
+                 (setf (ub64ref/le header (+ 112 (* id 32) 0)) virtual-base
+                       (ub64ref/le header (+ 112 (* id 32) 8)) size
+                       (ub64ref/le header (+ 112 (* id 32) 16)) flags
+                       (ub64ref/le header (+ 112 (* id 32) 24)) extra)))
+          (extent 0 +wired-area-base+ (- +wired-area-limit+ +wired-area-base+) 0)
+          (extent 1
+                  (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+                  (- +wired-stack-area-limit+ +wired-stack-area-base+)
+                  0)
+          ;; Alias the wired stack region.
+          (extent 2
+                  (logior +wired-stack-area-base+
+                          (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                          (ash 1 sys.int::+address-mark-bit+))
+                  (* 512 1024 1024 1024) ; 512GB, aliasing at the PML4 level.
+                  1
+                  (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
         ;; Write it out.
         (write-sequence header s))
       ;; Write areas.
@@ -1264,7 +1275,7 @@
             ))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
-                         :stack-size 1024
+                         :stack-size (* 16 1024)
                          :preemption-disable-depth 1
                          :foothold-disable-depth 1))
     (setf (cold-symbol-value 'sys.int::*snapshot-thread*)
@@ -1300,7 +1311,8 @@
       (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)
       (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)
-      (set-value 'sys.int::*stack-area-bump* *stack-area-bump*)
+      (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
+      (set-value 'sys.int::*stack-area-bump* +stack-area-base+)
       (set-value 'sys.int::*current-stack-mark-bit* 0))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
