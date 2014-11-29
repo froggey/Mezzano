@@ -369,8 +369,7 @@
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
       (let* ((frame (or (allocate-physical-pages 1)
-                        (progn (debug-write-line "Aiee. No memory.")
-                               (loop))))
+                        (panic "Aiee. No memory.")))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
