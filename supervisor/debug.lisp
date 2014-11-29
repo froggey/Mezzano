@@ -93,7 +93,9 @@
              *panic-in-progress*)
     (sys.int::%cli)
     (loop (sys.int::%hlt)))
-  (setf *panic-in-progress* t)
+  ;; Stop the world, just in case printing the backtrace requires paging stuff in.
+  (setf *world-stopper* (current-thread)
+        *panic-in-progress* t)
   (set-panic-light)
   (sys.int::%sti)
   (debug-print-line-1 things)
