@@ -29,6 +29,7 @@
 (defconstant +page-table-dirty+          #x040)
 (defconstant +page-table-page-size+      #x080)
 (defconstant +page-table-global+         #x100)
+(defconstant +page-table-copy-on-write+  #x400)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
 (defun register-disk (device n-sectors sector-size max-transfer read-fn write-fn)
@@ -298,6 +299,14 @@
                                                                           (lognot sys.int::+block-map-flag-mask+))
                                                                   flags)))))
 
+(defun release-vm-page (frame)
+  (without-interrupts
+    (let ((flags (physical-page-frame-flags frame)))
+      (setf (ldb (byte 1 +page-frame-flag-cache+) flags) 0
+            (physical-page-frame-flags frame) flags)
+      (when (not (logbitp +page-frame-flag-writeback+ flags))
+        (release-physical-pages frame 1)))))
+
 (defun release-memory-range (base length)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
   (debug-print-line "Release range " base "-" (+ base length))
@@ -309,7 +318,7 @@
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
         (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
-          (release-physical-pages (ash (sys.int::memref-unsigned-byte-64 pte 0) -12) 1)
+          (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
           (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))))
     ;; Flush TLB.
     (setf (sys.int::%cr3) (sys.int::%cr3))))
@@ -334,7 +343,7 @@
                      (logtest sys.int::+block-map-zero-fill+ flags))
                  ;; Page going away, but it's ok. It'll be back, zero-filled.
                  #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (sys.int::memref-unsigned-byte-64 pte 0))
-                 (release-physical-pages (ash (sys.int::memref-unsigned-byte-64 pte 0) -12) 1)
+                 (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
                  (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))
                 ((logtest sys.int::+block-map-writable+ flags)
                  ;; Mark writable.
@@ -371,6 +380,10 @@
       (let* ((frame (or (allocate-physical-pages 1)
                         (panic "Aiee. No memory.")))
              (addr (+ +physical-map-base+ (ash frame 12))))
+        (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+              (physical-page-frame-flags frame) (logior (logand (physical-page-frame-flags frame) #xFFF)
+                                                        (logand address (lognot #xFFF))
+                                                        (ash 1 +page-frame-flag-cache+)))
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
                (dotimes (i 512)

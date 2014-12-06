@@ -314,6 +314,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-i8259)
     (initialize-threads)
     (initialize-pager)
+    (initialize-snapshot)
     (sys.int::%sti)
     (initialize-debug-serial #x3F8 4 38400)
     ;;(debug-set-output-pesudostream (lambda (op &optional arg) (declare (ignore op arg))))

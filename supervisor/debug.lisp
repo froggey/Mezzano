@@ -105,3 +105,7 @@
       ((eql fp 0))
     (debug-print-line fp " " (sys.int::memref-unsigned-byte-64 fp 1)))
   (loop (sys.int::%hlt)))
+
+(defmacro ensure (condition &rest things)
+  `(when (not ,condition)
+     (panic ,@things)))

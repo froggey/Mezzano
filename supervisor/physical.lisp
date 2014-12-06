@@ -8,10 +8,14 @@
 ;; +0 flags (fixnum)
 ;;    bit 0 - free
 ;;    bit 1 - is cache for store
-;; +1 store block id (when allocated and used as cache)
+;;    bit 2 - page is waiting for writeback
+;;    bits 12+ - virtual address. Only valid when bit 1 set.
+;; +1 store block id (when allocated and used as cache or waiting for writeback)
 ;; +1 buddy bin (only when free)
-;; +2 freelist next
+;; +2 freelist next (only when free)
+;; +2 Snapshot next (only when waiting for writeback)
 ;; +3 freelist prev
+;; +3 snapshot prev (only when waiting for writeback)
 
 (defconstant +physical-map-base+
   (logior (ash -1 48) #x800000000000))
@@ -27,6 +31,7 @@
 
 (defconstant +page-frame-flag-free+ 0)
 (defconstant +page-frame-flag-cache+ 1)
+(defconstant +page-frame-flag-writeback+ 2)
 
 (defvar *verbose-physical-allocation*)
 
@@ -77,7 +82,7 @@
           *verbose-physical-allocation* nil)))
 
 (defun allocate-physical-pages (n-pages)
-  (assert (not (zerop n-pages)))
+  (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
   (with-symbol-spinlock (*physical-lock*)
     ;; Find the bin that matches this page count and
     ;; the lowest bin with pages that is best-bin <= N < max-bin.
@@ -123,8 +128,10 @@
           frame)))))
 
 (defun release-physical-pages (page-number n-pages)
-  (assert (not (zerop n-pages)))
-  (assert (eql (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number)) 0))
+  (ensure (not (zerop n-pages)) "Tried to free 0 frames.")
+  (ensure (not (logbitp +page-frame-flag-free+ (physical-page-frame-flags page-number))) "Free bit set in frame flags.")
+  (ensure (not (logbitp +page-frame-flag-cache+ (physical-page-frame-flags page-number))) "Cache bit set in frame flags.")
+  (ensure (not (logbitp +page-frame-flag-writeback+ (physical-page-frame-flags page-number))) "Writeback bit set in frame flags.")
   (when mezzanine.runtime::*paranoid-allocation*
     (dotimes (i (* n-pages 512))
       (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash page-number 12)) i) -1)))

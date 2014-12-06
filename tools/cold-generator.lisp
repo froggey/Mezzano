@@ -549,7 +549,7 @@
         ;; Major version.
         (setf (ub16ref/le header 32) 0)
         ;; Minor version.
-        (setf (ub16ref/le header 34) 17)
+        (setf (ub16ref/le header 34) 18)
         ;; Number of extents.
         (setf (ub32ref/le header 36) 3)
         ;; Entry fref.

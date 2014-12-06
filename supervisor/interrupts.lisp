@@ -145,6 +145,10 @@ If clear, the fault occured in supervisor mode.")
            ;; Same for pages in the wired stack area.
            (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "page fault in wired area"))
+          ((and (logbitp +page-fault-error-present+ info)
+                (logbitp +page-fault-error-write+ info))
+           ;; Copy on write page.
+           (snapshot-clone-cow-page-via-page-fault fault-addr))
           ;; All impossible.
           ((or (logbitp +page-fault-error-present+ info)
                (logbitp +page-fault-error-user+ info)
