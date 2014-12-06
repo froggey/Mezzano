@@ -1309,3 +1309,8 @@ Remaining values describe the effective address: base index scale disp rip-relat
 (define-instruction btr64 (bit-base bit-offset)
   (modrm :gpr-64 bit-base bit-offset '(#x0F #xB3))
   (imm-short :gpr-64 bit-base bit-offset '(#x0F #xBA) 6))
+
+(define-instruction invlpg (address)
+  (when (and (not (keywordp address))
+             (not (immediatep address)))
+    (modrm-single :gpr-32 address '(#x0F #x01) 7)))

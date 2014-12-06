@@ -2624,3 +2624,11 @@
         `(sys.lap-x86:or64 :rax :rdx))
   (box-unsigned-byte-64-rax)
   (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%invlpg (address) ()
+  (load-in-r8 address t)
+  (fixnum-check :r8)
+  (emit `(sys.lap-x86:mov64 :rax :r8)
+        `(sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:invlpg (:rax)))
+  address)
