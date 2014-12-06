@@ -7,11 +7,12 @@
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
+  (sys.lap-x86:xor32 :eax :eax)
   LOOP
   (sys.lap-x86:sub64 :r8 #x1000)
   (sys.lap-x86:jb DONE)
   (sys.lap-x86:sub64 :rsp #x1000)
-  (sys.lap-x86:mov64 :rax (:rsp))
+  (sys.lap-x86:mov64 (:rsp) :rax)
   (sys.lap-x86:jmp LOOP)
   DONE
   (sys.lap-x86:leave)
@@ -129,10 +130,22 @@ If clear, the fault occured in supervisor mode.")
            ;; IRQs must be enabled when a page fault occurs.
            (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "IRQL_NOT_LESS_OR_EQUAL"))
-          ((<= 0 fault-addr (1- (* 2 1024 1024 1024)))
+          ((or (<= 0 fault-addr (1- (* 2 1024 1024 1024)))
+               (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                   fault-addr
+                   (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                      (* 512 1024 1024 1024)))
+               (<= (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                           (ash 1 sys.int::+address-mark-bit+))
+                   fault-addr
+                   (+ (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                              (ash 1 sys.int::+address-mark-bit+))
+                      (* 512 1024 1024 1024))))
            ;; Pages below 2G are wired and should never be unmapped or protected.
+           ;; Same for pages in the wired stack area.
            (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "page fault in wired area"))
+          ;; All impossible.
           ((or (logbitp +page-fault-error-present+ info)
                (logbitp +page-fault-error-user+ info)
                (logbitp +page-fault-error-reserved-violation+ info))
