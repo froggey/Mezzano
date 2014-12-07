@@ -216,9 +216,9 @@
               (eql (char message 0) (code-char #x01))
               (eql (char message (1- (length message))) (code-char #x01))
               (string= "ACTION " message :start2 1 :end2 8))
-         (format t "[~A]* ~A ~A~%" channel from
+         (format (display-pane irc) "~&[~A]* ~A ~A" channel from
                  (subseq message 8 (1- (length message)))))
-        (t (format t "[~A]<~A> ~A~%" channel from message))))
+        (t (format (display-pane irc) "~&[~A]<~A> ~A" channel from message))))
 
 (define-server-command ping (irc from message)
   (buffered-format (irc-connection irc) "PONG :~A~%" message))
@@ -270,26 +270,26 @@
 
 (define-command eval (irc text)
   (let ((*standard-output* (display-pane irc)))
-    (format t "[eval] ~A~%" text)
+    (format t "~&[eval] ~A~%" text)
     (eval (read-from-string text))
     (fresh-line)))
 
 (define-command say (irc text)
   (cond ((and (irc-connection irc) (current-channel irc))
-         (format (display-pane irc) "[~A]<~A> ~A~%" (current-channel irc) (nickname irc) text)
+         (format (display-pane irc) "~&[~A]<~A> ~A" (current-channel irc) (nickname irc) text)
          (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%"
                           (current-channel irc) text))
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command me (irc text)
   (cond ((and (irc-connection irc) (current-channel irc))
-         (format (display-pane irc) "[~A]* ~A ~A~%" (current-channel irc) (nickname irc) text)
+         (format (display-pane irc) "~&[~A]* ~A ~A" (current-channel irc) (nickname irc) text)
          (buffered-format (irc-connection irc) "PRIVMSG ~A :~AACTION ~A~A~%"
                           (current-channel irc) (code-char 1) text (code-char 1)))
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command nick (irc text)
-  (format (display-pane irc) "~&Changing nickname to ~A.~%" text)
+  (format (display-pane irc) "~&Changing nickname to ~A." text)
   ;; FIXME: Check status.
   (setf (nickname irc) text)
   (when (irc-connection irc)
@@ -302,7 +302,7 @@
          (error "Already connected to ~S." (irc-connection irc)))
         (t (multiple-value-bind (address port)
                (resolve-server-name text)
-             (format (display-pane irc) "Connecting to ~A (~A:~A).~%" text address port)
+             (format (display-pane irc) "~&Connecting to ~A (~A:~A)." text address port)
              (setf (mezzanine.gui.widgets:frame-title (frame irc)) (format nil "IRC - ~A" text))
              (mezzanine.gui.widgets:draw-frame (frame irc))
              (mezzanine.gui.compositor:damage-window (window irc)
@@ -394,7 +394,7 @@
                (write-char ch (input-pane irc)))))))
 
 (defmethod dispatch-event (irc (event server-disconnect-event))
-  (format (display-pane irc) "Disconnected.~%"))
+  (format (display-pane irc) "~&Disconnected."))
 
 (defmethod dispatch-event (irc (event server-line-event))
   (let ((line (line event)))
@@ -403,10 +403,10 @@
       (let ((fn (gethash command *command-table*)))
         (cond (fn (funcall fn irc prefix parameters))
               ((keywordp command)
-               (format (display-pane irc) "[~A] -!- ~A~%" prefix (car (last parameters))))
+               (format (display-pane irc) "~&[~A] -!- ~A" prefix (car (last parameters))))
               ((integerp command)
-               (format (display-pane irc) "[~A] ~D ~A~%" prefix command parameters))
-              (t (write-line line (display-pane irc))))))))
+               (format (display-pane irc) "~&[~A] ~D ~A" prefix command parameters))
+              (t (format (display-pane irc) "~&~A" line)))))))
 
 (defun irc-main ()
   (catch 'quit
@@ -430,7 +430,7 @@
                                               :height (- (mezzanine.gui.compositor:height window)
                                                          (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
                                                          (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
-                                                         2
+                                                         1
                                                          (mezzanine.gui.font:line-height font))
                                               :damage-function (mezzanine.gui.widgets:default-damage-function window)))
                  (input-pane (make-instance 'mezzanine.gui.widgets:text-widget
@@ -441,8 +441,7 @@
                                                            (- (mezzanine.gui.compositor:height window)
                                                               (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
                                                               (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
-                                                              (mezzanine.gui.font:line-height font)
-                                                              1))
+                                                              (mezzanine.gui.font:line-height font)))
                                             :width (- (mezzanine.gui.compositor:width window)
                                                       (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
                                                       (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
@@ -465,7 +464,7 @@
                                         (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
                                         (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
                                         (mezzanine.gui.font:line-height font)
-                                        2))
+                                        1))
                                   (nth-value 0 (mezzanine.gui.widgets:frame-size frame)))
             (mezzanine.gui.widgets:draw-frame frame)
             (mezzanine.gui.compositor:damage-window window
