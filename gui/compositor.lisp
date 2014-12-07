@@ -54,7 +54,7 @@
     #+debug-dirty-rects(format t "Expanding clip rect from ~D,~D ~D,~D~%"
             *clip-rect-x* *clip-rect-y* *clip-rect-width* *clip-rect-height*)
     (setf *clip-rect-x* (min *clip-rect-x* x)
-          *clip-rect-y* (min *clip-rect-y* x)
+          *clip-rect-y* (min *clip-rect-y* y)
           *clip-rect-width* (- x2 *clip-rect-x*)
           *clip-rect-height* (- y2 *clip-rect-y*))
     #+debug-dirty-rects(format t "Expanded clip rect to ~D,~D ~D,~D~%"
