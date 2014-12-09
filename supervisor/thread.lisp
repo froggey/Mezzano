@@ -201,7 +201,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
 
 (defun push-run-queue (thread)
   (when (or (eql thread *world-stopper*)
-            (eql thread sys.int::*pager-thread*))
+            (eql thread sys.int::*pager-thread*)
+            (eql thread sys.int::*disk-io-thread*))
     (return-from push-run-queue))
   (cond ((null *thread-run-queue-head*)
          (setf *thread-run-queue-head* thread
@@ -327,6 +328,8 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
      (let ((next (with-symbol-spinlock (*global-thread-lock*)
                    (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
                           sys.int::*pager-thread*)
+                         ((eql (thread-state sys.int::*disk-io-thread*) :runnable)
+                          sys.int::*disk-io-thread*)
                          (*world-stopper*
                           (when (eql (thread-state *world-stopper*) :runnable)
                             *world-stopper*))
@@ -394,11 +397,14 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (setf *all-threads* sys.int::*snapshot-thread*
           (thread-global-next sys.int::*snapshot-thread*) sys.int::*pager-thread*
           (thread-global-prev sys.int::*snapshot-thread*) nil
-          (thread-global-next sys.int::*pager-thread*) nil
-          (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*))
+          (thread-global-next sys.int::*pager-thread*) sys.int::*disk-io-thread*
+          (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*
+          (thread-global-next sys.int::*disk-io-thread*) nil
+          (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*))
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
+  (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable)
   (condition-notify *world-stop-resume-cvar*))
 
 (defun thread-yield ()
@@ -416,13 +422,17 @@ Interrupts must be off, the current thread must be locked."
     (with-symbol-spinlock (*global-thread-lock*)
       (cond (*world-stopper*
              ;; World is stopped, the only runnable threads are
-             ;; the pager, the idle thread and the world stopper.
+             ;; the pager, the disk io thread, the idle thread and the world stopper.
              (unless (or (eql current *world-stopper*)
-                         (eql current sys.int::*pager-thread*))
+                         (eql current sys.int::*pager-thread*)
+                         (eql current sys.int::*disk-io-thread*))
                (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
              (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
                     ;; Pager is ready to run.
                     sys.int::*pager-thread*)
+                   ((eql (thread-state sys.int::*disk-io-thread*) :runnable)
+                    ;; Disk IO is ready to run.
+                    sys.int::*disk-io-thread*)
                    ((eql (thread-state *world-stopper*) :runnable)
                     ;; The world stopper is ready.
                     *world-stopper*)
@@ -436,6 +446,9 @@ Interrupts must be off, the current thread must be locked."
              (or (when (eql (thread-state sys.int::*pager-thread*) :runnable)
                    ;; Pager is ready to run.
                    sys.int::*pager-thread*)
+                 (when (eql (thread-state sys.int::*disk-io-thread*) :runnable)
+                   ;; Disk IO is ready to run.
+                   sys.int::*disk-io-thread*)
                  ;; Try taking from the run queue.
                  (pop-run-queue)
                  ;; Fall back on idle.

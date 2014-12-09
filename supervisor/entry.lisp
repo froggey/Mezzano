@@ -291,9 +291,7 @@ Returns two values, the packet data and the receiving NIC."
     (setf *boot-information-page* boot-information-page
           *block-cache* nil
           *cold-unread-char* nil
-          *snapshot-in-progress* nil
           mezzanine.runtime::*paranoid-allocation* nil
-          *disks* '()
           *nics* '()
           *deferred-boot-actions* '()
           *paging-disk* nil)
@@ -313,6 +311,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-interrupts)
     (initialize-i8259)
     (initialize-threads)
+    (initialize-disk)
     (initialize-pager)
     (initialize-snapshot)
     (sys.int::%sti)

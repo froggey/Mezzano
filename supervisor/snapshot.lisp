@@ -17,12 +17,11 @@
         (when (zerop address)
           (return))
         #+(or)(debug-print-line "Writing back block " block-id "/" address)
-        (or (funcall (disk-write-fn *paging-disk*)
-                     (disk-device *paging-disk*)
-                     (* block-id
-                        (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                     address)
+        (or (disk-write *paging-disk*
+                        (* block-id
+                           (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                        (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                        address)
             (panic "Unable to write page to disk! Everything is fucked, sorry."))))))
 
 ;;; (destination source)
@@ -214,12 +213,11 @@
        (multiple-value-bind (frame freep block-id address)
            (pop-pending-snapshot-page)
          #+(or)(debug-print-line "Writing back page " frame "/" block-id "/" address)
-         (or (funcall (disk-write-fn *paging-disk*)
-                      (disk-device *paging-disk*)
-                      (* block-id
-                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                      (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                      (+ +physical-map-base+ (ash frame 12)))
+         (or (disk-write *paging-disk*
+                         (* block-id
+                            (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                         (+ +physical-map-base+ (ash frame 12)))
              (panic "Unable to write page to disk! Everything is fucked, sorry."))
          (when freep
            (release-physical-pages frame 1))))))
@@ -253,6 +251,7 @@
      (%reschedule)))
 
 (defun initialize-snapshot ()
+  (setf *snapshot-in-progress* nil)
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...

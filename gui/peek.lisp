@@ -10,6 +10,7 @@
     (#\M "Memory" peek-memory "Show memory information.")
     (#\N "Network" peek-network "Show network information.")
     (#\C "CPU" peek-cpu "Show CPU information.")
+    (#\D "Disk" peek-disk "Show disk information.")
     (#\Q "Quit" nil "Quit Peek")))
 
 (defun print-header ()
@@ -229,6 +230,13 @@
                                 (scan-feature-bits *cpuid-ext-1-edx-features* d)
                                 features)))))
     (format t "Features: ~A~%" features)))
+
+(defun peek-disk ()
+  (dolist (disk (mezzanine.supervisor:all-disks))
+    (format t "~S:~%" disk)
+    (format t "  Sector size: ~:D octets.~%" (mezzanine.supervisor:disk-sector-size disk))
+    (format t "   Total size: ~:D sectors.~%" (mezzanine.supervisor:disk-n-sectors disk))
+    (format t "               ~:D octets.~%" (* (mezzanine.supervisor:disk-n-sectors disk) (mezzanine.supervisor:disk-sector-size disk)))))
 
 (defclass peek-window ()
   ((%window :initarg :window :reader window)

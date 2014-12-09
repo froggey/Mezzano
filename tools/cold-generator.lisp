@@ -9,6 +9,7 @@
     "supervisor/interrupts.lisp"
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
+    "supervisor/disk.lisp"
     "supervisor/ata.lisp"
     "supervisor/thread.lisp"
     "supervisor/physical.lisp"
@@ -1261,6 +1262,7 @@
             sys.int::*bsp-idle-thread*
             sys.int::*snapshot-thread*
             sys.int::*pager-thread*
+            sys.int::*disk-io-thread*
             sys.int::*initial-areas*
             sys.int::*next-symbol-tls-slot*
             sys.int::*wired-area-freelist*
@@ -1286,6 +1288,12 @@
                          :initial-state :sleeping))
     (setf (cold-symbol-value 'sys.int::*pager-thread*)
           (create-thread "Pager thread"
+                         :stack-size (* 128 1024)
+                         :preemption-disable-depth 1
+                         :foothold-disable-depth 1
+                         :initial-state :sleeping))
+    (setf (cold-symbol-value 'sys.int::*disk-io-thread*)
+          (create-thread "Disk IO thread"
                          :stack-size (* 128 1024)
                          :preemption-disable-depth 1
                          :foothold-disable-depth 1

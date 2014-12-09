@@ -149,11 +149,8 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                              +ata-register-status+))
       ;; Read data.
       (dotimes (i 256)
-        ;; IDENTIFY data from the drive is big-endian, byteswap.
-        (let ((data (sys.int::io-port/16 (+ (ata-controller-command controller)
-                                            +ata-register-data+))))
-          (setf (svref buf i) (logior (ash (logand data #xFF) 8)
-                                      (ash data -8))))))
+        (setf (svref buf i) (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                                    +ata-register-data+)))))
     (let ((device (make-ata-device :controller controller
                                    :channel channel
                                    ;; Check for large sector drives.
@@ -163,9 +160,6 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                                            (svref buf 117))
                                                    512)
                                    ;; TODO: LBA48 support.
-                                   ;; fixme: this seems kind of bogus.
-                                   ;; a 256MB image is giving me 128M sectors, which isn't right.
-                                   ;; Swapping these gives 2k sectors, also wrong. Should be 512k.
                                    :sector-count (logior (ash (svref buf 61) 16)
                                                          (svref buf 60)))))
       (setf *ata-devices*

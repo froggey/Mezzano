@@ -1,21 +1,11 @@
 (in-package :mezzanine.supervisor)
 
-(defstruct (disk
-             (:area :wired))
-  device
-  n-sectors
-  sector-size
-  max-transfer
-  read-fn
-  write-fn)
-
 (defvar *vm-lock*)
 
 (defvar *pager-waiting-threads*)
 (defvar *pager-current-thread*)
 (defvar *pager-lock*)
-
-(defvar *disks*)
+(defvar *pager-disk-request*)
 
 (defvar *paging-disk*)
 (defvar *bml4-block*)
@@ -32,33 +22,18 @@
 (defconstant +page-table-copy-on-write+  #x400)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
-(defun register-disk (device n-sectors sector-size max-transfer read-fn write-fn)
-  (when (> sector-size +4k-page-size+)
-    (debug-write-line "Ignoring device with sector size larger than 4k.")
-    (return-from register-disk))
-  (let ((disk (make-disk :device device
-                         :sector-size sector-size
-                         :n-sectors n-sectors
-                         :max-transfer max-transfer
-                         :read-fn read-fn
-                         :write-fn write-fn)))
-    (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
-
 (defun detect-paging-disk ()
-  (dolist (disk *disks*)
+  (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
-           (read-fn (disk-read-fn disk))
-           (device (disk-device disk))
            (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
                      ;; I guess this could happen on strange devices with sector sizes > 4k.
-                     (error "Unable to allocate memory when examining device ~S!" device)))
+                     (error "Unable to allocate memory when examining disk ~S!" disk)))
            (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
-      (setf *disks* (sys.int::cons-in-area disk *disks* :wired))
       ;; Read first 4k, figure out what to do with it.
-      (or (funcall read-fn device 0 (ceiling +4k-page-size+ sector-size) page-addr)
+      (or (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr)
           (progn
             (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-            (error "Unable to read first block on device ~S!" device)))
+            (error "Unable to read first block on disk ~S!" disk)))
       ;; Search for a Mezzanine header here.
       ;; TODO: Scan for partition maps.
       (when (and
@@ -156,11 +131,14 @@
   (let* ((frame (or (allocate-physical-pages 1)
                     (panic "Aiee. No memory.")))
          (addr (+ +physical-map-base+ (ash frame 12))))
-    (unless (funcall (disk-read-fn *paging-disk*)
-                     (disk-device *paging-disk*)
-                     (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                     addr)
+    ;; Reuse *PAGER-DISK-REQUEST*, it's mostly protected by the *VM-LOCK*.
+    (disk-submit-request *pager-disk-request*
+                         *paging-disk*
+                         :read
+                         (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                         addr)
+    (unless (disk-await-request *pager-disk-request*)
       (panic "Unable to read page from disk"))
     addr))
 
@@ -393,12 +371,14 @@
                                                   sys.int::+block-map-flag-mask+
                                                   (lognot sys.int::+block-map-zero-fill+))))
               (t ;; Block must be read from disk.
-               (or (funcall (disk-read-fn *paging-disk*)
-                            (disk-device *paging-disk*)
-                            (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
-                               (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                            (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                            addr)
+               (disk-submit-request *pager-disk-request*
+                                    *paging-disk*
+                                    :read
+                                    (* (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+                                       (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                                    (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                                    addr)
+               (or (disk-await-request *pager-disk-request*)
                    (panic "Unable to read page from disk"))))
         (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
                                                                +page-table-present+
@@ -461,8 +441,10 @@ It will put the thread to sleep, while it waits for the page."
     (setf (thread-%next *pager-current-thread*) *pager-waiting-threads*
           *pager-waiting-threads* *pager-current-thread*
           *pager-current-thread* nil))
+  (setf *pager-disk-request* (make-disk-request))
   ;; The VM lock is recreated each boot because it is only held by
   ;; the ephemeral pager and snapshot threads.
+  ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
   (setf *vm-lock* (make-mutex "Global VM Lock")))
 
 (defun pager-thread ()

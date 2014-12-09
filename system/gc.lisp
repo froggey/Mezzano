@@ -342,8 +342,9 @@ This is required to make the GC interrupt safe."
                                       other-incoming-arguments other-pushed-values)
         (cond (other-framep
                ;; Stop after seeing a zerop frame pointer.
-               (if (eql other-frame-pointer 0)
-                   (return-from scavenge-stack))
+               (when (eql other-frame-pointer 0)
+                 (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack."))
+                 (return-from scavenge-stack))
                (psetf return-address (memref-unsigned-byte-64 other-frame-pointer 1)
                       stack-pointer (+ other-frame-pointer 16)
                       frame-pointer (memref-unsigned-byte-64 other-frame-pointer 0)))
@@ -389,17 +390,18 @@ This is required to make the GC interrupt safe."
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
          ;; Stop after seeing a zerop frame pointer.
-         (if (eql frame-pointer 0)
-             (return-from scavenge-stack))
+         (when (eql frame-pointer 0)
+           (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack."))
+           (return-from scavenge-stack))
          (if (not framep)
              (mezzanine.supervisor:panic "No frame, but no end in sight?"))
          (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                 stack-pointer (+ frame-pointer 16)
                 frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))
-     (go LOOP))
-  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack.")))
+     (go LOOP)))
 
 (defun scan-thread (object)
+  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav thread " object))
   ;; Scavenge various parts of the thread.
   (scavengef (mezzanine.supervisor:thread-name object))
   (scavengef (mezzanine.supervisor:thread-state object))
@@ -427,7 +429,14 @@ This is required to make the GC interrupt safe."
                      (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+))
       (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-tls-slots-start+ 8))
                      (- mezzanine.supervisor::+thread-tls-slots-end+ mezzanine.supervisor::+thread-tls-slots-start+))
-      (when (not (eql object (mezzanine.supervisor:current-thread)))
+      (when (not (or (eql object (mezzanine.supervisor:current-thread))
+                     ;; Don't even think about looking at the stacks of these threads. They may run at
+                     ;; any time, even with the world stopped.
+                     ;; Things aren't so bad though, they (should) only contain pointers to wired objects,
+                     ;; and the objects they do point to should be pointed to by other live objects.
+                     (eql object sys.int::*bsp-idle-thread*)
+                     (eql object sys.int::*pager-thread*)
+                     (eql object sys.int::*disk-io-thread*)))
         (scavenge-stack stack-pointer frame-pointer return-address
                         (eql (+ address (* (1+ mezzanine.supervisor::+thread-interrupt-save-area+) 8))
                              stack-pointer))))))
