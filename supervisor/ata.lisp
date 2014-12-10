@@ -26,8 +26,14 @@
 (defconstant +ata-bmr-prdt-address+ 4) ; write
 
 (defconstant +ata-bmr-command-start+ #x01)
-(defconstant +ata-bmr-direction-read+ #x08)
-(defconstant +ata-bmr-direction-write+ #x00)
+(defconstant +ata-bmr-direction-read/write+ #x08) ; set to read, clear to write.
+
+(defconstant +ata-bmr-status-active+ #x01)
+(defconstant +ata-bmr-status-error+ #x02)
+(defconstant +ata-bmr-status-interrupt+ #x04)
+(defconstant +ata-bmr-status-drive-0-dma-capable+ #x20)
+(defconstant +ata-bmr-status-drive-1-dma-capable+ #x40)
+(defconstant +ata-bmr-status-simplex+ #x80)
 
 ;; Device bits.
 (defconstant +ata-dev+  #x10 "Select device 0 when clear, device 1 when set.")
@@ -49,6 +55,7 @@
 (defconstant +ata-command-read-sectors+ #x20)
 (defconstant +ata-command-read-dma+ #xC8)
 (defconstant +ata-command-write-sectors+ #x30)
+(defconstant +ata-command-write-dma+ #xCA)
 (defconstant +ata-command-identify+ #xEC)
 
 (defvar *ata-devices*)
@@ -300,31 +307,9 @@ This is used to implement the INTRQ_Wait state."
        ;; Return to HPIOO0.
        (decf count))))
 
-(defun ata-read (device lba count mem-addr)
-  (let ((controller (ata-device-controller device)))
-    (assert (>= lba 0))
-    (assert (>= count 0))
-    (assert (< (+ lba count) (ata-device-sector-count device)))
-    (when (> count 256)
-      (debug-write-line "Can't do reads of more than 256 sectors.")
-      (return-from ata-read nil))
-    (when (eql count 0)
-      (return-from ata-read t))
-    (with-mutex ((ata-controller-command-lock controller))
-      (unwind-protect
-           (progn
-             (set-disk-read-light t)
-             (with-mutex ((ata-controller-access-lock controller))
-               (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
-                 (return-from ata-read nil))
-               (when (not (ata-pio-data-in device count mem-addr))
-                 (return-from ata-read nil))))
-        (set-disk-read-light nil))))
-  t)
-
 (defun ata-configure-prdt (controller phys-addr n-octets direction)
   (let* ((prdt (ata-controller-prdt-phys controller))
-         (prdt-virt (+ +physical-map-base+ (ata-controller-prdt-phys controller))))
+         (prdt-virt (+ +physical-map-base+ prdt)))
     (do ((offset 0))
         ((<= n-octets #x10000)
          ;; Write final chunk.
@@ -338,13 +323,84 @@ This is used to implement the INTRQ_Wait state."
       (incf phys-addr #x10000))
     ;; Write the PRDT location.
     (setf (pci-io-region/32 (ata-controller-bus-master-register controller) +ata-bmr-prdt-address+) prdt
-          ;; Clear DMA status.
-          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) 0
+          ;; Clear DMA status. Yup. You have to write 1 to clear bits.
+          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) (logior +ata-bmr-status-error+ +ata-bmr-status-interrupt+)
           ;; Set direction.
-          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
-                                                                                                      (ecase direction
-                                                                                                        (:read +ata-bmr-direction-read+)
-                                                                                                        (:write +ata-bmr-direction-write+))))))
+          (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (ecase direction
+                                                                                                (:read +ata-bmr-direction-read/write+)
+                                                                                                (:write 0)))))
+
+(defun ata-read-pio (controller device lba count mem-addr)
+  (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
+    (return-from ata-read-pio (values nil :device-error)))
+  (when (not (ata-pio-data-in device count mem-addr))
+    (return-from ata-read-pio (values nil :device-error))))
+
+(defun ata-read-dma (controller device lba count phys-addr)
+  (ata-configure-prdt controller phys-addr (* count 512) :read)
+  (when (not (ata-issue-lba28-command device lba count +ata-command-read-dma+))
+    (return-from ata-read-dma (values nil :device-error)))
+  ;; Start DMA.
+  ;; FIXME: Bochs has absurd timing requirements here. Needs to be *immediately* (tens of instructions)
+  ;; after the command write.
+  (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
+                                                                                                    +ata-bmr-direction-read/write+))
+  ;; Wait for completion.
+  (ata-intrq-wait device)
+  (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
+    ;; Stop the transfer.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-direction-read/write+)
+    ;; Clear error bit.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) (logior status +ata-bmr-status-error+ +ata-bmr-status-interrupt+))
+    (if (logtest status +ata-bmr-status-error+)
+        (values nil :device-error)
+        t)))
+
+(defun ata-read (device lba count mem-addr)
+  (let ((controller (ata-device-controller device)))
+    (assert (>= lba 0))
+    (assert (>= count 0))
+    (assert (< (+ lba count) (ata-device-sector-count device)))
+    (when (> count 256)
+      (debug-write-line "Can't do reads of more than 256 sectors.")
+      (return-from ata-read (values nil :too-many-sectors)))
+    (when (eql count 0)
+      (return-from ata-read t))
+    (with-mutex ((ata-controller-command-lock controller))
+      (with-mutex ((ata-controller-access-lock controller))
+        (if (<= +physical-map-base+
+                mem-addr
+                ;; 4GB limit.
+                (+ +physical-map-base+ (* 4 1024 1024 1024)))
+            (ata-read-dma controller device lba count (- mem-addr +physical-map-base+))
+            (ata-read-pio controller device lba count mem-addr)))))
+  t)
+
+(defun ata-write-pio (controller device lba count phys-addr)
+  (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
+    (return-from ata-write-pio (values nil :device-error)))
+  (when (not (ata-pio-data-out device count mem-addr))
+    (return-from ata-write-pio (values nil :device-error))))
+
+(defun ata-write-dma (controller device lba count phys-addr)
+  (ata-configure-prdt controller phys-addr (* count 512) :write)
+  (when (not (ata-issue-lba28-command device lba count +ata-command-write-dma+))
+    (return-from ata-write-dma (values nil :device-error)))
+  ;; Start DMA.
+  ;; FIXME: Bochs has absurd timing requirements here. Needs to be *immediately* (tens of instructions)
+  ;; after the command write.
+  (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-command-start+)
+  ;; Wait for completion.
+  (ata-intrq-wait device)
+  (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
+    ;; Stop the transfer.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) 0)
+    ;; Clear error bit.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) (logior status +ata-bmr-status-error+ +ata-bmr-status-interrupt+))
+    (if (logtest status +ata-bmr-status-error+)
+        (values nil :device-error)
+        t)))
+
 (defun ata-write (device lba count mem-addr)
   (let ((controller (ata-device-controller device)))
     (assert (>= lba 0))
@@ -352,19 +408,17 @@ This is used to implement the INTRQ_Wait state."
     (assert (< (+ lba count) (ata-device-sector-count device)))
     (when (> count 256)
       (debug-write-line "Can't do writes of more than 256 sectors.")
-      (return-from ata-write nil))
+      (return-from ata-write (values nil :too-many-sectors)))
     (when (eql count 0)
       (return-from ata-write t))
     (with-mutex ((ata-controller-command-lock controller))
-      (unwind-protect
-           (progn
-             (set-disk-write-light t)
-             (with-mutex ((ata-controller-access-lock controller))
-               (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
-                 (return-from ata-write nil))
-               (when (not (ata-pio-data-out device count mem-addr))
-                 (return-from ata-write nil))))
-        (set-disk-write-light nil))))
+      (with-mutex ((ata-controller-access-lock controller))
+        (if (<= +physical-map-base+
+                mem-addr
+                ;; 4GB limit.
+                (+ +physical-map-base+ (* 4 1024 1024 1024)))
+            (ata-write-dma controller device lba count (- mem-addr +physical-map-base+))
+            (ata-write-pio controller device lba count mem-addr)))))
   t)
 
 (defun ata-irq-handler (irq)

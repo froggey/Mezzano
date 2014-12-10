@@ -107,6 +107,9 @@
                            " " (disk-request-lba request)
                            " " (disk-request-n-sectors request)
                            " " (disk-request-buffer request)))
+       (case (disk-request-direction request)
+         (:read (set-disk-read-light t))
+         (:write (set-disk-write-light t)))
        ;; Execute.
        (multiple-value-bind (successp reason)
            (funcall (case (disk-request-direction request)
@@ -125,7 +128,10 @@
                   (setf (disk-request-state request) :error
                         (disk-request-error-reason request) reason)))
            (setf *disk-request-current* nil)
-           (condition-notify (disk-request-cvar request) t))))))
+           (condition-notify (disk-request-cvar request) t)))
+       (case (disk-request-direction request)
+         (:read (set-disk-read-light nil))
+         (:write (set-disk-write-light nil))))))
 
 (defun disk-read (disk lba n-sectors buffer)
   "Synchronously read N-SECTORS sectors of data to BUFFER from DISK at sector offset LBA.
