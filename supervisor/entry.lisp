@@ -325,6 +325,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-ps/2)
     (initialize-video)
     (initialize-pci)
+    (detect-disk-partitions)
     (detect-paging-disk)
     (when (not *paging-disk*)
       (panic "Could not find boot device. Sorry."))

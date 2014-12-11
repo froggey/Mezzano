@@ -21,7 +21,14 @@
   sector-size
   max-transfer
   read-fn
-  write-fn)
+  write-fn
+  (valid t))
+
+(defstruct (partition
+             (:area :wired))
+  disk
+  offset
+  id)
 
 (defstruct (disk-request
              (:constructor make-disk-request ())
@@ -82,7 +89,57 @@
     (condition-notify (disk-request-cvar *disk-request-current*) t)
     (setf *disk-request-current* nil))
   ;; Clear the disk list.
+  (dolist (disk *disks*)
+    (setf (disk-valid disk) nil))
   (setf *disks* '()))
+
+(defun read-disk-partition (device lba n-sectors buffer)
+  (funcall (disk-read-fn (partition-disk device))
+           (disk-device (partition-disk device))
+           (+ (partition-offset device) lba)
+           n-sectors
+           buffer))
+
+(defun write-disk-partition (device lba n-sectors buffer)
+  (funcall (disk-write-fn (partition-disk device))
+           (disk-device (partition-disk device))
+           (+ (partition-offset device) lba)
+           n-sectors
+           buffer))
+
+(defun detect-disk-partitions ()
+  (dolist (disk (all-disks))
+    (let* ((sector-size (disk-sector-size disk))
+           (page (or (allocate-physical-pages (ceiling sector-size +4k-page-size+))
+                     (panic "Unable to allocate memory when examining disk " disk)))
+           (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
+      (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
+        (panic "Unable to read first block on disk " disk))
+      ;; Look for a PC partition table.
+      ;; TODO: GPT detection must be done this, as it contains a protective MBR/partition table.
+      (when (and (>= sector-size 512)
+                 (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FE) #x55)
+                 (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FF) #xAA))
+        ;; Found, scan partitions.
+        ;; TODO: Extended partitions.
+        ;; TODO: Explict little endian reads.
+        (dotimes (i 4)
+          (let ((system-id (sys.int::memref-unsigned-byte-8 (+ page-addr #x1BE (* 16 i) 4) 0))
+                (start-lba (sys.int::memref-unsigned-byte-32 (+ page-addr #x1BE (* 16 i) 8) 0))
+                (size (sys.int::memref-unsigned-byte-32 (+ page-addr #x1BE (* 16 i) 12) 0)))
+            (when (and (not (eql system-id 0))
+                       (not (eql size 0)))
+              (debug-print-line "Detected partition " i " on disk " disk ". Start: " start-lba " size: " size)
+              (register-disk (make-partition :disk disk
+                                             :offset start-lba
+                                             :id i)
+                             size
+                             sector-size
+                             (disk-max-transfer disk)
+                             'read-disk-partition
+                             'write-disk-partition)))))
+      ;; Release the pages.
+      (release-physical-pages page (ceiling sector-size +4k-page-size+)))))
 
 (defun pop-disk-request ()
   (with-mutex (*disk-request-queue-lock*)
@@ -165,6 +222,10 @@ Returns true on success; false on failure."
             (disk-request-lba request) lba
             (disk-request-n-sectors request) n-sectors
             (disk-request-buffer request) buffer)
+      (when (not (disk-valid disk))
+        (setf (disk-request-state request) :error
+              (disk-request-error-reason request) :system-reinitialized)
+        (return-from disk-submit-request-1 t))
       ;; Attach to request list.
       (setf (disk-request-next request) *disk-request-queue-head*
             *disk-request-queue-head* request)

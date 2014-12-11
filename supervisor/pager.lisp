@@ -27,13 +27,11 @@
     (let* ((sector-size (disk-sector-size disk))
            (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
                      ;; I guess this could happen on strange devices with sector sizes > 4k.
-                     (error "Unable to allocate memory when examining disk ~S!" disk)))
+                     (panic "Unable to allocate memory when examining disk " disk)))
            (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
       ;; Read first 4k, figure out what to do with it.
-      (or (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr)
-          (progn
-            (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-            (error "Unable to read first block on disk ~S!" disk)))
+      (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
+        (panic "Unable to read first block on disk " disk))
       ;; Search for a Mezzanine header here.
       ;; TODO: Scan for partition maps.
       (when (and

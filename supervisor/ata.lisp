@@ -376,7 +376,7 @@ This is used to implement the INTRQ_Wait state."
             (ata-read-pio controller device lba count mem-addr)))))
   t)
 
-(defun ata-write-pio (controller device lba count phys-addr)
+(defun ata-write-pio (controller device lba count mem-addr)
   (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
     (return-from ata-write-pio (values nil :device-error)))
   (when (not (ata-pio-data-out device count mem-addr))
