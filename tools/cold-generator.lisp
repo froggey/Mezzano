@@ -500,7 +500,7 @@
   (dotimes (i size)
     (add-page-to-block-map bml4 (+ store-base i) (+ virtual-base (* i #x1000)) flags)))
 
-(defun write-block-map (s block-offset level)
+(defun write-block-map (s image-offset block-offset level)
   (let ((data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
     (dotimes (i 512)
       (let ((e (aref level i)))
@@ -510,32 +510,47 @@
            ;; Next level
            (let* ((next-block *store-bump*))
              (incf *store-bump* #x1000)
-             (write-block-map s next-block e)
+             (write-block-map s image-offset next-block e)
              (setf (nibbles:ub64ref/le data (* i 8)) (logior (ash (/ next-block #x1000) sys.int::+block-map-id-shift+)
                                                              sys.int::+block-map-present+
                                                              sys.int::+block-map-writable+))))
           ((unsigned-byte 64)
            ;; Value.
            (setf (nibbles:ub64ref/le data (* i 8)) e)))))
-    (file-position s block-offset)
+    (file-position s (+ image-offset block-offset))
     (write-sequence data s)))
 
-(defun write-image (name entry-fref initial-thread)
+(defun load-image-header (path)
+  (with-open-file (s path :direction :input :element-type '(unsigned-byte 8))
+    (let ((data (make-array (file-length s) :element-type '(unsigned-byte 8))))
+      (read-sequence data s)
+      data)))
+
+(defun write-image (name entry-fref initial-thread &key (image-size (* 256 1024 1024)) header-path)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
                      :if-exists :supersede)
-    (let ((bml4-block *store-bump*)
-          (bml4 (make-array 512 :initial-element nil))
-          (free-block-list (+ *store-bump* #x1000))
-          (image-size (* 256 1024 1024)))
+    (let* ((image-header-data (when header-path
+                                (load-image-header header-path)))
+           (image-offset (if image-header-data
+                             (length image-header-data)
+                             0))
+           (bml4-block *store-bump*)
+           (bml4 (make-array 512 :initial-element nil))
+           (free-block-list (+ *store-bump* #x1000)))
+      (decf image-size image-offset)
       (format t "Generating ~:D byte image.~%" image-size)
+      (when image-header-data
+        (format t "Using ~S as the image header.~%" header-path))
       (format t "BML4 at offset ~X~%" bml4-block)
       (format t "FBL  at offset ~X~%" free-block-list)
+      (when image-header-data
+        (write-sequence image-header-data s))
       (incf *store-bump* #x2000)
-      (file-position s (1- image-size))
+      (file-position s (1- (+ image-offset image-size)))
       (write-byte 0 s)
-      (file-position s 0)
+      (file-position s image-offset)
       ;; Image header.
       (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
         ;; Magic.
@@ -587,21 +602,21 @@
         ;; Write it out.
         (write-sequence header s))
       ;; Write areas.
-      (file-position s *wired-area-store*)
+      (file-position s (+ image-offset *wired-area-store*))
       (format t "Wired area at ~X, ~:D bytes.~%"
               *wired-area-store* (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
       (write-sequence *wired-area-data* s :end (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
       (format t "Pinned area at ~X, ~:D bytes.~%"
               *pinned-area-store* (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
-      (file-position s *pinned-area-store*)
+      (file-position s (+ image-offset *pinned-area-store*))
       (write-sequence *pinned-area-data* s :end (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
       (format t "General area at ~X, ~:D bytes.~%"
               *general-area-store* (align-up *general-area-bump* #x1000))
-      (file-position s *general-area-store*)
+      (file-position s (+ image-offset *general-area-store*))
       (write-sequence *general-area-data* s :end (align-up *general-area-bump* #x1000))
       (format t "Cons area at ~X, ~:D bytes.~%"
               *cons-area-store* (align-up *cons-area-bump* #x1000))
-      (file-position s *cons-area-store*)
+      (file-position s (+ image-offset *cons-area-store*))
       (write-sequence *cons-area-data* s :end (align-up *cons-area-bump* #x1000))
       ;; Generate the block map.
       (add-region-to-block-map bml4
@@ -649,13 +664,13 @@
                                          sys.int::+block-map-writable+
                                          sys.int::+block-map-zero-fill+)))
       ;; Now write it out.
-      (write-block-map s bml4-block bml4)
+      (write-block-map s image-offset bml4-block bml4)
       ;; Create the freelist.
       ;; One entry, allocating our storage area.
       (let ((freelist-data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
         (setf (nibbles:ub64ref/le freelist-data 0) 0
               (nibbles:ub64ref/le freelist-data 8) (ash (/ *store-bump* #x1000) 1))
-        (file-position s free-block-list)
+        (file-position s (+ image-offset free-block-list))
         (write-sequence freelist-data s))))
   (values))
 
@@ -1164,7 +1179,7 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files)
+(defun make-image (image-name &key extra-source-files header-path)
   (let* ((*wired-area-bump* +wired-area-base+)
          (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*wired-area-store* nil)
@@ -1328,7 +1343,8 @@
     (write-image image-name
                  (make-value (function-reference 'sys.int::%%bootloader-entry-point)
                              sys.int::+tag-object+)
-                 initial-thread)))
+                 initial-thread
+                 :header-path header-path)))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
   (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
