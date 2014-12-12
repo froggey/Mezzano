@@ -30,6 +30,7 @@
 (defconstant +llf-funcall+ #x17)
 (defconstant +llf-bit-vector+ #x18)
 (defconstant +llf-function-reference+ #x19)
+(defconstant +llf-character-with-bits+ #x1A)
 
 (defvar *noisy-load* nil)
 (defvar *load-wired* nil)
@@ -50,6 +51,7 @@
     (#.+llf-setf-fdefinition+ 'setf-fdefinition)
     (#.+llf-simple-vector+ 'simple-vector)
     (#.+llf-character+ 'character)
+    (#.+llf-character-with-bits+ 'character-with-bits)
     (#.+llf-structure-definition+ 'structure-definition)
     (#.+llf-single-float+ 'single-float)
     (#.+llf-proper-list+ 'proper-list)
@@ -218,6 +220,10 @@
     (#.+llf-simple-vector+
      (load-llf-vector stream stack))
     (#.+llf-character+ (load-character stream))
+    (#.+llf-character-with-bits+
+     (let ((ch (load-character stream))
+           (bits (load-integer stream)))
+       (%make-character (char-code ch) bits)))
     (#.+llf-structure-definition+
      (load-llf-structure-definition stream stack))
     (#.+llf-single-float+

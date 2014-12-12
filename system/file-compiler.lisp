@@ -249,8 +249,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer (length object) stream))
 
 (defmethod save-one-object ((object character) omap stream)
-  (write-byte +llf-character+ stream)
-  (save-character object stream))
+  (cond ((zerop (char-bits object))
+         (write-byte +llf-character+ stream)
+         (save-character object stream))
+        (t
+         (write-byte +llf-character-with-bits+ stream)
+         (save-character (code-char (char-code object)) stream)
+         (save-integer (char-bits object) stream))))
 
 (defmethod save-one-object ((object structure-definition) omap stream)
   (save-object (structure-name object) omap stream)
