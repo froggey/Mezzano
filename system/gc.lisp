@@ -30,12 +30,12 @@
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
         (total 0))
-    (format t "General area: ~:D/~:D (~D%) words used.~%"
+    (format t "General area: ~:D/~:D words used (~D%).~%"
             (truncate *general-area-bump* 8) (truncate *general-area-limit* 8)
             (truncate (* *general-area-bump* 100) *general-area-limit*))
     (incf total-used (truncate *general-area-bump* 8))
     (incf total (truncate *general-area-limit* 8))
-    (format t "Cons area: ~:D/~:D (~D%) words used.~%"
+    (format t "Cons area: ~:D/~:D words used (~D%).~%"
             (truncate *cons-area-bump* 8) (truncate *cons-area-limit* 8)
             (truncate (* *cons-area-bump* 100) *cons-area-limit*))
     (incf total-used (truncate *cons-area-bump* 8))
