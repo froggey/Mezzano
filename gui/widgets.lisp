@@ -39,7 +39,7 @@
    (%activep :initarg :activep :accessor activep))
   (:default-initargs :title "" :close-button-p nil :close-button-hover nil :activep nil))
 
-(defvar *frame-title-font* (open-font "Helvetica" 12))
+(defvar *frame-title-font* (open-font *default-font* *default-font-size*))
 
 (defvar *corner-mask*
   #2A((0.0  0.0  0.25 0.7 0.9)
