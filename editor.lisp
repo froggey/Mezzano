@@ -4,40 +4,108 @@
 
 (in-package :mezzanine.editor)
 
+;;; Lines.
+
 (defclass line ()
-  ((%next :initarg :next :accessor next)
-   (%prev :initarg :prev :accessor prev)
+  ((%next :initarg :next :accessor next-line)
+   (%prev :initarg :prev :accessor previous-line)
    (%data :initarg :data :accessor data)
-   (%version :initarg :version :accessor version))
+   (%version :initarg :version :accessor line-version)
+   (%number :initarg :number :accessor line-number)
+   (%mark-list :initarg :mark-list :accessor line-mark-list)
+   (%buffer :initarg :buffer :accessor line-buffer))
   (:default-initargs :next nil
                      :prev nil
                      :data (make-array 50 :element-type 'character :adjustable t :fill-pointer 0)
-                     :version 0))
+                     :version 0
+                     :number 0
+                     :mark-list '()
+                     :buffer nil))
+
+(defgeneric line-character (line charpos))
+(defgeneric (setf line-character) (value line charpos))
+(defgeneric line-length (line))
+
+(defmethod line-character ((line line) charpos)
+  (aref (data line) charpos))
+
+(defmethod (setf line-character) (value (line line) charpos)
+  (setf (aref (data line) charpos) value))
+
+(defmethod line-length ((line line))
+  (length (data line)))
+
+(defmethod print-object ((object line) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "N:~D V:~D" (line-number object) (line-version object))))
+
+;;; Marks.
+
+(defclass mark ()
+  ((%line :initarg :line :reader mark-line)
+   (%charpos :initarg :charpos :reader mark-charpos)
+   ;; :left, :right or :temporary.
+   (%kind :initarg :kind :reader mark-kind)))
+
+(defgeneric (setf mark-line) (value mark))
+(defgeneric (setf mark-charpos) (value mark))
+(defgeneric (setf mark-kind) (value mark))
+
+(defmethod print-object ((object mark) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S:~D ~S" (mark-line object) (mark-charpos object) (mark-kind object))))
+
+;;; Buffers.
+
+(defclass buffer ()
+  ((%first-line :accessor first-line)
+   (%last-line :accessor last-line)
+   (%point :reader buffer-point)
+   (%point-column-hint :initarg :point-column-hint :accessor point-column-hint)
+   (%mark :reader buffer-mark)
+   (%mark-active :initarg :mark-active :accessor buffer-mark-active)
+   (%properties))
+  (:default-initargs :mark-active nil :point-column-hint 0))
+
+(defgeneric buffer-property (buffer property-name &optional default))
+(defgeneric (setf buffer-property) (value buffer property-name &optional default))
+
+(defmethod buffer-property ((buffer buffer) property-name &optional default)
+  (gethash property-name (slot-value buffer '%properties) default))
+
+(defmethod (setf buffer-property) (value (buffer buffer) property-name &optional default)
+  (setf (gethash property-name (slot-value buffer '%properties) default) value))
+
+(defmethod initialize-instance :after ((instance buffer) &key &allow-other-keys)
+  (let ((line (make-instance 'line :buffer instance)))
+    (setf (first-line instance) line
+          (last-line instance) line
+          (slot-value instance '%properties) (make-hash-table)
+          (slot-value instance '%point) (make-mark line 0 :right)
+          (slot-value instance '%mark) (make-mark line 0 :left))))
+
+;;; The editor itself.
 
 (defclass editor ()
   ((%fifo :initarg :fifo :reader fifo)
    (%pending-event :initarg :pending-event :accessor pending-event)
    (%pending-redisplay :initarg :pending-redisplay :accessor pending-redisplay)
-   (%font :initarg :font :reader font)
    (%window :initarg :window :accessor window)
    (%frame :initarg :frame :accessor frame)
-   (%first-line :initarg :first-line :accessor first-line)
-   (%last-line :initarg :last-line :accessor last-line)
-   (%point-line :initarg :point-line :accessor point-line)
-   (%point-offset :initarg :point-offset :accessor point-offset)
-   (%point-column-hint :initarg :point-column-hint :accessor point-column-hint)
+   (%buffer :initarg :buffer :accessor current-buffer)
+   (%font :initarg :font :reader font)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
    (%background-colour :initarg :background-colour :accessor background-colour)
    ;; Redisplay state.
-   (%window-top-line :initarg :window-top-line :accessor window-top-line)
-   (%window-top :initarg :window-top :accessor window-top)
-   (%current-screen :initarg :current-screen :accessor current-screen)
-   (%current-point-logical-line :initarg :current-point-screen-line :accessor current-point-logical-line))
+   (%current-screen :initarg :screen :accessor editor-current-screen)
+   (%line-cache :initarg :display-line-cache :accessor display-line-cache)
+   )
   (:default-initargs :pending-event nil
-                     :pending-redisplay nil
-                     :csr-x 0 :csr-y 0 :csr-char #\Space
+                     :pending-redisplay t
                      :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E))
+                     :background-colour #xFF3E3E3E
+                     :screen nil
+                     :display-line-cache '()))
 
 (defvar *editor*)
 
@@ -62,6 +130,9 @@
   (when (not (mezzanine.gui.compositor:key-releasep event))
     (throw 'next-character
       (if (mezzanine.gui.compositor:key-modifier-state event)
+          ;; Force character to uppercase when a modifier key is active, gets
+          ;; around weirdness in how character names are processed.
+          ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
           (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
                                    :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
                                    :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
@@ -90,170 +161,366 @@
                (setf (pending-event *editor*) event)
                (signal 'pending-input))))))
 
-(defgeneric line-length (line))
+;;; Mark management.
 
-(defmethod line-length ((line line))
-  (length (data line)))
+(defun make-mark (line charpos &optional kind)
+  (setf kind (or kind :temporary))
+  (check-type kind (member :left :right :temporary))
+  (let ((mark (make-instance 'mark
+                             :line line
+                             :charpos charpos
+                             :kind kind)))
+    (unless (eql kind :temporary)
+      (push mark (line-mark-list line)))
+    mark))
+
+(defmethod (setf mark-line) (value (mark mark))
+  (unless (eql (mark-kind mark) :temporary)
+    (setf (line-mark-list (mark-line mark)) (remove mark (line-mark-list (mark-line mark))))
+    (push mark (line-mark-list value)))
+  (setf (slot-value mark '%charpos) (min (line-length value) (mark-charpos mark))
+        (slot-value mark '%line) value))
+
+(defmethod (setf mark-charpos) (value (mark mark))
+  (check-type value (integer 0))
+  (assert (<= value (line-length (mark-line mark))) (value) "Tried to move mark past end of line.")
+  (setf (slot-value mark '%charpos) value))
+
+(defmethod (setf mark-kind) (value (mark mark))
+  (check-type value (member :temporary :left :right))
+  (unless (eql (mark-kind mark) :temporary)
+    ;; Remove from existing mark list.
+    (setf (line-mark-list (mark-line mark)) (remove mark (line-mark-list (mark-line mark)))))
+  (unless (eql value :temporary)
+    ;; Add to mark list.
+    (push mark (line-mark-list (mark-line mark))))
+  (setf (slot-value mark '%kind) value))
+
+(defun copy-mark (mark &optional kind)
+  (make-mark (mark-line mark) (mark-charpos mark) kind))
+
+(defun delete-mark (mark)
+  (setf (line-mark-list (mark-line mark)) (remove mark (line-mark-list (mark-line mark)))))
+
+(defmacro with-mark ((name &optional kind) &body body)
+  `(let ((,name nil))
+     (unwind-protect
+          (progn
+            (setf ,name (make-mark-at-point ,kind))
+            ,@body)
+       (when ,name
+         (delete-mark ,name)))))
+
+(defun move-mark-to-mark (move-this-one here)
+  (setf (mark-line move-this-one) (mark-line here)
+        (mark-charpos move-this-one) (mark-charpos here)))
+
+(defun mark-equal-p (a b)
+  (and (eql (mark-line a) (mark-line b))
+       (eql (mark-charpos a) (mark-charpos b))))
+
+(defun make-mark-at-point (buffer &optional kind)
+  (copy-mark (buffer-point buffer) kind))
+
+(defun point-to-mark (buffer mark)
+  (move-mark-to-mark (buffer-point buffer) mark))
+
+(defun mark-to-point (buffer mark)
+  (move-mark-to-mark mark (buffer-point buffer)))
+
+(defun mark-at-point-p (buffer mark)
+  (mark-equal-p mark (buffer-point buffer)))
 
 ;;; Sub-editor. Buffer manipulation.
 
-(defun insert-line ()
+(defconstant +line-number-increment+ 10000)
+
+(defun fully-renumber-lines-from (line)
+  (do ((l line (next l)))
+      ((null l))
+    (setf (line-number line) (+ (line-number (prev line)) +line-number-increment+))))
+
+(defun update-point-column-hint (buffer)
+  (setf (point-column-hint buffer) (mark-charpos (buffer-point buffer))))
+
+(defun insert-line (buffer)
   "Insert a new line after the point, splitting the current line if needed.
 The point is positioned at the start of the new line."
-  (let* ((current-line (point-line *editor*))
+  (let* ((point (buffer-point buffer))
+         (current-line (mark-line point))
+         (current-charpos (mark-charpos point))
          (new-line (make-instance 'line
-                                  :next (next current-line)
+                                  :buffer buffer
+                                  :next (next-line current-line)
                                   :prev current-line
                                   :data (make-array (- (line-length current-line)
-                                                       (point-offset *editor*))
+                                                       current-charpos)
                                                     :element-type 'character
                                                     :adjustable t
                                                     :fill-pointer t))))
+    ;; Update line contents.
     (replace (data new-line) (data current-line)
-             :start2 (point-offset *editor*))
-    (cond ((next current-line)
-           (setf (prev (next current-line)) new-line))
-          (t (setf (last-line *editor*) new-line)))
-    (incf (version current-line))
-    (setf (next current-line) new-line
-          (fill-pointer (data current-line)) (point-offset *editor*))
-    (setf (point-line *editor*) new-line
-          (point-offset *editor*) 0
-          (point-column-hint *editor*) 0))
+             :start2 current-charpos)
+    (setf (fill-pointer (data current-line)) current-charpos)
+    (incf (line-version current-line))
+    ;; Link into the line list.
+    (cond ((next-line current-line)
+           (setf (previous-line (next-line current-line)) new-line))
+          (t (setf (last-line buffer) new-line)))
+    (setf (next-line current-line) new-line)
+    ;; Ensure coherent numbering.
+    (cond ((and (next-line new-line)
+                (eql (1+ (line-number current-line)) (line-number (next-line new-line))))
+           ;; No numbers between. Give up and renumber everything from the new line forward.
+           ;; Could be smarter.
+           (fully-renumber-lines-from new-line))
+          ((next-line new-line)
+           ;; Midway between the previous (current) and the next line.
+           (setf (line-number new-line) (+ (line-number current-line)
+                                           (truncate (- (line-number (next-line new-line)) (line-number current-line)) 2))))
+          (t (setf (line-number new-line) (+ (line-number current-line) +line-number-increment+))))
+    ;; Update marks.
+    (dolist (mark (line-mark-list current-line))
+      (when (and (eql (mark-line mark) current-line)
+                 (or (and (eql (mark-kind mark) :right)
+                          (eql (mark-charpos mark) current-charpos))
+                     (> (mark-charpos mark) current-charpos)))
+        (let ((real-pos (- (line-length current-line) (mark-charpos mark))))
+          (setf (mark-line mark) new-line
+                (mark-charpos mark) real-pos))))
+    (update-point-column-hint buffer))
   (values))
 
-(defun insert-char (ch)
-  "Insert CH after point, then advance point."
-  (let ((current-line (point-line *editor*)))
-    (cond ((eql (line-length current-line) (point-offset *editor*))
+(defun insert-char (buffer character)
+  "Insert CHARACTER after point, then advance point."
+  (let* ((point (buffer-point buffer))
+         (current-line (mark-line point))
+         (current-charpos (mark-charpos point)))
+    (cond ((eql (line-length current-line) current-charpos)
            ;; Inserting at end.
-           (vector-push-extend ch (data current-line)))
+           (vector-push-extend character (data current-line)))
           (t ;; Inserting in the middle or at the start.
            ;; Make sure the vector is long enough.
-           (vector-push-extend ch (data current-line))
+           (vector-push-extend character (data current-line))
            (replace (data current-line) (data current-line)
-                    :start1 (1+ (point-offset *editor*))
-                    :start2 (point-offset *editor*))
-           (setf (aref (data current-line) (point-offset *editor*)) ch)))
-    (incf (version current-line)))
-  (forward-char))
+                    :start1 (1+ current-charpos)
+                    :start2 current-charpos)
+           (setf (aref (data current-line) current-charpos) character)))
+    (incf (line-version current-line))
+    ;; Update marks.
+    (dolist (mark (line-mark-list current-line))
+      (when (and (eql (mark-line mark) current-line)
+                 (or (and (eql (mark-kind mark) :right)
+                          (eql (mark-charpos mark) current-charpos))
+                     (> (mark-charpos mark) current-charpos)))
+        (incf (mark-charpos mark)))))
+  (update-point-column-hint buffer)
+  (values))
 
-(defun kill-line ()
-  (let ((current-line (point-line *editor*)))
-    (cond ((eql (line-length current-line) (point-offset *editor*))
+(defun kill-line (buffer)
+  "Kill from point to the end of the line. If the point is at the end of the line,
+then merge the current line and next line."
+  (let* ((point (buffer-point buffer))
+         (current-line (mark-line point))
+         (current-charpos (mark-charpos point)))
+    (cond ((eql (line-length current-line) current-charpos)
            ;; At end of line. Merge current line with next.
-           (when (next current-line)
-             (let ((next-line (next current-line))
+           (when (next-line current-line)
+             (let ((next-line (next-line current-line))
                    (len (line-length current-line)))
+               ;; Update contents.
                (adjust-array (data current-line)
                              (+ len
                                 (line-length next-line))
                              :fill-pointer t)
                (replace (data current-line) (data next-line)
                         :start1 len)
-               (cond ((next next-line)
-                      (setf (prev (next next-line)) current-line))
-                     (t (setf (last-line *editor*) current-line)))
-               (setf (next current-line) (next next-line)))))
+               ;; Unlink next line from the line list.
+               (cond ((next-line next-line)
+                      (setf (previous-line (next-line next-line)) current-line))
+                     (t (setf (last-line buffer) current-line)))
+               (setf (next-line current-line) (next-line next-line))
+               (setf (next-line next-line) nil
+                     (previous-line next-line) nil
+                     (line-buffer next-line) nil)
+               (incf (line-version next-line))
+               ;; Update marks. FIXME
+               #+(or)(dolist (mark (mark-list *editor*))
+                 (when (eql (line mark) next-line)
+                   (setf (line mark) current-line)
+                   (incf (offset mark) (line-length current-line)))))))
           (t ;; At start or middle of line. Trim line.
-           (setf (fill-pointer (data current-line)) (point-offset *editor*))))
-    (incf (version current-line)))
+           (setf (fill-pointer (data current-line)) current-charpos)
+           ;; Update marks. FIXME
+           #+(or)(dolist (mark (mark-list *editor*))
+             (when (and (eql (line mark) current-line)
+                        (> (offset mark) (line-length current-line)))
+               (setf (offset mark) (line-length current-line))))))
+    (incf (line-version current-line)))
   (values))
 
-(defun delete-one-char-forward ()
-  (let ((current-line (point-line *editor*)))
-    (cond ((eql (point-offset *editor*) (line-length current-line))
-           (kill-line))
+(defun delete-one-char-forward (buffer)
+  (let* ((point (buffer-point buffer))
+         (current-line (mark-line point))
+         (current-charpos (mark-charpos point)))
+    (cond ((eql current-charpos (line-length current-line))
+           (kill-line buffer))
           (t
            (replace (data current-line) (data current-line)
-                    :start1 (point-offset *editor*)
-                    :start2 (1+ (point-offset *editor*)))
+                    :start1 current-charpos
+                    :start2 (1+ current-charpos))
            (decf (fill-pointer (data current-line)))
-           (incf (version current-line))))))
+           (incf (line-version current-line))
+           ;; Update marks. FIXME
+           #+(or)(dolist (mark (mark-list *editor*))
+             (when (and (eql (line mark) current-line)
+                        (> (offset mark) (point-offset *editor*)))
+               (decf (offset mark))))))))
 
-(defun delete-forward-char (&optional (n 1))
+(defun delete-forward-char (buffer &optional (n 1))
   "Delete the following N characters (previous if N is negative)."
   (cond ((minusp n)
          (setf n (- n))
          (dotimes (i n)
-           (when (and (eql (point-line *editor*) (first-line *editor*))
-                      (eql (point-offset *editor*) 0))
+           (when (and (eql (mark-line (buffer-point buffer)) (first-line buffer))
+                      (eql (mark-charpos (buffer-point buffer)) 0))
+             ;; At buffer start.
              (return))
-           (backward-char)
-           (delete-one-char-forward)))
+           (backward-char buffer)
+           (delete-one-char-forward buffer)))
         (t
          (dotimes (i n)
-           (when (and (eql (point-line *editor*) (last-line *editor*))
-                      (eql (point-offset *editor*) (line-length (last-line *editor*))))
+           (when (and (eql (mark-line (buffer-point buffer)) (last-line buffer))
+                      (eql (mark-charpos (buffer-point buffer)) (line-length (last-line buffer))))
+             ;; At buffer end.
              (return))
-           (delete-one-char-forward))))
+           (delete-one-char-forward buffer))))
   (values))
 
-(defun delete-backward-char (&optional (n 1))
-  (delete-forward-char (- n)))
+(defun delete-backward-char (buffer &optional (n 1))
+  (delete-forward-char buffer (- n)))
 
 ;;; Point motion.
 
-(defun move-beginning-of-line ()
-  (setf (point-offset *editor*) 0
-        (point-column-hint *editor*) 0)
+(defun move-beginning-of-line (buffer)
+  (setf (mark-charpos (buffer-point buffer)) 0)
+  (update-point-column-hint buffer)
   (values))
 
-(defun move-end-of-line ()
-  (setf (point-offset *editor*) (line-length (point-line *editor*))
-        (point-column-hint *editor*) (line-length (point-line *editor*)))
+(defun move-end-of-line (buffer)
+  (let ((point (buffer-point buffer)))
+    (setf (mark-charpos point) (line-length (mark-line point))))
+  (update-point-column-hint buffer)
   (values))
 
-(defun forward-char (&optional (n 1))
-  "Move point forward by N characters. N may be negative."
+(defun move-mark (mark &optional (n 1))
+  "Move MARK forward by N character. Move backwards if N is negative."
   (cond ((minusp n)
          (setf n (- n))
          (dotimes (i n)
-           (let ((current-line (point-line *editor*)))
-             (cond ((eql 0 (point-offset *editor*))
+           (let ((current-line (mark-line mark)))
+             (cond ((zerop (mark-charpos mark))
                     ;; At start of line.
-                    (when (prev current-line)
-                      (setf (point-line *editor*) (prev current-line)
-                            (point-offset *editor*) (line-length (prev current-line)))))
+                    (when (previous-line current-line)
+                      (setf (mark-line mark) (previous-line current-line)
+                            (mark-charpos mark) (line-length (previous-line current-line)))))
                    (t ;; Moving within a line.
-                    (decf (point-offset *editor*)))))))
+                    (decf (mark-charpos mark)))))))
         (t
          (dotimes (i n)
-           (let ((current-line (point-line *editor*)))
-             (cond ((eql (line-length current-line) (point-offset *editor*))
+           (let ((current-line (mark-line mark)))
+             (cond ((eql (line-length current-line) (mark-charpos mark))
                     ;; At end of line.
-                    (when (next current-line)
-                      (setf (point-offset *editor*) 0
-                            (point-line *editor*) (next current-line))))
+                    (when (next-line current-line)
+                      (setf (mark-line mark) (next-line current-line)
+                            (mark-charpos mark) 0)))
                    (t ;; Moving within a line.
-                    (incf (point-offset *editor*))))))))
-  (setf (point-column-hint *editor*) (point-offset *editor*))
+                    (incf (mark-charpos mark))))))))
   (values))
 
-(defun backward-char (&optional (n 1))
-  (forward-char (- n)))
+(defun forward-char (buffer &optional (n 1))
+  "Move point forward by N characters. Move backwards if N is negative."
+  (move-mark (buffer-point buffer) n)
+  (update-point-column-hint buffer)
+  (values))
 
-(defun next-line (&optional (n 1))
+(defun backward-char (buffer &optional (n 1))
+  (forward-char buffer (- n)))
+
+(defun forward-line (buffer &optional (n 1))
   "Move point down by N lines. N may be negative.
-Tries to stay as close to the current column as possible."
-  (let ((accessor #'next))
+Tries to stay as close to the hint column as possible."
+  (let ((accessor #'next-line)
+        (point (buffer-point buffer)))
     (when (minusp n)
       (setf n (- n)
-            accessor #'prev))
+            accessor #'previous-line))
     (dotimes (i n)
-      (let* ((current-line (point-line *editor*))
+      (let* ((current-line (mark-line point))
              (new-line (funcall accessor current-line)))
         (cond (new-line
-               (setf (point-offset *editor*) (min (point-column-hint *editor*)
-                                                  (line-length new-line))
-                     (point-line *editor*) new-line))
+               (setf (mark-line point) new-line
+                     (mark-charpos point) (min (point-column-hint buffer)
+                                               (line-length new-line))))
               (t (return))))))
   (values))
 
-(defun previous-line (&optional (n 1))
-  (next-line (- n)))
+(defun backward-line (buffer &optional (n 1))
+  (forward-line buffer (- n)))
+
+(defun test-fill (buffer)
+  (let ((width (1- (truncate (editor-width)
+                             (mezzanine.gui.font:glyph-advance (mezzanine.gui.font:character-to-glyph (font *editor*) #\M))))))
+    (let ((mark (copy-mark (buffer-point buffer) :left)))
+      (dotimes (i (* (window-rows) 2))
+        (dotimes (j width)
+          (insert-char buffer (code-char (+ #x20 i))))
+        (insert-line buffer))
+      (point-to-mark buffer mark))))
+
+;;; Mark stuff.
+
+(defun set-mark (buffer)
+  (cond
+    ;; If the mark is active and the point is at mark, then
+    ;; deactivate the mark.
+    ((and (buffer-mark-active buffer)
+          (mark-at-point-p buffer (buffer-mark buffer)))
+     (setf (buffer-mark-active buffer) nil))
+    ;; If the mark is not active, then activate it.
+    ((not (buffer-mark-active buffer))
+     (setf (buffer-mark-active buffer) t)))
+  ;; Always move the mark to point.
+  (mark-to-point buffer (buffer-mark buffer)))
+
+(defun exchange-point-and-mark (buffer)
+  (let ((saved (copy-mark (buffer-mark buffer))))
+    (move-mark-to-mark (buffer-mark buffer) (buffer-point buffer))
+    (move-mark-to-mark (buffer-point buffer) saved)
+    (setf (buffer-mark-active buffer) t)
+    (update-point-column-hint buffer)))
 
 ;;; Redisplay.
+
+(defun redraw-screen ()
+  "Redraw the whole screen. For use when the display is corrupted."
+  ;; Flush the current screen and line cache.
+  (setf (editor-current-screen *editor*) nil
+        (display-line-cache *editor*) '()))
+
+(defun pane-top-line (buffer)
+  (let ((top-line (buffer-property buffer 'pane-top-line)))
+    (when (not top-line)
+      (setf top-line (make-mark (first-line buffer) 0 :left)
+            (buffer-property buffer 'pane-top-line) top-line))
+    top-line))
+
+(defclass display-line ()
+  ((%line :initarg :line :reader display-line-line)
+   (%version :initarg :version :reader display-line-version)
+   (%start :initarg :start :reader display-line-start)
+   (%end :initarg :end :reader display-line-end)
+   (%representation :initarg :representation :accessor display-line-representation)))
 
 ;; Lines are currently fixed-height.
 (defun window-rows ()
@@ -262,335 +529,344 @@ Tries to stay as close to the current column as possible."
     (truncate (- (mezzanine.gui.compositor:height (window *editor*)) top bottom)
               (mezzanine.gui.font:line-height (font *editor*)))))
 
-(defun put-string (string pen y start end &key bold invert underline)
+(defun flush-display-line (mark)
+  "Flush the display line containing MARK."
+  (setf (display-line-cache *editor*)
+        (remove-if (lambda (line)
+                     ;; Munch the entire line.
+                     (eql (display-line-line line) (mark-line mark)))
+                   (display-line-cache *editor*))))
+
+(defun flush-display-lines-in-region (mark-1 mark-2)
+  "Flush display lines containing the region specified by MARK-1 and MARK-2."
+  (let ((first (min (line-number (mark-line mark-1))
+                    (line-number (mark-line mark-2))))
+        (last (max (line-number (mark-line mark-1))
+                   (line-number (mark-line mark-2)))))
+    (setf (display-line-cache *editor*)
+          (remove-if (lambda (line)
+                       (<= first (line-number (display-line-line line)) last))
+                     (display-line-cache *editor*)))))
+
+(defun flush-stale-lines ()
+  "Flush any display lines with the wrong version."
+  (setf (display-line-cache *editor*)
+        (remove-if (lambda (line)
+                     (not (eql (display-line-version line)
+                               (line-version (display-line-line line)))))
+                   (display-line-cache *editor*))))
+
+(defun editor-width ()
+  "Return the width of the display area in pixels."
   (multiple-value-bind (left right top bottom)
       (mezzanine.gui.widgets:frame-size (frame *editor*))
+    (- (mezzanine.gui.compositor:width (window *editor*)) left right)))
+
+(defun region-bounds (mark-1 mark-2)
+  "Return a bunch of boundary information for the region."
+  (cond ((eql (mark-line mark-1) (mark-line mark-2))
+         ;; Same line.
+         (when (> (mark-charpos mark-1) (mark-charpos mark-2))
+           (rotatef mark-1 mark-2))
+         (values (mark-line mark-1) (mark-charpos mark-1) nil
+                 (mark-line mark-2) (mark-charpos mark-2) nil))
+        (t ;; 2 or more lines.
+         (when (> (line-number (mark-line mark-1)) (line-number (mark-line mark-2)))
+           (rotatef mark-1 mark-2))
+         (values (mark-line mark-1) (mark-charpos mark-1) (line-number (mark-line mark-1))
+                 (mark-line mark-2) (mark-charpos mark-2) (line-number (mark-line mark-2))))))
+
+(defun render-display-line-2 (line start)
+  (multiple-value-bind (line-1 line-1-charpos line-1-number line-2 line-2-charpos line-2-number)
+      (region-bounds (buffer-point (current-buffer *editor*)) (buffer-mark (current-buffer *editor*)))
     (loop
-       with pen-start = pen
+       with pen = 0
        with font = (font *editor*)
-       with y-pos = (* y (mezzanine.gui.font:line-height font))
-       with baseline = (+ y-pos (mezzanine.gui.font:ascender font))
-       with fb = (mezzanine.gui.compositor:window-buffer (window *editor*))
-       with colour = (foreground-colour *editor*)
+       with baseline = (mezzanine.gui.font:ascender font)
+       with foreground = (foreground-colour *editor*)
+       with background = (background-colour *editor*)
        with line-height = (mezzanine.gui.font:line-height font)
-       with foreground = (if invert
-                             (background-colour *editor*)
-                             (foreground-colour *editor*))
-       with background = (if invert
-                             (foreground-colour *editor*)
-                             (background-colour *editor*))
-       for ch-offset from start below end
-       for glyph = (mezzanine.gui.font:character-to-glyph font (aref string ch-offset))
+       with win-width = (editor-width)
+       with point = (buffer-point (current-buffer *editor*))
+       with mark-active = (buffer-mark-active (current-buffer *editor*))
+       with buffer = (make-array (list line-height win-width)
+                                 :element-type '(unsigned-byte 32)
+                                 :initial-element background)
+       for ch-position from start below (line-length line)
+       for glyph = (mezzanine.gui.font:character-to-glyph font (line-character line ch-position))
        for mask = (mezzanine.gui.font:glyph-mask glyph)
        for advance = (mezzanine.gui.font:glyph-advance glyph)
        do
-         (when invert
-           (mezzanine.gui:bitset line-height advance
-                                 background
-                                 fb (+ top y-pos) (+ left pen)))
-         (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                                foreground
-                                                mask 0 0
-                                                fb
-                                                (+ top (- baseline (mezzanine.gui.font:glyph-yoff glyph)))
-                                                (+ left pen (mezzanine.gui.font:glyph-xoff glyph)))
-         (when bold
+         (when (> (+ pen advance) win-width)
+           (return (values buffer ch-position)))
+         (let ((at-point (and (eql line (mark-line point))
+                              (eql ch-position (mark-charpos point))))
+               (in-region (and mark-active
+                               (or (if line-1-number
+                                       (or (< line-1-number (line-number line) line-2-number)
+                                           (and (eql line line-1)
+                                                (<= line-1-charpos ch-position))
+                                           (and (eql line line-2)
+                                                (< ch-position line-2-charpos)))
+                                       (and (eql line line-1)
+                                            (<= line-1-charpos ch-position)
+                                            (< ch-position line-2-charpos)))))))
+           ;; Invert the point.
+           (when at-point
+             (mezzanine.gui:bitset line-height advance
+                                   foreground
+                                   buffer 0 pen))
            (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                                  foreground
+                                                  (if at-point
+                                                      background
+                                                      foreground)
                                                   mask 0 0
-                                                  fb
-                                                  (+ top (- baseline (mezzanine.gui.font:glyph-yoff glyph)))
-                                                  (+ left pen (mezzanine.gui.font:glyph-xoff glyph))))
-         (when underline
-           (mezzanine.gui:bitset-argb-xrgb 1 advance
-                                           foreground
-                                           fb (+ top baseline) (+ left pen)))
-         (incf pen advance)
-       finally (return pen))))
+                                                  buffer
+                                                  (- baseline (mezzanine.gui.font:glyph-yoff glyph))
+                                                  (+ pen (mezzanine.gui.font:glyph-xoff glyph)))
+           ;; Underline the region.
+           (when in-region
+             (mezzanine.gui:bitset-argb-xrgb 1 advance
+                                             (if at-point
+                                                 background
+                                                 foreground)
+                                             buffer baseline pen))
+           (incf pen advance))
+       finally
+       ;; Reached end of line, check for the point.
+         (when (and (eql line (mark-line point))
+                    (eql ch-position (mark-charpos point)))
+           ;; Point is here, render it past the last character.
+           (let* ((glyph (mezzanine.gui.font:character-to-glyph font #\Space))
+                  (advance (mezzanine.gui.font:glyph-advance glyph)))
+             (when (<= (+ pen advance) win-width) ; FIXME, how to display point at end of line & display line properly. also fix blit crash bug.
+               (mezzanine.gui:bitset line-height advance
+                                     foreground
+                                     buffer 0 pen))))
+       ;; TODO: Render underline to end of line region spans whole line.
+         (return (values buffer ch-position)))))
 
-(defun put-char (character x y &key invert bold underline)
+(defun render-display-line-1 (line start)
+  (multiple-value-bind (buffer end)
+      (render-display-line-2 line start)
+    (let ((display-line (make-instance 'display-line
+                                       :line line
+                                       :version (line-version line)
+                                       :start start
+                                       :end end
+                                       :representation buffer)))
+      (push display-line (display-line-cache *editor*))
+      display-line)))
+
+(defun render-display-line (line fn)
+  "Render display lines for real line LINE, calling FN with each display line."
+  (cond ((zerop (line-length line))
+         (funcall fn (or (get-display-line-from-cache line 0)
+                         (render-display-line-1 line 0))))
+        (t (do ((start 0))
+               ((>= start (line-length line)))
+             (let ((display-line (or (get-display-line-from-cache line start)
+                                     (render-display-line-1 line start))))
+               (funcall fn display-line)
+               (setf start (display-line-end display-line)))))))
+
+(defun get-display-line-from-cache (line start)
+  (dolist (display-line (display-line-cache *editor*))
+    (when (and (eql (display-line-line display-line) line)
+               (eql (display-line-start display-line) start))
+      ;; MRU cache.
+      (setf (display-line-cache *editor*) (remove display-line (display-line-cache *editor*)))
+      (push display-line (display-line-cache *editor*))
+      (return display-line))))
+
+(defun blit-display-line (line y)
   (multiple-value-bind (left right top bottom)
       (mezzanine.gui.widgets:frame-size (frame *editor*))
-    (let* ((glyph (mezzanine.gui.font:character-to-glyph (font *editor*) character))
-           (mask (mezzanine.gui.font:glyph-mask glyph))
-           (advance (mezzanine.gui.font:glyph-advance glyph))
-           (fb (mezzanine.gui.compositor:window-buffer (window *editor*)))
-           (win-width (- (mezzanine.gui.compositor:width (window *editor*)) left right))
+    (let* ((fb (mezzanine.gui.compositor:window-buffer (window *editor*)))
            (line-height (mezzanine.gui.font:line-height (font *editor*)))
-           (y (* y line-height)))
-      (when (<= (+ x advance) win-width)
-        (when invert
-          (mezzanine.gui:bitset line-height advance
-                                (foreground-colour *editor*)
-                                fb (+ top y) (+ left x)))
-        (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                               (if invert
-                                                   (background-colour *editor*)
-                                                   (foreground-colour *editor*))
-                                               mask 0 0
-                                               fb
-                                               (+ top (- (+ y (mezzanine.gui.font:ascender (font *editor*))) (mezzanine.gui.font:glyph-yoff glyph)))
-                                               (+ left x (mezzanine.gui.font:glyph-xoff glyph)))
-        (when bold
-          (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                                 (if invert
-                                                     (background-colour *editor*)
-                                                     (foreground-colour *editor*))
-                                                 mask 0 0
-                                                 fb
-                                                 (+ top (- (+ y (mezzanine.gui.font:ascender (font *editor*))) (mezzanine.gui.font:glyph-yoff glyph)))
-                                                 (+ left x (mezzanine.gui.font:glyph-xoff glyph))))
-        (when underline
-          (mezzanine.gui:bitset-argb-xrgb 1 advance
-                                          (if invert
-                                              (background-colour *editor*)
-                                              (foreground-colour *editor*))
-                                          fb
-                                          (+ top y (mezzanine.gui.font:ascender (font *editor*)))
-                                          (+ left x))))
-      (+ x advance))))
+           (real-y (+ top (* y line-height)))
+           (win-width (editor-width)))
+      (if line
+          ;; Blitting line.
+          (mezzanine.gui:bitblt line-height win-width
+                                (display-line-representation line)
+                                0 0
+                                fb
+                                real-y left)
+          ;; Line is empty.
+          (mezzanine.gui:bitset line-height win-width
+                                (background-colour *editor*)
+                                fb
+                                real-y left))
+      (mezzanine.gui.compositor:damage-window (window *editor*)
+                                              left real-y
+                                              win-width line-height))))
 
-(defclass logical-line-segment ()
-  ((%logical-line :initarg :logical-line :accessor logical-line)
-   (%start :initarg :start :accessor line-start)
-   (%end :initarg :start :accessor line-end)))
-
-(defclass logical-line ()
-  ((%physical-line :initarg :physical-line :accessor physical-line)
-   (%version :initarg :version :accessor version)
-   (%segments :initarg :segments :accessor segments))
-  (:default-initargs :segments (make-array 1 :adjustable t :fill-pointer 0)))
-
-(defmethod physical-line ((line logical-line-segment))
-  (physical-line (logical-line line)))
-
-(defun physical-line-to-logical-line-1 (line win-width)
-  (let* ((font (font *editor*))
-         (pen-offset 0)
-         (logical-line (make-instance 'logical-line
-                                      :physical-line line
-                                      :version (version line)))
-         (segs (segments logical-line))
-         (current-segment (make-instance 'logical-line-segment
-                                         :logical-line logical-line
-                                         :start 0)))
-    (flet ((finish-segment (end)
-             (check-pending-input)
-             (setf (line-end current-segment) end)
-             (vector-push-extend current-segment segs)
-             (setf pen-offset 0)
-                   current-segment (make-instance 'logical-line-segment
-                                                  :logical-line logical-line
-                                                  :start end)))
-      (dotimes (i (line-length line))
-        (let* ((glyph (mezzanine.gui.font:character-to-glyph (font *editor*) (aref (data line) i)))
-               (advance (mezzanine.gui.font:glyph-advance glyph)))
-          ;;(format t "Pen-offset: ~S  Advance ~S  Width ~S~%" pen-offset advance win-width)
-          (incf pen-offset advance)
-          (when (>= pen-offset win-width)
-            ;;(format t "Wrap line. ~S ~S~%" pen-offset win-width)
-            (finish-segment i))))
-      (finish-segment (line-length line)))
-    logical-line))
-
-(defun physical-line-to-logical-line (current-screen line win-width)
-  ;; Convert a physical line to a logical line, possibly reusing previously displayed logical lines.
-  (cond
-    (current-screen
-     (loop for seg across current-screen do
-          (when (and (zerop (line-start seg))
-                     (eql (physical-line seg) line)
-                     (eql (version (logical-line seg)) (version (physical-line seg))))
-            #+(or)(format t "Reused logical line ~S for physical line ~S.~%" (logical-line seg) line)
-            (return (logical-line seg)))
-        finally (return (physical-line-to-logical-line-1 line win-width))))
-    (t (physical-line-to-logical-line-1 line win-width))))
-
-(defun build-screen-line-list (current-screen top-line win-width)
-  (do ((screen (make-array (length current-screen) :adjustable t :fill-pointer 0))
-       (point-screen-line nil)
-       (lines-since-point 0)
-       (line top-line (next line)))
-      ((or (null line)
-           (> lines-since-point (window-rows)))
-       (values screen point-screen-line))
-    (let ((logical-line (physical-line-to-logical-line current-screen line win-width)))
-      (loop for seg across (segments logical-line) do
-           (when point-screen-line
-             (incf lines-since-point))
-           #+(or)(format t "Line ~S ~S  ~S ~S ~S~%"
-                   (point-line *editor*) line
-                   (line-start seg) (point-offset *editor*) (line-end seg))
-           (when (and (eql (point-line *editor*) line)
-                      (<= (line-start seg) (point-offset *editor*) (line-end seg)))
-             ;; This screen line contains the point.
-             (setf point-screen-line (length screen)))
-           (vector-push-extend seg screen)))))
-
-(defun put-line (seg y window-top point-screen-line)
-  (let* ((data (data (physical-line seg)))
-         (point-at-endp (eql (point-offset *editor*) (line-length (point-line *editor*)))))
-    (cond
-      ((not (eql (+ window-top y) point-screen-line))
-       (put-string data 0 y (line-start seg) (line-end seg)))
-      ;; Point is on this line. Highlight it.
-      ;; This does't work too well if the point is at the end of both a physical & a virtual line.
-      ;; Adding a right margin with wrap indicator would provide a place for the point to sit.
-      (point-at-endp
-       (let ((pen 0))
-         (setf pen (put-string data pen y (line-start seg) (line-end seg)))
-         (setf pen (put-char #\Space pen y :invert t))))
-      (t
-       (let ((pen 0))
-         (setf pen (put-string data pen y (line-start seg) (point-offset *editor*)))
-         (setf pen (put-char (aref data (point-offset *editor*)) pen y :invert t))
-         (setf pen (put-string data pen y (1+ (point-offset *editor*)) (line-end seg))))))))
-
-(defun incremental-redisplay ()
-  (multiple-value-bind (left right top bottom)
-      (mezzanine.gui.widgets:frame-size (frame *editor*))
-    (let* ((top-line (point-line *editor*))
-           (current-screen (current-screen *editor*))
-           (full-redisplayp (not current-screen))
-           (win-width (- (mezzanine.gui.compositor:width (window *editor*)) left right))
-           (line-height (mezzanine.gui.font:line-height (font *editor*))))
-      ;; Starting from point, count back a bunch of physical lines.
-      (dotimes (i (window-rows))
-        (when (not (prev top-line))
-          (return))
-        (setf top-line (prev top-line)))
-      ;; Rebuild the screen array.
-      (multiple-value-bind (screen point-screen-line)
-          (build-screen-line-list current-screen top-line win-width)
-        #+(or)(format t "Incr Screen layout: ~S~%" screen)
-        #+(or)(format t "Incr Point is ~S ~S~%" (point-line *editor*) (point-offset *editor*))
-        #+(or)(format t "Incr Point screen line is ~S ~S~%" point-screen-line (aref screen point-screen-line))
-        #+(or)(format t "Incr Previous top of window is ~S~%" (window-top-line *editor*))
-        ;; Find the new top screen line, based on the current top screen line.
-        (let ((window-top (when (window-top-line *editor*)
-                            (position-if (lambda (x) (or (eql x (window-top-line *editor*))
-                                                         (and (eql (physical-line x) (physical-line (window-top-line *editor*)))
-                                                              (eql (line-start x) (line-start (window-top-line *editor*)))
-                                                              (eql (line-end x) (line-end (window-top-line *editor*))))))
-                                         screen))))
-          ;; If the point is above (lt) the old window top, or below (gte) the window bottom, then recenter.
-          (when (or (not window-top)
-                    (< point-screen-line window-top)
-                    (>= point-screen-line (+ window-top (window-rows))))
-            (setf window-top (max 0 (- point-screen-line (truncate (window-rows) 2)))))
-          #+(or)(format t "Incr Window top is ~S~%" window-top)
-          (when full-redisplayp
-            ;; Actually a full redisplay, clear the whole screen.
-            (mezzanine.gui:bitset (- (mezzanine.gui.compositor:height (window *editor*)) top bottom)
-                                  win-width
-                                  (background-colour *editor*)
-                                  (mezzanine.gui.compositor:window-buffer (window *editor*))
-                                  top left))
-          ;; Walk the screen line array, copying lines when possible or redrawing them when not.
-          (dotimes (y (window-rows))
-            (check-pending-input)
-            (when (>= (+ window-top y) (length screen))
-              (return))
-            (let* ((seg (aref screen (+ window-top y)))
-                   (position (when (not full-redisplayp)
-                               (position seg
-                                         current-screen
-                                         :start (window-top *editor*)
-                                         :end (min (+ (window-top *editor*) (window-rows))
-                                                   (length current-screen))))))
-              (cond ((or full-redisplayp
-                         (eql y (- point-screen-line window-top))
-                         (eql y (current-point-logical-line *editor*))
-                         (not position))
-                     (when (not full-redisplayp)
-                       (mezzanine.gui:bitset line-height win-width
-                                             (background-colour *editor*)
-                                             (mezzanine.gui.compositor:window-buffer (window *editor*))
-                                             (+ top (* y line-height)) left))
-                     (put-line seg y window-top point-screen-line)
-                     (when (not full-redisplayp)
-                       (mezzanine.gui.compositor:damage-window (window *editor*)
-                                                               left (+ top (* y line-height))
-                                                               win-width line-height)
-                       (when (< (+ (window-top *editor*) y) (length current-screen))
-                         (setf (aref current-screen (+ (window-top *editor*) y)) seg))))
-                    ((not (eql y (- position (window-top *editor*))))
-                     #+(or)(format t "Copy old line ~S ~S to new line ~S ~S.~%" position (* (- position (window-top *editor*)) line-height) y (* y line-height))
-                     (mezzanine.gui:bitblt line-height win-width
-                                           (mezzanine.gui.compositor:window-buffer (window *editor*))
-                                           (+ top (* (- position (window-top *editor*)) line-height)) left
-                                           (mezzanine.gui.compositor:window-buffer (window *editor*))
-                                           (+ top (* y line-height)) left)
-                     (mezzanine.gui.compositor:damage-window (window *editor*)
-                                                             left (+ top (* y line-height))
-                                                             win-width line-height)
-                     (when (< (+ (window-top *editor*) y) (length current-screen))
-                       (setf (aref current-screen (+ (window-top *editor*) y)) seg)))
-                    (t #+(or)(format t "Keep old line ~S ~S~%" position y)))))
-          ;; If the new screen is shorter than the old screen, then fill
-          ;; any newly nonexistent screen lines.
-          (when (and (not full-redisplayp)
-                     (> (- (length current-screen) (window-top *editor*))
-                        (- (length screen) window-top)))
-            (mezzanine.gui:bitset (* (- (- (length current-screen) (window-top *editor*))
-                                        (- (length screen) window-top))
-                                     line-height)
-                                  win-width
-                                  (background-colour *editor*)
-                                  (mezzanine.gui.compositor:window-buffer (window *editor*))
-                                  (+ top (* (- (length screen) window-top) line-height)) left)
-            (mezzanine.gui.compositor:damage-window (window *editor*)
-                                                    left
-                                                    (+ top (* (- (length screen) window-top) line-height))
-                                                    win-width
-                                                    (* (- (- (length current-screen) (window-top *editor*))
-                                                          (- (length screen) window-top))
-                                                       line-height)))
-          (when full-redisplayp
-            (mezzanine.gui.compositor:damage-window (window *editor*)
-                                                    left top
-                                                    win-width
-                                                    (- (mezzanine.gui.compositor:height (window *editor*)) top bottom)))
-          (setf (current-screen *editor*) screen
-                (window-top-line *editor*) (aref screen window-top)
-                (window-top *editor*) window-top
-                (current-point-logical-line *editor*) (- point-screen-line window-top)))))))
-
-(defun redraw-screen ()
-  (setf (current-screen *editor*) nil
-        (window-top-line *editor*) nil))
+(defun recenter (buffer)
+  "Move BUFFER's top line so that the point is displayed."
+  (let* ((point (buffer-point buffer))
+         (top-line (mark-line point))
+         (rendered-lines (make-array (ceiling (window-rows) 2) :fill-pointer 0 :adjustable t))
+         (point-display-line nil))
+    ;; Move (window-rows)/2 lines up from point.
+    (dotimes (i (ceiling (window-rows) 2))
+      (when (not (previous-line top-line))
+        (return))
+      (setf top-line (previous-line top-line)))
+    ;; Render display lines until point is reached.
+    (do ((line top-line (next-line line)))
+        ;; Should always top when the point's line has been reached.
+        ()
+      (render-display-line line
+                           (lambda (display-line)
+                             (vector-push-extend display-line rendered-lines)
+                             (when (and (eql (mark-line point) (display-line-line display-line))
+                                        (<= (display-line-start display-line) (mark-charpos point))
+                                        (or (and (eql (display-line-end display-line) (line-length (display-line-line display-line)))
+                                                 (eql (display-line-end display-line) (mark-charpos point)))
+                                            (< (mark-charpos point) (display-line-end display-line))))
+                               ;; This is point line, stop here.
+                               (setf point-display-line (1- (length rendered-lines)))
+                               (return)))))
+    ;; Walk (window-rows)/2 display lines backwards from point. This is the new top-line.
+    (let ((new-top-line (aref rendered-lines (max 0 (- point-display-line (truncate (window-rows) 2)))))
+          (top-line-mark (buffer-property buffer 'pane-top-line)))
+      (setf (mark-line top-line-mark) (display-line-line new-top-line))
+            (mark-charpos top-line-mark) (display-line-start new-top-line))))
 
 (defun redisplay ()
+  "Perform an incremental redisplay cycle.
+Returns true when the screen is up-to-date, false if the screen is dirty and there is pending input."
   (handler-case
       (progn
+        (when (not (eql (length (editor-current-screen *editor*)) (window-rows)))
+          (setf (editor-current-screen *editor*) (make-array (window-rows) :initial-element t)))
         (check-pending-input)
-        (incremental-redisplay)
+        (let* ((buffer (current-buffer *editor*))
+               (current-screen (editor-current-screen *editor*))
+               (new-screen (make-array (window-rows) :fill-pointer 0 :initial-element nil))
+               (point-line nil)
+               (top-line (pane-top-line buffer))
+               (point (buffer-point buffer))
+               (previous-point-position (buffer-property buffer 'pane-previous-point-position))
+               (mark (buffer-mark buffer))
+               (previous-mark-position (buffer-property buffer 'pane-previous-mark-position)))
+          (when (not previous-point-position)
+            (setf previous-point-position (copy-mark point :right)
+                  (buffer-property buffer 'pane-previous-point-position) previous-point-position))
+          (when (not previous-mark-position)
+            (setf previous-mark-position (copy-mark mark :left)
+                  (buffer-property buffer 'pane-previous-mark-position) previous-mark-position))
+          ;; If the point has moved, then invalidate the line that contained the point and the line that
+          ;; now holds the point.
+          #+(or)(format t "Point: ~S  prev point: ~S  equal: ~S~%"
+                  point previous-point-position
+                  (mark-equal-p point previous-point-position))
+          (when (not (mark-equal-p point previous-point-position))
+            (flush-display-line previous-point-position)
+            (flush-display-line point))
+          ;; If the mark changes state, flush lines within the region.
+          (when (or (and (not (buffer-mark-active buffer))
+                         (buffer-property buffer 'pane-mark-was-active))
+                    (and (buffer-mark-active buffer)
+                         (not (buffer-property buffer 'pane-mark-was-active))))
+            (flush-display-lines-in-region point mark))
+          ;; If the mark is active and the point moves, flush lines between the old point position
+          ;; and the new position.
+          ;; FIXME: This will cause a bunch of lines to be redrawn when the point & mark are exchanged.
+          (when (and (buffer-mark-active buffer)
+                     (not (mark-equal-p point previous-point-position)))
+            (flush-display-lines-in-region point previous-point-position))
+          ;; If the mark is or was active and moves, flush lines between the old mark position
+          ;; and the new position.
+          ;; FIXME: This will cause a bunch of lines to be redrawn when the point & mark are exchanged.
+          (when (and (or (buffer-mark-active buffer)
+                         (buffer-property buffer 'pane-mark-was-active))
+                     (not (mark-equal-p mark previous-mark-position)))
+            (format t "Mark moved from ~S to ~S~%" previous-mark-position mark)
+            (flush-display-lines-in-region mark previous-mark-position))
+          ;; Finally, flush any stale lines.
+          (flush-stale-lines)
+          ;; Update tracking properties.
+          (setf (buffer-property buffer 'pane-mark-was-active) (buffer-mark-active buffer))
+          (move-mark-to-mark previous-point-position point)
+          (move-mark-to-mark previous-mark-position mark)
+          ;; Generate WINDOW-ROWS display lines, starting at TOP-LINE.
+          ;; TODO: Don't start from the beginning of the top-line, use the charpos instead.
+          (setf (mark-charpos top-line) 0)
+          ;(format t "Top line ~S ~S~%" top-line (mark-line top-line))
+          (do ((line (mark-line top-line) (next-line line)))
+              ;; Stop when there are no more lines or the screen has been filled up.
+              ((null line))
+            (render-display-line line
+                                 (lambda (display-line)
+                                   (check-pending-input)
+                                   (vector-push display-line new-screen)
+                                   (when (and (eql (mark-line point) (display-line-line display-line))
+                                              (<= (display-line-start display-line) (mark-charpos point))
+                                              (or (and (eql (display-line-end display-line) (line-length (display-line-line display-line)))
+                                                       (eql (display-line-end display-line) (mark-charpos point)))
+                                                  (< (mark-charpos point) (display-line-end display-line))))
+                                     (setf point-line display-line))
+                                   (when (eql (fill-pointer new-screen) (window-rows))
+                                     (return)))))
+          (setf (fill-pointer new-screen) (window-rows))
+          ;; If the point is not within the screen bounds, then recenter and retry.
+          (when (not point-line)
+            (recenter buffer)
+            (return-from redisplay nil))
+          ;(format t "New screen is ~S~%" new-screen)
+          ;; Compare against the current screen, blitting when needed.
+          (dotimes (y (window-rows))
+            (let ((line (aref new-screen y)))
+              (unless (eql (aref current-screen y) line)
+                ;(format t "Update line ~D. Old ~S new ~S.~%" y (aref current-screen y) line)
+                (blit-display-line line y)
+                (setf (aref current-screen y) line)
+                (check-pending-input))))
+          ;; Prune the cache.
+          (setf (display-line-cache *editor*) (subseq (display-line-cache *editor*) 0 (* (window-rows) 4)))
+          #+(or)(format t "Line cache: ~S~%" (display-line-cache *editor*)))
         t)
     (pending-input ()
       nil)))
 
+(defun vomit-buffer (buffer)
+  (do ((line (first-line buffer) (next-line line)))
+      ((not line))
+    (format t "~S ~S~%" line (data line))))
+
 (defun editor-loop ()
   (loop
      (handler-case
-         (let ((ch (editor-read-char)))
+         (let ((ch (editor-read-char))
+               (buffer (current-buffer *editor*)))
            (case ch
              ((nil)) ; Happens when there's a redisplay pending.
-             (#\Newline
-              (insert-line))
-             (#\C-F (forward-char))
-             (#\C-B (backward-char))
-             (#\C-N (next-line))
-             (#\C-P (previous-line))
-             (#\C-A (move-beginning-of-line))
-             (#\C-E (move-end-of-line))
-             (#\C-K (kill-line))
-             (#\C-Q (insert-char (editor-read-char)))
-             (#\C-L (redraw-screen))
-             (#\Backspace (delete-backward-char))
-             (#\Delete (delete-forward-char))
+             (#\Newline (insert-line buffer))
+             (#\C-F (forward-char buffer))
+             (#\C-B (backward-char buffer))
+             (#\C-N (forward-line buffer))
+             (#\C-P (backward-line buffer))
+             (#\C-A (move-beginning-of-line buffer))
+             (#\C-E (move-end-of-line buffer))
+             (#\C-K (kill-line buffer))
+             (#\C-Q (insert-char buffer (editor-read-char)))
+             (#\C-L (recenter buffer))
+             (#\M-L (redraw-screen))
+             (#\C-Space (set-mark buffer))
+             (#\C-X (exchange-point-and-mark buffer))
+             (#\Backspace (delete-backward-char buffer))
+             (#\C-D (delete-forward-char buffer))
+             (#\Delete (delete-forward-char buffer))
+             (#\C-V (vomit-buffer buffer))
+             (#\C-T (test-fill buffer))
              (t (cond ((find ch "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789!\"£$%^&*()_+-=[]{};'#:@~,./<>?`~|\\"
                              :test #'char=)
-                       (insert-char ch)))))
+                       (insert-char buffer ch)))))
+           (format t "Point at ~S  mark at ~S  active:~S~%"
+                   (buffer-point buffer) (buffer-mark buffer)
+                   (buffer-mark-active buffer))
            (setf (pending-redisplay *editor*) (not (redisplay))))
        (error (c)
          (ignore-errors
@@ -606,22 +882,12 @@ Tries to stay as close to the current column as possible."
                                      :title "Editor"
                                      :close-button-p t
                                      :damage-function (mezzanine.gui.widgets:default-damage-function window)))
-               (line (make-instance 'line))
                (*editor* (make-instance 'editor
                                         :fifo fifo
-                                        :pending-redisplay t
                                         :font font
                                         :window window
                                         :frame frame
-                                        :first-line line
-                                        :last-line line
-                                        :point-line line
-                                        :point-offset 0
-                                        :point-column-hint 0
-                                        :window-top-line nil
-                                        :window-top 0
-                                        :current-screen nil
-                                        :current-point-logical-line nil)))
+                                        :buffer (make-instance 'buffer))))
           (mezzanine.gui.widgets:draw-frame frame)
           (catch 'quit
             (editor-loop)))))))
