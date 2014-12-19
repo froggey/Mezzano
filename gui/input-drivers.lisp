@@ -51,12 +51,12 @@
                 (cond (extended-key
                        ;; Got a recognized extended key, submit it.
                        (mezzanine.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
-                      (t (format *error-output* "Ignoring unknown extended scancode ~2,'X~%" byte)))))
+                      (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))
              (t (let ((key (aref *translation-table* (logand byte #x7F))))
                   (cond (key
                          ;; Got a regular key, submit it.
                          (mezzanine.gui.compositor:submit-key key (logtest byte #x80)))
-                        (t (format *error-output* "Ignoring unknown scancode ~2,'X~%" byte)))))))
+                        (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte)))))))
        (error (c)
          (format t "Aieee ~S.~%" c)))))
 
