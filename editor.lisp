@@ -96,14 +96,15 @@
    (%font :initarg :font :reader font)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
    (%background-colour :initarg :background-colour :accessor background-colour)
+   (%killed-region :initarg :killed-region :accessor killed-region)
    ;; Redisplay state.
    (%current-screen :initarg :screen :accessor editor-current-screen)
-   (%line-cache :initarg :display-line-cache :accessor display-line-cache)
-   )
+   (%line-cache :initarg :display-line-cache :accessor display-line-cache))
   (:default-initargs :pending-event nil
                      :pending-redisplay t
                      :foreground-colour #xFFDCDCCC
                      :background-colour #xFF3E3E3E
+                     :killed-region nil
                      :screen nil
                      :display-line-cache '()))
 
@@ -202,11 +203,11 @@
 (defun delete-mark (mark)
   (setf (line-mark-list (mark-line mark)) (remove mark (line-mark-list (mark-line mark)))))
 
-(defmacro with-mark ((name &optional kind) &body body)
+(defmacro with-mark ((name where &optional kind) &body body)
   `(let ((,name nil))
      (unwind-protect
           (progn
-            (setf ,name (make-mark-at-point ,kind))
+            (setf ,name (copy-mark ,where ,kind))
             ,@body)
        (when ,name
          (delete-mark ,name)))))
@@ -219,9 +220,6 @@
   (and (eql (mark-line a) (mark-line b))
        (eql (mark-charpos a) (mark-charpos b))))
 
-(defun make-mark-at-point (buffer &optional kind)
-  (copy-mark (buffer-point buffer) kind))
-
 (defun point-to-mark (buffer mark)
   (move-mark-to-mark (buffer-point buffer) mark))
 
@@ -230,6 +228,12 @@
 
 (defun mark-at-point-p (buffer mark)
   (mark-equal-p mark (buffer-point buffer)))
+
+(defun start-of-line-p (mark)
+  (eql (mark-charpos mark) 0))
+
+(defun end-of-line-p (mark)
+  (eql (mark-charpos mark) (line-length (mark-line mark))))
 
 ;;; Sub-editor. Buffer manipulation.
 
@@ -281,10 +285,9 @@ The point is positioned at the start of the new line."
           (t (setf (line-number new-line) (+ (line-number current-line) +line-number-increment+))))
     ;; Update marks.
     (dolist (mark (line-mark-list current-line))
-      (when (and (eql (mark-line mark) current-line)
-                 (or (and (eql (mark-kind mark) :right)
-                          (eql (mark-charpos mark) current-charpos))
-                     (> (mark-charpos mark) current-charpos)))
+      (when (or (and (eql (mark-kind mark) :right)
+                     (eql (mark-charpos mark) current-charpos))
+                (> (mark-charpos mark) current-charpos))
         (let ((real-pos (- (line-length current-line) (mark-charpos mark))))
           (setf (mark-line mark) new-line
                 (mark-charpos mark) real-pos))))
@@ -309,92 +312,157 @@ The point is positioned at the start of the new line."
     (incf (line-version current-line))
     ;; Update marks.
     (dolist (mark (line-mark-list current-line))
-      (when (and (eql (mark-line mark) current-line)
-                 (or (and (eql (mark-kind mark) :right)
-                          (eql (mark-charpos mark) current-charpos))
-                     (> (mark-charpos mark) current-charpos)))
+      (when (or (and (eql (mark-kind mark) :right)
+                     (eql (mark-charpos mark) current-charpos))
+                (> (mark-charpos mark) current-charpos))
         (incf (mark-charpos mark)))))
   (update-point-column-hint buffer)
   (values))
 
+(defun insert-string (buffer string &optional (translate-newlines t))
+  (loop for ch across (string string)
+     if (and translate-newlines (char= ch #\Newline))
+     do (insert-line buffer)
+     else do (insert-char buffer ch)))
+
+(defun order-marks (mark-1 mark-2)
+  (let ((line-1 (mark-line mark-1))
+        (line-2 (mark-line mark-2)))
+    (cond ((eql line-1 line-2)
+           (if (> (mark-charpos mark-1) (mark-charpos mark-2))
+               (values mark-2 mark-1)
+               (values mark-1 mark-2)))
+          ((> (line-number line-1)
+              (line-number line-2))
+           (values mark-2 mark-1))
+          (t (values mark-1 mark-2)))))
+
+(defun insert-region (buffer mark-1 mark-2)
+  (setf (values mark-1 mark-2) (order-marks mark-1 mark-2))
+  (do ((m1 (copy-mark mark-1))
+       (m2 (copy-mark mark-2)))
+      ((mark-equal-p m1 m2))
+    (if (end-of-line-p m1)
+        (insert-line buffer)
+        (insert-char buffer (line-character (mark-line m1) (mark-charpos m1))))
+    (move-mark m1)))
+
+(defun yank-region (buffer)
+  (when (killed-region *editor*)
+    (insert-region buffer (car (killed-region *editor*)) (cdr (killed-region *editor*)))))
+
+(defun delete-region (buffer mark-1 mark-2)
+  "Delete region designated by MARK-1 and MARK-2 from buffer.
+Returns the deleted region as a pair of marks into a disembodied line."
+  (setf (values mark-1 mark-2) (order-marks mark-1 mark-2))
+  (cond ((eql (mark-line mark-1) (mark-line mark-2))
+         ;; Same line.
+         (let* ((line (mark-line mark-1))
+                (start (mark-charpos mark-1))
+                (end (mark-charpos mark-2))
+                (data (make-array (- end start)
+                                  :element-type 'character
+                                  :adjustable t
+                                  :fill-pointer t)))
+           ;; Extract deleted data.
+           (replace data (data line)
+                    :start2 start
+                    :end2 end)
+           ;; Delete data.
+           (replace (data line) (data line)
+                    :start1 start
+                    :start2 end)
+           (decf (fill-pointer (data line)) (- end start))
+           ;; Update version.
+           (incf (line-version line))
+           ;; Update marks.
+           (dolist (mark (line-mark-list line))
+             (when (> (mark-charpos mark) start)
+               (decf (mark-charpos mark) (- end start))))
+           ;; Done.
+           (let ((new-line (make-instance 'line :data data)))
+             (values (make-mark new-line 0 :left)
+                     (make-mark new-line (length data) :right)))))
+        (t ;; Different lines.
+         (let* ((first-line (mark-line mark-1))
+                (first-chpos (mark-charpos mark-1))
+                (next-line (next-line first-line))
+                (last-line (mark-line mark-2))
+                (last-chpos (mark-charpos mark-2))
+                (data (make-array (- (line-length first-line) first-chpos)
+                                  :element-type 'character
+                                  :adjustable t
+                                  :fill-pointer t)))
+           (replace data (data first-line) :start2 first-chpos)
+           ;; Join lines together.
+           (adjust-array (data first-line)
+                         (+ first-chpos
+                            (- (line-length last-line) last-chpos))
+                         :fill-pointer t)
+           (replace (data first-line) (data last-line)
+                    :start1 first-chpos
+                    :start2 last-chpos)
+           (incf (line-version first-line))
+           (incf (line-version last-line))
+           ;; Unlink intermediate lines & the last line from the line list.
+           (cond ((next-line last-line)
+                  (setf (previous-line (next-line last-line)) first-line))
+                 (t (setf (last-line buffer) first-line)))
+           (setf (next-line first-line) (next-line last-line))
+           (setf (next-line last-line) nil
+                 (line-buffer last-line) nil
+                 (fill-pointer (data last-line)) last-chpos)
+           ;; Adjust first-line marks.
+           (dolist (mark (line-mark-list first-line))
+             (when (> (mark-charpos mark) first-chpos)
+               (setf (mark-charpos mark) first-chpos)))
+           ;; Adjust last-line marks.
+           (dolist (mark (line-mark-list last-line))
+             (let ((new-pos (+ first-chpos (max 0 (- (mark-charpos mark) last-chpos)))))
+               (setf (mark-line mark) first-line
+                     (mark-charpos mark) new-pos)))
+           ;; Adjust middle marks and fix lines.
+           (do ((line next-line (next-line line)))
+               ((eql line last-line))
+             (incf (line-version line))
+             (setf (line-buffer line) nil)
+             (dolist (mark (line-mark-list line))
+               (setf (mark-line mark) first-line
+                     (mark-charpos mark) first-chpos)))
+           ;; Done.
+           (let ((new-line (make-instance 'line
+                                          :data data
+                                          :next next-line)))
+             (setf (previous-line next-line) new-line)
+             (values (make-mark new-line 0 :left)
+                     (make-mark last-line last-chpos :right)))))))
+
+(defun kill-region (buffer mark-1 mark-2)
+  (multiple-value-bind (first-mark last-mark)
+      (delete-region buffer mark-1 mark-2)
+    (setf (killed-region *editor*) (cons first-mark last-mark))))
+
 (defun kill-line (buffer)
   "Kill from point to the end of the line. If the point is at the end of the line,
 then merge the current line and next line."
-  (let* ((point (buffer-point buffer))
-         (current-line (mark-line point))
-         (current-charpos (mark-charpos point)))
-    (cond ((eql (line-length current-line) current-charpos)
-           ;; At end of line. Merge current line with next.
-           (when (next-line current-line)
-             (let ((next-line (next-line current-line))
-                   (len (line-length current-line)))
-               ;; Update contents.
-               (adjust-array (data current-line)
-                             (+ len
-                                (line-length next-line))
-                             :fill-pointer t)
-               (replace (data current-line) (data next-line)
-                        :start1 len)
-               ;; Unlink next line from the line list.
-               (cond ((next-line next-line)
-                      (setf (previous-line (next-line next-line)) current-line))
-                     (t (setf (last-line buffer) current-line)))
-               (setf (next-line current-line) (next-line next-line))
-               (setf (next-line next-line) nil
-                     (previous-line next-line) nil
-                     (line-buffer next-line) nil)
-               (incf (line-version next-line))
-               ;; Update marks. FIXME
-               #+(or)(dolist (mark (mark-list *editor*))
-                 (when (eql (line mark) next-line)
-                   (setf (line mark) current-line)
-                   (incf (offset mark) (line-length current-line)))))))
-          (t ;; At start or middle of line. Trim line.
-           (setf (fill-pointer (data current-line)) current-charpos)
-           ;; Update marks. FIXME
-           #+(or)(dolist (mark (mark-list *editor*))
-             (when (and (eql (line mark) current-line)
-                        (> (offset mark) (line-length current-line)))
-               (setf (offset mark) (line-length current-line))))))
-    (incf (line-version current-line)))
+  (let ((point (buffer-point buffer)))
+    (with-mark (here point :left)
+      (if (end-of-line-p point)
+          (move-mark point)
+          (move-end-of-line buffer))
+      (unwind-protect
+           (delete-region buffer here point)
+        (point-to-mark buffer here))))
   (values))
-
-(defun delete-one-char-forward (buffer)
-  (let* ((point (buffer-point buffer))
-         (current-line (mark-line point))
-         (current-charpos (mark-charpos point)))
-    (cond ((eql current-charpos (line-length current-line))
-           (kill-line buffer))
-          (t
-           (replace (data current-line) (data current-line)
-                    :start1 current-charpos
-                    :start2 (1+ current-charpos))
-           (decf (fill-pointer (data current-line)))
-           (incf (line-version current-line))
-           ;; Update marks. FIXME
-           #+(or)(dolist (mark (mark-list *editor*))
-             (when (and (eql (line mark) current-line)
-                        (> (offset mark) (point-offset *editor*)))
-               (decf (offset mark))))))))
 
 (defun delete-forward-char (buffer &optional (n 1))
   "Delete the following N characters (previous if N is negative)."
-  (cond ((minusp n)
-         (setf n (- n))
-         (dotimes (i n)
-           (when (and (eql (mark-line (buffer-point buffer)) (first-line buffer))
-                      (eql (mark-charpos (buffer-point buffer)) 0))
-             ;; At buffer start.
-             (return))
-           (backward-char buffer)
-           (delete-one-char-forward buffer)))
-        (t
-         (dotimes (i n)
-           (when (and (eql (mark-line (buffer-point buffer)) (last-line buffer))
-                      (eql (mark-charpos (buffer-point buffer)) (line-length (last-line buffer))))
-             ;; At buffer end.
-             (return))
-           (delete-one-char-forward buffer))))
+  (let ((point (buffer-point buffer)))
+    (with-mark (here point :left)
+      (move-mark point n)
+      (unwind-protect
+           (delete-region buffer here point)
+        (point-to-mark buffer here))))
   (values))
 
 (defun delete-backward-char (buffer &optional (n 1))
@@ -759,9 +827,6 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                   (buffer-property buffer 'pane-previous-mark-position) previous-mark-position))
           ;; If the point has moved, then invalidate the line that contained the point and the line that
           ;; now holds the point.
-          #+(or)(format t "Point: ~S  prev point: ~S  equal: ~S~%"
-                  point previous-point-position
-                  (mark-equal-p point previous-point-position))
           (when (not (mark-equal-p point previous-point-position))
             (flush-display-line previous-point-position)
             (flush-display-line point))
@@ -783,7 +848,6 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
           (when (and (or (buffer-mark-active buffer)
                          (buffer-property buffer 'pane-mark-was-active))
                      (not (mark-equal-p mark previous-mark-position)))
-            (format t "Mark moved from ~S to ~S~%" previous-mark-position mark)
             (flush-display-lines-in-region mark previous-mark-position))
           ;; Finally, flush any stale lines.
           (flush-stale-lines)
@@ -794,7 +858,6 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
           ;; Generate WINDOW-ROWS display lines, starting at TOP-LINE.
           ;; TODO: Don't start from the beginning of the top-line, use the charpos instead.
           (setf (mark-charpos top-line) 0)
-          ;(format t "Top line ~S ~S~%" top-line (mark-line top-line))
           (do ((line (mark-line top-line) (next-line line)))
               ;; Stop when there are no more lines or the screen has been filled up.
               ((null line))
@@ -815,26 +878,18 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
           (when (not point-line)
             (recenter buffer)
             (return-from redisplay nil))
-          ;(format t "New screen is ~S~%" new-screen)
           ;; Compare against the current screen, blitting when needed.
           (dotimes (y (window-rows))
             (let ((line (aref new-screen y)))
               (unless (eql (aref current-screen y) line)
-                ;(format t "Update line ~D. Old ~S new ~S.~%" y (aref current-screen y) line)
                 (blit-display-line line y)
                 (setf (aref current-screen y) line)
                 (check-pending-input))))
           ;; Prune the cache.
-          (setf (display-line-cache *editor*) (subseq (display-line-cache *editor*) 0 (* (window-rows) 4)))
-          #+(or)(format t "Line cache: ~S~%" (display-line-cache *editor*)))
+          (setf (display-line-cache *editor*) (subseq (display-line-cache *editor*) 0 (* (window-rows) 4))))
         t)
     (pending-input ()
       nil)))
-
-(defun vomit-buffer (buffer)
-  (do ((line (first-line buffer) (next-line line)))
-      ((not line))
-    (format t "~S ~S~%" line (data line))))
 
 (defun editor-loop ()
   (loop
@@ -859,14 +914,12 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
              (#\Backspace (delete-backward-char buffer))
              (#\C-D (delete-forward-char buffer))
              (#\Delete (delete-forward-char buffer))
-             (#\C-V (vomit-buffer buffer))
              (#\C-T (test-fill buffer))
+             (#\C-W (kill-region buffer (buffer-point buffer) (buffer-mark buffer)))
+             (#\C-Y (yank-region buffer))
              (t (cond ((find ch "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789!\"£$%^&*()_+-=[]{};'#:@~,./<>?`~|\\"
                              :test #'char=)
                        (insert-char buffer ch)))))
-           (format t "Point at ~S  mark at ~S  active:~S~%"
-                   (buffer-point buffer) (buffer-mark buffer)
-                   (buffer-mark-active buffer))
            (setf (pending-redisplay *editor*) (not (redisplay))))
        (error (c)
          (ignore-errors
