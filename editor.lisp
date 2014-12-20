@@ -102,8 +102,8 @@
    (%line-cache :initarg :display-line-cache :accessor display-line-cache))
   (:default-initargs :pending-event nil
                      :pending-redisplay t
-                     :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E
+                     :foreground-colour mezzanine.gui:*default-foreground-colour*
+                     :background-colour mezzanine.gui:*default-background-colour*
                      :killed-region nil
                      :global-key-map (make-hash-table)
                      :screen nil

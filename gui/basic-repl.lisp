@@ -17,8 +17,8 @@
                      :x 0
                      :y 0
                      :line 0
-                     :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E))
+                     :foreground-colour mezzanine.gui:*default-foreground-colour*
+                     :background-colour mezzanine.gui:*default-background-colour*))
 
 (defgeneric dispatch-event (window event)
   ;; Eat unknown events.

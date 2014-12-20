@@ -216,8 +216,8 @@
    (%background-colour :initarg :background-colour :reader background-colour)
    (%foreground-colour :initarg :foreground-colour :reader foreground-colour)
    (%font :initarg :font :reader font))
-  (:default-initargs :foreground-colour #xFFDCDCCC
-                     :background-colour #xFF3E3E3E))
+  (:default-initargs :foreground-colour mezzanine.gui:*default-foreground-colour*
+                     :background-colour mezzanine.gui:*default-background-colour*))
 
 (defmethod initialize-instance :after ((widget text-widget) &key &allow-other-keys)
   (reset widget))

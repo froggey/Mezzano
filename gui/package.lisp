@@ -12,7 +12,9 @@
            #:bitset-argb-xrgb-mask-1
            #:bitset-argb-xrgb
            #:bitblt
-           #:bitblt-argb-xrgb))
+           #:bitblt-argb-xrgb
+           #:*default-foreground-colour*
+           #:*default-background-colour*))
 
 (defpackage :mezzanine.gui.compositor
   (:use :cl :mezzanine.gui)

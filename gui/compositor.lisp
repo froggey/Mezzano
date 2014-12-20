@@ -1,5 +1,8 @@
 (in-package :mezzanine.gui.compositor)
 
+(defvar *default-foreground-colour* #xFFDCDCCC)
+(defvar *default-background-colour* #xFF3E3E3E)
+
 (defun clamp (x min max)
   (cond ((< x min) min)
         ((> x max) max)
