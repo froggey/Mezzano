@@ -110,18 +110,6 @@
                (> ncols 0))
       (sys.int::%bitset nrows ncols val to-array to-row to-col))))
 
-(defun bitblt-test ()
-  (let ((src (make-array (list 64 32) :element-type '(unsigned-byte 32))))
-    (sys.int::%bitset 64 32 (make-colour '(0.8 0.5 0.2)) src 0 0)
-    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 500 500)
-    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* -16 500)
-    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 500 -16)
-    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 300 1000)
-    (bitblt 64 32 src 0 0 sys.int::*bochs-framebuffer* 750 300)
-    (bitblt 128 64 src 0 0 sys.int::*bochs-framebuffer* 600 600)
-    (bitblt -64 -32 src 0 0 sys.int::*bochs-framebuffer* 700 700)
-    (bitblt 64 32 src 20 10 sys.int::*bochs-framebuffer* 400 400)))
-
 (defun %simple-array-data-pointer (array)
   "Find the address of ARRAY's first data element."
   (when (not (sys.int::%simple-1d-array-p array))
@@ -324,10 +312,11 @@
   (sys.lap-x86:mov32 :ecx :eax) ; ecx = pixel (ARGB)
   (sys.lap-x86:and32 :ecx #xFF000000) ; ecx = pixel-alpha (A000)
   (sys.lap-x86:jz out) ; Fully transparent, bail out.
-  (sys.lap-x86:cmp32 :ecx #xFF000000)
-  (sys.lap-x86:je set-result) ; Fully opaque, just set it.
   ;; Read destination.
   (sys.lap-x86:mov32 :edx (:rdi)) ; rdx = pixel (XRGB)
+  ;; Check for fully opaque source.
+  (sys.lap-x86:cmp32 :ecx #xFF000000)
+  (sys.lap-x86:je fully-opaque)
   ;; MMX pixel blend.
   ;; RAX = Source pixel.
   ;; RCX = Alpha channel of source pixel at (byte 8 24).
@@ -363,6 +352,11 @@
   (sys.lap-x86:mov32 (:rdi) :eax) ; rdx = pixel (XRGB)
   out
   (sys.lap-x86:ret)
+  fully-opaque
+  (sys.lap-x86:and32 :edx #xFF000000)
+  (sys.lap-x86:and32 :eax #x00FFFFFF)
+  (sys.lap-x86:or32 :eax :edx)
+  (sys.lap-x86:jmp set-result)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle
   (:d64/le #x0000000000010101)
