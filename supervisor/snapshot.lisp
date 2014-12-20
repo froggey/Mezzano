@@ -52,15 +52,16 @@
 
 (defun snapshot-copy-wired-area ()
   ;; FIXME: Only copy dirty pages.
-  (loop
-     for i from #x200000 below sys.int::*wired-area-bump* by #x1000
-     for pte = (or (get-pte-for-address i nil)
-                   (panic "No page table entry for " i))
-     for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
-     for other-frame = (physical-page-frame-next page-frame)
-     do
-       (%fast-page-copy (+ +physical-map-base+ (ash other-frame 12)) i)
-       (snapshot-add-writeback-frame other-frame)))
+  (without-interrupts
+    (loop
+       for i from #x200000 below sys.int::*wired-area-bump* by #x1000
+       for pte = (or (get-pte-for-address i nil)
+                     (panic "No page table entry for " i))
+       for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
+       for other-frame = (physical-page-frame-next page-frame)
+       do
+         (%fast-page-copy (+ +physical-map-base+ (ash other-frame 12)) i)
+         (snapshot-add-writeback-frame other-frame))))
 
 (defun snapshot-mark-cow-dirty-pages ()
   ;; Mark all non-wired dirty pages as read-only and set their CoW bits.
