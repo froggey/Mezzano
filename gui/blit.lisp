@@ -436,7 +436,7 @@
   (sys.lap-x86:ret)
   ;(:align 4) ; 16 byte alignment for XMM. (TODO)
   alpha-shuffle
-  (:d64/le #x0000000001010101)
+  (:d64/le #x0000000000010101)
   inverse-alpha
   (:d64/le #x00FF00FF00FF00FF))
 
