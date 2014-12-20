@@ -112,6 +112,7 @@
 (defvar *last-command*)
 (defvar *this-command*)
 (defvar *last-character*)
+(defvar *this-character*)
 (defvar *editor*)
 
 (defgeneric dispatch-event (editor event)
@@ -145,7 +146,7 @@
                                    :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
           (mezzanine.gui.compositor:key-key event)))))
 
-(defun editor-read-char ()
+(defun editor-read-char-1 ()
   (catch 'next-character
     (when (pending-event *editor*)
       (let ((event (pending-event *editor*)))
@@ -155,6 +156,13 @@
       (throw 'next-character nil))
     (loop
        (dispatch-event *editor* (mezzanine.supervisor:fifo-pop (fifo *editor*))))))
+
+(defun editor-read-char ()
+  (loop
+     (let ((ch (editor-read-char-1)))
+       (when ch
+         (return ch)))
+     (setf (pending-redisplay *editor*) (not (redisplay)))))
 
 (define-condition pending-input () ())
 
@@ -248,14 +256,13 @@
       ((null l))
     (setf (line-number line) (+ (line-number (prev line)) +line-number-increment+))))
 
-(defun insert-line (buffer)
-  "Insert a new line after the point, splitting the current line if needed.
+(defun insert-line (point)
+  "Insert a new line at POINT, splitting the current line if needed.
 Don't use this, use INSERT instead."
-  (let* ((point (buffer-point buffer))
-         (current-line (mark-line point))
+  (let* ((current-line (mark-line point))
          (current-charpos (mark-charpos point))
          (new-line (make-instance 'line
-                                  :buffer buffer
+                                  :buffer (line-buffer current-line)
                                   :next (next-line current-line)
                                   :prev current-line
                                   :data (make-array (- (line-length current-line)
@@ -271,7 +278,8 @@ Don't use this, use INSERT instead."
     ;; Link into the line list.
     (cond ((next-line current-line)
            (setf (previous-line (next-line current-line)) new-line))
-          (t (setf (last-line buffer) new-line)))
+          ((line-buffer current-line)
+           (setf (last-line (line-buffer current-line)) new-line)))
     (setf (next-line current-line) new-line)
     ;; Ensure coherent numbering.
     (cond ((and (next-line new-line)
@@ -294,11 +302,10 @@ Don't use this, use INSERT instead."
                 (mark-charpos mark) real-pos)))))
   (values))
 
-(defun insert-char (buffer character)
-  "Insert CHARACTER after point, then advance point.
+(defun insert-char (point character)
+  "Insert CHARACTER at POINT.
 Don't use this directly, use INSERT instead."
-  (let* ((point (buffer-point buffer))
-         (current-line (mark-line point))
+  (let* ((current-line (mark-line point))
          (current-charpos (mark-charpos point)))
     (cond ((eql (line-length current-line) current-charpos)
            ;; Inserting at end.
@@ -323,8 +330,8 @@ Don't use this directly, use INSERT instead."
   "Insert STRING into BUFFER at point. STRING is a string-designator, so can be a character."
   (loop for ch across (string string)
      if (char= ch #\Newline)
-     do (insert-line buffer)
-     else do (insert-char buffer ch)))
+     do (insert-line (buffer-point buffer))
+     else do (insert-char (buffer-point buffer) ch)))
 
 (defun order-marks (mark-1 mark-2)
   (let ((line-1 (mark-line mark-1))
@@ -338,15 +345,50 @@ Don't use this directly, use INSERT instead."
            (values mark-2 mark-1))
           (t (values mark-1 mark-2)))))
 
-(defun insert-region (buffer mark-1 mark-2)
+(defun insert-region-at-mark (point mark-1 mark-2)
   (setf (values mark-1 mark-2) (order-marks mark-1 mark-2))
-  (do ((m1 (copy-mark mark-1))
-       (m2 (copy-mark mark-2)))
-      ((mark-equal-p m1 m2))
-    (if (end-of-line-p m1)
-        (insert-line buffer)
-        (insert-char buffer (line-character (mark-line m1) (mark-charpos m1))))
-    (move-mark m1)))
+  (let ((line-1 (mark-line mark-1))
+        (chpos-1 (mark-charpos mark-1))
+        (line-2 (mark-line mark-2))
+        (chpos-2 (mark-charpos mark-2))
+        (insert-line (mark-line point))
+        (insert-chpos (mark-charpos point)))
+    (cond ((eql line-1 line-2)
+           ;; Not inserting any newlines, just make the line bigger.
+           (when (not (eql chpos-1 chpos-2))
+             (adjust-array (data insert-line)
+                           (+ insert-chpos (- chpos-2 chpos-1))
+                           :fill-pointer t)
+             (when (not (eql (line-length insert-line) insert-chpos))
+               ;; Inserting in the middle, need to shuffle data up.
+               (replace (data insert-line) (data insert-line)
+                        :start1 (+ insert-chpos (- chpos-2 chpos-1))
+                        :start2 insert-chpos))
+             ;; Insert new data into the hole.
+             (replace (data insert-line) (data line-1)
+                      :start1 insert-chpos
+                      :start2 chpos-1
+                      :end2 chpos-2)
+             (incf (line-version insert-line))
+             ;; Update marks.
+             (dolist (mark (line-mark-list insert-line))
+               (when (or (and (eql (mark-kind mark) :right)
+                              (eql (mark-charpos mark) insert-chpos))
+                         (> (mark-charpos mark) insert-chpos))
+                 (incf (mark-charpos mark) (- chpos-2 chpos-1))))))
+          (t ;; Inserting multiple lines.
+           ;; todo properly...
+           (do ((m1 (copy-mark mark-1))
+                (m2 (copy-mark mark-2)))
+               ((mark-equal-p m1 m2))
+             (if (end-of-line-p m1)
+                 (insert-line point)
+                 (insert-char point (line-character (mark-line m1) (mark-charpos m1))))
+             (move-mark m1))))))
+
+(defun insert-region (buffer mark-1 mark-2)
+  (insert-region-at-mark (buffer-point buffer)
+                         mark-1 mark-2))
 
 (defun yank-region (buffer)
   (when (killed-region *editor*)
@@ -441,7 +483,16 @@ Returns the deleted region as a pair of marks into a disembodied line."
 (defun kill-region (buffer mark-1 mark-2)
   (multiple-value-bind (first-mark last-mark)
       (delete-region buffer mark-1 mark-2)
-    (setf (killed-region *editor*) (cons first-mark last-mark))))
+    (when (or (not (mark-equal-p first-mark last-mark))
+              (eql *last-command* 'kill-region))
+      (setf *this-command* 'kill-region))
+    (cond ((and (killed-region *editor*)
+                (eql *last-command* 'kill-region))
+           ;; Append to killed region.
+           (insert-region-at-mark (cdr (killed-region *editor*))
+                                  first-mark last-mark))
+          (t ;; New killed region.
+           (setf (killed-region *editor*) (cons first-mark last-mark))))))
 
 (defun kill-line (buffer)
   "Kill from point to the end of the line. If the point is at the end of the line,
@@ -452,7 +503,7 @@ then merge the current line and next line."
           (move-mark point)
           (move-end-of-line buffer))
       (unwind-protect
-           (delete-region buffer here point)
+           (kill-region buffer here point)
         (point-to-mark buffer here))))
   (values))
 
@@ -913,14 +964,10 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 ;;; Editing commands.
 
 (defun self-insert-command ()
-  (insert (current-buffer *editor*) *last-character*))
+  (insert (current-buffer *editor*) *this-character*))
 
 (defun quoted-insert-command ()
-  (loop
-     (let ((ch (editor-read-char)))
-       (when ch
-         (insert (current-buffer *editor*) ch)
-         (return)))))
+  (insert (current-buffer *editor*) (editor-read-char)))
 
 (defun delete-forward-char-command ()
   (delete-char (current-buffer *editor*)))
@@ -955,13 +1002,13 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun editor-loop ()
   (loop
      (handler-case
-         (let ((*last-character* (editor-read-char)))
-           (when *last-character* ; Happens when there's a redisplay pending. Sigh.
-             (let ((*this-command* (translate-command *editor* *last-character*)))
-               (cond (*this-command*
-                      (funcall *this-command*)
-                      (setf *last-command* *this-command*))
-                     (t (format t "Unknown command ~S~%" *last-character*)))))
+         (let* ((*this-character* (editor-read-char))
+                (*this-command* (translate-command *editor* *this-character*)))
+           (cond (*this-command*
+                  (funcall *this-command*))
+                 (t (format t "Unknown command ~S~%" *this-character*)))
+           (setf *last-command* *this-command*)
+           (setf *last-character* *this-character*)
            (setf (pending-redisplay *editor*) (not (redisplay))))
        (error (c)
          (ignore-errors
@@ -1013,7 +1060,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                                         :window window
                                         :frame frame
                                         :buffer (make-instance 'buffer)))
-               (*last-command* nil))
+               (*last-command* nil)
+               (*last-character* nil))
           (initialize-global-key-map *editor*)
           (mezzanine.gui.widgets:draw-frame frame)
           (multiple-value-bind (left right top bottom)
