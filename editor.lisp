@@ -923,10 +923,10 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
          (return)))))
 
 (defun delete-forward-char-command ()
-  (delete-forward-char (current-buffer *editor*)))
+  (delete-char (current-buffer *editor*)))
 
 (defun delete-backward-char-command ()
-  (delete-backward-char (current-buffer *editor*) -1))
+  (delete-char (current-buffer *editor*) -1))
 
 (defun kill-line-command ()
   (kill-line (current-buffer *editor*)))
@@ -1016,6 +1016,17 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                (*last-command* nil))
           (initialize-global-key-map *editor*)
           (mezzanine.gui.widgets:draw-frame frame)
+          (multiple-value-bind (left right top bottom)
+              (mezzanine.gui.widgets:frame-size (frame *editor*))
+            (mezzanine.gui:bitset (- (mezzanine.gui.compositor:height window) top bottom)
+                                  (- (mezzanine.gui.compositor:width window) left right)
+                                  (background-colour *editor*)
+                                  framebuffer
+                                  top left)
+            (mezzanine.gui.compositor:damage-window window
+                                                    left top
+                                                    (- (mezzanine.gui.compositor:width window) left right)
+                                                    (- (mezzanine.gui.compositor:height window) top bottom)))
           (catch 'quit
             (editor-loop)))))))
 
