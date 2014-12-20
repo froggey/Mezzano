@@ -21,9 +21,9 @@
 
 (in-package :mezzanine.gui.font)
 
-(defvar *default-font* "Helvetica")
+(defvar *default-font* "DejaVuSans")
 (defvar *default-font-size* 12)
-(defvar *default-monospace-font* "Monaco")
+(defvar *default-monospace-font* "DejaVuSansMono")
 (defvar *default-monospace-font-size* 12)
 
 (defclass typeface ()
