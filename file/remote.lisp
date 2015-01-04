@@ -230,6 +230,13 @@
              (error 'simple-file-error
                     :pathname pathname
                     :format-control "Could not rename ~S."
+                    :format-arguments (list pathname)))
+           (sys.net:buffered-format con "(:DELETE ~S)" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error 'simple-file-error
+                    :pathname pathname
+                    :format-control "Could not supersede ~S."
                     :format-arguments (list pathname))))
           (:supersede
            (sys.net:buffered-format con "(:DELETE ~S)" path)
