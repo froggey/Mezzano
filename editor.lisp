@@ -720,10 +720,80 @@ Tries to stay as close to the hint column as possible."
       ;; And now past alphanumeric characters.
       (funcall fn point (complement #'alphanumericp)))))
 
+(defun scan-sexp-forward (mark)
+  (let ((pair-stack '())
+        (first-char t))
+    (flet ((whitespacep (ch)
+             (eql (sys.int::readtable-syntax-type ch nil) :whitespace)))
+      ;; Skip past any leading whitespace.
+      (scan-forward mark (complement #'whitespacep))
+      (loop
+         (let ((ch (character-right-of mark)))
+           (when (not ch)
+             (return nil))
+           (when (and (whitespacep ch) (not pair-stack))
+             (return t))
+           (cond ((eql ch (first pair-stack))
+                  (pop pair-stack)
+                  (when (not pair-stack)
+                    ;; Found last match, finished.
+                    (move-mark mark 1)
+                    (return t)))
+                 ((eql ch #\))
+                  (if first-char
+                      (error "Unmatched ~C." ch)
+                      (return t)))
+                 ((eql ch #\")
+                  (push #\" pair-stack))
+                 ((eql ch #\()
+                  (push #\) pair-stack)))
+           (move-mark mark 1))
+         (setf first-char nil)))))
+
+(defun scan-sexp-backward (mark)
+  (let ((pair-stack '())
+        (first-char t))
+    (flet ((whitespacep (ch)
+             (eql (sys.int::readtable-syntax-type ch nil) :whitespace)))
+      ;; Skip past any leading whitespace.
+      (scan-backward mark (complement #'whitespacep))
+      (loop
+         (let ((ch (character-left-of mark)))
+           (when (not ch)
+             (return nil))
+           (when (and (whitespacep ch) (not pair-stack))
+             (return t))
+           (cond ((eql ch (first pair-stack))
+                  (pop pair-stack)
+                  (when (not pair-stack)
+                    ;; Found last match, finished.
+                    (move-mark mark -1)
+                    (return t)))
+                 ((eql ch #\()
+                  (if first-char
+                      (error "Unmatched ~C." ch)
+                      (return t)))
+                 ((eql ch #\")
+                  (push #\" pair-stack))
+                 ((eql ch #\))
+                  (push #\( pair-stack)))
+           (move-mark mark -1))
+         (setf first-char nil)))))
+
+(defun move-sexp (buffer &optional (n 1))
+  "Move point forward by N s-expressions. N may be negative."
+  (let ((point (buffer-point buffer))
+        (fn #'scan-sexp-forward))
+    (when (minusp n)
+      (setf n (- n)
+            fn #'scan-sexp-backward))
+    (dotimes (i n)
+      (funcall fn point))))
+
 (defun test-fill (buffer)
   (let ((width (1- (truncate (editor-width)
                              (mezzanine.gui.font:glyph-advance (mezzanine.gui.font:character-to-glyph (font *editor*) #\M))))))
-    (let ((mark (copy-mark (buffer-point buffer) :left)))
+    (with-mark (mark point :left)
       (dotimes (i (* (window-rows) 2))
         (dotimes (j width)
           (insert buffer (code-char (+ #x20 i))))
@@ -1146,6 +1216,12 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun backward-word-command ()
   (move-word (current-buffer *editor*) -1))
 
+(defun forward-sexp-command ()
+  (move-sexp (current-buffer *editor*)))
+
+(defun backward-sexp-command ()
+  (move-sexp (current-buffer *editor*) -1))
+
 (defun move-beginning-of-line-command ()
   (move-beginning-of-line (current-buffer *editor*)))
 
@@ -1225,8 +1301,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun find-file-command ()
   (let* ((path (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*)))
          (filespec (merge-pathnames path))
-         (buffer (make-instance 'buffer))
-         (start (copy-mark (buffer-point buffer) :left)))
+         (buffer (make-instance 'buffer)))
     (with-open-file (s filespec :if-does-not-exist nil)
       (cond (s
              (loop
@@ -1241,7 +1316,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
     (push buffer (buffer-list *editor*))
     (setf (buffer-property buffer 'path) filespec)
     (rename-buffer buffer (file-namestring filespec))
-    (point-to-mark buffer start)
+    (move-beginning-of-buffer buffer)
     ;; Loading the file will set the modified flag.
     (setf (buffer-modified buffer) nil)
     (switch-to-buffer buffer)
@@ -1414,6 +1489,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (set-key #\C-P 'previous-line-command key-map)
   (set-key #\M-F 'forward-word-command key-map)
   (set-key #\M-B 'backward-word-command key-map)
+  (set-key #\C-M-F 'forward-sexp-command key-map)
+  (set-key #\C-M-B 'backward-sexp-command key-map)
   (set-key #\C-A 'move-beginning-of-line-command key-map)
   (set-key #\C-E 'move-end-of-line-command key-map)
   (set-key #\C-K 'kill-line-command key-map)
@@ -1492,7 +1569,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                    (editor-loop)
                  (error (c)
                    (ignore-errors
-                     (format t "Editor error: ~A~%" c)))))))))))
+                     (format t "Editor error: ~A~%" c)
+                     (setf (pending-redisplay *editor*) t)))))))))))
 
 (defun spawn (&key width height)
   (mezzanine.supervisor:make-thread (lambda () (editor-main width height))
