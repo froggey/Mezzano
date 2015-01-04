@@ -91,6 +91,7 @@
    (%pending-redisplay :initarg :pending-redisplay :accessor pending-redisplay)
    (%window :initarg :window :accessor window)
    (%frame :initarg :frame :accessor frame)
+   (%buffer-list :initarg :buffer-list :accessor buffer-list)
    (%buffer :initarg :buffer :accessor current-buffer)
    (%font :initarg :font :reader font)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
@@ -115,6 +116,8 @@
 (defvar *this-command*)
 (defvar *last-character*)
 (defvar *this-character*)
+(defvar *last-chord*)
+(defvar *this-chord*)
 (defvar *minibuffer*)
 (defvar *minibuffer-key-map*)
 
@@ -179,13 +182,18 @@
                (setf (pending-event *editor*) event)
                (signal 'pending-input))))))
 
+(defun refresh-title ()
+  (let ((buffer (current-buffer *editor*)))
+    (setf (mezzanine.gui.widgets:frame-title (frame *editor*))
+          (format nil "Editor - ~A~A"
+                  (or (buffer-property buffer 'name) "Untitled")
+                  (if (buffer-modified buffer) " (Modified)" "")))
+    (mezzanine.gui.widgets:draw-frame (frame *editor*))))
+
 (defun switch-to-buffer (buffer)
   (setf (current-buffer *editor*) buffer
-        (pending-redisplay *editor*) t
-        (mezzanine.gui.widgets:frame-title (frame *editor*)) (if (buffer-property buffer 'name)
-                                                                 (format nil "Editor - ~A" (buffer-property buffer 'name))
-                                                                 "Editor"))
-  (mezzanine.gui.widgets:draw-frame (frame *editor*)))
+        (pending-redisplay *editor*) t)
+  (refresh-title))
 
 ;;; Mark management.
 
@@ -276,6 +284,15 @@
 
 ;;; Sub-editor. Buffer manipulation.
 
+(defun buffer-modified (buffer)
+  (buffer-property buffer 'modified))
+
+(defun (setf buffer-modified) (value buffer)
+  (when (not (eql (buffer-property buffer 'modified) value))
+    (setf (buffer-property buffer 'modified) value)
+    (refresh-title))
+  value)
+
 (defconstant +line-number-increment+ 10000)
 
 (defun fully-renumber-lines-from (line)
@@ -326,7 +343,10 @@ Don't use this, use INSERT instead."
                 (> (mark-charpos mark) current-charpos))
         (let ((real-pos (- (line-length current-line) (mark-charpos mark))))
           (setf (mark-line mark) new-line
-                (mark-charpos mark) real-pos)))))
+                (mark-charpos mark) real-pos))))
+    ;; Mark buffer modified (if any).
+    (when (line-buffer current-line)
+      (setf (buffer-modified (line-buffer current-line)) t)))
   (values))
 
 (defun insert-char (point character)
@@ -350,7 +370,10 @@ Don't use this directly, use INSERT instead."
       (when (or (and (eql (mark-kind mark) :right)
                      (eql (mark-charpos mark) current-charpos))
                 (> (mark-charpos mark) current-charpos))
-        (incf (mark-charpos mark)))))
+        (incf (mark-charpos mark))))
+    ;; Mark buffer modified (if any).
+    (when (line-buffer current-line)
+      (setf (buffer-modified (line-buffer current-line)) t)))
   (values))
 
 (defun insert (buffer string)
@@ -402,7 +425,10 @@ Don't use this directly, use INSERT instead."
                (when (or (and (eql (mark-kind mark) :right)
                               (eql (mark-charpos mark) insert-chpos))
                          (> (mark-charpos mark) insert-chpos))
-                 (incf (mark-charpos mark) (- chpos-2 chpos-1))))))
+                 (incf (mark-charpos mark) (- chpos-2 chpos-1))))
+             ;; Mark buffer modified (if any).
+             (when (line-buffer line-1)
+               (setf (buffer-modified (line-buffer line-1)) t))))
           (t ;; Inserting multiple lines.
            ;; todo properly...
            (do ((m1 (copy-mark mark-1))
@@ -449,6 +475,9 @@ Returns the deleted region as a pair of marks into a disembodied line."
            (dolist (mark (line-mark-list line))
              (when (> (mark-charpos mark) start)
                (decf (mark-charpos mark) (- end start))))
+           ;; Mark buffer modified (if any).
+           (when (line-buffer line)
+             (setf (buffer-modified (line-buffer line)) t))
            ;; Done.
            (let ((new-line (make-instance 'line :data data)))
              (values (make-mark new-line 0 :left)
@@ -499,6 +528,9 @@ Returns the deleted region as a pair of marks into a disembodied line."
              (dolist (mark (line-mark-list line))
                (setf (mark-line mark) first-line
                      (mark-charpos mark) first-chpos)))
+           ;; Mark buffer modified (if any).
+           (when (line-buffer first-line)
+             (setf (buffer-modified (line-buffer first-line)) t))
            ;; Done.
            (let ((new-line (make-instance 'line
                                           :data data
@@ -699,6 +731,15 @@ Tries to stay as close to the hint column as possible."
       (switch-to-buffer old-buffer)
       (setf (global-key-map *editor*) old-key-map
             (post-command-hooks *editor*) old-post-command-hooks))))
+
+(defun minibuffer-yes-or-no-p (&optional control &rest arguments)
+  (let ((prompt (apply 'format nil control arguments)))
+    (loop
+       (let ((line (read-from-minibuffer (format nil "~A (Yes or No) " prompt))))
+         (cond ((string-equal line "yes")
+                (return t))
+               ((string-equal line "no")
+                (return nil)))))))
 
 ;;; Redisplay.
 
@@ -1089,17 +1130,38 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun redraw-screen-command ()
   (redraw-screen))
 
+(defun scroll-up-command ()
+  ;; Find the display line at the bottom of the screen and recenter on that.
+  (let ((current-screen (editor-current-screen *editor*))
+        (point (buffer-point (current-buffer *editor*))))
+    (dotimes (i (length current-screen))
+      (let ((line (aref current-screen (- (length current-screen) i 1))))
+        (when line
+          (setf (mark-line point) (display-line-line line)
+                (mark-charpos point) (display-line-start line))
+          (recenter (current-buffer *editor*))
+          (return))))))
+
+(defun scroll-down-command ()
+  ;; Recenter on the topmost display line.
+  (let* ((current-screen (editor-current-screen *editor*))
+         (line (aref current-screen 0))
+         (point (buffer-point (current-buffer *editor*))))
+    (setf (mark-line point) (display-line-line line)
+          (mark-charpos point) (display-line-start line))
+    (recenter (current-buffer *editor*))))
+
 ;;; Other commands.
 
 (defun keyboard-quit-command ()
   (error "Keyboard quit."))
 
 (defun find-file-command ()
-  (let ((path (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*))))
-    (with-open-file (s (merge-pathnames path))
+  (let* ((path (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*)))
+         (filespec (merge-pathnames path)))
+    (with-open-file (s filespec)
       (let* ((buffer (make-instance 'buffer))
              (start (copy-mark (buffer-point buffer) :left)))
-        (setf (buffer-property buffer 'name) (file-namestring s))
         (loop
            (multiple-value-bind (line missing-newline-p)
                (read-line s nil)
@@ -1108,8 +1170,111 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
              (insert buffer line)
              (when (not missing-newline-p)
                (insert buffer #\Newline))))
+        (push buffer (buffer-list *editor*))
+        (setf (buffer-property buffer 'path) filespec)
+        (rename-buffer buffer (file-namestring s))
         (point-to-mark buffer start)
-        (switch-to-buffer buffer)))))
+        ;; Loading the file will set the modified flag.
+        (setf (buffer-modified buffer) nil)
+        (switch-to-buffer buffer)))
+    (setf *default-pathname-defaults* filespec)))
+
+(defun save-buffer-command ()
+  (let ((buffer (current-buffer *editor*)))
+    (when (not (buffer-property buffer 'path))
+      (let* ((path (read-from-minibuffer (format nil "Write file (default ~S): " *default-pathname-defaults*)))
+             (filespec (merge-pathnames path)))
+        (rename-buffer buffer (file-namestring filespec))
+        (setf (buffer-property buffer 'path) filespec)))
+    (with-open-file (s (buffer-property buffer 'path)
+                       :direction :output
+                       :if-exists :new-version
+                       :if-does-not-exist :create)
+      (do ((line (first-line buffer) (next-line line)))
+          ((not line))
+        (write-sequence (data line) s)
+        (when (next-line line)
+          (terpri s))))
+    (setf (buffer-modified buffer) nil)))
+
+(defun write-file-command ()
+  (let* ((buffer (current-buffer *editor*))
+         (*default-pathname-defaults* (or (buffer-property buffer 'path)
+                                          *default-pathname-defaults*))
+         (path (read-from-minibuffer (format nil "Write file (default ~S): " *default-pathname-defaults*)))
+         (filespec (merge-pathnames path)))
+    (rename-buffer buffer (file-namestring filespec))
+    (setf (buffer-property buffer 'path) filespec)
+    (with-open-file (s (buffer-property buffer 'path)
+                       :direction :output
+                       :if-exists :new-version
+                       :if-does-not-exist :create)
+      (do ((line (first-line buffer) (next-line line)))
+          ((not line))
+        (write-sequence (data line) s)
+        (terpri s)))
+    (setf (buffer-modified buffer) nil)))
+
+(defun list-buffers-command ()
+  (let ((buffer (get-buffer-create "*Buffers*")))
+    (switch-to-buffer buffer)
+    ;; Clear the whole buffer.
+    (delete-region buffer
+                   (make-mark (first-line buffer) 0)
+                   (make-mark (last-line buffer) (line-length (last-line buffer))))
+    (dolist (b (buffer-list *editor*))
+      (insert buffer (buffer-property b 'name))
+      (insert buffer #\Newline))))
+
+(defun switch-to-buffer-command ()
+  (switch-to-buffer (get-buffer-create (read-from-minibuffer "Buffer: "))))
+
+(defun kill-buffer-command ()
+  (let* ((name (read-from-minibuffer (format nil "Buffer (default ~A): " (buffer-property (current-buffer *editor*) 'name))))
+         (buffer (if (zerop (length name))
+                     (current-buffer *editor*)
+                     (or (get-buffer name)
+                         (error "No buffer named ~S" name)))))
+    (when (buffer-modified buffer)
+      (when (not (minibuffer-yes-or-no-p "Buffer ~S modified, kill anyway?" (buffer-property buffer 'name)))
+        (return-from kill-buffer-command)))
+    (kill-buffer buffer)))
+
+(defun get-buffer-create (name)
+  (setf name (string name))
+  (or (get-buffer name)
+      (let ((buffer (make-instance 'buffer)))
+        (setf (buffer-property buffer 'name) name)
+        (push buffer (buffer-list *editor*))
+        buffer)))
+
+(defun get-buffer (name)
+  (dolist (b (buffer-list *editor*))
+    (when (string-equal (buffer-property b 'name) name)
+      (return b))))
+
+(defun kill-buffer (buffer)
+  (setf (buffer-list *editor*) (remove buffer (buffer-list *editor*)))
+  (when (eql buffer (current-buffer *editor*))
+    (switch-to-buffer
+     (if (buffer-list *editor*)
+         (first (buffer-list *editor*))
+         (get-buffer-create "*Scratch*")))))
+
+(defun unique-name (name &optional version)
+  (let ((actual-name (if version
+                         (format nil "~A <~D>" name version)
+                         name)))
+    (if (get-buffer actual-name)
+        (unique-name name (if version
+                              (1+ version)
+                              1))
+        actual-name)))
+
+(defun rename-buffer (buffer new-name)
+  (unless (string-equal (buffer-property buffer 'name) new-name)
+    (setf (buffer-property buffer 'name) (unique-name new-name))
+    (refresh-title)))
 
 ;;;; End command wrappers.
 
@@ -1120,52 +1285,86 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun editor-loop ()
   (loop
      (let* ((*this-character* (editor-read-char))
+            (*this-chord* (list *this-character*))
             (*this-command* (translate-command *editor* *this-character*)))
-       (cond (*this-command*
+       (cond ((hash-table-p *this-command*)
+              (loop
+                 (setf *this-character* (editor-read-char)
+                       *this-command* (gethash *this-character* *this-command*))
+                 (push *this-character* *this-chord*)
+                 (when (not (hash-table-p *this-command*))
+                   (setf *this-chord* (reverse *this-chord*))
+                   (cond (*this-command*
+                          (funcall *this-command*)
+                          (mapc 'funcall (post-command-hooks *editor*)))
+                         (t (format t "Unknown command ~S~%" *this-chord*)))
+                   (return))))
+             (*this-command*
               (funcall *this-command*)
               (mapc 'funcall (post-command-hooks *editor*)))
              (t (format t "Unknown command ~S~%" *this-character*)))
-       (setf *last-command* *this-command*)
-       (setf *last-character* *this-character*)
+       (setf *last-command* *this-command*
+             *last-character* *this-character*
+             *last-chord* *this-chord*)
        (setf (pending-redisplay *editor*) (not (redisplay))))))
 
+(defun set-key (key fn map)
+  (cond ((not (consp key))
+         (set-key (list key) fn map))
+        ((rest key)
+         (let ((next (gethash (first key) map)))
+           (when (not (hash-table-p next))
+             (setf next (make-hash-table)
+                   (gethash (first key) map) next))
+           (set-key (rest key) fn next)))
+        (t (setf (gethash (first key) map) fn))))
+
 (defun initialize-key-map (key-map)
-  (flet ((set-key (key fn)
-           (setf (gethash key key-map) fn)))
-    (set-key #\Newline 'self-insert-command)
-    ;; ASCII printable characters.
-    (loop for i from #x20 to #x7E
-       do (set-key (code-char i) 'self-insert-command))
-    ;; Latin 1 printable characters.
-    (loop for i from #xA0 to #xFF
-       do (set-key (code-char i) 'self-insert-command))
-    (set-key #\C-F 'forward-char-command)
-    (set-key #\C-B 'backward-char-command)
-    (set-key #\C-N 'next-line-command)
-    (set-key #\C-P 'previous-line-command)
-    (set-key #\C-A 'move-beginning-of-line-command)
-    (set-key #\C-E 'move-end-of-line-command)
-    (set-key #\C-K 'kill-line-command)
-    (set-key #\C-Q 'quoted-insert-command)
-    (set-key #\C-L 'recenter-command)
-    (set-key #\M-L 'redraw-screen-command)
-    (set-key #\C-Space 'set-mark-command)
-    (set-key #\C-X 'exchange-point-and-mark-command)
-    (set-key #\Backspace 'delete-backward-char-command)
-    (set-key #\C-D 'delete-forward-char-command)
-    (set-key #\Delete 'delete-forward-char-command)
-    (set-key #\C-W 'kill-region-command)
-    (set-key #\C-Y 'yank-command)
-    (set-key #\C-O 'find-file-command)
-    (set-key #\C-Q 'keyboard-quit-command)
-    (set-key #\M-< 'move-beginning-of-buffer-command)
-    (set-key #\M-> 'move-end-of-buffer-command)))
+  (set-key #\Newline 'self-insert-command key-map)
+  ;; ASCII printable characters.
+  (loop for i from #x20 to #x7E
+     do (set-key (code-char i) 'self-insert-command key-map))
+  ;; Latin 1 printable characters.
+  (loop for i from #xA0 to #xFF
+     do (set-key (code-char i) 'self-insert-command key-map))
+  (set-key #\C-F 'forward-char-command key-map)
+  (set-key #\C-B 'backward-char-command key-map)
+  (set-key #\C-N 'next-line-command key-map)
+  (set-key #\C-P 'previous-line-command key-map)
+  (set-key #\C-A 'move-beginning-of-line-command key-map)
+  (set-key #\C-E 'move-end-of-line-command key-map)
+  (set-key #\C-K 'kill-line-command key-map)
+  (set-key #\C-Q 'quoted-insert-command key-map)
+  (set-key #\C-L 'recenter-command key-map)
+  (set-key #\M-L 'redraw-screen-command key-map)
+  (set-key #\C-Space 'set-mark-command key-map)
+  (set-key '(#\C-X #\C-X) 'exchange-point-and-mark-command key-map)
+  (set-key #\Backspace 'delete-backward-char-command key-map)
+  (set-key #\C-D 'delete-forward-char-command key-map)
+  (set-key #\Delete 'delete-forward-char-command key-map)
+  (set-key #\C-W 'kill-region-command key-map)
+  (set-key #\C-Y 'yank-command key-map)
+  (set-key '(#\C-X #\C-F) 'find-file-command key-map)
+  (set-key '(#\C-X #\C-S) 'save-buffer-command key-map)
+  (set-key '(#\C-X #\C-W) 'write-file-command key-map)
+  (set-key '(#\C-X #\k) 'kill-buffer-command key-map)
+  (set-key '(#\C-X #\b) 'switch-to-buffer-command key-map)
+  (set-key '(#\C-X #\C-B) 'list-buffers-command key-map)
+  (set-key #\C-G 'keyboard-quit-command key-map)
+  (set-key #\M-< 'move-beginning-of-buffer-command key-map)
+  (set-key #\M-> 'move-end-of-buffer-command key-map)
+  (set-key #\C-V 'scroll-up-command key-map)
+  (set-key #\M-V 'scroll-down-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
-  (flet ((set-key (key fn)
-           (setf (gethash key key-map) fn)))
-    (initialize-key-map key-map)
-    (set-key #\Newline 'minibuffer-finish-input-command)))
+  (initialize-key-map key-map)
+  (set-key #\Newline 'minibuffer-finish-input-command key-map)
+  (set-key '(#\C-X #\C-F) nil key-map)
+  (set-key '(#\C-X #\C-S) nil key-map)
+  (set-key '(#\C-X #\C-W) nil key-map)
+  (set-key '(#\C-X #\k) nil key-map)
+  (set-key '(#\C-X #\b) nil key-map)
+  (set-key '(#\C-X #\C-B) nil key-map))
 
 (defun editor-main (width height)
   (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
@@ -1185,8 +1384,10 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                                         :buffer (make-instance 'buffer)))
                (*last-command* nil)
                (*last-character* nil)
+               (*last-chord* nil)
                (*minibuffer* (make-instance 'buffer))
-               (*minibuffer-key-map* (make-hash-table)))
+               (*minibuffer-key-map* (make-hash-table))
+               (*default-pathname-defaults* *default-pathname-defaults*))
           (initialize-key-map (global-key-map *editor*))
           (initialize-minibuffer-key-map *minibuffer-key-map*)
           (mezzanine.gui.widgets:draw-frame frame)
@@ -1201,6 +1402,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                                                     left top
                                                     (- (mezzanine.gui.compositor:width window) left right)
                                                     (- (mezzanine.gui.compositor:height window) top bottom)))
+          (switch-to-buffer (get-buffer-create "*Scratch*"))
           (catch 'quit
             (loop
                (handler-case
