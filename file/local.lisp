@@ -35,7 +35,7 @@
   (:default-initargs :plist '()
                      :lock (mezzanine.supervisor:make-mutex "Local File lock")))
 
-(defclass local-stream (file-stream sys.gray:fundamental-stream)
+(defclass local-stream (file-stream sys.gray:fundamental-stream sys.gray:unread-char-mixin)
   ((file :initarg :file :reader local-stream-file)
    (pathname :initarg :pathname :reader file-stream-pathname)
    (position :initarg :position :accessor stream-position)
