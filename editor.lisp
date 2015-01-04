@@ -1261,6 +1261,13 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (let ((buffer (current-buffer *editor*)))
     (kill-region buffer (buffer-point buffer) (buffer-mark buffer))))
 
+(defun kill-sexp-command ()
+  (let* ((buffer (current-buffer *editor*))
+         (point (buffer-point buffer)))
+    (with-mark (current point)
+      (move-sexp buffer 1)
+      (kill-region buffer current point))))
+
 (defun yank-command ()
   (yank-region (current-buffer *editor*)))
 
@@ -1320,7 +1327,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
     ;; Loading the file will set the modified flag.
     (setf (buffer-modified buffer) nil)
     (switch-to-buffer buffer)
-    (setf *default-pathname-defaults* filespec)))
+    (setf *default-pathname-defaults* (make-pathname :name nil :type nil :version :newest :defaults filespec))))
 
 (defun save-buffer-command ()
   (let ((buffer (current-buffer *editor*)))
@@ -1494,6 +1501,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (set-key #\C-A 'move-beginning-of-line-command key-map)
   (set-key #\C-E 'move-end-of-line-command key-map)
   (set-key #\C-K 'kill-line-command key-map)
+  (set-key #\C-M-K 'kill-sexp-command key-map)
   (set-key #\C-Q 'quoted-insert-command key-map)
   (set-key #\C-L 'recenter-command key-map)
   (set-key #\M-L 'redraw-screen-command key-map)
