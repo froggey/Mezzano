@@ -237,7 +237,11 @@
              (error 'simple-file-error
                     :pathname pathname
                     :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
+                    :format-arguments (list pathname)))
+           (sys.net:buffered-format con "(:CREATE ~S)~%" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error "Cannot create ~A. ~S" pathname x)))
           (:supersede
            (sys.net:buffered-format con "(:DELETE ~S)" path)
            (setf x (read-preserving-whitespace con))
@@ -245,7 +249,11 @@
              (error 'simple-file-error
                     :pathname pathname
                     :format-control "Could not supersede ~S."
-                    :format-arguments (list pathname))))
+                    :format-arguments (list pathname)))
+           (sys.net:buffered-format con "(:CREATE ~S)~%" path)
+           (setf x (read-preserving-whitespace con))
+           (when (listp x)
+             (error "Cannot create ~A. ~S" pathname x)))
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
       (let ((stream (cond ((subtypep element-type 'character)
