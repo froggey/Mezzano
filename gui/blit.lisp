@@ -38,8 +38,8 @@
       (decf to-col from-col)
       (setf from-col 0))
     ;; Clamp nrows/ncols.
-    (setf nrows (min nrows (- to-height to-row) (- from-height from-row)))
-    (setf ncols (min ncols (- to-width to-col) (- from-width from-col)))
+    (setf nrows (max (min nrows (- to-height to-row) (- from-height from-row)) 0))
+    (setf ncols (max (min ncols (- to-width to-col) (- from-width from-col)) 0))
     ;; Undisplace displaced arrays
     (multiple-value-bind (from-displaced-to from-displaced-offset)
         (array-displacement from-array)
