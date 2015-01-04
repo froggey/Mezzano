@@ -93,6 +93,7 @@
    (%frame :initarg :frame :accessor frame)
    (%buffer-list :initarg :buffer-list :accessor buffer-list)
    (%buffer :initarg :buffer :accessor current-buffer)
+   (%last-buffer :initarg :last-buffer :accessor last-buffer)
    (%font :initarg :font :reader font)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour)
    (%background-colour :initarg :background-colour :accessor background-colour)
@@ -610,29 +611,33 @@ then merge the current line and next line."
   (values))
 
 (defun move-mark (mark &optional (n 1))
-  "Move MARK forward by N character. Move backwards if N is negative."
+  "Move MARK forward by N character. Move backwards if N is negative.
+Returns false when the mark reaches the start or end of the buffer, true otherwise."
   (cond ((minusp n)
          (setf n (- n))
          (dotimes (i n)
            (let ((current-line (mark-line mark)))
              (cond ((zerop (mark-charpos mark))
-                    ;; At start of line.
-                    (when (previous-line current-line)
-                      (setf (mark-line mark) (previous-line current-line)
-                            (mark-charpos mark) (line-length (previous-line current-line)))))
+                    (cond ((previous-line current-line)
+                           ;; At start of line.
+                           (setf (mark-line mark) (previous-line current-line)
+                                 (mark-charpos mark) (line-length (previous-line current-line))))
+                          (t ;; At start of buffer.
+                           (return-from move-mark nil))))
                    (t ;; Moving within a line.
                     (decf (mark-charpos mark)))))))
         (t
          (dotimes (i n)
            (let ((current-line (mark-line mark)))
              (cond ((eql (line-length current-line) (mark-charpos mark))
-                    ;; At end of line.
-                    (when (next-line current-line)
-                      (setf (mark-line mark) (next-line current-line)
-                            (mark-charpos mark) 0)))
+                    (cond ((next-line current-line)
+                           ;; At end of line.
+                           (setf (mark-line mark) (next-line current-line)
+                                 (mark-charpos mark) 0))
+                          (t (return-from move-mark nil))))
                    (t ;; Moving within a line.
                     (incf (mark-charpos mark))))))))
-  (values))
+  t)
 
 (defun move-char (buffer &optional (n 1))
   "Move point forward by N characters. Move backwards if N is negative."
@@ -659,6 +664,39 @@ Tries to stay as close to the hint column as possible."
                                                (line-length new-line))))
               (t (return))))))
   (values))
+
+(defun scan-forward (mark predicate)
+  (when (not (and (not (next-line (mark-line mark))) ; no next line
+                  (eql (mark-charpos mark) (line-length (mark-line mark)))))
+    (loop
+       (when (funcall predicate (if (eql (mark-charpos mark) (line-length (mark-line mark)))
+                                    #\Newline
+                                    (line-character (mark-line mark) (mark-charpos mark))))
+         (return t))
+       (when (not (move-mark mark))
+         (return nil)))))
+
+(defun scan-backward (mark predicate)
+  (loop
+     ;; Stop when at the start of the buffer.
+     ;; Examine the character on the left-hand side of the mark.
+     (when (not (move-mark mark -1))
+       (return nil))
+     (when (funcall predicate (line-character (mark-line mark) (1- (mark-charpos mark))))
+       (return t))))
+
+(defun move-word (buffer &optional (n 1))
+  "Move point forward by N words. N may be negative."
+  (let ((point (buffer-point buffer))
+        (fn #'scan-forward))
+    (when (minusp n)
+      (setf n (- n)
+            fn #'scan-backward))
+    (dotimes (i n)
+      ;; Forward past leading non-alphanumberic characters.
+      (funcall fn point #'alphanumericp)
+      ;; And now past alphanumeric characters.
+      (funcall fn point (complement #'alphanumericp)))))
 
 (defun test-fill (buffer)
   (let ((width (1- (truncate (editor-width)
@@ -1080,6 +1118,12 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun previous-line-command ()
   (move-line (current-buffer *editor*) -1))
 
+(defun forward-word-command ()
+  (move-word (current-buffer *editor*)))
+
+(defun backward-word-command ()
+  (move-word (current-buffer *editor*) -1))
+
 (defun move-beginning-of-line-command ()
   (move-beginning-of-line (current-buffer *editor*)))
 
@@ -1224,10 +1268,19 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                    (make-mark (last-line buffer) (line-length (last-line buffer))))
     (dolist (b (buffer-list *editor*))
       (insert buffer (buffer-property b 'name))
-      (insert buffer #\Newline))))
+      (insert buffer #\Newline))
+    (setf (buffer-modified buffer) nil)))
 
 (defun switch-to-buffer-command ()
-  (switch-to-buffer (get-buffer-create (read-from-minibuffer "Buffer: "))))
+  (let* ((default-buffer (or (last-buffer *editor*)
+                             (current-buffer *editor*)))
+         (name (string-trim " " (read-from-minibuffer (format nil "Buffer (default ~A): " (buffer-property default-buffer 'name)))))
+         (other-buffer (if (zerop (length name))
+                           default-buffer
+                           (get-buffer-create name))))
+    (when (not (eql (current-buffer *editor*) other-buffer))
+      (setf (last-buffer *editor*) (current-buffer *editor*))
+      (switch-to-buffer other-buffer))))
 
 (defun kill-buffer-command ()
   (let* ((name (read-from-minibuffer (format nil "Buffer (default ~A): " (buffer-property (current-buffer *editor*) 'name))))
@@ -1255,6 +1308,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 
 (defun kill-buffer (buffer)
   (setf (buffer-list *editor*) (remove buffer (buffer-list *editor*)))
+  (when (eql buffer (last-buffer *editor*))
+    (setf (last-buffer *editor*) nil))
   (when (eql buffer (current-buffer *editor*))
     (switch-to-buffer
      (if (buffer-list *editor*)
@@ -1331,6 +1386,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (set-key #\C-B 'backward-char-command key-map)
   (set-key #\C-N 'next-line-command key-map)
   (set-key #\C-P 'previous-line-command key-map)
+  (set-key #\M-F 'forward-word-command key-map)
+  (set-key #\M-B 'backward-word-command key-map)
   (set-key #\C-A 'move-beginning-of-line-command key-map)
   (set-key #\C-E 'move-end-of-line-command key-map)
   (set-key #\C-K 'kill-line-command key-map)
