@@ -189,9 +189,15 @@
 (defgeneric stream-move-to (stream x y))
 
 (defmacro with-open-stream ((var stream) &body body)
-  `(let ((,var ,stream))
-     (unwind-protect (progn ,@body)
-       (when ,var (close ,var)))))
+  (let ((abortp (gensym)))
+    `(let ((,var ,stream)
+           (,abortp t))
+       (unwind-protect
+            (multiple-value-prog1
+                (progn ,@body)
+              (setf abortp nil))
+         (when ,var
+           (close ,var :abort abortp))))))
 
 (defmacro with-open-file ((stream filespec &rest options) &body body)
   `(with-open-stream (,stream (open ,filespec ,@options))
