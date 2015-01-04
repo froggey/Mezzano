@@ -672,7 +672,7 @@ Tries to stay as close to the hint column as possible."
   (values))
 
 (defun character-right-of (mark)
-  (cond ((eql (mark-charpos mark) (line-length (mark-line mark)))
+  (cond ((end-of-line-p mark)
          (cond
            ((next-line (mark-line mark))
             ;; At end of line.
@@ -682,7 +682,7 @@ Tries to stay as close to the hint column as possible."
         (t (line-character (mark-line mark) (mark-charpos mark)))))
 
 (defun character-left-of (mark)
-  (cond ((eql (mark-charpos mark) 0)
+  (cond ((start-of-line-p mark)
          (cond
            ((previous-line (mark-line mark))
             ;; At start of line.
