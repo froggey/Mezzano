@@ -107,6 +107,8 @@
                      :pending-redisplay t
                      :foreground-colour mezzanine.gui:*default-foreground-colour*
                      :background-colour mezzanine.gui:*default-background-colour*
+                     :buffer-list '()
+                     :last-buffer '()
                      :killed-region nil
                      :global-key-map (make-hash-table)
                      :post-command-hooks '()
@@ -188,7 +190,11 @@
     (setf (mezzanine.gui.widgets:frame-title (frame *editor*))
           (format nil "Editor - ~A~A"
                   (or (buffer-property buffer 'name) "Untitled")
-                  (if (buffer-modified buffer) " (Modified)" "")))
+                  (cond ((buffer-property buffer 'new-file)
+                         " (New file)")
+                        ((buffer-modified buffer)
+                         " (Modified)")
+                        (t ""))))
     (mezzanine.gui.widgets:draw-frame (frame *editor*))))
 
 (defun switch-to-buffer (buffer)
@@ -665,25 +671,41 @@ Tries to stay as close to the hint column as possible."
               (t (return))))))
   (values))
 
-(defun scan-forward (mark predicate)
-  (when (not (and (not (next-line (mark-line mark))) ; no next line
-                  (eql (mark-charpos mark) (line-length (mark-line mark)))))
-    (loop
-       (when (funcall predicate (if (eql (mark-charpos mark) (line-length (mark-line mark)))
-                                    #\Newline
-                                    (line-character (mark-line mark) (mark-charpos mark))))
+(defun character-right-of (mark)
+  (cond ((eql (mark-charpos mark) (line-length (mark-line mark)))
+         (cond
+           ((next-line (mark-line mark))
+            ;; At end of line.
+            #\Newline)
+           (t ;; At end of buffer.
+            nil)))
+        (t (line-character (mark-line mark) (mark-charpos mark)))))
+
+(defun character-left-of (mark)
+  (cond ((eql (mark-charpos mark) 0)
+         (cond
+           ((previous-line (mark-line mark))
+            ;; At start of line.
+            #\Newline)
+           (t ;; At start of buffer.
+            nil)))
+        (t (line-character (mark-line mark) (1- (mark-charpos mark))))))
+
+(defun scan (mark predicate jump key)
+  (loop
+     (let ((ch (funcall key mark)))
+       (when (not ch)
+         (return nil))
+       (when (funcall predicate ch)
          (return t))
-       (when (not (move-mark mark))
+       (when (not (move-mark mark jump))
          (return nil)))))
 
+(defun scan-forward (mark predicate)
+  (scan mark predicate 1 #'character-right-of))
+
 (defun scan-backward (mark predicate)
-  (loop
-     ;; Stop when at the start of the buffer.
-     ;; Examine the character on the left-hand side of the mark.
-     (when (not (move-mark mark -1))
-       (return nil))
-     (when (funcall predicate (line-character (mark-line mark) (1- (mark-charpos mark))))
-       (return t))))
+  (scan mark predicate -1 #'character-left-of))
 
 (defun move-word (buffer &optional (n 1))
   "Move point forward by N words. N may be negative."
@@ -1202,25 +1224,27 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 
 (defun find-file-command ()
   (let* ((path (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*)))
-         (filespec (merge-pathnames path)))
-    (with-open-file (s filespec)
-      (let* ((buffer (make-instance 'buffer))
-             (start (copy-mark (buffer-point buffer) :left)))
-        (loop
-           (multiple-value-bind (line missing-newline-p)
-               (read-line s nil)
-             (when (not line)
-               (return))
-             (insert buffer line)
-             (when (not missing-newline-p)
-               (insert buffer #\Newline))))
-        (push buffer (buffer-list *editor*))
-        (setf (buffer-property buffer 'path) filespec)
-        (rename-buffer buffer (file-namestring s))
-        (point-to-mark buffer start)
-        ;; Loading the file will set the modified flag.
-        (setf (buffer-modified buffer) nil)
-        (switch-to-buffer buffer)))
+         (filespec (merge-pathnames path))
+         (buffer (make-instance 'buffer))
+         (start (copy-mark (buffer-point buffer) :left)))
+    (with-open-file (s filespec :if-does-not-exist nil)
+      (cond (s
+             (loop
+                (multiple-value-bind (line missing-newline-p)
+                    (read-line s nil)
+                  (when (not line)
+                    (return))
+                  (insert buffer line)
+                  (when (not missing-newline-p)
+                    (insert buffer #\Newline)))))
+            (t (setf (buffer-property buffer 'new-file) t))))
+    (push buffer (buffer-list *editor*))
+    (setf (buffer-property buffer 'path) filespec)
+    (rename-buffer buffer (file-namestring filespec))
+    (point-to-mark buffer start)
+    ;; Loading the file will set the modified flag.
+    (setf (buffer-modified buffer) nil)
+    (switch-to-buffer buffer)
     (setf *default-pathname-defaults* filespec)))
 
 (defun save-buffer-command ()
@@ -1239,7 +1263,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
         (write-sequence (data line) s)
         (when (next-line line)
           (terpri s))))
-    (setf (buffer-modified buffer) nil)))
+    (setf (buffer-property buffer 'new-file) nil
+          (buffer-modified buffer) nil)))
 
 (defun write-file-command ()
   (let* ((buffer (current-buffer *editor*))
@@ -1257,7 +1282,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
           ((not line))
         (write-sequence (data line) s)
         (terpri s)))
-    (setf (buffer-modified buffer) nil)))
+    (setf (buffer-property buffer 'new-file) nil
+          (buffer-modified buffer) nil)))
 
 (defun list-buffers-command ()
   (let ((buffer (get-buffer-create "*Buffers*")))
