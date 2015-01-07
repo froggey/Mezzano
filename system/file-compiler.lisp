@@ -291,7 +291,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmethod save-one-object ((object bit-vector) omap stream)
   (write-byte +llf-bit-vector+ stream)
   (save-integer (length object) stream)
-  (dotimes (i (ceiling (length object)))
+  (dotimes (i (ceiling (length object) 8))
     (let ((octet 0))
       (dotimes (j 8)
         (when (>= (+ (* i 8) j) (length object)) (return))
