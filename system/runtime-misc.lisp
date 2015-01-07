@@ -12,6 +12,12 @@
     (declare (ignore function))
     nil))
 
+(fmakunbound 'funcallable-instance-compiled-function-p)
+(defgeneric funcallable-instance-compiled-function-p (function)
+  (:method ((function function))
+    (declare (ignore function))
+    (compiled-function-p (funcallable-std-instance-function function))))
+
 (defgeneric make-load-form (object &optional environment))
 
 (defun raise-undefined-function (invoked-through &rest args)

@@ -51,6 +51,9 @@ A list of any declaration-specifiers."
     (setf definition (or (when (symbolp name) (macro-function name))
                          (fdefinition name))))
   (when (functionp definition)
+    (when (compiled-function-p definition)
+      (return-from compile
+        (values definition nil nil)))
     (multiple-value-bind (lambda-expression env)
         (function-lambda-expression definition)
       (when (null lambda-expression)

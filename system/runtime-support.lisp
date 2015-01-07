@@ -278,6 +278,8 @@
   (values nil t nil))
 (defun funcallable-instance-debug-info (function)
   nil)
+(defun funcallable-instance-compiled-function-p (function)
+  t)
 
 (defun function-name (function)
   (check-type function function)
@@ -350,8 +352,16 @@
   (setf (%array-like-ref-t funcallable-instance 6) value))
 
 (defun compiled-function-p (object)
-  ;; FIXME: interpreted functions (of class sys.eval::interpreted-function) shouldn't return true.
-  (functionp object))
+  (when (functionp object)
+    (ecase (%object-tag object)
+      ((#.+object-tag-function+
+        #.+object-tag-closure+)
+       t)
+      (#.+object-tag-funcallable-instance+
+       (funcallable-instance-compiled-function-p object)))))
+
+(deftype compiled-function ()
+  '(satisfies compiled-function-p))
 
 ;;; Implementations of DEFUN/etc, the cross-compiler defines these as well.
 

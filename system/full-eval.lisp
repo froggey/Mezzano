@@ -74,6 +74,9 @@
         nil
         (second (slot-value function 'lambda))))
 
+(defmethod sys.int::funcallable-instance-compiled-function-p ((function interpreted-function))
+  nil)
+
 (defmethod print-object ((object interpreted-function) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (when (interpreted-function-name object)
