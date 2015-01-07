@@ -255,6 +255,9 @@
 (defun raise-stack-alignment-error ()
   (error "Stack was misaligned."))
 
+(defun raise-bounds-error (array index)
+  (error "Index ~D out of bounds for array ~S." index array))
+
 (defun list (&rest args)
   args)
 
