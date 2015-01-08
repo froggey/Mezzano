@@ -154,10 +154,11 @@
                         (format t "  :top       Move to the highest (innermost) frame.~%")
                         (format t "  :current   Print the current frame.~%")
                         (format t "  :vars      Display variables in the current frame.~%")
-                        (format t "             Beware, *print-line* and *print-level don't work yet.~%")
+                        (format t "             Beware, *print-line* and *print-level* don't work yet.~%")
                         (format t "  :read      Read a variable by id (from :vars) from the current frame.~%")
                         (format t "  :write     Write a variable by id (from :vars) to the current frame.~%")
                         (format t "  :bt        Print a complete backtrace.~%")
+                        (format t "  :condition Condition that caused the debugger to be invoked.~%")
                         (format t "Integers are treated at restart IDs.~%")
                         (format t "Good luck.~%"))
                        (:restarts
@@ -212,6 +213,21 @@
                           (debugger-write-variable *current-debug-frame* slot value)))
                        (:bt
                         (backtrace))
+                       (:condition
+                        (let ((result (multiple-value-list *debugger-condition*)))
+                          (setf *** **
+                                ** *
+                                * (first result)
+                                /// //
+                                // /
+                                / result
+                                +++ ++
+                                ++ +
+                                + form)
+                          (when result
+                            (dolist (v result)
+                              (fresh-line)
+                              (write v)))))
                        (t (format t "Unknown command ~S~%" form))))
                     (t (let ((result (multiple-value-list (let ((- form))
                                                             (eval form)))))
