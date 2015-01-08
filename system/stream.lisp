@@ -458,11 +458,16 @@
   (string-output-stream-write-char character stream))
 
 ;; TODO: declares and other stuff.
-(defmacro with-output-to-string ((var) &body body)
-  `(let ((,var (make-string-output-stream)))
-     (unwind-protect (progn ,@body)
-       (close ,var))
-     (get-output-stream-string ,var)))
+(defmacro with-output-to-string ((var &optional string-form &key (element-type ''character)) &body body)
+  (if string-form
+      `(let ((,var (make-string-output-stream :element-type ,element-type)))
+         (setf (slot-value ,var 'string) ,string-form)
+         (unwind-protect (progn ,@body)
+           (close ,var)))
+      `(let ((,var (make-string-output-stream :element-type ,element-type)))
+         (unwind-protect (progn ,@body)
+           (close ,var))
+         (get-output-stream-string ,var))))
 
 (defun write-to-string (object &key
                                  (array *print-array*)
