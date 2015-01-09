@@ -1439,6 +1439,80 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
     (setf (buffer-property buffer 'name) (unique-name new-name))
     (refresh-title)))
 
+;;; Lisp commands.
+
+(defun beginning-of-top-level-form (buffer)
+  "Move to the start of a top-level form.
+A top-level form is designated by an open parenthesis at the start of a line."
+  (let ((point (buffer-point buffer)))
+    (setf (mark-charpos point) 0)
+    (loop
+       (when (eql (character-right-of point) #\()
+         (return))
+       (when (not (previous-line (mark-line point)))
+         (error "Can't find start of top-level form."))
+       (setf (mark-line point) (previous-line (mark-line point))))))
+
+(defmacro save-excursion ((buffer) &body body)
+  "Save the point & mark in buffer, execute body, then restore the saved point
+and mark."
+  `(call-with-save-excursion ,buffer (lambda () ,@body)))
+
+(defun call-with-save-excursion (buffer fn)
+  (let ((previous-point (copy-mark (buffer-point buffer) :right))
+        (previous-mark (copy-mark (buffer-mark buffer) :left))
+        (previous-mark-active (buffer-mark-active buffer)))
+    (unwind-protect
+         (funcall fn)
+      (move-mark-to-mark (buffer-point buffer) previous-point)
+      (move-mark-to-mark (buffer-mark buffer) previous-mark)
+      (setf (buffer-mark-active buffer) previous-mark-active))))
+
+(defun buffer-current-package (buffer)
+  "From point, search backwards for a top-level IN-PACKAGE form.
+If no such form is found, then return the CL-USER package."
+  (let ((point (current-buffer *editor*))
+        (temporary-package (make-package (gensym))))
+    (import 'in-package temporary-package)
+    (export 'in-package temporary-package)
+    (unwind-protect
+         (or (ignore-errors
+               (save-excursion (buffer)
+                 (loop
+                    (beginning-of-top-level-form buffer)
+                    (mark-to-point buffer (buffer-mark buffer))
+                    (move-sexp buffer 1)
+                    (let* ((str (buffer-string buffer
+                                               (buffer-point buffer)
+                                               (buffer-mark buffer)))
+                           (form (let ((*package* temporary-package)
+                                       (*read-eval* nil))
+                                   (read-from-string str))))
+                      (when (and (listp form)
+                                 (eql (first form) 'in-package)
+                                 (= (list-length form) 2))
+                        (return (find-package (second form)))))
+                    (move-sexp buffer -1)
+                    (move-char buffer -1))))
+             (find-package :cl-user))
+      (delete-package temporary-package))))
+
+(defun eval-top-level-form-command ()
+  (let ((buffer (current-buffer *editor*)))
+    (save-excursion (buffer)
+      (beginning-of-top-level-form buffer)
+      (mark-to-point buffer (buffer-mark buffer))
+      (move-sexp buffer 1)
+      (let ((str (buffer-string buffer
+                                (buffer-point buffer)
+                                (buffer-mark buffer)))
+            (package (buffer-current-package buffer)))
+        (format t "Read ~S in package ~S~%" str package)
+        (let ((form (let ((*package* package))
+                      (read-from-string str))))
+          (format t "Eval ~S~%" form)
+          (eval form))))))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
@@ -1522,7 +1596,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (set-key #\M-< 'move-beginning-of-buffer-command key-map)
   (set-key #\M-> 'move-end-of-buffer-command key-map)
   (set-key #\C-V 'scroll-up-command key-map)
-  (set-key #\M-V 'scroll-down-command key-map))
+  (set-key #\M-V 'scroll-down-command key-map)
+  (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
   (initialize-key-map key-map)
@@ -1532,7 +1607,8 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
   (set-key '(#\C-X #\C-W) nil key-map)
   (set-key '(#\C-X #\k) nil key-map)
   (set-key '(#\C-X #\b) nil key-map)
-  (set-key '(#\C-X #\C-B) nil key-map))
+  (set-key '(#\C-X #\C-B) nil key-map)
+  (set-key #\C-C nil key-map))
 
 (defun editor-main (width height)
   (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
