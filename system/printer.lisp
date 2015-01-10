@@ -124,13 +124,14 @@
         (t (terpri stream)
            t)))
 
-(defun write-string (string &optional stream)
-  (dotimes (i (length string))
-    (write-char (char string i) stream))
+(defun write-string (string &optional stream &key (start 0) end)
+  (unless end (setf end (length string)))
+  (dotimes (i (- end start))
+    (write-char (char string (+ start i)) stream))
   string)
 
-(defun write-line (string &optional stream)
-  (write-string string stream)
+(defun write-line (string &optional stream &key (start 0) end)
+  (write-string string stream :start start :end end)
   (terpri stream)
   string)
 
