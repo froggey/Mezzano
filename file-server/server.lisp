@@ -104,6 +104,12 @@
                       :overwrite t))
   (format *client* ":ok~%"))
 
+(defcommand :restore (path)
+  (let ((backup (format nil "~A~~" path)))
+    (when (open backup :direction :probe)
+      (rename-file backup path))
+    (format *client* ":ok~%")))
+
 (defcommand :create-directory (path)
   (multiple-value-bind (_ created)
       (ensure-directories-exist path)

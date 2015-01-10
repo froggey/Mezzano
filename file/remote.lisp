@@ -41,7 +41,8 @@
    ;; Write buffer.
    (write-buffer :initform nil :accessor write-buffer)
    (write-buffer-position :accessor write-buffer-position)
-   (write-buffer-offset :accessor write-buffer-offset))
+   (write-buffer-offset :accessor write-buffer-offset)
+   (abort-action :initarg :abort-action :accessor abort-action))
   (:default-initargs :position 0))
 
 (defclass simple-file-character-stream (sys.gray:fundamental-character-input-stream
@@ -198,7 +199,8 @@
                             &key direction element-type if-exists if-does-not-exist external-format)
   (let ((path (unparse-simple-file-path pathname))
         (x nil)
-        (created-file nil))
+        (created-file nil)
+        (abort-action nil))
     (with-connection (con host)
       (sys.net:buffered-format con "(:PROBE ~S)~%" path)
       (setf x (read-preserving-whitespace con))
@@ -209,7 +211,8 @@
                          :format-control "File ~A does not exist. ~S"
                          :format-arguments (list pathname x)))
           (:create
-           (setf created-file t)
+           (setf created-file t
+                 abort-action :delete)
            (sys.net:buffered-format con "(:CREATE ~S)~%" path)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
@@ -225,6 +228,7 @@
             :rename
             :rename-and-delete)
            (sys.net:buffered-format con "(:BACKUP ~S)" path)
+           (setf abort-action :restore)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
              (error 'simple-file-error
@@ -243,6 +247,7 @@
            (when (listp x)
              (error "Cannot create ~A. ~S" pathname x)))
           (:supersede
+           (setf abort-action :delete)
            (sys.net:buffered-format con "(:DELETE ~S)" path)
            (setf x (read-preserving-whitespace con))
            (when (listp x)
@@ -262,7 +267,8 @@
                                           :path path
                                           :pathname pathname
                                           :host host
-                                          :direction direction))
+                                          :direction direction
+                                          :abort-action abort-action))
                           ((and (subtypep element-type '(unsigned-byte 8))
                                 (subtypep '(unsigned-byte 8) element-type))
                            (assert (eql external-format :default) (external-format))
@@ -270,7 +276,8 @@
                                           :path path
                                           :pathname pathname
                                           :host host
-                                          :direction direction))
+                                          :direction direction
+                                          :abort-action abort-action))
                           (t (error "Unsupported element-type ~S." element-type)))))
         (when (and (member direction '(:output :io))
                    (eql if-exists :append))
@@ -298,8 +305,16 @@
   (incf (sf-position stream)))
 
 (defmethod close ((stream simple-file-stream) &key abort)
-  (when (not abort)
-    (flush-write-buffer stream))
+  (cond ((not abort)
+         (flush-write-buffer stream))
+        (t (when (abort-action stream)
+             (with-simple-restart (continue "Ignore failure")
+               (with-connection (con (host stream))
+                 (sys.net:buffered-format con "(~S ~S)" (abort-action stream) (path stream))
+                 (let ((x (read-preserving-whitespace con)))
+                   (unless (eql x :ok)
+                     (error "Error: ~A ~S." path x))
+                   x))))))
   t)
 
 (defun flush-write-buffer (stream)
