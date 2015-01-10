@@ -114,19 +114,19 @@
   (write-char #\Space)
   (write arguments)
   (low-level-backtrace)
-  (loop (%hlt)))
+  (mezzanine.supervisor:panic "Early ERROR"))
 
 (defun enter-debugger (condition)
   (write-char #\!)
   (write condition)
   (low-level-backtrace)
-  (loop (%hlt)))
+  (mezzanine.supervisor:panic "Early ENTER-DEBUGGER"))
 
 (defun invoke-debugger (condition)
   (write-char #\!)
   (write condition)
   (low-level-backtrace)
-  (loop (%hlt)))
+  (mezzanine.supervisor:panic "EARLY INVOKE-DEBUGGER"))
 
 ;;; Pathname stuff before pathnames exist (file.lisp defines real pathnames).
 
