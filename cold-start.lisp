@@ -151,14 +151,6 @@
                (fresh-line)
                (write v))))))))
 
-(defvar *early-initialize-hook* '())
-(defvar *initialize-hook* '())
-
-(defun add-hook (hook function)
-  (unless (boundp hook)
-    (setf (symbol-value hook) '()))
-  (pushnew function (symbol-value hook)))
-
 ;;; Fake streams & fake stream functions, used by the mini loader to load
 ;;; multiboot/kboot modules.
 (defstruct (mini-vector-stream
@@ -359,8 +351,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (gc)
   (room)
   (mezzanine.supervisor:snapshot)
-  (mapc 'funcall *early-initialize-hook*)
   (write-line "Hello, world.")
-  (mapc 'funcall *initialize-hook*)
   (terpri)
   (repl))
