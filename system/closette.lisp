@@ -2236,6 +2236,13 @@ Dispatching on class ~S." gf class))
   ()
   (:metaclass structure-class))
 
+(defmethod print-object ((class structure-class) stream)
+  (print-unreadable-object (class stream :identity t)
+    (format stream "~:(~S~) ~S"
+            (class-name (class-of class))
+            (class-name class)))
+  class)
+
 ;;; eql specializers.
 
 (defvar *interned-eql-specializers* (make-hash-table))
