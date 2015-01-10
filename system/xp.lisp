@@ -1362,7 +1362,7 @@
 ;command.  This includes the matching end command for paired commands.
 
 (defmacro def-format-handler (char args &body body)
-  (let ((name (intern (cl:format nil "FORMAT-~A" char) :mezzano.xp)))
+  (let ((name (intern (concatenate 'string "FORMAT-" (string char)) :mezzano.xp)))
     `(eval-when (eval load compile)
        (defun ,name ,args ,@ body)
        (setf (gethash (char-upcase ,char) *fn-table*) (function ,name))
@@ -1801,7 +1801,7 @@
     (setq kind :unconditional)))
 
 (def-format-handler #\| (start end) (declare (ignore end))
-  (multiple-chars start #.(aref (cl:format nil "~|") 0)))
+  (multiple-chars start #\Page))
 
 (def-format-handler #\~ (start end) (declare (ignore end))
   (multiple-chars start #\~))
@@ -2122,7 +2122,7 @@
   (let* ((bottom (1- (array-rank array)))
 	 (indices (make-list (1+ bottom) :initial-element 0))
 	 (dims (array-dimensions array))
-	 (*prefix* (cl:format nil "#~DA(" (1+ bottom))))
+	 (*prefix* (format nil "#~DA(" (1+ bottom))))
     (labels ((pretty-slice (slice)
 	       (pprint-logical-block (xp nil :prefix *prefix* :suffix ")")
 		 (let ((end (nth slice dims))
