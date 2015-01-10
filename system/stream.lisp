@@ -163,6 +163,18 @@
 (defmethod stream-display (stream object)
   (format stream "~S" object))
 
+(defmethod stream-line-column ((stream sys.int::cold-stream))
+  nil)
+
+(defmethod stream-line-length ((stream sys.int::cold-stream))
+  nil)
+
+(defmethod stream-line-column ((stream fundamental-character-output-stream))
+   nil)
+
+(defmethod stream-line-length ((stream fundamental-character-output-stream))
+  nil)
+
 (in-package :sys.int)
 
 (defclass file-stream (stream) ())
@@ -260,6 +272,12 @@
 
 (defmethod stream-element-type ((stream synonym-stream))
   (stream-element-type (synonym-stream-symbol stream)))
+
+(defmethod sys.gray:stream-line-column ((stream synonym-stream))
+  (sys.gray:stream-line-column (follow-synonym-stream stream)))
+
+(defmethod sys.gray:stream-line-length ((stream synonym-stream))
+  (sys.gray:stream-line-length (follow-synonym-stream stream)))
 
 (defun read-byte (stream &optional (eof-error-p t) eof-value)
   (let ((b (sys.gray:stream-read-byte (follow-synonym-stream stream))))
