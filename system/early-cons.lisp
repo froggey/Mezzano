@@ -506,3 +506,9 @@
         (t (error 'type-error
                   :datum list
                   :expected-type 'list))))
+
+(defun copy-tree (tree)
+  (if (consp tree)
+      (cons (copy-tree (car tree))
+            (copy-tree (cdr tree)))
+      tree))
