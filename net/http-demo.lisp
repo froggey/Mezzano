@@ -99,10 +99,6 @@
                        ((equal path '("char-by-char"))
                         ;; Character-by-character output.
                         (demo-file stream))
-                       ((and (equalp path '("logo300x100.jpg"))
-                             (boundp 'sys.int::*logo300x100.jpg*))
-                        (sys.net:buffered-format stream "HTTP/1.0 200 OK~%~%")
-                        (write-sequence sys.int::*logo300x100.jpg* stream))
                        ((equalp path '("logo300x100.jpg"))
                         (with-open-file (s "logo300x100.jpg"
                                            :element-type '(unsigned-byte 8)
