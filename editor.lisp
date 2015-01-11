@@ -303,9 +303,9 @@
 (defconstant +line-number-increment+ 10000)
 
 (defun fully-renumber-lines-from (line)
-  (do ((l line (next l)))
+  (do ((l line (next-line l)))
       ((null l))
-    (setf (line-number line) (+ (line-number (prev line)) +line-number-increment+))))
+    (setf (line-number line) (+ (line-number (previous-line line)) +line-number-increment+))))
 
 (defun insert-line (point)
   "Insert a new line at POINT, splitting the current line if needed.
@@ -1268,6 +1268,20 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
       (move-sexp buffer 1)
       (kill-region buffer current point))))
 
+(defun forward-kill-word-command ()
+  (let* ((buffer (current-buffer *editor*))
+         (point (buffer-point buffer)))
+    (with-mark (current point)
+      (move-word buffer 1)
+      (kill-region buffer current point))))
+
+(defun backward-kill-word-command ()
+  (let* ((buffer (current-buffer *editor*))
+         (point (buffer-point buffer)))
+    (with-mark (current point)
+      (move-word buffer -1)
+      (kill-region buffer current point))))
+
 (defun yank-command ()
   (yank-region (current-buffer *editor*)))
 
@@ -1513,6 +1527,9 @@ If no such form is found, then return the CL-USER package."
           (format t "Eval ~S~%" form)
           (eval form))))))
 
+(defun beginning-of-top-level-form-command ()
+  (beginning-of-top-level-form (current-buffer *editor*)))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
@@ -1584,6 +1601,8 @@ If no such form is found, then return the CL-USER package."
   (set-key #\Backspace 'delete-backward-char-command key-map)
   (set-key #\C-D 'delete-forward-char-command key-map)
   (set-key #\Delete 'delete-forward-char-command key-map)
+  (set-key #\C-Backspace 'backward-kill-word-command key-map)
+  (set-key #\M-D 'forward-kill-word-command key-map)
   (set-key #\C-W 'kill-region-command key-map)
   (set-key #\C-Y 'yank-command key-map)
   (set-key '(#\C-X #\C-F) 'find-file-command key-map)
@@ -1597,7 +1616,8 @@ If no such form is found, then return the CL-USER package."
   (set-key #\M-> 'move-end-of-buffer-command key-map)
   (set-key #\C-V 'scroll-up-command key-map)
   (set-key #\M-V 'scroll-down-command key-map)
-  (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map))
+  (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map)
+  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
   (initialize-key-map key-map)
