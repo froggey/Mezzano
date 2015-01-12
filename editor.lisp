@@ -414,7 +414,7 @@ Don't use this directly, use INSERT instead."
            ;; Not inserting any newlines, just make the line bigger.
            (when (not (eql chpos-1 chpos-2))
              (adjust-array (data insert-line)
-                           (+ insert-chpos (- chpos-2 chpos-1))
+                           (+ (line-length insert-line) (- chpos-2 chpos-1))
                            :fill-pointer t)
              (when (not (eql (line-length insert-line) insert-chpos))
                ;; Inserting in the middle, need to shuffle data up.
