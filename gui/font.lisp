@@ -144,26 +144,27 @@
     (let ((glyph (aref cell-cache cell)))
       (when (not glyph)
         ;; Glyph does not exist in the cache, rasterize it.
-        (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
-               (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
-                      (scale (font-scale font))
-                      (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
-                      (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
-                 (setf glyph (make-glyph :character (code-char code)
-                                         :mask (rasterize-glyph ttf-glyph scale)
-                                         :yoff (zpb-ttf:ymax bb)
-                                         :xoff (zpb-ttf:xmin bb)
-                                         :advance advance)
-                       (aref cell-cache cell) glyph)))
-              (t ;; Use Unifont fallback.
-               (let ((mask (or (sys.int::map-unifont-2d (code-char code))
-                               (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
-                 (setf glyph (make-glyph :character (code-char code)
-                                         :mask (expand-bit-mask-to-ub8-mask mask)
-                                         :yoff 14
-                                         :xoff 0
-                                         :advance (array-dimension mask 1))
-                       (aref cell-cache cell) glyph)))))
+        (mezzanine.supervisor:with-mutex (*font-lock*)
+          (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
+                 (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
+                        (scale (font-scale font))
+                        (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
+                        (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
+                   (setf glyph (make-glyph :character (code-char code)
+                                           :mask (rasterize-glyph ttf-glyph scale)
+                                           :yoff (zpb-ttf:ymax bb)
+                                           :xoff (zpb-ttf:xmin bb)
+                                           :advance advance)
+                         (aref cell-cache cell) glyph)))
+                (t ;; Use Unifont fallback.
+                 (let ((mask (or (sys.int::map-unifont-2d (code-char code))
+                                 (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
+                   (setf glyph (make-glyph :character (code-char code)
+                                           :mask (expand-bit-mask-to-ub8-mask mask)
+                                           :yoff 14
+                                           :xoff 0
+                                           :advance (array-dimension mask 1))
+                         (aref cell-cache cell) glyph))))))
       glyph)))
 
 (defmethod initialize-instance :after ((font font) &key typeface size &allow-other-keys)
