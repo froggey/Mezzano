@@ -477,7 +477,8 @@ A passive drag sends no drag events to the window.")
 ;;;; From clients to the compositor.
 
 (defclass window-create-event ()
-  ((%window :initarg :window :reader window)))
+  ((%window :initarg :window :reader window)
+   (%initial-z-order :initarg :initial-z-order :reader initial-z-order)))
 
 (defmethod process-event ((event window-create-event))
   (let ((win (window event)))
@@ -491,19 +492,27 @@ A passive drag sends no drag events to the window.")
       (:top
        (push win *window-list*))
       (t (setf (slot-value win '%layer) nil)
-         (push win *window-list*)))
-    (when *active-window*
+         (cond ((and (eql (initial-z-order event) :below-current)
+                     *window-list*)
+                (setf *window-list* (list* (first *window-list*)
+                                           win
+                                           (rest *window-list*))))
+               (t (push win *window-list*)))))
+    (when (and *active-window*
+               (eql (initial-z-order event) :top))
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
                                                  :state nil)))
-    (setf *active-window* win)
+    (when (or (not *active-window*)
+              (eql (initial-z-order event) :top))
+      (setf *active-window* win)
+      (send-event win (make-instance 'window-activation-event
+                                     :window win
+                                     :state t)))
     (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
           *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
           *clip-rect-x* 0
-          *clip-rect-y* 0)
-    (send-event win (make-instance 'window-activation-event
-                                   :window win
-                                   :state t))))
+          *clip-rect-y* 0)))
 
 (defmacro with-window ((window fifo width height &rest options) &body body)
   `(let (,window)
@@ -513,7 +522,7 @@ A passive drag sends no drag events to the window.")
        (when ,window
          (mezzanine.gui.compositor:close-window ,window)))))
 
-(defun make-window (fifo width height &key layer)
+(defun make-window (fifo width height &key layer initial-z-order)
   (let ((window (make-instance 'window
                                :width width
                                :height height
@@ -523,7 +532,8 @@ A passive drag sends no drag events to the window.")
                                                    :initial-element 0)
                                :layer layer)))
     (mezzanine.supervisor:fifo-push (make-instance 'window-create-event
-                                                   :window window)
+                                                   :window window
+                                                   :initial-z-order (or initial-z-order :top))
                                     *event-queue*)
     window))
 
