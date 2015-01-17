@@ -619,14 +619,14 @@ CASE may be one of:
    (edit-offset :initform nil)
    (edit-handler :initform nil)))
 
-(defun edit-stream-read (stream reader-function-kludge)
+(defmethod sys.gray:stream-read-char :around ((stream simple-edit-mixin))
   (let ((buffer (slot-value stream 'edit-buffer))
 	(offset (slot-value stream 'edit-offset)))
     (if (and buffer (< offset (fill-pointer buffer)))
 	(prog1 (aref buffer offset)
 	  (incf (slot-value stream 'edit-offset)))
 	(do () (nil)
-	  (let ((ch (funcall reader-function-kludge)))
+	  (let ((ch (call-next-method)))
 	    (when ch
 	      (cond ((or (graphic-char-p ch) (eql #\Newline ch))
 		     (when buffer
@@ -637,15 +637,12 @@ CASE may be one of:
                      (when (slot-value stream 'edit-handler)
                        (funcall (slot-value stream 'edit-handler) ch))))))))))
 
-(defmethod sys.gray:stream-read-char :around ((stream simple-edit-mixin))
-  (edit-stream-read stream #'call-next-method))
-
 (defmethod sys.gray:stream-clear-input :before ((stream simple-edit-mixin))
   (when (slot-value stream 'edit-buffer)
     (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
 	  (slot-value stream 'edit-offset) 0)))
 
-(defun edit-stream-edit (stream fn)
+(defmethod stream-with-edit ((stream simple-edit-mixin) fn)
   (let ((old-buffer (slot-value stream 'edit-buffer))
 	(old-offset (slot-value stream 'edit-offset))
 	(old-handler (slot-value stream 'edit-handler))
@@ -678,9 +675,6 @@ CASE may be one of:
             (slot-value stream 'edit-offset) old-offset
             (slot-value stream 'edit-handler) old-handler))))
 
-(defmethod stream-with-edit ((stream simple-edit-mixin) fn)
-  (edit-stream-edit stream fn))
-
 (defclass shadow-stream (sys.gray:fundamental-binary-output-stream
                          sys.gray:fundamental-binary-input-stream
                          sys.gray:fundamental-character-output-stream
@@ -694,23 +688,17 @@ CASE may be one of:
     :initform '()
     :reader shadow-stream-shadows)))
 
-(defun shadow-read-char (stream)
+(defmethod sys.gray:stream-read-char ((stream shadow-stream))
   (let ((c (read-char (shadow-stream-primary stream) nil)))
     (when c
       (dolist (s (shadow-stream-shadows stream))
         (write-char c s)))
     c))
 
-(defmethod sys.gray:stream-read-char ((stream shadow-stream))
-  (shadow-read-char stream))
-
-(defun shadow-write-char (character stream)
+(defmethod sys.gray:stream-write-char ((stream shadow-stream) character)
   (write-char character (shadow-stream-primary stream))
   (dolist (s (shadow-stream-shadows stream))
     (write-char character s)))
-
-(defmethod sys.gray:stream-write-char ((stream shadow-stream) character)
-  (shadow-write-char character stream))
 
 (defmethod close ((stream shadow-stream) &key abort)
   (close (shadow-stream-primary stream) :abort abort))
