@@ -113,4 +113,12 @@
 
 (defun spawn ()
   (mezzanine.supervisor:make-thread 'mandelbrot-main
-                                    :name "Mandelbrot"))
+                                    :name "Mandelbrot"
+                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
+                                                                                       :title "Mandelbrot console"))
+                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))

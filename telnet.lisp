@@ -305,7 +305,15 @@ party to perform, the indicated option.")
 
 (defun spawn (server &key (port 23) (terminal-type "xterm-color") (width 80) (height 24))
   (mezzanine.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
-                                    :name "Telnet"))
+                                    :name "Telnet"
+                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
+                                                                                       :title "Telnet console"))
+                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
 
 (defun spawn-nao ()
   "Nethack!"

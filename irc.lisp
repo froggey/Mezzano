@@ -484,4 +484,12 @@
 
 (defun spawn ()
   (mezzanine.supervisor:make-thread 'irc-main
-                                    :name "IRC"))
+                                    :name "IRC"
+                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
+                                                                                       :title "IRC console"))
+                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))

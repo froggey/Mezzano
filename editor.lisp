@@ -1678,4 +1678,12 @@ If no such form is found, then return the CL-USER package."
 
 (defun spawn (&key width height)
   (mezzanine.supervisor:make-thread (lambda () (editor-main width height))
-                                    :name "Editor"))
+                                    :name "Editor"
+                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
+                                                                                       :title "Editor console"))
+                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
