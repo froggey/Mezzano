@@ -46,17 +46,21 @@
        (dispatch-event window evt))))
 
 (defmethod sys.gray:stream-read-char ((stream fancy-repl))
-  (loop
-     ;; Catch up with window manager events.
-     (pump-event-loop stream)
-     (when (window-closed stream)
-       (return :eof))
-     ;; Check for an available character.
-     (let ((ch (mezzanine.supervisor:fifo-pop (input-buffer stream) nil)))
-       (when ch
-         (return ch)))
-     ;; Block until the next window event.
-     (dispatch-event stream (mezzanine.supervisor:fifo-pop (fifo stream)))))
+  (unwind-protect
+       (progn
+         (setf (mezzanine.gui.widgets:cursor-visible stream) t)
+         (loop
+            ;; Catch up with window manager events.
+            (pump-event-loop stream)
+            (when (window-closed stream)
+              (return :eof))
+            ;; Check for an available character.
+            (let ((ch (mezzanine.supervisor:fifo-pop (input-buffer stream) nil)))
+              (when ch
+                (return ch)))
+            ;; Block until the next window event.
+            (dispatch-event stream (mezzanine.supervisor:fifo-pop (fifo stream)))))
+    (setf (mezzanine.gui.widgets:cursor-visible stream) nil)))
 
 (defmethod sys.gray:stream-read-char-no-hang ((stream fancy-repl))
   ;; Catch up with window manager events.
@@ -76,7 +80,7 @@
 (defun repl-main (&optional initial-function title width height)
   (with-font (font *default-monospace-font* *default-monospace-font-size*)
     (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-      (mezzanine.gui.compositor:with-window (window fifo (or width 800) (or height 300))
+      (mezzanine.gui.compositor:with-window (window fifo (or width 800) (or height 600))
         (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
                (frame (make-instance 'mezzanine.gui.widgets:frame
                                      :framebuffer framebuffer

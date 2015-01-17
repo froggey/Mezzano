@@ -175,17 +175,21 @@
 (defmethod sys.gray:stream-read-char ((stream popup-io-stream))
   (loop
      (check-for-break stream)
-     (mezzanine.supervisor:with-mutex ((lock stream))
-       ;; Examine input stream.
-       (let ((ch (mezzanine.supervisor:fifo-pop (input-buffer stream) nil)))
-         (when ch
-           (return ch)))
-       ;; No characters ready, open the window and wait for one.
-       (open-window stream)
-       ;; Wait.
-       (incf (waiting-input-count stream))
-       (mezzanine.supervisor:condition-wait (cvar stream) (lock stream))
-       (decf (waiting-input-count stream)))))
+     (unwind-protect
+          (progn
+            (setf (mezzanine.gui.widgets:cursor-visible (display stream)) t)
+            (mezzanine.supervisor:with-mutex ((lock stream))
+              ;; Examine input stream.
+              (let ((ch (mezzanine.supervisor:fifo-pop (input-buffer stream) nil)))
+                (when ch
+                  (return ch)))
+              ;; No characters ready, open the window and wait for one.
+              (open-window stream)
+              ;; Wait.
+              (incf (waiting-input-count stream))
+              (mezzanine.supervisor:condition-wait (cvar stream) (lock stream))
+              (decf (waiting-input-count stream))))
+       (setf (mezzanine.gui.widgets:cursor-visible (display stream)) nil))))
 
 (defmethod sys.gray:stream-read-char-no-hang ((stream popup-io-stream))
   (check-for-break stream)

@@ -15,7 +15,8 @@
            #:draw-frame
            #:frame-size
            #:text-widget
-           #:reset))
+           #:reset
+           #:cursor-visible))
 
 (in-package :mezzanine.gui.widgets)
 
@@ -215,68 +216,106 @@
    (%line :accessor cursor-line)
    (%background-colour :initarg :background-colour :reader background-colour)
    (%foreground-colour :initarg :foreground-colour :reader foreground-colour)
-   (%font :initarg :font :reader font))
+   (%font :initarg :font :reader font)
+   (%cursor-visible :initform nil :reader cursor-visible))
   (:default-initargs :foreground-colour mezzanine.gui:*default-foreground-colour*
                      :background-colour mezzanine.gui:*default-background-colour*))
 
 (defmethod initialize-instance :after ((widget text-widget) &key &allow-other-keys)
   (reset widget))
 
+(defgeneric (setf cursor-visible) (value object))
+
+(defmethod (setf cursor-visible) (value (stream text-widget))
+  (flet ((doit ()
+           (let ((line-height (line-height (font stream)))
+                 (x (+ (x-position stream) (cursor-x stream)))
+                 (y (+ (y-position stream) (cursor-y stream))))
+             (mezzanine.gui:bitxor line-height 1
+                                   #x00FFFFFF
+                                   (framebuffer stream)
+                                   y x)
+             (funcall (damage-function stream)
+                      x y
+                      1 line-height))))
+    (cond ((cursor-visible stream)
+           (when (not value)
+             ;; Cursor was visible, now invisible.
+             (doit)))
+          (t (when value
+               (doit))))
+    (setf (slot-value stream '%cursor-visible) value)))
+
+(defmacro with-cursor-hidden ((stream) &body body)
+  (let ((stream-sym (gensym))
+        (state (gensym)))
+    `(let* ((,stream-sym ,stream)
+            (,state (cursor-visible ,stream-sym)))
+       (unwind-protect
+            (progn
+              (when ,state
+                (setf (cursor-visible ,stream-sym) nil))
+              ,@body)
+         (when ,state
+           (setf (cursor-visible ,stream-sym) t))))))
+
 (defmethod sys.gray:stream-terpri ((stream text-widget))
-  (let* ((x (cursor-x stream))
-         (y (cursor-y stream))
-         (fb (framebuffer stream))
-         (win-width (width stream))
-         (win-height (height stream))
-         (line-height (line-height (font stream)))
-         (left (x-position stream))
-         (top (y-position stream)))
-    ;; Clear to the end of the current line.
-    (mezzanine.gui:bitset line-height (- win-width x) (background-colour stream) fb (+ top y) (+ left x))
-    (funcall (damage-function stream) (+ left x) (+ top y) (- win-width x) line-height)
-    ;; Advance to the next line.
-    (setf (cursor-x stream) 0
-          (cursor-column stream) 0)
-    (cond ((> (+ y (* line-height 2)) win-height)
-           ;; Off the end of the screen. Scroll!
-           (incf (cursor-line stream) line-height)
-           (mezzanine.gui:bitblt (- win-height line-height) win-width
-                                 fb (+ top line-height) left
-                                 fb top left)
-           ;; Clear line.
-           (mezzanine.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
-           ;; Damage the whole area.
-           (funcall (damage-function stream) left top win-width win-height))
-          (t (incf y line-height)
-             (setf (cursor-y stream) y)
+  (with-cursor-hidden (stream)
+    (let* ((x (cursor-x stream))
+           (y (cursor-y stream))
+           (fb (framebuffer stream))
+           (win-width (width stream))
+           (win-height (height stream))
+           (line-height (line-height (font stream)))
+           (left (x-position stream))
+           (top (y-position stream)))
+      ;; Clear to the end of the current line.
+      (mezzanine.gui:bitset line-height (- win-width x) (background-colour stream) fb (+ top y) (+ left x))
+      (funcall (damage-function stream) (+ left x) (+ top y) (- win-width x) line-height)
+      ;; Advance to the next line.
+      (setf (cursor-x stream) 0
+            (cursor-column stream) 0)
+      (cond ((> (+ y (* line-height 2)) win-height)
+             ;; Off the end of the screen. Scroll!
+             (incf (cursor-line stream) line-height)
+             (mezzanine.gui:bitblt (- win-height line-height) win-width
+                                   fb (+ top line-height) left
+                                   fb top left)
              ;; Clear line.
              (mezzanine.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
-             (funcall (damage-function stream) left (+ top y) win-width line-height)))))
+             ;; Damage the whole area.
+             (funcall (damage-function stream) left top win-width win-height))
+            (t (incf y line-height)
+               (setf (cursor-y stream) y)
+               ;; Clear line.
+               (mezzanine.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
+               (funcall (damage-function stream) left (+ top y) win-width line-height))))))
 
 (defmethod sys.gray:stream-write-char ((stream text-widget) character)
   (cond
     ((eql character #\Newline)
      (sys.gray:stream-terpri stream))
-    (t (let* ((glyph (character-to-glyph (font stream) character))
-              (mask (glyph-mask glyph))
-              (advance (glyph-advance glyph))
-              (fb (framebuffer stream))
-              (win-width (width stream))
-              (line-height (line-height (font stream)))
-              (left (x-position stream))
-              (top (y-position stream)))
-         (when (> (+ (cursor-x stream) advance) win-width)
-           (sys.gray:stream-terpri stream))
-         ;; Fetch x/y after terpri.
-         (let ((x (cursor-x stream))
-               (y (cursor-y stream)))
-           (mezzanine.gui:bitset line-height advance (background-colour stream) fb (+ top y) (+ left x))
-           (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
-                                                  mask 0 0
-                                                  fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
-           (funcall (damage-function stream) (+ left x) (+ top y) advance line-height)
-           (incf (cursor-x stream) advance)
-           (incf (cursor-column stream)))))))
+    (t (with-cursor-hidden (stream)
+         (let* ((glyph (character-to-glyph (font stream) character))
+                (mask (glyph-mask glyph))
+                (advance (glyph-advance glyph))
+                (fb (framebuffer stream))
+                (win-width (width stream))
+                (line-height (line-height (font stream)))
+                (left (x-position stream))
+                (top (y-position stream)))
+           (when (> (+ (cursor-x stream) advance) win-width)
+             (sys.gray:stream-terpri stream))
+           ;; Fetch x/y after terpri.
+           (let ((x (cursor-x stream))
+                 (y (cursor-y stream)))
+             (mezzanine.gui:bitset line-height advance (background-colour stream) fb (+ top y) (+ left x))
+             (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
+                                                    mask 0 0
+                                                    fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
+             (funcall (damage-function stream) (+ left x) (+ top y) advance line-height)
+             (incf (cursor-x stream) advance)
+             (incf (cursor-column stream))))))))
 
 (defmethod sys.gray:stream-start-line-p ((stream text-widget))
   (zerop (cursor-x stream)))
@@ -292,8 +331,9 @@
 (defmethod sys.int::stream-move-to ((stream text-widget) x y)
   (check-type x integer)
   (check-type y integer)
-  (setf (cursor-x stream) x
-        (cursor-y stream) (max (- y (cursor-line stream)) 0)))
+  (with-cursor-hidden (stream)
+    (setf (cursor-x stream) x
+          (cursor-y stream) (max (- y (cursor-line stream)) 0))))
 
 (defmethod sys.int::stream-character-width ((stream text-widget) character)
   (glyph-advance (character-to-glyph (font stream) character)))
@@ -324,39 +364,41 @@
         (incf initial-x advance)))))
 
 (defmethod sys.int::stream-clear-between ((stream text-widget) start-x start-y end-x end-y)
-  (let* ((framebuffer (framebuffer stream))
-         (win-width (width stream))
-         (win-height (height stream))
-         (colour (background-colour stream))
-         (line-height (line-height (font stream)))
-         (left (x-position stream))
-         (top (y-position stream)))
-    (setf start-y (- start-y (cursor-line stream))
-          end-y (- end-y (cursor-line stream)))
-    (cond ((eql start-y end-y)
-           ;; Clearing one line.
-           (mezzanine.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
-           (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- end-x start-x) line-height))
-          (t ;; Clearing many lines.
-           ;; Clear top line.
-           (mezzanine.gui:bitset line-height (- win-width start-x) colour
-                                 framebuffer (+ top start-y) (+ left start-x))
-           (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- win-width start-x) line-height)
-           ;; Clear in-between.
-           (when (> (- end-y start-y) line-height)
-             (mezzanine.gui:bitset (- end-y start-y line-height) win-width colour
-                                   framebuffer (+ top start-y line-height) left)
-             (funcall (damage-function stream) left (+ top start-y line-height) win-width (- end-y start-y line-height)))
-           ;; Clear bottom line.
-           (mezzanine.gui:bitset line-height end-x colour
-                                 framebuffer (+ top end-y) left)
-           (funcall (damage-function stream) left (+ top end-y) end-x line-height)))))
+  (with-cursor-hidden (stream)
+    (let* ((framebuffer (framebuffer stream))
+           (win-width (width stream))
+           (win-height (height stream))
+           (colour (background-colour stream))
+           (line-height (line-height (font stream)))
+           (left (x-position stream))
+           (top (y-position stream)))
+      (setf start-y (- start-y (cursor-line stream))
+            end-y (- end-y (cursor-line stream)))
+      (cond ((eql start-y end-y)
+             ;; Clearing one line.
+             (mezzanine.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
+             (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- end-x start-x) line-height))
+            (t ;; Clearing many lines.
+             ;; Clear top line.
+             (mezzanine.gui:bitset line-height (- win-width start-x) colour
+                                   framebuffer (+ top start-y) (+ left start-x))
+             (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- win-width start-x) line-height)
+             ;; Clear in-between.
+             (when (> (- end-y start-y) line-height)
+               (mezzanine.gui:bitset (- end-y start-y line-height) win-width colour
+                                     framebuffer (+ top start-y line-height) left)
+               (funcall (damage-function stream) left (+ top start-y line-height) win-width (- end-y start-y line-height)))
+             ;; Clear bottom line.
+             (mezzanine.gui:bitset line-height end-x colour
+                                   framebuffer (+ top end-y) left)
+             (funcall (damage-function stream) left (+ top end-y) end-x line-height))))))
 
 (defmethod reset ((widget text-widget))
   (setf (cursor-x widget) 0
         (cursor-y widget) 0
         (cursor-column widget) 0
-        (cursor-line widget) 0)
+        (cursor-line widget) 0
+        (cursor-visible widget) nil)
   (mezzanine.gui:bitset (height widget) (width widget)
                         (background-colour widget)
                         (framebuffer widget) (y-position widget) (x-position widget))

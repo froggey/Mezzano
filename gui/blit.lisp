@@ -453,3 +453,56 @@
         (%bitblt-argb-xrgb-line ncols from from-offset to to-offset)
         (incf from-offset from-stride)
         (incf to-offset to-stride)))))
+
+;;; NCOLS COLOUR TO TO-OFFSET
+(sys.int::define-lap-function %bitxor-line ()
+  (sys.lap-x86:mov64 :rdi :r10)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; RSI = TO address (byte address)
+  (sys.lap-x86:mov64 :rsi :r11)
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
+  (sys.lap-x86:shl64 :rsi 2) ; TO-OFFSET * 4(raw)
+  (sys.lap-x86:add64 :rdi :rsi) ; RDI = TO + TO-OFFSET, first pixel on the line.
+  (sys.lap-x86:sar64 :r9 #.sys.int::+n-fixnum-bits+) ; R9 = colour (raw)
+  (sys.lap-x86:test64 :r8 :r8)
+  (sys.lap-x86:jmp test)
+  head
+  (sys.lap-x86:xor32 (:rdi) :r9d)
+  (sys.lap-x86:add64 :rdi 4)
+  (sys.lap-x86:sub64 :r8 #.(ash 1 sys.int::+n-fixnum-bits+))
+  test
+  (sys.lap-x86:jnz head)
+  (sys.lap-x86:xor32 :r9d :r9d)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:ret))
+
+(defun bitxor (nrows ncols colour to-array to-row to-col)
+  "Exclusive OR a rectangle with COLOUR."
+  (let ((to-width (array-dimension to-array 1))
+        (to-height (array-dimension to-array 0))
+        (to-offset 0))
+    ;; Only need to clamp values below zero here. nrows/ncols will
+    ;; end up negative if the source/target positions are too large.
+    ;; Clamp to row/column.
+    (when (< to-row 0)
+      (incf nrows to-row)
+      (setf to-row 0))
+    (when (< to-col 0)
+      (incf ncols to-col)
+      (setf to-col 0))
+    ;; Clamp nrows/ncols.
+    (setf nrows (min nrows (- to-height to-row)))
+    (setf ncols (min ncols (- to-width to-col)))
+    (multiple-value-bind (to-displaced-to to-displaced-offset)
+        (array-displacement to-array)
+      (when to-displaced-to
+        (setf to-array to-displaced-to
+              to-offset to-displaced-offset)))
+    (assert (equal (array-element-type to-array) '(unsigned-byte 32)))
+    (incf to-offset (+ (* to-row to-width) to-col))
+    (when (and (> nrows 0)
+               (> ncols 0))
+      (mezzanine.supervisor:with-pseudo-atomic ()
+        (let ((to (%simple-array-data-pointer to-array)))
+          (dotimes (y nrows)
+            (%bitxor-line ncols colour to to-offset)
+            (incf to-offset to-width)))))))

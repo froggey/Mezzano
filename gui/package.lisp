@@ -13,6 +13,7 @@
            #:bitset-argb-xrgb
            #:bitblt
            #:bitblt-argb-xrgb
+           #:bitxor
            #:*default-foreground-colour*
            #:*default-background-colour*))
 
