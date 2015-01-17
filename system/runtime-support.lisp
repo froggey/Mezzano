@@ -189,11 +189,9 @@
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
 
-(defun %symbol-tls-slot (symbol)
-  (ldb (byte 16 8) (%symbol-flags symbol)))
-
 (defun symbol-tls-slot (symbol)
-  (let ((slot (ldb (byte 16 8) (%symbol-flags symbol))))
+  (check-type symbol symbol)
+  (let ((slot (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))
     (if (zerop slot) nil slot)))
 
 (defun funcall (function &rest arguments)

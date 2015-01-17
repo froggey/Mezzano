@@ -252,7 +252,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
     (loop for (symbol value) in initial-bindings do
          (let ((slot (or (sys.int::symbol-tls-slot symbol)
                          (sys.int::%allocate-tls-slot symbol))))
-           (setf (sys.int::%array-like-ref-t thread slot) value)))
+           (setf (sys.int::%array-like-ref-t thread (1- slot)) value)))
     ;; Initialize the FXSAVE area.
     ;; All FPU/SSE interrupts masked, round to nearest,
     ;; x87 using 80 bit precision (long-float).
