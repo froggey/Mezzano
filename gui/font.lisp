@@ -29,7 +29,11 @@
 (defclass typeface ()
   ((%font-loader :initarg :font-loader :reader font-loader)
    (%name :initarg :name :reader name)
+   (%lock :reader typeface-lock)
    (%refcount :initform 1)))
+
+(defmethod initialize-instance :after ((instance typeface) &key &allow-other-keys)
+  (setf (slot-value instance '%lock) (mezzanine.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
 
 (defclass font ()
   ((%typeface :initarg :typeface :reader typeface)
@@ -38,7 +42,7 @@
    (%line-height :reader line-height)
    (%em-square-width :reader em-square-width)
    (%font-ascender :reader ascender)
-   ;; Not protected by a lock. Multiple threads racing just do extra work, nothing incorrect.
+   (%glyph-cache-lock :reader glyph-cache-lock)
    (%glyph-cache :reader glyph-cache)
    (%refcount :initform 1)))
 
@@ -74,6 +78,7 @@
 ;; font-name (lowercase) -> typeface
 (defvar *typeface-cache* (make-hash-table :test 'equal))
 ;; (lowercase font name . single-float size) -> font
+;; This should really be a weak hash-table, to get rid of the ref-counting.
 (defvar *font-cache* (make-hash-table :test 'equal))
 
 (defun path-map-line (path function)
@@ -144,27 +149,28 @@
     (let ((glyph (aref cell-cache cell)))
       (when (not glyph)
         ;; Glyph does not exist in the cache, rasterize it.
-        (mezzanine.supervisor:with-mutex (*font-lock*)
-          (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
-                 (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
-                        (scale (font-scale font))
-                        (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
-                        (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
-                   (setf glyph (make-glyph :character (code-char code)
-                                           :mask (rasterize-glyph ttf-glyph scale)
-                                           :yoff (zpb-ttf:ymax bb)
-                                           :xoff (zpb-ttf:xmin bb)
-                                           :advance advance)
-                         (aref cell-cache cell) glyph)))
-                (t ;; Use Unifont fallback.
-                 (let ((mask (or (sys.int::map-unifont-2d (code-char code))
-                                 (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
-                   (setf glyph (make-glyph :character (code-char code)
-                                           :mask (expand-bit-mask-to-ub8-mask mask)
-                                           :yoff 14
-                                           :xoff 0
-                                           :advance (array-dimension mask 1))
-                         (aref cell-cache cell) glyph))))))
+        (mezzanine.supervisor:with-mutex ((glyph-cache-lock font))
+          (mezzanine.supervisor:with-mutex ((typeface-lock (typeface font)))
+            (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
+                   (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
+                          (scale (font-scale font))
+                          (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
+                          (advance (round (* (zpb-ttf:advance-width ttf-glyph) scale))))
+                     (setf glyph (make-glyph :character (code-char code)
+                                             :mask (rasterize-glyph ttf-glyph scale)
+                                             :yoff (zpb-ttf:ymax bb)
+                                             :xoff (zpb-ttf:xmin bb)
+                                             :advance advance)
+                           (aref cell-cache cell) glyph)))
+                  (t ;; Use Unifont fallback.
+                   (let ((mask (or (sys.int::map-unifont-2d (code-char code))
+                                   (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
+                     (setf glyph (make-glyph :character (code-char code)
+                                             :mask (expand-bit-mask-to-ub8-mask mask)
+                                             :yoff 14
+                                             :xoff 0
+                                             :advance (array-dimension mask 1))
+                           (aref cell-cache cell) glyph)))))))
       glyph)))
 
 (defmethod initialize-instance :after ((font font) &key typeface size &allow-other-keys)
@@ -179,6 +185,7 @@
                                                         (font-scale font)))
           (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
                                                       (font-scale font)))
+          (slot-value font '%glyph-cache-lock) (mezzanine.supervisor:make-mutex (format nil "~S ~S lock" (name typeface) size))
           (slot-value font '%glyph-cache) (make-array 17 :initial-element nil))))
 
 (defun find-font (name &optional (errorp t))
