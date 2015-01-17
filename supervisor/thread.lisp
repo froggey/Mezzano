@@ -852,7 +852,7 @@ otherwise the thread will exit immediately, and not execute cleanup forms."
       (return-from acquire-block-mutex t))
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
-      (panic "Recursive locking detected."))
+      (error "Recursive locking detected on ~S." mutex))
     (when wait-p
       ;; Slow path.
       (sys.int::%cli)
