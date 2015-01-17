@@ -151,7 +151,8 @@
         ;; Glyph does not exist in the cache, rasterize it.
         (mezzanine.supervisor:with-mutex ((glyph-cache-lock font))
           (mezzanine.supervisor:with-mutex ((typeface-lock (typeface font)))
-            (cond ((zpb-ttf:glyph-exists-p code (font-loader font))
+            (cond ((and (zpb-ttf:glyph-exists-p code (font-loader font))
+                        (not (zerop (zpb-ttf:code-point (zpb-ttf:find-glyph code (font-loader font))))))
                    (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
                           (scale (font-scale font))
                           (bb (scale-bb (zpb-ttf:bounding-box ttf-glyph) scale))
