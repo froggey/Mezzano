@@ -4,16 +4,85 @@
            #:*line-editor-command-table*
            #:define-command
            #:buffer
-           #:cursor-position))
+           #:cursor-position
+           #:history-table
+           #:history-reset
+           #:history-newest
+           #:history-oldest
+           #:history-next
+           #:history-previous
+           #:history-data
+           #:history-add))
 
 (in-package :mezzanine.line-editor)
+
+(defgeneric history-reset (history))
+(defgeneric history-newest (history))
+(defgeneric history-oldest (history))
+(defgeneric history-next (history))
+(defgeneric history-previous (history))
+(defgeneric history-data (history entry))
+(defgeneric history-add (history data))
+
+(defclass history-table ()
+  ((%lock :initform (mezzanine.supervisor:make-mutex "History table lock") :reader lock)
+   (%history-data)))
+
+(defmethod initialize-instance :after ((instance history-table) &key &allow-other-keys)
+  (history-reset instance))
+
+(defmethod history-reset ((history history-table))
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (setf (slot-value history '%history-data) (make-array 0 :fill-pointer 0 :adjustable t))))
+
+(defmethod history-newest ((history history-table))
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (when (not (zerop (length (slot-value history '%history-data))))
+      (1- (length (slot-value history '%history-data))))))
+
+(defmethod history-oldest ((history history-table))
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (when (not (zerop (length (slot-value history '%history-data))))
+      0)))
+
+(defmethod history-previous ((history history-table) entry)
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (when (not (zerop entry))
+      (1- entry))))
+
+(defmethod history-next ((history history-table) entry)
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (when (not (eql entry (1- (length (slot-value history '%history-data)))))
+      (1+ entry))))
+
+(defmethod history-data ((history history-table) entry)
+  (check-type entry (integer 0))
+  (or (mezzanine.supervisor:with-mutex ((lock history))
+        (when (< entry (length (slot-value history '%history-data)))
+          (aref (slot-value history '%history-data) entry)))
+      (error "Invalid history entry ~D." entry)))
+
+(defmethod history-add ((history history-table) data)
+  (mezzanine.supervisor:with-mutex ((lock history))
+    (cond ((or (zerop (length (slot-value history '%history-data)))
+               (not (equal (aref (slot-value history '%history-data)
+                                 (1- (length (slot-value history '%history-data))))
+                           data)))
+           (vector-push-extend data (slot-value history '%history-data)))
+          (t (1- (length (slot-value history '%history-data)))))))
+
+(defvar *line-editor-history* (make-instance 'history-table))
 
 (defclass line-edit-mixin ()
   ((%line-buffer :initform nil :accessor buffer)
    (%cursor-position :accessor cursor-position)
    (%output-progress :initform nil :accessor output-progress)
    (%line-start-position :accessor line-start-position)
-   (%line-end-position :accessor line-end-position)))
+   (%line-end-position :accessor line-end-position)
+   (%history-table :initarg :history-table :reader history-table)
+   (%history-position :initarg :history-position :accessor history-position))
+  (:default-initargs :history-table *line-editor-history*
+                     :history-position nil))
 
 (defvar *line-editor-command-table* (make-hash-table))
 
@@ -83,6 +152,41 @@
 (define-command move-beginning-of-line (stream (#\C-A #\Home))
   "Move the start of line."
   (setf (cursor-position stream) 0))
+
+(defun set-from-history (stream)
+  (let ((data (history-data (history-table stream) (history-position stream))))
+    (setf (buffer stream) (make-array (length data)
+                                      :element-type 'character
+                                      :initial-contents data
+                                      :fill-pointer t
+                                      :adjustable t)
+          (cursor-position stream) (length data))))
+
+(define-command previous-history (stream (#\M-P #\Up-Arrow))
+  (cond ((history-position stream)
+         (let ((prev (history-previous (history-table stream) (history-position stream))))
+           (when prev
+             (setf (history-position stream) prev)
+             (set-from-history stream))))
+        (t (setf (history-position stream) (history-newest (history-table stream)))
+           (when (history-position stream)
+             (set-from-history stream)))))
+
+(define-command next-history (stream (#\M-N #\Down-Arrow))
+  (cond ((history-position stream)
+         (let ((next (history-next (history-table stream) (history-position stream))))
+           (cond (next
+                  (setf (history-position stream) next)
+                  (set-from-history stream))
+                 (t (setf (history-position stream) nil
+                          (fill-pointer (buffer stream)) 0
+                          (cursor-position stream) 0)))))
+        (t (history-add (history-table stream) (make-array (length (buffer stream))
+                                                           :element-type 'character
+                                                           :initial-contents (buffer stream)))
+           (setf (history-position stream) nil
+                 (fill-pointer (buffer stream)) 0
+                 (cursor-position stream) 0))))
 
 (define-command forward-delete-char (stream (#\Delete #\C-D))
   "Delete one character forward."
@@ -164,7 +268,8 @@
                    (cursor-position stream) 0
                    (buffer stream) (make-array 50 :element-type 'character :fill-pointer 0 :adjustable t)
                    (line-start-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream))
-                   (line-end-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream))))
+                   (line-end-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream))
+                   (history-position stream) nil))
            (loop
               (let* ((ch (call-next-method))
                      (fn (gethash ch *line-editor-command-table*)))
@@ -173,6 +278,9 @@
                        (when (not (eql (cursor-position stream) (length (buffer stream))))
                          (setf (cursor-position stream) (length (buffer stream)))
                          (redraw-line stream))
+                       (history-add (history-table stream) (make-array (length (buffer stream))
+                                                                       :element-type 'character
+                                                                       :initial-contents (buffer stream)))
                        (vector-push-extend #\Newline (buffer stream))
                        (write-char #\Newline stream)
                        (setf (output-progress stream) 0)
