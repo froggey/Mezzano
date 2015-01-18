@@ -5,7 +5,10 @@
            #:define-command
            #:buffer
            #:cursor-position
+           #:last-command
            #:history-table
+           #:history-position
+           ;; History table protocol.
            #:history-reset
            #:history-newest
            #:history-oldest
@@ -19,8 +22,8 @@
 (defgeneric history-reset (history))
 (defgeneric history-newest (history))
 (defgeneric history-oldest (history))
-(defgeneric history-next (history))
-(defgeneric history-previous (history))
+(defgeneric history-next (history entry))
+(defgeneric history-previous (history entry))
 (defgeneric history-data (history entry))
 (defgeneric history-add (history data))
 
@@ -80,9 +83,13 @@
    (%line-start-position :accessor line-start-position)
    (%line-end-position :accessor line-end-position)
    (%history-table :initarg :history-table :reader history-table)
-   (%history-position :initarg :history-position :accessor history-position))
+   (%history-position :initarg :history-position :accessor history-position)
+   (%history-search-fragment :initarg :history-search-fragment :accessor history-search-fragment)
+   (%last-command :initarg :last-command :accessor last-command))
   (:default-initargs :history-table *line-editor-history*
-                     :history-position nil))
+                     :history-position nil
+                     :history-search-fragment nil
+                     :last-command nil))
 
 (defvar *line-editor-command-table* (make-hash-table))
 
@@ -162,31 +169,57 @@
                                       :adjustable t)
           (cursor-position stream) (length data))))
 
+(defun history-search (history-table position direction-function term)
+  (loop
+     (let ((next (case position
+                   (:newest (history-newest history-table))
+                   (:oldest (history-oldest history-table))
+                   (t (funcall direction-function history-table position)))))
+       (when (not next)
+         (return nil))
+       (let ((data (history-data history-table next)))
+         (when (and (<= (length term) (length data))
+                    (string= term data :end2 (length term)))
+           (return (values next data))))
+       (setf position next))))
+
+(defun history-search-in-progress (stream)
+  (member (last-command stream) '(previous-history next-history)))
+
+(defun current-history-pattern (stream)
+  (cond ((history-search-in-progress stream)
+         (history-search-fragment stream))
+        ((zerop (length (buffer stream)))
+         nil)
+        (t (copy-seq (buffer stream)))))
+
+(defun move-history (stream direction pattern)
+  (setf (history-search-fragment stream) (or pattern ""))
+  (let ((pos (history-search (history-table stream)
+                             (or (when (history-search-in-progress stream)
+                                   (history-position stream))
+                                 (ecase direction
+                                   (:forward :oldest)
+                                   (:backward :newest)))
+                             (ecase direction
+                               (:forward #'history-next)
+                               (:backward #'history-previous))
+                             (history-search-fragment stream))))
+    (when pos
+      (let ((data (history-data (history-table stream) pos)))
+        (setf (buffer stream) (make-array (length data)
+                                          :element-type 'character
+                                          :initial-contents data
+                                          :fill-pointer t
+                                          :adjustable t)
+              (cursor-position stream) (length data))))
+    (setf (history-position stream) pos)))
+
 (define-command previous-history (stream (#\M-P #\Up-Arrow))
-  (cond ((history-position stream)
-         (let ((prev (history-previous (history-table stream) (history-position stream))))
-           (when prev
-             (setf (history-position stream) prev)
-             (set-from-history stream))))
-        (t (setf (history-position stream) (history-newest (history-table stream)))
-           (when (history-position stream)
-             (set-from-history stream)))))
+  (move-history stream :backward (current-history-pattern stream)))
 
 (define-command next-history (stream (#\M-N #\Down-Arrow))
-  (cond ((history-position stream)
-         (let ((next (history-next (history-table stream) (history-position stream))))
-           (cond (next
-                  (setf (history-position stream) next)
-                  (set-from-history stream))
-                 (t (setf (history-position stream) nil
-                          (fill-pointer (buffer stream)) 0
-                          (cursor-position stream) 0)))))
-        (t (history-add (history-table stream) (make-array (length (buffer stream))
-                                                           :element-type 'character
-                                                           :initial-contents (buffer stream)))
-           (setf (history-position stream) nil
-                 (fill-pointer (buffer stream)) 0
-                 (cursor-position stream) 0))))
+  (move-history stream :forward (current-history-pattern stream)))
 
 (define-command forward-delete-char (stream (#\Delete #\C-D))
   "Delete one character forward."
@@ -278,15 +311,16 @@
                        (when (not (eql (cursor-position stream) (length (buffer stream))))
                          (setf (cursor-position stream) (length (buffer stream)))
                          (redraw-line stream))
-                       (history-add (history-table stream) (make-array (length (buffer stream))
-                                                                       :element-type 'character
-                                                                       :initial-contents (buffer stream)))
+                       (when (not (zerop (length (buffer stream))))
+                         (history-add (history-table stream) (copy-seq (buffer stream))))
                        (vector-push-extend #\Newline (buffer stream))
                        (write-char #\Newline stream)
                        (setf (output-progress stream) 0)
+                       (setf (last-command stream) #\Newline)
                        (return (sys.gray:stream-read-char stream)))
                       (fn
                        (funcall fn stream)
+                       (setf (last-command stream) fn)
                        (redraw-line stream))
                       ((not (graphic-char-p ch))) ; ignore non-graphics characters.
                       ((eql (cursor-position stream) (length (buffer stream)))
@@ -294,7 +328,8 @@
                        (vector-push-extend ch (buffer stream))
                        (write-char ch stream)
                        (incf (cursor-position stream))
-                       (setf (line-end-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream))))
+                       (setf (line-end-position stream) (multiple-value-list (sys.int::stream-cursor-pos stream)))
+                       (setf (last-command stream) ch))
                       (t ;; Writing into the middle of the line requires a redraw.
                        ;; Ensure space.
                        (vector-push-extend ch (buffer stream))
@@ -307,4 +342,5 @@
                        ;; Advance cursor.
                        (incf (cursor-position stream))
                        ;; Redraw.
-                       (redraw-line stream))))))))
+                       (redraw-line stream)
+                       (setf (last-command stream) ch))))))))
