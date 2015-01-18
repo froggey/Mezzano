@@ -4,8 +4,7 @@
 
 (in-package :mezzanine.gui.fancy-repl)
 
-(defclass fancy-repl (sys.gray:unread-char-mixin
-                      sys.int::simple-edit-mixin
+(defclass fancy-repl (mezzanine.line-editor:line-edit-mixin
                       sys.gray:fundamental-character-input-stream
                       mezzanine.gui.widgets:text-widget)
   ((%fifo :initarg :fifo :reader fifo)
@@ -28,7 +27,17 @@
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:key-event))
   ;; should filter out strange keys?
   (when (not (mezzanine.gui.compositor:key-releasep event))
-    (mezzanine.supervisor:fifo-push (mezzanine.gui.compositor:key-key event) (input-buffer window) nil)))
+    (mezzanine.supervisor:fifo-push (if (mezzanine.gui.compositor:key-modifier-state event)
+                                        ;; Force character to uppercase when a modifier key is active, gets
+                                        ;; around weirdness in how character names are processed.
+                                        ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
+                                        (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
+                                                                 :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
+                                                                 :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
+                                                                 :super (find :super (mezzanine.gui.compositor:key-modifier-state event))
+                                                                 :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
+                                        (mezzanine.gui.compositor:key-key event))
+                                    (input-buffer window) nil)))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:mouse-event))
   (mezzanine.gui.widgets:frame-mouse-event (frame window) event))

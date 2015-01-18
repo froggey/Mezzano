@@ -4,8 +4,7 @@
 
 (in-package :mezzanine.gui.popup-io-stream)
 
-(defclass popup-io-stream (sys.gray:unread-char-mixin
-                           sys.int::simple-edit-mixin
+(defclass popup-io-stream (mezzanine.line-editor:line-edit-mixin
                            sys.gray:fundamental-character-input-stream
                            sys.gray:fundamental-character-output-stream)
   ((%fifo :reader fifo)
@@ -91,7 +90,17 @@
       (cond ((and (eql (mezzanine.gui.compositor:key-key event) #\Esc)
                   (member :control (mezzanine.gui.compositor:key-modifier-state event)))
              (setf (break-requested window) t))
-            (t (mezzanine.supervisor:fifo-push (mezzanine.gui.compositor:key-key event) (input-buffer window) nil)))
+            (t (mezzanine.supervisor:fifo-push (if (mezzanine.gui.compositor:key-modifier-state event)
+                                                   ;; Force character to uppercase when a modifier key is active, gets
+                                                   ;; around weirdness in how character names are processed.
+                                                   ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
+                                                   (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
+                                                                            :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
+                                                                            :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
+                                                                            :super (find :super (mezzanine.gui.compositor:key-modifier-state event))
+                                                                            :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
+                                                   (mezzanine.gui.compositor:key-key event))
+                                               (input-buffer window) nil)))
       (mezzanine.supervisor:condition-notify (cvar window)))))
 
 (defmethod dispatch-event (window (event mezzanine.gui.compositor:mouse-event))
