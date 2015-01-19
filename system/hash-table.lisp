@@ -214,10 +214,10 @@ is below the rehash-threshold."
   (if (zerop depth)
       #x12345678
       (typecase object
-        (bit-vector 0) ; TODO
+        (bit-vector 0) ; TODO. could copy the bitvector, then munge it into a bignum. nasty.
         (cons (logxor (sxhash-1 (car object) (1- depth))
                       (sxhash-1 (cdr object) (1- depth))))
-        ;;(pathname ...)
+        (pathname (sxhash-1 (namestring object) (1- depth)))
         (string
          ;; djb2 string hash
          ;; We use 25-bit characters (unicode+bucky bits), instead of 8-bit chars.
