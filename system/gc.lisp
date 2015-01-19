@@ -20,7 +20,7 @@
 (defvar *memory-expansion-remaining* 0)
 
 ;; What *MEMORY-EXPANSION-REMAINING* should be set to after a GC.
-(defvar *memory-expansion* (* 32 1024 1024))
+(defvar *memory-expansion* (* 64 1024 1024))
 
 ;; Current state of the stack mark bit. The value in this symbol is accessed
 ;; as a raw, untagged value by the DX allocation code. The value must be a
