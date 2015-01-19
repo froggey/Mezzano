@@ -168,7 +168,7 @@
                                    (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
                      (setf glyph (make-glyph :character (code-char code)
                                              :mask (expand-bit-mask-to-ub8-mask mask)
-                                             :yoff 14
+                                             :yoff 12
                                              :xoff 0
                                              :advance (array-dimension mask 1))
                            (aref cell-cache cell) glyph)))))))
@@ -211,7 +211,7 @@
                                       :typeface typeface
                                       :size (float size))
                   (gethash font-key *font-cache*) font)
-            (format t "Creating new font ~S with typeface ~S.~%" font typeface)
+            #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (return-from open-font font)))))
     ;; Neither font nor typeface in cache. Open the TTF outside the lock
     ;; to signalling lock held.
@@ -230,11 +230,11 @@
                  (incf (slot-value typeface '%refcount)))
                 (t (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader)
                          (gethash typeface-key *typeface-cache*) typeface)
-                   (format t "Creating new typeface ~S.~%" typeface)))
+                   #+(or)(format t "Creating new typeface ~S.~%" typeface)))
           (let ((font (make-instance 'font
                                      :typeface typeface
                                      :size (float size))))
-            (format t "Creating new font ~S with typeface ~S.~%" font typeface)
+            #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (setf (gethash font-key *font-cache*) font)
             font))))))
 
