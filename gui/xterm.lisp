@@ -197,11 +197,11 @@ Calls FN with each output character."
 (defmethod initialize-instance :after ((term xterm-terminal) &key width height font &allow-other-keys)
   (let* ((fb (terminal-framebuffer term))
          (dims (array-dimensions fb)))
-    (setf (slot-value term 'width) (truncate width (mezzanine.gui.font:em-square-width font))
-          (slot-value term 'height) (truncate height (mezzanine.gui.font:line-height font)))
+    (setf (slot-value term 'width) (truncate width (cell-pixel-width term))
+          (slot-value term 'height) (truncate height (cell-pixel-height term)))
     (soft-reset term)
-    (mezzanine.gui:bitset (* (terminal-height term) (mezzanine.gui.font:line-height font))
-                          (* (terminal-width term) (mezzanine.gui.font:em-square-width font))
+    (mezzanine.gui:bitset (* (terminal-height term) (cell-pixel-height term))
+                          (* (terminal-width term) (cell-pixel-width term))
                           (true-background-colour term) fb
                           (y-offset term) (x-offset term))
     (funcall (damage-function term)
@@ -215,7 +215,10 @@ Calls FN with each output character."
           (terminal-state term)))
 
 (defun cell-pixel-width (term)
-  (mezzanine.gui.font:em-square-width (font term)))
+  ;; Use the width of 'M', not the em-square-width.
+  ;; DejaVu Sans Mono's em-square-width is full-width!
+  (mezzanine.gui.font:glyph-advance
+   (mezzanine.gui.font:character-to-glyph (font term) #\M)))
 
 (defun cell-pixel-height (term)
   (mezzanine.gui.font:line-height (font term)))
