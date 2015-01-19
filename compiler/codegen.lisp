@@ -1565,7 +1565,10 @@ Returns an appropriate tag."
   (declare (ignorable what))
   #+nil(format t "Performing tail call to ~S in ~S~%"
           what (lambda-information-name *current-lambda*))
-  (emit-return-code t)
+  (when *used-dynamic-extent*
+    (flush-data-registers t))
+  (emit `(sys.lap-x86:leave)
+        `(:gc :no-frame))
   (emit `(sys.lap-x86:jmp ,where)))
 
 (defun cg-variable (form)
