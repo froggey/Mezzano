@@ -223,6 +223,32 @@
 (define-server-command ping (irc from message)
   (buffered-format (irc-connection irc) "PONG :~A~%" message))
 
+(defun parse-origin (origin)
+  "Return the nick, ident and host parts of a nick!ident@host name.
+If ORIGIN is a server name, then only the host is valid. Nick and ident will be false."
+  (let ((bang (position #\! origin))
+        (at (position #\@ origin)))
+    (cond ((and bang at)
+           (values (subseq origin 0 bang)
+                   (subseq origin (1+ bang) at)
+                   (subseq origin (1+ at))))
+          ((and (not bang) (not at))
+           (values nil
+                   nil
+                   origin))
+          (t (error "Unknown origin form ~S" origin)))))
+
+(define-server-command nick (irc from message)
+  (multiple-value-bind (nick ident host)
+      (parse-origin from)
+    (cond ((and nick ident
+                (string= nick (nickname irc)))
+           (format (display-pane irc) "~&-!- Nickname changed to ~A." message)
+           (setf (nickname irc) message))
+          ((and nick ident)
+           (format (display-pane irc) "~&-!- ~A is now known as ~A." nick message))
+          (t (format (display-pane irc) "~&:~A NICK ~A" from message)))))
+
 (defvar *known-servers*
   '((:freenode "chat.freenode.net" 6667))
   "A list of known/named IRC servers.")
@@ -231,7 +257,15 @@
   (let ((known (assoc name *known-servers* :key 'symbol-name :test 'string-equal)))
     (cond (known
            (values (second known) (third known)))
-          (t (error "Unknown server ~S~%" name)))))
+          (t
+           (let* ((colon (position #\: name))
+                  (server (if colon
+                              (subseq name 0 colon)
+                              name))
+                  (port (if (and colon (not (eql (1+ colon) (length name))))
+                            (parse-integer name :start (1+ colon))
+                            6667)))
+             (values server port))))))
 
 (defclass server-disconnect-event ()
   ())
@@ -250,31 +284,44 @@
          (mezzanine.supervisor:fifo-push (make-instance 'server-line-event :line line) fifo)))))
 
 (defvar *top-level-commands* (make-hash-table :test 'equal))
+(defvar *top-level-command-doc* (make-hash-table :test 'equal))
 
-(defmacro define-command (name (irc text) &body body)
-  `(setf (gethash ',(string-upcase (string name))
-                  *top-level-commands*)
-         (lambda (,irc ,text)
-           (declare (system:lambda-name (irc-command ,name)))
-           ,@body)))
+(defmacro define-command (name (irc text) docstring &body body)
+  `(progn
+     (setf (gethash ',(string-upcase (string name))
+                    *top-level-command-doc*)
+           ',docstring)
+     (setf (gethash ',(string-upcase (string name))
+                    *top-level-commands*)
+           (lambda (,irc ,text)
+             (declare (system:lambda-name (irc-command ,name)))
+             ,@body))))
 
 (define-command quit (irc text)
+  "QUIT [message]
+  Disconnect and close IRC."
   (when (irc-connection irc)
     (buffered-format (irc-connection irc) "QUIT :~A~%" text))
   (throw 'quit nil))
 
 (define-command raw (irc text)
+  "RAW <text>
+  Send TEXT directly to the server without parsing."
   (when (irc-connection irc)
     (write-string text (irc-connection irc))
     (terpri (irc-connection irc))))
 
 (define-command eval (irc text)
+  "EVAL <code>
+  Read and evaluate CODE, printing the result in the display pane."
   (let ((*standard-output* (display-pane irc)))
     (format t "~&[eval] ~A~%" text)
     (eval (read-from-string text))
     (fresh-line)))
 
 (define-command say (irc text)
+  "SAY <text>
+  Send a message to the current channel."
   (cond ((and (irc-connection irc) (current-channel irc))
          (format (display-pane irc) "~&[~A]<~A> ~A" (current-channel irc) (nickname irc) text)
          (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%"
@@ -282,6 +329,8 @@
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command me (irc text)
+  "ACTION <text>
+  Send a CTCP ACTION to the current channel."
   (cond ((and (irc-connection irc) (current-channel irc))
          (format (display-pane irc) "~&[~A]* ~A ~A" (current-channel irc) (nickname irc) text)
          (buffered-format (irc-connection irc) "PRIVMSG ~A :~AACTION ~A~A~%"
@@ -289,17 +338,27 @@
         (t (error "Not connected or not joined to a channel."))))
 
 (define-command nick (irc text)
-  (format (display-pane irc) "~&Changing nickname to ~A." text)
-  ;; FIXME: Check status.
-  (setf (nickname irc) text)
-  (when (irc-connection irc)
-    (buffered-format (irc-connection irc) "NICK ~A~%" (nickname irc))))
+  "NICK [nickname]
+  Set, change or view your nickname."
+  (cond ((zerop (length text))
+         (format (display-pane irc) "~&Your nickname is ~S." (nickname irc)))
+        ((irc-connection irc)
+         ;; Connected, let the server drive the nickname change.
+         (buffered-format (irc-connection irc) "NICK ~A~%" text))
+        (t (format (display-pane irc) "~&Nickname changed to ~A." text)
+           (setf (nickname irc) text))))
 
 (define-command connect (irc text)
+  "CONNECT <server or address>
+  Connect to a server. Addresses use the address:port format, with port defaulting to 6667."
   (cond ((not (nickname irc))
          (error "No nickname set. Use /nick to set a nickname before connecting."))
         ((irc-connection irc)
          (error "Already connected to ~S." (irc-connection irc)))
+        ((zerop (length text))
+         (format (display-pane irc) "~&Known servers:")
+         (loop for (name address port) in *known-servers*
+            do (format (display-pane irc) "~&  ~:(~A~)  ~A:~D" name address port)))
         (t (multiple-value-bind (address port)
                (resolve-server-name text)
              (format (display-pane irc) "~&Connecting to ~A (~A:~A)." text address port)
@@ -315,7 +374,17 @@
              (buffered-format (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
              (buffered-format (irc-connection irc) "NICK ~A~%" (nickname irc))))))
 
+(define-command disconnect (irc text)
+  "DISCONNECT [text]
+  Close the current connect."
+  (cond ((irc-connection irc)
+         (buffered-format (irc-connection irc) "QUIT :~A~%" text)
+         (close (irc-connection irc)))
+        (t (error "Not connected."))))
+
 (define-command join (irc text)
+  "JOIN <channel>
+  Join a channel."
   (cond ((find text (joined-channels irc) :test 'string-equal)
          (error "Already joined to channel ~A." text))
         ((irc-connection irc)
@@ -326,16 +395,30 @@
         (t (error "Not connected."))))
 
 (define-command chan (irc text)
+  "CHAN <channel>
+  Switch to a channel you are joined to."
   (when (irc-connection irc)
     (if (find text (joined-channels irc) :test 'string-equal)
         (setf (current-channel irc) text)
         (error "Not joined to channel ~A." text))))
 
 (define-command part (irc text)
+  "PART [message]
+  Leave the current channel."
   (when (and (irc-connection irc) (current-channel irc))
     (buffered-format (irc-connection irc) "PART ~A :~A~%" (current-channel irc) text)
     (setf (joined-channels irc) (remove (current-channel irc) (joined-channels irc)))
     (setf (current-channel irc) (first (joined-channels irc)))))
+
+(define-command help (irc text)
+  "HELP
+  Show help on commands."
+  (format (display-pane irc) "~&Available commands:")
+  (maphash (lambda (name help)
+             (declare (ignore name))
+             (format (display-pane irc) "~&/~:(~A~)" help))
+           *top-level-command-doc*)
+  (format (display-pane irc) "~&To connect, first set your nickname with the NICK command, then connect to a server with CONNECT."))
 
 (defclass irc-client ()
   ((%fifo :initarg :fifo :reader fifo)
@@ -394,7 +477,16 @@
                (write-char ch (input-pane irc)))))))
 
 (defmethod dispatch-event (irc (event server-disconnect-event))
-  (format (display-pane irc) "~&Disconnected."))
+  (format (display-pane irc) "~&Disconnected from server.")
+  (close (irc-connection irc))
+  (setf (irc-connection irc) nil
+        (receive-thread irc) nil)
+  (setf (mezzanine.gui.widgets:frame-title (frame irc)) (format nil "IRC"))
+  (mezzanine.gui.widgets:draw-frame (frame irc))
+  (mezzanine.gui.compositor:damage-window (window irc)
+                                          0 0
+                                          (mezzanine.gui.compositor:width (window irc))
+                                          (mezzanine.gui.compositor:height (window irc))))
 
 (defmethod dispatch-event (irc (event server-line-event))
   (let ((line (line event)))
