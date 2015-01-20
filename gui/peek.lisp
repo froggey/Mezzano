@@ -47,6 +47,7 @@
   (dolist (card sys.net::*cards*)
     (let ((address (sys.net::ipv4-interface-address card nil)))
       (format t " ~/mezzanine.gui.peek::format-nic/~%" card)
+      (format t "   Mac: ~/sys.net::format-mac-address/~%" (mezzanine.supervisor:nic-mac card))
       (when address
         (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)

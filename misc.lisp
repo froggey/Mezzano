@@ -524,6 +524,15 @@
 
 (defmethod print-object ((object mezzanine.supervisor::nic) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format t "~:(~A~) ~6,'0,':,2X"
+    (format stream "~:(~A~) ~/sys.net::format-mac-address/"
             (type-of (mezzanine.supervisor::nic-device object))
             (mezzanine.supervisor:nic-mac object))))
+
+(defmethod print-object ((object mezzanine.supervisor::disk) stream)
+  (print-unreadable-object (object stream :identity t)
+    (format stream "Disk")
+    (when (typep (mezzanine.supervisor::disk-device object) 'mezzanine.supervisor::partition)
+      (format stream " Partition on ~S" (mezzanine.supervisor::partition-disk (mezzanine.supervisor::disk-device object))))))
+
+(defun copy-pprint-dispatch (&optional table))
+(defun set-pprint-dispatch (type-specifier function &optional (priority 0) table))

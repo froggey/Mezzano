@@ -923,19 +923,14 @@
   `(with-open-stream (,var (tcp-stream-connect ,address ,port))
      ,@body))
 
-(defun ethernet-boot-hook ()
-  (setf *cards* (copy-list mezzanine.supervisor:*nics*)
-        *routing-table* '()
-        *ipv4-interfaces* '()
-        *arp-table* '())
-  (net-setup)
-  (format t "Interfaces: ~S~%" *ipv4-interfaces*))
-(ethernet-boot-hook)
-(mezzanine.supervisor:add-boot-hook 'ethernet-boot-hook)
-
-(defun format-mac (stream mac &optional colon-p at-sign-p)
+(defun format-mac-address (stream mac &optional colon-p at-sign-p)
   (format stream "~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X:~2,'0X"
-          (aref mac 0) (aref mac 1) (aref mac 2) (aref mac 3) (aref mac 4) (aref mac 5)))
+          (ldb (byte 8 0) mac)
+          (ldb (byte 8 8) mac)
+          (ldb (byte 8 16) mac)
+          (ldb (byte 8 24) mac)
+          (ldb (byte 8 32) mac)
+          (ldb (byte 8 40) mac)))
 
 (defun format-ipv4-address (stream argument &optional colon-p at-sign-p)
   "Print the (UNSIGNED-BYTE 32) argument in dotted-decimal notation."
@@ -950,6 +945,16 @@
 
 (defun format-tcp4-address (stream argument &optional colon-p at-sign-p)
   (format-ipv4-address stream argument colon-p at-sign-p))
+
+(defun ethernet-boot-hook ()
+  (setf *cards* (copy-list mezzanine.supervisor:*nics*)
+        *routing-table* '()
+        *ipv4-interfaces* '()
+        *arp-table* '())
+  (net-setup)
+  (format t "Interfaces: ~S~%" *ipv4-interfaces*))
+(ethernet-boot-hook)
+(mezzanine.supervisor:add-boot-hook 'ethernet-boot-hook)
 
 (define-condition invalid-ipv4-address (simple-error)
   ((address :initarg :address
