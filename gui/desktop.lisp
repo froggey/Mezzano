@@ -122,7 +122,8 @@
   (let ((new-window (mezzanine.gui.compositor:make-window (fifo desktop)
                                                           (mezzanine.gui.compositor:width event)
                                                           (mezzanine.gui.compositor:height event)
-                                                          :layer :bottom))
+                                                          :layer :bottom
+                                                          :initial-z-order :below-current))
         (old-window (window desktop)))
     (setf (slot-value desktop '%window) new-window)
     (redraw-desktop-window desktop)
