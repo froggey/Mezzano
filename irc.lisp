@@ -4,6 +4,8 @@
 
 (in-package :irc-client)
 
+(defvar *irc-history* (make-instance 'mezzanine.line-editor:history-table))
+
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)
     (402 :err-no-such-server)
@@ -426,7 +428,6 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
    (%frame :initarg :frame :reader frame)
    (%display-pane :initarg :display-pane :reader display-pane)
    (%input-pane :initarg :input-pane :reader input-pane)
-   (%input-buffer :initarg :input-buffer :accessor input-buffer)
    (%current-channel :initarg :current-channel :accessor current-channel)
    (%joined-channels :initarg :joined-channels :accessor joined-channels)
    (%nickname :initarg :nickname :accessor nickname)
@@ -434,8 +435,22 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
    (%receive-thread :initarg :receive-thread :accessor receive-thread))
   (:default-initargs :current-channel nil :joined-channels '() :nickname nil :connection nil))
 
+(defclass irc-input-pane (mezzanine.line-editor:line-edit-mixin
+                          sys.gray:fundamental-character-input-stream
+                          mezzanine.gui.widgets:text-widget)
+  ((%irc :initarg :irc :reader irc)))
+
+(defmethod sys.gray:stream-read-char ((stream irc-input-pane))
+  (let* ((irc (irc stream))
+         (fifo (fifo irc)))
+    (unwind-protect
+         (catch 'next-character
+           (setf (mezzanine.gui.widgets:cursor-visible stream) t)
+           (loop
+              (dispatch-event irc (mezzanine.supervisor:fifo-pop fifo))))
+      (setf (mezzanine.gui.widgets:cursor-visible stream) nil))))
+
 (defun reset-input (irc)
-  (setf (input-buffer irc) (make-array 100 :element-type 'character :adjustable t :fill-pointer 0))
   (mezzanine.gui.widgets:reset (input-pane irc))
   (format (input-pane irc) "~A] " (or (current-channel irc) "")))
 
@@ -458,23 +473,17 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 (defmethod dispatch-event (irc (event mezzanine.gui.compositor:key-event))
   ;; should filter out strange keys?
   (when (not (mezzanine.gui.compositor:key-releasep event))
-    (let ((ch (mezzanine.gui.compositor:key-key event)))
-      (cond ((eql ch #\Newline)
-             (let ((line (input-buffer irc)))
-               (reset-input irc)
-               (multiple-value-bind (command rest)
-                   (parse-command line)
-                 (let ((fn (gethash (string-upcase command) *top-level-commands*)))
-                   (if fn
-                       (funcall fn irc rest)
-                       (error "Unknown command ~S." command))))))
-            ((eql ch #\Backspace)
-             (when (not (zerop (fill-pointer (input-buffer irc))))
-               (decf (fill-pointer (input-buffer irc)))
-               (mezzanine.gui.widgets:reset (input-pane irc))
-               (format (input-pane irc) "~A] ~A" (or (current-channel irc) "") (input-buffer irc))))
-            (t (vector-push-extend ch (input-buffer irc))
-               (write-char ch (input-pane irc)))))))
+    (throw 'next-character
+      (if (mezzanine.gui.compositor:key-modifier-state event)
+          ;; Force character to uppercase when a modifier key is active, gets
+          ;; around weirdness in how character names are processed.
+          ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
+          (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
+                                   :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
+                                   :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
+                                   :super (find :super (mezzanine.gui.compositor:key-modifier-state event))
+                                   :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
+          (mezzanine.gui.compositor:key-key event)))))
 
 (defmethod dispatch-event (irc (event server-disconnect-event))
   (format (display-pane irc) "~&Disconnected from server.")
@@ -525,7 +534,8 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                                          1
                                                          (mezzanine.gui.font:line-height font))
                                               :damage-function (mezzanine.gui.widgets:default-damage-function window)))
-                 (input-pane (make-instance 'mezzanine.gui.widgets:text-widget
+                 (input-pane (make-instance 'irc-input-pane
+                                            :history-table *irc-history*
                                             :font font
                                             :framebuffer framebuffer
                                             :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
@@ -545,6 +555,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                      :frame frame
                                      :display-pane display-pane
                                      :input-pane input-pane)))
+            (setf (slot-value input-pane '%irc) irc)
             ;; Line seperating display and input panes.
             (mezzanine.gui:bitset 1 (- (mezzanine.gui.compositor:width window)
                                        (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
@@ -563,11 +574,18 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                                     0 0
                                                     (mezzanine.gui.compositor:width window)
                                                     (mezzanine.gui.compositor:height window))
-            (reset-input irc)
             (unwind-protect
                  (loop
                     (handler-case
-                        (dispatch-event irc (mezzanine.supervisor:fifo-pop fifo))
+                        (progn
+                          (reset-input irc)
+                          (let ((line (read-line (input-pane irc))))
+                            (multiple-value-bind (command rest)
+                                (parse-command line)
+                              (let ((fn (gethash (string-upcase command) *top-level-commands*)))
+                                (if fn
+                                    (funcall fn irc rest)
+                                    (error "Unknown command ~S." command))))))
                       (error (c)
                         (ignore-errors
                           (format (display-pane irc) "~&Error: ~A~%" c)))))
