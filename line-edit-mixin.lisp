@@ -116,13 +116,13 @@
   "Starting from POSITION, return the end of the next word."
   ;; Move past non-alphanumeric characters.
   (loop
-     (when (or (zerop position)
+     (when (or (eql position (length (buffer stream)))
                (alphanumericp (char (buffer stream) position)))
        (return))
      (incf position))
   ;; Now past alphanumeric characters.
   (loop
-     (when (or (zerop position)
+     (when (or (eql position (length (buffer stream)))
                (not (alphanumericp (char (buffer stream) position))))
        (return))
      (incf position))
