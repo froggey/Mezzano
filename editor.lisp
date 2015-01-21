@@ -1641,7 +1641,7 @@ If no such form is found, then return the CL-USER package."
 (defun editor-main (width height)
   (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
     (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-      (mezzanine.gui.compositor:with-window (window fifo (or width 640) (or height 700))
+      (mezzanine.gui.compositor:with-window (window fifo (or width 640) (or height 700) :kind :editor)
         (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
                (frame (make-instance 'mezzanine.gui.widgets:frame
                                      :framebuffer framebuffer

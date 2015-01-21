@@ -21,7 +21,8 @@
    (%buffer :initarg :buffer :reader window-buffer)
    (%layer :initarg :layer :reader layer)
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
-   (%unresponsive :initarg :unresponsive :accessor window-unresponsive))
+   (%unresponsive :initarg :unresponsive :accessor window-unresponsive)
+   (%kind :initarg :kind :reader kind))
   (:default-initargs :layer nil :notifications '() :unresponsive nil))
 
 (defgeneric width (thing))
@@ -544,7 +545,7 @@ A passive drag sends no drag events to the window.")
        (when ,window
          (mezzanine.gui.compositor:close-window ,window)))))
 
-(defun make-window (fifo width height &key layer initial-z-order)
+(defun make-window (fifo width height &key layer initial-z-order kind)
   (let ((window (make-instance 'window
                                :width width
                                :height height
@@ -552,7 +553,8 @@ A passive drag sends no drag events to the window.")
                                :buffer (make-array (list height width)
                                                    :element-type '(unsigned-byte 32)
                                                    :initial-element 0)
-                               :layer layer)))
+                               :layer layer
+                               :kind kind)))
     (mezzanine.supervisor:fifo-push (make-instance 'window-create-event
                                                    :window window
                                                    :initial-z-order (or initial-z-order :top))
