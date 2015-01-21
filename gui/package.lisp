@@ -47,6 +47,7 @@
            #:damage-window
            #:subscribe-notification
            #:unsubscribe-notification
+           #:get-window-by-kind
            #:screen-geometry-update))
 
 (defpackage :mezzanine.gui.input-drivers

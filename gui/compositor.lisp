@@ -695,6 +695,12 @@ A passive drag sends no drag events to the window.")
                *clip-rect-x* 0
                *clip-rect-y* 0))))
 
+;; FIXME: This really shouldn't be synchronous.
+(defun get-window-by-kind (kind)
+  (dolist (win *window-list*)
+    (when (eql (kind win) kind)
+      (return win))))
+
 ;;;; Main body of the compositor.
 
 (defun screen-dimensions ()

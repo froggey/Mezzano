@@ -1,6 +1,6 @@
 (defpackage :mezzanine.editor
   (:use :cl)
-  (:export #:spawn))
+  (:export #:spawn #:open-file-request))
 
 (in-package :mezzanine.editor)
 
@@ -115,6 +115,9 @@
                      :screen nil
                      :display-line-cache '()))
 
+(defclass open-file-request ()
+  ((%path :initarg :path :reader path)))
+
 (defvar *last-command*)
 (defvar *this-command*)
 (defvar *last-character*)
@@ -157,15 +160,19 @@
                                    :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
           (mezzanine.gui.compositor:key-key event)))))
 
+(defmethod dispatch-event (editor (event open-file-request))
+  (let ((*editor* editor))
+    (find-file (path event))))
+
 (defun editor-read-char-1 ()
   (catch 'next-character
     (when (pending-event *editor*)
       (let ((event (pending-event *editor*)))
         (setf (pending-event *editor*) nil)
       (dispatch-event *editor* event)))
-    (when (pending-redisplay *editor*)
-      (throw 'next-character nil))
     (loop
+       (when (pending-redisplay *editor*)
+         (throw 'next-character nil))
        (dispatch-event *editor* (mezzanine.supervisor:fifo-pop (fifo *editor*))))))
 
 (defun editor-read-char ()
@@ -1319,11 +1326,15 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun keyboard-quit-command ()
   (error "Keyboard quit."))
 
-(defun find-file-command ()
-  (let* ((path (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*)))
-         (filespec (merge-pathnames path))
-         (buffer (make-instance 'buffer)))
-    (with-open-file (s filespec :if-does-not-exist nil)
+(defun find-file (path)
+  (setf path (merge-pathnames path))
+  (dolist (buffer (buffer-list *editor*))
+    (when (equal (buffer-property buffer 'path) path)
+      (switch-to-buffer buffer)
+      (setf *default-pathname-defaults* (make-pathname :name nil :type nil :version :newest :defaults path))
+      (return-from find-file)))
+  (let ((buffer (make-instance 'buffer)))
+    (with-open-file (s path :if-does-not-exist nil)
       (cond (s
              (loop
                 (multiple-value-bind (line missing-newline-p)
@@ -1335,13 +1346,16 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
                     (insert buffer #\Newline)))))
             (t (setf (buffer-property buffer 'new-file) t))))
     (push buffer (buffer-list *editor*))
-    (setf (buffer-property buffer 'path) filespec)
-    (rename-buffer buffer (file-namestring filespec))
+    (setf (buffer-property buffer 'path) path)
+    (rename-buffer buffer (file-namestring path))
     (move-beginning-of-buffer buffer)
     ;; Loading the file will set the modified flag.
     (setf (buffer-modified buffer) nil)
     (switch-to-buffer buffer)
-    (setf *default-pathname-defaults* (make-pathname :name nil :type nil :version :newest :defaults filespec))))
+    (setf *default-pathname-defaults* (make-pathname :name nil :type nil :version :newest :defaults path))))
+
+(defun find-file-command ()
+  (find-file (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*))))
 
 (defun save-buffer-command ()
   (let ((buffer (current-buffer *editor*)))
@@ -1638,7 +1652,7 @@ If no such form is found, then return the CL-USER package."
   (set-key '(#\C-X #\C-B) nil key-map)
   (set-key #\C-C nil key-map))
 
-(defun editor-main (width height)
+(defun editor-main (width height initial-file)
   (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
     (let ((fifo (mezzanine.supervisor:make-fifo 50)))
       (mezzanine.gui.compositor:with-window (window fifo (or width 640) (or height 700) :kind :editor)
@@ -1675,6 +1689,9 @@ If no such form is found, then return the CL-USER package."
                                                     (- (mezzanine.gui.compositor:width window) left right)
                                                     (- (mezzanine.gui.compositor:height window) top bottom)))
           (switch-to-buffer (get-buffer-create "*Scratch*"))
+          (ignore-errors
+            (when initial-file
+              (find-file initial-file)))
           (catch 'quit
             (loop
                (handler-case
@@ -1684,8 +1701,8 @@ If no such form is found, then return the CL-USER package."
                      (format t "Editor error: ~A~%" c)
                      (setf (pending-redisplay *editor*) t)))))))))))
 
-(defun spawn (&key width height)
-  (mezzanine.supervisor:make-thread (lambda () (editor-main width height))
+(defun spawn (&key width height initial-file)
+  (mezzanine.supervisor:make-thread (lambda () (editor-main width height initial-file))
                                     :name "Editor"
                                     :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
                                                                                        :title "Editor console"))
