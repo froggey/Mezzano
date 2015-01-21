@@ -76,6 +76,13 @@ same characters in the corresponding positions; otherwise it returns false."))
                   (+ start1 i)
                   nil)))))
 
+(defun string-lessp (string1 string2 &key (start1 0) end1 (start2 0) end2)
+  (string< (string-downcase string1) (string-downcase string2)
+           :start1 start1
+           :end1 end1
+           :start2 start2
+           :end2 end2))
+
 (defun string-trim (character-bag string)
   (let* ((string (string string))
          (left-position (position-if-not (lambda (x) (find x character-bag)) string))
