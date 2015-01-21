@@ -11,17 +11,12 @@
                   ("LOCAL:>Icons>Editor.png" "Editor" "(mezzanine.editor:spawn)")
                   ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mandelbrot:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Peek" "(mezzanine.gui.peek:spawn)")
+                  ("LOCAL:>Icons>FS-Viewer.png" "FS Viewer" "(mezzanine.gui.fs-viewer:spawn)")
                   ("LOCAL:>Icons>Telnet.png" "Nethack" "(telnet:spawn-nao)")
                   ("LOCAL:>Icons>Telnet.png" "Nyan Cat" "(telnet:spawn-nyan)")))
 
 (defun load-jpeg (path)
-  (handler-bind
-      ((error (lambda (c)
-                (ignore-errors (let ((*standard-output* *debug-io*))
-                                 (format t "Error ~A while loading ~S.~%" c path)
-                                 (sys.int::backtrace)
-                                 (fresh-line)))
-                (return-from load-jpeg nil))))
+  (ignore-errors
     (with-open-file (stream path :element-type '(unsigned-byte 8))
       (multiple-value-bind (data height width channels)
           (jpeg:decode-stream stream)
@@ -38,13 +33,7 @@
           array)))))
 
 (defun load-png (path)
-  (handler-bind ((error
-                  (lambda (c)
-                    (ignore-errors (let ((*standard-output* *debug-io*))
-                                     (format t "Error ~A while loading ~S.~%" c path)
-                                     (sys.int::backtrace)
-                                     (fresh-line)))
-                    (return-from load-png nil))))
+  (ignore-errors
     (let* ((png (png-read:read-png-file path))
            (data (png-read:image-data png))
            (width (png-read:width png))
