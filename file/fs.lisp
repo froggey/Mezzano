@@ -1,6 +1,7 @@
 (defpackage :mezzanine.file-system
   (:use #:cl)
   (:export #:find-host
+           #:list-all-hosts
            #:unknown-host
            #:host-name
            #:host-default-device
@@ -56,6 +57,9 @@
   (setf name (string-upcase (string name)))
   (assert (not (zerop (length name))))
   (push (list name new-value) *host-alist*))
+
+(defun list-all-hosts ()
+  (mapcar #'second *host-alist*))
 
 (defclass pathname ()
   ((%host :initarg :host :accessor pathname-%host)
@@ -193,6 +197,7 @@
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)
                         (default-version :newest))
+  (setf default-pathname (pathname default-pathname))
   (let* ((pathname (let ((*default-pathname-defaults* default-pathname))
                      (pathname pathname)))
          (host (or (pathname-host pathname) (pathname-host default-pathname)))

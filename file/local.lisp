@@ -365,7 +365,7 @@
                       (let ((truename (file-truename (aref container (1- (length container))))))
                         (push (make-pathname :directory (append (pathname-directory truename)
                                                                 (list (pathname-name truename)))
-                                             :name nil :type nil :version :nil
+                                             :name nil :type nil :version nil
                                              :defaults truename)
                               result)))
                      (exact-version
