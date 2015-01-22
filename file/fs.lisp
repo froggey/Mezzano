@@ -56,7 +56,11 @@
 (defun (setf find-host) (new-value name &optional errorp)
   (setf name (string-upcase (string name)))
   (assert (not (zerop (length name))))
-  (push (list name new-value) *host-alist*))
+  (cond (new-value
+         (setf *host-alist*
+               (list* (list name new-value)
+                      (remove name *host-alist* :key 'first :test 'string=))))
+        (t (setf *host-alist* (remove name *host-alist* :key 'first :test 'string=)))))
 
 (defun list-all-hosts ()
   (mapcar #'second *host-alist*))
