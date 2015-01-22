@@ -116,66 +116,6 @@ party to perform, the indicated option.")
        #+nil(write-sequence (vector +command-iac+ +command-wont+
                                     (read-byte connection)))))))
 
-#|
-(defun telnet-rx (telnet)
-  (handler-case
-      (with-simple-restart (abort "Give up")
-        ;; Announce capabilities.
-        (write-sequence #(#.+command-iac+ #.+command-do+ #.+option-suppress-go-ahead+
-                          #.+command-iac+ #.+command-will+ #.+option-window-size+)
-                        (telnet-connection telnet))
-        (let ((last-was-cr nil))
-          (loop (let ((byte (read-byte (telnet-connection telnet))))
-                  (cond ((eql byte +command-iac+)
-                         (let ((command (read-byte (telnet-connection telnet))))
-                           (if (eql command +command-iac+)
-                               (write-byte +command-iac+ (telnet-terminal telnet))
-                               (telnet-command telnet (telnet-connection telnet) command))))
-                        ((eql byte #x0D) ; CR
-                         (setf last-was-cr t)
-                         (write-byte byte (telnet-terminal telnet)))
-                        ((and last-was-cr (eql byte #x00))
-                         (setf last-was-cr nil))
-                        (t (setf last-was-cr nil)
-                           (write-byte byte (telnet-terminal telnet)))))
-             (setf sys.graphics::*refresh-required* t))))
-    (end-of-file ()
-      (let ((msg "Connection closed by remote host."))
-        (dotimes (i (length msg))
-          (write-byte (char-code (char msg i)) (telnet-terminal telnet))))
-      (setf sys.graphics::*refresh-required* t))))
-
-(defun telnet-top-level (window)
-  (multiple-value-bind (left right top bottom)
-      (sys.graphics::compute-window-margins window)
-    (unwind-protect
-         (let* ((fb (sys.graphics::window-frontbuffer window))
-                (dims (array-dimensions fb))
-                (terminal (make-instance 'sys.xterm:xterm-terminal
-                                         :framebuffer fb
-                                         :x left
-                                         :y top
-                                         :width (- (array-dimension (sys.graphics::window-backbuffer window) 1)
-                                                   left right)
-                                         :height (- (array-dimension (sys.graphics::window-backbuffer window) 0)
-                                                    top bottom)
-                                         :input window
-                                         :interrupt-character (name-char "C-["))))
-           (setf (slot-value window 'terminal) terminal)
-           (setf sys.graphics::*refresh-required* t)
-           (with-open-stream (connection (sys.net::tcp-stream-connect (telnet-server window) (telnet-port window)))
-             (setf (telnet-connection window) connection)
-             (sys.int::process-enable (receive-process window))
-             (handler-case
-                 (loop (let ((byte (read-byte terminal)))
-                         (when (eql byte +command-iac+)
-                           (write-byte +command-iac+ connection))
-                         (write-byte byte connection)))
-               (sys.xterm:terminal-interrupt ()))))
-      (sys.graphics::close-window window)
-      (sys.int::process-disable (receive-process window)))))
-|#
-
 (defclass telnet-client ()
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
@@ -249,15 +189,15 @@ party to perform, the indicated option.")
              (cond ((eql byte +command-iac+)
                     (let ((command (read-byte connection)))
                       (if (eql command +command-iac+)
-                          (mezzanine.gui.xterm::receive-char (xterm telnet) (code-char +command-iac+))
+                          (mezzanine.gui.xterm:receive-char (xterm telnet) (code-char +command-iac+))
                           (telnet-command telnet command))))
                    ((eql byte #x0D) ; CR
                     (setf last-was-cr t)
-                    (mezzanine.gui.xterm::receive-char xterm (code-char byte)))
+                    (mezzanine.gui.xterm:receive-char xterm (code-char byte)))
                    ((and last-was-cr (eql byte #x00))
                     (setf last-was-cr nil))
                    (t (setf last-was-cr nil)
-                      (mezzanine.gui.xterm::receive-char xterm (code-char byte)))))))
+                      (mezzanine.gui.xterm:receive-char xterm (code-char byte)))))))
     (end-of-file ()
       (mezzanine.supervisor:fifo-push (make-instance 'server-disconnect-event)
                                       (fifo telnet)))))
