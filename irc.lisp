@@ -577,7 +577,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
             (unwind-protect
                  (loop
                     (handler-case
-                        (progn
+                        (with-simple-restart (abort "Return to IRC top-level")
                           (reset-input irc)
                           (let ((line (read-line (input-pane irc))))
                             (multiple-value-bind (command rest)
