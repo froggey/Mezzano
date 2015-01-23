@@ -38,6 +38,7 @@
            ((sys.int::%cas-symbol-global-value ',lock
                                                :unlocked
                                                ,current-thread))
+         (panic "Symbol spinlock " ',lock " held by " ,lock)
          (sys.int::cpu-relax))
        (unwind-protect
             (progn ,@body)

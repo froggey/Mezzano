@@ -153,6 +153,11 @@ Should be called with the freelist lock held."
   "Internal function. Insert a new range into the in-memory store freelist.
 Should be called with the freelist lock held."
   ;; Search for the entry containing this range.
+  #+(or)(debug-print-line "Inserting range " start "-" (+ start n-blocks) ":" freep " into freelist")
+  #+(or)(do ((range *store-freelist-head*
+              (freelist-metadata-next range)))
+      ((null range))
+    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
   (do ((end (+ start n-blocks))
        (range *store-freelist-head*
               (freelist-metadata-next range)))
@@ -204,6 +209,11 @@ Should be called with the freelist lock held."
          (adjust-freelist-range-end range start))
         (t ;; Shrink from both sides. Feel the squeeze.
          (split-freelist-range range start end)))
+      #+(or)(debug-print-line "After")
+      #+(or)(do ((range *store-freelist-head*
+                  (freelist-metadata-next range)))
+          ((null range))
+        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (return))))
 
 (defun store-free (start n-blocks)
@@ -239,14 +249,17 @@ Should be called with the freelist lock held."
              (freep (logbitp 0 size)))
         (setf size (ash size -1))
         (when (zerop size)
+          (debug-print-line " freelist processing complete final " block-id ":" i)
           (return-from process-one-freelist-block
             (values i nil)))
         (cond (freep
                (incf *store-freelist-n-free-blocks* size))
               (t
                (decf *store-freelist-n-free-blocks* size)))
+        (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated"))
         (store-insert-range start size freep)))
     (assert (not (zerop next)) () "Corrupt freelist! No next block.")
+    (debug-print-line " next freelist block " next)
     (values nil next)))
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
@@ -265,7 +278,11 @@ Should be called with the freelist lock held."
              (t (setf *store-freelist-block* freelist-block
                       *store-freelist-block-offset* last-entry-offset)
                 (read-cached-block *store-freelist-block*)
-                (return))))))
+                (return)))))
+  (do ((range *store-freelist-head*
+              (freelist-metadata-next range)))
+      ((null range))
+    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range))))
 
 (defun store-statistics ()
   "Return two values: The number of blocks free, and the total number of blocks."
@@ -297,6 +314,10 @@ Should be called with the freelist lock held."
           (store-freelist-log (freelist-metadata-start range)
                               (- (freelist-metadata-end range) (freelist-metadata-start range))
                               nil))))
+    (do ((range *store-freelist-head*
+                (freelist-metadata-next range)))
+        ((null range))
+      (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
     ;; Update header.
     (let ((header (read-cached-block 0)))
       (setf (sys.int::memref-unsigned-byte-64 header 13) first-block))

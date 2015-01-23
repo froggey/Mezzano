@@ -192,6 +192,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
                                    +thread-lock+
                                    :unlocked
                                    current-thread))
+      (panic "thread lock " thread " held by " (sys.int::%array-like-ref-t thread +thread-lock+))
       (sys.int::cpu-relax))))
 
 (defun %unlock-thread (thread)
@@ -912,6 +913,7 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
       (panic "Recursive locking detected."))
+    (panic "Spin-mutex " mutex " held by " (mutex-owner mutex))
     (cond (wait-p
            ;; Spin path.
            (do ()

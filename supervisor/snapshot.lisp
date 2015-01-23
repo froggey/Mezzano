@@ -52,6 +52,7 @@
 
 (defun snapshot-copy-wired-area ()
   ;; FIXME: Only copy dirty pages.
+  ;; I bet this could be partially done with CoW. Evil.
   (without-interrupts
     (loop
        for i from #x200000 below sys.int::*wired-area-bump* by #x1000

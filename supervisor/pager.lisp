@@ -333,6 +333,7 @@
     (setf (sys.int::%cr3) (sys.int::%cr3))))
 
 (defun wait-for-page (address)
+  #+(or)(debug-print-line "WFP " address)
   (with-mutex (*vm-lock*)
     ;; Stack pages with the mark bit set are aliased to the same
     ;; address with the mark bit clear.
@@ -345,12 +346,14 @@
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
+        #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (sys.int::memref-unsigned-byte-64 pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make
       ;; runtime-allocated stacks work before allocate-stack actually modifies the
       ;; block map.
       (when (or (not block-info)
                 (not (logtest sys.int::+block-map-present+ block-info)))
+        #+(or)(debug-print-line "WFP " address " not present")
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
       (let* ((frame (or (allocate-physical-pages 1)
@@ -383,6 +386,7 @@
                                                                (if (logtest sys.int::+block-map-writable+ block-info)
                                                                    +page-table-write+
                                                                    0)))
+        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (sys.int::memref-unsigned-byte-64 pte 0))
         ;; Perform stack aliasing at the PML4 level.
         (when (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
                    sys.int::+address-tag-stack+)

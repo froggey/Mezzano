@@ -177,6 +177,7 @@
 ;; Low-level byte functions.
 
 (defun debug-serial-write-byte (byte)
+  (setf (sys.int::io-port/8 #xE9) byte)
   (without-interrupts
     (loop
        (with-symbol-spinlock (*debug-serial-lock*)
