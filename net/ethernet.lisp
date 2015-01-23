@@ -181,13 +181,14 @@
       (return-from arp-lookup (third e))))
   (dotimes (attempt 3)
     (send-arp interface ptype address)
-    ;; FIXME: better timeout.
-    (sys.int::process-wait-with-timeout "ARP Lookup" 200
-			       (lambda ()
-				 (dolist (e *arp-table* nil)
-				   (when (and (eql (first e) ptype)
-					      (eql (second e) address))
-				     (return t)))))
+    ;; FIXME: better timeout mechanism.
+    (or (sys.int::process-wait-with-timeout "ARP Lookup" 5
+                                            (lambda ()
+                                              (dolist (e *arp-table* nil)
+                                                (when (and (eql (first e) ptype)
+                                                           (eql (second e) address))
+                                                  (return t)))))
+        (error "ARP lookup timed out."))
     (dolist (e *arp-table*)
       (when (and (eql (first e) ptype)
 		 (eql (second e) address))
@@ -545,13 +546,16 @@
     (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
       (push connection *tcp-connections*))
     (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
-    ;; FIXME: Timeouts
-    (with-tcp-connection-locked connection
+    ;; FIXME: Better timeout mechanism.
+    (let ((timeout (+ (get-universal-time) 10)))
       (loop
          (when (not (eql (tcp-connection-state connection) :syn-sent))
            (return))
-         (mezzanine.supervisor:condition-wait (tcp-connection-cvar connection)
-                                              (tcp-connection-lock connection))))
+         (when (> (get-universal-time) timeout)
+           (with-tcp-connection-locked connection
+             (setf (tcp-connection-state connection) :closing))
+           (error "Connection timed out."))
+         (mezzanine.supervisor:wait-for-heartbeat)))
     connection))
 
 (defun tcp-send (connection data &optional (start 0) end)
@@ -625,13 +629,19 @@
     (ub16ref/be packet (+ 14 header-length 6))))
 
 (defun sys.int::process-wait-with-timeout (reason timeout fn &rest args)
-  (apply #'sys.int::process-wait reason fn args))
+  (let ((timeout-absolute (+ (get-universal-time) timeout)))
+    (sys.int::process-wait reason
+                           (lambda ()
+                             (when (> (get-universal-time) timeout-absolute)
+                               (return-from sys.int::process-wait-with-timeout
+                                 nil))
+                             (apply fn args)))))
 
 (defun sys.int::process-wait (reason fn &rest args)
   (loop
      (when (apply fn args)
        (return))
-     (mezzanine.supervisor:thread-yield))
+     (mezzanine.supervisor:wait-for-heartbeat))
   t)
 
 (defun ping-host (host &optional (count 4))
@@ -1077,12 +1087,29 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
   (transmit-udp4-packet (remote-address connection) (local-port connection) (remote-port connection) (list sequence)))
 
 (defmethod receive ((connection udp4-connection) &optional timeout)
-  (with-udp-connection-locked (connection)
-    (loop
-       (when (udp-connection-packets connection)
-         (return (pop (udp-connection-packets connection))))
-       (mezzanine.supervisor:condition-wait (udp-connection-cvar connection)
-                                            (udp-connection-lock connection)))))
+  (cond ((not timeout)
+         ;; Wait forever.
+         (with-udp-connection-locked (connection)
+           (loop
+              (when (udp-connection-packets connection)
+                (return (pop (udp-connection-packets connection))))
+              (mezzanine.supervisor:condition-wait (udp-connection-cvar connection)
+                                                   (udp-connection-lock connection)))))
+        ((zerop timeout)
+         ;; Don't wait.
+         (with-udp-connection-locked (connection)
+           (when (udp-connection-packets connection)
+             (pop (udp-connection-packets connection)))))
+        (t
+         ;; Wait for some time.
+         (let ((timeout-absolute (+ (get-universal-time) timeout)))
+           (loop
+              (with-udp-connection-locked (connection)
+                (when (udp-connection-packets connection)
+                  (return (pop (udp-connection-packets connection)))))
+              (when (> (get-universal-time) timeout-absolute)
+                (return nil))
+              (mezzanine.supervisor:wait-for-heartbeat))))))
 
 (defun %udp4-receive (packet remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))
