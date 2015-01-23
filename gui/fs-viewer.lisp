@@ -40,7 +40,10 @@
     (when (member type-string (rest type) :test #'string-equal)
       (return (first type)))))
 
-(defgeneric view (type path))
+(defgeneric view (type path)
+  (:method (type path)
+    (declare (ignore path))
+    (error "No way to view files of type ~A." type)))
 
 (defun view-in-editor (path)
   ;; Ech, the terrible groveling.
