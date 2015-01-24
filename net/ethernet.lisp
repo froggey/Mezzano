@@ -1333,20 +1333,21 @@ the seperator character."
               (reverse additional-records)))))
 
 (defun dns-request (domain)
-  (dolist (server *dns-servers*)
-    (let ((id (random (expt 2 16))))
-      (with-udp-connection (conn server +dns-port+)
-        (send (build-dns-packet id +dns-standard-query+
-                                :questions `((,domain :a :in)))
-               conn)
-        (let ((response (receive conn 15)))
-          (when response
-            (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
-                (decode-dns-packet response)
-              (when (eql rx-id id)
-                (dolist (a answers)
-                  (when (eql (second a) :a)
-                    (return-from dns-request (fifth a))))))))))))
+  (dotimes (i 3) ; UDP is unreliable.
+    (dolist (server *dns-servers*)
+      (let ((id (random (expt 2 16))))
+        (with-udp-connection (conn server +dns-port+)
+          (send (build-dns-packet id +dns-standard-query+
+                                  :questions `((,domain :a :in)))
+                conn)
+          (let ((response (receive conn 10)))
+            (when response
+              (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
+                  (decode-dns-packet response)
+                (when (eql rx-id id)
+                  (dolist (a answers)
+                    (when (eql (second a) :a)
+                      (return-from dns-request (fifth a)))))))))))))
 
 ;;; High-level address resolution.
 
