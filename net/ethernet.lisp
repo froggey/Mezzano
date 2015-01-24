@@ -1339,7 +1339,7 @@ the seperator character."
         (send (build-dns-packet id +dns-standard-query+
                                 :questions `((,domain :a :in)))
                conn)
-        (let ((response (receive conn 3)))
+        (let ((response (receive conn 15)))
           (when response
             (multiple-value-bind (rx-id flags questions answers authority-rrs additional-rrs)
                 (decode-dns-packet response)
