@@ -32,22 +32,18 @@ Symbol layout:
 
 Function layout:
 -1 header
-+0 more header
-+1 start of machine code (Entry point)
++0 primary entry point address, unboxed machine integer
++1 start of machine code
 +n end of machine code & start of gc info
 +n+m end of gc info & start of constant pool
 +n+m+p end of constant pool
 
 Function header -1:
 GGGGGGGGGGGGGGGG|PPPPPPPPPPPPPPPP|MMMMMMMMMMMMMMMM|00000000|tttttttt|00|
-Function header +0:
-...90
 
 M is machine code size in double-word units (128 bits/16 bytes)
 P is constant pool size in double-word units (128 bits/16 bytes)
 G is GC info length in bytes
-
-Function header +0 is currently a nop-slide for backwards compat (lol).
 
 
 
