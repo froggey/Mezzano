@@ -22,9 +22,9 @@
 
 (defgeneric ethernet-mac (nic))
 
-(defmethod ethernet-mac ((nic mezzanine.supervisor:nic))
+(defmethod ethernet-mac ((nic mezzano.supervisor:nic))
   (let ((mac (make-array 6 :element-type '(unsigned-byte 8)))
-        (mac-int (mezzanine.supervisor:nic-mac nic)))
+        (mac-int (mezzano.supervisor:nic-mac nic)))
     (dotimes (i 6)
       (setf (aref mac i) (ldb (byte 8 (* i 8)) mac-int)))
     mac))
@@ -204,21 +204,21 @@
   window-size
   (max-seg-size 1000)
   rx-data
-  (lock (mezzanine.supervisor:make-mutex "TCP connection lock"))
-  (cvar (mezzanine.supervisor:make-condition-variable "TCP connection cvar")))
+  (lock (mezzano.supervisor:make-mutex "TCP connection lock"))
+  (cvar (mezzano.supervisor:make-condition-variable "TCP connection cvar")))
 
 (defmacro with-tcp-connection-locked (connection &body body)
-  `(mezzanine.supervisor:with-mutex ((tcp-connection-lock ,connection))
+  `(mezzano.supervisor:with-mutex ((tcp-connection-lock ,connection))
      ,@body))
 
 (defvar *raw-packet-hooks* nil)
 (defvar *tcp-connections* nil)
-(defvar *tcp-connection-lock* (mezzanine.supervisor:make-mutex "TCP connection list"))
+(defvar *tcp-connection-lock* (mezzano.supervisor:make-mutex "TCP connection list"))
 (defvar *allocated-tcp-ports* nil)
 (defvar *server-alist* '())
 
 (defun get-tcp-connection (remote-ip remote-port local-port)
-  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (dolist (connection *tcp-connections*)
       (when (and (eql (tcp-connection-remote-ip connection) remote-ip)
                  (eql (tcp-connection-remote-port connection) remote-port)
@@ -246,7 +246,7 @@
                                                :window-size 8192)))
          (let ((server (assoc local-port *server-alist*)))
            (cond (server
-                  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+                  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
                     (push connection *tcp-connections*))
                   (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                     :ack-p t :syn-p t)
@@ -294,18 +294,18 @@
   (loop
      (with-simple-restart (abort "Ignore this packet.")
        (handler-case (multiple-value-bind (packet nic)
-                         (mezzanine.supervisor:net-receive-packet)
+                         (mezzano.supervisor:net-receive-packet)
                        (%receive-packet nic packet))
          (drop-packet ())))))
 
 (when *ethernet-thread*
   (format t "Restarting ethernet thread.")
-  (mezzanine.supervisor:destroy-thread *ethernet-thread*))
-(setf *ethernet-thread* (mezzanine.supervisor:make-thread 'ethernet-thread
-                                                          :name "Ethernet thread"))
+  (mezzano.supervisor:destroy-thread *ethernet-thread*))
+(setf *ethernet-thread* (mezzano.supervisor:make-thread 'ethernet-thread
+                                                        :name "Ethernet thread"))
 
 (defun detach-tcp-connection (connection)
-  (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
     (setf *tcp-connections* (remove connection *tcp-connections*)))
   (setf *allocated-tcp-ports* (remove (tcp-connection-local-port connection) *allocated-tcp-ports*)))
 
@@ -391,7 +391,7 @@
            (format t "TCP: Unknown connection state ~S ~S ~S.~%" (tcp-connection-state connection) start packet)
            (detach-tcp-connection connection)
            (setf (tcp-connection-state connection) :closed))))
-    (mezzanine.supervisor:condition-notify (tcp-connection-cvar connection) t)))
+    (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
   (multiple-value-bind (ethernet-mac interface)
@@ -543,7 +543,7 @@
 					  :s-next (logand #xFFFFFFFF (1+ seq))
 					  :r-next 0
 					  :window-size 8192)))
-    (mezzanine.supervisor:with-mutex (*tcp-connection-lock*)
+    (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
       (push connection *tcp-connections*))
     (tcp4-send-packet connection seq 0 nil :ack-p nil :syn-p t)
     ;; FIXME: Better timeout mechanism.
@@ -555,7 +555,7 @@
            (with-tcp-connection-locked connection
              (setf (tcp-connection-state connection) :closing))
            (error "Connection timed out."))
-         (mezzanine.supervisor:wait-for-heartbeat)))
+         (mezzano.supervisor:wait-for-heartbeat)))
     connection))
 
 (defun tcp-send (connection data &optional (start 0) end)
@@ -641,7 +641,7 @@
   (loop
      (when (apply fn args)
        (return))
-     (mezzanine.supervisor:wait-for-heartbeat))
+     (mezzano.supervisor:wait-for-heartbeat))
   t)
 
 (defun ping-host (host &optional (count 4))
@@ -712,8 +712,8 @@
 
 (defgeneric transmit-packet (nic packet-descriptor))
 
-(defmethod transmit-packet ((nic mezzanine.supervisor:nic) packet)
-  (mezzanine.supervisor:net-transmit-packet nic packet))
+(defmethod transmit-packet ((nic mezzano.supervisor:nic) packet)
+  (mezzano.supervisor:net-transmit-packet nic packet))
 
 (defclass tcp-stream (sys.gray:fundamental-character-input-stream
                       sys.gray:fundamental-character-output-stream
@@ -801,8 +801,8 @@
                    (not (member (tcp-connection-state connection)
                                 '(:established :syn-received :syn-sent))))
            (return))
-         (mezzanine.supervisor:condition-wait (tcp-connection-cvar connection)
-                                              (tcp-connection-lock connection)))
+         (mezzano.supervisor:condition-wait (tcp-connection-cvar connection)
+                                            (tcp-connection-lock connection)))
       ;; Something may have refilled while we were waiting.
       (when (tcp-stream-packet stream)
         (return-from refill-tcp-packet-buffer t))
@@ -957,14 +957,14 @@
   (format-ipv4-address stream argument colon-p at-sign-p))
 
 (defun ethernet-boot-hook ()
-  (setf *cards* (copy-list mezzanine.supervisor:*nics*)
+  (setf *cards* (copy-list mezzano.supervisor:*nics*)
         *routing-table* '()
         *ipv4-interfaces* '()
         *arp-table* '())
   (net-setup)
   (format t "Interfaces: ~S~%" *ipv4-interfaces*))
 (ethernet-boot-hook)
-(mezzanine.supervisor:add-boot-hook 'ethernet-boot-hook)
+(mezzano.supervisor:add-boot-hook 'ethernet-boot-hook)
 
 (define-condition invalid-ipv4-address (simple-error)
   ((address :initarg :address
@@ -1021,11 +1021,11 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
 ;;; UDP stuff.
 
 (defvar *udp-connections* nil)
-(defvar *udp-connection-lock* (mezzanine.supervisor:make-mutex "UDP connection list"))
+(defvar *udp-connection-lock* (mezzano.supervisor:make-mutex "UDP connection list"))
 (defvar *allocated-udp-ports* nil)
 
 (defun allocate-local-udp-port ()
-  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (do ()
         (nil)
       (let ((port (+ (random 32768) 32768)))
@@ -1038,18 +1038,18 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
    (remote-port :initarg :remote-port :reader remote-port)
    (local-port :initarg :local-port :reader local-port)
    (packets :initarg :packets :accessor udp-connection-packets)
-   (lock :initform (mezzanine.supervisor:make-mutex "UDP connection lock")
+   (lock :initform (mezzano.supervisor:make-mutex "UDP connection lock")
          :reader udp-connection-lock)
-   (cvar :initform (mezzanine.supervisor:make-condition-variable "UDP connection cvar")
+   (cvar :initform (mezzano.supervisor:make-condition-variable "UDP connection cvar")
          :reader udp-connection-cvar))
   (:default-initargs :packets '()))
 
 (defmacro with-udp-connection-locked ((connection) &body body)
-  `(mezzanine.supervisor:with-mutex ((udp-connection-lock ,connection))
+  `(mezzano.supervisor:with-mutex ((udp-connection-lock ,connection))
      ,@body))
 
 (defun get-udp-connection (remote-ip remote-port local-port)
-  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (dolist (connection *udp-connections*)
       (when (and (eql (remote-address connection) remote-ip)
                  (eql (remote-port connection) remote-port)
@@ -1074,12 +1074,12 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                                     :remote-address remote-address
                                     :remote-port remote-port
                                     :local-port source-port)))
-    (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+    (mezzano.supervisor:with-mutex (*udp-connection-lock*)
       (push connection *udp-connections*))
     connection))
 
 (defmethod disconnect ((connection udp4-connection))
-  (mezzanine.supervisor:with-mutex (*udp-connection-lock*)
+  (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (setf *udp-connections* (remove connection *udp-connections*))
     (setf *allocated-udp-ports* (remove (local-port connection) *allocated-udp-ports*))))
 
@@ -1093,8 +1093,8 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
            (loop
               (when (udp-connection-packets connection)
                 (return (pop (udp-connection-packets connection))))
-              (mezzanine.supervisor:condition-wait (udp-connection-cvar connection)
-                                                   (udp-connection-lock connection)))))
+              (mezzano.supervisor:condition-wait (udp-connection-cvar connection)
+                                                 (udp-connection-lock connection)))))
         ((zerop timeout)
          ;; Don't wait.
          (with-udp-connection-locked (connection)
@@ -1109,7 +1109,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                   (return (pop (udp-connection-packets connection)))))
               (when (> (get-universal-time) timeout-absolute)
                 (return nil))
-              (mezzanine.supervisor:wait-for-heartbeat))))))
+              (mezzano.supervisor:wait-for-heartbeat))))))
 
 (defun %udp4-receive (packet remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))
@@ -1124,7 +1124,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
            ;; Send data to the user layer
            (setf (udp-connection-packets connection) (append (udp-connection-packets connection)
                                                              (list payload)))
-           (mezzanine.supervisor:condition-notify (udp-connection-cvar connection) t))))
+           (mezzano.supervisor:condition-notify (udp-connection-cvar connection) t))))
       (t (format t "Ignoring UDP4 packet from ~X ~S~%" remote-ip
                  (subseq packet start end))))))
 

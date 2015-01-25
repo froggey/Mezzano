@@ -55,38 +55,38 @@
 (defgeneric dispatch-event (frame event)
   (:method (f e)))
 
-(defmethod dispatch-event (frame (event mezzanine.gui.compositor:window-activation-event))
-  (setf (mezzanine.gui.widgets:activep frame) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame frame))
+(defmethod dispatch-event (frame (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep frame) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame frame))
 
-(defmethod dispatch-event (frame (event mezzanine.gui.compositor:mouse-event))
+(defmethod dispatch-event (frame (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzanine.gui.widgets:frame-mouse-event frame event)
-    (mezzanine.gui.widgets:close-button-clicked ()
+      (mezzano.gui.widgets:frame-mouse-event frame event)
+    (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (frame (event mezzanine.gui.compositor:window-close-event))
+(defmethod dispatch-event (frame (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
 (defun mandelbrot-main ()
   (catch 'quit
-    (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-      (mezzanine.gui.compositor:with-window (window fifo 500 500)
-        (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-               (frame (make-instance 'mezzanine.gui.widgets:frame
+    (let ((fifo (mezzano.supervisor:make-fifo 50)))
+      (mezzano.gui.compositor:with-window (window fifo 500 500)
+        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzano.gui.widgets:frame
                                      :framebuffer framebuffer
                                      :title "Mandelbrot"
                                      :close-button-p t
-                                     :damage-function (mezzanine.gui.widgets:default-damage-function window))))
-          (mezzanine.gui.widgets:draw-frame frame)
-          (mezzanine.gui.compositor:damage-window window
-                                                  0 0
-                                                  (mezzanine.gui.compositor:width window)
-                                                  (mezzanine.gui.compositor:height window))
+                                     :damage-function (mezzano.gui.widgets:default-damage-function window))))
+          (mezzano.gui.widgets:draw-frame frame)
+          (mezzano.gui.compositor:damage-window window
+                                                0 0
+                                                (mezzano.gui.compositor:width window)
+                                                (mezzano.gui.compositor:height window))
           (multiple-value-bind (left right top bottom)
-              (mezzanine.gui.widgets:frame-size frame)
-            (let ((width (- (mezzanine.gui.compositor:width window) left right))
-                  (height (- (mezzanine.gui.compositor:width window) top bottom))
+              (mezzano.gui.widgets:frame-size frame)
+            (let ((width (- (mezzano.gui.compositor:width window) left right))
+                  (height (- (mezzano.gui.compositor:width window) top bottom))
                   (pixel-count 0)
                   (hue-offset (rem (get-universal-time) 360)))
               ;; Render a line at a time, should do this in a seperate thread really...
@@ -94,22 +94,22 @@
               (dotimes (y height)
                 (dotimes (x width)
                   (setf (aref framebuffer (+ top y) (+ left x)) (render-mandelbrot x y width height hue-offset)))
-                (mezzanine.gui.compositor:damage-window window left (+ top y) width 1)
+                (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
                 (loop
-                   (let ((evt (mezzanine.supervisor:fifo-pop fifo nil)))
+                   (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
                      (when (not evt) (return))
                      (dispatch-event frame evt)))))
             (loop
-               (dispatch-event frame (mezzanine.supervisor:fifo-pop fifo)))))))))
+               (dispatch-event frame (mezzano.supervisor:fifo-pop fifo)))))))))
 
 (defun spawn ()
-  (mezzanine.supervisor:make-thread 'mandelbrot-main
-                                    :name "Mandelbrot"
-                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
-                                                                                       :title "Mandelbrot console"))
-                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
-                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+  (mezzano.supervisor:make-thread 'mandelbrot-main
+                                  :name "Mandelbrot"
+                                  :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                     :title "Mandelbrot console"))
+                                                      (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                      (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))

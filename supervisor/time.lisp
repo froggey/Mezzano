@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defconstant +pit-irq+ 0)
 

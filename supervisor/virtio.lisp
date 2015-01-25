@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;;; Subsystem IDs
 (defconstant +virtio-pci-subsystem-network-device+ 1)

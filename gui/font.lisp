@@ -1,4 +1,4 @@
-(defpackage :mezzanine.gui.font
+(defpackage :mezzano.gui.font
   (:use :cl)
   (:export #:with-font
            #:open-font
@@ -19,7 +19,7 @@
            #:*default-monospace-font*
            #:*default-monospace-font-size*))
 
-(in-package :mezzanine.gui.font)
+(in-package :mezzano.gui.font)
 
 (defvar *default-font* "DejaVuSans")
 (defvar *default-font-size* 12)
@@ -33,7 +33,7 @@
    (%refcount :initform 1)))
 
 (defmethod initialize-instance :after ((instance typeface) &key &allow-other-keys)
-  (setf (slot-value instance '%lock) (mezzanine.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
+  (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
 
 (defclass font ()
   ((%typeface :initarg :typeface :reader typeface)
@@ -72,7 +72,7 @@
   ;; Total width of this character.
   advance)
 
-(defvar *font-lock* (mezzanine.supervisor:make-mutex "Font lock")
+(defvar *font-lock* (mezzano.supervisor:make-mutex "Font lock")
   "Lock protecting the typeface and font caches.")
 
 ;; font-name (lowercase) -> typeface
@@ -149,8 +149,8 @@
     (let ((glyph (aref cell-cache cell)))
       (when (not glyph)
         ;; Glyph does not exist in the cache, rasterize it.
-        (mezzanine.supervisor:with-mutex ((glyph-cache-lock font))
-          (mezzanine.supervisor:with-mutex ((typeface-lock (typeface font)))
+        (mezzano.supervisor:with-mutex ((glyph-cache-lock font))
+          (mezzano.supervisor:with-mutex ((typeface-lock (typeface font)))
             (cond ((and (zpb-ttf:glyph-exists-p code (font-loader font))
                         (not (zerop (zpb-ttf:code-point (zpb-ttf:find-glyph code (font-loader font))))))
                    (let* ((ttf-glyph (zpb-ttf:find-glyph code (font-loader font)))
@@ -186,7 +186,7 @@
                                                         (font-scale font)))
           (slot-value font '%font-ascender) (round (* (zpb-ttf:ascender loader)
                                                       (font-scale font)))
-          (slot-value font '%glyph-cache-lock) (mezzanine.supervisor:make-mutex (format nil "~S ~S lock" (name typeface) size))
+          (slot-value font '%glyph-cache-lock) (mezzano.supervisor:make-mutex (format nil "~S ~S lock" (name typeface) size))
           (slot-value font '%glyph-cache) (make-array 17 :initial-element nil))))
 
 (defun find-font (name &optional (errorp t))
@@ -198,7 +198,7 @@
   (check-type size real)
   (let* ((typeface-key (string-downcase name))
          (font-key (cons typeface-key (float size))))
-    (mezzanine.supervisor:with-mutex (*font-lock*)
+    (mezzano.supervisor:with-mutex (*font-lock*)
       (let ((font (gethash font-key *font-cache*)))
         (when font
           (incf (slot-value font '%refcount))
@@ -216,7 +216,7 @@
     ;; Neither font nor typeface in cache. Open the TTF outside the lock
     ;; to signalling lock held.
     (let ((loader (zpb-ttf:open-font-loader (find-font name))))
-      (mezzanine.supervisor:with-mutex (*font-lock*)
+      (mezzano.supervisor:with-mutex (*font-lock*)
         ;; Repeat font test.
         (let ((font (gethash font-key *font-cache*)))
           (when font
@@ -239,7 +239,7 @@
             font))))))
 
 (defun close-font (font)
-  (mezzanine.supervisor:with-mutex (*font-lock*)
+  (mezzano.supervisor:with-mutex (*font-lock*)
     (decf (slot-value font '%refcount))
     (when (zerop (slot-value font '%refcount))
       ;; Flush this font, and release the typeface.

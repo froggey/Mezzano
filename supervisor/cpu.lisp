@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defvar sys.int::*interrupt-service-routines*)
 

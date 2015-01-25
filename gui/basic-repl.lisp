@@ -1,4 +1,4 @@
-(in-package :mezzanine.gui.basic-repl)
+(in-package :mezzano.gui.basic-repl)
 
 (defclass basic-repl (sys.gray:unread-char-mixin
                       sys.int::simple-edit-mixin
@@ -13,26 +13,26 @@
    (%line :initarg :line :accessor cursor-line)
    (%background-colour :initarg :background-colour :accessor background-colour)
    (%foreground-colour :initarg :foreground-colour :accessor foreground-colour))
-  (:default-initargs :input (mezzanine.supervisor:make-fifo 500 :element-type 'character)
+  (:default-initargs :input (mezzano.supervisor:make-fifo 500 :element-type 'character)
                      :x 0
                      :y 0
                      :line 0
-                     :foreground-colour mezzanine.gui:*default-foreground-colour*
-                     :background-colour mezzanine.gui:*default-background-colour*))
+                     :foreground-colour mezzano.gui:*default-foreground-colour*
+                     :background-colour mezzano.gui:*default-background-colour*))
 
 (defgeneric dispatch-event (window event)
   ;; Eat unknown events.
   (:method (w e)))
 
-(defmethod dispatch-event (window (event mezzanine.gui.compositor:key-event))
+(defmethod dispatch-event (window (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzanine.gui.compositor:key-releasep event))
-    (mezzanine.supervisor:fifo-push (mezzanine.gui.compositor:key-key event) (input-buffer window) nil)))
+  (when (not (mezzano.gui.compositor:key-releasep event))
+    (mezzano.supervisor:fifo-push (mezzano.gui.compositor:key-key event) (input-buffer window) nil)))
 
 (defun pump-event-loop (window)
   "Read & dispatch window events until there are no more waiting events."
   (loop
-     (let ((evt (mezzanine.supervisor:fifo-pop (fifo window) nil)))
+     (let ((evt (mezzano.supervisor:fifo-pop (fifo window) nil)))
        (when (not evt)
          (return))
        (dispatch-event window evt))))
@@ -42,11 +42,11 @@
      ;; Catch up with window manager events.
      (pump-event-loop stream)
      ;; Check for an available character.
-     (let ((ch (mezzanine.supervisor:fifo-pop (input-buffer stream) nil)))
+     (let ((ch (mezzano.supervisor:fifo-pop (input-buffer stream) nil)))
        (when ch
          (return ch)))
      ;; Block until the next window event.
-     (dispatch-event stream (mezzanine.supervisor:fifo-pop (fifo stream)))))
+     (dispatch-event stream (mezzano.supervisor:fifo-pop (fifo stream)))))
 
 (defmethod sys.gray:stream-terpri ((stream basic-repl))
   ;; Catch up with window manager events.
@@ -54,29 +54,29 @@
   (let* ((x (cursor-x stream))
          (y (cursor-y stream))
          (window (window stream))
-         (fb (mezzanine.gui.compositor:window-buffer window))
-         (win-width (mezzanine.gui.compositor:width window))
-         (win-height (mezzanine.gui.compositor:height window)))
+         (fb (mezzano.gui.compositor:window-buffer window))
+         (win-width (mezzano.gui.compositor:width window))
+         (win-height (mezzano.gui.compositor:height window)))
     ;; Clear to the end of the current line.
-    (mezzanine.gui:bitset 16 (- win-width x) (background-colour stream) fb y x)
-    (mezzanine.gui.compositor:damage-window window x y (- win-width x) 16)
+    (mezzano.gui:bitset 16 (- win-width x) (background-colour stream) fb y x)
+    (mezzano.gui.compositor:damage-window window x y (- win-width x) 16)
     ;; Advance to the next line.
     (setf (cursor-x stream) 0)
     (cond ((> (+ y 16 16) win-height)
            ;; Off the end of the screen. Scroll!
            (incf (cursor-line stream) 16)
-           (mezzanine.gui:bitblt (- win-height 16) win-width
+           (mezzano.gui:bitblt (- win-height 16) win-width
                                  fb 16 0
                                  fb 0 0)
            ;; Clear line.
-           (mezzanine.gui:bitset 16 win-width (background-colour stream) fb y 0)
+           (mezzano.gui:bitset 16 win-width (background-colour stream) fb y 0)
            ;; Damage the whole window.
-           (mezzanine.gui.compositor:damage-window window 0 0 win-width win-height))
+           (mezzano.gui.compositor:damage-window window 0 0 win-width win-height))
           (t (incf y 16)
              (setf (cursor-y stream) y)
              ;; Clear line.
-             (mezzanine.gui:bitset 16 win-width (background-colour stream) fb y 0)
-             (mezzanine.gui.compositor:damage-window window 0 y win-width 16)))))
+             (mezzano.gui:bitset 16 win-width (background-colour stream) fb y 0)
+             (mezzano.gui.compositor:damage-window window 0 y win-width 16)))))
 
 (defmethod sys.gray:stream-write-char ((stream basic-repl) character)
   ;; Catch up with window manager events.
@@ -86,20 +86,20 @@
      (sys.gray:stream-terpri stream))
     (t (let* ((width (sys.int::unifont-glyph-width character))
               (window (window stream))
-              (fb (mezzanine.gui.compositor:window-buffer window))
-              (win-width (mezzanine.gui.compositor:width window))
-              (win-height (mezzanine.gui.compositor:height window)))
+              (fb (mezzano.gui.compositor:window-buffer window))
+              (win-width (mezzano.gui.compositor:width window))
+              (win-height (mezzano.gui.compositor:height window)))
          (when (> (+ (cursor-x stream) width) win-width)
            (sys.gray:stream-terpri stream))
          (let ((x (cursor-x stream))
                (y (cursor-y stream))
                (glyph (sys.int::map-unifont-2d character)))
-           (mezzanine.gui:bitset 16 width (background-colour stream) fb y x)
+           (mezzano.gui:bitset 16 width (background-colour stream) fb y x)
            (when glyph
-             (mezzanine.gui:bitset-argb-xrgb-mask-1 16 width (foreground-colour stream)
-                                                    glyph 0 0
-                                                    fb y x))
-           (mezzanine.gui.compositor:damage-window window x y width 16)
+             (mezzano.gui:bitset-argb-xrgb-mask-1 16 width (foreground-colour stream)
+                                                  glyph 0 0
+                                                  fb y x))
+           (mezzano.gui.compositor:damage-window window x y width 16)
            (incf (cursor-x stream) width))))))
 
 (defmethod sys.gray:stream-start-line-p ((stream basic-repl))
@@ -128,9 +128,9 @@
   (unless initial-y (setf initial-y (+ (cursor-line stream)
                                        (cursor-y stream))))
   (do* ((window (window stream))
-        (framebuffer (mezzanine.gui.compositor:window-buffer window))
-        (win-width (mezzanine.gui.compositor:width window))
-        (win-height (mezzanine.gui.compositor:height window))
+        (framebuffer (mezzano.gui.compositor:window-buffer window))
+        (win-width (mezzano.gui.compositor:width window))
+        (win-height (mezzano.gui.compositor:height window))
         (i start (1+ i)))
       ((>= i end)
        (values initial-x initial-y))
@@ -147,39 +147,39 @@
 
 (defmethod sys.int::stream-clear-between ((stream basic-repl) start-x start-y end-x end-y)
   (let* ((window (window stream))
-         (framebuffer (mezzanine.gui.compositor:window-buffer window))
-         (win-width (mezzanine.gui.compositor:width window))
-         (win-height (mezzanine.gui.compositor:height window))
+         (framebuffer (mezzano.gui.compositor:window-buffer window))
+         (win-width (mezzano.gui.compositor:width window))
+         (win-height (mezzano.gui.compositor:height window))
          (colour (background-colour stream)))
     (setf start-y (- start-y (cursor-line stream))
           end-y (- end-y (cursor-line stream)))
     (cond ((eql start-y end-y)
            ;; Clearing one line.
-           (mezzanine.gui:bitset 16 (- end-x start-x) colour framebuffer start-y start-x)
-           (mezzanine.gui.compositor:damage-window window start-x start-y (- end-x start-x) 16))
+           (mezzano.gui:bitset 16 (- end-x start-x) colour framebuffer start-y start-x)
+           (mezzano.gui.compositor:damage-window window start-x start-y (- end-x start-x) 16))
           (t ;; Clearing many lines.
            ;; Clear top line.
-           (mezzanine.gui:bitset 16 (- win-width start-x) colour
-                                 framebuffer start-y start-x)
-           (mezzanine.gui.compositor:damage-window window start-x start-y (- win-width start-x) 16)
+           (mezzano.gui:bitset 16 (- win-width start-x) colour
+                               framebuffer start-y start-x)
+           (mezzano.gui.compositor:damage-window window start-x start-y (- win-width start-x) 16)
            ;; Clear in-between.
            (when (> (- end-y start-y) 16)
-             (mezzanine.gui:bitset (- end-y start-y 16) win-width colour
-                                   framebuffer (+ start-y 16) 0)
-             (mezzanine.gui.compositor:damage-window window 0 (+ start-y 16) win-width (- end-y start-y 16)))
+             (mezzano.gui:bitset (- end-y start-y 16) win-width colour
+                                 framebuffer (+ start-y 16) 0)
+             (mezzano.gui.compositor:damage-window window 0 (+ start-y 16) win-width (- end-y start-y 16)))
            ;; Clear bottom line.
-           (mezzanine.gui:bitset 16 end-x colour
-                                 framebuffer end-y 0)
-           (mezzanine.gui.compositor:damage-window window 0 end-y end-x 16)))))
+           (mezzano.gui:bitset 16 end-x colour
+                               framebuffer end-y 0)
+           (mezzano.gui.compositor:damage-window window 0 end-y end-x 16)))))
 
 (defun repl-main ()
-  (let* ((fifo (mezzanine.supervisor:make-fifo 50))
-         (window (mezzanine.gui.compositor:make-window fifo 640 480))
-         (framebuffer (mezzanine.gui.compositor:window-buffer window))
+  (let* ((fifo (mezzano.supervisor:make-fifo 50))
+         (window (mezzano.gui.compositor:make-window fifo 640 480))
+         (framebuffer (mezzano.gui.compositor:window-buffer window))
          (term (make-instance 'basic-repl
                               :fifo fifo
                               :window window
-                              :thread (mezzanine.supervisor:current-thread)))
+                              :thread (mezzano.supervisor:current-thread)))
          (*terminal-io* term)
          (*standard-input* (make-synonym-stream '*terminal-io*))
          (*standard-output* *standard-input*)
@@ -187,20 +187,20 @@
          (*query-io* *standard-input*)
          (*trace-output* *standard-input*)
          (*debug-io* *standard-input*))
-    (mezzanine.gui:bitset (mezzanine.gui.compositor:height window)
-                          (mezzanine.gui.compositor:width window)
-                          (background-colour term)
-                          framebuffer 0 0)
-    (mezzanine.gui.compositor:damage-window window
-                                            0 0
-                                            (mezzanine.gui.compositor:width window)
-                                            (mezzanine.gui.compositor:height window))
+    (mezzano.gui:bitset (mezzano.gui.compositor:height window)
+                        (mezzano.gui.compositor:width window)
+                        (background-colour term)
+                        framebuffer 0 0)
+    (mezzano.gui.compositor:damage-window window
+                                          0 0
+                                          (mezzano.gui.compositor:width window)
+                                          (mezzano.gui.compositor:height window))
     (unwind-protect
          (sys.int::repl)
-      (mezzanine.gui.compositor:close-window window))))
+      (mezzano.gui.compositor:close-window window))))
 
 (defun spawn ()
-  (mezzanine.supervisor:make-thread 'repl-main
-                                    :name "Lisp Listener"))
+  (mezzano.supervisor:make-thread 'repl-main
+                                  :name "Lisp Listener"))
 
 (spawn)

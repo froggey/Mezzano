@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
@@ -52,7 +52,7 @@
 (defun %allocate-stack (size &optional wired)
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
-  (let* ((addr (with-symbol-spinlock (mezzanine.runtime::*wired-allocator-lock*)
+  (let* ((addr (with-symbol-spinlock (mezzano.runtime::*wired-allocator-lock*)
                  (prog1 (logior (+ (if wired sys.int::*wired-stack-area-bump* sys.int::*stack-area-bump*) #x200000)
                                 (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
                    ;; 2m align the memory region.
@@ -86,7 +86,7 @@
 
 (defstruct (cold-stream (:area :wired)))
 
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defvar *cold-unread-char*)
 
@@ -114,7 +114,6 @@
 ;;; <<<<<<
 
 (defvar *boot-information-page*)
-
 
 (defconstant +n-physical-buddy-bins+ 32)
 (defconstant +buddy-bin-size+ 16)
@@ -262,11 +261,11 @@ Bytes transmitted.
 Packets transmitted.
 Transmit errors.
 Collisions."
-  (funcall (nic-stats nic) (mezzanine.supervisor::nic-device nic)))
+  (funcall (nic-stats nic) (mezzano.supervisor::nic-device nic)))
 
 (defun net-transmit-packet (nic pkt)
-  (funcall (mezzanine.supervisor::nic-transmit-packet nic)
-           (mezzanine.supervisor::nic-device nic)
+  (funcall (mezzano.supervisor::nic-transmit-packet nic)
+           (mezzano.supervisor::nic-device nic)
            pkt))
 
 (defun net-receive-packet ()
@@ -291,19 +290,19 @@ Returns two values, the packet data and the receiving NIC."
     (setf *boot-information-page* boot-information-page
           *block-cache* nil
           *cold-unread-char* nil
-          mezzanine.runtime::*paranoid-allocation* nil
+          mezzano.runtime::*paranoid-allocation* nil
           *nics* '()
           *deferred-boot-actions* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
     (initialize-boot-cpu)
-    (when (not (boundp 'mezzanine.runtime::*tls-lock*))
+    (when (not (boundp 'mezzano.runtime::*tls-lock*))
       (setf first-run-p t)
-      (mezzanine.runtime::first-run-initialize-allocator)
+      (mezzano.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
-      (setf mezzanine.runtime::*tls-lock* :unlocked
-            mezzanine.runtime::*active-catch-handlers* 'nil
+      (setf mezzano.runtime::*tls-lock* :unlocked
+            mezzano.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil
             *received-packets* (make-fifo 50)))
     (fifo-reset *received-packets*)

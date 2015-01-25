@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defvar *global-thread-lock* nil
   "This lock protects the special variables that make up the thread list and run queues.")
@@ -232,7 +232,7 @@ Must only appear within the dynamic extent of a WITH-FOOTHOLDS-INHIBITED form."
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
   (check-type function (or function symbol))
   ;; FIXME: need to make te GC aware of partially initialized threads.
-  (let* ((thread (mezzanine.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
+  (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
     (setf (sys.int::%array-like-ref-t thread +thread-name+) name
           (sys.int::%array-like-ref-t thread +thread-state+) :runnable

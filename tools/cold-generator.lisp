@@ -1329,7 +1329,7 @@
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANINE.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
+      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANO.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
       (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
       (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)

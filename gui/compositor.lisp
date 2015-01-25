@@ -1,4 +1,4 @@
-(in-package :mezzanine.gui.compositor)
+(in-package :mezzano.gui.compositor)
 
 (defvar *default-foreground-colour* #xFFDCDCCC)
 (defvar *default-background-colour* #xFF3E3E3E)
@@ -11,7 +11,7 @@
 (defvar *compositor* nil "Compositor thread.")
 (defvar *compositor-heartbeat* nil "Compositor heartbeat thread. Drives redisplay.")
 
-(defvar *event-queue* (mezzanine.supervisor:make-fifo 50)
+(defvar *event-queue* (mezzano.supervisor:make-fifo 50)
   "Internal FIFO used to submit events to the compositor.")
 
 (defclass window ()
@@ -572,10 +572,10 @@
 
 (defun submit-key (scancode releasep)
   "Submit a key event into the input system."
-  (mezzanine.supervisor:fifo-push (make-instance 'key-event
-                                                 :scancode scancode
-                                                 :releasep releasep)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'key-event
+                                               :scancode scancode
+                                               :releasep releasep)
+                                *event-queue*))
 
 ;;;; Mouse events
 
@@ -693,11 +693,11 @@ A passive drag sends no drag events to the window.")
 
 (defun submit-mouse (buttons x-motion y-motion)
   "Submit a mouse event into the input system."
-  (mezzanine.supervisor:fifo-push (make-instance 'mouse-event
-                                                 :button-state buttons
-                                                 :x-motion x-motion
-                                                 :y-motion y-motion)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'mouse-event
+                                               :button-state buttons
+                                               :x-motion x-motion
+                                               :y-motion y-motion)
+                                *event-queue*))
 
 (defun global-mouse-state ()
   "Fetch the current mouse state."
@@ -739,18 +739,18 @@ A passive drag sends no drag events to the window.")
       (send-event win (make-instance 'window-activation-event
                                      :window win
                                      :state t)))
-    (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
           *clip-rect-x* 0
           *clip-rect-y* 0)))
 
 (defmacro with-window ((window fifo width height &rest options) &body body)
   `(let (,window)
      (unwind-protect
-          (progn (setf ,window (mezzanine.gui.compositor:make-window ,fifo ,width ,height ,@options))
+          (progn (setf ,window (mezzano.gui.compositor:make-window ,fifo ,width ,height ,@options))
                  ,@body)
        (when ,window
-         (mezzanine.gui.compositor:close-window ,window)))))
+         (mezzano.gui.compositor:close-window ,window)))))
 
 (defun make-window (fifo width height &key layer initial-z-order kind)
   (let ((window (make-instance 'window
@@ -762,10 +762,10 @@ A passive drag sends no drag events to the window.")
                                                    :initial-element 0)
                                :layer layer
                                :kind kind)))
-    (mezzanine.supervisor:fifo-push (make-instance 'window-create-event
-                                                   :window window
-                                                   :initial-z-order (or initial-z-order :top))
-                                    *event-queue*)
+    (mezzano.supervisor:fifo-push (make-instance 'window-create-event
+                                                 :window window
+                                                 :initial-z-order (or initial-z-order :top))
+                                  *event-queue*)
     window))
 
 ;;;; Window close event.
@@ -782,16 +782,16 @@ A passive drag sends no drag events to the window.")
       (send-event *active-window* (make-instance 'window-activation-event
                                                  :window *active-window*
                                                  :state t))))
-  (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-        *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+  (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+        *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
         *clip-rect-x* 0
         *clip-rect-y* 0)
   (send-event (window event) event))
 
 (defun close-window (window)
-  (mezzanine.supervisor:fifo-push (make-instance 'window-close-event
-                                                 :window window)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'window-close-event
+                                               :window window)
+                                *event-queue*))
 
 ;;;; Window activation changed.
 
@@ -819,13 +819,13 @@ A passive drag sends no drag events to the window.")
 
 (defun damage-window (window x y width height)
   "Send a window damage event to the compositor."
-  (mezzanine.supervisor:fifo-push (make-instance 'damage-event
-                                                 :window window
-                                                 :x x
-                                                 :y y
-                                                 :width width
-                                                 :height height)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'damage-event
+                                               :window window
+                                               :x x
+                                               :y y
+                                               :width width
+                                               :height height)
+                                *event-queue*))
 
 ;;;; Internal redisplay timer event.
 
@@ -841,28 +841,28 @@ A passive drag sends no drag events to the window.")
    (%category :initarg :category :reader category)))
 
 (defun subscribe-notification (window category)
-  (mezzanine.supervisor:fifo-push (make-instance 'subscribe-event
-                                                 :window window
-                                                 :category category)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'subscribe-event
+                                               :window window
+                                               :category category)
+                                *event-queue*))
 
 (defmethod process-event ((event subscribe-event))
   (pushnew (category event) (slot-value (window event) '%subscribed-notifications))
   (case (category event)
     (:screen-geometry
      (send-event (window event) (make-instance 'screen-geometry-update
-                                              :width (mezzanine.supervisor:framebuffer-width *main-screen*)
-                                              :height (mezzanine.supervisor:framebuffer-height *main-screen*))))))
+                                              :width (mezzano.supervisor:framebuffer-width *main-screen*)
+                                              :height (mezzano.supervisor:framebuffer-height *main-screen*))))))
 
 (defclass unsubscribe-event ()
   ((%window :initarg :window :reader window)
    (%category :initarg :category :reader category)))
 
 (defun unsubscribe-notification (window category)
-  (mezzanine.supervisor:fifo-push (make-instance 'unsubscribe-event
-                                                 :window window
-                                                 :category category)
-                                  *event-queue*))
+  (mezzano.supervisor:fifo-push (make-instance 'unsubscribe-event
+                                               :window window
+                                               :category category)
+                                *event-queue*))
 
 (defmethod process-event ((event unsubscribe-event))
   (setf (slot-value (window event) '%subscribed-notifications)
@@ -884,12 +884,12 @@ A passive drag sends no drag events to the window.")
 
 (defun send-event (window event)
   "Send an event to a window."
-  (cond ((mezzanine.supervisor:fifo-push event (fifo window) nil)
+  (cond ((mezzano.supervisor:fifo-push event (fifo window) nil)
          (when (window-unresponsive window)
            (format t "Window ~S/FIFO ~S is accepting events again.~%"
                    window (fifo window))
-           (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-                 *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+           (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+                 *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
                  *clip-rect-x* 0
                  *clip-rect-y* 0)
            (setf (window-unresponsive window) nil)))
@@ -897,8 +897,8 @@ A passive drag sends no drag events to the window.")
          (setf (window-unresponsive window) t)
          (format t "Window ~S/FIFO ~S has stopped accepting events.~%"
                  window (fifo window))
-         (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-               *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+         (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+               *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
                *clip-rect-x* 0
                *clip-rect-y* 0))))
 
@@ -911,8 +911,8 @@ A passive drag sends no drag events to the window.")
 ;;;; Main body of the compositor.
 
 (defun screen-dimensions ()
-  (values (mezzanine.supervisor:framebuffer-width *main-screen*)
-          (mezzanine.supervisor:framebuffer-height *main-screen*)))
+  (values (mezzano.supervisor:framebuffer-width *main-screen*)
+          (mezzano.supervisor:framebuffer-height *main-screen*)))
 
 (defun window-at-point (x y)
   (dolist (win *window-list*)
@@ -971,8 +971,8 @@ A passive drag sends no drag events to the window.")
 (defun recompose-windows (&optional full)
   (when full
     ;; Expand the cliprect to the entire screen.
-    (setf *clip-rect-width* (mezzanine.supervisor:framebuffer-width *main-screen*)
-          *clip-rect-height* (mezzanine.supervisor:framebuffer-height *main-screen*)
+    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
           *clip-rect-x* 0
           *clip-rect-y* 0))
   (when (or (zerop *clip-rect-width*)
@@ -992,7 +992,7 @@ A passive drag sends no drag events to the window.")
                   *mouse-pointer*
                   (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
   ;; Update the actual screen.
-  (mezzanine.supervisor:framebuffer-blit *main-screen*
+  (mezzano.supervisor:framebuffer-blit *main-screen*
                                          *clip-rect-height*
                                          *clip-rect-width*
                                          *screen-backbuffer* *clip-rect-y* *clip-rect-x*
@@ -1005,42 +1005,42 @@ A passive drag sends no drag events to the window.")
 
 (defun compositor-thread ()
   (loop
-     (when (not (eql *main-screen* (mezzanine.supervisor:current-framebuffer)))
+     (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
        ;; Framebuffer changed. Rebuild the screen.
-       (setf *main-screen* (mezzanine.supervisor:current-framebuffer)
-             *screen-backbuffer* (make-array (list (mezzanine.supervisor:framebuffer-height *main-screen*)
-                                                   (mezzanine.supervisor:framebuffer-width *main-screen*))
+       (setf *main-screen* (mezzano.supervisor:current-framebuffer)
+             *screen-backbuffer* (make-array (list (mezzano.supervisor:framebuffer-height *main-screen*)
+                                                   (mezzano.supervisor:framebuffer-width *main-screen*))
                                              :element-type '(unsigned-byte 32)))
        (recompose-windows t)
        (broadcast-notification :screen-geometry
                                (make-instance 'screen-geometry-update
-                                              :width (mezzanine.supervisor:framebuffer-width *main-screen*)
-                                              :height (mezzanine.supervisor:framebuffer-height *main-screen*))))
+                                              :width (mezzano.supervisor:framebuffer-width *main-screen*)
+                                              :height (mezzano.supervisor:framebuffer-height *main-screen*))))
      (handler-case
-         (process-event (mezzanine.supervisor:fifo-pop *event-queue*))
+         (process-event (mezzano.supervisor:fifo-pop *event-queue*))
        (error (c)
          (ignore-errors
            (format t "~&Error ~A in compositor.~%" c))))))
 
 (defun compositor-heartbeat-thread ()
   (loop
-     (mezzanine.supervisor:wait-for-heartbeat)
+     (mezzano.supervisor:wait-for-heartbeat)
      ;; Redisplay only when the system framebuffer changes or when there's
      ;; nonempty clip rect.
-     (when (or (not (eql *main-screen* (mezzanine.supervisor:current-framebuffer)))
+     (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
                (and (not (zerop *clip-rect-width*))
                     (not (zerop *clip-rect-height*))))
-       (mezzanine.supervisor:fifo-push (make-instance 'redisplay-time-event)
-                                       *event-queue*))))
+       (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event)
+                                     *event-queue*))))
 
 (when *compositor*
   (format t "Restarting compositor thread.")
-  (mezzanine.supervisor:destroy-thread *compositor*))
-(setf *compositor* (mezzanine.supervisor:make-thread 'compositor-thread
-                                                     :name "Compositor"))
+  (mezzano.supervisor:destroy-thread *compositor*))
+(setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
+                                                   :name "Compositor"))
 
 (when *compositor-heartbeat*
   (format t "Restarting compositor heartbeat thread.")
-  (mezzanine.supervisor:destroy-thread *compositor-heartbeat*))
-(setf *compositor-heartbeat* (mezzanine.supervisor:make-thread 'compositor-heartbeat-thread
-                                                               :name "Compositor Heartbeat"))
+  (mezzano.supervisor:destroy-thread *compositor-heartbeat*))
+(setf *compositor-heartbeat* (mezzano.supervisor:make-thread 'compositor-heartbeat-thread
+                                                             :name "Compositor Heartbeat"))

@@ -1,10 +1,10 @@
 ;;; Simple remote file protocol client.
 
-(defpackage :mezzanine.file-system.remote
+(defpackage :mezzano.file-system.remote
   (:export #:add-simple-file-host)
-  (:use #:cl #:mezzanine.file-system))
+  (:use #:cl #:mezzano.file-system))
 
-(in-package :mezzanine.file-system.remote)
+(in-package :mezzano.file-system.remote)
 
 (defvar *default-simple-file-port* 2599)
 

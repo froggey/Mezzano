@@ -22,6 +22,6 @@ This step will produce a bunch of name conflicts which should be resolved using 
 Modifiy ipl.lisp to taste.
 
 Build a cold image.
-(cold-generator::make-image "mezzanine" :header-path "tools/disk_header")
+(cold-generator::make-image "mezzano" :header-path "tools/disk_header")
 
-This will produce a raw disk image called mezzanine.image in the current directory.
+This will produce a raw disk image called mezzano.image in the current directory.

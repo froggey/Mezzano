@@ -1,6 +1,6 @@
 ;;; Low-level debugging code for the supervisor.
 
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;; The debug stream functions use line-buffered output, but output can
 ;; be forced using the DEBUG-FORCE-OUTPUT function.

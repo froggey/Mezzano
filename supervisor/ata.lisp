@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defconstant +ata-compat-primary-command+ #x1F0)
 (defconstant +ata-compat-primary-control+ #x3F0)

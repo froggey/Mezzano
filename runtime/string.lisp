@@ -1,4 +1,4 @@
-(in-package :mezzanine.runtime)
+(in-package :mezzano.runtime)
 
 ;; Hardcoded string accessor, the support stuff for arrays doesn't function at this point.
 (defun char (string index)

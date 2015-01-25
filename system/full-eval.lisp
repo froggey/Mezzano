@@ -1,10 +1,10 @@
 ;;; The full evaluator, interprets all forms.
 
-(defpackage :mezzanine.full-eval
+(defpackage :mezzano.full-eval
   (:export #:eval-in-lexenv)
   (:use :cl))
 
-(in-package :mezzanine.full-eval)
+(in-package :mezzano.full-eval)
 
 (defparameter *special-forms* (make-hash-table))
 

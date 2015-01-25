@@ -114,15 +114,15 @@
 
 (defun http-server (connection-queue)
   (loop
-     (let ((connection (mezzanine.supervisor:fifo-pop connection-queue)))
+     (let ((connection (mezzano.supervisor:fifo-pop connection-queue)))
        (ignore-errors (serve-request connection)))))
 
 (defun start-http-server (&optional (port 80))
-  (let* ((connection-queue (mezzanine.supervisor:make-fifo 50))
-         (server-thread (mezzanine.supervisor:make-thread (lambda () (http-server connection-queue))
-                                                          :name "HTTP server"))
+  (let* ((connection-queue (mezzano.supervisor:make-fifo 50))
+         (server-thread (mezzano.supervisor:make-thread (lambda () (http-server connection-queue))
+                                                        :name "HTTP server"))
          (listen-function (lambda (connection)
-                            (when (not (mezzanine.supervisor:fifo-push
+                            (when (not (mezzano.supervisor:fifo-push
                                         (make-instance 'sys.net::tcp-stream :connection connection)
                                         connection-queue
                                         nil))

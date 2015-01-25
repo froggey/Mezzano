@@ -157,7 +157,7 @@
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
 
 (defun lisp-implementation-type ()
-  "Mezzanine")
+  "Mezzano")
 
 (defun lisp-implementation-version ()
   "devel")
@@ -178,7 +178,7 @@
     (declare (ignore cpuid-max))
     (decode-cpuid-vendor vendor-1 vendor-2 vendor-3)))
 
-;;; Mezzanine uses no supporting software.
+;;; Mezzano uses no supporting software.
 (defun software-type () nil)
 (defun software-version () nil)
 
@@ -522,17 +522,17 @@
                           result predicate key aref))))
     (t (error "Unknown MERGE result-type ~S." result-type))))
 
-(defmethod print-object ((object mezzanine.supervisor::nic) stream)
+(defmethod print-object ((object mezzano.supervisor::nic) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~:(~A~) ~/sys.net::format-mac-address/"
-            (type-of (mezzanine.supervisor::nic-device object))
-            (mezzanine.supervisor:nic-mac object))))
+            (type-of (mezzano.supervisor::nic-device object))
+            (mezzano.supervisor:nic-mac object))))
 
-(defmethod print-object ((object mezzanine.supervisor::disk) stream)
+(defmethod print-object ((object mezzano.supervisor::disk) stream)
   (print-unreadable-object (object stream :identity t)
     (format stream "Disk")
-    (when (typep (mezzanine.supervisor::disk-device object) 'mezzanine.supervisor::partition)
-      (format stream " Partition on ~S" (mezzanine.supervisor::partition-disk (mezzanine.supervisor::disk-device object))))))
+    (when (typep (mezzano.supervisor::disk-device object) 'mezzano.supervisor::partition)
+      (format stream " Partition on ~S" (mezzano.supervisor::partition-disk (mezzano.supervisor::disk-device object))))))
 
 (defun copy-pprint-dispatch (&optional table))
 (defun set-pprint-dispatch (type-specifier function &optional (priority 0) table))

@@ -1,4 +1,4 @@
-(in-package :mezzanine.runtime)
+(in-package :mezzano.runtime)
 
 (declaim (inline integerp))
 (defun integerp (object)

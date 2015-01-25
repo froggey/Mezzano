@@ -1,4 +1,4 @@
-(in-package :mezzanine.runtime)
+(in-package :mezzano.runtime)
 
 (defun sys.int::%%unwind-to (target-special-stack-pointer)
   (declare (sys.int::suppress-ssp-checking))
@@ -81,7 +81,7 @@
   (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   ;; Registers are populated, now unpack into the MV-area
   (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
-                               (* mezzanine.supervisor::+thread-mv-slots-start+ 8)))
+                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
   (:gc :frame :layout #*10 :multiple-values 0)
   unpack-loop
   (sys.lap-x86:cmp64 :rbx nil)
@@ -90,7 +90,7 @@
   (sys.lap-x86:and8 :al #b1111)
   (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
   (sys.lap-x86:jne type-error)
-  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+) 5) sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash (+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5) sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jae too-many-values)
   (sys.lap-x86:mov64 :r13 (:car :rbx))
   (sys.lap-x86:mov64 :rbx (:cdr :rbx))
@@ -129,9 +129,9 @@
 ;;; TODO: This requires a considerably more flexible mechanism.
 (defvar *tls-lock*)
 (defvar sys.int::*next-symbol-tls-slot*)
-(defconstant +maximum-tls-slot+ (1+ mezzanine.supervisor::+thread-tls-slots-end+))
+(defconstant +maximum-tls-slot+ (1+ mezzano.supervisor::+thread-tls-slots-end+))
 (defun sys.int::%allocate-tls-slot (symbol)
-  (mezzanine.supervisor::with-symbol-spinlock (*tls-lock*)
+  (mezzano.supervisor::with-symbol-spinlock (*tls-lock*)
     ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
     (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
            (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)

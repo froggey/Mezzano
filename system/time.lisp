@@ -40,7 +40,7 @@
 
 (defun get-universal-time ()
   (multiple-value-bind (second minute hour day month year)
-      (mezzanine.supervisor:read-rtc-time)
+      (mezzano.supervisor:read-rtc-time)
     (encode-universal-time second minute hour day month year
                            (if *rtc-is-utc* 0 *time-zone*))))
 

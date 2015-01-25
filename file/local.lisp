@@ -1,10 +1,10 @@
 ;;; Simple local file system, based on the automatic persistence system.
 
-(defpackage :mezzanine.file-system.local
+(defpackage :mezzano.file-system.local
   (:export #:add-local-file-host)
-  (:use #:cl #:mezzanine.file-system))
+  (:use #:cl #:mezzano.file-system))
 
-(in-package :mezzanine.file-system.local)
+(in-package :mezzano.file-system.local)
 
 (defvar *illegal-characters* ".<>\\/")
 
@@ -12,7 +12,7 @@
   ((name :initarg :name :reader host-name)
    (root :reader local-host-root)
    (lock :initarg :lock :reader local-host-lock))
-  (:default-initargs :lock (mezzanine.supervisor:make-mutex "Local File Host lock")))
+  (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
 (defmethod initialize-instance :after ((instance local-file-host) &key &allow-other-keys)
   (let* ((time (get-universal-time))
@@ -33,7 +33,7 @@
    (%plist :initarg :plist :accessor file-plist)
    (%lock :initarg :lock :reader file-lock))
   (:default-initargs :plist '()
-                     :lock (mezzanine.supervisor:make-mutex "Local File lock")))
+                     :lock (mezzano.supervisor:make-mutex "Local File lock")))
 
 (defclass local-stream (file-stream sys.gray:fundamental-stream sys.gray:unread-char-mixin)
   ((file :initarg :file :reader local-stream-file)
@@ -42,7 +42,7 @@
    (direction :initarg :direction :reader direction)))
 
 (defmacro with-host-locked ((host) &body body)
-  `(mezzanine.supervisor:with-mutex ((local-host-lock ,host))
+  `(mezzano.supervisor:with-mutex ((local-host-lock ,host))
      ,@body))
 
 (defmethod print-object ((object local-file-host) stream)
@@ -500,7 +500,7 @@
 (defmethod sys.gray:stream-write-char ((stream local-stream) character)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (when (> (stream-position stream)
                (length (file-storage file)))
         ;; Expand file.
@@ -516,7 +516,7 @@
 (defmethod sys.gray:stream-read-char ((stream local-stream))
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (cond ((< (stream-position stream)
                 (length (file-storage file)))
              (prog1 (aref (file-storage file) (stream-position stream))
@@ -526,7 +526,7 @@
 (defmethod sys.gray:stream-write-byte ((stream local-stream) byte)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (when (> (stream-position stream)
                (length (file-storage file)))
         ;; Expand file.
@@ -542,7 +542,7 @@
 (defmethod sys.gray:stream-read-byte ((stream local-stream))
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (cond ((< (stream-position stream)
                 (length (file-storage file)))
              (prog1 (aref (file-storage file) (stream-position stream))
@@ -552,7 +552,7 @@
 (defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence start end)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (when (> (+ (stream-position stream)
                   (- end start))
                (length (file-storage file)))
@@ -572,7 +572,7 @@
 #+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence start end)
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
-    (mezzanine.supervisor:with-mutex ((file-lock file))
+    (mezzano.supervisor:with-mutex ((file-lock file))
       (cond ((< (stream-position stream)
                 (length (file-storage file)))
              (prog1 (aref (file-storage file) (stream-position stream))

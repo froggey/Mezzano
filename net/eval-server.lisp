@@ -30,7 +30,7 @@
         (close-eval-server ())))))
 
 (defun open-eval-server (connection)
-  (mezzanine.supervisor:make-thread (lambda () (eval-server (make-instance 'tcp-stream :connection connection)))
-                                    :name "Remote Lisp server"))
+  (mezzano.supervisor:make-thread (lambda () (eval-server (make-instance 'tcp-stream :connection connection)))
+                                  :name "Remote Lisp server"))
 
 (push '(1138 open-eval-server) *server-alist*)

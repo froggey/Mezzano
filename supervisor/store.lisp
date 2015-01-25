@@ -1,6 +1,6 @@
 ;;;; Persistent storage management.
 
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defvar *store-freelist-lock*)
 

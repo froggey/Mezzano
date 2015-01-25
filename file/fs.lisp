@@ -1,4 +1,4 @@
-(defpackage :mezzanine.file-system
+(defpackage :mezzano.file-system
   (:use #:cl)
   (:export #:find-host
            #:list-all-hosts
@@ -19,7 +19,7 @@
            #:file-stream-pathname
            #:simple-file-error))
 
-(in-package :mezzanine.file-system)
+(in-package :mezzano.file-system)
 
 (define-condition file-error (error)
   ((pathname :initarg :pathname

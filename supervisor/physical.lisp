@@ -1,7 +1,7 @@
 ;;;; Physical memory management.
 ;;;; Currently supports up to (expt 2 39) bytes of physical memory (512GB).
 
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;; Every page frame gets a structure allocated for it in a sparse array.
 ;; The bootloader will generate this for us.
@@ -120,7 +120,7 @@
                      (physical-page-frame-next p) (physical-buddy-bin-head avail-bin)
                      (physical-buddy-bin-head avail-bin) p)
                (incf (physical-buddy-bin-count avail-bin))))
-          (when mezzanine.runtime::*paranoid-allocation*
+          (when mezzano.runtime::*paranoid-allocation*
             (dotimes (i (* n-pages 512))
               (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
           (when *verbose-physical-allocation*
@@ -132,7 +132,7 @@
   (ensure (not (logbitp +page-frame-flag-free+ (physical-page-frame-flags page-number))) "Free bit set in frame flags.")
   (ensure (not (logbitp +page-frame-flag-cache+ (physical-page-frame-flags page-number))) "Cache bit set in frame flags.")
   (ensure (not (logbitp +page-frame-flag-writeback+ (physical-page-frame-flags page-number))) "Writeback bit set in frame flags.")
-  (when mezzanine.runtime::*paranoid-allocation*
+  (when mezzano.runtime::*paranoid-allocation*
     (dotimes (i (* n-pages 512))
       (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash page-number 12)) i) -1)))
   (when *verbose-physical-allocation*

@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;;; Network device feature bits.
 (defconstant +virtio-net-f-csum+ 0

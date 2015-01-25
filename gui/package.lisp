@@ -1,4 +1,4 @@
-(defpackage :mezzanine.gui
+(defpackage :mezzano.gui
   (:use :cl)
   (:export #:clamp
            #:rectangle
@@ -17,8 +17,8 @@
            #:*default-foreground-colour*
            #:*default-background-colour*))
 
-(defpackage :mezzanine.gui.compositor
-  (:use :cl :mezzanine.gui)
+(defpackage :mezzano.gui.compositor
+  (:use :cl :mezzano.gui)
   (:export #:window
            #:window-buffer
            #:width
@@ -50,9 +50,9 @@
            #:get-window-by-kind
            #:screen-geometry-update))
 
-(defpackage :mezzanine.gui.input-drivers
+(defpackage :mezzano.gui.input-drivers
   (:use :cl))
 
-(defpackage :mezzanine.gui.basic-repl
+(defpackage :mezzano.gui.basic-repl
   (:use :cl)
   (:export #:spawn))

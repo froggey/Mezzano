@@ -1,10 +1,10 @@
 ;;; The fast evaluator, passes most forms to the compiler
 
-(defpackage :mezzanine.fast-eval
+(defpackage :mezzano.fast-eval
   (:export #:eval-in-lexenv)
   (:use :cl))
 
-(in-package :mezzanine.fast-eval)
+(in-package :mezzano.fast-eval)
 
 (defun eval-compile (form env)
   (funcall (sys.c::compile-lambda `(lambda () (progn ,form))

@@ -114,19 +114,19 @@
   (write-char #\Space)
   (write arguments)
   (low-level-backtrace)
-  (mezzanine.supervisor:panic "Early ERROR"))
+  (mezzano.supervisor:panic "Early ERROR"))
 
 (defun enter-debugger (condition)
   (write-char #\!)
   (write condition)
   (low-level-backtrace)
-  (mezzanine.supervisor:panic "Early ENTER-DEBUGGER"))
+  (mezzano.supervisor:panic "Early ENTER-DEBUGGER"))
 
 (defun invoke-debugger (condition)
   (write-char #\!)
   (write condition)
   (low-level-backtrace)
-  (mezzanine.supervisor:panic "EARLY INVOKE-DEBUGGER"))
+  (mezzano.supervisor:panic "EARLY INVOKE-DEBUGGER"))
 
 ;;; Pathname stuff before pathnames exist (file.lisp defines real pathnames).
 
@@ -223,7 +223,7 @@
   t)
 
 (defun load-additional-modules ()
-  (let ((modules (mezzanine.supervisor:fetch-boot-modules)))
+  (let ((modules (mezzano.supervisor:fetch-boot-modules)))
     (when modules
       (dolist (m modules)
         (write-string "Loading ")
@@ -234,7 +234,7 @@
       (room)
       (gc)
       (room)
-      (mezzanine.supervisor:snapshot))))
+      (mezzano.supervisor:snapshot))))
 
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
@@ -286,7 +286,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *print-escape* t
         *print-readably* nil
         *print-safe* nil)
-  (setf *features* '(:unicode :little-endian :x86-64 :mezzanine :ieee-floating-point :ansi-cl :common-lisp)
+  (setf *features* '(:unicode :little-endian :x86-64 :mezzano :ieee-floating-point :ansi-cl :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
@@ -335,7 +335,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (gc)
   (room)
   (write-line "Cold load complete.")
-  (mezzanine.supervisor:snapshot)
+  (mezzano.supervisor:snapshot)
   (write-line "Loading warm modules.")
   (dotimes (i (length *warm-llf-files*))
     (write-string "Loading ")
@@ -345,12 +345,12 @@ structures to exist, and for memory to be allocated, but not much beyond that."
     (gc)
     (room))
   (makunbound '*warm-llf-files*)
-  (mezzanine.supervisor:add-boot-hook 'load-additional-modules)
+  (mezzano.supervisor:add-boot-hook 'load-additional-modules)
   (load-additional-modules)
   (room)
   (gc)
   (room)
-  (mezzanine.supervisor:snapshot)
+  (mezzano.supervisor:snapshot)
   (write-line "Hello, world.")
   (terpri)
   (repl))

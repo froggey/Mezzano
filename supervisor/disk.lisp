@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;;; External API:
 ;;; ALL-DISKS - Return a list of all disks in the systems. List might not be fresh.

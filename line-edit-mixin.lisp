@@ -1,4 +1,4 @@
-(defpackage :mezzanine.line-editor
+(defpackage :mezzano.line-editor
   (:use :cl)
   (:export #:line-edit-mixin
            #:*line-editor-command-table*
@@ -17,7 +17,7 @@
            #:history-data
            #:history-add))
 
-(in-package :mezzanine.line-editor)
+(in-package :mezzano.line-editor)
 
 (defgeneric history-reset (history))
 (defgeneric history-newest (history))
@@ -28,45 +28,45 @@
 (defgeneric history-add (history data))
 
 (defclass history-table ()
-  ((%lock :initform (mezzanine.supervisor:make-mutex "History table lock") :reader lock)
+  ((%lock :initform (mezzano.supervisor:make-mutex "History table lock") :reader lock)
    (%history-data)))
 
 (defmethod initialize-instance :after ((instance history-table) &key &allow-other-keys)
   (history-reset instance))
 
 (defmethod history-reset ((history history-table))
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (setf (slot-value history '%history-data) (make-array 0 :fill-pointer 0 :adjustable t))))
 
 (defmethod history-newest ((history history-table))
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (when (not (zerop (length (slot-value history '%history-data))))
       (1- (length (slot-value history '%history-data))))))
 
 (defmethod history-oldest ((history history-table))
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (when (not (zerop (length (slot-value history '%history-data))))
       0)))
 
 (defmethod history-previous ((history history-table) entry)
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (when (not (zerop entry))
       (1- entry))))
 
 (defmethod history-next ((history history-table) entry)
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (when (not (eql entry (1- (length (slot-value history '%history-data)))))
       (1+ entry))))
 
 (defmethod history-data ((history history-table) entry)
   (check-type entry (integer 0))
-  (or (mezzanine.supervisor:with-mutex ((lock history))
+  (or (mezzano.supervisor:with-mutex ((lock history))
         (when (< entry (length (slot-value history '%history-data)))
           (aref (slot-value history '%history-data) entry)))
       (error "Invalid history entry ~D." entry)))
 
 (defmethod history-add ((history history-table) data)
-  (mezzanine.supervisor:with-mutex ((lock history))
+  (mezzano.supervisor:with-mutex ((lock history))
     (cond ((or (zerop (length (slot-value history '%history-data)))
                (not (equal (aref (slot-value history '%history-data)
                                  (1- (length (slot-value history '%history-data))))

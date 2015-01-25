@@ -1,8 +1,8 @@
-(defpackage :mezzanine.gui.peek
+(defpackage :mezzano.gui.peek
   (:use :cl)
   (:export #:spawn))
 
-(in-package :mezzanine.gui.peek)
+(in-package :mezzano.gui.peek)
 
 (defvar *peek-commands*
   '((#\? "Help" peek-help "Show a help page.")
@@ -28,11 +28,11 @@
 
 (defun peek-thread ()
   (format t "Thread Name~24TState~%")
-  (dolist (thread (mezzanine.supervisor:all-threads))
-    (format t " ~A~24T~A~%" (mezzanine.supervisor:thread-name thread) (mezzanine.supervisor:thread-state thread))
-    (when (eql (mezzanine.supervisor:thread-state thread) :sleeping)
+  (dolist (thread (mezzano.supervisor:all-threads))
+    (format t " ~A~24T~A~%" (mezzano.supervisor:thread-name thread) (mezzano.supervisor:thread-state thread))
+    (when (eql (mezzano.supervisor:thread-state thread) :sleeping)
       (format t "  Waiting on ")
-      (print-unreadable-object ((mezzanine.supervisor:thread-wait-item thread) *standard-output* :type t :identity t))
+      (print-unreadable-object ((mezzano.supervisor:thread-wait-item thread) *standard-output* :type t :identity t))
       (terpri))))
 
 (defun peek-memory ()
@@ -46,16 +46,16 @@
   (format t "Network cards:~%")
   (dolist (card sys.net::*cards*)
     (let ((address (sys.net::ipv4-interface-address card nil)))
-      (format t " ~/mezzanine.gui.peek::format-nic/~%" card)
-      (format t "   Mac: ~/sys.net::format-mac-address/~%" (mezzanine.supervisor:nic-mac card))
+      (format t " ~/mezzano.gui.peek::format-nic/~%" card)
+      (format t "   Mac: ~/sys.net::format-mac-address/~%" (mezzano.supervisor:nic-mac card))
       (when address
         (format t "   IPv4 address: ~/sys.net::format-tcp4-address/~%" address))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
-          (mezzanine.supervisor:net-statistics card)
+          (mezzano.supervisor:net-statistics card)
         (format t "   ~:D octets, ~:D packets received. ~:D RX errors.~%"
                 rx-bytes rx-packets rx-errors)
         (format t "   ~:D octets, ~:D packets transmitted. ~:D TX errors.~%"
-                  tx-bytes tx-packets tx-errors)
+                tx-bytes tx-packets tx-errors)
         (format t "   ~:D collisions.~%" collisions))))
   (format t "Routing table:~%")
   (format t " Network~17TGateway~33TNetmask~49TInterface~%")
@@ -68,7 +68,7 @@
     (if (second route)
         (sys.net::format-tcp4-address *standard-output* (second route))
         (write-string "N/A"))
-    (format t "~33T~/sys.net::format-tcp4-address/~49T~/mezzanine.gui.peek::format-nic/~%" (third route) (fourth route)))
+    (format t "~33T~/sys.net::format-tcp4-address/~49T~/mezzano.gui.peek::format-nic/~%" (third route) (fourth route)))
   (format t "Servers:~%")
   (dolist (server sys.net::*server-alist*)
     (format t "~S  TCPv4 ~D~%" (second server) (first server)))
@@ -233,11 +233,11 @@
     (format t "Features: ~A~%" features)))
 
 (defun peek-disk ()
-  (dolist (disk (mezzanine.supervisor:all-disks))
+  (dolist (disk (mezzano.supervisor:all-disks))
     (format t "~S:~%" disk)
-    (format t "  Sector size: ~:D octets.~%" (mezzanine.supervisor:disk-sector-size disk))
-    (format t "   Total size: ~:D sectors.~%" (mezzanine.supervisor:disk-n-sectors disk))
-    (format t "               ~:D octets.~%" (* (mezzanine.supervisor:disk-n-sectors disk) (mezzanine.supervisor:disk-sector-size disk)))))
+    (format t "  Sector size: ~:D octets.~%" (mezzano.supervisor:disk-sector-size disk))
+    (format t "   Total size: ~:D sectors.~%" (mezzano.supervisor:disk-n-sectors disk))
+    (format t "               ~:D octets.~%" (* (mezzano.supervisor:disk-n-sectors disk) (mezzano.supervisor:disk-sector-size disk)))))
 
 (defclass peek-window ()
   ((%window :initarg :window :reader window)
@@ -251,13 +251,13 @@
   ;; Eat unknown events.
   (:method (w e)))
 
-(defmethod dispatch-event (peek (event mezzanine.gui.compositor:window-activation-event))
-  (setf (mezzanine.gui.widgets:activep (frame peek)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame peek)))
+(defmethod dispatch-event (peek (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep (frame peek)) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame (frame peek)))
 
-(defmethod dispatch-event (peek (event mezzanine.gui.compositor:key-event))
-  (when (not (mezzanine.gui.compositor:key-releasep event))
-    (let* ((ch (mezzanine.gui.compositor:key-key event))
+(defmethod dispatch-event (peek (event mezzano.gui.compositor:key-event))
+  (when (not (mezzano.gui.compositor:key-releasep event))
+    (let* ((ch (mezzano.gui.compositor:key-key event))
            (cmd (assoc ch *peek-commands* :test 'char-equal)))
       (cond ((char= ch #\Space)
              ;; refresh current window
@@ -268,63 +268,63 @@
              (setf (mode peek) (third cmd)
                    (redraw peek) t))))))
 
-(defmethod dispatch-event (peek (event mezzanine.gui.compositor:mouse-event))
+(defmethod dispatch-event (peek (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzanine.gui.widgets:frame-mouse-event (frame peek) event)
-    (mezzanine.gui.widgets:close-button-clicked ()
+      (mezzano.gui.widgets:frame-mouse-event (frame peek) event)
+    (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (peek (event mezzanine.gui.compositor:window-close-event))
+(defmethod dispatch-event (peek (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
 (defun peek-main ()
   (catch 'quit
-    (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
-      (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-        (mezzanine.gui.compositor:with-window (window fifo 640 700)
-          (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzanine.gui.widgets:frame
+    (mezzano.gui.font:with-font (font mezzano.gui.font:*default-monospace-font* mezzano.gui.font:*default-monospace-font-size*)
+      (let ((fifo (mezzano.supervisor:make-fifo 50)))
+        (mezzano.gui.compositor:with-window (window fifo 640 700)
+          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                 (frame (make-instance 'mezzano.gui.widgets:frame
                                        :framebuffer framebuffer
                                        :title "Peek"
                                        :close-button-p t
-                                       :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
                  (peek (make-instance 'peek-window
                                       :window window
                                       :frame frame))
-                 (text-pane (make-instance 'mezzanine.gui.widgets:text-widget
+                 (text-pane (make-instance 'mezzano.gui.widgets:text-widget
                                            :font font
                                            :framebuffer framebuffer
-                                           :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                           :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                           :width (- (mezzanine.gui.compositor:width window)
-                                                     (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                                     (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                           :height (- (mezzanine.gui.compositor:height window)
-                                                      (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                      (nth-value 3 (mezzanine.gui.widgets:frame-size frame)))
+                                           :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                           :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                           :width (- (mezzano.gui.compositor:width window)
+                                                     (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                     (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                           :height (- (mezzano.gui.compositor:height window)
+                                                      (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                      (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
                                            :damage-function (lambda (&rest args)
                                                               (loop
-                                                                 (let ((ev (mezzanine.supervisor:fifo-pop fifo nil)))
+                                                                 (let ((ev (mezzano.supervisor:fifo-pop fifo nil)))
                                                                    (when (not ev) (return))
                                                                    (dispatch-event peek ev)))
-                                                              (apply #'mezzanine.gui.compositor:damage-window window args)))))
+                                                              (apply #'mezzano.gui.compositor:damage-window window args)))))
             (setf (slot-value peek '%text-pane) text-pane)
-            (mezzanine.gui.widgets:draw-frame frame)
-            (mezzanine.gui.compositor:damage-window window
-                                                    0 0
-                                                    (mezzanine.gui.compositor:width window)
-                                                    (mezzanine.gui.compositor:height window))
+            (mezzano.gui.widgets:draw-frame frame)
+            (mezzano.gui.compositor:damage-window window
+                                                  0 0
+                                                  (mezzano.gui.compositor:width window)
+                                                  (mezzano.gui.compositor:height window))
             (loop
                (when (redraw peek)
                  (let ((*standard-output* text-pane))
                    (setf (redraw peek) nil)
-                   (mezzanine.gui.widgets:reset *standard-output*)
+                   (mezzano.gui.widgets:reset *standard-output*)
                    (print-header)
                    (fresh-line)
                    (ignore-errors
                      (funcall (mode peek)))))
-               (dispatch-event peek (mezzanine.supervisor:fifo-pop fifo)))))))))
+               (dispatch-event peek (mezzano.supervisor:fifo-pop fifo)))))))))
 
 (defun spawn ()
-  (mezzanine.supervisor:make-thread 'peek-main
-                                    :name "Peek"))
+  (mezzano.supervisor:make-thread 'peek-main
+                                  :name "Peek"))

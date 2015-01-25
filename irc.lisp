@@ -4,7 +4,7 @@
 
 (in-package :irc-client)
 
-(defvar *irc-history* (make-instance 'mezzanine.line-editor:history-table))
+(defvar *irc-history* (make-instance 'mezzano.line-editor:history-table))
 
 (defparameter *numeric-replies*
   '((401 :err-no-such-nick)
@@ -281,9 +281,9 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
     (loop
        (let ((line (read-line connection nil)))
          (when (not line)
-           (mezzanine.supervisor:fifo-push (make-instance 'server-disconnect-event) fifo)
+           (mezzano.supervisor:fifo-push (make-instance 'server-disconnect-event) fifo)
            (return))
-         (mezzanine.supervisor:fifo-push (make-instance 'server-line-event :line line) fifo)))))
+         (mezzano.supervisor:fifo-push (make-instance 'server-line-event :line line) fifo)))))
 
 (defvar *top-level-commands* (make-hash-table :test 'equal))
 (defvar *top-level-command-doc* (make-hash-table :test 'equal))
@@ -364,15 +364,15 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
         (t (multiple-value-bind (address port)
                (resolve-server-name text)
              (format (display-pane irc) "~&Connecting to ~A (~A:~A)." text address port)
-             (setf (mezzanine.gui.widgets:frame-title (frame irc)) (format nil "IRC - ~A" text))
-             (mezzanine.gui.widgets:draw-frame (frame irc))
-             (mezzanine.gui.compositor:damage-window (window irc)
-                                                     0 0
-                                                     (mezzanine.gui.compositor:width (window irc))
-                                                     (mezzanine.gui.compositor:height (window irc)))
+             (setf (mezzano.gui.widgets:frame-title (frame irc)) (format nil "IRC - ~A" text))
+             (mezzano.gui.widgets:draw-frame (frame irc))
+             (mezzano.gui.compositor:damage-window (window irc)
+                                                   0 0
+                                                   (mezzano.gui.compositor:width (window irc))
+                                                   (mezzano.gui.compositor:height (window irc)))
              (setf (irc-connection irc) (sys.net::tcp-stream-connect address port)
-                   (receive-thread irc) (mezzanine.supervisor:make-thread (lambda () (irc-receive irc))
-                                                                          :name "IRC receive"))
+                   (receive-thread irc) (mezzano.supervisor:make-thread (lambda () (irc-receive irc))
+                                                                        :name "IRC receive"))
              (buffered-format (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))
              (buffered-format (irc-connection irc) "NICK ~A~%" (nickname irc))))))
 
@@ -435,9 +435,9 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
    (%receive-thread :initarg :receive-thread :accessor receive-thread))
   (:default-initargs :current-channel nil :joined-channels '() :nickname nil :connection nil))
 
-(defclass irc-input-pane (mezzanine.line-editor:line-edit-mixin
+(defclass irc-input-pane (mezzano.line-editor:line-edit-mixin
                           sys.gray:fundamental-character-input-stream
-                          mezzanine.gui.widgets:text-widget)
+                          mezzano.gui.widgets:text-widget)
   ((%irc :initarg :irc :reader irc)))
 
 (defmethod sys.gray:stream-read-char ((stream irc-input-pane))
@@ -445,57 +445,57 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
          (fifo (fifo irc)))
     (unwind-protect
          (catch 'next-character
-           (setf (mezzanine.gui.widgets:cursor-visible stream) t)
+           (setf (mezzano.gui.widgets:cursor-visible stream) t)
            (loop
-              (dispatch-event irc (mezzanine.supervisor:fifo-pop fifo))))
-      (setf (mezzanine.gui.widgets:cursor-visible stream) nil))))
+              (dispatch-event irc (mezzano.supervisor:fifo-pop fifo))))
+      (setf (mezzano.gui.widgets:cursor-visible stream) nil))))
 
 (defun reset-input (irc)
-  (mezzanine.gui.widgets:reset (input-pane irc))
+  (mezzano.gui.widgets:reset (input-pane irc))
   (format (input-pane irc) "~A] " (or (current-channel irc) "")))
 
 (defgeneric dispatch-event (irc event)
   (:method (irc event)))
 
-(defmethod dispatch-event (irc (event mezzanine.gui.compositor:window-activation-event))
-  (setf (mezzanine.gui.widgets:activep (frame irc)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame irc)))
+(defmethod dispatch-event (irc (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep (frame irc)) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame (frame irc)))
 
-(defmethod dispatch-event (irc (event mezzanine.gui.compositor:mouse-event))
+(defmethod dispatch-event (irc (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzanine.gui.widgets:frame-mouse-event (frame irc) event)
-    (mezzanine.gui.widgets:close-button-clicked ()
+      (mezzano.gui.widgets:frame-mouse-event (frame irc) event)
+    (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (irc (event mezzanine.gui.compositor:window-close-event))
+(defmethod dispatch-event (irc (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
-(defmethod dispatch-event (irc (event mezzanine.gui.compositor:key-event))
+(defmethod dispatch-event (irc (event mezzano.gui.compositor:key-event))
   ;; should filter out strange keys?
-  (when (not (mezzanine.gui.compositor:key-releasep event))
+  (when (not (mezzano.gui.compositor:key-releasep event))
     (throw 'next-character
-      (if (mezzanine.gui.compositor:key-modifier-state event)
+      (if (mezzano.gui.compositor:key-modifier-state event)
           ;; Force character to uppercase when a modifier key is active, gets
           ;; around weirdness in how character names are processed.
           ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
-          (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
-                                   :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
-                                   :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
-                                   :super (find :super (mezzanine.gui.compositor:key-modifier-state event))
-                                   :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
-          (mezzanine.gui.compositor:key-key event)))))
+          (sys.int::make-character (char-code (char-upcase (mezzano.gui.compositor:key-key event)))
+                                   :control (find :control (mezzano.gui.compositor:key-modifier-state event))
+                                   :meta (find :meta (mezzano.gui.compositor:key-modifier-state event))
+                                   :super (find :super (mezzano.gui.compositor:key-modifier-state event))
+                                   :hyper (find :hyper (mezzano.gui.compositor:key-modifier-state event)))
+          (mezzano.gui.compositor:key-key event)))))
 
 (defmethod dispatch-event (irc (event server-disconnect-event))
   (format (display-pane irc) "~&Disconnected from server.")
   (close (irc-connection irc))
   (setf (irc-connection irc) nil
         (receive-thread irc) nil)
-  (setf (mezzanine.gui.widgets:frame-title (frame irc)) (format nil "IRC"))
-  (mezzanine.gui.widgets:draw-frame (frame irc))
-  (mezzanine.gui.compositor:damage-window (window irc)
-                                          0 0
-                                          (mezzanine.gui.compositor:width (window irc))
-                                          (mezzanine.gui.compositor:height (window irc))))
+  (setf (mezzano.gui.widgets:frame-title (frame irc)) (format nil "IRC"))
+  (mezzano.gui.widgets:draw-frame (frame irc))
+  (mezzano.gui.compositor:damage-window (window irc)
+                                        0 0
+                                        (mezzano.gui.compositor:width (window irc))
+                                        (mezzano.gui.compositor:height (window irc))))
 
 (defmethod dispatch-event (irc (event server-line-event))
   (let ((line (line event)))
@@ -511,44 +511,44 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 
 (defun irc-main ()
   (catch 'quit
-    (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
-      (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-        (mezzanine.gui.compositor:with-window (window fifo 640 480)
-          (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzanine.gui.widgets:frame
+    (mezzano.gui.font:with-font (font mezzano.gui.font:*default-monospace-font* mezzano.gui.font:*default-monospace-font-size*)
+      (let ((fifo (mezzano.supervisor:make-fifo 50)))
+        (mezzano.gui.compositor:with-window (window fifo 640 480)
+          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                 (frame (make-instance 'mezzano.gui.widgets:frame
                                        :framebuffer framebuffer
                                        :title "IRC"
                                        :close-button-p t
-                                       :damage-function (mezzanine.gui.widgets:default-damage-function window)))
-                 (display-pane (make-instance 'mezzanine.gui.widgets:text-widget
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                 (display-pane (make-instance 'mezzano.gui.widgets:text-widget
                                               :font font
                                               :framebuffer framebuffer
-                                              :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                              :y-position (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                              :width (- (mezzanine.gui.compositor:width window)
-                                                        (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                                        (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                              :height (- (mezzanine.gui.compositor:height window)
-                                                         (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                         (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
+                                              :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                              :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                              :width (- (mezzano.gui.compositor:width window)
+                                                        (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                        (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                              :height (- (mezzano.gui.compositor:height window)
+                                                         (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                         (nth-value 3 (mezzano.gui.widgets:frame-size frame))
                                                          1
-                                                         (mezzanine.gui.font:line-height font))
-                                              :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                                                         (mezzano.gui.font:line-height font))
+                                              :damage-function (mezzano.gui.widgets:default-damage-function window)))
                  (input-pane (make-instance 'irc-input-pane
                                             :history-table *irc-history*
                                             :font font
                                             :framebuffer framebuffer
-                                            :x-position (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                            :y-position (+ (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                           (- (mezzanine.gui.compositor:height window)
-                                                              (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                                              (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
-                                                              (mezzanine.gui.font:line-height font)))
-                                            :width (- (mezzanine.gui.compositor:width window)
-                                                      (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                                      (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                            :height (mezzanine.gui.font:line-height font)
-                                            :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                                            :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                            :y-position (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                           (- (mezzano.gui.compositor:height window)
+                                                              (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                              (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                                              (mezzano.gui.font:line-height font)))
+                                            :width (- (mezzano.gui.compositor:width window)
+                                                      (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                      (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                            :height (mezzano.gui.font:line-height font)
+                                            :damage-function (mezzano.gui.widgets:default-damage-function window)))
                  (irc (make-instance 'irc-client
                                      :fifo fifo
                                      :window window
@@ -557,23 +557,23 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                      :input-pane input-pane)))
             (setf (slot-value input-pane '%irc) irc)
             ;; Line seperating display and input panes.
-            (mezzanine.gui:bitset 1 (- (mezzanine.gui.compositor:width window)
-                                       (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                       (nth-value 1 (mezzanine.gui.widgets:frame-size frame)))
-                                  #xFF808080
-                                  framebuffer
-                                  (+ (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                     (- (mezzanine.gui.compositor:height window)
-                                        (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
-                                        (nth-value 3 (mezzanine.gui.widgets:frame-size frame))
-                                        (mezzanine.gui.font:line-height font)
-                                        1))
-                                  (nth-value 0 (mezzanine.gui.widgets:frame-size frame)))
-            (mezzanine.gui.widgets:draw-frame frame)
-            (mezzanine.gui.compositor:damage-window window
-                                                    0 0
-                                                    (mezzanine.gui.compositor:width window)
-                                                    (mezzanine.gui.compositor:height window))
+            (mezzano.gui:bitset 1 (- (mezzano.gui.compositor:width window)
+                                     (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                     (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                #xFF808080
+                                framebuffer
+                                (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                   (- (mezzano.gui.compositor:height window)
+                                      (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                      (nth-value 3 (mezzano.gui.widgets:frame-size frame))
+                                      (mezzano.gui.font:line-height font)
+                                      1))
+                                (nth-value 0 (mezzano.gui.widgets:frame-size frame)))
+            (mezzano.gui.widgets:draw-frame frame)
+            (mezzano.gui.compositor:damage-window window
+                                                  0 0
+                                                  (mezzano.gui.compositor:width window)
+                                                  (mezzano.gui.compositor:height window))
             (unwind-protect
                  (loop
                     (handler-case
@@ -593,13 +593,13 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                 (close (irc-connection irc))))))))))
 
 (defun spawn ()
-  (mezzanine.supervisor:make-thread 'irc-main
-                                    :name "IRC"
-                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
-                                                                                       :title "IRC console"))
-                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
-                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+  (mezzano.supervisor:make-thread 'irc-main
+                                  :name "IRC"
+                                  :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                     :title "IRC console"))
+                                                      (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                      (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))

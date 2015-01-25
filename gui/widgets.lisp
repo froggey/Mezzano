@@ -1,6 +1,6 @@
-(defpackage :mezzanine.gui.widgets
-  (:use :cl :mezzanine.gui.font)
-  (:import-from :mezzanine.gui.compositor
+(defpackage :mezzano.gui.widgets
+  (:use :cl :mezzano.gui.font)
+  (:import-from :mezzano.gui.compositor
                 #:width #:height
                 #:mouse-x-position #:mouse-y-position
                 #:mouse-button-state #:mouse-button-change)
@@ -18,7 +18,7 @@
            #:reset
            #:cursor-visible))
 
-(in-package :mezzanine.gui.widgets)
+(in-package :mezzano.gui.widgets)
 
 (defgeneric draw-frame (frame))
 (defgeneric frame-size (frame))
@@ -27,7 +27,7 @@
 
 (defun default-damage-function (window)
   (lambda (&rest args)
-    (apply #'mezzanine.gui.compositor:damage-window window args)))
+    (apply #'mezzano.gui.compositor:damage-window window args)))
 
 (define-condition close-button-clicked () ())
 
@@ -52,7 +52,7 @@
 
 ;; TODO: Load these from a file, maybe.
 (defvar *close-button*
-  (mezzanine.gui.compositor::2d-array
+  (mezzano.gui.compositor::2d-array
    '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
      (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353E #xFFE5737A #xFFEA949A #xFFE9949A #xFFE5727A #xFFCC313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
      (#x00000000 #x2213090A #xE1A51D25 #xFFE76F76 #xFFF9DFE1 #xFFFDF6F6 #xFFFDF5F5 #xFFFDF5F5 #xFFFDF6F6 #xFFF9E0E2 #xFFE66F77 #xD7A40E16 #x17140202 #x00000000)
@@ -70,7 +70,7 @@
    '(unsigned-byte 32)))
 
 (defvar *close-button-hover*
-  (mezzanine.gui.compositor::2d-array
+  (mezzano.gui.compositor::2d-array
    '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
      (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353F #xFFE5737A #xFFE9949A #xFFE9949A #xFFE5727A #xFFCD313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
      (#x00000000 #x2213090A #xE1A51D25 #xFFE76E76 #xFFF6DFE1 #xFFFDF6F6 #xFFFEF5F6 #xFFFEF5F6 #xFFFEF6F7 #xFFF6E0E2 #xFFE56F77 #xD7A40E16 #x17140202 #x00000000)
@@ -112,9 +112,9 @@
 
 (defun vertical-gradient (nrows ncols colour1 colour2 to-array to-row to-col)
   (dotimes (i nrows)
-    (mezzanine.gui:bitset 1 ncols
-                          (lerp-colour colour1 colour2 (/ i (1- nrows)))
-                          to-array (+ to-row i) to-col)))
+    (mezzano.gui:bitset 1 ncols
+                        (lerp-colour colour1 colour2 (/ i (1- nrows)))
+                        to-array (+ to-row i) to-col)))
 
 (defmethod draw-frame ((frame frame))
   (let* ((framebuffer (framebuffer frame))
@@ -128,11 +128,11 @@
                        top-colour colour
                        framebuffer 0 0)
     ;; Bottom.
-    (mezzanine.gui:bitset 1 win-width colour framebuffer (1- win-height) 0)
+    (mezzano.gui:bitset 1 win-width colour framebuffer (1- win-height) 0)
     ;; Left.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 19 0)
+    (mezzano.gui:bitset win-height 1 colour framebuffer 19 0)
     ;; Right.
-    (mezzanine.gui:bitset win-height 1 colour framebuffer 19 (1- win-width))
+    (mezzano.gui:bitset win-height 1 colour framebuffer 19 (1- win-width))
     ;; Round off the corners.
     (dotimes (y (array-dimension *corner-mask* 0))
       (dotimes (x (array-dimension *corner-mask* 1))
@@ -141,9 +141,9 @@
                 (ldb (byte 8 24) (aref framebuffer y (- win-width x 1))) alpha))))
     ;; Close button.
     (when (close-button-p frame)
-      (mezzanine.gui:bitblt-argb-xrgb (array-dimension *close-button* 0) (array-dimension *close-button* 1)
-                                      (if (close-button-hover frame) *close-button-hover* *close-button*) 0 0
-                                      framebuffer *close-button-y* *close-button-x*))
+      (mezzano.gui:bitblt-argb-xrgb (array-dimension *close-button* 0) (array-dimension *close-button* 1)
+                                    (if (close-button-hover frame) *close-button-hover* *close-button*) 0 0
+                                    framebuffer *close-button-y* *close-button-x*))
     ;; Title.
     (when title
       (let ((width 0))
@@ -151,7 +151,7 @@
         (dotimes (i (length title))
           (incf width (glyph-advance (character-to-glyph *frame-title-font* (char title i)))))
         ;; Clamp it, corner elements and buttons.
-        (setf width (mezzanine.gui:clamp width 0 (- win-width (+ 16 (* (array-dimension *corner-mask* 1) 2)))))
+        (setf width (mezzano.gui:clamp width 0 (- win-width (+ 16 (* (array-dimension *corner-mask* 1) 2)))))
         ;; Find leftmost position.
         (let ((origin (- (truncate win-width 2) (truncate width 2)))
               (pen 0))
@@ -161,9 +161,9 @@
                    (mask (glyph-mask glyph)))
               (when (> pen width)
                 (return))
-              (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
-                                                     mask 0 0
-                                                     framebuffer (- (+ 4 (ascender *frame-title-font*)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
+              (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
+                                                   mask 0 0
+                                                   framebuffer (- (+ 4 (ascender *frame-title-font*)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
               (incf pen (glyph-advance glyph)))))))
     ;; Damage the whole window.
     (funcall (damage-function frame) 0 0 win-width win-height)))
@@ -218,8 +218,8 @@
    (%foreground-colour :initarg :foreground-colour :reader foreground-colour)
    (%font :initarg :font :reader font)
    (%cursor-visible :initform nil :reader cursor-visible))
-  (:default-initargs :foreground-colour mezzanine.gui:*default-foreground-colour*
-                     :background-colour mezzanine.gui:*default-background-colour*))
+  (:default-initargs :foreground-colour mezzano.gui:*default-foreground-colour*
+                     :background-colour mezzano.gui:*default-background-colour*))
 
 (defmethod initialize-instance :after ((widget text-widget) &key &allow-other-keys)
   (reset widget))
@@ -231,10 +231,10 @@
            (let ((line-height (line-height (font stream)))
                  (x (+ (x-position stream) (cursor-x stream)))
                  (y (+ (y-position stream) (cursor-y stream))))
-             (mezzanine.gui:bitxor line-height 1
-                                   #x00FFFFFF
-                                   (framebuffer stream)
-                                   y x)
+             (mezzano.gui:bitxor line-height 1
+                                 #x00FFFFFF
+                                 (framebuffer stream)
+                                 y x)
              (funcall (damage-function stream)
                       x y
                       1 line-height))))
@@ -270,7 +270,7 @@
            (left (x-position stream))
            (top (y-position stream)))
       ;; Clear to the end of the current line.
-      (mezzanine.gui:bitset line-height (- win-width x) (background-colour stream) fb (+ top y) (+ left x))
+      (mezzano.gui:bitset line-height (- win-width x) (background-colour stream) fb (+ top y) (+ left x))
       (funcall (damage-function stream) (+ left x) (+ top y) (- win-width x) line-height)
       ;; Advance to the next line.
       (setf (cursor-x stream) 0
@@ -278,17 +278,17 @@
       (cond ((> (+ y (* line-height 2)) win-height)
              ;; Off the end of the screen. Scroll!
              (incf (cursor-line stream) line-height)
-             (mezzanine.gui:bitblt (- win-height line-height) win-width
-                                   fb (+ top line-height) left
-                                   fb top left)
+             (mezzano.gui:bitblt (- win-height line-height) win-width
+                                 fb (+ top line-height) left
+                                 fb top left)
              ;; Clear line.
-             (mezzanine.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
+             (mezzano.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
              ;; Damage the whole area.
              (funcall (damage-function stream) left top win-width win-height))
             (t (incf y line-height)
                (setf (cursor-y stream) y)
                ;; Clear line.
-               (mezzanine.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
+               (mezzano.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
                (funcall (damage-function stream) left (+ top y) win-width line-height))))))
 
 (defmethod sys.gray:stream-write-char ((stream text-widget) character)
@@ -309,10 +309,10 @@
            ;; Fetch x/y after terpri.
            (let ((x (cursor-x stream))
                  (y (cursor-y stream)))
-             (mezzanine.gui:bitset line-height advance (background-colour stream) fb (+ top y) (+ left x))
-             (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
-                                                    mask 0 0
-                                                    fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
+             (mezzano.gui:bitset line-height advance (background-colour stream) fb (+ top y) (+ left x))
+             (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
+                                                  mask 0 0
+                                                  fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
              (funcall (damage-function stream) (+ left x) (+ top y) advance line-height)
              (incf (cursor-x stream) advance)
              (incf (cursor-column stream))))))))
@@ -376,21 +376,21 @@
             end-y (- end-y (cursor-line stream)))
       (cond ((eql start-y end-y)
              ;; Clearing one line.
-             (mezzanine.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
+             (mezzano.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
              (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- end-x start-x) line-height))
             (t ;; Clearing many lines.
              ;; Clear top line.
-             (mezzanine.gui:bitset line-height (- win-width start-x) colour
-                                   framebuffer (+ top start-y) (+ left start-x))
+             (mezzano.gui:bitset line-height (- win-width start-x) colour
+                                 framebuffer (+ top start-y) (+ left start-x))
              (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- win-width start-x) line-height)
              ;; Clear in-between.
              (when (> (- end-y start-y) line-height)
-               (mezzanine.gui:bitset (- end-y start-y line-height) win-width colour
-                                     framebuffer (+ top start-y line-height) left)
+               (mezzano.gui:bitset (- end-y start-y line-height) win-width colour
+                                   framebuffer (+ top start-y line-height) left)
                (funcall (damage-function stream) left (+ top start-y line-height) win-width (- end-y start-y line-height)))
              ;; Clear bottom line.
-             (mezzanine.gui:bitset line-height end-x colour
-                                   framebuffer (+ top end-y) left)
+             (mezzano.gui:bitset line-height end-x colour
+                                 framebuffer (+ top end-y) left)
              (funcall (damage-function stream) left (+ top end-y) end-x line-height))))))
 
 (defmethod reset ((widget text-widget))
@@ -399,7 +399,7 @@
         (cursor-column widget) 0
         (cursor-line widget) 0
         (cursor-visible widget) nil)
-  (mezzanine.gui:bitset (height widget) (width widget)
-                        (background-colour widget)
-                        (framebuffer widget) (y-position widget) (x-position widget))
+  (mezzano.gui:bitset (height widget) (width widget)
+                      (background-colour widget)
+                      (framebuffer widget) (y-position widget) (x-position widget))
   (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))

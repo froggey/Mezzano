@@ -461,7 +461,7 @@ VALUE may be nil to make the fref unbound."
     ;; Functions is followed by entry point.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
     ;; Defer the GC over the CAS, it does bad things to registers.
-    (mezzanine.supervisor:with-gc-deferred
+    (mezzano.supervisor:with-gc-deferred
       (let ((old-1 (%array-like-ref-t fref +fref-function+))
             (old-2 (%array-like-ref-t fref +fref-entry-point+)))
         ;; Don't bother CASing in a loop. If another CPU beats us, then it as if

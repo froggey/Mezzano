@@ -1,17 +1,17 @@
-(defpackage :mezzanine.gui.desktop
+(defpackage :mezzano.gui.desktop
   (:use :cl)
   (:export #:spawn))
 
-(in-package :mezzanine.gui.desktop)
+(in-package :mezzano.gui.desktop)
 
 (defvar *image-cache* (make-hash-table :test 'equal))
 
-(defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzanine.gui.fancy-repl:spawn)")
+(defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzano.gui.fancy-repl:spawn)")
                   ("LOCAL:>Icons>Chat.png" "IRC" "(irc-client:spawn)")
-                  ("LOCAL:>Icons>Editor.png" "Editor" "(mezzanine.editor:spawn)")
+                  ("LOCAL:>Icons>Editor.png" "Editor" "(mezzano.editor:spawn)")
                   ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mandelbrot:spawn)")
-                  ("LOCAL:>Icons>Peek.png" "Peek" "(mezzanine.gui.peek:spawn)")
-                  ("LOCAL:>Icons>FS-Viewer.png" "FS Viewer" "(mezzanine.gui.fs-viewer:spawn)")
+                  ("LOCAL:>Icons>Peek.png" "Peek" "(mezzano.gui.peek:spawn)")
+                  ("LOCAL:>Icons>FS-Viewer.png" "FS Viewer" "(mezzano.gui.fs-viewer:spawn)")
                   ("LOCAL:>Icons>Telnet.png" "Nethack" "(telnet:spawn-nao)")
                   ("LOCAL:>Icons>Telnet.png" "Nyan Cat" "(telnet:spawn-nyan)")))
 
@@ -107,21 +107,21 @@
                      (slot-value desktop '%image-pathname) path)))))
   (redraw-desktop-window desktop))
 
-(defmethod dispatch-event (desktop (event mezzanine.gui.compositor:screen-geometry-update))
-  (let ((new-window (mezzanine.gui.compositor:make-window (fifo desktop)
-                                                          (mezzanine.gui.compositor:width event)
-                                                          (mezzanine.gui.compositor:height event)
-                                                          :layer :bottom
-                                                          :initial-z-order :below-current
-                                                          :kind :desktop))
+(defmethod dispatch-event (desktop (event mezzano.gui.compositor:screen-geometry-update))
+  (let ((new-window (mezzano.gui.compositor:make-window (fifo desktop)
+                                                        (mezzano.gui.compositor:width event)
+                                                        (mezzano.gui.compositor:height event)
+                                                        :layer :bottom
+                                                        :initial-z-order :below-current
+                                                        :kind :desktop))
         (old-window (window desktop)))
     (setf (slot-value desktop '%window) new-window)
     (redraw-desktop-window desktop)
-    (mezzanine.gui.compositor:close-window old-window)))
+    (mezzano.gui.compositor:close-window old-window)))
 
-(defmethod dispatch-event (desktop (event mezzanine.gui.compositor:window-close-event))
-  (when (or (eql (mezzanine.gui.compositor:window event) (window desktop))
-            (eql (mezzanine.gui.compositor:window event) (notification-window desktop)))
+(defmethod dispatch-event (desktop (event mezzano.gui.compositor:window-close-event))
+  (when (or (eql (mezzano.gui.compositor:window event) (window desktop))
+            (eql (mezzano.gui.compositor:window event) (notification-window desktop)))
     ;; Either the desktop window or the notification window was closed. Exit.
     (throw 'quitting-time nil)))
 
@@ -140,11 +140,11 @@
               (return icon-repr))
             (incf icon-pen (array-dimension image 0))))))
 
-(defmethod dispatch-event (desktop (event mezzanine.gui.compositor:mouse-event))
-  (when (logbitp 0 (mezzanine.gui.compositor:mouse-button-change event))
-    (let ((x (mezzanine.gui.compositor:mouse-x-position event))
-          (y (mezzanine.gui.compositor:mouse-y-position event)))
-      (cond ((logbitp 0 (mezzanine.gui.compositor:mouse-button-state event))
+(defmethod dispatch-event (desktop (event mezzano.gui.compositor:mouse-event))
+  (when (logbitp 0 (mezzano.gui.compositor:mouse-button-change event))
+    (let ((x (mezzano.gui.compositor:mouse-x-position event))
+          (y (mezzano.gui.compositor:mouse-y-position event)))
+      (cond ((logbitp 0 (mezzano.gui.compositor:mouse-button-state event))
              ;; Mouse down, begin click. Highlight the clicked thing.
              (setf (clicked-icon desktop) (get-icon-at-point desktop x y))
              (when (clicked-icon desktop)
@@ -162,20 +162,20 @@
 
 (defun redraw-desktop-window (desktop)
   (let* ((window (window desktop))
-         (desktop-width (mezzanine.gui.compositor:width window))
-         (desktop-height (mezzanine.gui.compositor:height window))
-         (framebuffer (mezzanine.gui.compositor:window-buffer window))
+         (desktop-width (mezzano.gui.compositor:width window))
+         (desktop-height (mezzano.gui.compositor:height window))
+         (framebuffer (mezzano.gui.compositor:window-buffer window))
          (font (font desktop)))
-    (mezzanine.gui:bitset desktop-height desktop-width
-                          (colour desktop)
-                          framebuffer 0 0)
+    (mezzano.gui:bitset desktop-height desktop-width
+                        (colour desktop)
+                        framebuffer 0 0)
     (when (image desktop)
       (let* ((image (image desktop))
              (image-width (array-dimension image 1))
              (image-height (array-dimension image 0)))
-        (mezzanine.gui:bitblt-argb-xrgb image-height image-width
-                                        image 0 0
-                                        framebuffer (- (truncate desktop-height 2) (truncate image-height 2)) (- (truncate desktop-width 2) (truncate image-width 2)))))
+        (mezzano.gui:bitblt-argb-xrgb image-height image-width
+                                      image 0 0
+                                      framebuffer (- (truncate desktop-height 2) (truncate image-height 2)) (- (truncate desktop-width 2) (truncate image-width 2)))))
     (loop
        with icon-pen = 0
        for icon-repr in *icons*
@@ -183,68 +183,68 @@
        do (progn ;ignore-errors
             (incf icon-pen 20)
             (let ((image (load-image icon)))
-              (mezzanine.gui:bitblt-argb-xrgb (array-dimension image 0) (array-dimension image 1)
-                                              image 0 0
-                                              framebuffer icon-pen 20)
+              (mezzano.gui:bitblt-argb-xrgb (array-dimension image 0) (array-dimension image 1)
+                                            image 0 0
+                                            framebuffer icon-pen 20)
               (when (eql icon-repr (clicked-icon desktop))
-                (mezzanine.gui:bitxor (array-dimension image 0) (array-dimension image 1)
-                                      #x00FFFFFF
-                                      framebuffer icon-pen 20))
+                (mezzano.gui:bitxor (array-dimension image 0) (array-dimension image 1)
+                                    #x00FFFFFF
+                                    framebuffer icon-pen 20))
               (loop
                  with pen = 0
                  for ch across name
-                 for glyph = (mezzanine.gui.font:character-to-glyph font ch)
-                 for mask = (mezzanine.gui.font:glyph-mask glyph)
+                 for glyph = (mezzano.gui.font:character-to-glyph font ch)
+                 for mask = (mezzano.gui.font:glyph-mask glyph)
                  do
-                   (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFFFFFFFF
-                                                          mask 0 0
-                                                          framebuffer
-                                                          (- (+ icon-pen (truncate (array-dimension image 1) 2) (mezzanine.gui.font:ascender font))
-                                                             (mezzanine.gui.font:glyph-yoff glyph))
-                                                          (+ 20 (array-dimension image 0) 10 pen (mezzanine.gui.font:glyph-xoff glyph)))
-                   (incf pen (mezzanine.gui.font:glyph-advance glyph)))
+                   (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFFFFFFFF
+                                                        mask 0 0
+                                                        framebuffer
+                                                        (- (+ icon-pen (truncate (array-dimension image 1) 2) (mezzano.gui.font:ascender font))
+                                                           (mezzano.gui.font:glyph-yoff glyph))
+                                                        (+ 20 (array-dimension image 0) 10 pen (mezzano.gui.font:glyph-xoff glyph)))
+                   (incf pen (mezzano.gui.font:glyph-advance glyph)))
               (incf icon-pen (array-dimension image 0)))))
-    (mezzanine.gui.compositor:damage-window window 0 0 (mezzanine.gui.compositor:width window) (mezzanine.gui.compositor:height window))))
+    (mezzano.gui.compositor:damage-window window 0 0 (mezzano.gui.compositor:width window) (mezzano.gui.compositor:height window))))
 
 (defun desktop-main (desktop)
-  (mezzanine.gui.font:with-font (font
-                                 mezzanine.gui.font:*default-font*
-                                 (* mezzanine.gui.font:*default-font-size* 2))
+  (mezzano.gui.font:with-font (font
+                               mezzano.gui.font:*default-font*
+                               (* mezzano.gui.font:*default-font-size* 2))
     (let* ((fifo (fifo desktop)))
       (setf (font desktop) font)
       ;; Create a zero-size window for listening on system notifications.
-      (setf (slot-value desktop '%notification-window) (mezzanine.gui.compositor:make-window fifo 0 0))
+      (setf (slot-value desktop '%notification-window) (mezzano.gui.compositor:make-window fifo 0 0))
       ;; And a dummy window before we know the screen geometry.
-      (setf (slot-value desktop '%window) (mezzanine.gui.compositor:make-window fifo 0 0))
+      (setf (slot-value desktop '%window) (mezzano.gui.compositor:make-window fifo 0 0))
       ;; Subscribe to screen geometry change notifications.
-      (mezzanine.gui.compositor:subscribe-notification (notification-window desktop) :screen-geometry)
+      (mezzano.gui.compositor:subscribe-notification (notification-window desktop) :screen-geometry)
       (unwind-protect
            (catch 'quitting-time
              (loop
                 (handler-case
-                    (dispatch-event desktop (mezzanine.supervisor:fifo-pop fifo))
+                    (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo))
                   (error (c)
                     (ignore-errors
                       (format t "~&Error ~A in desktop.~%" c))))))
-        (mezzanine.gui.compositor:close-window notification-window)
-        (mezzanine.gui.compositor:close-window (window desktop))))))
+        (mezzano.gui.compositor:close-window notification-window)
+        (mezzano.gui.compositor:close-window (window desktop))))))
 
 (defun spawn (&key (colour #xFF011172) image)
-  (let* ((fifo (mezzanine.supervisor:make-fifo 50))
+  (let* ((fifo (mezzano.supervisor:make-fifo 50))
          (desktop (make-instance 'desktop :fifo fifo)))
     ;; Submit initial property set events.
     (when colour
-      (mezzanine.supervisor:fifo-push (make-instance 'set-background-colour :colour colour) fifo))
+      (mezzano.supervisor:fifo-push (make-instance 'set-background-colour :colour colour) fifo))
     (when image
-      (mezzanine.supervisor:fifo-push (make-instance 'set-background-image :image-pathname image) fifo))
-    (mezzanine.supervisor:make-thread (lambda () (desktop-main desktop))
-                                      :name "Desktop"
-                                      :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
-                                                                                         :title "Desktop console"))
-                                                          (*standard-input* ,(make-synonym-stream '*terminal-io*))
-                                                          (*standard-output* ,(make-synonym-stream '*terminal-io*))
-                                                          (*error-output* ,(make-synonym-stream '*terminal-io*))
-                                                          (*trace-output* ,(make-synonym-stream '*terminal-io*))
-                                                          (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                          (*query-io* ,(make-synonym-stream '*terminal-io*))))
+      (mezzano.supervisor:fifo-push (make-instance 'set-background-image :image-pathname image) fifo))
+    (mezzano.supervisor:make-thread (lambda () (desktop-main desktop))
+                                    :name "Desktop"
+                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                       :title "Desktop console"))
+                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                        (*query-io* ,(make-synonym-stream '*terminal-io*))))
     fifo))

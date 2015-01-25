@@ -4,7 +4,7 @@ Don't. Use cdkboot.
 
 If you insist:
 
- 1) Use bximage (from bochs) to build a disk image that is 1MB + mezzanine-partition-size big.
+ 1) Use bximage (from bochs) to build a disk image that is 1MB + mezzano-partition-size big.
     Note the CHS numbers.
  3) Get syslinux's mbr.bin from somewhere (bios/mbr/mbr.bin in the syslinux binary dist)
  2) fdisk -C <cylinders> -H <heads> -S <sectors> path/to/disk.image
@@ -28,4 +28,4 @@ If you insist:
 19) dd if=path/to/disk.image of=disk_header count=2048
 
 disk_header is now ready for use!
-(hd0,0) is the boot partition and (hd0,1) is the Mezzanine partition.
+(hd0,0) is the boot partition and (hd0,1) is the Mezzano partition.

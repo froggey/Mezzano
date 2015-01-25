@@ -1,8 +1,8 @@
-(defpackage :mezzanine.editor
+(defpackage :mezzano.editor
   (:use :cl)
   (:export #:spawn #:open-file-request))
 
-(in-package :mezzanine.editor)
+(in-package :mezzano.editor)
 
 ;;; Lines.
 
@@ -105,8 +105,8 @@
    (%line-cache :initarg :display-line-cache :accessor display-line-cache))
   (:default-initargs :pending-event nil
                      :pending-redisplay t
-                     :foreground-colour mezzanine.gui:*default-foreground-colour*
-                     :background-colour mezzanine.gui:*default-background-colour*
+                     :foreground-colour mezzano.gui:*default-foreground-colour*
+                     :background-colour mezzano.gui:*default-background-colour*
                      :buffer-list '()
                      :last-buffer '()
                      :killed-region nil
@@ -132,33 +132,33 @@
 (defgeneric dispatch-event (editor event)
   (:method (editor event)))
 
-(defmethod dispatch-event (editor (event mezzanine.gui.compositor:window-activation-event))
-  (setf (mezzanine.gui.widgets:activep (frame editor)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame editor)))
+(defmethod dispatch-event (editor (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep (frame editor)) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame (frame editor)))
 
-(defmethod dispatch-event (editor (event mezzanine.gui.compositor:mouse-event))
+(defmethod dispatch-event (editor (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzanine.gui.widgets:frame-mouse-event (frame editor) event)
-    (mezzanine.gui.widgets:close-button-clicked ()
+      (mezzano.gui.widgets:frame-mouse-event (frame editor) event)
+    (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (editor (event mezzanine.gui.compositor:window-close-event))
+(defmethod dispatch-event (editor (event mezzano.gui.compositor:window-close-event))
   (declare (ignore editor event))
   (throw 'quit nil))
 
-(defmethod dispatch-event (editor (event mezzanine.gui.compositor:key-event))
-  (when (not (mezzanine.gui.compositor:key-releasep event))
+(defmethod dispatch-event (editor (event mezzano.gui.compositor:key-event))
+  (when (not (mezzano.gui.compositor:key-releasep event))
     (throw 'next-character
-      (if (mezzanine.gui.compositor:key-modifier-state event)
+      (if (mezzano.gui.compositor:key-modifier-state event)
           ;; Force character to uppercase when a modifier key is active, gets
           ;; around weirdness in how character names are processed.
           ;; #\C-a and #\C-A both parse as the same character (C-LATIN_CAPITAL_LETTER_A).
-          (sys.int::make-character (char-code (char-upcase (mezzanine.gui.compositor:key-key event)))
-                                   :control (find :control (mezzanine.gui.compositor:key-modifier-state event))
-                                   :meta (find :meta (mezzanine.gui.compositor:key-modifier-state event))
-                                   :super (find :super (mezzanine.gui.compositor:key-modifier-state event))
-                                   :hyper (find :hyper (mezzanine.gui.compositor:key-modifier-state event)))
-          (mezzanine.gui.compositor:key-key event)))))
+          (sys.int::make-character (char-code (char-upcase (mezzano.gui.compositor:key-key event)))
+                                   :control (find :control (mezzano.gui.compositor:key-modifier-state event))
+                                   :meta (find :meta (mezzano.gui.compositor:key-modifier-state event))
+                                   :super (find :super (mezzano.gui.compositor:key-modifier-state event))
+                                   :hyper (find :hyper (mezzano.gui.compositor:key-modifier-state event)))
+          (mezzano.gui.compositor:key-key event)))))
 
 (defmethod dispatch-event (editor (event open-file-request))
   (let ((*editor* editor))
@@ -173,7 +173,7 @@
     (loop
        (when (pending-redisplay *editor*)
          (throw 'next-character nil))
-       (dispatch-event *editor* (mezzanine.supervisor:fifo-pop (fifo *editor*))))))
+       (dispatch-event *editor* (mezzano.supervisor:fifo-pop (fifo *editor*))))))
 
 (defun editor-read-char ()
   (loop
@@ -187,14 +187,14 @@
 (defun check-pending-input ()
   (cond ((pending-event *editor*)
          (signal 'pending-input))
-        (t (let ((event (mezzanine.supervisor:fifo-pop (fifo *editor*) nil)))
+        (t (let ((event (mezzano.supervisor:fifo-pop (fifo *editor*) nil)))
              (when event
                (setf (pending-event *editor*) event)
                (signal 'pending-input))))))
 
 (defun refresh-title ()
   (let ((buffer (current-buffer *editor*)))
-    (setf (mezzanine.gui.widgets:frame-title (frame *editor*))
+    (setf (mezzano.gui.widgets:frame-title (frame *editor*))
           (format nil "Editor - ~A~A"
                   (or (buffer-property buffer 'name) "Untitled")
                   (cond ((buffer-property buffer 'new-file)
@@ -202,7 +202,7 @@
                         ((buffer-modified buffer)
                          " (Modified)")
                         (t ""))))
-    (mezzanine.gui.widgets:draw-frame (frame *editor*))))
+    (mezzano.gui.widgets:draw-frame (frame *editor*))))
 
 (defun switch-to-buffer (buffer)
   (setf (current-buffer *editor*) buffer
@@ -799,7 +799,7 @@ Tries to stay as close to the hint column as possible."
 
 (defun test-fill (buffer)
   (let ((width (1- (truncate (editor-width)
-                             (mezzanine.gui.font:glyph-advance (mezzanine.gui.font:character-to-glyph (font *editor*) #\M))))))
+                             (mezzano.gui.font:glyph-advance (mezzano.gui.font:character-to-glyph (font *editor*) #\M))))))
     (with-mark (mark point :left)
       (dotimes (i (* (window-rows) 2))
         (dotimes (j width)
@@ -903,9 +903,9 @@ Tries to stay as close to the hint column as possible."
 ;; Lines are currently fixed-height.
 (defun window-rows ()
   (multiple-value-bind (left right top bottom)
-      (mezzanine.gui.widgets:frame-size (frame *editor*))
-    (truncate (- (mezzanine.gui.compositor:height (window *editor*)) top bottom)
-              (mezzanine.gui.font:line-height (font *editor*)))))
+      (mezzano.gui.widgets:frame-size (frame *editor*))
+    (truncate (- (mezzano.gui.compositor:height (window *editor*)) top bottom)
+              (mezzano.gui.font:line-height (font *editor*)))))
 
 (defun flush-display-line (mark)
   "Flush the display line containing MARK."
@@ -937,8 +937,8 @@ Tries to stay as close to the hint column as possible."
 (defun editor-width ()
   "Return the width of the display area in pixels."
   (multiple-value-bind (left right top bottom)
-      (mezzanine.gui.widgets:frame-size (frame *editor*))
-    (- (mezzanine.gui.compositor:width (window *editor*)) left right)))
+      (mezzano.gui.widgets:frame-size (frame *editor*))
+    (- (mezzano.gui.compositor:width (window *editor*)) left right)))
 
 (defun region-bounds (mark-1 mark-2)
   "Return a bunch of boundary information for the region."
@@ -960,10 +960,10 @@ Tries to stay as close to the hint column as possible."
     (loop
        with pen = 0
        with font = (font *editor*)
-       with baseline = (mezzanine.gui.font:ascender font)
+       with baseline = (mezzano.gui.font:ascender font)
        with foreground = (foreground-colour *editor*)
        with background = (background-colour *editor*)
-       with line-height = (mezzanine.gui.font:line-height font)
+       with line-height = (mezzano.gui.font:line-height font)
        with win-width = (editor-width)
        with point = (buffer-point (current-buffer *editor*))
        with mark-active = (buffer-mark-active (current-buffer *editor*))
@@ -971,9 +971,9 @@ Tries to stay as close to the hint column as possible."
                                  :element-type '(unsigned-byte 32)
                                  :initial-element background)
        for ch-position from start below (line-length line)
-       for glyph = (mezzanine.gui.font:character-to-glyph font (line-character line ch-position))
-       for mask = (mezzanine.gui.font:glyph-mask glyph)
-       for advance = (mezzanine.gui.font:glyph-advance glyph)
+       for glyph = (mezzano.gui.font:character-to-glyph font (line-character line ch-position))
+       for mask = (mezzano.gui.font:glyph-mask glyph)
+       for advance = (mezzano.gui.font:glyph-advance glyph)
        do
          (when (> (+ pen advance) win-width)
            (return (values buffer ch-position)))
@@ -991,36 +991,36 @@ Tries to stay as close to the hint column as possible."
                                             (< ch-position line-2-charpos)))))))
            ;; Invert the point.
            (when at-point
-             (mezzanine.gui:bitset line-height advance
+             (mezzano.gui:bitset line-height advance
                                    foreground
                                    buffer 0 pen))
-           (mezzanine.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                                  (if at-point
-                                                      background
-                                                      foreground)
-                                                  mask 0 0
-                                                  buffer
-                                                  (- baseline (mezzanine.gui.font:glyph-yoff glyph))
-                                                  (+ pen (mezzanine.gui.font:glyph-xoff glyph)))
+           (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
+                                                (if at-point
+                                                    background
+                                                    foreground)
+                                                mask 0 0
+                                                buffer
+                                                (- baseline (mezzano.gui.font:glyph-yoff glyph))
+                                                (+ pen (mezzano.gui.font:glyph-xoff glyph)))
            ;; Underline the region.
            (when in-region
-             (mezzanine.gui:bitset-argb-xrgb 1 advance
-                                             (if at-point
-                                                 background
-                                                 foreground)
-                                             buffer baseline pen))
+             (mezzano.gui:bitset-argb-xrgb 1 advance
+                                           (if at-point
+                                               background
+                                               foreground)
+                                           buffer baseline pen))
            (incf pen advance))
        finally
        ;; Reached end of line, check for the point.
          (when (and (eql line (mark-line point))
                     (eql ch-position (mark-charpos point)))
            ;; Point is here, render it past the last character.
-           (let* ((glyph (mezzanine.gui.font:character-to-glyph font #\Space))
-                  (advance (mezzanine.gui.font:glyph-advance glyph)))
+           (let* ((glyph (mezzano.gui.font:character-to-glyph font #\Space))
+                  (advance (mezzano.gui.font:glyph-advance glyph)))
              (when (<= (+ pen advance) win-width) ; FIXME, how to display point at end of line & display line properly. also fix blit crash bug.
-               (mezzanine.gui:bitset line-height advance
-                                     foreground
-                                     buffer 0 pen))))
+               (mezzano.gui:bitset line-height advance
+                                   foreground
+                                   buffer 0 pen))))
        ;; TODO: Render underline to end of line region spans whole line.
          (return (values buffer ch-position)))))
 
@@ -1059,26 +1059,26 @@ Tries to stay as close to the hint column as possible."
 
 (defun blit-display-line (line y)
   (multiple-value-bind (left right top bottom)
-      (mezzanine.gui.widgets:frame-size (frame *editor*))
-    (let* ((fb (mezzanine.gui.compositor:window-buffer (window *editor*)))
-           (line-height (mezzanine.gui.font:line-height (font *editor*)))
+      (mezzano.gui.widgets:frame-size (frame *editor*))
+    (let* ((fb (mezzano.gui.compositor:window-buffer (window *editor*)))
+           (line-height (mezzano.gui.font:line-height (font *editor*)))
            (real-y (+ top (* y line-height)))
            (win-width (editor-width)))
       (if line
           ;; Blitting line.
-          (mezzanine.gui:bitblt line-height win-width
-                                (display-line-representation line)
-                                0 0
-                                fb
-                                real-y left)
+          (mezzano.gui:bitblt line-height win-width
+                              (display-line-representation line)
+                              0 0
+                              fb
+                              real-y left)
           ;; Line is empty.
-          (mezzanine.gui:bitset line-height win-width
-                                (background-colour *editor*)
-                                fb
-                                real-y left))
-      (mezzanine.gui.compositor:damage-window (window *editor*)
-                                              left real-y
-                                              win-width line-height))))
+          (mezzano.gui:bitset line-height win-width
+                              (background-colour *editor*)
+                              fb
+                              real-y left))
+      (mezzano.gui.compositor:damage-window (window *editor*)
+                                            left real-y
+                                            win-width line-height))))
 
 (defun recenter (buffer)
   "Move BUFFER's top line so that the point is displayed."
@@ -1653,15 +1653,15 @@ If no such form is found, then return the CL-USER package."
   (set-key #\C-C nil key-map))
 
 (defun editor-main (width height initial-file)
-  (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
-    (let ((fifo (mezzanine.supervisor:make-fifo 50)))
-      (mezzanine.gui.compositor:with-window (window fifo (or width 640) (or height 700) :kind :editor)
-        (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-               (frame (make-instance 'mezzanine.gui.widgets:frame
+  (mezzano.gui.font:with-font (font mezzano.gui.font:*default-monospace-font* mezzano.gui.font:*default-monospace-font-size*)
+    (let ((fifo (mezzano.supervisor:make-fifo 50)))
+      (mezzano.gui.compositor:with-window (window fifo (or width 640) (or height 700) :kind :editor)
+        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzano.gui.widgets:frame
                                      :framebuffer framebuffer
                                      :title "Editor"
                                      :close-button-p t
-                                     :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                                     :damage-function (mezzano.gui.widgets:default-damage-function window)))
                (*editor* (make-instance 'editor
                                         :fifo fifo
                                         :font font
@@ -1676,18 +1676,18 @@ If no such form is found, then return the CL-USER package."
                (*default-pathname-defaults* *default-pathname-defaults*))
           (initialize-key-map (global-key-map *editor*))
           (initialize-minibuffer-key-map *minibuffer-key-map*)
-          (mezzanine.gui.widgets:draw-frame frame)
+          (mezzano.gui.widgets:draw-frame frame)
           (multiple-value-bind (left right top bottom)
-              (mezzanine.gui.widgets:frame-size (frame *editor*))
-            (mezzanine.gui:bitset (- (mezzanine.gui.compositor:height window) top bottom)
-                                  (- (mezzanine.gui.compositor:width window) left right)
-                                  (background-colour *editor*)
-                                  framebuffer
-                                  top left)
-            (mezzanine.gui.compositor:damage-window window
-                                                    left top
-                                                    (- (mezzanine.gui.compositor:width window) left right)
-                                                    (- (mezzanine.gui.compositor:height window) top bottom)))
+              (mezzano.gui.widgets:frame-size (frame *editor*))
+            (mezzano.gui:bitset (- (mezzano.gui.compositor:height window) top bottom)
+                                (- (mezzano.gui.compositor:width window) left right)
+                                (background-colour *editor*)
+                                framebuffer
+                                top left)
+            (mezzano.gui.compositor:damage-window window
+                                                  left top
+                                                  (- (mezzano.gui.compositor:width window) left right)
+                                                  (- (mezzano.gui.compositor:height window) top bottom)))
           (switch-to-buffer (get-buffer-create "*Scratch*"))
           (ignore-errors
             (when initial-file
@@ -1702,13 +1702,13 @@ If no such form is found, then return the CL-USER package."
                      (setf (pending-redisplay *editor*) t)))))))))))
 
 (defun spawn (&key width height initial-file)
-  (mezzanine.supervisor:make-thread (lambda () (editor-main width height initial-file))
-                                    :name "Editor"
-                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
-                                                                                       :title "Editor console"))
-                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
-                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+  (mezzano.supervisor:make-thread (lambda () (editor-main width height initial-file))
+                                  :name "Editor"
+                                  :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                     :title "Editor console"))
+                                                      (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                      (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))

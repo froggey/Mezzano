@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (defvar *vm-lock*)
 
@@ -32,7 +32,7 @@
       ;; Read first 4k, figure out what to do with it.
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
         (panic "Unable to read first block on disk " disk))
-      ;; Search for a Mezzanine header here.
+      ;; Search for a Mezzano header here.
       ;; TODO: Scan for partition maps.
       (when (and
              (not *paging-disk*)

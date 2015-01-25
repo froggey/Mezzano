@@ -95,8 +95,8 @@ party to perform, the indicated option.")
            (#.+option-window-size+
             (write-sequence (apply 'vector
                                    (append (list +command-iac+ +command-sb+ +option-window-size+)
-                                           (let ((width (mezzanine.gui.xterm::terminal-width (xterm telnet)))
-                                                 (height (mezzanine.gui.xterm::terminal-height (xterm telnet))))
+                                           (let ((width (mezzano.gui.xterm::terminal-width (xterm telnet)))
+                                                 (height (mezzano.gui.xterm::terminal-height (xterm telnet))))
                                              (list (ldb (byte 8 8) width) (ldb (byte 8 0) width)
                                                    (ldb (byte 8 8) height) (ldb (byte 8 0) height)))
                                            (list +command-iac+ +command-se+)))
@@ -130,12 +130,12 @@ party to perform, the indicated option.")
 
 (defun compute-telnet-window-size (font cwidth cheight)
   ;; Make a fake frame to get the frame size.
-  (let ((frame (make-instance 'mezzanine.gui.widgets:frame)))
+  (let ((frame (make-instance 'mezzano.gui.widgets:frame)))
     (multiple-value-bind (left right top bottom)
-        (mezzanine.gui.widgets:frame-size frame)
-      (let ((xterm-width (* cwidth (mezzanine.gui.font:glyph-advance
-                                    (mezzanine.gui.font:character-to-glyph font #\M))))
-            (xterm-height (* cheight (mezzanine.gui.font:line-height font))))
+        (mezzano.gui.widgets:frame-size frame)
+      (let ((xterm-width (* cwidth (mezzano.gui.font:glyph-advance
+                                    (mezzano.gui.font:character-to-glyph font #\M))))
+            (xterm-height (* cheight (mezzano.gui.font:line-height font))))
         (values (+ left right xterm-width)
                 (+ top bottom xterm-height)
                 xterm-width xterm-height)))))
@@ -143,33 +143,33 @@ party to perform, the indicated option.")
 (defgeneric dispatch-event (telnet event)
   (:method (t e)))
 
-(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:window-activation-event))
-  (setf (mezzanine.gui.widgets:activep (frame telnet)) (mezzanine.gui.compositor:state event))
-  (mezzanine.gui.widgets:draw-frame (frame telnet)))
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-activation-event))
+  (setf (mezzano.gui.widgets:activep (frame telnet)) (mezzano.gui.compositor:state event))
+  (mezzano.gui.widgets:draw-frame (frame telnet)))
 
-(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:mouse-event))
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:mouse-event))
   (handler-case
-      (mezzanine.gui.widgets:frame-mouse-event (frame telnet) event)
-    (mezzanine.gui.widgets:close-button-clicked ()
+      (mezzano.gui.widgets:frame-mouse-event (frame telnet) event)
+    (mezzano.gui.widgets:close-button-clicked ()
       (throw 'quit nil))))
 
-(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:window-close-event))
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
-(defmethod dispatch-event (telnet (event mezzanine.gui.compositor:key-event))
-  (when (not (mezzanine.gui.compositor:key-releasep event))
-    (mezzanine.gui.xterm:input-translate (xterm telnet)
-                                         (mezzanine.gui.compositor:key-key event)
-                                         (lambda (ch)
-                                           ;; FIXME: Translate to UTF-8 here.
-                                           (when (eql ch (code-char +command-iac+))
-                                             (write-byte +command-iac+ (connection telnet)))
-                                           (write-byte (char-code ch) (connection telnet))))))
+(defmethod dispatch-event (telnet (event mezzano.gui.compositor:key-event))
+  (when (not (mezzano.gui.compositor:key-releasep event))
+    (mezzano.gui.xterm:input-translate (xterm telnet)
+                                       (mezzano.gui.compositor:key-key event)
+                                       (lambda (ch)
+                                         ;; FIXME: Translate to UTF-8 here.
+                                         (when (eql ch (code-char +command-iac+))
+                                           (write-byte +command-iac+ (connection telnet)))
+                                         (write-byte (char-code ch) (connection telnet))))))
 
 (defmethod dispatch-event (telnet (event server-disconnect-event))
   (setf (connection telnet) nil)
   (loop for c across "Disconnected from server"
-     do (mezzanine.gui.xterm::receive-char (xterm telnet) c)))
+     do (mezzano.gui.xterm::receive-char (xterm telnet) c)))
 
 (defun telnet-receive (telnet)
   (handler-case
@@ -189,72 +189,72 @@ party to perform, the indicated option.")
              (cond ((eql byte +command-iac+)
                     (let ((command (read-byte connection)))
                       (if (eql command +command-iac+)
-                          (mezzanine.gui.xterm:receive-char (xterm telnet) (code-char +command-iac+))
+                          (mezzano.gui.xterm:receive-char (xterm telnet) (code-char +command-iac+))
                           (telnet-command telnet command))))
                    ((eql byte #x0D) ; CR
                     (setf last-was-cr t)
-                    (mezzanine.gui.xterm:receive-char xterm (code-char byte)))
+                    (mezzano.gui.xterm:receive-char xterm (code-char byte)))
                    ((and last-was-cr (eql byte #x00))
                     (setf last-was-cr nil))
                    (t (setf last-was-cr nil)
-                      (mezzanine.gui.xterm:receive-char xterm (code-char byte)))))))
+                      (mezzano.gui.xterm:receive-char xterm (code-char byte)))))))
     (end-of-file ()
-      (mezzanine.supervisor:fifo-push (make-instance 'server-disconnect-event)
-                                      (fifo telnet)))))
+      (mezzano.supervisor:fifo-push (make-instance 'server-disconnect-event)
+                                    (fifo telnet)))))
 
 (defun telnet-main (server port terminal-type cwidth cheight)
   (catch 'quit
-    (mezzanine.gui.font:with-font (font mezzanine.gui.font:*default-monospace-font* mezzanine.gui.font:*default-monospace-font-size*)
-      (let ((fifo (mezzanine.supervisor:make-fifo 50)))
+    (mezzano.gui.font:with-font (font mezzano.gui.font:*default-monospace-font* mezzano.gui.font:*default-monospace-font-size*)
+      (let ((fifo (mezzano.supervisor:make-fifo 50)))
         (multiple-value-bind (window-width window-height xterm-width xterm-height)
             (compute-telnet-window-size font cwidth cheight)
-          (mezzanine.gui.compositor:with-window (window fifo window-width window-height)
-            (let* ((framebuffer (mezzanine.gui.compositor:window-buffer window))
-                   (frame (make-instance 'mezzanine.gui.widgets:frame
+          (mezzano.gui.compositor:with-window (window fifo window-width window-height)
+            (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                   (frame (make-instance 'mezzano.gui.widgets:frame
                                          :framebuffer framebuffer
                                          :title (format nil "Telnet - ~A:~D" server port)
                                          :close-button-p t
-                                         :damage-function (mezzanine.gui.widgets:default-damage-function window)))
-                   (xterm (make-instance 'mezzanine.gui.xterm:xterm-terminal
+                                         :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                   (xterm (make-instance 'mezzano.gui.xterm:xterm-terminal
                                          :framebuffer framebuffer
                                          :font font
-                                         :x (nth-value 0 (mezzanine.gui.widgets:frame-size frame))
-                                         :y (nth-value 2 (mezzanine.gui.widgets:frame-size frame))
+                                         :x (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                         :y (nth-value 2 (mezzano.gui.widgets:frame-size frame))
                                          :width xterm-width
                                          :height xterm-height
-                                         :damage-function (mezzanine.gui.widgets:default-damage-function window)))
+                                         :damage-function (mezzano.gui.widgets:default-damage-function window)))
                    (telnet (make-instance 'telnet-client
                                           :fifo fifo
                                           :window window
                                           :frame frame
                                           :xterm xterm)))
-            (mezzanine.gui.widgets:draw-frame frame)
-            (mezzanine.gui.compositor:damage-window window
+              (mezzano.gui.widgets:draw-frame frame)
+              (mezzano.gui.compositor:damage-window window
                                                     0 0
-                                                    (mezzanine.gui.compositor:width window)
-                                                    (mezzanine.gui.compositor:height window))
-            (unwind-protect
-                 (progn
-                   (setf (connection telnet) (sys.net::tcp-stream-connect server port)
-                         (receive-thread telnet) (mezzanine.supervisor:make-thread (lambda () (telnet-receive telnet))
+                                                    (mezzano.gui.compositor:width window)
+                                                    (mezzano.gui.compositor:height window))
+              (unwind-protect
+                   (progn
+                     (setf (connection telnet) (sys.net::tcp-stream-connect server port)
+                           (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
                                                                                    :name "Telnet receive"))
-                   (loop
-                      (dispatch-event telnet (mezzanine.supervisor:fifo-pop fifo))))
-              (when (connection telnet)
-                (close (connection telnet))
-                (setf (connection telnet) nil))))))))))
+                     (loop
+                        (dispatch-event telnet (mezzano.supervisor:fifo-pop fifo))))
+                (when (connection telnet)
+                  (close (connection telnet))
+                  (setf (connection telnet) nil))))))))))
 
 (defun spawn (server &key (port 23) (terminal-type "xterm-color") (width 80) (height 24))
-  (mezzanine.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
-                                    :name "Telnet"
-                                    :initial-bindings `((*terminal-io* ,(make-instance 'mezzanine.gui.popup-io-stream:popup-io-stream
-                                                                                       :title "Telnet console"))
-                                                        (*standard-input* ,(make-synonym-stream '*terminal-io*))
-                                                        (*standard-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*error-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*trace-output* ,(make-synonym-stream '*terminal-io*))
-                                                        (*debug-io* ,(make-synonym-stream '*terminal-io*))
-                                                        (*query-io* ,(make-synonym-stream '*terminal-io*)))))
+  (mezzano.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
+                                  :name "Telnet"
+                                  :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
+                                                                                     :title "Telnet console"))
+                                                      (*standard-input* ,(make-synonym-stream '*terminal-io*))
+                                                      (*standard-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*error-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*trace-output* ,(make-synonym-stream '*terminal-io*))
+                                                      (*debug-io* ,(make-synonym-stream '*terminal-io*))
+                                                      (*query-io* ,(make-synonym-stream '*terminal-io*)))))
 
 (defun spawn-nao ()
   "Nethack!"
@@ -265,5 +265,5 @@ party to perform, the indicated option.")
   (spawn "nyancat.dakko.us"))
 
 (defun spawn-magic-1 ()
-  "The only system slower than Mezzanine."
+  "The only system slower than Mezzano."
   (spawn "magic-1.org"))

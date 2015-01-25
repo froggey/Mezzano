@@ -1,4 +1,4 @@
-Mezzanine, an operating system written in Common Lisp.
+Mezzano, an operating system written in Common Lisp.
 
 C-<key> means to hold the control key while typing <key>.
 M-<key> means to hold the alt or meta key while typing <key>.
@@ -109,7 +109,7 @@ You will wreck your install if you try using this feature.
 Take a snapshot using your virtual machine before using it, or back up your disk.
 
 Close all running programs (optional, strongly recommended).
-Run (mezzanine.supervisor:snapshot) in a REPL.
+Run (mezzano.supervisor:snapshot) in a REPL.
 Wait for the yellow light to turn off.
 Reboot.
 

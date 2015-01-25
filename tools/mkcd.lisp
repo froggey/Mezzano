@@ -133,7 +133,7 @@
                               :direction :output
                               :if-does-not-exist :create)
              (format s "set \"timeout\" 1~%")
-             (format s "entry \"Mezzanine\" {~%")
+             (format s "entry \"Mezzano\" {~%")
              (loop for (name . value) in kboot-options
                 do (format s "  set ~S ~S~%" name value))
              (format s "  mezzanine ~S [~{\"/~A\" ~}]~%"

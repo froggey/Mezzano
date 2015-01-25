@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;;; Serial registers.
 (defconstant +serial-RBR+ 0 "Receive buffer, R/O, DLAB=0.")

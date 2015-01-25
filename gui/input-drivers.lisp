@@ -1,4 +1,4 @@
-(in-package :mezzanine.gui.input-drivers)
+(in-package :mezzano.gui.input-drivers)
 
 (defvar *keyboard-forwarder* nil)
 (defvar *mouse-forwarder* nil)
@@ -42,20 +42,20 @@
   ;; Read bytes from the keyboard and translate them into HID events for the input manager.
   (loop
      (handler-case
-         (let ((byte (mezzanine.supervisor:ps/2-key-read)))
+         (let ((byte (mezzano.supervisor:ps/2-key-read)))
            (cond
              ((eql byte +extended-scan-code+)
               ;; Reading extended scan code.
-              (setf byte (mezzanine.supervisor:ps/2-key-read))
+              (setf byte (mezzano.supervisor:ps/2-key-read))
               (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
                 (cond (extended-key
                        ;; Got a recognized extended key, submit it.
-                       (mezzanine.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
+                       (mezzano.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
                       (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))
              (t (let ((key (aref *translation-table* (logand byte #x7F))))
                   (cond (key
                          ;; Got a regular key, submit it.
-                         (mezzanine.gui.compositor:submit-key key (logtest byte #x80)))
+                         (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
                         (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte)))))))
        (error (c)
          (format t "Aieee ~S.~%" c)))))
@@ -63,25 +63,25 @@
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
-     (let ((byte-1 (mezzanine.supervisor:ps/2-aux-read)))
+     (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
        ;; Check sync bit.
        (when (logtest byte-1 #b00001000)
-         (let ((byte-2 (mezzanine.supervisor:ps/2-aux-read))
-               (byte-3 (mezzanine.supervisor:ps/2-aux-read)))
-           (mezzanine.gui.compositor:submit-mouse
+         (let ((byte-2 (mezzano.supervisor:ps/2-aux-read))
+               (byte-3 (mezzano.supervisor:ps/2-aux-read)))
+           (mezzano.gui.compositor:submit-mouse
             (logand byte-1 #b111) ; Buttons 1 to 3.
             (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
             (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))))))) ; y-motion
 
 (when *keyboard-forwarder*
   (format t "Restarting keyboard forwarding thread.")
-  (mezzanine.supervisor:destroy-thread *keyboard-forwarder*))
-(setf *keyboard-forwarder* (mezzanine.supervisor:make-thread 'keyboard-forwarder-thread
+  (mezzano.supervisor:destroy-thread *keyboard-forwarder*))
+(setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
                                                              :name "Keyboard Forwarder"))
 
 (when *mouse-forwarder*
   (format t "Restarting mouse forwarding thread.")
-  (mezzanine.supervisor:destroy-thread *mouse-forwarder*))
-(setf *mouse-forwarder* (mezzanine.supervisor:make-thread 'mouse-forwarder-thread
+  (mezzano.supervisor:destroy-thread *mouse-forwarder*))
+(setf *mouse-forwarder* (mezzano.supervisor:make-thread 'mouse-forwarder-thread
                                                           :name "Mouse Forwarder"))
 (format t "~S  ~S~%" *keyboard-forwarder* *mouse-forwarder*)

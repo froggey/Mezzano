@@ -1,6 +1,6 @@
 ;;; High-level interrupt management.
 
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 (sys.int::define-lap-function %stack-probe ()
   (sys.lap-x86:push :rbp)

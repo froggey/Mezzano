@@ -60,7 +60,7 @@
             total-used total
             (truncate (* total-used 100) total))
     (multiple-value-bind (n-free-blocks total-blocks)
-        (mezzanine.supervisor:store-statistics)
+        (mezzano.supervisor:store-statistics)
       (format t "~:D/~:D store blocks used (~D%).~%"
               (- total-blocks n-free-blocks) total-blocks
               (truncate (* (- total-blocks n-free-blocks) 100) total-blocks)))
@@ -69,7 +69,7 @@
 
 (defun pinned-area-info (base limit)
   ;; Yup. Scanning a pinned area atomically requires the world to be stopped.
-  (mezzanine.supervisor:with-world-stopped
+  (mezzano.supervisor:with-world-stopped
     (let ((allocated-words 0)
           (total-words 0)
           (offset 0)
@@ -92,7 +92,7 @@
   "Run a garbage-collection cycle."
   (when *gc-in-progress*
     (error "Nested GC?!"))
-  (mezzanine.supervisor:with-world-stopped
+  (mezzano.supervisor:with-world-stopped
     ;; Set *GC-IN-PROGRESS* globally, not with a binding.
     (unwind-protect
          (progn
@@ -148,8 +148,8 @@ This is required to make the GC interrupt safe."
   (let* ((frame-pointer (read-frame-pointer))
          (return-address (memref-unsigned-byte-64 frame-pointer 1))
          (stack-pointer (+ frame-pointer 16)))
-    (scan-thread (mezzanine.supervisor:current-thread))
-    (mezzanine.supervisor:debug-print-line "Scav GC stack")
+    (scan-thread (mezzano.supervisor:current-thread))
+    (mezzano.supervisor:debug-print-line "Scav GC stack")
     (scavenge-stack stack-pointer
                     (memref-unsigned-byte-64 frame-pointer 0)
                     return-address
@@ -182,7 +182,7 @@ This is required to make the GC interrupt safe."
        (%%assemble-value (logxor (ash 1 +address-mark-bit+) address) (%tag-field object))))))
 
 (defun scan-error (object)
-  (mezzanine.supervisor:panic "Unscannable object " object))
+  (mezzano.supervisor:panic "Unscannable object " object))
 
 (defun scan-generic (object size)
   "Scavenge SIZE words pointed to by OBJECT."
@@ -192,7 +192,7 @@ This is required to make the GC interrupt safe."
                                             layout-length n-args)
   (let ((n-values (max 0 (- n-args 5))))
     (when *gc-debug-scavenge-stack*
-      (mezzanine.supervisor:debug-print-line
+      (mezzano.supervisor:debug-print-line
        "  n-args " n-args
        "  n-values " n-values
        "  from " (if framep
@@ -213,30 +213,30 @@ This is required to make the GC interrupt safe."
     (multiple-value-bind (offset bit)
         (truncate slot 8)
       (when *gc-debug-scavenge-stack*
-        (mezzanine.supervisor:debug-print-line
+        (mezzano.supervisor:debug-print-line
          "ss: " slot " " offset ":" bit "  " (memref-unsigned-byte-8 layout-address offset)))
       (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
         (cond (framep
                (when *gc-debug-scavenge-stack*
-                 (mezzanine.supervisor:debug-print-line
+                 (mezzano.supervisor:debug-print-line
                   "Scav stack slot " (- -1 slot)
                   "  " (lisp-object-address (memref-t frame-pointer (- -1 slot)))))
                (scavengef (memref-t frame-pointer (- -1 slot))))
               (t
                (when *gc-debug-scavenge-stack*
-                 (mezzanine.supervisor:debug-print-line
+                 (mezzano.supervisor:debug-print-line
                   "Scav no-frame stack slot " slot
                   "  " (lisp-object-address (memref-t stack-pointer slot))))
                (scavengef (memref-t stack-pointer slot)))))))
   (dotimes (slot pushed-values)
     (when *gc-debug-scavenge-stack*
-      (mezzanine.supervisor:debug-print-line "Scav pv " slot))
+      (mezzano.supervisor:debug-print-line "Scav pv " slot))
     (scavengef (memref-t stack-pointer slot)))
   ;; Scan incoming arguments.
   (when incoming-arguments
     ;; Stored as fixnum on the stack.
     (when *gc-debug-scavenge-stack*
-      (mezzanine.supervisor:debug-print-line "IA in slot " (- -1 incoming-arguments)))
+      (mezzano.supervisor:debug-print-line "IA in slot " (- -1 incoming-arguments)))
     (scavenge-stack-n-incoming-arguments
      frame-pointer stack-pointer framep
      layout-length
@@ -249,32 +249,32 @@ This is required to make the GC interrupt safe."
                           multiple-values incoming-arguments block-or-tagbody-thunk)
   (when *gc-debug-scavenge-stack*
     (if framep
-        (mezzanine.supervisor:debug-print-line "frame")
-        (mezzanine.supervisor:debug-print-line "no-frame"))
+        (mezzano.supervisor:debug-print-line "frame")
+        (mezzano.supervisor:debug-print-line "no-frame"))
     (if interruptp
-        (mezzanine.supervisor:debug-print-line "interrupt")
-        (mezzanine.supervisor:debug-print-line "no-interrupt"))
-    (mezzanine.supervisor:debug-print-line "pv: " pushed-values)
-    (mezzanine.supervisor:debug-print-line "pvr: " pushed-values-register)
+        (mezzano.supervisor:debug-print-line "interrupt")
+        (mezzano.supervisor:debug-print-line "no-interrupt"))
+    (mezzano.supervisor:debug-print-line "pv: " pushed-values)
+    (mezzano.supervisor:debug-print-line "pvr: " pushed-values-register)
     (if multiple-values
-        (mezzanine.supervisor:debug-print-line "mv: " multiple-values)
-        (mezzanine.supervisor:debug-print-line "no-multiple-values"))
-    (mezzanine.supervisor:debug-print-line "Layout addr: " layout-address)
-    (mezzanine.supervisor:debug-print-line "  Layout len: " layout-length)
+        (mezzano.supervisor:debug-print-line "mv: " multiple-values)
+        (mezzano.supervisor:debug-print-line "no-multiple-values"))
+    (mezzano.supervisor:debug-print-line "Layout addr: " layout-address)
+    (mezzano.supervisor:debug-print-line "  Layout len: " layout-length)
     (cond (incoming-arguments
-           (mezzanine.supervisor:debug-print-line "ia: " incoming-arguments))
-          (t (mezzanine.supervisor:debug-print-line "no-incoming-arguments")))
+           (mezzano.supervisor:debug-print-line "ia: " incoming-arguments))
+          (t (mezzano.supervisor:debug-print-line "no-incoming-arguments")))
     (if block-or-tagbody-thunk
-        (mezzanine.supervisor:debug-print-line "btt: " block-or-tagbody-thunk)
-        (mezzanine.supervisor:debug-print-line "no-btt"))))
+        (mezzano.supervisor:debug-print-line "btt: " block-or-tagbody-thunk)
+        (mezzano.supervisor:debug-print-line "no-btt"))))
 
 (defun scavenge-stack (stack-pointer frame-pointer return-address interruptedp)
-  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav stack..."))
+  (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Scav stack..."))
   (when interruptedp
     ;; Thread has stopped due to an interrupted, stack-pointer points the start of
     ;; the thread's interrupt save area.
     ;; Examine it, then continue with normal stack scavenging.
-    (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav interrupted stack..."))
+    (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Scav interrupted stack..."))
     (setf frame-pointer (+ stack-pointer (* 14 8))) ; sp => interrupt frame
     (let* ((other-return-address (memref-unsigned-byte-64 frame-pointer 1))
            (other-frame-pointer (memref-unsigned-byte-64 frame-pointer 0))
@@ -283,11 +283,11 @@ This is required to make the GC interrupt safe."
            (other-fn-offset (- other-return-address other-fn-address))
            (other-fn (%%assemble-value other-fn-address +tag-object+)))
       (when *gc-debug-scavenge-stack*
-        (mezzanine.supervisor:debug-print-line "oRA: " other-return-address)
-        (mezzanine.supervisor:debug-print-line "oFP: " other-frame-pointer)
-        (mezzanine.supervisor:debug-print-line "oSP: " other-stack-pointer)
-        (mezzanine.supervisor:debug-print-line "oFNa: " other-fn-address)
-        (mezzanine.supervisor:debug-print-line "oFNo: " other-fn-offset))
+        (mezzano.supervisor:debug-print-line "oRA: " other-return-address)
+        (mezzano.supervisor:debug-print-line "oFP: " other-frame-pointer)
+        (mezzano.supervisor:debug-print-line "oSP: " other-stack-pointer)
+        (mezzano.supervisor:debug-print-line "oFNa: " other-fn-address)
+        (mezzano.supervisor:debug-print-line "oFNo: " other-fn-offset))
       ;; Unconditionally scavenge the saved data registers.
       (scavengef (memref-t frame-pointer -12)) ; r8
       (scavengef (memref-t frame-pointer -11)) ; r9
@@ -314,24 +314,24 @@ This is required to make the GC interrupt safe."
                   (and (keywordp other-incoming-arguments) (not (eql other-incoming-arguments :rcx)))
                   other-block-or-tagbody-thunk)
           (let ((*gc-debug-scavenge-stack* t))
-            (mezzanine.supervisor:debug-print-line "oRA: " other-return-address)
-            (mezzanine.supervisor:debug-print-line "oFP: " other-frame-pointer)
-            (mezzanine.supervisor:debug-print-line "oSP: " other-stack-pointer)
-            (mezzanine.supervisor:debug-print-line "oFNa: " other-fn-address)
-            (mezzanine.supervisor:debug-print-line "oFNo: " other-fn-offset)
+            (mezzano.supervisor:debug-print-line "oRA: " other-return-address)
+            (mezzano.supervisor:debug-print-line "oFP: " other-frame-pointer)
+            (mezzano.supervisor:debug-print-line "oSP: " other-stack-pointer)
+            (mezzano.supervisor:debug-print-line "oFNa: " other-fn-address)
+            (mezzano.supervisor:debug-print-line "oFNo: " other-fn-offset)
             (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
                                other-layout-address other-layout-length
                                other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-          (mezzanine.supervisor:panic "TODO! GC SG stuff. (interrupt)"))
+          (mezzano.supervisor:panic "TODO! GC SG stuff. (interrupt)"))
         (when (keywordp other-incoming-arguments)
           (when (not (eql other-incoming-arguments :rcx))
             (let ((*gc-debug-scavenge-stack* t))
               (debug-stack-frame other-framep other-interruptp other-pushed-values other-pushed-values-register
                                  other-layout-address other-layout-length
                                  other-multiple-values other-incoming-arguments other-block-or-tagbody-thunk))
-            (mezzanine.supervisor:panic "TODO? incoming-arguments not in RCX"))
+            (mezzano.supervisor:panic "TODO? incoming-arguments not in RCX"))
           (setf other-incoming-arguments nil)
-          (mezzanine.supervisor:debug-print-line "ia-count " (memref-t frame-pointer -2))
+          (mezzano.supervisor:debug-print-line "ia-count " (memref-t frame-pointer -2))
           (scavenge-stack-n-incoming-arguments
            other-frame-pointer other-stack-pointer other-framep
            other-layout-length
@@ -343,7 +343,7 @@ This is required to make the GC interrupt safe."
         (cond (other-framep
                ;; Stop after seeing a zerop frame pointer.
                (when (eql other-frame-pointer 0)
-                 (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack."))
+                 (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Done scav stack."))
                  (return-from scavenge-stack))
                (psetf return-address (memref-unsigned-byte-64 other-frame-pointer 1)
                       stack-pointer (+ other-frame-pointer 16)
@@ -358,15 +358,15 @@ This is required to make the GC interrupt safe."
                (setf return-address (memref-unsigned-byte-64 stack-pointer -1)))))))
   (tagbody LOOP
      (when *gc-debug-scavenge-stack*
-       (mezzanine.supervisor:debug-print-line "SP: " stack-pointer)
-       (mezzanine.supervisor:debug-print-line "FP: " frame-pointer)
-       (mezzanine.supervisor:debug-print-line "RA: " return-address))
+       (mezzano.supervisor:debug-print-line "SP: " stack-pointer)
+       (mezzano.supervisor:debug-print-line "FP: " frame-pointer)
+       (mezzano.supervisor:debug-print-line "RA: " return-address))
      (let* ((fn-address (base-address-of-internal-pointer return-address))
             (fn-offset (- return-address fn-address))
             (fn (%%assemble-value fn-address +tag-object+)))
        (when *gc-debug-scavenge-stack*
-         (mezzanine.supervisor:debug-print-line "fn: " fn-address)
-         (mezzanine.supervisor:debug-print-line "fnoffs: " fn-offset))
+         (mezzano.supervisor:debug-print-line "fn: " fn-address)
+         (mezzano.supervisor:debug-print-line "fnoffs: " fn-offset))
        (scavenge-object fn)
        (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                     layout-address layout-length
@@ -385,51 +385,51 @@ This is required to make the GC interrupt safe."
              (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                 layout-address layout-length
                                 multiple-values incoming-arguments block-or-tagbody-thunk))
-           (mezzanine.supervisor:panic "TODO! GC SG stuff."))
+           (mezzano.supervisor:panic "TODO! GC SG stuff."))
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
          ;; Stop after seeing a zerop frame pointer.
          (when (eql frame-pointer 0)
-           (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Done scav stack."))
+           (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Done scav stack."))
            (return-from scavenge-stack))
          (if (not framep)
-             (mezzanine.supervisor:panic "No frame, but no end in sight?"))
+             (mezzano.supervisor:panic "No frame, but no end in sight?"))
          (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                 stack-pointer (+ frame-pointer 16)
                 frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))
      (go LOOP)))
 
 (defun scan-thread (object)
-  (when *gc-debug-scavenge-stack* (mezzanine.supervisor:debug-print-line "Scav thread " object))
+  (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Scav thread " object))
   ;; Scavenge various parts of the thread.
-  (scavengef (mezzanine.supervisor:thread-name object))
-  (scavengef (mezzanine.supervisor:thread-state object))
-  (scavengef (mezzanine.supervisor:thread-lock object))
+  (scavengef (mezzano.supervisor:thread-name object))
+  (scavengef (mezzano.supervisor:thread-state object))
+  (scavengef (mezzano.supervisor:thread-lock object))
   ;; FIXME: Mark stack.
-  (scavengef (mezzanine.supervisor:thread-stack object))
-  (scavengef (mezzanine.supervisor:thread-special-stack-pointer object))
-  (scavengef (mezzanine.supervisor:thread-wait-item object))
-  (scavengef (mezzanine.supervisor:thread-preemption-disable-depth object))
-  (scavengef (mezzanine.supervisor:thread-preemption-pending object))
-  (scavengef (mezzanine.supervisor:thread-%next object))
-  (scavengef (mezzanine.supervisor:thread-%prev object))
-  (scavengef (mezzanine.supervisor:thread-foothold-disable-depth object))
-  (scavengef (mezzanine.supervisor:thread-mutex-stack object))
-  (scavengef (mezzanine.supervisor:thread-global-next object))
-  (scavengef (mezzanine.supervisor:thread-global-prev object))
+  (scavengef (mezzano.supervisor:thread-stack object))
+  (scavengef (mezzano.supervisor:thread-special-stack-pointer object))
+  (scavengef (mezzano.supervisor:thread-wait-item object))
+  (scavengef (mezzano.supervisor:thread-preemption-disable-depth object))
+  (scavengef (mezzano.supervisor:thread-preemption-pending object))
+  (scavengef (mezzano.supervisor:thread-%next object))
+  (scavengef (mezzano.supervisor:thread-%prev object))
+  (scavengef (mezzano.supervisor:thread-foothold-disable-depth object))
+  (scavengef (mezzano.supervisor:thread-mutex-stack object))
+  (scavengef (mezzano.supervisor:thread-global-next object))
+  (scavengef (mezzano.supervisor:thread-global-prev object))
   ;; Only scan the thread's stack, MV area & TLS area when it's alive.
-  (when (not (eql (mezzanine.supervisor:thread-state object) :dead))
+  (when (not (eql (mezzano.supervisor:thread-state object) :dead))
     (let* ((address (ash (%pointer-field object) 4))
-           (stack-pointer (mezzanine.supervisor:thread-stack-pointer object))
-           (frame-pointer (mezzanine.supervisor:thread-frame-pointer object))
+           (stack-pointer (mezzano.supervisor:thread-stack-pointer object))
+           (frame-pointer (mezzano.supervisor:thread-frame-pointer object))
            (return-address (memref-unsigned-byte-64 stack-pointer 0)))
       ;; Unconditonally scavenge the TLS area and the binding stack.
-      (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-mv-slots-start+ 8))
-                     (- mezzanine.supervisor::+thread-mv-slots-end+ mezzanine.supervisor::+thread-mv-slots-start+))
-      (scavenge-many (+ address 8 (* mezzanine.supervisor::+thread-tls-slots-start+ 8))
-                     (- mezzanine.supervisor::+thread-tls-slots-end+ mezzanine.supervisor::+thread-tls-slots-start+))
-      (when (not (or (eql object (mezzanine.supervisor:current-thread))
+      (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-mv-slots-start+ 8))
+                     (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+))
+      (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-tls-slots-start+ 8))
+                     (- mezzano.supervisor::+thread-tls-slots-end+ mezzano.supervisor::+thread-tls-slots-start+))
+      (when (not (or (eql object (mezzano.supervisor:current-thread))
                      ;; Don't even think about looking at the stacks of these threads. They may run at
                      ;; any time, even with the world stopped.
                      ;; Things aren't so bad though, they (should) only contain pointers to wired objects,
@@ -438,7 +438,7 @@ This is required to make the GC interrupt safe."
                      (eql object sys.int::*pager-thread*)
                      (eql object sys.int::*disk-io-thread*)))
         (scavenge-stack stack-pointer frame-pointer return-address
-                        (eql (+ address (* (1+ mezzanine.supervisor::+thread-interrupt-save-area+) 8))
+                        (eql (+ address (* (1+ mezzano.supervisor::+thread-interrupt-save-area+) 8))
                              stack-pointer))))))
 
 (defun gc-info-for-function-offset (function offset)
@@ -462,7 +462,7 @@ This is required to make the GC interrupt safe."
                    `(progn
                       (when (>= position length)
                         ,(if errorp
-                             `(mezzanine.supervisor:panic "Reached end of GC Info??")
+                             `(mezzano.supervisor:panic "Reached end of GC Info??")
                              `(debug-stack-frame framep interruptp pushed-values pushed-values-register
                                                  layout-address layout-length
                                                  multiple-values incoming-arguments block-or-tagbody-thunk))
@@ -654,7 +654,7 @@ This is required to make the GC interrupt safe."
     (t (scan-error object))))
 
 (defun transport-error (object)
-  (mezzanine.supervisor:panic "Untransportable object " object))
+  (mezzano.supervisor:panic "Untransportable object " object))
 
 (defun transport-object (object)
   "Transport LENGTH words from oldspace to newspace, returning
@@ -797,7 +797,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (when (not (eql (ldb (byte +array-type-size+ +array-type-shift+)
                                 (memref-unsigned-byte-64 address -2))
                            +object-tag-cons+))
-             (mezzanine.supervisor:debug-print-line "Invalid pinned cons " object))
+             (mezzano.supervisor:debug-print-line "Invalid pinned cons " object))
            (when (not (eql (logand (memref-unsigned-byte-64 address -2)
                                    +array-like-mark-bit+)
                            *pinned-mark-bit*))
@@ -808,7 +808,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
              ;; And scan.
              (scan-object object)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
-               (mezzanine.supervisor:debug-print-line
+               (mezzano.supervisor:debug-print-line
                 "Marking freelist entry " object))
              (when (not (eql (logand (memref-unsigned-byte-64 address 0)
                                           +array-like-mark-bit+)
@@ -821,7 +821,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (scan-object object))))))
 
 #+(or)(defun sweep-stacks ()
-  (mezzanine.supervisor:debug-print-line "sweeping stacks")
+  (mezzano.supervisor:debug-print-line "sweeping stacks")
   (do* ((reversed-result nil)
         (last-free nil)
         (current *gc-stack-ranges* next)
@@ -856,11 +856,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (let ((general-finger 0)
         (cons-finger 0))
     (loop
-       (mezzanine.supervisor:debug-print-line
+       (mezzano.supervisor:debug-print-line
         "General. Limit: " *general-area-limit*
         "  Bump: " *general-area-bump*
         "  Curr: " general-finger)
-       (mezzanine.supervisor:debug-print-line
+       (mezzano.supervisor:debug-print-line
         "Cons.    Limit: " *cons-area-limit*
         "  Bump: " *cons-area-bump*
         "  Curr: " cons-finger)
@@ -868,7 +868,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (when (and (eql general-finger *general-area-bump*)
                   (eql cons-finger *cons-area-bump*))
          (return))
-       (mezzanine.supervisor:debug-print-line "Scav main seq")
+       (mezzano.supervisor:debug-print-line "Scav main seq")
        ;; Scavenge general area.
        (loop
           (when (eql general-finger *general-area-bump*)
@@ -923,16 +923,16 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun rebuild-freelist (freelist-symbol base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist."
-  (mezzanine.supervisor:debug-print-line "rebuild freelist " freelist-symbol)
+  (mezzano.supervisor:debug-print-line "rebuild freelist " freelist-symbol)
   ;; Set initial freelist entry.
   (let ((initial (find-next-free-object base limit)))
     (when (not initial)
       (setf (symbol-value freelist-symbol) '())
       (when *gc-debug-freelist-rebuild*
-        (mezzanine.supervisor:debug-print-line "done (empty)"))
+        (mezzano.supervisor:debug-print-line "done (empty)"))
       (return-from rebuild-freelist))
     (when *gc-debug-freelist-rebuild*
-      (mezzanine.supervisor:debug-print-line "initial: " initial))
+      (mezzano.supervisor:debug-print-line "initial: " initial))
     (setf (memref-unsigned-byte-64 initial 0) (make-freelist-header (size-of-pinned-area-allocation initial))
           (memref-t initial 1) '()
           (symbol-value freelist-symbol) initial))
@@ -943,11 +943,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +array-length-shift+)))
               (next-addr (+ current (* len 8))))
          (when *gc-debug-freelist-rebuild*
-           (mezzanine.supervisor:debug-print-line "len: " len "  next: " next-addr))
+           (mezzano.supervisor:debug-print-line "len: " len "  next: " next-addr))
          (when (>= next-addr limit)
            (when *gc-debug-freelist-rebuild*
-             (mezzanine.supervisor:debug-print-line "done (limit)"))
-           (when mezzanine.runtime::*paranoid-allocation*
+             (mezzano.supervisor:debug-print-line "done (limit)"))
+           (when mezzano.runtime::*paranoid-allocation*
              (dotimes (i (- len 2))
                (setf (memref-signed-byte-64 current (+ i 2)) -1)))
            (return))
@@ -958,13 +958,13 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (setf next-addr (find-next-free-object current limit))
                 (when (not next-addr)
                   (when *gc-debug-freelist-rebuild*
-                    (mezzanine.supervisor:debug-print-line "done"))
-                  (when mezzanine.runtime::*paranoid-allocation*
+                    (mezzano.supervisor:debug-print-line "done"))
+                  (when mezzano.runtime::*paranoid-allocation*
                     (dotimes (i (- len 2))
                       (setf (memref-signed-byte-64 current (+ i 2)) -1)))
                   (return))
                 (when *gc-debug-freelist-rebuild*
-                  (mezzanine.supervisor:debug-print-line "adv: " next-addr))
+                  (mezzano.supervisor:debug-print-line "adv: " next-addr))
                 (setf (memref-unsigned-byte-64 next-addr 0) (make-freelist-header (size-of-pinned-area-allocation next-addr))
                       (memref-t next-addr 1) '())
                 (setf (memref-t current 1) next-addr
@@ -973,8 +973,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                 (setf (memref-unsigned-byte-64 current 0) (make-freelist-header (+ len (size-of-pinned-area-allocation next-addr))))))))))
 
 (defun gc-cycle ()
-  (mezzanine.supervisor::set-gc-light t)
-  (mezzanine.supervisor:debug-print-line "GC in progress...")
+  (mezzano.supervisor::set-gc-light t)
+  (mezzano.supervisor:debug-print-line "GC in progress...")
   ;; Clear per-cycle meters
   (setf *objects-copied* 0
         *words-copied* 0)
@@ -985,19 +985,19 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (setf *general-area-bump* 0
         *cons-area-bump* 0)
   ;; Unprotect newspace.
-  (mezzanine.supervisor:protect-memory-range (logior *dynamic-mark-bit*
-                                                     (ash +address-tag-general+ +address-tag-shift+))
-                                             *general-area-limit*
-                                             (logior +block-map-present+
-                                                     +block-map-writable+
-                                                     +block-map-zero-fill+))
-  (mezzanine.supervisor:protect-memory-range (logior *dynamic-mark-bit*
-                                                     (ash +address-tag-cons+ +address-tag-shift+))
-                                             *cons-area-limit*
-                                             (logior +block-map-present+
-                                                     +block-map-writable+
-                                                     +block-map-zero-fill+))
-  (mezzanine.supervisor:debug-print-line "Scav roots")
+  (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                   (ash +address-tag-general+ +address-tag-shift+))
+                                           *general-area-limit*
+                                           (logior +block-map-present+
+                                                   +block-map-writable+
+                                                   +block-map-zero-fill+))
+  (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
+                                                   (ash +address-tag-cons+ +address-tag-shift+))
+                                           *cons-area-limit*
+                                           (logior +block-map-present+
+                                                   +block-map-writable+
+                                                   +block-map-zero-fill+))
+  (mezzano.supervisor:debug-print-line "Scav roots")
   ;; Scavenge NIL to start things off.
   (scavenge-object 'nil)
   ;; And various important other roots.
@@ -1011,39 +1011,39 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; No scavenging can take place after this.
   (scavenge-dynamic)
   ;; Inhibit access to oldspace.
-  (mezzanine.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
-                                                     (ash +address-tag-general+ +address-tag-shift+))
-                                             *general-area-limit*
-                                             +block-map-zero-fill+)
-  (mezzanine.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
-                                                     (ash +address-tag-cons+ +address-tag-shift+))
-                                             *cons-area-limit*
-                                             +block-map-zero-fill+)
+  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+                                                   (ash +address-tag-general+ +address-tag-shift+))
+                                           *general-area-limit*
+                                           +block-map-zero-fill+)
+  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+                                                   (ash +address-tag-cons+ +address-tag-shift+))
+                                           *cons-area-limit*
+                                           +block-map-zero-fill+)
   ;; Rebuild freelists.
   (rebuild-freelist '*wired-area-freelist* (* 2 1024 1024) *wired-area-bump*)
   (rebuild-freelist '*pinned-area-freelist* (* 2 1024 1024 1024) *pinned-area-bump*)
   ;; Trim the dynamic areas.
   (let ((new-limit (align-up *general-area-bump* #x200000)))
-    (mezzanine.supervisor:release-memory-range (logior new-limit
-                                                       (ash +address-tag-general+ +address-tag-shift+))
-                                               (- *general-area-limit* new-limit))
-    (mezzanine.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
-                                                       new-limit
-                                                       (ash +address-tag-general+ +address-tag-shift+))
-                                               (- *general-area-limit* new-limit))
+    (mezzano.supervisor:release-memory-range (logior new-limit
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             (- *general-area-limit* new-limit))
+    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+                                                     new-limit
+                                                     (ash +address-tag-general+ +address-tag-shift+))
+                                             (- *general-area-limit* new-limit))
     (setf *general-area-limit* new-limit))
   (let ((new-limit (align-up *cons-area-bump* #x200000)))
-    (mezzanine.supervisor:release-memory-range (logior new-limit
-                                                       (ash +address-tag-cons+ +address-tag-shift+))
-                                               (- *cons-area-limit* new-limit))
-    (mezzanine.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
-                                                       new-limit
-                                                       (ash +address-tag-cons+ +address-tag-shift+))
-                                               (- *cons-area-limit* new-limit))
+    (mezzano.supervisor:release-memory-range (logior new-limit
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             (- *cons-area-limit* new-limit))
+    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+                                                     new-limit
+                                                     (ash +address-tag-cons+ +address-tag-shift+))
+                                             (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
   (setf *memory-expansion-remaining* *memory-expansion*)
-  (mezzanine.supervisor:debug-print-line "GC complete")
-  (mezzanine.supervisor::set-gc-light nil))
+  (mezzano.supervisor:debug-print-line "GC complete")
+  (mezzano.supervisor::set-gc-light nil))
 
 (defun base-address-of-internal-pointer (address)
   "Find the base address of the object pointed to be ADDRESS.

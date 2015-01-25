@@ -1,4 +1,4 @@
-(in-package :mezzanine.supervisor)
+(in-package :mezzano.supervisor)
 
 ;; Layout of CONFIG-ADDRESS register:
 ;; 31|30      24|23      16|15      11|10      8|7      2|1|0|

@@ -68,7 +68,7 @@
   (:nicknames :sys.clos))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
-(defpackage :mezzanine.supervisor
+(defpackage :mezzano.supervisor
   (:use :cl)
   (:export #:current-thread
            #:with-symbol-spinlock
@@ -149,5 +149,5 @@
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
-(defpackage :mezzanine.runtime
+(defpackage :mezzano.runtime
   (:use :cl))

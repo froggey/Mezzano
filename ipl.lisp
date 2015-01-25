@@ -1,23 +1,23 @@
 (in-package :cl-user)
 
 ;; Fast eval mode.
-(setf sys.int::*eval-hook* 'mezzanine.fast-eval:eval-in-lexenv)
+(setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
 ;; Host where the initial system is kept.
-(mezzanine.file-system.remote:add-simple-file-host :remote '(192 168 0 4))
+(mezzano.file-system.remote:add-simple-file-host :remote '(192 168 0 4))
 ;; Use MAKE-PATHNAME instead of #p because the cross-compiler doesn't support #p.
 (setf *default-pathname-defaults* (make-pathname :host :remote
                                                  :directory '(:absolute "Users" "henry" "Documents" "Mezzanine")))
-(setf mezzanine.file-system::*home-directory* (make-pathname :host :remote
-                                                 :directory '(:absolute "Users" "henry" "Documents" "Mezzanine-Home")))
+(setf mezzano.file-system::*home-directory* (make-pathname :host :remote
+                                                           :directory '(:absolute "Users" "henry" "Documents" "Mezzanine-Home")))
 
 (defun sys.int::snapshot-and-exit ()
-  (mezzanine.supervisor:make-thread (lambda ()
-                                      (dotimes (i 100)
-                                        (mezzanine.supervisor:wait-for-heartbeat))
-                                      (sys.int::gc)
-                                      (mezzanine.supervisor:snapshot)))
-  (throw 'mezzanine.supervisor::terminate-thread nil))
+  (mezzano.supervisor:make-thread (lambda ()
+                                    (dotimes (i 100)
+                                      (mezzano.supervisor:wait-for-heartbeat))
+                                    (sys.int::gc)
+                                    (mezzano.supervisor:snapshot)))
+  (throw 'mezzano.supervisor::terminate-thread nil))
 
 (defun sys.int::cal (path)
   "Compile and load PATH.
@@ -53,7 +53,7 @@ If the compiled file is out of date, recompile it."
 
 ;; Local FS.
 (sys.int::cal "file/local.lisp")
-(eval (read-from-string "(mezzanine.file-system.local:add-local-file-host :local)"))
+(eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
 ;; Fonts.
 (ensure-directories-exist "LOCAL:>Fonts>")
@@ -116,12 +116,12 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "gui/fs-viewer.lisp")
-(setf sys.int::*desktop* (eval (read-from-string "(mezzanine.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
+(setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
 
 ;; Done.
 (eval (read-from-string "(asdf:clear-configuration)"))
 (defun lisp-implementation-version ()
   "Demo 1")
 (setf mezzanine.file-system::*home-directory* (pathname "LOCAL:>")
-      *default-pathname-defaults* mezzanine.file-system::*home-directory*)
+      *default-pathname-defaults* mezzano.file-system::*home-directory*)
 (setf (mezzanine.file-system:find-host :remote) nil)
