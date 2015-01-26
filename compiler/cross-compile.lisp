@@ -798,7 +798,7 @@
     "system/closette.lisp"
     "system/data-types.lisp"
     "system/gc.lisp"
-    "cold-start.lisp"
+    "system/cold-start.lisp"
     "system/early-cons.lisp"
     "system/stuff.lisp"
     "system/runtime-numbers.lisp"

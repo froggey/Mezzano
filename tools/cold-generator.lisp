@@ -31,7 +31,7 @@
     "runtime/string.lisp"))
 
 (defparameter *source-files*
-  '("cold-start.lisp"
+  '("system/cold-start.lisp"
     "system/defstruct.lisp"
     "system/early-cons.lisp"
     "system/sequence.lisp"
@@ -1209,7 +1209,7 @@
          (*function-map* '())
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
-         (cl-symbol-names (with-open-file (s "cl-symbols.lisp-expr") (read s)))
+         (cl-symbol-names (with-open-file (s "tools/cl-symbols.lisp-expr") (read s)))
          (system-symbol-names (remove-duplicates
                                (iter (for sym in-package :system external-only t)
                                      (collect (symbol-name sym)))
