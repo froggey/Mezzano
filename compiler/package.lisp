@@ -1,3 +1,8 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
+;;;; Various packages.
+
 (cl:in-package :cl-user)
 
 (defpackage :system.compiler

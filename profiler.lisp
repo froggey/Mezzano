@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (in-package :sys.int)
 
 (defmacro with-profiling (options &body body)
@@ -185,3 +188,7 @@ an offset into the buffer. Should be allocated in static space.")
     (dolist (entry prof)
       (incf (gethash (first (last entry)) info 0)))
     info))
+
+(defun save-profile (&optional (file "profile.data"))
+  (with-open-file (s file :direction :output :if-exists :supersede)
+    (dump-profile-data s)))

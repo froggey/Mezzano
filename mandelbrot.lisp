@@ -1,4 +1,5 @@
-;;;; Mandelbrot viewer written by Mike "scgtrp" Smith, IPhD.
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
 
 (defpackage :mandelbrot
   (:use :cl)

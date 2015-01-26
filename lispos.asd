@@ -1,10 +1,13 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (in-package :asdf)
 
 (defsystem "lispos"
   :description "Lisp operating system."
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
-  :licence "None"
+  :licence "MIT"
   :depends-on ("lispos-lap" "lispos-compiler"
                #:nibbles #:cl-ppcre #:iterate
                #:alexandria)

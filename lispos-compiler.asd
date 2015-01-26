@@ -1,10 +1,13 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (in-package :asdf)
 
 (defsystem "lispos-compiler"
   :description "Compiler for LispOS."
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
-  :licence "None"
+  :licence "MIT"
   :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2 #:nibbles)
   :components ((:file "compiler/cross")
                (:file "system/data-types" :depends-on ("compiler/cross"))

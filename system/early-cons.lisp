@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 ;;;; Basic cons-related functions.
 ;;;; This file is loaded at bootstrap time and once more after the compiler
 ;;;; is loaded, so it should only contain final versions of the functions.

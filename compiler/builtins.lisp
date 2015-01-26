@@ -1,4 +1,8 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 ;;;; Functions which are built in to the compiler and have custom code generators.
+
 (in-package :sys.c)
 
 (defparameter *builtins* (make-hash-table :test #'equal))

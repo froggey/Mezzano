@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (in-package :sys.int)
 
 ;;; TODO: Call write-string, terpri, start-line-p(?), fresh-line, advance-to-column, listen, read-line, read-char-no-hang, peek-char

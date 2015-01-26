@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 ;;; Simple remote file protocol client.
 
 (defpackage :mezzano.file-system.remote

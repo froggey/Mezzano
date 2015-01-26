@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
   (:use :cl :sys.lap)

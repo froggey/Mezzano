@@ -1,4 +1,7 @@
-;;; Low-level debugging code for the supervisor.
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
+;;; Low-level debugging output for the supervisor.
 
 (in-package :mezzano.supervisor)
 

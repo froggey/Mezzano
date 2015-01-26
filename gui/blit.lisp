@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 ;;;; Optimized pluggable blitter functions.
 ;;;; The low-level pixel blending functions use a custom calling
 ;;;; convetion and must not be called directly from lisp.

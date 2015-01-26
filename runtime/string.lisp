@@ -1,3 +1,6 @@
+;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; This code is licensed under the MIT license.
+
 (in-package :mezzano.runtime)
 
 ;; Hardcoded string accessor, the support stuff for arrays doesn't function at this point.
