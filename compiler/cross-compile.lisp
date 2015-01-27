@@ -325,7 +325,7 @@
 (defun sys.int::variable-information (symbol)
   (cond ((or (member symbol '(nil t))
              (keywordp symbol)
-             #+sbcl (eql (sb-cltl2:variable-information symbol) :constant))
+             (constantp symbol))
          :constant)
         (t (gethash symbol *system-symbol-declarations*))))
 
