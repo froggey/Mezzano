@@ -5,7 +5,7 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
-(defun expand-destructuring-lambda-list (lambda-list name body whole current-value initial-bindings &optional default-value)
+(defun expand-destructuring-lambda-list (lambda-list name body whole current-value initial-bindings &key default-value permit-docstring)
   (let ((bindings '())
 	(macro-lambda-list-keywords '(&environment &whole &optional &rest &body &key &allow-other-keys &aux)))
     (labels ((check-sublist (list lambda-list req-count opt-count)
@@ -180,17 +180,14 @@
 	(setf bindings (nreverse bindings))
 	;; Pull declarations up and dump them in the LET.
         ;; TODO: Docstrings.
-	(let ((declares '()))
-	  (do ()
-	      ((not (and body
-			 (consp (first body))
-			 (eql (first (first body)) 'declare))))
-	    (push (pop body) declares))
+        (multiple-value-bind (body declares docstring)
+            (parse-declares body :permit-docstring permit-docstring)
+          (declare (ignore docstring))
 	  `(progn
 	     ,(check-sublist current-value lambda-list req-count opt-count)
 	     (let* (,@initial-bindings
 		    ,@bindings)
-	       ,@(nreverse declares)
+	       (declare ,@declares)
 	       ,(if name
 		    `(block ,name
 		       ,@body)
@@ -248,7 +245,8 @@ the environment variable (or a gensym if it was not specified)."
                         ,(expand-destructuring-lambda-list new-lambda-list name body
                                                            whole `(cdr ,whole)
                                                            (when env-binding
-                                                             (list `(,env-binding ,env)))))
+                                                             (list `(,env-binding ,env)))
+                                                           :permit-docstring t))
                     ',lambda-list)))))
 
 (defmacro define-compiler-macro (name lambda-list &body body)
@@ -271,7 +269,8 @@ the environment variable (or a gensym if it was not specified)."
                                                             (second name))
                                                         body whole args
                                                         (when env-binding
-                                                          (list `(,env-binding ,env)))))))
+                                                          (list `(,env-binding ,env)))
+                                                        :permit-docstring t))))
 	 ',name))))
 
 (defmacro destructuring-bind (lambda-list expression &body body)

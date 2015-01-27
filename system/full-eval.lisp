@@ -340,7 +340,8 @@
                          ,(sys.int::expand-destructuring-lambda-list new-lambda-list name body
                                                                      whole `(cdr ,whole)
                                                                      (when env-binding
-                                                                       (list `(,env-binding ,env)))))))))))
+                                                                       (list `(,env-binding ,env)))
+                                                                     :permit-docstring t))))))))
 
 (defspecial macrolet (&environment env definitions &body body)
   (multiple-value-bind (body declares)

@@ -19,7 +19,8 @@
                                                         whole `(cdr ,whole)
                                                         (when env-binding
                                                           (list `(,env-binding ,env)))
-                                                        ''*)))
+                                                        :default-value ''*
+                                                        :permit-docstring t)))
 	 ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)

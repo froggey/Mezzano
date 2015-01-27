@@ -17,7 +17,8 @@
            ,(expand-destructuring-lambda-list new-lambda-list name body
                                               whole `(cdr ,whole)
                                               (when env-binding
-                                                (list `(,env-binding ,env)))))))))
+                                                (list `(,env-binding ,env)))
+                                              :permit-docstring t))))))
 
 (defun make-macrolet-env (defs env)
   "Return a new environment containing the macro definitions."

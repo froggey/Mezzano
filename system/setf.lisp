@@ -174,7 +174,8 @@
                                   ,(expand-destructuring-lambda-list new-lambda-list access-fn body
                                                                      whole `(cdr ,whole)
                                                                      (when env-binding
-                                                                       (list `(,env-binding ,env))))))
+                                                                       (list `(,env-binding ,env)))
+                                                                     :permit-docstring t)))
 	 ',access-fn))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
