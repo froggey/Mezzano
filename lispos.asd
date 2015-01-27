@@ -8,7 +8,7 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
-  :depends-on ("lispos-lap" "lispos-compiler"
+  :depends-on ("lispos-compiler"
                #:nibbles #:cl-ppcre #:iterate
                #:alexandria)
   :components ((:file "tools/build-unicode")

@@ -11,8 +11,6 @@ Load the cross build environment.
 (ql:quickload :lispos)
 
 Initialize the empty cross environment.
-This step will produce a bunch of name conflicts which should be resolved using the TAKE-NEW restart.
-
 (with-compilation-unit ()
   (sys.c::set-up-cross-compiler)
   (mapc 'sys.c::load-for-cross-compiler cold-generator::*supervisor-source-files*)

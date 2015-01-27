@@ -8,8 +8,10 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
-  :depends-on ("lispos-lap" #:alexandria #:iterate #+sbcl #:sb-cltl2 #:nibbles)
+  :depends-on (#:alexandria #:iterate #:nibbles)
   :components ((:file "compiler/cross")
+               (:file "lap" :depends-on ("compiler/cross"))
+               (:file "lap-x86" :depends-on ("compiler/cross" "lap"))
                (:file "system/data-types" :depends-on ("compiler/cross"))
                (:file "system/parse" :depends-on ("compiler/cross"))
                (:file "system/backquote" :depends-on ("compiler/cross"))
@@ -37,10 +39,11 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "compiler/codegen" "system/data-types"))
+                                   "compiler/codegen" "system/data-types" "lap" "lap-x86"))
                (:file "compiler/codegen"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "system/data-types"))
+                                   "system/data-types" "lap" "lap-x86"))
                (:file "compiler/branch-tension"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/codegen"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/codegen"
+                                   "lap" "lap-x86"))
 ))

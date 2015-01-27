@@ -156,3 +156,15 @@
 ;;; run the supervisor and the rest of the CL system.
 (defpackage :mezzano.runtime
   (:use :cl))
+
+(defpackage :sys.lap
+  (:documentation "The system assembler.")
+  (:use :cl)
+  (:export :perform-assembly :emit :immediatep :resolve-immediate :*current-address*
+           :note-fixup))
+
+(defpackage :sys.lap-x86
+  (:documentation "x86 assembler for LAP.")
+  (:use :cl :sys.lap)
+  (:export #:assemble
+           #:*function-reference-resolver*))
