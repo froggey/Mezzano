@@ -479,23 +479,26 @@
                         print-object print-function print-object-specializer
                         named type)
       (parse-defstruct-options name-and-options)
-    (cond
-      ((null type)
-       (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
-                                  included-structure-name included-slot-descriptions
-                                  print-object print-function print-object-specializer))
-      ((eql type 'list)
-       (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
-                                 included-structure-name included-slot-descriptions
-                                 print-object print-function print-object-specializer
-                                 named))
-      ((or (eql type 'vector)
-           (and (listp type)
-                (eql (first type) 'vector)))
-       (generate-vector-defstruct name slot-descriptions conc-name constructors predicate area copier
-                                  included-structure-name included-slot-descriptions
-                                  print-object print-function print-object-specializer
-                                  named (if (listp type)
-                                            (second type)
-                                            't)))
-      (t (error "Currently unsupported defstruct type ~S." type)))))
+    (let ((docstring nil)) ; TODO: do something with this.
+      (when (stringp (first slot-descriptions))
+        (setf docstring (pop slot-descriptions)))
+      (cond
+        ((null type)
+         (generate-normal-defstruct name slot-descriptions conc-name constructors predicate area copier
+                                    included-structure-name included-slot-descriptions
+                                    print-object print-function print-object-specializer))
+        ((eql type 'list)
+         (generate-list-defstruct  name slot-descriptions conc-name constructors predicate area copier
+                                   included-structure-name included-slot-descriptions
+                                   print-object print-function print-object-specializer
+                                   named))
+        ((or (eql type 'vector)
+             (and (listp type)
+                  (eql (first type) 'vector)))
+         (generate-vector-defstruct name slot-descriptions conc-name constructors predicate area copier
+                                    included-structure-name included-slot-descriptions
+                                    print-object print-function print-object-specializer
+                                    named (if (listp type)
+                                              (second type)
+                                              't)))
+        (t (error "Currently unsupported defstruct type ~S." type))))))
