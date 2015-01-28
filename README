@@ -1,5 +1,16 @@
 Mezzano, an operating system written in Common Lisp.
 
+1) Install VirtualBox from https://www.virtualbox.org/
+2) Download and ungzip the disk image from https://dl.dropboxusercontent.com/u/46753018/Mezzanine%20Demo%201-disk1.vmdk.gz
+3) Create a new VM in VirtualBox with the following settings:
+   Type: Other
+   Version: Other/Unknown 64-bit
+   Memory size: 512MB
+   Use an existing virtual hard drive file, the one you downloaded
+4) Open the settings for the VM and switch to the Network tab.
+5) Open the advanced settings and change the adapter type to virtio-net
+6) Click OK. The VM is ready to start.
+
 C-<key> means to hold the control key while typing <key>.
 M-<key> means to hold the alt or meta key while typing <key>.
 Alphabetic keys typed with control or meta ignore case. C-A and C-a are the same key, while C-! and C-1 are different.
