@@ -110,7 +110,6 @@ If the compiled file is out of date, recompile it."
 ;; And the GUI.
 (sys.int::cal "gui/font.lisp")
 (sys.int::cal "gui/widgets.lisp")
-(sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "line-edit-mixin.lisp")
 (sys.int::cal "gui/popup-io-stream.lisp")
 (sys.int::cal "gui/xterm.lisp")
