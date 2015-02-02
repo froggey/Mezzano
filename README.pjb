@@ -53,6 +53,7 @@ Procedure
           RAM: 1GB 
           HD: the mezzano.vmdk
           Ethernet: select the virtio-net adapter
+          Serial port: assign the serial port COM1 to some raw file where the logs will be written.
    and boot it.
 
 
