@@ -2,15 +2,30 @@
 ;;;; This code is licensed under the MIT license.
 
 (in-package :cl-user)
-#.(with-open-file (in "ipl-configuration.lisp") (read in))
+
+;; #.(with-open-file (in "ipl-configuration.lisp")
+;;     `(progn ,@(loop :for form = (read in nil in)
+;;                     :until (eq form in)
+;;                     :collect form)))
+
+(defparameter *file-server-ip* '(192 168 7 8)
+  "The IP of the host where the file server is running.")
+
+(defparameter *file-server-source-directory*
+  (namestring (merge-pathnames "src/Mezzano/" (user-homedir-pathname)))
+  "A string containing the full path to the source tree on the host where the file server is running.")
+
+(defparameter *file-server-home-directory*
+  (namestring (merge-pathnames "Documents/Mezzano/" (user-homedir-pathname)))
+  "A string containing the the home directory containing the libraries.")
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
 ;; Host where the initial system is kept.
 (mezzano.file-system.remote:add-simple-file-host :remote *file-server-ip*)
-(setf *default-pathname-defaults*            *file-server-root-directory*)
-(setf mezzano.file-system::*home-directory*  *file-server-home-directory*)
+(setf *default-pathname-defaults*            (parse-namestring *file-server-source-directory* :remote))
+(setf mezzano.file-system::*home-directory*  (parse-namestring *file-server-home-directory* :remote))
 
 (defun sys.int::snapshot-and-exit ()
   (mezzano.supervisor:make-thread (lambda ()
@@ -52,45 +67,39 @@ If the compiled file is out of date, recompile it."
                    (write-sequence seq d))))))
     dest))
 
-;; Local FS.
+;; Local FS. Loaded from the source tree, not the home directory.
 (sys.int::cal "file/local.lisp")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
-;; Fonts.
+;; Fonts. Loaded from the home directory.
 (ensure-directories-exist "LOCAL:>Fonts>")
 (dolist (f (directory (merge-pathnames "fonts/**/*.ttf" (user-homedir-pathname))))
   (sys.int::copy-file f
              (merge-pathnames "LOCAL:>Fonts>" f)
              '(unsigned-byte 8)))
 
-;; Icons.
+;; Icons. Loaded from the source tree.
 (ensure-directories-exist "LOCAL:>Icons>")
 (dolist (f (directory "gui/*.png"))
   (sys.int::copy-file f
                       (merge-pathnames "LOCAL:>Icons>" f)
                       '(unsigned-byte 8)))
-(dolist (f (directory (merge-pathnames "icons/**/*.png" (user-homedir-pathname))))
-  (sys.int::copy-file f
-             (merge-pathnames "LOCAL:>Icons>" f)
-             '(unsigned-byte 8)))
 
-;; Hold on to your butts...
-(ensure-directories-exist "LOCAL:>Licences>")
-(dolist (f (directory (merge-pathnames "Licences/*.*" (user-homedir-pathname))))
-  (sys.int::copy-file f
-                      (merge-pathnames "LOCAL:>Licences>.text" f)
-                      'character))
-
-;; Stuff.
+;; Other stuff.
+;; The desktop image, this can be removed or replaced.
+;; If it is removed, then the line below that starts the desktop must be updated.
 (sys.int::copy-file (merge-pathnames "Mandarin_Pair.jpg" (user-homedir-pathname))
                     "LOCAL:>Desktop.jpeg"
                     '(unsigned-byte 8))
 
+;; Loaded from the source tree.
 (sys.int::copy-file "README"
                     "LOCAL:>README.text")
 
 ;; ASDF.
-(sys.int::cal (merge-pathnames "source/asdf.lisp" (user-homedir-pathname)))
+;; After ASDF is compiled for the first time it will fail to load with
+;; an undefined-function EXPORT error. This can be fixed by rebooting.
+(sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
 
 ;; A bunch of GUI related systems.
 (require :zpb-ttf)
@@ -118,12 +127,8 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "applications/fs-viewer.lisp")
+;; If the desktop image was removed above, then remove the :IMAGE argument
+;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
 
 ;; Done.
-(eval (read-from-string "(asdf:clear-configuration)"))
-(defun lisp-implementation-version ()
-  "Demo 1")
-(setf mezzano.file-system::*home-directory* (pathname "LOCAL:>")
-      *default-pathname-defaults* mezzano.file-system::*home-directory*)
-(setf (mezzano.file-system:find-host :remote) nil)

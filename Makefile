@@ -33,6 +33,8 @@ $(OTHER).image:Makefile $(shell find . -name \*.lisp -print\)
 	sbcl --no-userinit --eval '(defvar *image-name* "'$(OTHER)'")' --load build.lisp --eval '(sb-ext:quit)'
 # Alternative quicklisp directory: --eval '(defvar *quicklisp-directory* #P/alternative/quicklisp/)'
 
+install-dependencies:
+	 sbcl --no-userinit --load install-dependencies.lisp --eval '(sb-ext:quit)'
 
 launch-file-server:
 	screen -d -m -t mezzanofileserver  -c mezzano.screenrc \

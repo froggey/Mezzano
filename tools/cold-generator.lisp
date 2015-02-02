@@ -105,8 +105,6 @@
     "file/remote.lisp"
     "ipl.lisp"))
 
-;; Apps that need to be updated: peek, xterm, telnet, irc, mandelbrot
-
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
     (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
