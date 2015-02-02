@@ -1,0 +1,65 @@
+#
+# Example of a user's .screenrc file
+#
+
+vbell on
+autodetach on
+startup_message off
+pow_detach_msg "Screen session of \$LOGNAME \$:cr:\$:nl:ende d."
+shell -$SHELL
+defscrollback 10000
+
+# xterm stuff:
+termcap  xterm hs@:cs=\E[%i%d;%dr:im=\E[4h:ei=\E[4l
+terminfo xterm hs@:cs=\E[%i%p1%d;%p2%dr:im=\E[4h:ei=\E[4l
+termcapinfo  xterm Z0=\E[?3h:Z1=\E[?3l:is=\E[r\E[m\E[2J\E[H\E[?7h\E[?1;4;6l
+termcapinfo xterm* OL=10000
+termcapinfo xterm 'VR=\E[?5h:VN=\E[?5l'
+termcapinfo xterm 'k1=\E[11~:k2=\E[12~:k3=\E[13~:k4=\E[14~'
+termcapinfo xterm 'kh=\E[1~:kI=\E[2~:kD=\E[3~:kH=\E[4~:kP=\E[H:kN=\E[6~'
+termcapinfo xterm 'hs:ts=\E]2;:fs=\007:ds=\E]2;screen\007'
+termcapinfo xterm 'vi=\E[?25l:ve=\E[34h\E[?25h:vs=\E[34l'
+termcapinfo   xterm 'XC=K%,%\E(B,[\304,\\\\\326,]\334,{\344,|\366,}\374,~\337'
+termcapinfo xterm ut
+
+# wyse terminals
+termcapinfo wy75-42 xo:hs@
+
+# New termcap sequences for cursor application mode.
+termcapinfo wy* CS=\E[?1h:CE=\E[?1l:vi=\E[?25l:ve=\E[?25h:VR=\E[?5h:VN=\E[?5l:cb=\E[1K:CD=\E[1J
+
+# Extend the vt100 desciption by some sequences.
+termcap  vt100* ms:AL=\E[%dL:DL=\E[%dM:UP=\E[%dA:DO=\E[%dB:LE=\E[%dD:RI=\E[%dC
+terminfo vt100* ms:AL=\E[%p1%dL:DL=\E[%p1%dM:UP=\E[%p1%dA:DO=\E[%p1%dB:LE=\E[%p1%dD:RI=\E[%p1%dC
+
+
+# keybindings
+
+#remove some stupid / dangerous key bindings
+bind k
+bind ^k
+bind .
+bind ^\
+bind \\
+bind ^h
+bind h
+#make them better
+bind 'K' kill
+bind 'I' login on
+bind 'O' login off
+bind '}' history
+
+# Yet another hack:
+# Prepend/append register [/] to the paste if ^a^] is pressed.
+# This lets me have autoindent mode in vi.
+register [ "\033:se noai\015a"
+register ] "\033:se ai\015a"
+bind ^] paste [.]
+
+
+
+
+hardstatus on 
+hardstatus alwayslastline 
+hardstatus string "%{.gW}%-w%{.rW}%n %t%{-}%+w %=%{..b}%H%{..r}%l%{..b}%m-%d %c"
+escape ^z^z

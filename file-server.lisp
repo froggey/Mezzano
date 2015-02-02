@@ -1,12 +1,12 @@
 ;;;; -*- mode:lisp;coding:utf-8 -*-
 ;;;;**************************************************************************
-;;;;FILE:               build.lisp
+;;;;FILE:               file-server.lisp
 ;;;;LANGUAGE:           Common-Lisp
 ;;;;SYSTEM:             Common-Lisp
 ;;;;USER-INTERFACE:     NONE
 ;;;;DESCRIPTION
 ;;;;    
-;;;;    This scripts compiles and generate the mezzano image.
+;;;;    This scripts starts the file server.
 ;;;;    
 ;;;;AUTHORS
 ;;;;    <PJB> Pascal J. Bourguignon <pjb@informatimago.com>
@@ -44,16 +44,8 @@
 (in-package :cl-user)
 (load "configuration.lisp")
 
-;; Load the cross build environment.
-(ql:quickload :lispos)
+;; Load the remote filesystem server.
+(ql:quickload :lispos-file)
+(file-server::spawn-file-server)
 
-;; Initialize the empty cross environment.
-(with-compilation-unit ()
-  (sys.c::set-up-cross-compiler)
-  (mapc 'sys.c::load-for-cross-compiler cold-generator::*supervisor-source-files*)
-  (mapc 'sys.c::load-for-cross-compiler cold-generator::*source-files*)
-  (mapc 'sys.c::load-for-cross-compiler cold-generator::*warm-source-files*))
-
-;; Build a cold image.
-(cold-generator::make-image *image-name* :header-path "tools/disk_header")
-;; This will produce a raw disk image called mezzano.image in the current directory.
+;;;; THE END ;;;;

@@ -2,17 +2,15 @@
 ;;;; This code is licensed under the MIT license.
 
 (in-package :cl-user)
+(load "ipl-configuration.lisp")
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
 ;; Host where the initial system is kept.
-(mezzano.file-system.remote:add-simple-file-host :remote '(192 168 0 4))
-;; Use MAKE-PATHNAME instead of #p because the cross-compiler doesn't support #p.
-(setf *default-pathname-defaults* (make-pathname :host :remote
-                                                 :directory '(:absolute "Users" "henry" "Documents" "Mezzanine")))
-(setf mezzano.file-system::*home-directory* (make-pathname :host :remote
-                                                           :directory '(:absolute "Users" "henry" "Documents" "Mezzanine-Home")))
+(mezzano.file-system.remote:add-simple-file-host :remote *file-server-ip*)
+(setf *default-pathname-defaults*            *file-server-root-directory*)
+(setf mezzano.file-system::*home-directory*  *file-server-home-directory*)
 
 (defun sys.int::snapshot-and-exit ()
   (mezzano.supervisor:make-thread (lambda ()
