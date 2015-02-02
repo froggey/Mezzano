@@ -1,0 +1,16 @@
+
+0- edit configure.lisp and ipl-configure.lisp to match your environment.
+
+1- launch the file server in a detached screen:
+
+    make launch-file-server
+
+2- compile the mezzano.image:
+
+    make image
+
+3- generate a vmdk for Virtual Box referencing mezzano.image
+
+    make vmdk
+
+4- launch Virtual Box, create a new VM with 1GB RAM and the mezzano.vmdk, and boot it.
