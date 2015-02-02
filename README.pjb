@@ -23,6 +23,10 @@ Procedure
    ipl-configure.lisp.  Later we may add some auto-configuration of
    the file server default IP, and the source directory path).
 
+
+   /!\ For now, we must also edit the pathnames in ipl.lisp.
+
+
 1- install the dependencies (once):
 
    make install-dependencies
@@ -45,7 +49,11 @@ Procedure
 
     make vmdk
 
-6- launch Virtual Box, create a new VM with 1GB RAM and the mezzano.vmdk, and boot it.
+6- launch Virtual Box, create a new VM:
+          RAM: 1GB 
+          HD: the mezzano.vmdk
+          Ethernet: select the virtio-net adapter
+   and boot it.
 
 
 Initially loading the whole system takes approximately 2 hours in

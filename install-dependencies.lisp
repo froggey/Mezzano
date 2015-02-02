@@ -67,6 +67,9 @@
                   "git@github.com:Ramarren/png-read.git"))
     (format t "cloning ~A~%" repo) (finish-output)
     (uiop:run-program (list "git" "clone" repo)))
+  (dolist (resource '("http://upload.wikimedia.org/wikipedia/commons/7/73/Mandarin_Pair.jpg"))
+    (format t "getting ~A~%" resource) (finish-output)
+    (uiop:run-program (list "wget" resource)))
   (dolist (tarball '("http://common-lisp.net/project/iterate/releases/iterate-1.4.3.tar.gz"
                      "http://projects.tuxee.net/cl-vectors/files/cl-vectors-0.1.5.tar.gz"))
     (format t "getting ~A~%" tarball) (finish-output)
