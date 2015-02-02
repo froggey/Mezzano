@@ -95,6 +95,8 @@ If the compiled file is out of date, recompile it."
 ;; an undefined-function EXPORT error. This can be fixed by rebooting.
 (sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
 
+(format t "~&ASDF loaded.~%") (finish-output)
+
 ;; A bunch of GUI related systems.
 (require :zpb-ttf)
 (require :cl-vectors)

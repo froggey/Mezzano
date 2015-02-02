@@ -2,7 +2,7 @@ I added a Makefile, lisp scripts and modified ipl.lisp to simplify and
 automatize the configuration, installation and building of Mezzano.
 
 Requirements
-------------
+============
 
 Unix tools:
 
@@ -14,7 +14,7 @@ Unix tools:
     
 
 Procedure
----------
+=========
     
 0- edit configure.lisp and ipl-configure.lisp to match your environment.
 
@@ -61,8 +61,20 @@ VirtualBox running on a 2.4GHz Core 2 Quad.
 
 
 Debugging
----------
+=========
 
 To test the connection with the file server:
 
    (sys.net::ping-host "192.168.x.y")
+
+
+
+Troobleshooting
+===============
+
+Hang on New ARP Table (and eventually time out)
+-----------------------------------------------
+
+This seems to occur when we reboot the VM.  We have to use power
+down/relaunch, for a cold start, not reboot.
+

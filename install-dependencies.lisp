@@ -82,7 +82,7 @@
   (ensure-directories-exist path)
   (with-open-file (conf path :direction :output :if-does-not-exist :create :if-exists :supersede)
     (print `(:source-registry
-             (:tree (namestring *file-server-home-directory*))
+             (:tree ,(namestring *file-server-home-directory*))
              :inherit-configuration)
            conf)
     (terpri)))
