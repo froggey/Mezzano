@@ -19,7 +19,8 @@ vmdk: mezzano.vmdk
 
 %.vmdk:%.image
 	-rm -f $@
-	type -p VBoxManage >/dev/null  && VBoxManage internalcommands createrawvmdk -filename $@ -rawdisk $(abspath $<)
+	( type -p VBoxManage >/dev/null && VBoxManage internalcommands createrawvmdk -filename $@ -rawdisk $(abspath $<) ) \
+	|| ( type -p qemu-img && qemu-img convert -f raw -O vmdk $(abspath $<) $@ )
 
 mezzano.image:$(shell find . -name \*.lisp -print\)
 	sbcl --no-userinit --load build.lisp --eval '(sb-ext:quit)'
