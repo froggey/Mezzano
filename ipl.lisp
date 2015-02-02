@@ -2,7 +2,7 @@
 ;;;; This code is licensed under the MIT license.
 
 (in-package :cl-user)
-(load "ipl-configuration.lisp")
+#.(with-open-file (in "ipl-configuration.lisp") (read in))
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
