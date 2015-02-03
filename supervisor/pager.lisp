@@ -30,6 +30,11 @@
   ;; Reloading CR3 on x86oids causes all TLBs to be marked invalid.
   (setf (sys.int::%cr3) (sys.int::%cr3)))
 
+(declaim (inline page-present-p))
+(defun page-present-p (page-table index)
+  (logtest +page-table-present+
+           (sys.int::memref-unsigned-byte-64 page-table index)))
+
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
@@ -72,7 +77,7 @@
         (pdpe (ldb (byte 9 30) address))
         (pde (ldb (byte 9 21) address))
         (pte (ldb (byte 9 12) address)))
-    (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 cr3 pml4e)))
+    (when (not (page-present-p cr3 pml4e))
       ;; No PDP. Allocate one.
       (when (not allocate)
         (return-from get-pte-for-address nil))
@@ -85,7 +90,7 @@
                                                                    +page-table-present+
                                                                    +page-table-write+))))
     (let ((pdp (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 cr3 pml4e) +page-table-address-mask+))))
-      (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdp pdpe)))
+      (when (not (page-present-p pdp pdpe))
         ;; No PDir. Allocate one.
         (when (not allocate)
           (return-from get-pte-for-address nil))
@@ -98,7 +103,7 @@
                                                                     +page-table-present+
                                                                     +page-table-write+))))
       (let ((pdir (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdp pdpe) +page-table-address-mask+))))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdir pde)))
+        (when (not (page-present-p pdir pde))
           ;; No PT. Allocate one.
           (when (not allocate)
             (return-from get-pte-for-address nil))
@@ -301,7 +306,7 @@
       (release-block-at-virtual-address (+ base (* i #x1000)))
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+        (when (and pte (page-present-p pte 0))
           (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
           (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))))
     (flush-tlb)))
@@ -321,7 +326,7 @@
       (set-address-flags (+ base (* i #x1000)) flags)
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+        (when (and pte (page-present-p pte 0))
           (cond ((or (not (logtest sys.int::+block-map-present+ flags))
                      (logtest sys.int::+block-map-zero-fill+ flags))
                  ;; Page going away, but it's ok. It'll be back, zero-filled.
@@ -351,7 +356,7 @@
           (block-info (block-info-for-virtual-address address)))
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
-      (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
+      (when (page-present-p pte 0)
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (sys.int::memref-unsigned-byte-64 pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make
@@ -433,7 +438,7 @@ It will put the thread to sleep, while it waits for the page."
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate size #x1000))
       (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+        (when (not (page-present-p pte 0))
           (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (+ base (* i #x1000))
                                                                  +page-table-present+
                                                                  +page-table-write+)))))))
