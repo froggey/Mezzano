@@ -25,6 +25,33 @@
 (defconstant +page-table-copy-on-write+  #x400)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
+(declaim (inline flush-tlb))
+(defun flush-tlb ()
+  ;; Reloading CR3 on x86oids causes all TLBs to be marked invalid.
+  (setf (sys.int::%cr3) (sys.int::%cr3)))
+
+(declaim (inline page-table-entry (setf page-table-entry)))
+(defun page-table-entry (page-table index)
+  (sys.int::memref-unsigned-byte-64 page-table index))
+(defun (setf page-table-entry) (value page-table index)
+  (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
+
+(declaim (inline page-present-p))
+(defun page-present-p (page-table index)
+  (logtest +page-table-present+
+           (page-table-entry page-table index)))
+
+(declaim (inline address-l4-bits address-l3-bits address-l2-bits address-l1-bits))
+(defun address-l4-bits (address) (ldb (byte 9 39) address))
+(defun address-l3-bits (address) (ldb (byte 9 30) address))
+(defun address-l2-bits (address) (ldb (byte 9 21) address))
+(defun address-l1-bits (address) (ldb (byte 9 12) address))
+
+(declaim (inline zeroize-page))
+(defun zeroize-page (addr)
+  (dotimes (i 512)
+    (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
@@ -61,52 +88,26 @@
       ;; Release the pages.
       (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)))))
 
-(defun get-pte-for-address (address &optional (allocate t))
-  (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
-        (pml4e (ldb (byte 9 39) address))
-        (pdpe (ldb (byte 9 30) address))
-        (pde (ldb (byte 9 21) address))
-        (pte (ldb (byte 9 12) address)))
-    (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 cr3 pml4e)))
-      ;; No PDP. Allocate one.
-      (when (not allocate)
-        (return-from get-pte-for-address nil))
-      (let* ((frame (or (allocate-physical-pages 1)
-                        (panic "Aiee. No memory.")))
-             (addr (+ +physical-map-base+ (ash frame 12))))
-        (dotimes (i 512)
-          (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-        (setf (sys.int::memref-unsigned-byte-64 cr3 pml4e) (logior (ash frame 12)
-                                                                   +page-table-present+
-                                                                   +page-table-write+))))
-    (let ((pdp (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 cr3 pml4e) +page-table-address-mask+))))
-      (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdp pdpe)))
-        ;; No PDir. Allocate one.
-        (when (not allocate)
-          (return-from get-pte-for-address nil))
+(defun descend-page-table (page-table index allocate)
+  (if (not (page-present-p page-table index))
+      (when allocate
+        ;; No PT. Allocate one.
         (let* ((frame (or (allocate-physical-pages 1)
                           (panic "Aiee. No memory.")))
                (addr (+ +physical-map-base+ (ash frame 12))))
-          (dotimes (i 512)
-            (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-          (setf (sys.int::memref-unsigned-byte-64 pdp pdpe) (logior (ash frame 12)
-                                                                    +page-table-present+
-                                                                    +page-table-write+))))
-      (let ((pdir (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdp pdpe) +page-table-address-mask+))))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pdir pde)))
-          ;; No PT. Allocate one.
-          (when (not allocate)
-            (return-from get-pte-for-address nil))
-          (let* ((frame (or (allocate-physical-pages 1)
-                            (panic "Aiee. No memory.")))
-                 (addr (+ +physical-map-base+ (ash frame 12))))
-            (dotimes (i 512)
-              (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-            (setf (sys.int::memref-unsigned-byte-64 pdir pde) (logior (ash frame 12)
-                                                                      +page-table-present+
-                                                                      +page-table-write+))))
-        (let ((pt (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pdir pde) +page-table-address-mask+))))
-          (+ pt (* pte 8)))))))
+          (zeroize-page addr)
+          (setf (page-table-entry page-table index) (logior (ash frame 12)
+                                                            +page-table-present+
+                                                            +page-table-write+))
+          addr))
+      (+ +physical-map-base+ (logand (page-table-entry page-table index) +page-table-address-mask+))))
+
+(defun get-pte-for-address (address &optional (allocate t))
+  (let* ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+         (pdp            (descend-page-table cr3  (address-l4-bits address) allocate))
+         (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
+         (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
+    (and pt (+ pt (* 8 (address-l1-bits address))))))
 
 (defun insert-into-block-cache (block-id addr)
   ;; Insert it into the cache.
@@ -116,8 +117,7 @@
        (let* ((frame (or (allocate-physical-pages 1)
                          (panic "Aiee. No memory.")))
               (cache-addr (+ +physical-map-base+ (ash frame 12))))
-         (dotimes (i 512)
-           (setf (sys.int::memref-unsigned-byte-64 cache-addr i) 0))
+         (zeroize-page cache-addr)
          (setf (sys.int::memref-t cache-addr 511) *block-cache*
                *block-cache* cache-addr)
          (setf (sys.int::memref-unsigned-byte-64 cache-addr 0) block-id
@@ -157,15 +157,13 @@
        (let* ((frame (or (allocate-physical-pages 1)
                          (panic "Aiee. No memory.")))
               (data (+ +physical-map-base+ (ash frame 12))))
-         (dotimes (i 512)
-           (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+         (zeroize-page data)
          (insert-into-block-cache block-id data)
          data))
     (dotimes (i 255)
       (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
         (let ((data (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2)))))
-          (dotimes (i 512)
-            (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+          (zeroize-page data)
           (return-from zero-cached-block data))))))
 
 (defun read-cached-block (block-id)
@@ -187,10 +185,10 @@
                        (not (logtest sys.int::+block-map-present+ info)))
                (return-from block-info-for-virtual-address nil))
              (read-cached-block id))))
-    (let* ((bml4e (ldb (byte 9 39) address))
-           (bml3e (ldb (byte 9 30) address))
-           (bml2e (ldb (byte 9 21) address))
-           (bml1e (ldb (byte 9 12) address))
+    (let* ((bml4e (address-l4-bits address))
+           (bml3e (address-l3-bits address))
+           (bml2e (address-l2-bits address))
+           (bml1e (address-l1-bits address))
            (bml4 (read-cached-block *bml4-block*))
            (bml3 (read-level bml4 bml4e))
            (bml2 (read-level bml3 bml3e))
@@ -216,10 +214,10 @@
                                                                             sys.int::+block-map-present+))
                  (zero-cached-block id))
                (read-cached-block id))))
-      (let* ((bml4e (ldb (byte 9 39) address))
-             (bml3e (ldb (byte 9 30) address))
-             (bml2e (ldb (byte 9 21) address))
-             (bml1e (ldb (byte 9 12) address))
+      (let* ((bml4e (address-l4-bits address))
+             (bml3e (address-l3-bits address))
+             (bml2e (address-l2-bits address))
+             (bml1e (address-l1-bits address))
              (bml4 (read-cached-block *bml4-block*))
              (bml3 (read-level bml4 bml4e))
              (bml2 (read-level bml3 bml3e))
@@ -242,10 +240,10 @@
                                                                           sys.int::+block-map-present+))
                (zero-cached-block id))
              (read-cached-block id))))
-    (let* ((bml4e (ldb (byte 9 39) address))
-           (bml3e (ldb (byte 9 30) address))
-           (bml2e (ldb (byte 9 21) address))
-           (bml1e (ldb (byte 9 12) address))
+    (let* ((bml4e (address-l4-bits address))
+           (bml3e (address-l3-bits address))
+           (bml2e (address-l2-bits address))
+           (bml1e (address-l1-bits address))
            (bml4 (read-cached-block *bml4-block*))
            (bml3 (read-level bml4 bml4e))
            (bml2 (read-level bml3 bml3e))
@@ -264,10 +262,10 @@
              (when (zerop id)
                (panic "Block " address " not present!"))
              (read-cached-block id))))
-    (let* ((bml4e (ldb (byte 9 39) address))
-           (bml3e (ldb (byte 9 30) address))
-           (bml2e (ldb (byte 9 21) address))
-           (bml1e (ldb (byte 9 12) address))
+    (let* ((bml4e (address-l4-bits address))
+           (bml3e (address-l3-bits address))
+           (bml2e (address-l2-bits address))
+           (bml1e (address-l1-bits address))
            (bml4 (read-cached-block *bml4-block*))
            (bml3 (read-level bml4 bml4e))
            (bml2 (read-level bml3 bml3e))
@@ -296,11 +294,10 @@
       (release-block-at-virtual-address (+ base (* i #x1000)))
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
-          (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
-          (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3))))
+        (when (and pte (page-present-p pte 0))
+          (release-vm-page (ash (page-table-entry pte 0) -12))
+          (setf (page-table-entry pte 0) 0))))
+    (flush-tlb)))
 
 (defun protect-memory-range (base length flags)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
@@ -317,23 +314,22 @@
       (set-address-flags (+ base (* i #x1000)) flags)
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
-        (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
+        (when (and pte (page-present-p pte 0))
           (cond ((or (not (logtest sys.int::+block-map-present+ flags))
                      (logtest sys.int::+block-map-zero-fill+ flags))
                  ;; Page going away, but it's ok. It'll be back, zero-filled.
-                 #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (sys.int::memref-unsigned-byte-64 pte 0))
-                 (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
-                 (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))
+                 #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
+                 (release-vm-page (ash (page-table-entry pte 0) -12))
+                 (setf (page-table-entry pte 0) 0))
                 ((logtest sys.int::+block-map-writable+ flags)
                  ;; Mark writable.
-                 (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (sys.int::memref-unsigned-byte-64 pte 0)
-                                                                        +page-table-write+)))
+                 (setf (page-table-entry pte 0) (logior (page-table-entry pte 0)
+                                                        +page-table-write+)))
                 (t
                  ;; Mark read-only.
-                 (setf (sys.int::memref-unsigned-byte-64 pte 0) (logand (sys.int::memref-unsigned-byte-64 pte 0)
-                                                                        (lognot +page-table-write+))))))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3))))
+                 (setf (page-table-entry pte 0) (logand (page-table-entry pte 0)
+                                                        (lognot +page-table-write+))))))))
+    (flush-tlb)))
 
 (defun wait-for-page (address)
   #+(or)(debug-print-line "WFP " address)
@@ -348,8 +344,8 @@
           (block-info (block-info-for-virtual-address address)))
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
-      (when (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0))
-        #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (sys.int::memref-unsigned-byte-64 pte 0))
+      (when (page-present-p pte 0)
+        #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make
       ;; runtime-allocated stacks work before allocate-stack actually modifies the
@@ -368,8 +364,7 @@
                                                         (ash 1 +page-frame-flag-cache+)))
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
-               (dotimes (i 512)
-                 (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+               (zeroize-page addr)
                ;; Clear the zero-fill flag.
                (set-address-flags address (logand block-info
                                                   sys.int::+block-map-flag-mask+
@@ -384,24 +379,23 @@
                                     addr)
                (or (disk-await-request *pager-disk-request*)
                    (panic "Unable to read page from disk"))))
-        (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (ash frame 12)
-                                                               +page-table-present+
-                                                               (if (logtest sys.int::+block-map-writable+ block-info)
-                                                                   +page-table-write+
-                                                                   0)))
-        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (sys.int::memref-unsigned-byte-64 pte 0))
+        (setf (page-table-entry pte 0) (logior (ash frame 12)
+                                               +page-table-present+
+                                               (if (logtest sys.int::+block-map-writable+ block-info)
+                                                   +page-table-write+
+                                                 0)))
+        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0))
         ;; Perform stack aliasing at the PML4 level.
         (when (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
                    sys.int::+address-tag-stack+)
           (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
-                (pml4e (ldb (byte 9 39) address))
-                (other-pml4e (ldb (byte 9 39) (logior address (ash 1 sys.int::+address-mark-bit+)))))
+                (pml4e (address-l4-bits address))
+                (other-pml4e (address-l4-bits (logior address (ash 1 sys.int::+address-mark-bit+)))))
             ;; Keep access bit set, if already set.
-            (setf (sys.int::memref-unsigned-byte-64 cr3 other-pml4e) (logior (sys.int::memref-unsigned-byte-64 cr3 pml4e)
-                                                                             (logand (sys.int::memref-unsigned-byte-64 cr3 other-pml4e)
-                                                                                     +page-table-accessed+)))))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3)))
+            (setf (page-table-entry cr3 other-pml4e) (logior (page-table-entry cr3 pml4e)
+                                                             (logand (page-table-entry cr3 other-pml4e)
+                                                                     +page-table-accessed+)))))))
+    (flush-tlb))
   t)
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
@@ -431,10 +425,10 @@ It will put the thread to sleep, while it waits for the page."
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate size #x1000))
       (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))
-        (when (not (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
-          (setf (sys.int::memref-unsigned-byte-64 pte 0) (logior (+ base (* i #x1000))
-                                                                 +page-table-present+
-                                                                 +page-table-write+)))))))
+        (when (not (page-present-p pte 0))
+          (setf (page-table-entry pte 0) (logior (+ base (* i #x1000))
+                                                 +page-table-present+
+                                                 +page-table-write+)))))))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))
