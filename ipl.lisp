@@ -95,8 +95,6 @@ If the compiled file is out of date, recompile it."
 ;; an undefined-function EXPORT error. This can be fixed by rebooting.
 (sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
 
-(format t "~&ASDF loaded.~%") (finish-output)
-
 ;; A bunch of GUI related systems.
 (require :zpb-ttf)
 (require :cl-vectors)
@@ -122,6 +120,7 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "applications/fs-viewer.lisp")
+
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
