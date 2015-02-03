@@ -47,6 +47,11 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
+(declaim (inline zeroize-page))
+(defun zeroize-page (addr)
+  (dotimes (i 512)
+    (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
@@ -90,8 +95,7 @@
         (let* ((frame (or (allocate-physical-pages 1)
                           (panic "Aiee. No memory.")))
                (addr (+ +physical-map-base+ (ash frame 12))))
-          (dotimes (i 512)
-            (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+          (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
                                                             +page-table-present+
                                                             +page-table-write+))
@@ -113,8 +117,7 @@
        (let* ((frame (or (allocate-physical-pages 1)
                          (panic "Aiee. No memory.")))
               (cache-addr (+ +physical-map-base+ (ash frame 12))))
-         (dotimes (i 512)
-           (setf (sys.int::memref-unsigned-byte-64 cache-addr i) 0))
+         (zeroize-page cache-addr)
          (setf (sys.int::memref-t cache-addr 511) *block-cache*
                *block-cache* cache-addr)
          (setf (sys.int::memref-unsigned-byte-64 cache-addr 0) block-id
@@ -154,15 +157,13 @@
        (let* ((frame (or (allocate-physical-pages 1)
                          (panic "Aiee. No memory.")))
               (data (+ +physical-map-base+ (ash frame 12))))
-         (dotimes (i 512)
-           (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+         (zeroize-page data)
          (insert-into-block-cache block-id data)
          data))
     (dotimes (i 255)
       (when (eql (sys.int::memref-unsigned-byte-64 cache-page (* i 2)) block-id)
         (let ((data (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2)))))
-          (dotimes (i 512)
-            (setf (sys.int::memref-unsigned-byte-64 data i) 0))
+          (zeroize-page data)
           (return-from zero-cached-block data))))))
 
 (defun read-cached-block (block-id)
@@ -363,8 +364,7 @@
                                                         (ash 1 +page-frame-flag-cache+)))
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
-               (dotimes (i 512)
-                 (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
+               (zeroize-page addr)
                ;; Clear the zero-fill flag.
                (set-address-flags address (logand block-info
                                                   sys.int::+block-map-flag-mask+
