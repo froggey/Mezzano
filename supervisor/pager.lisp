@@ -83,52 +83,27 @@
       ;; Release the pages.
       (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)))))
 
-(defun get-pte-for-address (address &optional (allocate t))
-  (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
-        (pml4e (address-l4-bits address))
-        (pdpe (address-l3-bits address))
-        (pde (address-l2-bits address))
-        (pte (address-l1-bits address)))
-    (when (not (page-present-p cr3 pml4e))
-      ;; No PDP. Allocate one.
-      (when (not allocate)
-        (return-from get-pte-for-address nil))
-      (let* ((frame (or (allocate-physical-pages 1)
-                        (panic "Aiee. No memory.")))
-             (addr (+ +physical-map-base+ (ash frame 12))))
-        (dotimes (i 512)
-          (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-        (setf (page-table-entry cr3 pml4e) (logior (ash frame 12)
-                                                   +page-table-present+
-                                                   +page-table-write+))))
-    (let ((pdp (+ +physical-map-base+ (logand (page-table-entry cr3 pml4e) +page-table-address-mask+))))
-      (when (not (page-present-p pdp pdpe))
-        ;; No PDir. Allocate one.
-        (when (not allocate)
-          (return-from get-pte-for-address nil))
+(defun descend-page-table (page-table index allocate)
+  (if (not (page-present-p page-table index))
+      (when allocate
+        ;; No PT. Allocate one.
         (let* ((frame (or (allocate-physical-pages 1)
                           (panic "Aiee. No memory.")))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (dotimes (i 512)
             (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-          (setf (page-table-entry pdp pdpe) (logior (ash frame 12)
-                                                    +page-table-present+
-                                                    +page-table-write+))))
-      (let ((pdir (+ +physical-map-base+ (logand (page-table-entry pdp pdpe) +page-table-address-mask+))))
-        (when (not (page-present-p pdir pde))
-          ;; No PT. Allocate one.
-          (when (not allocate)
-            (return-from get-pte-for-address nil))
-          (let* ((frame (or (allocate-physical-pages 1)
-                            (panic "Aiee. No memory.")))
-                 (addr (+ +physical-map-base+ (ash frame 12))))
-            (dotimes (i 512)
-              (setf (sys.int::memref-unsigned-byte-64 addr i) 0))
-            (setf (page-table-entry pdir pde) (logior (ash frame 12)
-                                                      +page-table-present+
-                                                      +page-table-write+))))
-        (let ((pt (+ +physical-map-base+ (logand (page-table-entry pdir pde) +page-table-address-mask+))))
-          (+ pt (* pte 8)))))))
+          (setf (page-table-entry page-table index) (logior (ash frame 12)
+                                                            +page-table-present+
+                                                            +page-table-write+))
+          addr))
+      (+ +physical-map-base+ (logand (page-table-entry page-table index) +page-table-address-mask+))))
+
+(defun get-pte-for-address (address &optional (allocate t))
+  (let* ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+         (pdp            (descend-page-table cr3  (address-l4-bits address) allocate))
+         (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
+         (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
+    (and pt (+ pt (* 8 (address-l1-bits address))))))
 
 (defun insert-into-block-cache (block-id addr)
   ;; Insert it into the cache.
