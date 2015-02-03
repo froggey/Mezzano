@@ -25,6 +25,11 @@
 (defconstant +page-table-copy-on-write+  #x400)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
+(declaim (inline flush-tlb))
+(defun flush-tlb ()
+  ;; Reloading CR3 on x86oids causes all TLBs to be marked invalid.
+  (setf (sys.int::%cr3) (sys.int::%cr3)))
+
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
@@ -299,8 +304,7 @@
         (when (and pte (logtest +page-table-present+ (sys.int::memref-unsigned-byte-64 pte 0)))
           (release-vm-page (ash (sys.int::memref-unsigned-byte-64 pte 0) -12))
           (setf (sys.int::memref-unsigned-byte-64 pte 0) 0))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3))))
+    (flush-tlb)))
 
 (defun protect-memory-range (base length flags)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
@@ -332,8 +336,7 @@
                  ;; Mark read-only.
                  (setf (sys.int::memref-unsigned-byte-64 pte 0) (logand (sys.int::memref-unsigned-byte-64 pte 0)
                                                                         (lognot +page-table-write+))))))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3))))
+    (flush-tlb)))
 
 (defun wait-for-page (address)
   #+(or)(debug-print-line "WFP " address)
@@ -400,8 +403,7 @@
             (setf (sys.int::memref-unsigned-byte-64 cr3 other-pml4e) (logior (sys.int::memref-unsigned-byte-64 cr3 pml4e)
                                                                              (logand (sys.int::memref-unsigned-byte-64 cr3 other-pml4e)
                                                                                      +page-table-accessed+)))))))
-    ;; Flush TLB.
-    (setf (sys.int::%cr3) (sys.int::%cr3)))
+    (flush-tlb))
   t)
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
