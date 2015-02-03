@@ -16,8 +16,8 @@
 
 (defvar *wired-allocator-lock*)
 (defvar *allocator-lock*)
-(defvar *general-area-expansion-granularity* (* 128 1024 1024))
-(defvar *cons-area-expansion-granularity*    (* 128 1024 1024))
+(defvar *general-area-expansion-granularity* (* 16 1024 1024))
+(defvar *cons-area-expansion-granularity*    (* 16 1024 1024))
 
 (defun freelist-entry-next (entry)
   (sys.int::memref-t entry 1))
