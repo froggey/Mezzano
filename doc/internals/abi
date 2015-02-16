@@ -1,0 +1,326 @@
+The ABI.
+
+*  Register usage in compiled code.
+
+RAX, RCX, RDX, RSI, and RDI are all caller-save and only store immediate or
+raw values. These registers were chosen because they're all used as implicit
+operands in a number of x86 instructions. They are never scanned by the GC.
+Exception: CMPXCHG and CMPXCHG16B use these registers to hold values, so must
+be executed with the GC deferred or only on pinned/wired values.
+
+RSP is the stack pointer.
+RBP is the frame pointer, it is callee-save.
+
+RBX, R8, R9, R10, R11, R12, and R13 are all caller-save and are used to store
+Lisp values. The GC will scan these registers.
+
+R14 and R15 are not used or scanned by the GC due to historical reasons.
+
+The direction flag (DF) in RFlags must be set to zero (forward) on function
+entry and return. Other flags are caller-save.
+
+FS_BASE always points to the current CPU's structure.
+GS_BASE always points to the current thread.
+
+x87/MMX/SSE state is caller-save and the x87/MMX state is not defined across
+calls. The callee must execute EMMS before it uses x87 instructions.
+AVX is not supported.
+The FPU state is not implicitly preserved when an interrupt handler is called.
+
+
+*  Common calling convention.
+
+The number of arguments is passed in RCX as a fixnum.
+The first 5 arguments are passed in R8, R9, R10, R11, R12.
+Remaining arguments are passed on the stack immediately above the return
+address. The callee is free to modify arguments on the stack, and the caller
+must remove them from the stack when the caller returns.
+
+The stack pointer must have bit 3 set and bits 2-0 clear. In other words, it
+must be offset 8 bytes from a 16-byte boundary.
+
+Stack pointer| Value
+-------------+-----------
+xx8+(N-4)*8  | Argument N
+xx8+8        | Argument 5
+xx8+0        | Return address
+
+
+**  Calling convention for funcallable objects.
+
+Funcallable objects are normal compiled functions, closures and
+funcallable-instances.
+The object is loaded into RBX, then the entry point is called.
+The first word of a funcallable object is the entry point address.
+
+(call (:object :rbx 0))
+
+
+**  Calling convention for function references.
+
+Function references (frefs) are used to provide a uniform representation of
+function names that can be called efficiently.
+The fref is loaded into R13, then the entry point is called.
+
+(call (:object :r13 #.+fref-entry-point+))
+
+
+***  Function references and undefined functions.
+
+When a function is not defined, the entry point of the corresponding fref
+is points to the undefined function thunk.
+This assembly thunk calls SYS.INT::RAISE-UNDEFINED-FUNCTION with the fref as
+the first argument. Currently, the arguments of the called function are lost.
+
+
+***  Function references and closures.
+
+When a function reference's function is set to a closure, the entry point of
+the fref will point to the closure trampoline. This assembly thunk loads the
+function object from the fref and invokes it using the funcallable object
+calling convention, leaving the closure object in RBX.
+
+
+**  Funcallable-instances.
+
+A funcallable-instance behaves like a normal compiled function, except that
+the body of a funcallable-instance is a thunk which loads the function
+associated with the funcallable-instance from the constant pool and invokes
+it using the funcallable object calling convention.
+This may be changed in the future so that they behave more like closures.
+
+
+*  Return convention.
+
+The number of returned values is passed in RCX.
+When returning zero values, R8 is loaded with NIL so that the caller does not
+need to test for 0 values when it expects a single return value.
+The first 5 return values are passed in R8, R9, R10, R11, R12.
+Remaining return values are passed in the multiple value save area in the
+thread object.
+
+(:object nil (+ #.+thread-mv-slots-start+ (- N 5))), with the (gs) prefix.
+
+Note: Interrupt handlers borrow the current thread's context, and must take
+care not to step on the multiple value save area. Returning 5 or fewer values
+is safe.
+
+
+**  Tail calls.
+
+Tail calls can only be performed when 5 or fewer arguments are being passed
+to the function because the caller must remove arguments from the stack
+after a call. Arguments passed in registers require no cleanup.
+
+
+**  Dynamic extent hygiene.
+
+Values allocated with dynamic-extent must not be live after execution leaves
+their dynamic scope. If a function uses dynamic-extent allocation, then
+the compiler will scrub GC scanned registers when the function returns.
+Currently the GC unconditionally scans the entire MV save area, even though
+it really shouldn't. GC metadata contains information about how many values
+in the MV save area are live, but this is not used properly yet.
+
+
+*  Non-local exits.
+
+BLOCK and TAGBODY create NLX information objects on the stack. These do not
+follow the normal object representation and are known by their address. They
+are aligned to 16 bytes, which allows the address to be treated like a fixnum
+even though it is a raw, unboxed value.
+
++0  Target address.
+    For BLOCK, this points directly to a thunk that sets RSP/RBP correctly.
+    For TAGBODY, this points to a position-independent jump table.
+    There is one entry in the jump table per NLX go-tag. Each entry points to
+    a thunk like the BLOCK thunk.
++8  Saved special stack pointer.
+    This is saved with address mark bit clear to simplify the implementation
+    of GET-BLOCK/TAGBODY-INFO-BINDING-STACK-POINTER if it is non-NIL. This slot
+    is never scanned by the GC, but the special stack will always live at least
+    as long as the NLX info, as the objects that represent the special stack are
+    also allocated with dynamic-extent.
++16 Saved stack pointer.
++24 Saved frame pointer.
+
+1) If the NLX was caused by a RETURN-FROM, then the result form is evaulated
+   and any return values are saved on the stack.
+2) SYS.INT::%%UNWIND-TO is called to unwind the special stack to the saved
+   position. If an unwind-protect cleanup function triggers another non-local
+   exit, then %%UNWIND-TO will never return and this non-local exit will be
+   overridden.
+3) The NLX information object is loaded into RAX.
+4) If the NLX was caused by a RETURN-FROM, then the saved values are reloaded
+   using the multiple-value return convention.
+5) Value registers are scrubbed to preserve DX hygiene.
+6) The NLX thunk is jumped to.
+7) The NLX thunk restores RSP and RBP, then jumps to the true target of the
+   NLX.
+
+The NLX thunk exists in the function containing BLOCK/TAGBODY, not the function
+performing the NLX because the function performing the NLX does not have the
+correct GC metadata available during compilation.
+
+Mezzano currently implements EXIT-EXTENT:MEDIUM, but this may change.
+
+
+**  CATCH and THROW.
+
+CATCH and THROW are implemented using BLOCK and RETURN-FROM, similar to
+conditions and restarts.
+
+
+*  The special stack.
+
+"Stack" is slightly misleading, the special stack is a linked-list of
+dynamic-extent 3-element SIMPLE-VECTORs. Element 0 of each vector is the
+previous vector in the list, or NIL to terminate the list. Element 1 is the
+primary object and the type determines what kind of stack entry this is.
+Element 2 contains additional data.
+3-element SIMPLE-VECTORs were chosen over CONS-based lists because while they
+are equally compact, vectors involve less pointer-chasing.
+
+ Type         | Meaning
+--------------+--------------------
+SYMBOL        | This is a dynamic binding. Element 2 is the previous value
+              | of the symbol.
+SIMPLE-VECTOR | This is an environment vector containing an NLX information
+              | object. Element 2 is the offset of the NLX info.
+FUNCTION      | This is an unwind-protect cleanup pseudo-closure. Element 2
+              | is the environment vector associated with the closure.
+
+
+** Dynamic bindings.
+
+All dynamically-bound symbols have a thread-local storage (TLS) index
+permanently associated with them. This is used to index into the thread's
+TLS area, a fixed size part of the thread object. When the symbol has a
+dynamic binding in this thread, this slot contains the symbol's current value.
+If the symbol is not bound in the thread, then the slot contains the
+:UNBOUND-TLS-SLOT value and the value of the symbol can be found in the
+symbol's value cell.
+This implementation of dynamic binding restricts the total number of
+dynamically-bound special variables to approximately 300. This limit has not
+been a problem yet, but it will have to be fixed in the future. After loading
+the demo system, there are approximately 200 slots remaining.
+
+A dynamic binding is created by allocating a TLS slot for the symbol, pushing
+the symbol and current value of the TLS slot on to the special stack, and then
+setting the TLS slot to the new value.
+The binding is undone by restoring the saved value of the TLS slot.
+
+
+** BLOCK/TAGBODY NLX information.
+
+NLX information objects treated as closed over variables, closed over variables
+are stored in environment vectors, represented using SIMPLE-VECTORs.
+Before a GO or RETURN-FOM occurs, the entry in the environment vector
+containing the NLX information address is compared against NIL. If it is NIL
+then the dynamic-extent of the BLOCK or TAGBODY has finished and it is no
+longer valid to perform the NLX. SYS.INT::RAISE-BAD-BLOCK or
+SYS.INT::RAISE-BAD-GO-TAG will be called instead.
+When the dynamic-extent of the BLOCK or TAGBODY associated with the NLX finishs,
+the entry in the environment vector is invalidated by replaced the address of
+the NLX with NIL.
+This special stack entry is is popped by (SETF (SVREF ELT-1 ELT-2) NIL),
+invalidating it and preventing any further NLX.
+
+This does not protect against cross-thread non-local exits, they will break
+the system terribly instead.
+
+
+** Unwind-protect.
+
+UNWIND-PROTECT cleanup forms are enclosed in a zero-argument lambda, which in
+turn may close over variables in the enclosing function. This lambda is not
+represented using a normal closure object, instead the environment vector and
+the associated function object are stored directly in the special stack.
+
+The cleanup function is called by loading the function into one of the value
+registers, loading the environment vector into RBX, loading RCX with fixnum 0,
+and then calling the function's entry point.
+
+
+*  GC metadata.
+
+Beware, this section may blur reality with wishful thinking. The GC's stack-
+scavenging code is incomplete and buggy.
+
+Every instruction in the system has a set of GC related properties associated
+with it that mostly define the layout of the stack and registers before that
+instruction is executed.
+
+The complete GC information for a function is stored in a packed representation
+after the function's constant pool.
+
+
+** :FRAME/:NO-FRAME
+
+Specifies if an RBP-based stack frame is active.
+
+
+** :INTERRUPT
+
+A boolean. When true other poorly defined rules apply.
+
+
+** :LAYOUT
+
+A bit-vector indicating liveness of a given stack slot.
+With a frame:  (bit layout n) = (livep (- :rbp (* (1+ n) 8)))
+With no frame: (bit layout n) = (livep (+ :rsp (* n 8)))
+Defaults to #*.
+
+
+** :INCOMING-ARGUMENTS
+
+This can be NIL, :RCX or [0,14]. It is ignored when NIL.
+This is used to specify how many live values there are above the return address.
+If it is :RCX, then there are (min (- [value-of-rcx] 5) 0) live values.
+If it is an integer, then the integer specifies a stack slot that contains the
+total number of arguments, including register arguments. The address of the
+slot is calculated using the same method as :LAYOUT.
+:RCX is not valid over a function call as :RCX is caller-save.
+Defaults to NIL.
+
+
+** :MULTIPLE-VALUES
+
+This can be NIL or [0,14]. It is ignored when NIL.
+When non-NIL, this means that the multiple-value calling convention is active
+and that there :RCX + N values live. If there are more than 5 values, then the
+GC will scan the thread's multiple value save area as required.
+
+### The flexibility here is unnecessary. It only needs to be able to represent
+    NIL, RCX+0 or RCX+1.
+
+:RCX, as always, holds a fixnum.
+Defaults to NIL.
+
+
+** :PUSHED-VALUES
+
+An integer, (SIGNED-BYTE 32). There are N additional live values on the stack,
+from the current stack pointer value upwards.
+Defaults to 0.
+
+
+** :PUSHED-VALUES-REGISTER
+
+A register (except :RSP) or NIL. It is ignored when NIL.
+The register it specifies contains a fixnum, the number of additional live
+values on the stack. This is additive with :PUSHED-VALUES.
+
+### Always seems to be :RCX or NIL, could be cut to just that.
+
+Defaults to NIL.
+
+
+** :BLOCK-OR-TAGBODY-THUNK
+
+This must be :RAX or NIL. It is ignored when NIL.
+When present, the stack & frame pointer are taken from the NLX information
+object in :RAX, and :RSP/:RBP are ignored.
+
+Defaults to NIL.
