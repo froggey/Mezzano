@@ -800,7 +800,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (when (not (eql (ldb (byte +array-type-size+ +array-type-shift+)
                                 (memref-unsigned-byte-64 address -2))
                            +object-tag-cons+))
-             (mezzano.supervisor:debug-print-line "Invalid pinned cons " object))
+             (mezzano.supervisor:panic "Invalid pinned cons " object))
            (when (not (eql (logand (memref-unsigned-byte-64 address -2)
                                    +array-like-mark-bit+)
                            *pinned-mark-bit*))
