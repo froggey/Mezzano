@@ -331,6 +331,6 @@
                                                            +serial-mcr-auxiliary-output-2+)
      ;; Enable RX interrupts.
      (sys.int::io-port/8 (+ io-port +serial-IER+)) +serial-ier-received-data-available+))
-  (debug-set-output-pesudostream 'debug-serial-stream)
+  (debug-set-output-pseudostream 'debug-serial-stream)
   (i8259-hook-irq irq 'debug-serial-irq-handler)
   (i8259-unmask-irq irq))
