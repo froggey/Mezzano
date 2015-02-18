@@ -92,9 +92,6 @@
            #:go-tag-p)
   (:use :cross-cl))
 
-(defpackage :sys.newc
-  (:use :cross-cl))
-
 (in-package :system.compiler)
 
 (defpackage :system
