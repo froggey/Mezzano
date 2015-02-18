@@ -16,7 +16,7 @@
                (:file "system/parse" :depends-on ("compiler/cross"))
                (:file "system/backquote" :depends-on ("compiler/cross"))
                (:file "compiler/cross-compile"
-                      :depends-on ("compiler/cross" "system/backquote"))
+                      :depends-on ("compiler/cross" "system/backquote" "system/data-types"))
                (:file "compiler/compiler"
                       :depends-on ("compiler/cross"))
                (:file "compiler/cross-boot"

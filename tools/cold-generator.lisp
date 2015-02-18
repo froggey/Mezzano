@@ -1340,29 +1340,6 @@
 
 (defvar *load-should-set-fdefinitions*)
 
-(defconstant +llf-end-of-load+ #xFF)
-(defconstant +llf-backlink+ #x01)
-(defconstant +llf-function+ #x02)
-(defconstant +llf-cons+ #x03)
-(defconstant +llf-symbol+ #x04)
-(defconstant +llf-uninterned-symbol+ #x05)
-(defconstant +llf-unbound+ #x06)
-(defconstant +llf-string+ #x07)
-(defconstant +llf-setf-symbol+ #x08)
-(defconstant +llf-integer+ #x09)
-(defconstant +llf-invoke+ #x0A)
-(defconstant +llf-setf-fdefinition+ #x0B)
-(defconstant +llf-simple-vector+ #x0C)
-(defconstant +llf-character+ #x0D)
-(defconstant +llf-structure-definition+ #x0E)
-(defconstant +llf-single-float+ #x10)
-(defconstant +llf-proper-list+ #x11)
-(defconstant +llf-package+ #x12)
-(defconstant +llf-integer-vector+ #x13)
-(defconstant +llf-add-backlink+ #x14)
-(defconstant +llf-bit-vector+ #x18)
-(defconstant +llf-function-reference+ #x19)
-
 (defun make-bignum (value)
   (let* ((length (ceiling (1+ (integer-length value)) 64))
          (address (allocate (1+ length))))
@@ -1661,18 +1638,18 @@ Tag with +TAG-OBJECT+."
 
 (defun load-one-object (command stream stack)
   (ecase command
-    (#.+llf-function+
+    (#.sys.int::+llf-function+
      (load-llf-function stream stack))
-    (#.+llf-cons+
+    (#.sys.int::+llf-cons+
      (let* ((car (vector-pop stack))
             (cdr (vector-pop stack)))
        (vcons car cdr)))
-    (#.+llf-symbol+
+    (#.sys.int::+llf-symbol+
      (let* ((name (load-string* stream))
             (package (load-string* stream)))
        (make-value (symbol-address name package)
                    sys.int::+tag-object+)))
-    (#.+llf-uninterned-symbol+
+    (#.sys.int::+llf-uninterned-symbol+
      (let ((plist (vector-pop stack))
            (fn (vector-pop stack))
            (value (vector-pop stack))
@@ -1688,14 +1665,14 @@ Tag with +TAG-OBJECT+."
        (unless (eql fn (unbound-value))
          (error "Uninterned symbol with function not supported."))
        (make-value address sys.int::+tag-object+)))
-    (#.+llf-unbound+ (unbound-value))
-    (#.+llf-string+ (load-string stream))
-    (#.+llf-integer+
+    (#.sys.int::+llf-unbound+ (unbound-value))
+    (#.sys.int::+llf-string+ (load-string stream))
+    (#.sys.int::+llf-integer+
      (let ((value (load-integer stream)))
        (typecase value
          ((signed-byte 63) (make-fixnum value))
          (t (make-bignum value)))))
-    (#.+llf-invoke+
+    (#.sys.int::+llf-invoke+
      ;; `(funcall ',fn)
      (let* ((fn (vector-pop stack))
             (form (vlist (vintern "FUNCALL" "COMMON-LISP")
@@ -1703,7 +1680,7 @@ Tag with +TAG-OBJECT+."
                                 fn))))
        (push form *load-time-evals*))
      nil)
-    (#.+llf-setf-fdefinition+
+    (#.sys.int::+llf-setf-fdefinition+
      (let* ((base-name (vector-pop stack))
             (fn-value (vector-pop stack))
             (name (extract-object base-name)))
@@ -1718,27 +1695,27 @@ Tag with +TAG-OBJECT+."
                            (vlist (vintern "QUOTE" "COMMON-LISP") base-name))
                     *load-time-evals*))))
      nil)
-    (#.+llf-simple-vector+
+    (#.sys.int::+llf-simple-vector+
      (load-llf-vector stream stack))
-    (#.+llf-character+
+    (#.sys.int::+llf-character+
      (logior (ash (load-character stream) 4)
              sys.int::+tag-character+))
-    (#.+llf-structure-definition+
+    (#.sys.int::+llf-structure-definition+
      (let ((area (vector-pop stack))
            (parent (vector-pop stack))
            (slots (vector-pop stack))
            (name (vector-pop stack)))
        (load-structure-definition name slots parent area)))
-    (#.+llf-single-float+
+    (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              sys.int::+tag-single-float+))
-    (#.+llf-proper-list+
+    (#.sys.int::+llf-proper-list+
      (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
            (length (load-integer stream)))
        (dotimes (i length)
          (setf list (vcons (vector-pop stack) list)))
        list))
-    (#.+llf-integer-vector+
+    (#.sys.int::+llf-integer-vector+
      (let* ((len (load-integer stream))
             (address (allocate (1+ len))))
        ;; Header word.
@@ -1749,7 +1726,7 @@ Tag with +TAG-OBJECT+."
                                           ((signed-byte 63) (make-fixnum value))
                                           (t (make-bignum value))))))
        (make-value address sys.int::+tag-object+)))
-    (#.+llf-bit-vector+
+    (#.sys.int::+llf-bit-vector+
      (let* ((len (load-integer stream))
             (address (allocate (1+ (ceiling len 64)))))
        ;; Header word.
@@ -1762,7 +1739,7 @@ Tag with +TAG-OBJECT+."
                         (word (+ address 1 word)))
                    octet))))
        (make-value address sys.int::+tag-object+)))
-    (#.+llf-function-reference+
+    (#.sys.int::+llf-function-reference+
      (let* ((name (vector-pop stack))
             (truname (extract-object name)))
        (make-value (function-reference truname)
@@ -1773,16 +1750,16 @@ Tag with +TAG-OBJECT+."
         (stack (make-array 64 :adjustable t :fill-pointer 0)))
     (loop (let ((command (read-byte stream)))
             (case command
-              (#.+llf-end-of-load+
+              (#.sys.int::+llf-end-of-load+
                (return))
-              (#.+llf-backlink+
+              (#.sys.int::+llf-backlink+
                (let ((id (load-integer stream)))
                  (multiple-value-bind (value value-p)
                      (gethash id omap)
                    (unless value-p
                      (error "Unknown backlink ID ~D." id))
                    (vector-push-extend value stack))))
-              (#.+llf-add-backlink+
+              (#.sys.int::+llf-add-backlink+
                (let ((id (load-integer stream)))
                  (multiple-value-bind (existing-value existing-value-p)
                      (gethash id omap)

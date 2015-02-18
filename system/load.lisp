@@ -5,36 +5,6 @@
 
 ;;; Mini FASL loader.
 
-(defconstant +llf-end-of-load+ #xFF)
-(defconstant +llf-backlink+ #x01)
-(defconstant +llf-function+ #x02)
-(defconstant +llf-cons+ #x03)
-(defconstant +llf-symbol+ #x04)
-(defconstant +llf-uninterned-symbol+ #x05)
-(defconstant +llf-unbound+ #x06)
-(defconstant +llf-string+ #x07)
-(defconstant +llf-setf-symbol+ #x08)
-(defconstant +llf-integer+ #x09)
-;; Call a function, ignore the result.
-(defconstant +llf-invoke+ #x0A)
-(defconstant +llf-setf-fdefinition+ #x0B)
-(defconstant +llf-simple-vector+ #x0C)
-(defconstant +llf-character+ #x0D)
-(defconstant +llf-structure-definition+ #x0E)
-(defconstant +llf-single-float+ #x10)
-(defconstant +llf-proper-list+ #x11)
-(defconstant +llf-package+ #x12)
-;; A vector consisting entirely of integers.
-(defconstant +llf-integer-vector+ #x13)
-(defconstant +llf-add-backlink+ #x14)
-(defconstant +llf-ratio+ #x15)
-(defconstant +llf-array+ #x16)
-;; Call a function, push the result.
-(defconstant +llf-funcall+ #x17)
-(defconstant +llf-bit-vector+ #x18)
-(defconstant +llf-function-reference+ #x19)
-(defconstant +llf-character-with-bits+ #x1A)
-
 (defvar *noisy-load* nil)
 (defvar *load-wired* nil)
 
