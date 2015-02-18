@@ -568,7 +568,7 @@
         ;; Minor version.
         (setf (ub16ref/le header 34) 18)
         ;; Number of extents.
-        (setf (ub32ref/le header 36) 3)
+        (setf (ub32ref/le header 36) 2)
         ;; Entry fref.
         (setf (ub64ref/le header 40) entry-fref)
         ;; Initial thread.
@@ -591,15 +591,7 @@
           (extent 1
                   (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
                   (- +wired-stack-area-limit+ +wired-stack-area-base+)
-                  0)
-          ;; Alias the wired stack region.
-          (extent 2
-                  (logior +wired-stack-area-base+
-                          (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                          (ash 1 sys.int::+address-mark-bit+))
-                  (* 512 1024 1024 1024) ; 512GB, aliasing at the PML4 level.
-                  1
-                  (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))))
+                  0))
         ;; Write it out.
         (write-sequence header s))
       ;; Write areas.
@@ -994,9 +986,7 @@
     (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+array-type-shift+)) ; header
     (sys.lap-x86:lea64 :rax (:rbp :rbp)) ; Convert frame pointer to fixnum.
     (sys.lap-x86:mov64 (:rsp 8) :rax) ; 2nd element.
-    (sys.lap-x86:mov64 :rbx (:constant sys.int::*current-stack-mark-bit*))
-    (sys.lap-x86:mov64 :rax ,(sys.c::object-ea :rbx :slot sys.c::+symbol-value+))
-    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+ :rax))
+    (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
     (sys.lap-x86:mov32 :ecx ,(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args.
     (:gc :frame :interrupt t)
     (sys.lap-x86:call (:object :r13 ,sys.int::+fref-entry-point+))
@@ -1288,7 +1278,6 @@
             sys.int::*general-area-bump*
             sys.int::*cons-area-bump*
             sys.int::*stack-area-bump*
-            sys.int::*current-stack-mark-bit*
             :wired :pinned :general :cons :nursery :stack
             ))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
@@ -1336,8 +1325,7 @@
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)
       (set-value 'sys.int::*cons-area-bump* *cons-area-bump*)
       (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
-      (set-value 'sys.int::*stack-area-bump* +stack-area-base+)
-      (set-value 'sys.int::*current-stack-mark-bit* 0))
+      (set-value 'sys.int::*stack-area-bump* +stack-area-base+))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
     (write-map-file image-name *function-map*)

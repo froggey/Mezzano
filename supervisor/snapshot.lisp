@@ -75,9 +75,8 @@
                (let* ((entry (sys.int::memref-unsigned-byte-64 pml4 pml4e))
                       (pml3 (+ +physical-map-base+
                                (logand entry +page-table-address-mask+))))
-                 ;; Do not test the accessed bit in the PML4, due to stack aliasing.
-                 ;; This causes the stack area to be unconditionally scanned.
-                 (when (logtest entry +page-table-present+)
+                 (when (and (logtest entry +page-table-present+)
+                            (logtest entry +page-table-accessed+))
                    (dotimes (i 512)
                      (mark-pml3e-cow pml3 i))
                    ;; Clear accessed bit.
@@ -120,22 +119,18 @@
                                          +page-table-copy-on-write+)
                                  (lognot +page-table-write+)
                                  (lognot +page-table-dirty+)))))))
-      ;; Skip wired area.
+      ;; Skip wired area, entry 0.
       (loop for i from 1 below 64 ; pinned area to wired stack area.
          do (mark-pml4e-cow i))
-      ;; Skip wired stack area.
-      (loop for i from 65 below 96 ; stack area to tagged wired stack area.
-         do (mark-pml4e-cow i))
-      ;; Skip tagged stack area, aliased entries cause the assert to fire.
-      (loop for i from 128 below 256 ; tagged stack area to end of persistent memory.
+      ;; Skip wired stack area, entry 64.
+      (loop for i from 65 below 256 ; stack area to end of persistent memory.
          do (mark-pml4e-cow i))
       ;; Cover the part of the pinned area that got missed as well.
       (let ((pml3 (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pml4 0) +page-table-address-mask+))))
         ;; Skip first 2 entries, the wired area.
         (loop for i from 2 below 512
            do (mark-pml3e-cow pml3 i)))))
-  ;; Flush TLB.
-  (setf (sys.int::%cr3) (sys.int::%cr3)))
+  (flush-tlb))
 
 (defun snapshot-clone-cow-page-via-page-fault (fault-addr)
   (let* ((new-frame (or (allocate-physical-pages 1)

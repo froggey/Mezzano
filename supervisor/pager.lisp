@@ -334,12 +334,6 @@
 (defun wait-for-page (address)
   #+(or)(debug-print-line "WFP " address)
   (with-mutex (*vm-lock*)
-    ;; Stack pages with the mark bit set are aliased to the same
-    ;; address with the mark bit clear.
-    (when (and (logbitp sys.int::+address-mark-bit+ address)
-               (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
-                    sys.int::+address-tag-stack+))
-      (setf address (logand address (lognot (ash 1 sys.int::+address-mark-bit+)))))
     (let ((pte (get-pte-for-address address))
           (block-info (block-info-for-virtual-address address)))
       ;; Examine the page table, if there's a present entry then the page
@@ -384,17 +378,7 @@
                                                (if (logtest sys.int::+block-map-writable+ block-info)
                                                    +page-table-write+
                                                  0)))
-        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0))
-        ;; Perform stack aliasing at the PML4 level.
-        (when (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
-                   sys.int::+address-tag-stack+)
-          (let ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
-                (pml4e (address-l4-bits address))
-                (other-pml4e (address-l4-bits (logior address (ash 1 sys.int::+address-mark-bit+)))))
-            ;; Keep access bit set, if already set.
-            (setf (page-table-entry cr3 other-pml4e) (logior (page-table-entry cr3 pml4e)
-                                                             (logand (page-table-entry cr3 other-pml4e)
-                                                                     +page-table-accessed+)))))))
+        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0))))
     (flush-tlb))
   t)
 

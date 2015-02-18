@@ -514,20 +514,24 @@ VALUE may be nil to make the fref unbound."
     (t t)))
 
 (defun %progv (symbols values fn)
-  ;; Save the special-stack
-  (let ((special-stack (%%special-stack-pointer)))
-    ;; Bind each variable.
-    (do ((s symbols (rest s))
-         (v values (rest v)))
-        ((null s))
-      (check-type (first s) symbol)
-      (%%progv-bind (first s) (if v
-                                  (first v)
-                                  (%unbound-value))))
-    (multiple-value-prog1 (funcall fn)
-      ;; Now pop the special stack. This is not done with unwind-protect,
-      ;; because a non-local exit will unwind the stack anyway.
-      (%%unwind-to special-stack))))
+  (cond (symbols
+         ;; Bind one.
+         ;; Bindings must be done one at a time because the compiler
+         ;; cannot emit an arbitrary number of special stack entries in a
+         ;; single function.
+         ;; It'd be possible to do in assembly, but complicated enough
+         ;; that it'd not be worthwhile.
+         (let ((symbol (car symbols))
+               (value (if values
+                          (car values)
+                          (%unbound-value))))
+           (check-type symbol symbol)
+           (%%bind symbol value)
+           (multiple-value-prog1
+               (%progv (cdr symbols) (cdr values) fn)
+             (%%unbind))))
+        (t ;; No more to bind
+         (funcall fn))))
 
 (defun function-tag (function)
   (check-type function function)

@@ -138,12 +138,6 @@ If clear, the fault occured in supervisor mode.")
                (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                    fault-addr
                    (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                      (* 512 1024 1024 1024)))
-               (<= (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                           (ash 1 sys.int::+address-mark-bit+))
-                   fault-addr
-                   (+ (logior (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
-                              (ash 1 sys.int::+address-mark-bit+))
                       (* 512 1024 1024 1024))))
            ;; Pages below 2G are wired and should never be unmapped or protected.
            ;; Same for pages in the wired stack area.

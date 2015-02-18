@@ -43,10 +43,6 @@
 
 (defun ptbl-lookup (image address)
   "Convert ADDRESS to a physical address."
-  (when (and (logbitp sys.int::+address-mark-bit+ address)
-             (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+) address)
-                  sys.int::+address-tag-stack+))
-    (setf (ldb (byte 1 sys.int::+address-mark-bit+) address) 0))
   (let ((bml4e (ldb (byte 9 39) address))
         (bml3e (ldb (byte 9 30) address))
         (bml2e (ldb (byte 9 21) address))

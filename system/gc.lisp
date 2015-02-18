@@ -25,11 +25,6 @@
 ;; What *MEMORY-EXPANSION-REMAINING* should be set to after a GC.
 (defvar *memory-expansion* (* 64 1024 1024))
 
-;; Current state of the stack mark bit. The value in this symbol is accessed
-;; as a raw, untagged value by the DX allocation code. The value must be a
-;; fixnum shifted n-fixnum-bits right to work correctly.
-(declaim (special *current-stack-mark-bit*))
-
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
         (total 0))
@@ -123,22 +118,10 @@ This is required to make the GC interrupt safe."
     (let ((orig (gensym "ORIG"))
           (address (gensym "ADDRESS")))
       `(let* (,@(mapcar #'list vars vals)
-              (,orig ,getter))
-         (cond ((and (not (immediatep ,orig))
-                     (eql (ldb (byte +address-tag-size+ +address-tag-shift+) (ash (%pointer-field ,orig) 4))
-                     +address-tag-stack+))
-                (let ((,address (ash (%pointer-field ,orig) 4)))
-                  ;; Special case stack values here, to avoid chasing cycles within
-                  ;; stack objects.
-                  (unless (eql (logand (ash 1 +address-mark-bit+) ,address) *dynamic-mark-bit*)
-                    ;; Write back first, then scan.
-                    (let ((,(car stores) (%%assemble-value (logxor (ash 1 +address-mark-bit+) ,address) (%tag-field ,orig))))
-                      ,setter
-                      (scan-object ,orig)))))
-               (t ;; Normal object, defer to scavenge-object.
-                (let ((,(car stores) (scavenge-object ,orig)))
-                  (when (not (eq ,orig ,(car stores)))
-                    ,setter))))))))
+              (,orig ,getter)
+              (,(car stores) (scavenge-object ,orig)))
+           (when (not (eq ,orig ,(car stores)))
+             ,setter)))))
 
 (defun scavenge-many (address n)
   (dotimes (i n)
@@ -177,12 +160,8 @@ This is required to make the GC interrupt safe."
        (mark-pinned-object object)
        object)
       (#.+address-tag-stack+
-       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
-         (return-from scavenge-object object))
-       ;; FIXME: When scavenging a place, the value needs to be written back
-       ;; with the mark bit correct before the object is scanned.
-       (scan-object object)
-       (%%assemble-value (logxor (ash 1 +address-mark-bit+) address) (%tag-field object))))))
+       ;; Don't scavenge DX objects, handled by scavenge-regular-stack-frame.
+       object))))
 
 (defun scan-error (object)
   (mezzano.supervisor:panic "Unscannable object " object))
@@ -219,18 +198,24 @@ This is required to make the GC interrupt safe."
         (mezzano.supervisor:debug-print-line
          "ss: " slot " " offset ":" bit "  " (memref-unsigned-byte-8 layout-address offset)))
       (when (logbitp bit (memref-unsigned-byte-8 layout-address offset))
-        (cond (framep
-               (when *gc-debug-scavenge-stack*
-                 (mezzano.supervisor:debug-print-line
-                  "Scav stack slot " (- -1 slot)
-                  "  " (lisp-object-address (memref-t frame-pointer (- -1 slot)))))
-               (scavengef (memref-t frame-pointer (- -1 slot))))
-              (t
-               (when *gc-debug-scavenge-stack*
-                 (mezzano.supervisor:debug-print-line
-                  "Scav no-frame stack slot " slot
-                  "  " (lisp-object-address (memref-t stack-pointer slot))))
-               (scavengef (memref-t stack-pointer slot)))))))
+        (flet ((scav-one (base offset)
+                 (let ((value (memref-t base offset)))
+                   (when *gc-debug-scavenge-stack*
+                     (mezzano.supervisor:debug-print-line
+                      "Scav stack slot " offset
+                      "  " (lisp-object-address value)))
+                   (cond ((eql (%tag-field value) +tag-dx-root-object+)
+                          ;; DX root, convert it to a normal object pointer and scan.
+                          (mezzano.supervisor:debug-print-line
+                           "Scav DX root " (lisp-object-address value))
+                          (scan-object (%%assemble-value (ash (%pointer-field value) 4)
+                                                         +tag-object+)))
+                         ;; Normal object. Don't do anything interesting.
+                         (t (scavengef (memref-t base offset)))))))
+          (cond (framep
+                 (scav-one frame-pointer (- -1 slot)))
+                (t
+                 (scav-one stack-pointer slot)))))))
   (dotimes (slot pushed-values)
     (when *gc-debug-scavenge-stack*
       (mezzano.supervisor:debug-print-line "Scav pv " slot))
@@ -983,8 +968,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
         *words-copied* 0)
   ;; Flip.
   (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
-         *pinned-mark-bit* (logxor *pinned-mark-bit* +array-like-mark-bit+)
-         *current-stack-mark-bit* (logxor *current-stack-mark-bit* (ash 1 (- +address-mark-bit+ +n-fixnum-bits+))))
+         *pinned-mark-bit* (logxor *pinned-mark-bit* +array-like-mark-bit+))
   (setf *general-area-bump* 0
         *cons-area-bump* 0)
   ;; Unprotect newspace.

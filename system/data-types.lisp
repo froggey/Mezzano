@@ -11,22 +11,22 @@
 (defconstant +array-length-size+ 56)
 (defconstant +array-like-mark-bit+ #b10)
 
-(defconstant +tag-fixnum-000+    #b0000)
-;;#b0001
-(defconstant +tag-fixnum-001+    #b0010)
-(defconstant +tag-cons+          #b0011)
-(defconstant +tag-fixnum-010+    #b0100)
+(defconstant +tag-fixnum-000+     #b0000)
+(defconstant +tag-dx-root-object+ #b0001)
+(defconstant +tag-fixnum-001+     #b0010)
+(defconstant +tag-cons+           #b0011)
+(defconstant +tag-fixnum-010+     #b0100)
 ;;#b0101
-(defconstant +tag-fixnum-011+    #b0110)
+(defconstant +tag-fixnum-011+     #b0110)
 ;;#b0111
-(defconstant +tag-fixnum-100+    #b1000)
-(defconstant +tag-object+        #b1001)
-(defconstant +tag-fixnum-101+    #b1010)
-(defconstant +tag-character+     #b1011)
-(defconstant +tag-fixnum-110+    #b1100)
-(defconstant +tag-single-float+  #b1101)
-(defconstant +tag-fixnum-111+    #b1110)
-(defconstant +tag-gc-forward+    #b1111)
+(defconstant +tag-fixnum-100+     #b1000)
+(defconstant +tag-object+         #b1001)
+(defconstant +tag-fixnum-101+     #b1010)
+(defconstant +tag-character+      #b1011)
+(defconstant +tag-fixnum-110+     #b1100)
+(defconstant +tag-single-float+   #b1101)
+(defconstant +tag-fixnum-111+     #b1110)
+(defconstant +tag-gc-forward+     #b1111)
 
 ;;; Simple 1D arrays.
 ;; Array type T == simple vector.

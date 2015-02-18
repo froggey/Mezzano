@@ -36,8 +36,8 @@ Remaining arguments are passed on the stack immediately above the return
 address. The callee is free to modify arguments on the stack, and the caller
 must remove them from the stack when the caller returns.
 
-The stack pointer must have bit 3 set and bits 2-0 clear. In other words, it
-must be offset 8 bytes from a 16-byte boundary.
+The stack pointer must have bit 3 set and bits 2-0 clear on entry to a function.
+In other words, it must be offset 8 bytes from a 16-byte boundary.
 
 Stack pointer| Value
 -------------+-----------
@@ -113,16 +113,6 @@ to the function because the caller must remove arguments from the stack
 after a call. Arguments passed in registers require no cleanup.
 
 
-**  Dynamic extent hygiene.
-
-Values allocated with dynamic-extent must not be live after execution leaves
-their dynamic scope. If a function uses dynamic-extent allocation, then
-the compiler will scrub GC scanned registers when the function returns.
-Currently the GC unconditionally scans the entire MV save area, even though
-it really shouldn't. GC metadata contains information about how many values
-in the MV save area are live, but this is not used properly yet.
-
-
 *  Non-local exits.
 
 BLOCK and TAGBODY create NLX information objects on the stack. These do not
@@ -153,9 +143,8 @@ even though it is a raw, unboxed value.
 3) The NLX information object is loaded into RAX.
 4) If the NLX was caused by a RETURN-FROM, then the saved values are reloaded
    using the multiple-value return convention.
-5) Value registers are scrubbed to preserve DX hygiene.
-6) The NLX thunk is jumped to.
-7) The NLX thunk restores RSP and RBP, then jumps to the true target of the
+5) The NLX thunk is jumped to.
+6) The NLX thunk restores RSP and RBP, then jumps to the true target of the
    NLX.
 
 The NLX thunk exists in the function containing BLOCK/TAGBODY, not the function

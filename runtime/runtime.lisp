@@ -112,7 +112,7 @@
   (:gc :frame :layout #*10)
   (sys.lap-x86:mov64 :r8 (:stack 0))
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function raise-type-error))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2)
@@ -127,6 +127,98 @@
   (:gc :frame)
   (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  (sys.lap-x86:ud2))
+
+(sys.int::define-lap-function sys.int::values-simple-vector ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  ;; Check arg count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:jne bad-arguments)
+  ;; Check type.
+  (sys.lap-x86:mov8 :al :r8l)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
+  (sys.lap-x86:jne type-error)
+  (sys.lap-x86:mov64 :rax (:object :r8 -1))
+  ;; Simple vector object tag is zero.
+  (sys.lap-x86:test8 :al #.(ash (1- (ash 1 sys.int::+array-type-size+))
+                                sys.int::+array-type-shift+))
+  (sys.lap-x86:jnz type-error)
+  ;; Get number of values.
+  (sys.lap-x86:shr64 :rax #.sys.int::+array-length-shift+)
+  (sys.lap-x86:jz zero-values)
+  (sys.lap-x86:cmp64 :rax #.(+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
+  (sys.lap-x86:jae too-many-values)
+  ;; Set up. RBX = vector, RCX = number of values loaded so far, RAX = total number of values.
+  (sys.lap-x86:mov64 :rbx :r8)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  ;; Load register values.
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 (:object :rbx 0))
+  (sys.lap-x86:cmp64 :rax 1)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r9 (:object :rbx 1))
+  (sys.lap-x86:cmp64 :rax 2)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r10 (:object :rbx 2))
+  (sys.lap-x86:cmp64 :rax 3)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r11 (:object :rbx 3))
+  (sys.lap-x86:cmp64 :rax 4)
+  (sys.lap-x86:je done)
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r12 (:object :rbx 4))
+  (sys.lap-x86:cmp64 :rax 5)
+  (sys.lap-x86:je done)
+  ;; Registers are populated, now unpack into the MV-area
+  (sys.lap-x86:mov32 :edi #.(+ (- 8 sys.int::+tag-object+)
+                               (* mezzano.supervisor::+thread-mv-slots-start+ 8)))
+  (sys.lap-x86:mov32 :edx 5) ; Current value.
+  (:gc :frame :multiple-values 0)
+  unpack-loop
+  (sys.lap-x86:mov64 :r13 (:object :rbx 0 :rdx))
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:rdi) :r13)
+  (:gc :frame :multiple-values 1)
+  (sys.lap-x86:add64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (:gc :frame :multiple-values 0)
+  (sys.lap-x86:add64 :rdi 8)
+  (sys.lap-x86:add64 :rdx 1)
+  (sys.lap-x86:cmp64 :rdx :rax)
+  (sys.lap-x86:jne unpack-loop)
+  done
+  (sys.lap-x86:leave)
+  (:gc :no-frame :multiple-values 0)
+  (sys.lap-x86:ret)
+  ;; Special-case 0 values as it requires NIL in R8.
+  zero-values
+  (:gc :frame)
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:jmp done)
+  (:gc :frame)
+  type-error
+  (sys.lap-x86:mov64 :r9 (:constant simple-vector))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2)
+  too-many-values
+  (sys.lap-x86:mov64 :r8 (:constant "Too many values in simple-vector ~S."))
+  (sys.lap-x86:mov64 :r9 :rbx)
+  (sys.lap-x86:mov64 :r13 (:function error))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2)
+  bad-arguments
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
 ;;; TODO: This requires a considerably more flexible mechanism.

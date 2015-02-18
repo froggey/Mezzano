@@ -534,7 +534,7 @@
     (#b0000 (cond ((eql object 0)
                    'bit)
                   (t 'fixnum)))
-    (#b0001 'tag-0001)
+    (#b0001 'dx-root)
     (#b0010 (cond ((eql object 1)
                    'bit)
                   (t 'fixnum)))

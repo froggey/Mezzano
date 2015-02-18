@@ -2070,15 +2070,7 @@
   ;; Read the saved binding stack pointer from a block/tagbody-info.
   (load-in-r8 info t)
   (smash-r8)
-  (let ((over (gensym)))
-    (emit `(sys.lap-x86:mov64 :r8 (:r8 8))
-          ;; Set the stack mark bit, if non-nil.
-          `(sys.lap-x86:cmp64 :r8 nil)
-          `(sys.lap-x86:je ,OVER)
-          ;; Just like materialize-dx-value
-          `(sys.lap-x86:mov64 :r9 (:constant sys.int::*current-stack-mark-bit*))
-          `(sys.lap-x86:or64 :r8 ,(object-ea :r9 :slot +symbol-value+))
-          OVER))
+  (emit `(sys.lap-x86:mov64 :r8 (:r8 8)))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%%block-info-binding-stack-pointer (block-info) ()
@@ -2087,63 +2079,16 @@
 (defbuiltin sys.int::%%tagbody-info-binding-stack-pointer (tagbody-info) ()
   (get-block/tagbody-info-binding-stack-pointer tagbody-info))
 
-(defbuiltin sys.int::%%progv-bind (symbol value) (t nil)
-  ;; Don't kill here, going to reload & kill later in the function.
-  (load-in-reg :r9 symbol)
-  (smash-r8)
-  (let ((has-tls-slot (gensym)))
-    ;; Ensure there is a TLS slot.
-    (emit `(sys.lap-x86:mov32 :eax ,(object-ea :r9 :slot -1))
-          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
-          `(sys.lap-x86:and32 :eax #xFFFF)
-          `(sys.lap-x86:jnz ,has-tls-slot))
-    ;; Nope, allocate a new one.
-    (emit `(sys.lap-x86:mov64 :r8 :r9))
-    (call-support-function 'sys.int::%allocate-tls-slot 1)
-    (load-in-reg :r9 symbol t)
-    (emit `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
-          has-tls-slot
-          ;; Save the old value on the binding stack.
-          ;; Read the old symbol value.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+)))
-    (emit `(sys.lap-x86:sub64 :rsp ,(* 4 8)))
-    ;; Flush slots.
-    (emit `(sys.lap-x86:mov64 (:rsp 0) ,(ash 3 sys.int::+array-length-shift+))
-          `(sys.lap-x86:mov64 (:rsp 8) nil)
-          `(sys.lap-x86:mov64 (:rsp 16) nil)
-          `(sys.lap-x86:mov64 (:rsp 24) nil))
-      ;; Generate pointer.
-    (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-object+) :r12)
-    ;; Store bits.
-    (emit `(sys.lap-x86:mov64 (:rsp 16) :r9)
-          `(sys.lap-x86:mov64 (:rsp 24) :r10))
-    ;; Store link.
-    (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r12 (,+binding-stack-gs-offset+))
-          `(sys.lap-x86:mov64 (:rsp 8) :r12))
-    ;; Push.
-    (emit `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) ,:rbx)))
-  ;; Store new value.
-  (load-in-r8 value t)
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8))
-  ''nil)
-
 (defun push-special-stack (object value &optional (tmp :rbx) (tmp2 :r12))
-  (let ((slots (allocate-control-stack-slots 4)))
+  (let ((slots (allocate-control-stack-slots 4 t)))
     ;; Flush slots.
     (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+array-length-shift+))
           `(sys.lap-x86:mov64 (:stack ,(+ slots 2)) nil)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) nil)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) nil))
     ;; Generate pointer.
-    (materialize-dx-value tmp
-                          `(:rbp ,(+ (control-stack-frame-offset (+ slots 3))
-                                     sys.int::+tag-object+))
-                          tmp2)
+    (emit `(sys.lap-x86:lea64 ,tmp (:rbp ,(+ (control-stack-frame-offset (+ slots 3))
+                                             sys.int::+tag-object+))))
     ;; Store bits.
     (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) ,object)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) ,value))
@@ -2604,7 +2549,7 @@
 
 (defbuiltin sys.c::make-dx-closure (code env) (nil)
   (smash-r8)
-  (let ((slots (allocate-control-stack-slots 4)))
+  (let ((slots (allocate-control-stack-slots 4 t)))
     (load-in-reg :r9 code t)
     (load-in-reg :r10 env t)
     (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 4 -1)))
@@ -2620,7 +2565,7 @@
           ;; Clear constant pool.
           `(sys.lap-x86:mov64 (:rax 16) nil)
           `(sys.lap-x86:mov64 (:rax 24) nil))
-    (materialize-dx-value :r8 `(:rax ,sys.int::+tag-object+) :rbx)
+    (emit `(sys.lap-x86:lea64 :r8 (:rax ,sys.int::+tag-object+)))
     ;; Initiaize constant pool.
     (emit `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
           `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 2) :r10)))

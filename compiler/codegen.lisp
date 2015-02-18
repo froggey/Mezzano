@@ -22,7 +22,6 @@ be generated instead.")
 (defvar *trailers* nil)
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
-(defvar *used-dynamic-extent* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-object+))
@@ -80,13 +79,16 @@ be generated instead.")
 
 ;;; TODO: This should work on a stack-like system so that slots can be
 ;;; reused when the allocation is no longer needed.
-(defun allocate-control-stack-slots (count)
+(defun allocate-control-stack-slots (count &optional boxed)
   (when (oddp count) (incf count))
   (when (oddp (length *stack-values*))
     (vector-push-extend nil *stack-values*))
   (prog1 (length *stack-values*)
     (dotimes (i count)
-      (vector-push-extend '(:unboxed . :home) *stack-values*))))
+      (vector-push-extend (if boxed
+                              '(:boxed . :home)
+                              '(:unboxed . :home))
+                          *stack-values*))))
 
 (defun no-tail (value-mode)
   (ecase value-mode
@@ -108,8 +110,7 @@ be generated instead.")
          (*code-accum* '())
          (*trailers* '())
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
-         (*gc-info-fixups* '())
-         (*used-dynamic-extent* nil))
+         (*gc-info-fixups* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -188,8 +189,6 @@ be generated instead.")
                       (cg-form `(progn ,@(lambda-information-body lambda))))))
       (when code-tag
         (load-multiple-values code-tag)
-        (when *used-dynamic-extent*
-          (flush-data-registers (eql code-tag :multiple)))
         (emit `(sys.lap-x86:leave)
               `(:gc :no-frame)
               `(sys.lap-x86:ret))))
@@ -306,167 +305,185 @@ be generated instead.")
                                                  1))
                                   'bit-vector))))))
 
-(defun materialize-dx-value (dest location symbol-temp &optional (set-used-dynamic-extent t))
-  (when set-used-dynamic-extent
-    (setf *used-dynamic-extent* t))
-  ;; Materialize the value.
-  (emit
-   `(sys.lap-x86:mov64 ,symbol-temp (:constant sys.int::*current-stack-mark-bit*))
-   ;; This must be done verrry carefully. Cannot disable interrupts,
-   ;; because this may be in a non-wired page. Code in a non-wired
-   ;; page may fault at any time, and require the page to be read from
-   ;; store. Instead, the value is created ignoring the current mark bit
-   ;; then the mark bit is read from the value and set in the value in
-   ;; one instruction. This works correctly no matter when a GC occurs.
-   `(sys.lap-x86:lea64 ,dest ,location)
-   ;; Now use a reg/mem operation to load and set the mark bit.
-   ;; Past this, the mark bit is set correctly.
-   `(sys.lap-x86:or64 ,dest ,(object-ea symbol-temp :slot +symbol-value+))))
-
-(defun emit-rest-list (lambda arg-registers)
-  (let* ((rest-arg (lambda-information-rest-arg lambda))
-         (regular-argument-count (+ (length (lambda-information-required-args lambda))
+(defun emit-dx-rest-list (lambda arg-registers)
+  (let* ((regular-argument-count (+ (length (lambda-information-required-args lambda))
                                     (length (lambda-information-optional-args lambda))))
+         (rest-clear-loop-head (gensym "REST-CLEAR-LOOP-HEAD"))
          (rest-loop-head (gensym "REST-LOOP-HEAD"))
-         (rest-loop-test (gensym "REST-LOOP-TEST"))
          (rest-loop-end (gensym "REST-LOOP-END"))
-         (dx-rest (lexical-variable-dynamic-extent rest-arg))
-         (reg-arg-tags (loop for reg in arg-registers collect (list (gensym))))
-         (control-slots (allocate-control-stack-slots 4))
-         (rest-head nil)
-         (rest-tail nil)
-         (reg-save-done (gensym "REG-SAVE-DONE")))
-    (setf rest-head (find-stack-slot)
-          (aref *stack-values* rest-head) (cons :rest-head :home))
-    (setf rest-tail (find-stack-slot)
-          (aref *stack-values* rest-tail) (cons :rest-tail :home))
+         (rest-list-done (gensym "REST-LIST-DONE"))
+         (control-slots (allocate-control-stack-slots 2 t))
+         ;; Number of arguments processed and total number of arguments.
+         (saved-argument-count (+ control-slots 0))
+         (rest-dx-root (+ control-slots 1)))
     ;; Assemble the rest list into R13.
     ;; RCX holds the argument count.
     ;; RBX and R13 are free. Argument registers may or may not be free
     ;; depending on the number of required/optional arguments.
-    (unless dx-rest
-      ;; Only save the arg registers when creating a full cons.
-      ;; Avoid saving registers that don't contain arguments.
-      ;; These may still hold DX values to objects anywhere on the stack. Very bad for GC.
-      (loop for slot = (find-stack-slot)
-         for tag in reg-arg-tags
-         for reg in arg-registers
-         for i from regular-argument-count
-         do
-           (setf (aref *stack-values* slot) tag)
-           (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
-                 `(sys.lap-x86:jle ,reg-save-done))
-           (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
-           (push tag *load-list*))
-      (emit reg-save-done))
+    ;; Number of supplied arguments.
+    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea saved-argument-count) :rcx))
+    ;; Tell the GC to used the number of arguments saved on the stack. RCX will
+    ;; be used later.
+    (emit-gc-info :incoming-arguments saved-argument-count)
+    ;; The cons cells are allocated in one single chunk.
+    (emit `(sys.lap-x86:mov64 :r13 nil))
+    ;; Remove required/optional arguments from the count.
+    ;; If negative or zero, the &REST list is empty.
+    (cond ((zerop regular-argument-count)
+           (emit `(sys.lap-x86:test64 :rcx :rcx))
+           (emit `(sys.lap-x86:jz ,rest-list-done)))
+          (t
+           (emit `(sys.lap-x86:sub64 :rcx ,(fixnum-to-raw regular-argument-count)))
+           (emit `(sys.lap-x86:jle ,rest-list-done))))
+    ;; Save the length.
+    (emit `(sys.lap-x86:mov64 :rdx :rcx))
+    ;; Double it, each cons takes two words.
+    (emit `(sys.lap-x86:shl64 :rdx 1))
+    ;; Add a header word and word of padding so it can be treated like a simple-vector.
+    (emit `(sys.lap-x86:add64 :rdx ,(fixnum-to-raw 2)))
+    ;; Fixnum to raw integer * 8.
+    (emit `(sys.lap-x86:shl64 :rdx ,(- 3 sys.int::+n-fixnum-bits+)))
+    ;; Allocate on the stack.
+    (emit `(sys.lap-x86:sub64 :rsp :rdx))
+    ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
+    (emit `(sys.lap-x86:lea64 :rdx (:rcx ,(fixnum-to-raw 1)))) ; 1+ for padding word at the start.
+    (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+array-length-shift+ sys.int::+n-fixnum-bits+)))
+    (emit `(sys.lap-x86:mov64 (:rsp) :rdx))
+    ;; Clear the padding slot.
+    (emit `(sys.lap-x86:mov64 (:rsp 8) 0))
+    ;; For each cons, clear the car and set the cdr to the next cons.
+    (emit `(sys.lap-x86:lea64 :rdi (:rsp 16)))
+    (emit `(sys.lap-x86:mov64 :rdx :rcx))
+    (emit rest-clear-loop-head)
+    (emit `(sys.lap-x86:mov64 (:rdi 0) 0)) ; car
+    (emit `(sys.lap-x86:lea64 :rax (:rdi ,(+ 16 sys.int::+tag-cons+))))
+    (emit `(sys.lap-x86:mov64 (:rdi 8) :rax)) ; cdr
+    (emit `(sys.lap-x86:add64 :rdi 16))
+    (emit `(sys.lap-x86:sub64 :rdx ,(fixnum-to-raw 1)))
+    (emit `(sys.lap-x86:ja ,rest-clear-loop-head))
+    ;; Set the cdr of the final cons to NIL.
+    (emit `(sys.lap-x86:mov64 (:rdi -8) nil))
+    ;; Create the DX root object for the vector.
+    (emit `(sys.lap-x86:lea64 :rax (:rsp ,sys.int::+tag-dx-root-object+)))
+    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea rest-dx-root) :rax))
+    ;; It's now safe to write values into the list/vector.
+    (emit `(sys.lap-x86:lea64 :rdi (:rsp 16)))
+    ;; Add register arguments to the list.
+    (loop
+       for reg in arg-registers
+       do (emit `(sys.lap-x86:mov64 (:rdi) ,reg)
+                `(sys.lap-x86:add64 :rdi 16)
+                `(sys.lap-x86:sub64 :rcx ,(fixnum-to-raw 1))
+                `(sys.lap-x86:jz ,rest-loop-end)))
+    ;; Now add the stack arguments.
+    ;; Skip past required/optional arguments on the stack, the saved frame pointer and the return address.
+    (emit `(sys.lap-x86:lea64 :rsi (:rbp ,(* (+ (max 0 (- regular-argument-count 5)) 2) 8))))
+    (emit rest-loop-head)
+    ;; Load from stack.
+    (emit `(sys.lap-x86:mov64 :r8 (:rsi)))
+    ;; Store into current car.
+    (emit `(sys.lap-x86:mov64 (:rdi) :r8))
+    ;; Advance.
+    (emit `(sys.lap-x86:add64 :rsi 8))
+    (emit `(sys.lap-x86:add64 :rdi 16))
+    ;; Stop when no more arguments.
+    (emit `(sys.lap-x86:sub64 :rcx ,(fixnum-to-raw 1)))
+    (emit `(sys.lap-x86:jnz ,rest-loop-head))
+    (emit rest-loop-end)
+    ;; There were &REST arguments, create the cons.
+    (emit `(sys.lap-x86:lea64 :r13 (:rsp ,(+ 16 sys.int::+tag-cons+))))
+    ;; Code above jumps directly here with NIL in R13 when there are no arguments.
+    (emit rest-list-done)))
+
+(defun emit-normal-rest-list (lambda arg-registers)
+  (let* ((regular-argument-count (+ (length (lambda-information-required-args lambda))
+                                    (length (lambda-information-optional-args lambda))))
+         (rest-loop-head (gensym "REST-LOOP-HEAD"))
+         (rest-loop-test (gensym "REST-LOOP-TEST"))
+         (rest-loop-end (gensym "REST-LOOP-END"))
+         (reg-arg-tags (loop for reg in arg-registers collect (list (gensym))))
+         ;; Number of arguments processed and total number of arguments.
+         (control-slots (allocate-control-stack-slots 4 t))
+         (result-head-cons (+ control-slots 1)) ; slot 1 = car, slot 0 = cdr. stack slots are numbered backwards.
+         (rest-tail (+ control-slots 1)) ; only the cdr of result-head-cons is used, misuse the car as the tail of the rest list.
+         (saved-argument-count (+ control-slots 2))
+         (processed-argument-count (+ control-slots 3)))
+    ;; Assemble the rest list into R13.
+    ;; RCX holds the argument count.
+    ;; RBX and R13 are free. Argument registers may or may not be free
+    ;; depending on the number of required/optional arguments.
+    ;; Save all the argument registers that may contain &REST arguments.
+    (loop
+       for slot = (find-stack-slot)
+       for tag in reg-arg-tags
+       for reg in arg-registers
+       do
+         (setf (aref *stack-values* slot) tag)
+         (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
+         (push tag *load-list*))
     ;; Number of arguments processed. Skip register arguments.
-    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw (max regular-argument-count 5))))
-    ;; Number of supplied arguments
-    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 1)) :rcx))
-    (unless dx-rest
-      (emit-gc-info :incoming-arguments (+ control-slots 1)))
+    (emit `(sys.lap-x86:mov64 (:stack ,processed-argument-count) ,(fixnum-to-raw (max regular-argument-count 5))))
+    ;; Number of supplied arguments.
+    (emit `(sys.lap-x86:mov64 (:stack ,saved-argument-count) :rcx))
+    ;; Tell the GC to used the number of arguments saved on the stack. RCX will
+    ;; be used later.
+    (emit-gc-info :incoming-arguments saved-argument-count)
     ;; Create the result cell. Always create this as dynamic-extent, it
     ;; is only used during rest-list creation.
-    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 2)) nil)
-          `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-slots 3)) nil))
-    (materialize-dx-value :rbx `(:rbp ,(+ (control-stack-frame-offset (+ control-slots 3)) sys.int::+tag-cons+)) :r13 nil)
-    ;; Stash in the result slot and the tail slot.
-    (emit `(sys.lap-x86:mov64 (:stack ,rest-head) :rbx)
-          `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))
+    (emit `(sys.lap-x86:lea64 :rbx (:rbp ,(+ (control-stack-frame-offset result-head-cons) sys.int::+tag-cons+))))
+    ;; Stash in the tail slot.
+    (emit `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))
     ;; Add register arguments to the list.
-    (cond
-      (dx-rest
-       (loop for i from regular-argument-count
-          for reg in arg-registers
-          do
-            (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
-                  `(sys.lap-x86:jle ,rest-loop-end)
-                  `(sys.lap-x86:sub64 :csp 16)
-                  `(sys.lap-x86:mov64 (:csp 0) nil)
-                  `(sys.lap-x86:mov64 (:csp 8) nil))
-            (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-cons+) :r13)
-            (emit `(sys.lap-x86:mov64 (:car :rbx) ,reg)
-                  `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
-                  `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
-                  `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx))))
-      (t
-       (loop for i from regular-argument-count
-          for tag in reg-arg-tags do
-            (emit `(sys.lap-x86:cmp64 ,(control-stack-slot-ea (+ control-slots 1)) ,(fixnum-to-raw i))
-                  `(sys.lap-x86:jle ,rest-loop-end))
-            (load-in-r8 tag t)
-            (emit `(sys.lap-x86:mov64 :r9 nil)
-                  `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-                  `(sys.lap-x86:mov64 :r13 (:function cons))
-                  `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-                  `(sys.lap-x86:mov64 :rbx (:stack ,rest-tail))
-                  `(sys.lap-x86:mov64 (:cdr :rbx) :r8)
-                  `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8)))))
+    (loop
+       for i from regular-argument-count
+       for tag in reg-arg-tags
+       do
+         (emit `(sys.lap-x86:cmp64 (:stack ,saved-argument-count) ,(fixnum-to-raw i))
+               `(sys.lap-x86:jle ,rest-loop-end))
+         (load-in-r8 tag t)
+         (emit `(sys.lap-x86:mov64 :r9 nil)
+               `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+               `(sys.lap-x86:mov64 :r13 (:function cons))
+               `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+               `(sys.lap-x86:mov64 :rbx (:stack ,rest-tail))
+               `(sys.lap-x86:mov64 (:cdr :rbx) :r8)
+               `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8)))
     ;; All register arguments are in the list.
     ;; Now add the stack arguments.
-    (emit `(sys.lap-x86:mov64 :rax ,(control-stack-slot-ea control-slots))
+    (emit `(sys.lap-x86:mov64 :rax (:stack ,processed-argument-count))
           `(sys.lap-x86:jmp ,rest-loop-test)
           rest-loop-head)
     ;; Load current value. -5 + 2. Skip registers, return address & fp.
-    (emit `(sys.lap-x86:mov64 :r8 (:cfp (:rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) -24)))
+    (emit `(sys.lap-x86:mov64 :r8 (:rbp (:rax ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) -24)))
     ;; Create a new cons.
-    (cond
-      (dx-rest
-       (emit `(sys.lap-x86:sub64 :csp 16)
-             `(sys.lap-x86:mov64 (:csp 0) nil)
-             `(sys.lap-x86:mov64 (:csp 8) nil))
-       (materialize-dx-value :rbx `(:rsp ,sys.int::+tag-cons+) :r13)
-       (emit `(sys.lap-x86:mov64 (:car :rbx) :r8)
-             `(sys.lap-x86:mov64 :r8 (:stack ,rest-tail))
-             `(sys.lap-x86:mov64 (:cdr :r8) :rbx)
-             `(sys.lap-x86:mov64 (:stack ,rest-tail) :rbx)))
-      (t
-       (emit `(sys.lap-x86:mov64 :r9 nil)
-             `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-             `(sys.lap-x86:mov64 :r13 (:function cons))
-             `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-             `(sys.lap-x86:mov64 :r9 (:stack ,rest-tail))
-             `(sys.lap-x86:mov64 (:cdr :r9) :r8)
-             `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8))))
+    (emit `(sys.lap-x86:mov64 :r9 nil)
+          `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
+          `(sys.lap-x86:mov64 :r13 (:function cons))
+          `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+          `(sys.lap-x86:mov64 :r9 (:stack ,rest-tail))
+          `(sys.lap-x86:mov64 (:cdr :r9) :r8)
+          `(sys.lap-x86:mov64 (:stack ,rest-tail) :r8))
     ;; Advance processed count & test for end.
-    (emit `(sys.lap-x86:add64 ,(control-stack-slot-ea control-slots) ,(fixnum-to-raw 1))
-          `(sys.lap-x86:mov64 :rax ,(control-stack-slot-ea control-slots))
+    (emit `(sys.lap-x86:add64 (:stack ,processed-argument-count) ,(fixnum-to-raw 1))
+          `(sys.lap-x86:mov64 :rax (:stack ,processed-argument-count))
           rest-loop-test
-          `(sys.lap-x86:cmp64 :rax ,(control-stack-slot-ea (+ control-slots 1)))
+          `(sys.lap-x86:cmp64 :rax (:stack ,saved-argument-count))
           `(sys.lap-x86:jl ,rest-loop-head)
           rest-loop-end)
     ;; The rest list has been created!
+    ;; Pull the pointer from the CDR of the result cons.
+    (emit `(sys.lap-x86:mov64 :r13 (:stack ,(1- result-head-cons))))))
+
+(defun emit-rest-list (lambda arg-registers)
+  (let* ((rest-arg (lambda-information-rest-arg lambda))
+         (dx-rest (lexical-variable-dynamic-extent rest-arg)))
+    (if dx-rest
+        (emit-dx-rest-list lambda arg-registers)
+        (emit-normal-rest-list lambda arg-registers))
+    ;; The rest list has been created in R13.
     (let ((ofs (find-stack-slot)))
       (setf (aref *stack-values* ofs) (cons rest-arg :home))
-      (emit `(sys.lap-x86:mov64 :r8 (:stack ,rest-head))
-            `(sys.lap-x86:mov64 :r8 (:cdr :r8))
-            `(sys.lap-x86:mov64 (:stack ,ofs) :r8)))
-    ;; Make sure to flush any possible DX cons in rbx.
-    (unless dx-rest
-      (emit `(sys.lap-x86:xor32 :ebx :ebx)))
-    ;; Flush the two temps.
-    (setf (aref *stack-values* rest-head) nil
-          (aref *stack-values* rest-tail) nil)))
-
-(defun flush-data-registers (multiple-values)
-  ;; Flush out any possible references to dynamic-extent values.
-  ;; If multiple-values is true, then obey the multiple-values protocol
-  ;; to limit which registers are cleared, otherwise get all but R8.
-  (emit `(sys.lap-x86:xor32 :ebx :ebx)
-        `(sys.lap-x86:xor32 :r13d :r13d))
-  (if multiple-values
-      (emit `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:cmov64b :r9 :rbx)
-            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 3))
-            `(sys.lap-x86:cmov64b :r10 :rbx)
-            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 4))
-            `(sys.lap-x86:cmov64b :r11 :rbx)
-            `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw 5))
-            `(sys.lap-x86:cmov64b :r12 :rbx))
-      (emit `(sys.lap-x86:xor32 :r9d :r9d)
-            `(sys.lap-x86:xor32 :r10d :r10d)
-            `(sys.lap-x86:xor32 :r11d :r11d)
-            `(sys.lap-x86:xor32 :r12d :r12d))))
+      (emit `(sys.lap-x86:mov64 (:stack ,ofs) :r13)))))
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
@@ -515,16 +532,12 @@ be generated instead.")
       (when (oddp words)
         (incf words))
       (smash-r8)
-      (let* ((slots (allocate-control-stack-slots words)))
-        ;; Flush each slot.
-        (dotimes (i (second size))
-          (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -2 (- i))) nil)))
+      (let ((slots (allocate-control-stack-slots words t)))
         ;; Set the header.
         (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (second size) sys.int::+array-length-shift+)))
-        (materialize-dx-value :r8
-                              `(:rbp ,(+ (control-stack-frame-offset (+ slots words -1))
-                                         sys.int::+tag-object+))
-                              :r13))))
+        ;; Generate pointer.
+        (emit `(sys.lap-x86:lea64 :r8 (:rbp ,(+ (control-stack-frame-offset (+ slots words -1))
+                                                sys.int::+tag-object+)))))))
   (setf *r8-value* (list (gensym))))
 
 (defun cg-block (form)
@@ -550,11 +563,9 @@ be generated instead.")
         (setf (aref *stack-values* slot) (cons info :home))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,thunk-label))
-              ;; Store the special stack pointer with the mark bit clear
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-              `(sys.lap-x86:btr64 :rax ,sys.int::+address-mark-bit+)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
@@ -640,10 +651,6 @@ be generated instead.")
            (let ((tagbody-tag (let ((*for-value* t))
                                 (cg-form (third form)))))
              (load-in-reg :rax tagbody-tag t)
-             ;; Data registers must be flushed unconditionally here.
-             ;; If this closure was called from a function with DX values
-             ;; then there might still be livish DX values left over.
-             (flush-data-registers nil)
              ;; RAX holds the tagbody info.
              (emit
               ;; Get R8 as well.
@@ -983,80 +990,72 @@ Returns an appropriate tag."
                                        (:tail :multiple)
                                        (t *for-value*))))
                     (cg-form (second form))))
-             (reg-arg-tags (loop for reg in '(:r8 :r9 :r10 :r11 :r12) collect (list (gensym))))
-             (sv-save-area-tag (list (gensym)))
-             (sv-count-tag (list (gensym)))
-             (reg-save-done (gensym "REG-SAVE-DONE")))
+             (sv-save-area (allocate-control-stack-slots 1 t))
+             (saved-stack-pointer (allocate-control-stack-slots 1))
+             (save-done (gensym "VALUES-SAVE-DONE"))
+             (save-loop-head (gensym "VALUES-SAVE-LOOP")))
          (smash-r8)
          (when (eql tag :multiple)
-           (loop for slot = (find-stack-slot)
-              ;; Avoid saving registers that don't contain arguments.
-              ;; These may still hold DX values to objects anywhere on the stack. Very bad for GC.
-              for tag in reg-arg-tags
+           ;; Allocate an appropriately sized DX simple vector.
+           ;; Add one for the header, then round the count up to an even number.
+           (emit `(sys.lap-x86:lea64 :rax (:rcx ,(fixnum-to-raw 2))))
+           (emit `(sys.lap-x86:and64 :rax ,(fixnum-to-raw (lognot 1))))
+           ;; Save RSP.
+           (emit `(sys.lap-x86:mov64 (:stack ,saved-stack-pointer) :rsp))
+           ;; Adjust RSP. rax to raw * 8.
+           (emit `(sys.lap-x86:shl64 :rax ,(- 3 sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:sub64 :rsp :rax))
+           ;; Write the simple-vector header.
+           (emit `(sys.lap-x86:mov64 :rax :rcx))
+           (emit `(sys.lap-x86:shl64 :rax ,(- sys.int::+array-length-shift+ sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:mov64 (:rsp) :rax))
+           ;; Clear the SV body. Don't modify RCX, needed for MV GC info.
+           (let ((clear-loop-head (gensym "MVP1-CLEAR-LOOP"))
+                 (clear-loop-end (gensym "MVP1-CLEAR-LOOP-END")))
+             (emit `(sys.lap-x86:mov64 :rdx :rcx))
+             (emit `(sys.lap-x86:test64 :rdx :rdx))
+             (emit `(sys.lap-x86:jz ,clear-loop-end))
+             (emit `(sys.lap-x86:lea64 :rdi (:rsp 8)))
+             (emit `(sys.lap-x86:xor32 :eax :eax))
+             (emit clear-loop-head)
+             (emit `(sys.lap-x86:stos64))
+             (emit `(sys.lap-x86:sub64 :rdx ,(fixnum-to-raw 1)))
+             (emit `(sys.lap-x86:jnz ,clear-loop-head))
+             (emit clear-loop-end))
+           ;; Create & save the DX root value.
+           (emit `(sys.lap-x86:lea64 :rax (:rsp ,sys.int::+tag-dx-root-object+)))
+           (emit `(sys.lap-x86:mov64 (:stack ,sv-save-area) :rax))
+           ;; Save MV registers.
+           (loop
               for reg in '(:r8 :r9 :r10 :r11 :r12)
-              for i from 0
+              for offset from 0
               do
-                (setf (aref *stack-values* slot) tag)
-                (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw i))
-                      `(sys.lap-x86:jle ,reg-save-done))
-                (emit `(sys.lap-x86:mov64 (:stack ,slot) ,reg))
-                (push tag *load-list*))
-           (emit reg-save-done)
-           ;; Save the count.
-           (let ((slot (find-stack-slot)))
-             (setf (aref *stack-values* slot) sv-count-tag)
-             (push sv-count-tag *load-list*)
-             (emit `(sys.lap-x86:mov64 (:stack ,slot) :rcx)))
+                (emit `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw offset)))
+                (emit `(sys.lap-x86:jle ,save-done))
+                ;; 1+ to skip header.
+                (emit `(sys.lap-x86:mov64 (:rsp ,(* (1+ offset) 8)) ,reg)))
+           ;; Save values in the MV area.
+           ;; Number of values remaining.
+           (emit `(sys.lap-x86:mov64 :rax :rcx))
+           (emit `(sys.lap-x86:sub64 :rax ,(fixnum-to-raw 5)))
+           (emit `(sys.lap-x86:jle ,save-done))
+           ;; Save into the simple-vector.
+           (emit `(sys.lap-x86:lea64 :rdi (:rsp ,(* 6 8)))) ; skip header and registers.
+           ;; Load from the MV area.
+           (emit `(sys.lap-x86:mov64 :rsi ,(+ (- 8 sys.int::+tag-object+)
+                                              ;; fixme. should be +thread-mv-slots-start+
+                                              (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
            ;; Save the values into a simple-vector.
-           (let ((slot (find-stack-slot))
-                 (no-values (gensym "NO-VALUES"))
-                 (clear-loop-head (gensym "VALUES-CLEAR-LOOP"))
-                 (save-loop-head (gensym "VALUES-SAVE-LOOP"))
-                 (save-done (gensym "VALUES-SAVE-DONE")))
-             (setf (aref *stack-values* slot) sv-save-area-tag)
-             (push sv-save-area-tag *load-list*)
-             (smash-r8)
-             (emit-trailer (no-values)
-               (load-constant :r8 nil)
-               (emit `(sys.lap-x86:jmp ,save-done)))
-             (emit `(sys.lap-x86:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
-                   `(sys.lap-x86:cmp64 :rax 0)
-                   `(sys.lap-x86:jle ,no-values)
-                   ;; Space for the values.
-                   `(sys.lap-x86:sub64 :rsp :rax)
-                   ;; Space for the header.
-                   `(sys.lap-x86:sub64 :rsp 8)
-                   ;; Realign.
-                   `(sys.lap-x86:and64 :rsp ,(lognot 8))
-                   ;; Set header. SV header type = 0.
-                   `(sys.lap-x86:mov64 :rdx :rax)
-                   `(sys.lap-x86:shl64 :rdx ,(- 8 3))
-                   `(sys.lap-x86:mov64 (:rsp) :rdx)
-                   ;; Clear values. RDX is N+1 non-register values, skipping the header.
-                   ;; Required for GC safety!
-                   `(sys.lap-x86:mov64 :rdx :rax)
-                   clear-loop-head
-                   `(sys.lap-x86:mov64 (:rsp :rdx) 0)
-                   `(sys.lap-x86:sub64 :rdx 8)
-                   `(sys.lap-x86:jnz ,clear-loop-head))
-             (materialize-dx-value :r8 `(:rsp ,sys.int::+tag-object+) :rbx)
-             ;; Copy values out of the MV area.
-             (emit `(sys.lap-x86:lea64 :rdi (:rsp 8))
-                   `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                                ;; fixme. should be +thread-mv-slots-start+
-                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)))
-                   save-loop-head
-                   `(sys.lap-x86:gs)
-                   `(sys.lap-x86:mov64 :rbx (:rsi))
-                   `(sys.lap-x86:mov64 (:rdi) :rbx)
-                   `(sys.lap-x86:add64 :rdi 8)
-                   `(sys.lap-x86:add64 :rsi 8)
-                   `(sys.lap-x86:sub64 :rax 8)
-                   `(sys.lap-x86:ja ,save-loop-head)
-                   save-done
-                   ;; Values are saved to a SV pointed to by R8.
-                   ;; If there were no values, then R8 is NIL.
-                   `(sys.lap-x86:mov64 (:stack ,slot) :r8)))
+           (emit save-loop-head)
+           (emit `(sys.lap-x86:gs))
+           (emit `(sys.lap-x86:mov64 :rbx (:rsi)))
+           (emit `(sys.lap-x86:mov64 (:rdi) :rbx))
+           (emit `(sys.lap-x86:add64 :rsi 8))
+           (emit `(sys.lap-x86:add64 :rdi 8))
+           (emit `(sys.lap-x86:sub64 :rax ,(fixnum-to-raw 1)))
+           (emit `(sys.lap-x86:jnz ,save-loop-head))
+           ;; Finished saving values. Turn MV GC mode off.
+           (emit save-done)
            (emit-gc-info))
          (let ((*for-value* nil))
            (when (not (cg-progn `(progn ,@(cddr form))))
@@ -1067,31 +1066,18 @@ Returns an appropriate tag."
          ;; Drop the tag from the load-list to prevent duplicates caused by cg-form
          (setf *load-list* (delete tag *load-list*))
          (when (eql tag :multiple)
-           (let ((no-extra-values (gensym "NO-EXTRA-VALUES"))
-                 (loop-head (gensym "VALUE-LOAD-LOOP")))
-             (load-in-reg :rcx sv-count-tag t)
-             (load-in-r8 sv-save-area-tag)
-             (emit `(sys.lap-x86:cmp64 :r8 nil)
-                   `(sys.lap-x86:je ,no-extra-values)
-                   `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
-                   `(sys.lap-x86:shr64 :rax ,(- 8 sys.int::+n-fixnum-bits+))
-                   `(sys.lap-x86:mov32 :edi ,(+ (- 8 sys.int::+tag-object+)
-                                                ;; fixme. should be +thread-mv-slots-start+
-                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)))
-                   `(sys.lap-x86:lea64 :rsi (:r8 ,(+ (- sys.int::+tag-object+) 8)))
-                   loop-head
-                   `(sys.lap-x86:mov64 :rbx (:rsi))
-                   `(sys.lap-x86:gs)
-                   `(sys.lap-x86:mov64 (:rdi) :rbx)
-                   `(sys.lap-x86:add64 :rdi 8)
-                   `(sys.lap-x86:add64 :rsi 8)
-                   `(sys.lap-x86:sub64 :rax ,(fixnum-to-raw 1))
-                   `(sys.lap-x86:jae ,loop-head)
-                   no-extra-values)
-             (loop for reg in '(:r8 :r9 :r10 :r11 :r12)
-                for tag in reg-arg-tags
-                do (load-in-reg reg tag t)))
-           (emit-gc-info :multiple-values 0))
+           ;; Create a normal object from the saved dx root.
+           (emit `(sys.lap-x86:mov64 :rax (:stack ,sv-save-area)))
+           (emit `(sys.lap-x86:lea64 :r8 (:rax ,(- sys.int::+tag-object+
+                                                   sys.int::+tag-dx-root-object+))))
+           ;; Call helper.
+           (emit `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 1)))
+           (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::values-simple-vector)))
+           (emit `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+)))
+           (emit-gc-info :multiple-values 0)
+           ;; Kill the dx root and restore the old stack pointer.
+           (emit `(sys.lap-x86:mov64 (:stack ,sv-save-area) nil))
+           (emit `(sys.lap-x86:mov64 :rsp (:stack ,saved-stack-pointer))))
          tag))))
 
 (defun cg-progn (form)
@@ -1126,7 +1112,6 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:jmp ,(second local-info))))
           (t ;; Non-local exit.
            (load-in-reg :rax target-tag t)
-           (flush-data-registers (eql tag :multiple))
            (emit `(sys.lap-x86:jmp (:rax 0)))))
     'nil))
 
@@ -1202,11 +1187,9 @@ Returns an appropriate tag."
             (control-info (allocate-control-stack-slots 4)))
         ;; Construct jump info.
         (emit `(sys.lap-x86:lea64 :rax (:rip ,jump-table))
-              ;; Store the special stack pointer with the mark bit clear
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 3)) :rax)
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
-              `(sys.lap-x86:btr64 :rax ,sys.int::+address-mark-bit+)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
@@ -1568,8 +1551,6 @@ Returns an appropriate tag."
   (declare (ignorable what))
   #+nil(format t "Performing tail call to ~S in ~S~%"
           what (lambda-information-name *current-lambda*))
-  (when *used-dynamic-extent*
-    (flush-data-registers t))
   (emit `(sys.lap-x86:leave)
         `(:gc :no-frame))
   (emit `(sys.lap-x86:jmp ,where)))
