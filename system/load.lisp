@@ -41,7 +41,15 @@
   (assert (and (eql (%read-byte stream) #x4C)
                (eql (%read-byte stream) #x4C)
                (eql (%read-byte stream) #x46)
-               (eql (%read-byte stream) #x00))))
+               (eql (%read-byte stream) #x01))
+          ()
+          "Bad LLF magic while loading ~S. Probably old-style LLF, please remove and rebuild."
+          stream)
+  (let ((version (load-integer stream)))
+    (assert (eql version *llf-version*)
+            ()
+            "Bad LLF version ~D, wanted version ~D, while loading ~S."
+            version *llf-version* stream)))
 
 (defun load-integer (stream)
   (let ((value 0) (shift 0))

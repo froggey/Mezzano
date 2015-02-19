@@ -463,7 +463,8 @@
 (defun write-llf-header (output-stream input-file)
   (declare (ignore input-file))
   ;; TODO: write the source file name out as well.
-  (write-sequence #(#x4C #x4C #x46 #x00) output-stream))
+  (write-sequence #(#x4C #x4C #x46 #x01) output-stream)
+  (save-integer sys.int::*llf-version* output-stream))
 
 (defun save-integer (integer stream)
   (let ((negativep (minusp integer)))

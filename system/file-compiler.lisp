@@ -132,7 +132,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 
 (defun write-llf-header (output-stream input-file)
   ;; TODO: write the source file name out as well.
-  (write-sequence #(#x4C #x4C #x46 #x00) output-stream)) ; LLF\x00
+  (write-sequence #(#x4C #x4C #x46 #x01) output-stream) ; LLF\x01
+  (save-integer *llf-version* output-stream))
 
 (defun save-integer (integer stream)
   (let ((negativep (minusp integer)))

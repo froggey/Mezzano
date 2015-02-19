@@ -1788,7 +1788,13 @@ Tag with +TAG-OBJECT+."
       (assert (and (eql (read-byte s) #x4C)
                    (eql (read-byte s) #x4C)
                    (eql (read-byte s) #x46)
-                   (eql (read-byte s) #x00)))
+                   (eql (read-byte s) #x01))
+              ()
+              "Bad LLF magic. Probably old-style LLF, please remove and rebuild.")
+      (let ((version (load-integer s)))
+        (assert (eql version sys.int::*llf-version*)
+                ()
+                "Bad LLF version ~D, wanted version ~D." version sys.int::*llf-version*))
       ;; Read forms.
       (load-llf s))))
 
