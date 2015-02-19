@@ -8,7 +8,7 @@
 ;; The debug stream functions use line-buffered output, but output can
 ;; be forced using the DEBUG-FORCE-OUTPUT function.
 
-;; The debug pesudostream must be a function that takes one or two arguments.
+;; The debug pseudostream must be a function that takes one or two arguments.
 ;; The first argument is a keyword specifying the operation,
 ;; the second argument is the data for the operation.
 ;; Operations:
@@ -17,32 +17,32 @@
 ;;     :write-char    Write a character to the stream.
 ;;     :write-string  Write a string to the stream.
 ;;     :force-output  Same as CL:FORCE-OUTPUT.
-(defvar *debug-pesudostream*)
+(defvar *debug-pseudostream*)
 
-(defun debug-set-output-pesudostream (pesudostream)
-  (setf *debug-pesudostream* pesudostream))
+(defun debug-set-output-pseudostream (pseudostream)
+  (setf *debug-pseudostream* pseudostream))
 
 (defun debug-read-char ()
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :read-char)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :read-char)))
 
 (defun debug-clear-input ()
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :clear-input)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :clear-input)))
 
 (defun debug-write-string (string)
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :write-string string)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :write-string string)))
 
 (defun debug-write-char (char)
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :write-char char)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :write-char char)))
 
 (defun debug-write-line (string)
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :write-string string)
-    (funcall *debug-pesudostream* :write-char #\Newline)
-    (funcall *debug-pesudostream* :force-output)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :write-string string)
+    (funcall *debug-pseudostream* :write-char #\Newline)
+    (funcall *debug-pseudostream* :force-output)))
 
 ;;; Print a negative fixnum. Use negative numbers to avoid problems
 ;;; near most-negative-fixnum.
@@ -72,21 +72,21 @@
           (t (debug-write-string "#<")
              (debug-write-fixnum (sys.int::lisp-object-address thing))
              (debug-write-string ">"))))
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :write-char #\Newline)
-    (funcall *debug-pesudostream* :force-output)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :write-char #\Newline)
+    (funcall *debug-pseudostream* :force-output)))
 
 (defun debug-print-line (&rest things)
   (declare (dynamic-extent things))
   (debug-print-line-1 things))
 
 (defun debug-start-line-p ()
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :start-line-p)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :start-line-p)))
 
 (defun debug-force-output ()
-  (when (boundp '*debug-pesudostream*)
-    (funcall *debug-pesudostream* :force-output)))
+  (when (boundp '*debug-pseudostream*)
+    (funcall *debug-pseudostream* :force-output)))
 
 (defvar *panic-in-progress* nil)
 
