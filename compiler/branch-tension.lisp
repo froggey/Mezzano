@@ -32,6 +32,15 @@
              (when (zerop change-count)
                (return program))))))))
 
+(defparameter *predicate-instructions-by-jump*
+  (let ((ht (make-hash-table)))
+    (maphash (lambda (k v)
+               (declare (ignore k))
+               (setf (gethash (predicate-instruction-jump-instruction v) ht)
+                     v)) 
+             *predicate-instructions*)
+    ht))
+
 (defun tension-branches-1 (program label-targets)
   (do ((after-unconditional-jmp nil)
        (change-count 0)
@@ -49,7 +58,7 @@
       (unless after-unconditional-jmp
         (cond ((not (consp form))
                (push form new-program))
-              ((and (or (find (first form) *predicate-instructions* :key #'third)
+              ((and (or (gethash (first form) *predicate-instructions-by-jump*)
                         (eql (first form) 'sys.lap-x86:jmp))
                     (not (keywordp (second form)))
                     (symbolp (cadr i))
@@ -59,7 +68,7 @@
                ;; label
                ;; Do nothing to eliminate the instruction.
                (incf change-count))
-              ((and (find (first form) *predicate-instructions* :key #'third)
+              ((and (gethash (first form) *predicate-instructions-by-jump*)
                     (listp (cadr i))
                     (eql (first (cadr i)) 'sys.lap-x86:jmp)
                     (symbolp (caddr i))
@@ -70,13 +79,15 @@
                ;; (JMP label)
                ;; over
                ;; Invert the Jcc condition, point it to label and eliminate the JMP.
-               (push (list (third (predicate-info (second (find (first form) *predicate-instructions* :key #'third))))
+               (push (list (predicate-instruction-jump-instruction
+                            (predicate-info (predicate-instruction-inverse
+                                             (gethash (first form) *predicate-instructions-by-jump*))))
                            (second (cadr i)))
                      new-program)
                ;; Skip the JMP.
                (setf i (cdr i))
                (incf change-count))
-              ((or (find (first form) *predicate-instructions* :key #'third)
+              ((or (gethash (first form) *predicate-instructions-by-jump*)
                    (eql (first form) 'sys.lap-x86:jmp)
                    (not (keywordp (second form))))
                (when (eql (first form) 'sys.lap-x86:jmp)
@@ -99,7 +110,7 @@
     (dolist (f program)
       (when (consp f)
         ;; Check for a Jcc or JMP
-        (cond ((and (or (find (first f) *predicate-instructions* :key #'third)
+        (cond ((and (or (gethash (first f) *predicate-instructions-by-jump*)
                         (eql (first f) 'sys.lap-x86:jmp))
                     (member (second f) all-labels))
                (push f (gethash (second f) uses)))

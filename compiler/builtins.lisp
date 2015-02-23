@@ -1241,7 +1241,8 @@
              `(sys.lap-x86:cmp64 :r8 :r9)
              `(sys.lap-x86:mov64 :r8 nil)
              `(sys.lap-x86:mov64 :r9 t)
-             `(,',(fourth (predicate-info conditional)) :r8 :r9)
+             `(,',(predicate-instruction-cmov-instruction
+                   (predicate-info conditional)) :r8 :r9)
              resume)
        (setf *r8-value* (list (gensym))))))
 
