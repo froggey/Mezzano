@@ -709,7 +709,9 @@ be generated instead.")
     new))
 
 ;;; (predicate inverse jump-instruction cmov-instruction)
-(defparameter *predicate-instructions*
+(defstruct predicate-instruction
+  inverse jump-instruction cmov-instruction)
+(defparameter *predicate-instructions-1*
   '((:o  :no  sys.lap-x86:jo   sys.lap-x86:cmov64o)
     (:no :o   sys.lap-x86:jno  sys.lap-x86:cmov64no)
     (:b  :nb  sys.lap-x86:jb   sys.lap-x86:cmov64b)
@@ -740,19 +742,29 @@ be generated instead.")
     (:nle :le sys.lap-x86:jnle sys.lap-x86:cmov64nle)
     (:g  :ng  sys.lap-x86:jg   sys.lap-x86:cmov64g)
     (:ng :g   sys.lap-x86:jng  sys.lap-x86:cmov64ng)))
+(defparameter *predicate-instructions*
+  (let ((ht (make-hash-table :test 'eq)))
+    (mapc (lambda (i)
+            (setf (gethash (first i) ht)
+                  (make-predicate-instruction
+                   :inverse (second i)
+                   :jump-instruction (third i)
+                   :cmov-instruction (fourth i))))
+          *predicate-instructions-1*)
+    ht))
 
 (defun predicate-info (pred)
-  (or (assoc pred *predicate-instructions*)
+  (or (gethash pred *predicate-instructions*)
       (error "Unknown predicate ~S." pred)))
 
 (defun invert-predicate (pred)
-  (second (predicate-info pred)))
+  (predicate-instruction-inverse (predicate-info pred)))
 
 (defun load-predicate (pred)
   (smash-r8)
   (emit `(sys.lap-x86:mov64 :r8 nil)
         `(sys.lap-x86:mov64 :r9 t)
-        `(,(fourth (predicate-info pred)) :r8 :r9)))
+        `(,(predicate-instruction-cmov-instruction (predicate-info pred)) :r8 :r9)))
 
 (defun predicate-result (pred)
   (cond ((eql *for-value* :predicate)
@@ -782,7 +794,8 @@ be generated instead.")
       ;; changing the flags.
       (cond ((keywordp test-tag)
              ;; Invert the sense.
-             (emit `(,(third (predicate-info (invert-predicate test-tag))) ,else-label)))
+             (emit `(,(predicate-instruction-jump-instruction
+                       (predicate-info (invert-predicate test-tag))) ,else-label)))
             (t (emit `(sys.lap-x86:je ,else-label))))
       (branch-to else-label)
       (let ((tag (cg-form (third form))))
