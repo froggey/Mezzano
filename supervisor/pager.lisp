@@ -55,9 +55,8 @@
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
-           (page (or (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))
-                     ;; I guess this could happen on strange devices with sector sizes > 4k.
-                     (panic "Unable to allocate memory when examining disk " disk)))
+           (page (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)
+                                          "DETECT-PAGING-DISK disk buffer"))
            (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
       ;; Read first 4k, figure out what to do with it.
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
@@ -92,8 +91,7 @@
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (or (allocate-physical-pages 1)
-                          (panic "Aiee. No memory.")))
+        (let* ((frame (allocate-physical-pages 1 "page table"))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
@@ -114,8 +112,7 @@
   (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
       ((null cache-page)
        ;; Expand the cache.
-       (let* ((frame (or (allocate-physical-pages 1)
-                         (panic "Aiee. No memory.")))
+       (let* ((frame (allocate-physical-pages 1 "block cache (metadata)"))
               (cache-addr (+ +physical-map-base+ (ash frame 12))))
          (zeroize-page cache-addr)
          (setf (sys.int::memref-t cache-addr 511) *block-cache*
@@ -129,8 +126,7 @@
         (return-from insert-into-block-cache)))))
 
 (defun read-block-from-disk (block-id)
-  (let* ((frame (or (allocate-physical-pages 1)
-                    (panic "Aiee. No memory.")))
+  (let* ((frame (allocate-physical-pages 1 "block cache (from disk)"))
          (addr (+ +physical-map-base+ (ash frame 12))))
     ;; Reuse *PAGER-DISK-REQUEST*, it's mostly protected by the *VM-LOCK*.
     (disk-submit-request *pager-disk-request*
@@ -154,8 +150,7 @@
   (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
       ((null cache-page)
        ;; Not present in cache, allocate a new page and insert it.
-       (let* ((frame (or (allocate-physical-pages 1)
-                         (panic "Aiee. No memory.")))
+       (let* ((frame (allocate-physical-pages 1 "block cache (from zero)"))
               (data (+ +physical-map-base+ (ash frame 12))))
          (zeroize-page data)
          (insert-into-block-cache block-id data)
@@ -349,8 +344,7 @@
         #+(or)(debug-print-line "WFP " address " not present")
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
-      (let* ((frame (or (allocate-physical-pages 1)
-                        (panic "Aiee. No memory.")))
+      (let* ((frame (allocate-physical-pages 1 "data"))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
               (physical-page-frame-flags frame) (logior (logand (physical-page-frame-flags frame) #xFFF)

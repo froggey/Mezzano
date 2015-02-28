@@ -469,8 +469,7 @@ This is used to implement the INTRQ_Wait state."
   (setf *ata-devices* '()))
 
 (defun ata-pci-register (location)
-  (let* ((prdt-page (or (allocate-physical-pages 1)
-                        (panic "Cannot allocate PRDT page for ATA device."))))
+  (let* ((prdt-page (allocate-physical-pages 1 "ATA PRDT page")))
     ;; Make sure to enable PCI bus mastering for this device.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
                                                                 ;; Bit 2 is Bus Master bit.

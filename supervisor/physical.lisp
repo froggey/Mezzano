@@ -84,7 +84,11 @@
     (setf *physical-lock* :unlocked
           *verbose-physical-allocation* nil)))
 
-(defun allocate-physical-pages (n-pages)
+(defun allocate-physical-pages (n-pages &optional mandatory-p)
+  "Allocate N-PAGES of contiguous physical page frames.
+If the allocation could not be satisfied then NIL will be returned
+when MANDATORY-P is false, otherwise PANIC will be called.
+If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
   (with-symbol-spinlock (*physical-lock*)
     ;; Find the bin that matches this page count and
@@ -94,41 +98,43 @@
                          for bin from best-bin below +n-physical-buddy-bins+
                          when (physical-buddy-bin-head bin)
                          do (return bin))))
-      (when avail-bin
-        ;; Pages available.
-        ;; Remove the page from the bin freelist list and mark as allocated.
-        (let ((frame (physical-buddy-bin-head avail-bin)))
-          (setf (physical-buddy-bin-head avail-bin) (physical-page-frame-next frame))
-          (decf (physical-buddy-bin-count avail-bin))
-          (when (physical-page-frame-next frame)
-            (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
-          (when (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)))
-            (panic "Allocated allocated page " frame))
-          (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)) 0)
-          ;; Split block as required.
-          (loop
-             (when (eql avail-bin best-bin)
-               (return))
-             (decf avail-bin)
-             (let ((p (+ frame (ash 1 avail-bin))))
+      (cond (avail-bin
+             ;; Pages available.
+             ;; Remove the page from the bin freelist list and mark as allocated.
+             (let ((frame (physical-buddy-bin-head avail-bin)))
+               (setf (physical-buddy-bin-head avail-bin) (physical-page-frame-next frame))
+               (decf (physical-buddy-bin-count avail-bin))
+               (when (physical-page-frame-next frame)
+                 (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
+               (when (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)))
+                 (panic "Allocated allocated page " frame))
+               (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags frame)) 0)
+               ;; Split block as required.
+               (loop
+                  (when (eql avail-bin best-bin)
+                    (return))
+                  (decf avail-bin)
+                  (let ((p (+ frame (ash 1 avail-bin))))
+                    (when *verbose-physical-allocation*
+                      (debug-print-line "Split frame " frame " buddy " p " order " avail-bin))
+                    ;; Mark free, and set bin number.
+                    (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags p)) 1
+                          (physical-page-frame-bin p) avail-bin)
+                    ;; Attach to freelist.
+                    (when (physical-buddy-bin-head avail-bin)
+                      (setf (physical-page-frame-prev (physical-buddy-bin-head avail-bin)) p))
+                    (setf (physical-page-frame-prev p) nil
+                          (physical-page-frame-next p) (physical-buddy-bin-head avail-bin)
+                          (physical-buddy-bin-head avail-bin) p)
+                    (incf (physical-buddy-bin-count avail-bin))))
+               (when mezzano.runtime::*paranoid-allocation*
+                 (dotimes (i (* n-pages 512))
+                   (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
                (when *verbose-physical-allocation*
-                 (debug-print-line "Split frame " frame " buddy " p " order " avail-bin))
-               ;; Mark free, and set bin number.
-               (setf (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags p)) 1
-                     (physical-page-frame-bin p) avail-bin)
-               ;; Attach to freelist.
-               (when (physical-buddy-bin-head avail-bin)
-                 (setf (physical-page-frame-prev (physical-buddy-bin-head avail-bin)) p))
-               (setf (physical-page-frame-prev p) nil
-                     (physical-page-frame-next p) (physical-buddy-bin-head avail-bin)
-                     (physical-buddy-bin-head avail-bin) p)
-               (incf (physical-buddy-bin-count avail-bin))))
-          (when mezzano.runtime::*paranoid-allocation*
-            (dotimes (i (* n-pages 512))
-              (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
-          (when *verbose-physical-allocation*
-            (debug-print-line "Allocated " n-pages " pages " frame))
-          frame)))))
+                 (debug-print-line "Allocated " n-pages " pages " frame))
+               frame))
+            (mandatory-p
+             (panic "No physical memory: " mandatory-p))))))
 
 (defun release-physical-pages (page-number n-pages)
   (ensure (not (zerop n-pages)) "Tried to free 0 frames.")

@@ -77,8 +77,7 @@
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
   ;; Carve out a pair of pages.
-  (let* ((frame (or (allocate-physical-pages 2)
-                    (panic "Aiee. No memory.")))
+  (let* ((frame (allocate-physical-pages 2 "CPU data"))
          (addr (+ +physical-map-base+ (ash frame 12)))
          (tss-base (+ addr +cpu-info-tss-offset+)))
     ;; IDT completely fills the second page (256 * 16)
