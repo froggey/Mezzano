@@ -346,7 +346,7 @@ be generated instead.")
     ;; Allocate on the stack.
     (emit `(sys.lap-x86:sub64 :rsp :rdx))
     ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
-    (emit `(sys.lap-x86:lea64 :rdx (:rcx ,(fixnum-to-raw 1)))) ; 1+ for padding word at the start.
+    (emit `(sys.lap-x86:lea64 :rdx ((:rcx 2) ,(fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
     (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+array-length-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(sys.lap-x86:mov64 (:rsp) :rdx))
     ;; Clear the padding slot.
