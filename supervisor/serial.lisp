@@ -100,6 +100,8 @@
 (defconstant +serial-msr-ring-indicator+ 6)
 (defconstant +serial-msr-carrier-detect+ 7)
 
+(defconstant +bochs-log-port+ #xE9)
+
 (defconstant +debug-serial-buffer-size+ 256)
 
 (defvar *debug-serial-io-port*)
@@ -180,7 +182,7 @@
 ;; Low-level byte functions.
 
 (defun debug-serial-write-byte (byte)
-  (setf (sys.int::io-port/8 #xE9) byte)
+  (setf (sys.int::io-port/8 +bochs-log-port+) byte)
   (without-interrupts
     (loop
        (with-symbol-spinlock (*debug-serial-lock*)
@@ -334,3 +336,38 @@
   (debug-set-output-pseudostream 'debug-serial-stream)
   (i8259-hook-irq irq 'debug-serial-irq-handler)
   (i8259-unmask-irq irq))
+
+(defvar *debug-early-serial-io-port*)
+
+(defun debug-early-serial-write-byte (byte)
+  (setf (sys.int::io-port/8 +bochs-log-port+) byte)
+  ;; Wait for the TX buffer to drain.
+  (loop
+     (when (logbitp +serial-lsr-thr-empty+
+                    (sys.int::io-port/8 (+ *debug-early-serial-io-port* +serial-LSR+)))
+       (return)))
+  ;; Write byte.
+  (setf (sys.int::io-port/8 (+ *debug-early-serial-io-port* +serial-THR+)) byte))
+
+(defun debug-early-serial-write-char (char)
+  (let ((code (ldb (byte 8 0) (char-code char))))
+    (cond ((eql char #\Newline)
+           (setf *serial-at-line-start* t)
+           ;; Turn #\Newline into CRLF
+           (debug-early-serial-write-byte #x0D)
+           (debug-early-serial-write-byte #x0A))
+          (t (debug-early-serial-write-byte code)))))
+
+(defun debug-early-serial-stream (op &optional arg)
+  (ecase op
+    (:write-char
+     (debug-early-serial-write-char arg))
+    (:write-string
+     (dotimes (i (string-length arg))
+       (debug-early-serial-write-char (char arg i))))
+    (:force-output)
+    (:start-line-p nil)))
+
+(defun initialize-early-debug-serial (io-port)
+  (setf *debug-early-serial-io-port* io-port)
+  (debug-set-output-pseudostream 'debug-early-serial-stream))

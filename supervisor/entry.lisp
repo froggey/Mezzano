@@ -288,7 +288,10 @@ Returns two values, the packet data and the receiving NIC."
   (push-wired action *deferred-boot-actions*))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
-  (let ((first-run-p nil))
+  (let ((first-run-p nil)
+        ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
+        (serial-port-io-base #x3F8))
+    (initialize-early-debug-serial serial-port-io-base)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *block-cache* nil
@@ -317,7 +320,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-pager)
     (initialize-snapshot)
     (sys.int::%sti)
-    (initialize-debug-serial #x3F8 4 38400)
+    (initialize-debug-serial serial-port-io-base 4 38400)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
     (initialize-time)
