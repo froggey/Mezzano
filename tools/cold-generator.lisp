@@ -527,7 +527,7 @@
       (read-sequence data s)
       data)))
 
-(defun write-image (name entry-fref initial-thread &key (image-size (* 256 1024 1024)) header-path)
+(defun write-image (name entry-fref initial-thread image-size header-path)
   (with-open-file (s (make-pathname :type "image" :defaults name)
                      :direction :output
                      :element-type '(unsigned-byte 8)
@@ -547,7 +547,10 @@
       (format t "BML4 at offset ~X~%" bml4-block)
       (format t "FBL  at offset ~X~%" free-block-list)
       (when image-header-data
-        (write-sequence image-header-data s))
+        (write-sequence image-header-data s)
+        ;; Update the size of the second partition entry, the Mezzano partiton.
+        (file-position s #x1DA)
+        (nibbles:write-ub32/le (truncate image-size 512) s))
       (incf *store-bump* #x2000)
       (file-position s (1- (+ image-offset image-size)))
       (write-byte 0 s)
@@ -1170,7 +1173,7 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files header-path)
+(defun make-image (image-name &key extra-source-files header-path (image-size (* 256 1024 1024)))
   (let* ((*wired-area-bump* +wired-area-base+)
          (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*wired-area-store* nil)
@@ -1333,7 +1336,8 @@
                  (make-value (function-reference 'sys.int::%%bootloader-entry-point)
                              sys.int::+tag-object+)
                  initial-thread
-                 :header-path header-path)))
+                 image-size
+                 header-path)))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
   (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
