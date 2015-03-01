@@ -82,8 +82,5 @@ The disk image can be run directly in qemu:
 or it can be converted to a .vmdk for use in VirtualBox:
   VBoxManage convertfromraw --format vmdk mezzano.image mezzano.vmdk
 
-ASDF will initially fail to load with an undefined-function UNEXPORT error. This
-is normal and can be fixed by rebooting.
-
 Initially loading the whole system takes approximately 2 hours in
 VirtualBox running on a 2.4GHz Core 2 Quad.
