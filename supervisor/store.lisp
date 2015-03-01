@@ -221,8 +221,7 @@ Should be called with the freelist lock held."
 (defun store-free (start n-blocks)
   (with-symbol-spinlock (*store-freelist-lock*)
     (incf *store-freelist-n-free-blocks* n-blocks)
-    (store-insert-range start n-blocks t)
-    (store-freelist-log start n-blocks t)))
+    (store-insert-range start n-blocks t)))
 
 (defun store-alloc-1 (n-blocks)
   "Allocate from the in-memory freelist only. The freelist lock must be held."
