@@ -74,6 +74,16 @@
   next
   (sys.lap-x86:ret))
 
+(defconstant +tss-ist-1+ 36)
+(defconstant +tss-ist-2+ 44)
+(defconstant +tss-ist-3+ 52)
+(defconstant +tss-ist-4+ 60)
+(defconstant +tss-ist-5+ 68)
+(defconstant +tss-ist-6+ 76)
+(defconstant +tss-ist-7+ 84)
+
+(defconstant +tss-io-map-base+ 102)
+
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
   ;; Carve out a pair of pages.
@@ -111,13 +121,13 @@
     (dotimes (i +cpu-info-tss-size+)
       (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
     ;; IST1.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base 36) 0) (+ sys.int::*exception-stack-base*
-                                                                sys.int::*exception-stack-size*))
+    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) (+ sys.int::*exception-stack-base*
+                                                                         sys.int::*exception-stack-size*))
     ;; IST2.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base 44) 0) (+ sys.int::*irq-stack-base*
-                                                                sys.int::*irq-stack-size*))
+    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) (+ sys.int::*irq-stack-base*
+                                                                         sys.int::*irq-stack-size*))
     ;; I/O Map Base Address, follows TSS body.
-    (setf (sys.int::memref-unsigned-byte-16 (+ tss-base 102) 0) 104)
+    (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+)
     ;; Other stuff.
     (setf (sys.int::memref-t (+ addr +cpu-info-self-offset+) 0) addr)
     ;; Shove the cpu info page into FS.
