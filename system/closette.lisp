@@ -1050,6 +1050,7 @@
       (list ':method-class
             `(find-class ',(cadr option))))
     (:method '())
+    (declare '())
     (t (list `',(car option) `',(cadr option)))))
 
 (defun defgeneric-methods (name options)
