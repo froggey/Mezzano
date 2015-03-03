@@ -235,8 +235,10 @@ the seperator character."
 		       (when (not (eql (aref packed (+ i 1 j)) 0))
 			 (return))))))))
       (pack-one trie)
-      (let ((crunch (make-array (length packed) :element-type '(unsigned-byte 32))))
-	(map-into crunch #'identity packed)))))
+      ;; Turn it into a simple array.
+      (make-array (length packed)
+                  :element-type '(unsigned-byte 32)
+                  :initial-contents packed))))
 
 (defun generate-unicode-data-tables (unicode-data)
   (let* ((planes (make-array 17 :initial-element nil))
