@@ -797,17 +797,23 @@
 (defun read-#-vertical-bar (stream ch p)
   "Read the nestable #| ... |# comment."
   (ignore-#-argument ch p)
-  (do ((x (read-char stream t nil t)
-	  (read-char stream t nil t)))
-      (nil)
-    (case x
-      (#\# ;; Check for #| and recurse
-       ;; FIXME: should ignore any integer argument.
-       (when (eql (read-char stream t nil t) #\|)
-	 (read-#-vertical-bar stream #\| nil)))
-      (#\| ;; Check for |# and finish
-       (when (eql (read-char stream t nil t) #\#)
-	 (return)))))
+  (loop
+     (case (read-char stream t nil t)
+       (#\#
+        ;; Could be followed by | after an integer argument.
+        (loop
+           ;; Eat any decimal digits immediately after.
+           (when (not (digit-char-p (peek-char nil stream t nil t) 10))
+             (return))
+           (read-char stream))
+        ;; Look for | and recurse.
+        (when (eql (peek-char nil stream t nil t) #\|)
+          (read-char stream) ; eat |.
+          (read-#-vertical-bar stream #\| nil)))
+       (#\| ;; Check for |# and finish.
+        (when (eql (peek-char nil stream t nil t) #\#)
+          (read-char stream)
+          (return)))))
   (values))
 
 (defun read-#-invalid (stream ch p)
