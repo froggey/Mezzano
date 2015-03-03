@@ -1360,6 +1360,7 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
 (defun find-file-command ()
   (find-file (read-from-minibuffer (format nil "Find file (default ~S): " *default-pathname-defaults*))))
 
+(defvar *save-backup-files* t)
 (defun save-buffer-command ()
   (let ((buffer (current-buffer *editor*)))
     (when (not (buffer-property buffer 'path))
