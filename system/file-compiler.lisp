@@ -432,21 +432,38 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmacro with-compilation-unit ((&key override) &body body)
   `(progn ,override ,@body))
 
-(defun save-compiler-builtins (path)
-  (with-open-file (output-stream path
-                   :element-type '(unsigned-byte 8)
-                   :if-exists :supersede
-                   :direction :output)
-    (format t ";; Writing compiler builtins to ~A.~%" path)
-    (write-llf-header output-stream path)
-    (let ((omap (make-hash-table))
-          (builtins (sys.c::generate-builtin-functions)))
-      (dolist (b builtins)
-        (let ((form `(funcall #'(setf fdefinition) #',(second b) ',(first b))))
-          (let ((*print-length* 3)
-                (*print-level* 3))
-            (declare (special *print-length* *print-level*))
-            (format t ";; Compiling form ~S.~%" form))
-          (or (fastload-form form omap output-stream)
-              (error "Could not fastload builtin."))))
-      (write-byte +llf-end-of-load+ output-stream))))
+(defun sys.c::save-compiler-builtins (output-file)
+  (with-open-file (output-stream output-file
+                                 :element-type '(unsigned-byte 8)
+                                 :if-exists :supersede
+                                 :direction :output)
+    (format t ";; Writing compiler builtins to ~A.~%" output-file)
+    (write-llf-header output-stream output-file)
+    (let* ((*llf-forms* nil)
+           (omap (make-hash-table)))
+      (loop
+         for (name lambda) in (sys.c::generate-builtin-functions)
+         for form = `(sys.int::%defun ',name ,lambda)
+         do
+           (let ((*print-length* 3)
+                 (*print-level* 3))
+             (declare (special *print-length* *print-level*))
+             (format t ";; Compiling form ~S.~%" form))
+           (or (fastload-form form omap output-stream)
+               (error "Could not fastload builtin.")))
+      ;; Now write everything to the fasl.
+      ;; Do two passes to detect circularity.
+      (let ((commands (reverse *llf-forms*)))
+        (gc) ; ### working around a hash-table bug
+        (let ((*llf-dry-run* t))
+          (dolist (cmd commands)
+            (dolist (o (cdr cmd))
+              (save-object o omap (make-broadcast-stream)))))
+        (gc) ; ### working around a hash-table bug
+        (let ((*llf-dry-run* nil))
+          (dolist (cmd commands)
+            (dolist (o (cdr cmd))
+              (save-object o omap output-stream))
+            (write-byte (car cmd) output-stream))))
+      (write-byte +llf-end-of-load+ output-stream))
+    (values (truename output-stream) nil nil)))
