@@ -1596,6 +1596,14 @@ If no such form is found, then return the CL-USER package."
     (save-buffer-command)
     (sys.int::cal path)))
 
+(defun eval-last-sexp-command ()
+   (let* ((buffer (current-buffer *editor*))
+          (point (copy-mark (buffer-point buffer))))
+     (save-excursion (buffer)
+       (move-sexp buffer -1)
+       (let ((string (buffer-string buffer point (buffer-point buffer))))
+         (print (eval (read-from-string string)))))))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
@@ -1699,7 +1707,8 @@ If no such form is found, then return the CL-USER package."
   (set-key #\C-O 'open-line-command key-map)
   (set-key #\M-Backspace 'backward-kill-word-command key-map)
   (set-key #\M-Colon 'eval-expression-command key-map)
-  (set-key '(#\C-C #\C-K) 'compile-buffer-command key-map))
+  (set-key '(#\C-C #\C-K) 'compile-buffer-command key-map)
+  (set-key '(#\C-X #\C-E) 'eval-last-sexp-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
   (initialize-key-map key-map)
