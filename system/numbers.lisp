@@ -369,7 +369,7 @@
                      ,integer))
         (t whole)))
 
-(defun parse-integer (string &key (start 0) end (radix 10))
+(defun parse-integer (string &key (start 0) end (radix 10) junk-allowed)
   (setf end (or end (length string)))
   (let ((negativep nil)
         (n 0))
@@ -378,7 +378,9 @@
                 (and (not (member (char string start) '(#\Space #\Newline #\Tab))))))
       (incf start))
     (when (>= start end)
-      (error "No non-whitespace characters in ~S." string))
+      (if junk-allowed
+          (return-from parse-integer (values nil start))
+          (error "No non-whitespace characters in ~S." string)))
     (cond ((eql (char string start) #\+)
            (incf start))
           ((eql (char string start) #\-)
@@ -386,11 +388,17 @@
            (incf start)))
     (do ((offset start (1+ offset)))
         ((or (>= offset end)
-             (member (char string offset) '(#\Space #\Newline #\Tab))))
+             (member (char string offset) '(#\Space #\Newline #\Tab)))
+         (when negativep
+           (setf n (- n)))
+         (values n offset))
       (let ((weight (digit-char-p (char string offset) radix)))
         (when (not weight)
-          (error "Not a parseable integer ~S." string))
-        (setf n (+ (* n radix) weight))))
-    (when negativep
-      (setf n (- n)))
-    (values n end)))
+          (if junk-allowed
+              (return-from parse-integer
+                (values (if (eql offset start)
+                            nil
+                            n)
+                        offset))
+              (error "Not a parseable integer ~S." string)))
+        (setf n (+ (* n radix) weight))))))
