@@ -1509,22 +1509,20 @@ If no such form is found, then return the CL-USER package."
     (unwind-protect
          (or (ignore-errors
                (save-excursion (buffer)
-                 (loop
-                    (beginning-of-top-level-form buffer)
-                    (mark-to-point buffer (buffer-mark buffer))
-                    (move-sexp buffer 1)
-                    (let* ((str (buffer-string buffer
-                                               (buffer-point buffer)
-                                               (buffer-mark buffer)))
-                           (form (let ((*package* temporary-package)
-                                       (*read-eval* nil))
-                                   (read-from-string str))))
-                      (when (and (listp form)
-                                 (eql (first form) 'in-package)
-                                 (= (list-length form) 2))
-                        (return (find-package (second form)))))
-                    (move-sexp buffer -1)
-                    (move-char buffer -1))))
+                  (let ((point (copy-mark (buffer-point buffer))))
+                    (move-beginning-of-buffer buffer)
+                    (let* ((str (buffer-string buffer (buffer-point buffer) point))
+                           (pos (search (format nil "~A~A" #\( "in-package ") str :from-end t)))
+                      (when (and pos (or (= 0 pos)
+                                         (char= (char str (1- pos)) #\Newline)))
+                        (let ((form (let ((*package* temporary-package)
+                                          (*read-eval* nil))
+                                      (ignore-errors
+                                        (read-from-string (subseq str pos))))))
+                          (when (and (listp form)
+                                     (eql (first form) 'in-package)
+                                     (= (list-length form) 2))
+                            (return-from buffer-current-package (find-package (second form))))))))))
              (find-package :cl-user))
       (delete-package temporary-package))))
 
