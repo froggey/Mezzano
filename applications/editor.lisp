@@ -1547,6 +1547,55 @@ If no such form is found, then return the CL-USER package."
 (defun beginning-of-top-level-form-command ()
   (beginning-of-top-level-form (current-buffer *editor*)))
 
+(defun newline-command ()
+  (insert (current-buffer *editor*)  "
+"))
+
+(defun open-line-command ()
+  (let ((buffer (current-buffer *editor*)))
+    (move-end-of-line buffer)
+    (newline-command)))
+
+(defun eval-expression-command ()
+  (print (eval (read-from-string (read-from-minibuffer "Eval: ")))))
+
+(defun copy-region-command ()
+  (kill-region-command)
+  (yank-command))
+
+(defvar *last-search-string* "")
+(defun search-command ()
+  (let* ((string (read-from-minibuffer "Search: "))
+         (buffer (current-buffer *editor*))
+         (point (copy-mark (buffer-point buffer)))
+         pos)
+    ;; Just hitting enter will search for the last searched string
+    (when (string= string "")
+      (setf string *last-search-string*))
+    ;; Search to the end of the buffer
+    (save-excursion (buffer)
+        (move-end-of-buffer buffer)
+        (setf pos (search string (buffer-string buffer point
+                                                (buffer-point buffer)))))
+    (if pos
+       ;; Found the string, go there
+       (move-char buffer (+ pos (length string)))
+       ;; Didn't find it, wrap around and search from the beginning
+       (progn
+         (save-excursion (buffer)
+           (move-beginning-of-buffer buffer)
+           (setf pos (search string (buffer-string buffer (buffer-point buffer) point))))
+         (when pos
+           (move-beginning-of-buffer buffer)
+           (move-char buffer (+ pos (length string))))))
+    (setf *last-search-string* string)))
+
+(defun compile-buffer-command ()
+  (let* ((buffer (current-buffer *editor*))
+         (path (buffer-property buffer 'path)))
+    (save-buffer-command)
+    (sys.int::cal path)))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
@@ -1642,11 +1691,20 @@ If no such form is found, then return the CL-USER package."
   (set-key #\M-V 'scroll-down-command key-map)
   (set-key #\Page-Up 'scroll-down-command key-map)
   (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map)
-  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map))
+  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map)
+  (set-key #\C-S 'search-command key-map)
+  (set-key #\M-W 'copy-region-command key-map)
+  (set-key #\C-M 'newline-command key-map)
+  (set-key #\C-J 'newline-command key-map)
+  (set-key #\C-O 'open-line-command key-map)
+  (set-key #\M-Backspace 'backward-kill-word-command key-map)
+  (set-key #\M-Colon 'eval-expression-command key-map)
+  (set-key '(#\C-C #\C-K) 'compile-buffer-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
   (initialize-key-map key-map)
   (set-key #\Newline 'minibuffer-finish-input-command key-map)
+  (set-key #\C-M 'minibuffer-finish-input-command key-map)
   (set-key '(#\C-X #\C-F) nil key-map)
   (set-key '(#\C-X #\C-S) nil key-map)
   (set-key '(#\C-X #\C-W) nil key-map)
