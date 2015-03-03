@@ -46,11 +46,11 @@
   (pushnew package (package-used-by-list package-to-use)))
 
 (defun use-package (packages-to-use &optional (package *package*))
-  (let ((p (find-package package)))
+  (let ((p (find-package-or-die package)))
     (if (listp packages-to-use)
 	(dolist (use-package packages-to-use)
-	  (use-one-package (find-package use-package) p))
-	(use-one-package (find-package packages-to-use) p)))
+	  (use-one-package (find-package-or-die use-package) p))
+	(use-one-package (find-package-or-die packages-to-use) p)))
   t)
 
 (defun make-package (package-name &key nicknames use)
