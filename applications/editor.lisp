@@ -1547,6 +1547,50 @@ If no such form is found, then return the CL-USER package."
 (defun beginning-of-top-level-form-command ()
   (beginning-of-top-level-form (current-buffer *editor*)))
 
+(defvar *isearch-string* (make-array 0 :fill-pointer t))
+(defvar *last-isearch-string* *isearch-string*)
+
+(defun isearch-post-command-hook ()
+  (flet ((cancel-isearch ()
+           (format t "Cancelling isearch.~%")
+           (setf (post-command-hooks *editor*)
+                 (remove 'isearch-post-command-hook 
+                          (post-command-hooks *editor*))))
+         (char-at-point (point)
+           (line-character (mark-line point) (mark-charpos point))))
+    (let* ((buffer (current-buffer *editor*))
+           (point (buffer-point buffer)))
+      (if (eql *this-command* 'self-insert-command)
+        (progn
+          (delete-backward-char-command)
+          (if (= 0 (length *isearch-string*))           
+            (progn
+              (scan-forward point (lambda  (c) (char= c *this-character*)))
+              (let ((char-at-point (char-at-point point)))
+                (if (char= *this-character* char-at-point)
+                  (vector-push-extend *this-character* *isearch-string*)
+                  (cancel-isearch))))
+            (let ((char-at-point (char-at-point point))
+                  (next-char (progn (move-mark point 1)
+                                    (character-right-of point)))) ;; FIXME: Hebrew
+              (vector-push-extend *this-character* *isearch-string*)
+              (unless (char= *this-character* char-at-point)
+                (move-mark point -1)
+                (search-forward buffer *isearch-string*)))))
+        (if (eql *this-command* 'isearch-command)
+          (if (= 0 (length *isearch-string*))
+            (search-forward buffer *last-isearch-string*) 
+            (search-forward buffer *isearch-string*))
+          (cancel-isearch))))))
+
+(defun isearch-command ()
+  (unless (member 'isearch-post-command-hook (post-command-hooks *editor*))
+    (if (< 0 (length *isearch-string*))
+      (setf *last-isearch-string* *isearch-string*))
+    (format t "Starting isearch (Default: ~S)...~%" (coerce *last-isearch-string* 'string))
+    (setf *isearch-string* (make-array 0 :fill-pointer t))
+    (push 'isearch-post-command-hook (post-command-hooks *editor*))))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
