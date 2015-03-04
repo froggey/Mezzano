@@ -1571,7 +1571,7 @@ If no such form is found, then return the CL-USER package."
 
 (defun isearch-post-command-hook ()
   (flet ((cancel-isearch ()
-           (print "Cancelling isearch.")
+           (format t "Cancelling isearch.~%")
            (setf (post-command-hooks *editor*)
                  (remove 'isearch-post-command-hook 
                           (post-command-hooks *editor*))))
@@ -1604,7 +1604,9 @@ If no such form is found, then return the CL-USER package."
 
 (defun isearch-command ()
   (unless (member 'isearch-post-command-hook (post-command-hooks *editor*))
-    (setf *last-isearch-string* *isearch-string*)
+    (if (< 0 (length *isearch-string*))
+      (setf *last-isearch-string* *isearch-string*))
+    (format t "Starting isearch (Default: ~S)...~%" (coerce *last-isearch-string* 'string))
     (setf *isearch-string* (make-array 0 :fill-pointer t))
     (push 'isearch-post-command-hook (post-command-hooks *editor*))))
 
