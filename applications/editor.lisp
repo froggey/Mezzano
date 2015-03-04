@@ -1578,9 +1578,11 @@ If no such form is found, then return the CL-USER package."
                 (move-mark point -1)
                 (search-forward buffer *isearch-string*)))))
         (if (eql *this-command* 'isearch-command)
-          (if (= 0 (length *isearch-string*))
-            (search-forward buffer *last-isearch-string*) 
-            (search-forward buffer *isearch-string*))
+          (if (null *isearch-string*)
+            (setf *isearch-string* (make-array 0 :fill-pointer t))
+            (if (= 0 (length *isearch-string*))
+              (search-forward buffer *last-isearch-string*) 
+              (search-forward buffer *isearch-string*)))
           (cancel-isearch))))))
 
 (defun isearch-command ()
@@ -1588,7 +1590,7 @@ If no such form is found, then return the CL-USER package."
     (if (< 0 (length *isearch-string*))
       (setf *last-isearch-string* *isearch-string*))
     (format t "Starting isearch (Default: ~S)...~%" (coerce *last-isearch-string* 'string))
-    (setf *isearch-string* (make-array 0 :fill-pointer t))
+    (setf *isearch-string* nil)
     (push 'isearch-post-command-hook (post-command-hooks *editor*))))
 
 ;;;; End command wrappers.
