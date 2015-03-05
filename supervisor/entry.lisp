@@ -118,22 +118,33 @@
 
 (defvar *boot-information-page*)
 
-(defconstant +n-physical-buddy-bins+ 32)
-(defconstant +buddy-bin-size+ 16)
+(defconstant +log2-4k-page+ 12)
+(defconstant +n-32-bit-physical-buddy-bins+ (- 32 +log2-4k-page+)
+  "Number of buddy bins for the below 4GB allocator.")
+(defconstant +n-64-bit-physical-buddy-bins+ (- 36 +log2-4k-page+)
+  "Number of buddy bins for the above 4GB allocator.")
 
-(defconstant +boot-information-boot-uuid-offset+ 0)
-(defconstant +boot-information-physical-buddy-bins-offset+ 16)
-(defconstant +boot-information-framebuffer-physical-address+ 528)
-(defconstant +boot-information-framebuffer-width+ 536)
-(defconstant +boot-information-framebuffer-pitch+ 544)
-(defconstant +boot-information-framebuffer-height+ 552)
-(defconstant +boot-information-framebuffer-layout+ 560)
-(defconstant +boot-information-module-base+ 568)
-(defconstant +boot-information-module-limit+ 576)
+(defconstant +buddy-bin-size+ 16
+  "Size in bytes of one buddy bin.")
+
+(defconstant +boot-information-boot-uuid-offset+                  0)
+(defconstant +boot-information-32-bit-physical-buddy-bins-offset+ 16)
+(defconstant +boot-information-64-bit-physical-buddy-bins-offset+ 336)
+(defconstant +boot-information-video+                             768)
+(defconstant +boot-information-framebuffer-physical-address+      (+ +boot-information-video+ 0))
+(defconstant +boot-information-framebuffer-width+                 (+ +boot-information-video+ 8))
+(defconstant +boot-information-framebuffer-pitch+                 (+ +boot-information-video+ 16))
+(defconstant +boot-information-framebuffer-height+                (+ +boot-information-video+ 24))
+(defconstant +boot-information-framebuffer-layout+                (+ +boot-information-video+ 32))
+(defconstant +boot-information-module-base+                       808)
+(defconstant +boot-information-module-limit+                      816)
+(defconstant +boot-information-n-memory-map-entries+              824)
+(defconstant +boot-information-memory-map+                        832)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
-  (sys.int::memref-unsigned-byte-8 *boot-information-page* offset))
+  (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
+                                   offset))
 
 ;; This thunk exists purely so that the GC knows when to stop unwinding the initial process' stack.
 ;; I'd like to get rid of it somehow...
