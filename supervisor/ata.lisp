@@ -77,7 +77,8 @@
   current-channel
   (irq-cvar (make-condition-variable "ATA IRQ Notifier"))
   irq-delivered
-  hotunplug)
+  hotunplug
+  bounce-buffer)
 
 (defstruct (ata-device
              (:area :wired))
@@ -371,12 +372,20 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-read t))
     (with-mutex ((ata-controller-command-lock controller))
       (with-mutex ((ata-controller-access-lock controller))
-        (if (<= +physical-map-base+
-                mem-addr
-                ;; 4GB limit.
-                (+ +physical-map-base+ (* 4 1024 1024 1024)))
-            (ata-read-dma controller device lba count (- mem-addr +physical-map-base+))
-            (ata-read-pio controller device lba count mem-addr)))))
+        (cond ((<= +physical-map-base+
+                   mem-addr
+                   ;; 4GB limit.
+                   (+ +physical-map-base+ (* 4 1024 1024 1024)))
+               (ata-read-dma controller device lba count (- mem-addr +physical-map-base+)))
+              ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+               ;; Transfer is small enough that the bounce page can be used.
+               (let* ((bounce-frame (ata-controller-bounce-buffer controller))
+                      (bounce-phys (ash bounce-frame 12))
+                      (bounce-virt (+ +physical-map-base+ bounce-phys)))
+                 (ata-read-dma controller device lba count bounce-phys)
+                 (%fast-page-copy mem-addr bounce-virt)))
+              (t ;; Give up and do a slow PIO transfer.
+               (ata-read-pio controller device lba count mem-addr))))))
   t)
 
 (defun ata-write-pio (controller device lba count mem-addr)
@@ -416,12 +425,20 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-write t))
     (with-mutex ((ata-controller-command-lock controller))
       (with-mutex ((ata-controller-access-lock controller))
-        (if (<= +physical-map-base+
-                mem-addr
-                ;; 4GB limit.
-                (+ +physical-map-base+ (* 4 1024 1024 1024)))
-            (ata-write-dma controller device lba count (- mem-addr +physical-map-base+))
-            (ata-write-pio controller device lba count mem-addr)))))
+        (cond ((<= +physical-map-base+
+                   mem-addr
+                   ;; 4GB limit.
+                   (+ +physical-map-base+ (* 4 1024 1024 1024)))
+               (ata-write-dma controller device lba count (- mem-addr +physical-map-base+)))
+              ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+               ;; Transfer is small enough that the bounce page can be used.
+               (let* ((bounce-frame (ata-controller-bounce-buffer controller))
+                      (bounce-phys (ash bounce-frame 12))
+                      (bounce-virt (+ +physical-map-base+ bounce-phys)))
+                 (%fast-page-copy bounce-virt mem-addr)
+                 (ata-write-dma controller device lba count bounce-phys)))
+              (t ;; Give up and do a slow PIO transfer.
+               (ata-write-pio controller device lba count mem-addr))))))
   t)
 
 (defun ata-irq-handler (irq)
@@ -437,11 +454,13 @@ This is used to implement the INTRQ_Wait state."
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
   (debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
-  (let ((controller (make-ata-controller :command command-base
-                                         :control control-base
-                                         :bus-master-register bus-master-register
-                                         :prdt-phys prdt-phys
-                                         :irq irq)))
+  (let* ((dma32-bounce-buffer (allocate-physical-pages 1 "ATA DMA bounce buffer" t))
+         (controller (make-ata-controller :command command-base
+                                          :control control-base
+                                          :bus-master-register bus-master-register
+                                          :prdt-phys prdt-phys
+                                          :irq irq
+                                          :bounce-buffer dma32-bounce-buffer)))
     ;; Disable IRQs on the controller and reset both drives.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+))
           (logior +ata-srst+ +ata-nien+))
@@ -469,7 +488,7 @@ This is used to implement the INTRQ_Wait state."
   (setf *ata-devices* '()))
 
 (defun ata-pci-register (location)
-  (let* ((prdt-page (allocate-physical-pages 1 "ATA PRDT page")))
+  (let* ((prdt-page (allocate-physical-pages 1 "ATA PRDT page" t)))
     ;; Make sure to enable PCI bus mastering for this device.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
                                                                 ;; Bit 2 is Bus Master bit.
