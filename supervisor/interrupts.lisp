@@ -192,7 +192,7 @@ If clear, the fault occured in supervisor mode.")
   (let* ((irq (- info +i8259-base-interrupt+))
          (handler (svref *i8259-handlers* irq)))
     (when handler
-      (funcall handler irq))
+      (funcall handler interrupt-frame irq))
     ;; Send EOI.
     (with-symbol-spinlock (*i8259-spinlock*)
       (setf (sys.int::io-port/8 #x20) #x20)

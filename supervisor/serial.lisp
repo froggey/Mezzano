@@ -144,8 +144,8 @@
        (setf next 0))
      (eql next ,head)))
 
-(defun debug-serial-irq-handler (irq)
-  (declare (ignore irq))
+(defun debug-serial-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame irq))
   (with-symbol-spinlock (*debug-serial-lock*)
     (let ((iir (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IIR+))))
       ;; Read any received data.

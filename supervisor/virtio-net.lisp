@@ -298,7 +298,9 @@ and then some alignment.")
       (push-wired nic *virtio-net-cards*)
       (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
       ;; Attach IRQ handler.
-      (virtio-attach-irq device (lambda (irq) (virtio-net-irq-handler nic)))
+      (virtio-attach-irq device (lambda (interrupt-frame irq)
+                                  (declare (ignore interrupt-frame irq))
+                                  (virtio-net-irq-handler nic)))
       (setf (virtio-irq-mask device) nil)
       ;; Cook up a worker thread.
       (add-deferred-boot-action

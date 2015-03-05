@@ -10,8 +10,8 @@
 
 (defvar *rtc-lock*)
 
-(defun pit-irq-handler (irq)
-  (declare (ignore irq))
+(defun pit-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame irq))
   (with-mutex (*heartbeat-lock*)
     (condition-notify *heartbeat-cvar* t)))
 

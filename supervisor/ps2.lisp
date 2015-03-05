@@ -45,12 +45,12 @@
 (defun ps/2-irq-handler (fifo)
   (fifo-push (system:io-port/8 +ps/2-data-port+) fifo nil))
 
-(defun ps/2-key-irq-handler (irq)
-  (declare (ignore irq))
+(defun ps/2-key-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame irq))
   (ps/2-irq-handler *ps/2-key-fifo*))
 
-(defun ps/2-aux-irq-handler (irq)
-  (declare (ignore irq))
+(defun ps/2-aux-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame irq))
   (ps/2-irq-handler *ps/2-aux-fifo*))
 
 (defun ps/2-input-wait (&optional (what "data"))

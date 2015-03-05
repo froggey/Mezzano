@@ -441,7 +441,8 @@ This is used to implement the INTRQ_Wait state."
                (ata-write-pio controller device lba count mem-addr))))))
   t)
 
-(defun ata-irq-handler (irq)
+(defun ata-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame))
   (dolist (drive *ata-devices*)
     (let ((controller (ata-device-controller drive)))
       (when (eql (ata-controller-irq controller) irq)
