@@ -321,3 +321,31 @@
          nil)
       (when (eq object-type struct-type)
         (return t)))))
+
+(in-package :sys.int)
+
+(defun return-address-to-function (return-address)
+  "Convert a return address to a function pointer.
+Dangerous! The return address must be kept live as a return address on a
+thread's stack if this function is called from normal code."
+  ;; Walk backwards looking for an object header with a function type and
+  ;; an appropriate entry point.
+  (loop
+     with address = (logand return-address -16)
+     ;; Be careful when reading to avoid bignums.
+     for potential-header-type = (ldb (byte +array-type-size+ +array-type-shift+)
+                                      (memref-unsigned-byte-8 address 0))
+     do
+       (when (and
+              ;; Closures never contain code.
+              (or (eql potential-header-type +object-tag-function+)
+                  (eql potential-header-type +object-tag-funcallable-instance+))
+              ;; Check entry point halves individually, avoiding bignums.
+              ;; Currently the entry point of every non-closure function
+              ;; points to the base-address + 16.
+              (eql (logand (+ address 16) #xFFFFFFFF)
+                   (memref-unsigned-byte-32 (+ address 8) 0))
+              (eql (logand (ash (+ address 16) -32) #xFFFFFFFF)
+                   (memref-unsigned-byte-32 (+ address 12) 0)))
+         (return (%%assemble-value address sys.int::+tag-object+)))
+       (decf address 16)))

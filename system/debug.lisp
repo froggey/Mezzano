@@ -14,10 +14,8 @@
 (defvar *default-frames-to-print* 15)
 
 (defun function-from-frame (frame)
-  (let* ((return-address (memref-signed-byte-64 (second frame) 1))
-         (fn-address (base-address-of-internal-pointer return-address))
-         (fn-offset (- return-address fn-address)))
-    (%%assemble-value fn-address +tag-object+)))
+  (let* ((return-address (memref-signed-byte-64 (second frame) 1)))
+    (return-address-to-function return-address)))
 
 (defun read-frame-slot (frame slot)
   (memref-t (memref-unsigned-byte-64 (second frame) 0) (- (1+ slot))))
@@ -271,7 +269,7 @@
      (write-char #\Newline)
      (write-integer fp 16)
      (write-char #\Space)
-     (let* ((fn (%%assemble-value (base-address-of-internal-pointer (memref-unsigned-byte-64 fp 1)) +tag-object+))
+     (let* ((fn (return-address-to-function (memref-unsigned-byte-64 fp 1)))
             (name (when (functionp fn) (function-name fn))))
        (write-integer (lisp-object-address fn) 16)
        (when name

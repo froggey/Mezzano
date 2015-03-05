@@ -103,7 +103,7 @@
     (write-char #\Space *cold-stream*)
     (let* ((ret-addr (memref-unsigned-byte-64 fp 1))
            (fn (when resolve-names
-                 (%%assemble-value (base-address-of-internal-pointer ret-addr) +tag-object+)))
+                 (return-address-to-function ret-addr)))
            (name (when (functionp fn) (function-name fn))))
       (write-integer ret-addr 16 *cold-stream*)
       (when (and resolve-names name)
