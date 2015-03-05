@@ -1030,11 +1030,18 @@
 ;;; defgeneric
 
 (defmacro defgeneric (function-name lambda-list &rest options)
-  `(progn (ensure-generic-function
-           ',function-name
-           :lambda-list ',lambda-list
-           ,@(canonicalize-defgeneric-options options))
-          ,@(defgeneric-methods function-name options)))
+  (let ((decleration (when (and (listp (car options))
+				(eq (caar options) 'declare))
+		       (let ((decleration (car options)))
+			 (setf options (cdr options))
+			 decleration))))
+    `(progn
+       ,(substitute 'declaim 'declare decleration)
+       (ensure-generic-function
+	',function-name
+	:lambda-list ',lambda-list
+	,@(canonicalize-defgeneric-options options))
+       ,@(defgeneric-methods function-name options))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 
