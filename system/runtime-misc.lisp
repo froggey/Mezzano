@@ -49,6 +49,6 @@
 (defmethod print-object ((object hash-table) stream)
   (print-unreadable-object (object stream :type t :identity t)))
 
-(defmethod print-object ((object thread) stream)
+(defmethod print-object ((object mezzano.supervisor:thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format t "~S" (mezzano.supervisor:thread-name object))))

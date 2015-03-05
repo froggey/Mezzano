@@ -602,7 +602,7 @@
        (#b110001 (structure-name (%struct-slot object 0)))
        (#b110010 (class-name (class-of object)))
        (#b110011 'xmm-vector)
-       (#b110100 'thread)
+       (#b110100 'mezzano.supervisor:thread)
        (#b110101 'unbound-value)
        (#b110110 'function-reference)
        (#b110111 'object-tag-110111)

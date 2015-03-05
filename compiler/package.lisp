@@ -82,6 +82,8 @@
            #:without-interrupts
            #:with-world-stopped
            #:make-thread
+           #:thread
+           #:threadp
            #:thread-name
            #:thread-state
            #:thread-lock

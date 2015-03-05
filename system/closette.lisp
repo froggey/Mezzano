@@ -432,7 +432,7 @@
     (array                                         (find-class 'array))
     ;;((and sequence (not (or vector list)))         (find-class 'sequence))
     (function                                      (find-class 'function))
-    (sys.int::thread                               (find-class 'sys.int::thread))
+    (mezzano.supervisor:thread                     (find-class 'mezzano.supervisor:thread))
     (sys.int::function-reference                   (find-class 'sys.int::function-reference))
     (structure-object
      (class-of-structure-definition (sys.int::%struct-slot x 0)))
@@ -1865,7 +1865,7 @@ Dispatching on class ~S." gf class))
 (defclass simple-string (string simple-array) ())
 (defclass integer (number) ())
 (defclass float (number) ())
-(defclass sys.int::thread (t) ())
+(defclass mezzano.supervisor:thread (t) ())
 (defclass sys.int::function-reference (t) ())
 ;; 10. Define the other standard metaobject classes.
 (setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
