@@ -1679,7 +1679,7 @@ If no such form is found, then return the CL-USER package."
   (set-key #\M-V 'scroll-down-command key-map)
   (set-key #\Page-Up 'scroll-down-command key-map)
   (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map)
-  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map))
+  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map)
   (set-key #\M-O 'find-matching-paren-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
