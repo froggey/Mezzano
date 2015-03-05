@@ -25,6 +25,7 @@
     "supervisor/pci.lisp"
     "supervisor/virtio.lisp"
     "supervisor/virtio-net.lisp"
+    "supervisor/profiler.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
@@ -59,6 +60,7 @@
     "system/gc.lisp"
     "system/load.lisp"
     "system/time.lisp"
+    "system/profiler.lisp"
 ))
 
 (defparameter *special-source-files*
@@ -1141,7 +1143,7 @@
   "Assign store addresses to each area, and build pinned/wired area freelists."
   ;; Ensure a minium amount of free space in :wired.
   ;; And :pinned as well, but that matters less.
-  (let ((wired-free-area (allocate (* 256 1024) :wired))
+  (let ((wired-free-area (allocate (* 2048 1024) :wired))
         (pinned-free-area (allocate (* 1024 1024) :pinned)))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
     (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)

@@ -125,8 +125,13 @@ If clear, the fault occured in supervisor mode.")
 (defconstant +page-fault-error-instruction+ 4
   "If set, the fault was caused by an instruction fetch.")
 
+(defvar *pagefault-hook* nil)
+
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
+    (when (and (boundp '*pagefault-hook*)
+               *pagefault-hook*)
+      (funcall *pagefault-hook* interrupt-frame info fault-addr))
     (cond ((not *paging-disk*)
            (debug-print-line "Fault addr: " fault-addr)
            (unhandled-interrupt interrupt-frame info "early page fault"))

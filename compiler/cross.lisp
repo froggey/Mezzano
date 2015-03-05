@@ -221,7 +221,9 @@
            #:disk-submit-request
            #:disk-cancel-request
            #:disk-await-request
-           #:disk-request-complete-p))
+           #:disk-request-complete-p
+           #:start-profiling
+           #:stop-profiling))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.
