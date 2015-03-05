@@ -800,25 +800,6 @@ Tries to stay as close to the hint column as possible."
     (dotimes (i n)
       (funcall fn point))))
 
-(defun search-forward (buffer string)
-  (let ((point (copy-mark (buffer-point buffer))))
-    ;; Search to the end of the buffer
-    (save-excursion (buffer)
-       (move-end-of-buffer buffer)
-        (setf pos (search string (buffer-string buffer point
-                                                (buffer-point buffer)))))
-    (if pos
-       ;; Found the string, go there
-       (move-char buffer (+ pos (length string)))
-       ;; Didn't find it, wrap around and search from the beginning
-       (progn
-         (save-excursion (buffer)
-           (move-beginning-of-buffer buffer)
-           (setf pos (search string (buffer-string buffer (buffer-point buffer) point))))
-         (when pos
-           (move-beginning-of-buffer buffer)
-           (move-char buffer (+ pos (length string))))))))
-
 (defun test-fill (buffer)
   (let ((width (1- (truncate (editor-width)
                              (mezzano.gui.font:glyph-advance (mezzano.gui.font:character-to-glyph (font *editor*) #\M))))))
@@ -1517,6 +1498,26 @@ and mark."
       (move-mark-to-mark (buffer-point buffer) previous-point)
       (move-mark-to-mark (buffer-mark buffer) previous-mark)
       (setf (buffer-mark-active buffer) previous-mark-active))))
+
+(defun search-forward (buffer string)
+  "From point, search forwards for string in buffer."
+  (let ((point (copy-mark (buffer-point buffer))))
+    ;; Search to the end of the buffer
+    (save-excursion (buffer)
+       (move-end-of-buffer buffer)
+        (setf pos (search string (buffer-string buffer point
+                                                (buffer-point buffer)))))
+    (if pos
+       ;; Found the string, go there
+       (move-char buffer (+ pos (length string)))
+       ;; Didn't find it, wrap around and search from the beginning
+       (progn
+         (save-excursion (buffer)
+           (move-beginning-of-buffer buffer)
+           (setf pos (search string (buffer-string buffer (buffer-point buffer) point))))
+         (when pos
+           (move-beginning-of-buffer buffer)
+           (move-char buffer (+ pos (length string))))))))
 
 (defun buffer-current-package (buffer)
   "From point, search backwards for a top-level IN-PACKAGE form.
