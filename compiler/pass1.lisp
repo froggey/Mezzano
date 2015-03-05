@@ -406,7 +406,10 @@
 						  raw-bindings))
 			env)))
 	`(let ,(mapcar (lambda (x)
-			 (list (second x) (pass1-lambda (third x) env)))
+                         (let ((lambda (pass1-lambda (third x) env)))
+                           (when (function-declared-dynamic-extent-p (first x) declares)
+                             (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                           (list (second x) lambda)))
 		       raw-bindings)
 	   ;; TODO: declares
 	   ,@(pass1-implicit-progn body env))))))
