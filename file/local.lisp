@@ -324,8 +324,9 @@
             ((:overwrite :append)
              ???)
             ((nil) (return-from open-using-host nil))))
-        (when (not (equal (upgraded-array-element-type element-type)
-                          (array-element-type (file-storage file))))
+        (when (and (not (eql direction :probe))
+                   (not (equal (upgraded-array-element-type element-type)
+                               (array-element-type (file-storage file)))))
           (error "Incompatible ELEMENT-TYPE. File is of type ~S."
                  (array-element-type (file-storage file))))
         (make-instance 'local-stream
