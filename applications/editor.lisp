@@ -102,6 +102,7 @@
    (%background-colour :initarg :background-colour :accessor background-colour)
    (%killed-region :initarg :killed-region :accessor killed-region)
    (%global-key-map :initarg :global-key-map :accessor global-key-map)
+   (%pre-command-hooks :initarg :pre-command-hooks :accessor pre-command-hooks)
    (%post-command-hooks :initarg :post-command-hooks :accessor post-command-hooks)
    ;; Redisplay state.
    (%current-screen :initarg :screen :accessor editor-current-screen)
@@ -114,6 +115,7 @@
                      :last-buffer '()
                      :killed-region nil
                      :global-key-map (make-hash-table)
+                     :pre-command-hooks '()
                      :post-command-hooks '()
                      :screen nil
                      :display-line-cache '()))
@@ -1499,6 +1501,26 @@ and mark."
       (move-mark-to-mark (buffer-mark buffer) previous-mark)
       (setf (buffer-mark-active buffer) previous-mark-active))))
 
+(defun search-forward (buffer string)
+  "From point, search forwards for string in buffer."
+  (let ((point (copy-mark (buffer-point buffer))))
+    ;; Search to the end of the buffer
+    (save-excursion (buffer)
+       (move-end-of-buffer buffer)
+        (setf pos (search string (buffer-string buffer point
+                                                (buffer-point buffer)))))
+    (if pos
+       ;; Found the string, go there
+       (move-char buffer (+ pos (length string)))
+       ;; Didn't find it, wrap around and search from the beginning
+       (progn
+         (save-excursion (buffer)
+           (move-beginning-of-buffer buffer)
+           (setf pos (search string (buffer-string buffer (buffer-point buffer) point))))
+         (when pos
+           (move-beginning-of-buffer buffer)
+           (move-char buffer (+ pos (length string))))))))
+
 (defun buffer-current-package (buffer)
   "From point, search backwards for a top-level IN-PACKAGE form.
 If no such form is found, then return the CL-USER package."
@@ -1545,6 +1567,60 @@ If no such form is found, then return the CL-USER package."
 (defun beginning-of-top-level-form-command ()
   (beginning-of-top-level-form (current-buffer *editor*)))
 
+(defvar *isearch-string* (make-array 0 :fill-pointer t))
+(defvar *last-isearch-string* *isearch-string*)
+
+(defun cancel-isearch ()
+  (format t "Cancelling isearch.~%")
+  (setf (pre-command-hooks *editor*)
+        (remove 'isearch-pre-command-hook (pre-command-hooks *editor*)))
+  (setf (post-command-hooks *editor*)
+        (remove 'isearch-post-command-hook (post-command-hooks *editor*))))
+
+(defun isearch-pre-command-hook ()
+  (unless (or (eq *this-command* 'self-insert-command)
+              (eq *this-command* 'isearch-command))
+    (cancel-isearch)))
+  
+(defun isearch-post-command-hook ()
+  (flet ((char-at-point (point)
+           (line-character (mark-line point) (mark-charpos point))))
+    (let* ((buffer (current-buffer *editor*))
+           (point (buffer-point buffer)))
+      (if (eql *this-command* 'self-insert-command)
+        (progn
+          (delete-backward-char-command)
+          (if (= 0 (length *isearch-string*))           
+            (progn
+              (scan-forward point (lambda  (c) (char= c *this-character*)))
+              (let ((char-at-point (char-at-point point)))
+                (if (char= *this-character* char-at-point)
+                  (vector-push-extend *this-character* *isearch-string*)
+                  (cancel-isearch))))
+            (let ((char-at-point (char-at-point point))
+                  (next-char (progn (move-mark point 1)
+                                    (character-right-of point)))) ;; FIXME: Hebrew
+              (vector-push-extend *this-character* *isearch-string*)
+              (unless (char= *this-character* char-at-point)
+                (move-mark point -1)
+                (search-forward buffer *isearch-string*)))))
+        (if (eql *this-command* 'isearch-command)
+          (if (null *isearch-string*)
+            (setf *isearch-string* (make-array 0 :fill-pointer t))
+            (if (= 0 (length *isearch-string*))
+              (search-forward buffer *last-isearch-string*) 
+              (search-forward buffer *isearch-string*)))
+          (cancel-isearch))))))
+
+(defun isearch-command ()
+  (unless (member 'isearch-post-command-hook (post-command-hooks *editor*))
+    (if (< 0 (length *isearch-string*))
+      (setf *last-isearch-string* *isearch-string*))
+    (format t "Starting isearch (Default: ~S)...~%" (coerce *last-isearch-string* 'string))
+    (setf *isearch-string* nil)
+    (push 'isearch-pre-command-hook (pre-command-hooks *editor*))
+    (push 'isearch-post-command-hook (post-command-hooks *editor*))))
+
 ;;;; End command wrappers.
 
 (defun translate-command (editor character)
@@ -1564,11 +1640,13 @@ If no such form is found, then return the CL-USER package."
                  (when (not (hash-table-p *this-command*))
                    (setf *this-chord* (reverse *this-chord*))
                    (cond (*this-command*
+                          (mapc 'funcall (pre-command-hooks *editor*))
                           (funcall *this-command*)
                           (mapc 'funcall (post-command-hooks *editor*)))
                          (t (format t "Unknown command ~S~%" *this-chord*)))
                    (return))))
              (*this-command*
+              (mapc 'funcall (pre-command-hooks *editor*))
               (funcall *this-command*)
               (mapc 'funcall (post-command-hooks *editor*)))
              (t (format t "Unknown command ~S~%" *this-character*)))
@@ -1640,7 +1718,8 @@ If no such form is found, then return the CL-USER package."
   (set-key #\M-V 'scroll-down-command key-map)
   (set-key #\Page-Up 'scroll-down-command key-map)
   (set-key '(#\C-C #\C-C) 'eval-top-level-form-command key-map)
-  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map))
+  (set-key '(#\C-C #\C-A) 'beginning-of-top-level-form-command key-map)
+  (set-key #\C-S 'isearch-command key-map))
 
 (defun initialize-minibuffer-key-map (key-map)
   (initialize-key-map key-map)
