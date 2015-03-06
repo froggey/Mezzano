@@ -12,39 +12,86 @@
 ;; The profile buffer must be a wired simple-vector.
 ;; It is treated as a circular buffer, when it fill up newer entries
 ;; will replace older entries.
-;; Assuming an average of 32 entries per sample (current thread plus backtrace),
-;; and a sample frequency of 18Hz (the default PIT tick rate) a 1MB buffer
-;; will last for just under 4 minutes, and a 16MB buffer will last for about
-;; one hour.
 (defvar *profile-buffer*)
 (defvar *profile-buffer-head*)
 (defvar *profile-buffer-tail*)
 
+(defun profile-append-entry (thing)
+  "Append one THING to the profile buffer, wrapping around as required."
+  (let ((buffer-len (sys.int::%array-like-length *profile-buffer*))
+        (place *profile-buffer-head*))
+    (incf *profile-buffer-head*)
+    (when (eql *profile-buffer-head* buffer-len)
+      (setf *profile-buffer-head* 0))
+    (when (eql *profile-buffer-head* *profile-buffer-tail*)
+      (incf *profile-buffer-tail*)
+      (when (eql *profile-buffer-tail* buffer-len)
+        (setf *profile-buffer-tail* 0)))
+    (setf (svref *profile-buffer* place) thing)))
+
+(defun profile-append-return-address (addr)
+  "Append a return address to the profile buffer as a function + offset."
+  (let* ((fn (let ((*pagefault-hook* (dx-lambda (interrupt-frame info fault-addr)
+                                       (declare (ignore interrupt-frame info fault-addr))
+                                       (profile-append-entry addr)
+                                       (profile-append-entry 0)
+                                       (return-from profile-append-return-address))))
+               ;; The function might be unmapped and in the pinned area, so it's possible
+               ;; that this can fault.
+               (sys.int::return-address-to-function addr)))
+         (fn-address (logand (sys.int::lisp-object-address fn) -16))
+         (offset (- addr fn-address)))
+    (profile-append-entry fn)
+    (profile-append-entry offset)))
+
+(defun profile-append-call-stack (initial-frame-pointer)
+  "Append a complete-as-possible call stack to the profile buffer."
+  ;; If a thread's stack is not mapped in, then this may take a page-fault.
+  ;; Produce a truncated sample if that happens.
+  (let ((*pagefault-hook* (dx-lambda (interrupt-frame info fault-addr)
+                            (declare (ignore interrupt-frame info fault-addr))
+                            (profile-append-entry :truncated)
+                            (return-from profile-append-call-stack))))
+    (do ((fp initial-frame-pointer
+             (sys.int::memref-unsigned-byte-64 fp 0)))
+        ((eql fp 0))
+      (profile-append-return-address (sys.int::memref-unsigned-byte-64 fp 1)))))
+
+;;; Watch out, this runs in an interrupt handler.
 (defun profile-sample (interrupt-frame)
   (when (and (boundp '*enable-profiling*)
              *enable-profiling*)
-    ;; If a thread's stack is not mapped in, then this may take a page-fault.
-    ;; Produce a truncated sample if that happens.
-    (let ((*pagefault-hook* (dx-lambda (interrupt-frame info fault-addr)
-                              (declare (ignore interrupt-frame info fault-addr))
-                              (return-from profile-sample))))
-      (flet ((append-one (thing)
-               (let ((buffer-len (sys.int::%array-like-length *profile-buffer*))
-                     (place *profile-buffer-head*))
-                 (incf *profile-buffer-head*)
-                 (when (eql *profile-buffer-head* buffer-len)
-                   (setf *profile-buffer-head* 0))
-                 (when (eql *profile-buffer-head* *profile-buffer-tail*)
-                   (incf *profile-buffer-tail*)
-                   (when (eql *profile-buffer-tail* buffer-len)
-                     (setf *profile-buffer-tail* 0)))
-                 (setf (svref *profile-buffer* place) thing))))
-        (append-one (current-thread))
-        (append-one (interrupt-frame-raw-register interrupt-frame :rip))
-        (do ((fp (interrupt-frame-raw-register interrupt-frame :rbp)
-                 (sys.int::memref-unsigned-byte-64 fp 0)))
-            ((eql fp 0))
-          (append-one (sys.int::memref-unsigned-byte-64 fp 1)))))))
+    (profile-append-entry :start)
+    ;; Dump the current thread.
+    (profile-append-entry (current-thread))
+    (profile-append-entry :active)
+    (profile-append-entry (thread-wait-item (current-thread)))
+    (profile-append-return-address (interrupt-frame-raw-register interrupt-frame :rip))
+    (profile-append-call-stack (interrupt-frame-raw-register interrupt-frame :rbp))
+    ;; And all the others.
+    (loop
+       for thread = *all-threads* then (thread-global-next thread)
+       until (not thread) do
+         (when (not (eql thread (current-thread)))
+           (profile-append-entry thread)
+           (profile-append-entry (thread-state thread))
+           (profile-append-entry (thread-wait-item thread))
+           (cond ((eql (thread-stack-pointer thread)
+                       (+ (logand (sys.int::lisp-object-address thread) -16)
+                          8
+                          (* +thread-interrupt-save-area+ 8)))
+                  ;; Thread was interrupted and the state is in the interrupt save area.
+                  (profile-append-return-address
+                   (sys.int::%array-like-ref-signed-byte-64
+                    thread
+                    (+ +thread-interrupt-save-area+ 15))) ; rip
+                  (profile-append-call-stack
+                   (sys.int::%array-like-ref-signed-byte-64
+                    thread
+                    (+ +thread-interrupt-save-area+ 14)))) ;rbp
+                 (t ;; Thread went to sleep normally. Frame-pointer is valid.
+                  (profile-append-call-stack
+                   (thread-frame-pointer thread))))))))
 
 (defun start-profiling (&optional (buffer-size (* 1024 1024)))
   "Set up a profile sample buffer and enable sampling."
