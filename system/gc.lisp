@@ -62,6 +62,12 @@
       (format t "~:D/~:D store blocks used (~D%).~%"
               (- total-blocks n-free-blocks) total-blocks
               (truncate (* (- total-blocks n-free-blocks) 100) total-blocks)))
+    (multiple-value-bind (n-free-page-frames total-page-frames)
+        (mezzano.supervisor:physical-memory-statistics)
+      (format t "~:D/~:D physical pages used (~D%).~%"
+              (- total-page-frames n-free-page-frames) total-page-frames
+              (truncate (* (- total-page-frames n-free-page-frames) 100)
+                        total-page-frames)))
     (format t "~:D words to next GC.~%" (truncate *memory-expansion-remaining* 8)))
   (values))
 

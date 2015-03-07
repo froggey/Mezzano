@@ -125,6 +125,7 @@
            #:remove-boot-hook
            #:fetch-boot-modules
            #:store-statistics
+           #:physical-memory-statistics
 
            ;; Temporary drivers.
            #:ps/2-key-read

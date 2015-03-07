@@ -235,3 +235,23 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                      +boot-information-64-bit-physical-buddy-bins-offset+
                                      +n-64-bit-physical-buddy-bins+))))
   (values))
+
+(defun physical-memory-statistics ()
+  (let ((n-free-pages 0)
+        (total-pages 0))
+    (with-symbol-spinlock (*physical-lock*)
+      (dotimes (i (n-memory-map-entries))
+        (incf total-pages (truncate (- (memory-map-entry-end i)
+                                       (memory-map-entry-start i))
+                                    +4k-page-size+)))
+      (dotimes (bin +n-32-bit-physical-buddy-bins+)
+        (incf n-free-pages (* (physical-buddy-bin-count
+                               +boot-information-32-bit-physical-buddy-bins-offset+
+                               bin)
+                              (ash 1 bin))))
+      (dotimes (bin +n-64-bit-physical-buddy-bins+)
+        (incf n-free-pages (* (physical-buddy-bin-count
+                               +boot-information-64-bit-physical-buddy-bins-offset+
+                               bin)
+                              (ash 1 bin)))))
+    (values n-free-pages total-pages)))
