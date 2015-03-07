@@ -221,9 +221,9 @@
               (eql (char message 0) (code-char #x01))
               (eql (char message (1- (length message))) (code-char #x01))
               (string= "ACTION " message :start2 1 :end2 8))
-         (format (display-pane irc) "~&[~A]* ~A ~A" channel from
+         (format (display-pane irc) "~&[~A]* ~A ~A" channel (parse-origin from)
                  (subseq message 8 (1- (length message)))))
-        (t (format (display-pane irc) "~&[~A]<~A> ~A" channel from message))))
+        (t (format (display-pane irc) "~&[~A]<~A> ~A" channel (parse-origin from) message))))
 
 (define-server-command ping (irc from message)
   (buffered-format (irc-connection irc) "PONG :~A~%" message))
