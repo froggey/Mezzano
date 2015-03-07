@@ -1337,20 +1337,33 @@ Returns true when the screen is up-to-date, false if the screen is dirty and the
       (setf *default-pathname-defaults* (make-pathname :name nil :type nil :version :newest :defaults path))
       (return-from find-file)))
   (let ((buffer (make-instance 'buffer)))
-    (with-open-file (s path :if-does-not-exist nil)
-      (cond (s
-             (loop
-                (multiple-value-bind (line missing-newline-p)
-                    (read-line s nil)
-                  (when (not line)
-                    (return))
-                  (insert buffer line)
-                  (when (not missing-newline-p)
-                    (insert buffer #\Newline)))))
-            (t (setf (buffer-property buffer 'new-file) t))))
+    (if (pathname-name path)
+      ;; read file
+      (with-open-file (s path :if-does-not-exist nil)
+        (cond (s
+               (loop
+                  (multiple-value-bind (line missing-newline-p)
+                      (read-line s nil)
+                    (when (not line)
+                      (return))
+                    (insert buffer line)
+                    (when (not missing-newline-p)
+                      (insert buffer #\Newline)))))
+              (t (setf (buffer-property buffer 'new-file) t)))
+         (rename-buffer buffer (file-namestring path)))
+      ;; read directory
+      (progn
+        (insert buffer (format nil "Directory: ~A~%~%" path))
+        (mapc (lambda (file)
+                (let* ((file-name (file-namestring file))
+                       (name (if file-name file-name (directory-namestring file))))
+                  (insert buffer name)
+                  (insert buffer #\Newline)))
+          (directory (merge-pathnames "*.*" path)))
+        (setf (buffer-property buffer 'new-file) t)
+        (rename-buffer buffer (directory-namestring path))))
     (push buffer (buffer-list *editor*))
     (setf (buffer-property buffer 'path) path)
-    (rename-buffer buffer (file-namestring path))
     (move-beginning-of-buffer buffer)
     ;; Loading the file will set the modified flag.
     (setf (buffer-modified buffer) nil)
