@@ -160,11 +160,8 @@
            #:thread-stack-pointer
            #:thread-wait-item
            #:thread-special-stack-pointer
-           #:thread-preemption-disable-depth
-           #:thread-preemption-pending
            #:thread-%next
            #:thread-%prev
-           #:thread-foothold-disable-depth
            #:thread-frame-pointer
            #:thread-mutex-stack
            #:thread-global-next

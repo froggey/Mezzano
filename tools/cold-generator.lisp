@@ -681,7 +681,7 @@
   (check-type high (unsigned-byte 32))
   (dpb high (byte 32 32) low))
 
-(defun create-thread (name &key stack-size (initial-state :runnable) (preemption-disable-depth 0) (foothold-disable-depth 0))
+(defun create-thread (name &key stack-size (initial-state :runnable))
   (check-type initial-state (member :active :runnable :sleeping :dead))
   (let* ((address (allocate 512 :wired))
          (stack (create-stack (* stack-size 8)))
@@ -710,19 +710,12 @@
     ;; Special stack pointer.
     (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP")
                                            sys.int::+tag-object+))
-    ;; Preemption disable depth.
-    (setf (word (+ address 8)) (make-fixnum preemption-disable-depth))
-    ;; Preemption pending.
-    (setf (word (+ address 9)) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                           sys.int::+tag-object+))
     ;; Next.
     (setf (word (+ address 10)) (make-value (symbol-address "NIL" "COMMON-LISP")
                                             sys.int::+tag-object+))
     ;; Prev.
     (setf (word (+ address 11)) (make-value (symbol-address "NIL" "COMMON-LISP")
                                             sys.int::+tag-object+))
-    ;; foothold disable depth.
-    (setf (word (+ address 12)) (make-fixnum foothold-disable-depth))
     ;; mutex stack.
     (setf (word (+ address 14)) (vsym 'nil))
     (make-value address sys.int::+tag-object+)))
@@ -731,9 +724,7 @@
   (setf (cold-symbol-value 'sys.int::*initial-thread*)
         (create-thread "Initial thread"
                        :stack-size (* 16 1024)
-                       :initial-state :active
-                       :preemption-disable-depth 1
-                       :foothold-disable-depth 1)))
+                       :initial-state :active)))
 
 (defun canonical-symbol-package (symbol)
   (when (keywordp symbol)
@@ -1287,26 +1278,18 @@
             ))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
-                         :stack-size (* 16 1024)
-                         :preemption-disable-depth 1
-                         :foothold-disable-depth 1))
+                         :stack-size (* 16 1024)))
     (setf (cold-symbol-value 'sys.int::*snapshot-thread*)
           (create-thread "Snapshot thread"
                          :stack-size (* 128 1024)
-                         :preemption-disable-depth 1
-                         :foothold-disable-depth 1
                          :initial-state :sleeping))
     (setf (cold-symbol-value 'sys.int::*pager-thread*)
           (create-thread "Pager thread"
                          :stack-size (* 128 1024)
-                         :preemption-disable-depth 1
-                         :foothold-disable-depth 1
                          :initial-state :sleeping))
     (setf (cold-symbol-value 'sys.int::*disk-io-thread*)
           (create-thread "Disk IO thread"
                          :stack-size (* 128 1024)
-                         :preemption-disable-depth 1
-                         :foothold-disable-depth 1
                          :initial-state :sleeping))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
