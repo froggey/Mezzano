@@ -36,24 +36,23 @@
 ;;    Spinlock protecting access to the thread.
 ;;  3 stack
 ;;    Stack object for the stack.
-;;  4 stack pointer
-;;    The thread's current RSP value. Not valid when :active or :dead. An SB64.
+;;  4 ** free (ish)
 ;;  5 Wait item.
 ;;    If a thread is sleeping or waiting for page, this will describe what it's waiting for.
 ;;    When waiting for paging to complete, this will be the faulting address.
 ;;  6 special stack pointer
 ;;    The thread's current special stack pointer.
 ;;    Note! The compiler must be updated if this changes and all code rebuilt.
-;;  7 ** free
+;;  7 full-save-p
+;;    When true, all registers are saved in the the thread's state save area.
+;;    When false, only the stack pointer and frame pointer are valid.
 ;;  8 ** free
 ;;  9 %next
 ;;    Forward link to the next thread in whatever list the thread is in.
 ;; 10 %prev
 ;;    Backward link to the previous thread in whatever list the thread is in.
 ;; 11 ** free
-;; 12 frame pointer
-;;    The thread's current RBP value. Not valid when :active or :dead. An SB64.
-;;    Here rather than on the stack to avoid GC problems during thread switch.
+;; 12 ** free
 ;; 13 mutex stack
 ;; 14 global-next
 ;; 15 global-prev
@@ -64,9 +63,30 @@
 ;; 128-426 TLS slots
 ;;    Slots used for bound symbol values.
 ;;    Note! The start of this area is known by the cold-generator.
-;; 427-446 Interrupt save area
+;; 427-446 State save area.
 ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
 ;;    The registers are saved here, not on the stack, because the stack may not be paged in.
+;;    This has the same layout as an interrupt frame.
+;;   +0 R15
+;;   +1 R14
+;;   +2 R13
+;;   +3 R12
+;;   +4 R11
+;;   +5 R10
+;;   +6 R9
+;;   +7 R8
+;;   +8 RDI
+;;   +9 RSI
+;;  +10 RBX
+;;  +11 RDX
+;;  +12 RCX
+;;  +13 RAX
+;;  +14 RBP (frame pointer)
+;;  +15 RIP
+;;  +16 CS
+;;  +17 RFLAGS
+;;  +18 RSP (stack pointer)
+;;  +19 SS
 ;; 447-510 FXSAVE area
 ;;    Unboxed area where the FPU/SSE state is saved.
 ;; COLD-GENERATOR::CREATE-INITIAL-THREAD must match.
@@ -97,18 +117,48 @@
   (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page))
   (field lock                     2)
   (field stack                    3)
-  (field stack-pointer            4 :accessor sys.int::%array-like-ref-signed-byte-64)
+  ;; 4 - magic field used by bootloader.
   (field wait-item                5)
   (field special-stack-pointer    6)
-  ;; 7
+  (field full-save-p              7)
   ;; 8
   (field %next                    9)
   (field %prev                   10)
-  ;; 9
-  (field frame-pointer           12 :accessor sys.int::%array-like-ref-signed-byte-64)
+  ;; 11
+  ;; 12
   (field mutex-stack             13)
   (field global-next             14)
-  (field global-prev             15))
+  (field global-prev             15)
+  (field state-r15               427 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r14               428 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r13               429 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r13-value         429 :accessor sys.int::%array-like-ref-t)
+  (field state-r12               430 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r12-value         430 :accessor sys.int::%array-like-ref-t)
+  (field state-r11               431 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r11-value         431 :accessor sys.int::%array-like-ref-t)
+  (field state-r10               432 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r10-value         432 :accessor sys.int::%array-like-ref-t)
+  (field state-r9                433 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r9-value          433 :accessor sys.int::%array-like-ref-t)
+  (field state-r8                434 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-r8-value          434 :accessor sys.int::%array-like-ref-t)
+  (field state-rdi               435 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rsi               436 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rbx               437 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rbx-value         437 :accessor sys.int::%array-like-ref-t)
+  (field state-rdx               438 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rcx               439 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rcx-value         439 :accessor sys.int::%array-like-ref-t) ; sometimes holds a fixnum
+  (field state-rax               440 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rbp               441 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field frame-pointer           441 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rip               442 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-cs                443 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rflags            444 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rsp               445 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field stack-pointer           445 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-ss                446 :accessor sys.int::%array-like-ref-signed-byte-64))
 
 (defconstant +thread-mv-slots-start+ 32)
 (defconstant +thread-mv-slots-end+ 128)
@@ -174,7 +224,7 @@
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
   (check-type function (or function symbol))
-  ;; FIXME: need to make te GC aware of partially initialized threads.
+  ;; FIXME: need to make the GC aware of partially initialized threads.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
     (setf (sys.int::%array-like-ref-t thread +thread-name+) name
@@ -202,21 +252,38 @@
           #x037F) ; FCW
     (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
           #x00001F80) ; MXCSR
-    ;; Push initial state on the stack.
-    ;; This must match the frame %%switch-to-thread expects.
-    (let ((pointer (+ (stack-base stack) (stack-size stack))))
-      (flet ((push-t (value)
-               (setf (sys.int::memref-t (decf pointer 8) 0) value))
-             (push-ub64 (value)
-               (setf (sys.int::memref-unsigned-byte-64 (decf pointer 8) 0) value)))
-        ;; Function to run.
-        (push-t function)
-        ;; Saved RIP for %%switch-to-thread.
-        (push-ub64 (sys.int::%array-like-ref-unsigned-byte-64 #'%%thread-entry-trampoline 0)))
-      ;; Update the control stack pointer.
-      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-stack-pointer+)
-            pointer)
-      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread +thread-frame-pointer+) 0))
+    ;; Set up the initial register state.
+    (let ((stack-pointer (+ (stack-base stack) (stack-size stack)))
+          (trampoline #'thread-entry-trampoline))
+      ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
+      (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
+      ;; Initialize state save area.
+      (setf (thread-state-ss thread) 0
+            (thread-state-rsp thread) stack-pointer
+            ;; Start with interrupts enabled.
+            (thread-state-rflags thread) #x202
+            ;; Kernel code segment (defined in cpu.lisp).
+            (thread-state-cs thread) 8
+            ;; Trampoline entry point.
+            (thread-state-rip thread) (sys.int::%array-like-ref-signed-byte-64 trampoline 0)
+            (thread-state-rax thread) 0
+            ;; 1 argument passed.
+            (thread-state-rcx-value thread) 1
+            (thread-state-rdx thread) 0
+            ;; FUNCALL calling convention.
+            (thread-state-rbx-value thread) trampoline
+            (thread-state-rsi thread) 0
+            (thread-state-rdi thread) 0
+            ;; First arg, function to call.
+            (thread-state-r8-value thread) function
+            (thread-state-r9 thread) 0
+            (thread-state-r10 thread) 0
+            (thread-state-r11 thread) 0
+            (thread-state-r12 thread) 0
+            (thread-state-r13 thread) 0
+            (thread-state-r14 thread) 0
+            (thread-state-r15 thread) 0))
+    (setf (thread-full-save-p thread) t)
     (with-symbol-spinlock (*global-thread-lock*)
       (push-run-queue thread)
       ;; Add thread to global thread list.
@@ -244,17 +311,6 @@
         (when (eql self *all-threads*)
           (setf *all-threads* (thread-global-next self))))
       (%reschedule))))
-
-(sys.int::define-lap-function %%thread-entry-trampoline ()
-  (:gc :no-frame :layout #*1)
-  ;; The regular stack contains the function to call.
-  (sys.lap-x86:pop :r8)
-  (:gc :no-frame)
-  ;; Call the high-level trampoline function.
-  (sys.lap-x86:mov64 :r13 (:function thread-entry-trampoline))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
@@ -284,28 +340,43 @@
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
-(sys.int::define-lap-function %%simple-thread-entry-trampoline ()
-  (:gc :no-frame :layout #*1)
-  ;; The regular stack contains the function to call.
-  (sys.lap-x86:pop :rbx)
-  (:gc :no-frame)
-  (sys.lap-x86:xor32 :ecx :ecx) ; fixnum 0
-  (sys.lap-x86:call (:object :rbx 0))
-  (sys.lap-x86:ud2))
-
 (defun reset-ephemeral-thread (thread entry-point state)
-  (let ((rsp (+ (stack-base (thread-stack thread))
-                (stack-size (thread-stack thread)))))
-    ;; Function to call.
-    (setf (sys.int::memref-t (decf rsp 8) 0) entry-point)
-    ;; Trampoline for switch threads.
-    (setf (sys.int::memref-signed-byte-64 (decf rsp 8) 0) (sys.int::%array-like-ref-signed-byte-64 #'%%simple-thread-entry-trampoline 0))
-    (setf (thread-stack-pointer thread) rsp
-          (thread-frame-pointer thread) 0))
+  ;; Set up the initial register state.
+  (let ((stack-pointer (+ (stack-base (thread-stack thread))
+                          (stack-size (thread-stack thread))))
+        (function (sys.int::%coerce-to-callable entry-point)))
+    ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
+    (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
+    ;; Initialize state save area.
+    (setf (thread-state-ss thread) 0
+          (thread-state-rsp thread) stack-pointer
+          ;; Start with interrupts enabled.
+          (thread-state-rflags thread) #x202
+          ;; Kernel code segment (defined in cpu.lisp).
+          (thread-state-cs thread) 8
+          ;; Entry point.
+          (thread-state-rip thread) (sys.int::%array-like-ref-signed-byte-64 function 0)
+          (thread-state-rax thread) 0
+          ;; 0 arguments passed.
+          (thread-state-rcx-value thread) 0
+          (thread-state-rdx thread) 0
+          ;; FUNCALL calling convention.
+          (thread-state-rbx-value thread) function
+          (thread-state-rsi thread) 0
+          (thread-state-rdi thread) 0
+          (thread-state-r8 thread) 0
+          (thread-state-r9 thread) 0
+          (thread-state-r10 thread) 0
+          (thread-state-r11 thread) 0
+          (thread-state-r12 thread) 0
+          (thread-state-r13 thread) 0
+          (thread-state-r14 thread) 0
+          (thread-state-r15 thread) 0))
   (setf (thread-state thread) state
         (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
-        (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil)
+        (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
+        (thread-full-save-p thread) t)
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
   ;; x87 using 80 bit precision (long-float).
@@ -424,15 +495,15 @@ Interrupts must be off, the current thread must be locked."
   ;; Save stack pointer.
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 (:object nil #.+thread-stack-pointer+) :rsp)
+  ;; Only partial state was saved.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
   ;; Switch threads.
   (sys.lap-x86:mov32 :ecx #.sys.int::+msr-ia32-gs-base+)
   (sys.lap-x86:mov64 :rax :r9)
   (sys.lap-x86:mov64 :rdx :r9)
   (sys.lap-x86:shr64 :rdx 32)
   (sys.lap-x86:wrmsr)
-  ;; Restore stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-stack-pointer+))
   ;; Restore fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
@@ -441,9 +512,12 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
   ;; Check if the thread is in the interrupt save area.
-  (sys.lap-x86:lea64 :rax (:object :r9 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:cmp64 :rax :rsp)
-  (sys.lap-x86:je INTERRUPT-RESUME)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-full-save-p+) nil)
+  (sys.lap-x86:jne FULL-RESTORE)
+  ;; Restore stack pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-stack-pointer+))
   ;; Restore frame pointer.
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 :rbp (:object nil #.+thread-frame-pointer+))
@@ -455,8 +529,8 @@ Interrupts must be off, the current thread must be locked."
   ;; Return, restoring RIP.
   (sys.lap-x86:ret)
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  INTERRUPT-RESUME
-  (:gc :frame :interrupt t)
+  FULL-RESTORE
+  (sys.lap-x86:lea64 :rsp (:object :r9 #.+thread-interrupt-save-area+))
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
   (sys.lap-x86:pop :r13)
@@ -509,19 +583,15 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:mov32 :ecx 20) ; 20 values to copy.
   (sys.lap-x86:rep)
   (sys.lap-x86:movs64)
-  ;; Save stack pointer.
-  (sys.lap-x86:lea64 :rax (:object :r8 #.+thread-interrupt-save-area+))
+  ;; Full state was saved.
   (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-stack-pointer+) :rax)
+  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) t)
   ;; Switch threads.
   (sys.lap-x86:mov32 :ecx #.sys.int::+msr-ia32-gs-base+)
   (sys.lap-x86:mov64 :rax :r10)
   (sys.lap-x86:mov64 :rdx :r10)
   (sys.lap-x86:shr64 :rdx 32)
   (sys.lap-x86:wrmsr)
-  ;; Restore stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-stack-pointer+))
   ;; Restore fpu state.
   (sys.lap-x86:gs)
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
@@ -530,9 +600,12 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:mov64 (:object :r10 #.+thread-lock+) :r11)
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r11)
   ;; Check if the thread is in the interrupt save area.
-  (sys.lap-x86:lea64 :rax (:object :r10 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:cmp64 :rax :rsp)
-  (sys.lap-x86:je INTERRUPT-RESUME)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-full-save-p+) nil)
+  (sys.lap-x86:jne FULL-RESTORE)
+  ;; Restore stack pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-stack-pointer+))
   ;; Restore frame pointer.
   (sys.lap-x86:gs)
   (sys.lap-x86:mov64 :rbp (:object nil #.+thread-frame-pointer+))
@@ -544,8 +617,8 @@ Interrupts must be off, the current thread must be locked."
   ;; Return, restoring RIP.
   (sys.lap-x86:ret)
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  INTERRUPT-RESUME
-  (:gc :frame :interrupt t)
+  FULL-RESTORE
+  (sys.lap-x86:lea64 :rsp (:object :r10 #.+thread-interrupt-save-area+))
   (sys.lap-x86:pop :r15)
   (sys.lap-x86:pop :r14)
   (sys.lap-x86:pop :r13)

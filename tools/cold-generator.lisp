@@ -696,11 +696,9 @@
     (setf (word (+ address 1)) (make-value (store-string name)
                                            sys.int::+tag-object+))
     ;; State.
-    (setf (word (+ address 2)) (make-value (symbol-address (symbol-name initial-state) "KEYWORD")
-                                           sys.int::+tag-object+))
+    (setf (word (+ address 2)) (vsym initial-state))
     ;; Lock.
-    (setf (word (+ address 3)) (make-value (symbol-address "UNLOCKED" "KEYWORD")
-                                           sys.int::+tag-object+))
+    (setf (word (+ address 3)) (vsym :unlocked))
     ;; Stack.
     (setf (word (+ address 4)) stack-object)
     ;; Stack pointer.
@@ -708,14 +706,11 @@
                                   (stack-size stack)))
     ;; +6, unused
     ;; Special stack pointer.
-    (setf (word (+ address 7)) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                           sys.int::+tag-object+))
+    (setf (word (+ address 7)) (vsym 'nil))
     ;; Next.
-    (setf (word (+ address 10)) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                            sys.int::+tag-object+))
+    (setf (word (+ address 10)) (vsym 'nil))
     ;; Prev.
-    (setf (word (+ address 11)) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                            sys.int::+tag-object+))
+    (setf (word (+ address 11)) (vsym 'nil))
     ;; mutex stack.
     (setf (word (+ address 14)) (vsym 'nil))
     (make-value address sys.int::+tag-object+)))

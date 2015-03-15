@@ -572,8 +572,7 @@ VALUE may be nil to make the fref unbound."
   (multiple-value-bind (address length)
       (function-gc-info function)
     (let ((position 0)
-          (result '())
-          (register-ids #(:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15)))
+          (result '()))
       (flet ((consume (&optional (errorp t))
                (when (>= position length)
                  (when errorp
@@ -644,7 +643,7 @@ VALUE may be nil to make the fref unbound."
                           (ldb (byte 4 0) mv-and-ia)))
                   (unless (eql (ldb (byte 4 4) flags-and-pvr) 4)
                     (setf (getf entry :pushed-values-register)
-                          (svref register-ids (ldb (byte 4 4) flags-and-pvr))))
+                          (gc-metadata-register-id-to-register (ldb (byte 4 4) flags-and-pvr))))
                   (unless (zerop pv)
                     (setf (getf entry :pushed-values) pv))
                   (when (logtest flags-and-pvr #b0010)
