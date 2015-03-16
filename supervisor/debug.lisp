@@ -106,7 +106,16 @@
        (fp (sys.int::read-frame-pointer)
            (sys.int::memref-unsigned-byte-64 fp 0)))
       ((eql fp 0))
-    (debug-print-line fp " " (sys.int::memref-unsigned-byte-64 fp 1)))
+    (let* ((return-address (sys.int::memref-unsigned-byte-64 fp 1))
+           (name (block nil
+                   (let* ((*pagefault-hook* (dx-lambda (&rest stuff)
+                                              (declare (ignore stuff))
+                                              (return "#<unknown>")))
+                          (function (sys.int::return-address-to-function return-address))
+                          (address (logand (sys.int::lisp-object-address function) -16))
+                          (info (sys.int::memref-unsigned-byte-64 address 0)))
+                     (sys.int::memref-t address (* (logand (ash info -16) #xFFFF) 2))))))
+      (debug-print-line fp " " return-address " " name)))
   (loop (sys.int::%hlt)))
 
 (defmacro ensure (condition &rest things)
