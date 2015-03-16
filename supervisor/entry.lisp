@@ -26,13 +26,6 @@
   (declare (dynamic-extent arguments))
   (panic "Assert error " datum " " arguments))
 
-;; Back-compat.
-(defmacro with-gc-deferred (&body body)
-  `(with-pseudo-atomic ,@body))
-
-(defun call-with-gc-deferred (thunk)
-  (call-with-pseudo-atomic thunk))
-
 (defun find-extent-named (name largep)
   (cond ((store-extent-p name) name)
         (t (dolist (extent *extent-table*

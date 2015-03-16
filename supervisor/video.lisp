@@ -92,7 +92,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (setf nrows (max 0 (min nrows (- (framebuffer-height fb) to-row) (- from-height from-row))))
     (setf ncols (max 0 (min ncols (- (framebuffer-width fb) to-col) (- from-width from-col))))
     ;; Disable snapshotting and the GC while this is in progress, as we're touching physical memory.
-    (with-gc-deferred
+    (with-pseudo-atomic
       (when (not (eql fb *current-framebuffer*))
         (return-from framebuffer-blit nil))
       (let ((to-base (+ +physical-map-base+

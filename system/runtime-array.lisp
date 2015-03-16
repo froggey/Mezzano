@@ -300,7 +300,7 @@ allocate environment frames."
   (sys.lap-x86:ret))
 
 (defun %bitblt (nrows ncols from-array from-row from-col to-array to-row to-col)
-  (mezzano.supervisor:with-gc-deferred
+  (mezzano.supervisor:with-pseudo-atomic
     (let ((to-offset 0)
           (from-offset 0))
       (when (integerp (%complex-array-info to-array))
@@ -384,7 +384,7 @@ allocate environment frames."
   (sys.lap-x86:jmp blah))
 
 (defun %bitset (nrows ncols val to-array to-row to-col)
-  (mezzano.supervisor:with-gc-deferred
+  (mezzano.supervisor:with-pseudo-atomic
     (let ((to-displacement 0))
       (when (integerp (%complex-array-info to-array))
         (setf to-displacement (%complex-array-info to-array)
