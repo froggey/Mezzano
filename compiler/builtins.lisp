@@ -1376,7 +1376,7 @@
           `(sys.lap-x86:mov64 :r9 ((:rax 8) ,+tls-base-offset+))
           ;; Check if the TLS slot holds a value.
           `(sys.lap-x86:cmp64 :r9 :unbound-tls-slot)
-          `(sys.lap-x86:jne ,no-tls-slot)
+          `(sys.lap-x86:je ,no-tls-slot)
 	  `(sys.lap-x86:cmp64 :r9 :unbound-value)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
