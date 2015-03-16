@@ -26,18 +26,6 @@
   (declare (dynamic-extent arguments))
   (panic "Assert error " datum " " arguments))
 
-(defun find-extent-named (name largep)
-  (cond ((store-extent-p name) name)
-        (t (dolist (extent *extent-table*
-                    (error "can't find extent..."))
-             (when (and (or (eql (store-extent-type extent) name)
-                            (and (eql name :wired)
-                                 (eql (store-extent-type extent) :pinned)
-                                 (store-extent-wired-p extent)))
-                        (not (store-extent-finished-p extent))
-                        (eql (store-extent-large-p extent) largep))
-               (return extent))))))
-
 (defun stack-base (stack)
   (car stack))
 
