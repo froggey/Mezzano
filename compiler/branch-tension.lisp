@@ -37,7 +37,7 @@
     (maphash (lambda (k v)
                (declare (ignore k))
                (setf (gethash (predicate-instruction-jump-instruction v) ht)
-                     v)) 
+                     v))
              *predicate-instructions*)
     ht))
 
@@ -61,6 +61,7 @@
               ((and (or (gethash (first form) *predicate-instructions-by-jump*)
                         (eql (first form) 'sys.lap-x86:jmp))
                     (not (keywordp (second form)))
+                    (cdr i)
                     (symbolp (cadr i))
                     (eql (gethash (second form) label-targets)
                          (gethash (cadr i) label-targets)))
@@ -69,6 +70,7 @@
                ;; Do nothing to eliminate the instruction.
                (incf change-count))
               ((and (gethash (first form) *predicate-instructions-by-jump*)
+                    (cddr i)
                     (listp (cadr i))
                     (eql (first (cadr i)) 'sys.lap-x86:jmp)
                     (symbolp (caddr i))
@@ -88,8 +90,7 @@
                (setf i (cdr i))
                (incf change-count))
               ((or (gethash (first form) *predicate-instructions-by-jump*)
-                   (eql (first form) 'sys.lap-x86:jmp)
-                   (not (keywordp (second form))))
+                   (eql (first form) 'sys.lap-x86:jmp))
                (when (eql (first form) 'sys.lap-x86:jmp)
                  (setf after-unconditional-jmp t))
                ;; Jcc or JMP
