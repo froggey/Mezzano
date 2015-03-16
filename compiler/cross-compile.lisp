@@ -776,6 +776,7 @@
     "system/early-cons.lisp"
     "system/stuff.lisp"
     "system/runtime-numbers.lisp"
+    "supervisor/cpu.lisp"
     "supervisor/thread.lisp"
     "supervisor/interrupts.lisp"
     "supervisor/entry.lisp"
