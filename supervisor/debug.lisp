@@ -121,3 +121,32 @@
 (defmacro ensure (condition &rest things)
   `(when (not ,condition)
      (panic ,@things)))
+
+(in-package :sys.int)
+
+(defstruct (cold-stream (:area :wired)))
+
+(in-package :mezzano.supervisor)
+
+(defvar *cold-unread-char*)
+
+(defun sys.int::cold-write-char (c stream)
+  (declare (ignore stream))
+  (debug-write-char c))
+
+(defun sys.int::cold-start-line-p (stream)
+  (declare (ignore stream))
+  (debug-start-line-p))
+
+(defun sys.int::cold-read-char (stream)
+  (declare (ignore stream))
+  (cond (*cold-unread-char*
+         (prog1 *cold-unread-char*
+           (setf *cold-unread-char* nil)))
+        (t (debug-read-char))))
+
+(defun sys.int::cold-unread-char (character stream)
+  (declare (ignore stream))
+  (when *cold-unread-char*
+    (error "Multiple unread-char!"))
+  (setf *cold-unread-char* character))
