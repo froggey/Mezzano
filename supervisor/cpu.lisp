@@ -5,6 +5,8 @@
 
 (defvar sys.int::*interrupt-service-routines*)
 
+(defvar sys.int::*bsp-info-vector*)
+
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)
                          (interrupt-gate-p t))
@@ -22,7 +24,7 @@
           (ldb (byte 16 0) value) (ldb (byte 16 0) offset))
     (values value (ldb (byte 32 32) offset))))
 
-(defconstant +cpu-info-self-offset+ 0)
+(defconstant +cpu-info-self-offset+ 8)
 (defconstant +cpu-info-gdt-offset+ 128)
 (defconstant +cpu-info-tss-offset+ 256)
 (defconstant +cpu-info-tss-size+ 104)
@@ -87,10 +89,10 @@
 (defun initialize-boot-cpu ()
   "Generate GDT, IDT and TSS for the boot CPU."
   ;; Carve out a pair of pages.
-  (let* ((frame (allocate-physical-pages 2 "CPU data"))
-         (addr (+ +physical-map-base+ (ash frame 12)))
+  (let* ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
+                  sys.int::+tag-object+))
          (tss-base (+ addr +cpu-info-tss-offset+)))
-    (debug-print-line "Allocated frame " frame " for cpu data")
+    (debug-print-line "CPU info at " addr)
     ;; IDT completely fills the second page (256 * 16)
     (dotimes (i 256)
       (multiple-value-bind (lo hi)

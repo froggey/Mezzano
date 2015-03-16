@@ -1291,6 +1291,7 @@
           (create-thread "Disk IO thread"
                          :stack-size (* 128 1024)
                          :initial-state :sleeping))
+    (setf (cold-symbol-value 'sys.int::*bsp-info-vector*) (save-object (make-array (1- (* 2 #x1000))) :wired))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
           (symbol-address package-name "KEYWORD"))
