@@ -238,13 +238,13 @@ Collisions."
 (defun net-receive-packet ()
   "Wait for a packet to arrive.
 Returns two values, the packet data and the receiving NIC."
-  (let ((info (fifo-pop *received-packets*)))
+  (let ((info (irq-fifo-pop *received-packets*)))
     (values (cdr info) (car info))))
 
 (defun nic-received-packet (device pkt)
   (let ((nic (find device *nics* :key #'nic-device)))
     (when nic
-      (fifo-push (cons nic pkt) *received-packets* nil))))
+      (irq-fifo-push (cons nic pkt) *received-packets*))))
 
 (defvar *deferred-boot-actions*)
 
@@ -274,7 +274,9 @@ Returns two values, the packet data and the receiving NIC."
       (setf mezzano.runtime::*tls-lock* :unlocked
             mezzano.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil
-            *received-packets* (make-fifo 50)))
+            ;; FIXME: This should be a normal non-IRQ FIFO, but
+            ;; creating a FIFO won't work until the cold load finishes.
+            *received-packets* (make-irq-fifo 50)))
     (fifo-reset *received-packets*)
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)

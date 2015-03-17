@@ -41,7 +41,7 @@
   n-sectors
   buffer
   (lock (make-mutex "Disk request lock" :spin))
-  (cvar (make-condition-variable "Disk request notifier"))
+  (latch (make-latch "Disk request notifier"))
   next)
 
 (defvar *disks*)
@@ -49,7 +49,7 @@
 (defvar *disk-request-current*)
 (defvar *disk-request-queue-head*)
 (defvar *disk-request-queue-lock*)
-(defvar *disk-request-queue-cvar*)
+(defvar *disk-request-queue-latch*)
 
 (defun all-disks ()
   ;; Would be nice to copy the list here, but this is called before the paging disk
@@ -74,19 +74,19 @@
     (setf *disk-request-current* nil
           *disk-request-queue-head* nil
           *disk-request-queue-lock* (make-mutex "Disk request queue lock" :spin)
-          *disk-request-queue-cvar* (make-condition-variable "Disk request queue notifier")
+          *disk-request-queue-latch* (make-latch "Disk request queue notifier")
           *disks* '()))
   ;; Abort any queued or in-progress requests.
   (do ((request *disk-request-queue-head* (disk-request-next request)))
       ((null request))
     (setf (disk-request-state request) :error
           (disk-request-error-reason request) :system-reinitialized)
-    (condition-notify (disk-request-cvar request) t))
+    (latch-trigger (disk-request-latch request)))
   (setf *disk-request-queue-head* nil)
   (when *disk-request-current*
     (setf (disk-request-state *disk-request-current*) :error
           (disk-request-error-reason *disk-request-current*) :system-reinitialized)
-    (condition-notify (disk-request-cvar *disk-request-current*) t)
+    (latch-trigger (disk-request-latch *disk-request-current*))
     (setf *disk-request-current* nil))
   ;; Clear the disk list.
   (dolist (disk *disks*)
@@ -142,8 +142,8 @@
       (release-physical-pages page (ceiling sector-size +4k-page-size+)))))
 
 (defun pop-disk-request ()
-  (with-mutex (*disk-request-queue-lock*)
-    (loop
+  (loop
+     (with-mutex (*disk-request-queue-lock*)
        (let ((req *disk-request-queue-head*))
          (when req
            (with-mutex ((disk-request-lock req))
@@ -151,7 +151,8 @@
                    *disk-request-current* req)
              (setf *disk-request-queue-head* (disk-request-next req)))
            (return req)))
-       (condition-wait *disk-request-queue-cvar* *disk-request-queue-lock*))))
+       (latch-reset *disk-request-queue-latch*))
+     (latch-wait *disk-request-queue-latch*)))
 
 (defun disk-thread ()
   (loop
@@ -185,7 +186,7 @@
                   (setf (disk-request-state request) :error
                         (disk-request-error-reason request) reason)))
            (setf *disk-request-current* nil)
-           (condition-notify (disk-request-cvar request) t)))
+           (latch-trigger (disk-request-latch request))))
        (case (disk-request-direction request)
          (:read (set-disk-read-light nil))
          (:write (set-disk-write-light nil))))))
@@ -222,7 +223,9 @@ Returns true on success; false on failure."
             (disk-request-lba request) lba
             (disk-request-n-sectors request) n-sectors
             (disk-request-buffer request) buffer)
+      (latch-reset (disk-request-latch request))
       (when (not (disk-valid disk))
+        (latch-trigger (disk-request-latch request))
         (setf (disk-request-state request) :error
               (disk-request-error-reason request) :system-reinitialized)
         (return-from disk-submit-request-1 t))
@@ -230,7 +233,7 @@ Returns true on success; false on failure."
       (setf (disk-request-next request) *disk-request-queue-head*
             *disk-request-queue-head* request)
       ;; Wake the disk thread.
-      (condition-notify *disk-request-queue-cvar*)))
+      (latch-trigger *disk-request-queue-latch*)))
   ;; All good.
   t)
 
@@ -261,19 +264,17 @@ An in-progress request may be cancelled, or it may complete."
                      (setf (disk-request-next prev) (disk-request-next request))))))
         (setf (disk-request-state request) :error
               (disk-request-error-reason request) reason)
-        (condition-notify (disk-request-cvar request) t)))))
+        (latch-trigger (disk-request-latch request))))))
 
 (defun disk-await-request (request)
   "Wait for REQUEST to complete. Returns true if the request succeeded; false on failure.
 Second value is the failure reason."
-  (with-mutex ((disk-request-lock request))
-    (loop
-       (case (disk-request-state request)
-         (:complete
-          (return t))
-         (:error
-          (return (values nil (disk-request-error-reason request)))))
-       (condition-wait (disk-request-cvar request) (disk-request-lock request)))))
+  (latch-wait (disk-request-latch request))
+  (case (disk-request-state request)
+    (:complete
+     t)
+    (:error
+     (values nil (disk-request-error-reason request)))))
 
 (defun disk-request-complete-p (request)
   "Test if REQUEST has completed. Use DISK-AWAIT-REQUEST to retrieve more detailed information."

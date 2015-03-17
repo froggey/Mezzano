@@ -43,7 +43,7 @@
 (defvar *ps/2-controller-lock*)
 
 (defun ps/2-irq-handler (fifo)
-  (fifo-push (system:io-port/8 +ps/2-data-port+) fifo nil))
+  (irq-fifo-push (system:io-port/8 +ps/2-data-port+) fifo))
 
 (defun ps/2-key-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
@@ -57,7 +57,7 @@
   "Wait for space in the input buffer."
   ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
-            (mezzano.supervisor:debug-print-line "PS/2: Timeout waiting for " what "."))
+            (debug-print-line "PS/2: Timeout waiting for " what "."))
     (when (zerop (logand (system:io-port/8 +ps/2-control-port+) +ps/2-status-input-buffer-status+))
       (return t))))
 
@@ -65,7 +65,7 @@
   "Wait for data to become available in the output buffer."
   ;; FIXME: Wait 1ms or something instead of this.
   (dotimes (i 100000
-            (mezzano.supervisor:debug-print-line "PS/2: Timeout waiting for " what "."))
+            (debug-print-line "PS/2: Timeout waiting for " what "."))
     (when (not (zerop (logand (system:io-port/8 +ps/2-control-port+) +ps/2-status-output-buffer-status+)))
       (return t))))
 
@@ -83,7 +83,7 @@
 
 (defun ps/2-key-read (&optional (wait-p t))
   "Read a byte from the key port."
-  (fifo-pop *ps/2-key-fifo* wait-p))
+  (irq-fifo-pop *ps/2-key-fifo* wait-p))
 
 (defun ps/2-aux-write (byte)
   "Write a byte to the aux port."
@@ -91,13 +91,13 @@
 
 (defun ps/2-aux-read (&optional (wait-p t))
   "Read a byte from the aux port."
-  (fifo-pop *ps/2-aux-fifo* wait-p))
+  (irq-fifo-pop *ps/2-aux-fifo* wait-p))
 
 (defun initialize-ps/2 ()
   (when (not (boundp '*ps/2-controller-lock*))
     (setf *ps/2-controller-lock* :unlocked
-          *ps/2-key-fifo* (mezzano.supervisor:make-fifo 50 :element-type '(unsigned-byte 8))
-          *ps/2-aux-fifo* (mezzano.supervisor:make-fifo 50 :element-type '(unsigned-byte 8))))
+          *ps/2-key-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))
+          *ps/2-aux-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))))
   ;; Enable the aux port.
   (ps/2-input-wait)
   (setf (system:io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
@@ -126,5 +126,5 @@
   (i8259-unmask-irq +ps/2-key-irq+)
   (i8259-unmask-irq +ps/2-aux-irq+)
   ;; Data may have accumulated in the FIFOs.
-  (fifo-reset *ps/2-key-fifo*)
-  (fifo-reset *ps/2-aux-fifo*))
+  (irq-fifo-reset *ps/2-key-fifo*)
+  (irq-fifo-reset *ps/2-aux-fifo*))

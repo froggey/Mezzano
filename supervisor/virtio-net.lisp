@@ -66,9 +66,8 @@ and then some alignment.")
   mac
   virtio-device
   boot-id
-  (lock (make-mutex "Virtio-Net NIC lock" :spin))
-  (cvar (make-condition-variable "Virtio-Net NIC cvar"))
-  (irq-flag nil)
+  (lock (make-mutex "Virtio-Net NIC lock"))
+  (irq-latch (make-latch "Virtio-Net NIC IRQ latch"))
   worker
   tx-virt
   tx-phys
@@ -179,24 +178,17 @@ and then some alignment.")
 (defun virtio-net-worker (nic)
   (loop
      ;; Wait for something to happen.
-     (let ((tx-pending '()))
-       (with-mutex ((virtio-net-lock nic))
-         (loop
-            (when (not (eql (virtio-net-boot-id nic) *boot-id*))
-              ;; Reboot occurred, card no longer exists.
-              (return-from virtio-net-worker))
-            (when (or (virtio-net-irq-flag nic)
-                      (virtio-net-tx-pending nic))
-              (setf (virtio-net-irq-flag nic) nil)
-              ;; Grab any pending packets.
-              (setf tx-pending (virtio-net-tx-pending nic)
-                    (virtio-net-tx-pending nic) '())
-              (return))
-            (condition-wait (virtio-net-cvar nic) (virtio-net-lock nic))))
-       ;; Add pending packets to the real transmit queue, in proper order.
-       (when tx-pending
+     (latch-wait (virtio-net-irq-latch nic))
+     (latch-reset (virtio-net-irq-latch nic))
+     (when (not (eql (virtio-net-boot-id nic) *boot-id*))
+       ;; Reboot occurred, card no longer exists.
+       (return-from virtio-net-worker))
+     (with-mutex ((virtio-net-lock nic))
+       (when (virtio-net-tx-pending nic)
+         ;; Add pending packets to the real transmit queue, in proper order.
          (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
-                                                       (nreverse tx-pending)))))
+                                                        (nreverse (virtio-net-tx-pending nic)))
+               (virtio-net-tx-pending nic) '())))
      ;; Refill receive buffers.
      (dotimes (i (- +virtio-net-n-rx-buffers+ (virtio-net-rx-buffer-count nic)))
        (incf (virtio-net-rx-buffer-count nic))
@@ -220,10 +212,8 @@ and then some alignment.")
      (setf (virtio-net-received-packets nic) '())))
 
 (defun virtio-net-irq-handler (nic)
-  (with-mutex ((virtio-net-lock nic))
-    (when (logbitp 0 (virtio-isr-status (virtio-net-virtio-device nic)))
-      (setf (virtio-net-irq-flag nic) t)
-      (condition-notify (virtio-net-cvar nic)))))
+  (when (logbitp 0 (virtio-isr-status (virtio-net-virtio-device nic)))
+    (latch-trigger (virtio-net-irq-latch nic))))
 
 (defun initialize-virtio-net ()
   (when (not (boundp '*virtio-net-cards*))
@@ -231,7 +221,7 @@ and then some alignment.")
   ;; Flush worker threads and cards.
   (dolist (nic *virtio-net-cards*)
     ;; Wake each worker thread, so they can notice (boot-id nic) != current-boot-id.
-    (condition-notify (virtio-net-cvar nic)))
+    (latch-trigger (virtio-net-irq-latch nic)))
   (setf *virtio-net-cards* '()))
 
 (defun virtio-net-transmit (nic packet)
@@ -251,8 +241,8 @@ and then some alignment.")
           (incf offset))))
     (with-mutex ((virtio-net-lock nic))
       (setf (cdr cons) (virtio-net-tx-pending nic)
-            (virtio-net-tx-pending nic) cons)
-      (condition-notify (virtio-net-cvar nic)))))
+            (virtio-net-tx-pending nic) cons))
+    (latch-trigger (virtio-net-irq-latch nic))))
 
 (defun virtio-net-stats (nic)
   (values (virtio-net-total-rx-bytes nic)

@@ -5,28 +5,36 @@
 
 (defconstant +pit-irq+ 0)
 
-(defvar *heartbeat-lock*)
-(defvar *heartbeat-cvar*)
+(defvar *heartbeat-wait-queue*)
 
 (defvar *rtc-lock*)
 
-(defun pit-irq-handler (interrupt-frame irq)
-  (declare (ignore interrupt-frame irq))
-  (with-mutex (*heartbeat-lock*)
-    (condition-notify *heartbeat-cvar* t))
-  (profile-sample interrupt-frame))
-
 (defun initialize-time ()
-  (when (not (boundp '*heartbeat-lock*))
-    (setf *heartbeat-lock* (make-mutex "Heartbeat lock" :spin)
-          *heartbeat-cvar* (make-condition-variable "Heartbeat"))
+  (when (not (boundp '*heartbeat-wait-queue*))
+    (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
     (setf *rtc-lock* (make-mutex "RTC lock" :spin)))
   (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
   (i8259-unmask-irq +pit-irq+))
 
+(defun pit-irq-handler (interrupt-frame irq)
+  (declare (ignore interrupt-frame irq))
+  (with-wait-queue-lock (*heartbeat-wait-queue*)
+    (do ()
+        ((null (wait-queue-head *heartbeat-wait-queue*)))
+      (wake-thread (pop-wait-queue *heartbeat-wait-queue*))))
+  (profile-sample interrupt-frame))
+
 (defun wait-for-heartbeat ()
-  (with-mutex (*heartbeat-lock*)
-    (condition-wait *heartbeat-cvar* *heartbeat-lock*)))
+  (let ((self (current-thread)))
+    (ensure-interrupts-enabled)
+    (sys.int::%cli)
+    (lock-wait-queue *heartbeat-wait-queue*)
+    (push-wait-queue self *heartbeat-wait-queue*)
+    (%lock-thread self)
+    (unlock-wait-queue *heartbeat-wait-queue*)
+    (setf (thread-wait-item self) *heartbeat-wait-queue*
+          (thread-state self) :sleeping)
+    (%reschedule)))
 
 ;; RTC IO ports.
 (defconstant +rtc-index-io-reg+ #x70)

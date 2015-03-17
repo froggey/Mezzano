@@ -152,9 +152,8 @@
       (do ()
           ((not (logbitp +serial-lsr-data-available+
                          (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))))
-        (fifo-push (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-RBR+))
-                   *debug-serial-rx-fifo*
-                   nil))
+        (irq-fifo-push (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-RBR+))
+                       *debug-serial-rx-fifo*))
       ;; Refill the TX FIFO when it becomes empty.
       (when (logbitp +serial-lsr-thr-empty+
                      (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
@@ -225,7 +224,7 @@
        (sys.int::%cli))))
 
 (defun debug-serial-read-byte (&optional (waitp t))
-  (fifo-pop *debug-serial-rx-fifo* waitp))
+  (irq-fifo-pop *debug-serial-rx-fifo* waitp))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
@@ -292,7 +291,7 @@
 (defun debug-serial-stream (op &optional arg)
   (ecase op
     (:read-char (debug-serial-read-char))
-    (:clear-input (fifo-reset *debug-serial-rx-fifo*))
+    (:clear-input (irq-fifo-reset *debug-serial-rx-fifo*))
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
     (:force-output)
@@ -307,8 +306,8 @@
         *debug-serial-tx-buffer-head* 0
         *debug-serial-tx-buffer-tail* 0)
   (when (not (boundp '*debug-serial-rx-fifo*))
-    (setf *debug-serial-rx-fifo* (make-fifo 50 :element-type '(unsigned-byte 8))))
-  (fifo-reset *debug-serial-rx-fifo*)
+    (setf *debug-serial-rx-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))))
+  (irq-fifo-reset *debug-serial-rx-fifo*)
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf
