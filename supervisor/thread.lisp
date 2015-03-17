@@ -951,18 +951,14 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
     ;; Interrupts must have been enabled when the lock was taken.
     ;; TODO: Track how many spin mutexes are currently taken and assert when
     ;; count != 1.
-    (:spin (ensure-interrupts-disabled)))
-  (let ((self (current-thread))
-        (prior-istate (mutex-%lock mutex)))
+    (:spin (panic "Waiting on spin mutex not supported.")))
+  (let ((self (current-thread)))
     (sys.int::%cli)
     (lock-wait-queue condition-variable)
     (%lock-thread self)
     ;; Attach to the list.
     (push-wait-queue self condition-variable)
     ;; Drop the mutex.
-    ;; Make sure spin mutexes don't reenable interrupts.
-    (when (eql (mutex-kind mutex) :spin)
-      (setf (mutex-%lock mutex) nil))
     (release-mutex mutex)
     ;; Sleep.
     ;; need to be careful with that, returning or unwinding from condition-wait
@@ -972,10 +968,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
     (unlock-wait-queue condition-variable)
     (%reschedule)
     ;; Got woken up. Reacquire the mutex.
-    (acquire-mutex mutex t)
-    ;; And restore :spin istate.
-    (when (eql (mutex-kind mutex) :spin)
-      (setf (mutex-%lock mutex) prior-istate)))
+    (acquire-mutex mutex t))
   (values))
 
 (defun condition-notify (condition-variable &optional broadcast)
