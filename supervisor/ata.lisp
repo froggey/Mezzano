@@ -67,8 +67,6 @@
              (:area :wired))
   ;; Taken when accessing the controller.
   (access-lock (make-mutex "ATA Access Lock" :spin))
-  ;; Taken while there's a command in progress.
-  (command-lock (make-mutex "ATA Command Lock"))
   command
   control
   bus-master-register
@@ -77,7 +75,6 @@
   current-channel
   (irq-cvar (make-condition-variable "ATA IRQ Notifier"))
   irq-delivered
-  hotunplug
   bounce-buffer)
 
 (defstruct (ata-device
@@ -243,8 +240,7 @@ This is used to implement the INTRQ_Wait state."
     (loop
        (condition-wait (ata-controller-irq-cvar controller)
                        (ata-controller-access-lock controller))
-       (when (or (ata-controller-irq-delivered controller)
-                 (ata-controller-hotunplug controller))
+       (when (ata-controller-irq-delivered controller)
          (return)))))
 
 (defun ata-pio-data-in (device count mem-addr)
@@ -253,9 +249,6 @@ This is used to implement the INTRQ_Wait state."
     (loop
        ;; HPIOI0: INTRQ_wait
        (ata-intrq-wait device)
-       (when (ata-controller-hotunplug controller)
-         (debug-write-line "Pending PIO read aborted due to device hot-unplug.")
-         (return-from ata-pio-data-in nil))
        ;; HPIOI1: Check_Status
        (multiple-value-bind (drq timed-out)
            (ata-check-status device)
@@ -305,9 +298,6 @@ This is used to implement the INTRQ_Wait state."
          (incf mem-addr 2))
        ;; HPIOO2: INTRQ_Wait
        (ata-intrq-wait device)
-       (when (ata-controller-hotunplug controller)
-         (debug-write-line "Pending PIO read aborted due to device hot-unplug.")
-         (return-from ata-pio-data-out nil))
        ;; Return to HPIOO0.
        (decf count))))
 
@@ -370,22 +360,21 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-read (values nil :too-many-sectors)))
     (when (eql count 0)
       (return-from ata-read t))
-    (with-mutex ((ata-controller-command-lock controller))
-      (with-mutex ((ata-controller-access-lock controller))
-        (cond ((<= +physical-map-base+
-                   mem-addr
-                   ;; 4GB limit.
-                   (+ +physical-map-base+ (* 4 1024 1024 1024)))
-               (ata-read-dma controller device lba count (- mem-addr +physical-map-base+)))
-              ((<= (* count (ata-device-block-size device)) +4k-page-size+)
-               ;; Transfer is small enough that the bounce page can be used.
-               (let* ((bounce-frame (ata-controller-bounce-buffer controller))
-                      (bounce-phys (ash bounce-frame 12))
-                      (bounce-virt (+ +physical-map-base+ bounce-phys)))
-                 (ata-read-dma controller device lba count bounce-phys)
-                 (%fast-page-copy mem-addr bounce-virt)))
-              (t ;; Give up and do a slow PIO transfer.
-               (ata-read-pio controller device lba count mem-addr))))))
+    (with-mutex ((ata-controller-access-lock controller))
+      (cond ((<= +physical-map-base+
+                 mem-addr
+                 ;; 4GB limit.
+                 (+ +physical-map-base+ (* 4 1024 1024 1024)))
+             (ata-read-dma controller device lba count (- mem-addr +physical-map-base+)))
+            ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+             ;; Transfer is small enough that the bounce page can be used.
+             (let* ((bounce-frame (ata-controller-bounce-buffer controller))
+                    (bounce-phys (ash bounce-frame 12))
+                    (bounce-virt (+ +physical-map-base+ bounce-phys)))
+               (ata-read-dma controller device lba count bounce-phys)
+               (%fast-page-copy mem-addr bounce-virt)))
+            (t ;; Give up and do a slow PIO transfer.
+             (ata-read-pio controller device lba count mem-addr)))))
   t)
 
 (defun ata-write-pio (controller device lba count mem-addr)
@@ -423,22 +412,21 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-write (values nil :too-many-sectors)))
     (when (eql count 0)
       (return-from ata-write t))
-    (with-mutex ((ata-controller-command-lock controller))
-      (with-mutex ((ata-controller-access-lock controller))
-        (cond ((<= +physical-map-base+
-                   mem-addr
-                   ;; 4GB limit.
-                   (+ +physical-map-base+ (* 4 1024 1024 1024)))
-               (ata-write-dma controller device lba count (- mem-addr +physical-map-base+)))
-              ((<= (* count (ata-device-block-size device)) +4k-page-size+)
-               ;; Transfer is small enough that the bounce page can be used.
-               (let* ((bounce-frame (ata-controller-bounce-buffer controller))
-                      (bounce-phys (ash bounce-frame 12))
-                      (bounce-virt (+ +physical-map-base+ bounce-phys)))
-                 (%fast-page-copy bounce-virt mem-addr)
-                 (ata-write-dma controller device lba count bounce-phys)))
-              (t ;; Give up and do a slow PIO transfer.
-               (ata-write-pio controller device lba count mem-addr))))))
+    (with-mutex ((ata-controller-access-lock controller))
+      (cond ((<= +physical-map-base+
+                 mem-addr
+                 ;; 4GB limit.
+                 (+ +physical-map-base+ (* 4 1024 1024 1024)))
+             (ata-write-dma controller device lba count (- mem-addr +physical-map-base+)))
+            ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+             ;; Transfer is small enough that the bounce page can be used.
+             (let* ((bounce-frame (ata-controller-bounce-buffer controller))
+                    (bounce-phys (ash bounce-frame 12))
+                    (bounce-virt (+ +physical-map-base+ bounce-phys)))
+               (%fast-page-copy bounce-virt mem-addr)
+               (ata-write-dma controller device lba count bounce-phys)))
+            (t ;; Give up and do a slow PIO transfer.
+             (ata-write-pio controller device lba count mem-addr)))))
   t)
 
 (defun ata-irq-handler (interrupt-frame irq)
