@@ -1153,19 +1153,17 @@ It is only possible for the second value to be false when wait-p is false."
   (element-type)
   (buffer (error "no buffer supplied") :read-only t)
   (cv (make-condition-variable))
-  (lock (make-mutex "fifo-lock" :spin)))
+  (lock (make-mutex "fifo-lock")))
 
 (defun make-fifo (size &key (element-type 't))
-  ;; TODO: non-t element types.
   (%make-fifo :size size
-              :buffer (sys.int::make-simple-vector size :wired)
-              :element-type 't))
+              :buffer (make-array size :element-type element-type)
+              :element-type element-type))
 
 (defun fifo-push (value fifo &optional (wait-p t))
   "Push a byte onto FIFO. Returns true if successful.
 If the fifo is full, then FIFO-PUSH will wait for space to become available
-when WAIT-P is true, otherwise it will immediately return false.
-May be used from an interrupt handler if WAIT-P is false."
+when WAIT-P is true, otherwise it will immediately return false."
   (with-mutex ((fifo-lock fifo))
     (loop
        (let ((next (1+ (fifo-tail fifo))))
@@ -1173,7 +1171,7 @@ May be used from an interrupt handler if WAIT-P is false."
            (setf next 0))
          ;; When next reaches head, the buffer is full.
          (unless (= next (fifo-head fifo))
-           (setf (svref (fifo-buffer fifo) (fifo-tail fifo)) value
+           (setf (aref (fifo-buffer fifo) (fifo-tail fifo)) value
                  (fifo-tail fifo) next)
            (condition-notify (fifo-cv fifo))
            (return t)))
@@ -1186,13 +1184,12 @@ May be used from an interrupt handler if WAIT-P is false."
   "Pop a byte from FIFO.
 Returns two values. The first value is the value popped from the FIFO.
 The second value is true if a value was popped, false otherwise.
-It is only possible for the second value to be false when wait-p is false.
-May be used from an interrupt handler if WAIT-P is false."
+It is only possible for the second value to be false when wait-p is false."
   (with-mutex ((fifo-lock fifo))
     (loop
        (when (not (eql (fifo-head fifo) (fifo-tail fifo)))
          ;; Fifo not empty, pop byte.
-         (let ((value (svref (fifo-buffer fifo) (fifo-head fifo)))
+         (let ((value (aref (fifo-buffer fifo) (fifo-head fifo)))
                (next (1+ (fifo-head fifo))))
            (when (>= next (fifo-size fifo))
              (setf next 0))
@@ -1206,8 +1203,7 @@ May be used from an interrupt handler if WAIT-P is false."
                        (fifo-lock fifo)))))
 
 (defun fifo-reset (fifo)
-  "Flush any waiting data.
-May be used from an interrupt handler."
+  "Flush any waiting data."
   (with-mutex ((fifo-lock fifo))
     (setf (fifo-head fifo) 0
           (fifo-tail fifo) 0)
