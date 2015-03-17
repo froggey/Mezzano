@@ -733,7 +733,8 @@ Interrupts must be off, the current thread must be locked."
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))
 
 ;;; Common structure for sleepable things.
-(defstruct wait-queue
+(defstruct (wait-queue
+             (:area :wired))
   name
   ;; Spin mutexes also abuse this field as a place to store the old interrupt state.
   (%lock :unlocked) ; must be 2nd slot.
@@ -1027,7 +1028,7 @@ May be used from an interrupt handler."
       (return-from semaphore-down t))
     (cond (wait-p
            ;; Go to sleep.
-           (push-wait-queue self mutex)
+           (push-wait-queue self semaphore)
            ;; Now sleep.
            ;; Must take the thread lock before dropping the semaphore lock or up
            ;; may be able to remove the thread from the sleep queue before it goes
@@ -1041,6 +1042,107 @@ May be used from an interrupt handler."
           (t (unlock-wait-queue semaphore)
              (sys.int::%sti)
              nil))))
+
+(defstruct (latch
+             (:include wait-queue)
+             (:constructor make-latch (&optional name))
+             (:area :wired))
+  (state nil))
+
+(defun latch-reset (latch)
+  (without-interrupts
+    (with-wait-queue-lock (latch)
+      (setf (latch-state latch) nil))))
+
+(defun latch-wait (latch)
+  (when (latch-state latch)
+    (return-from latch-wait))
+  (let ((self (current-thread)))
+    (ensure-interrupts-enabled)
+    (sys.int::%cli)
+    (lock-wait-queue latch)
+    (when (latch-state latch)
+      (unlock-wait-queue latch)
+      (sys.int::%sti)
+      (return-from latch-wait))
+    (%lock-thread self)
+    ;; Attach to the list.
+    (push-wait-queue self latch)
+    ;; Sleep.
+    (setf (thread-wait-item self) latch
+          (thread-state self) :sleeping)
+    (unlock-wait-queue latch)
+    (%reschedule))
+  nil)
+
+(defun latch-trigger (latch)
+  (without-interrupts
+    (with-wait-queue-lock (latch)
+      (setf (latch-state latch) t)
+      ;; Loop until all the threads have been woken.
+      (do ()
+          ((null (condition-variable-head latch)))
+        (wake-thread (pop-wait-queue latch))))))
+
+(defstruct (irq-fifo
+             (:area :wired)
+             (:constructor %make-irq-fifo))
+  (head 0 :type fixnum)
+  (tail 0 :type fixnum)
+  (size)
+  (element-type)
+  (buffer (error "no buffer supplied") :read-only t)
+  (count (make-semaphore 0))
+  (lock (make-mutex "fifo-lock" :spin)))
+
+(defun make-irq-fifo (size &key (element-type 't))
+  ;; TODO: non-t element types.
+  (%make-irq-fifo :size size
+                  :buffer (sys.int::make-simple-vector size :wired)
+                  :element-type 't))
+
+(defun irq-fifo-push (value fifo)
+  "Push a byte onto FIFO. Returns true if there was space adn value was pushed successfully.
+If the fifo is full, then FIFO-PUSH will return false.
+Safe to use from an interrupt handler."
+  (with-mutex ((irq-fifo-lock fifo))
+    (let ((next (1+ (irq-fifo-tail fifo))))
+      (when (>= next (irq-fifo-size fifo))
+        (setf next 0))
+      ;; When next reaches head, the buffer is full.
+      (unless (= next (irq-fifo-head fifo))
+        (setf (svref (irq-fifo-buffer fifo) (irq-fifo-tail fifo)) value
+              (irq-fifo-tail fifo) next)
+        (semaphore-up (irq-fifo-count fifo))
+        t))))
+
+(defun irq-fifo-pop (fifo &optional (wait-p t))
+  "Pop a byte from FIFO.
+Returns two values. The first value is the value popped from the FIFO.
+The second value is true if a value was popped, false otherwise.
+It is only possible for the second value to be false when wait-p is false."
+  (when (not (semaphore-down (irq-fifo-count fifo) wait-p))
+    (return-from irq-fifo-pop
+      (values nil nil)))
+  (with-mutex ((irq-fifo-lock fifo))
+    ;; FIFO must not be empty.
+    (ensure (not (eql (irq-fifo-head fifo) (irq-fifo-tail fifo))))
+    ;; Pop byte.
+    (let ((value (svref (irq-fifo-buffer fifo) (irq-fifo-head fifo)))
+          (next (1+ (irq-fifo-head fifo))))
+      (when (>= next (irq-fifo-size fifo))
+        (setf next 0))
+      (setf (irq-fifo-head fifo) next)
+      (values value t))))
+
+(defun irq-fifo-reset (fifo)
+  "Flush any waiting data."
+  (loop
+     (multiple-value-bind (value validp)
+         (irq-fifo-pop fifo nil)
+       (declare (ignore value))
+       (when (not validp)
+         (return)))))
 
 (defstruct (fifo
              (:area :wired)
