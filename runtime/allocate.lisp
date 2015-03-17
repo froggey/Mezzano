@@ -182,12 +182,13 @@
             (%allocate-from-pinned-area tag data words 'sys.int::*pinned-area-freelist*)
             sys.int::+tag-object+))))
       (:wired
-       (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
-         (when *paranoid-allocation*
-           (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
-         (sys.int::%%assemble-value
-          (%allocate-from-pinned-area tag data words 'sys.int::*wired-area-freelist*)
-          sys.int::+tag-object+))))))
+       (mezzano.supervisor:without-interrupts
+         (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
+           (when *paranoid-allocation*
+             (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
+           (sys.int::%%assemble-value
+            (%allocate-from-pinned-area tag data words 'sys.int::*wired-area-freelist*)
+            sys.int::+tag-object+)))))))
 
 (defun sys.int::cons-in-area (car cdr &optional area)
   (when sys.int::*gc-in-progress*
@@ -206,15 +207,16 @@
                  (cdr val) cdr)
            val))))
     (:wired
-     (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
-       (when *paranoid-allocation*
-         (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
-       (let ((val (sys.int::%%assemble-value
-                   (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*wired-area-freelist*) 16)
-                   sys.int::+tag-cons+)))
-         (setf (car val) car
-               (cdr val) cdr)
-         val)))))
+     (mezzano.supervisor:without-interrupts
+       (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
+         (when *paranoid-allocation*
+           (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
+         (let ((val (sys.int::%%assemble-value
+                     (+ (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4 'sys.int::*wired-area-freelist*) 16)
+                     sys.int::+tag-cons+)))
+           (setf (car val) car
+                 (cdr val) cdr)
+           val))))))
 
 (defun cons (car cdr)
   (when sys.int::*gc-in-progress*

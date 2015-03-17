@@ -436,6 +436,8 @@ It will put the thread to sleep, while it waits for the page."
             (return))
           (set-paging-light nil)
           ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
+          (setf (mutex-%lock *pager-lock*) nil)
+          (sys.int::%cli)
           (%lock-thread sys.int::*pager-thread*)
           (release-mutex *pager-lock*)
           (setf (thread-state sys.int::*pager-thread*) :sleeping

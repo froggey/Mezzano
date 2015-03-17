@@ -22,6 +22,15 @@
   (:gc :no-frame)
   (sys.lap-x86:ret))
 
+(declaim (inline ensure-interrupts-enabled ensure-interrupts-disabled))
+(defun ensure-interrupts-enabled ()
+  (when (not (sys.int::%interrupt-state))
+    (panic "Interrupts disabled when they shouldn't be.")))
+
+(defun ensure-interrupts-disabled ()
+  (when (sys.int::%interrupt-state)
+    (panic "Interrupts enabled when they shouldn't be.")))
+
 (defmacro without-interrupts (&body body)
   "Execute body with local IRQs inhibited."
   (let ((irq-state (gensym)))
@@ -36,7 +45,8 @@
 (defmacro with-symbol-spinlock ((lock) &body body)
   (check-type lock symbol)
   (let ((current-thread (gensym)))
-    `(without-interrupts
+    `(progn
+       (ensure-interrupts-disabled)
        (do ((,current-thread (current-thread)))
            ((sys.int::%cas-symbol-global-value ',lock
                                                :unlocked
@@ -206,23 +216,25 @@ If clear, the fault occured in supervisor mode.")
 
 (defun i8259-mask-irq (irq)
   (check-type irq (integer 0 15))
-  (with-symbol-spinlock (*i8259-spinlock*)
-    (when (not (logbitp irq *i8259-shadow-mask*))
-      ;; Currently unmasked, mask it.
-      (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 1)
-      (if (< irq 8)
-          (setf (sys.int::io-port/8 #x21) (ldb (byte 8 0) *i8259-shadow-mask*))
-          (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*))))))
+  (without-interrupts
+    (with-symbol-spinlock (*i8259-spinlock*)
+      (when (not (logbitp irq *i8259-shadow-mask*))
+        ;; Currently unmasked, mask it.
+        (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 1)
+        (if (< irq 8)
+            (setf (sys.int::io-port/8 #x21) (ldb (byte 8 0) *i8259-shadow-mask*))
+            (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*)))))))
 
 (defun i8259-unmask-irq (irq)
   (check-type irq (integer 0 15))
-  (with-symbol-spinlock (*i8259-spinlock*)
-    (when (logbitp irq *i8259-shadow-mask*)
-      ;; Currently masked, unmask it.
-      (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 0)
-      (if (< irq 8)
-          (setf (sys.int::io-port/8 #x21) (ldb (byte 8 0) *i8259-shadow-mask*))
-          (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*))))))
+  (without-interrupts
+    (with-symbol-spinlock (*i8259-spinlock*)
+      (when (logbitp irq *i8259-shadow-mask*)
+        ;; Currently masked, unmask it.
+        (setf (ldb (byte 1 irq) *i8259-shadow-mask*) 0)
+        (if (< irq 8)
+            (setf (sys.int::io-port/8 #x21) (ldb (byte 8 0) *i8259-shadow-mask*))
+            (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*)))))))
 
 (defun i8259-hook-irq (irq handler)
   (check-type handler (or null function symbol))

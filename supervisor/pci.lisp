@@ -57,42 +57,48 @@
                                                   (logand register #b11111100))))
 
 (defun pci-config/8 (location register)
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (system:io-port/8 (+ +pci-config-data+ (logand register #b11)))))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (system:io-port/8 (+ +pci-config-data+ (logand register #b11))))))
 
 (defun pci-config/16 (location register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (system:io-port/16 (+ +pci-config-data+ (logand register #b10)))))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (system:io-port/16 (+ +pci-config-data+ (logand register #b10))))))
 
 (defun pci-config/32 (location register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (system:io-port/32 +pci-config-data+)))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (system:io-port/32 +pci-config-data+))))
 
 (defun (setf pci-config/8) (value location register)
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value))))
 
 (defun (setf pci-config/16) (value location register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value))))
 
 (defun (setf pci-config/32) (value location register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (with-symbol-spinlock (*pci-config-lock*)
-    (pci-set-config-address location register)
-    (setf (system:io-port/32 +pci-config-data+) value)))
+  (without-interrupts
+    (with-symbol-spinlock (*pci-config-lock*)
+      (pci-set-config-address location register)
+      (setf (system:io-port/32 +pci-config-data+) value))))
 
 (defun pci-base-class (location)
   (ldb (byte 8 24) (pci-config/32 location +pci-config-revid+)))

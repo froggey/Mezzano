@@ -36,13 +36,14 @@
 (defun %allocate-stack (size &optional wired)
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
-  (let* ((addr (with-symbol-spinlock (mezzano.runtime::*wired-allocator-lock*)
-                 (prog1 (logior (+ (if wired sys.int::*wired-stack-area-bump* sys.int::*stack-area-bump*) #x200000)
-                                (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-                   ;; 2m align the memory region.
-                   (if wired
-                       (incf sys.int::*wired-stack-area-bump* (align-up size #x200000))
-                       (incf sys.int::*stack-area-bump* (align-up size #x200000))))))
+  (let* ((addr (without-interrupts
+                 (with-symbol-spinlock (mezzano.runtime::*wired-allocator-lock*)
+                   (prog1 (logior (+ (if wired sys.int::*wired-stack-area-bump* sys.int::*stack-area-bump*) #x200000)
+                                  (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+                     ;; 2m align the memory region.
+                     (if wired
+                         (incf sys.int::*wired-stack-area-bump* (align-up size #x200000))
+                         (incf sys.int::*stack-area-bump* (align-up size #x200000)))))))
          (stack (sys.int::cons-in-area addr size :wired)))
     ;; Allocate blocks.
     (with-mutex (*vm-lock*)

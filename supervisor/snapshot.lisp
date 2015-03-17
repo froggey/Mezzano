@@ -243,6 +243,7 @@
      (take-snapshot)
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
+     (sys.int::%cli)
      (%lock-thread sys.int::*snapshot-thread*)
      (setf *snapshot-in-progress* nil)
      (setf (thread-state sys.int::*snapshot-thread*) :sleeping
@@ -271,12 +272,13 @@
   ;; Attempt to wake the snapshot thread, only waking it if
   ;; there is not snapshot currently in progress.
   (let ((did-wake nil))
-    (with-thread-lock (sys.int::*snapshot-thread*)
-      (when (not *snapshot-in-progress*)
-        (setf *snapshot-in-progress* t
-              did-wake t)
-        (setf (thread-state sys.int::*snapshot-thread*) :runnable)
-        (with-symbol-spinlock (*global-thread-lock*)
-          (push-run-queue sys.int::*snapshot-thread*))))
+    (without-interrupts
+      (with-thread-lock (sys.int::*snapshot-thread*)
+        (when (not *snapshot-in-progress*)
+          (setf *snapshot-in-progress* t
+                did-wake t)
+          (setf (thread-state sys.int::*snapshot-thread*) :runnable)
+          (with-symbol-spinlock (*global-thread-lock*)
+            (push-run-queue sys.int::*snapshot-thread*)))))
     (when did-wake
       (thread-yield))))

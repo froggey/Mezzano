@@ -226,17 +226,18 @@
 (defvar sys.int::*next-symbol-tls-slot*)
 (defconstant +maximum-tls-slot+ (1+ mezzano.supervisor::+thread-tls-slots-end+))
 (defun sys.int::%allocate-tls-slot (symbol)
-  (mezzano.supervisor::with-symbol-spinlock (*tls-lock*)
-    ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
-    (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
-           (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
-             (error "Critial error! TLS slots exhausted!"))
-           (let ((slot sys.int::*next-symbol-tls-slot*))
-             (incf sys.int::*next-symbol-tls-slot*)
-             ;; Twiddle TLS bits directly in the symbol header.
-             (setf (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)) slot)
-             slot))
-          (t (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))))
+  (mezzano.supervisor::without-interrupts
+    (mezzano.supervisor::with-symbol-spinlock (*tls-lock*)
+      ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
+      (cond ((zerop (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))
+             (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
+               (error "Critial error! TLS slots exhausted!"))
+             (let ((slot sys.int::*next-symbol-tls-slot*))
+               (incf sys.int::*next-symbol-tls-slot*)
+               ;; Twiddle TLS bits directly in the symbol header.
+               (setf (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)) slot)
+               slot))
+            (t (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1)))))))
 
 (defvar *active-catch-handlers*)
 (defun sys.int::%catch (tag fn)

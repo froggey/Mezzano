@@ -70,11 +70,12 @@
       (return t))))
 
 (defun ps/2-port-write (byte command)
-  (with-symbol-spinlock (*ps/2-controller-lock*)
-    (ps/2-input-wait)
-    (setf (system:io-port/8 +ps/2-control-port+) command)
-    (ps/2-input-wait)
-    (setf (system:io-port/8 +ps/2-data-port+) byte)))
+  (without-interrupts
+    (with-symbol-spinlock (*ps/2-controller-lock*)
+      (ps/2-input-wait)
+      (setf (system:io-port/8 +ps/2-control-port+) command)
+      (ps/2-input-wait)
+      (setf (system:io-port/8 +ps/2-data-port+) byte))))
 
 (defun ps/2-key-write (byte)
   "Write a byte to the key port."

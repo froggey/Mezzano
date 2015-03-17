@@ -170,15 +170,15 @@
 (defmacro with-thread-lock ((thread) &body body)
   (let ((sym (gensym "thread")))
     `(let ((,sym ,thread))
-       (without-interrupts
-         (unwind-protect
-              (progn
-                (%lock-thread ,sym)
-                ,@body)
-           (%unlock-thread ,sym))))))
+       (unwind-protect
+            (progn
+              (%lock-thread ,sym)
+              ,@body)
+         (%unlock-thread ,sym)))))
 
 (defun %lock-thread (thread)
   (check-type thread thread)
+  (ensure-interrupts-disabled)
   (let ((current-thread (current-thread)))
     (do ()
         ((sys.int::%cas-array-like thread
@@ -284,13 +284,14 @@
             (thread-state-r14 thread) 0
             (thread-state-r15 thread) 0))
     (setf (thread-full-save-p thread) t)
-    (with-symbol-spinlock (*global-thread-lock*)
-      (push-run-queue thread)
-      ;; Add thread to global thread list.
-      (setf (thread-global-prev *all-threads*) thread
-            (thread-global-next thread) *all-threads*
-            (thread-global-prev thread) nil
-            *all-threads* thread))
+    (without-interrupts
+      (with-symbol-spinlock (*global-thread-lock*)
+        (push-run-queue thread)
+        ;; Add thread to global thread list.
+        (setf (thread-global-prev *all-threads*) thread
+              (thread-global-next thread) *all-threads*
+              (thread-global-prev thread) nil
+              *all-threads* thread)))
     thread))
 
 (defun thread-entry-trampoline (function)
@@ -303,13 +304,14 @@
       (%lock-thread self)
       (setf (thread-state self) :dead)
       ;; Remove thread from the global list.
-      (with-symbol-spinlock (*global-thread-lock*)
-        (when (thread-global-next self)
-          (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
-        (when (thread-global-prev self)
-          (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
-        (when (eql self *all-threads*)
-          (setf *all-threads* (thread-global-next self))))
+      (without-interrupts
+        (with-symbol-spinlock (*global-thread-lock*)
+          (when (thread-global-next self)
+            (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
+          (when (thread-global-prev self)
+            (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
+          (when (eql self *all-threads*)
+            (setf *all-threads* (thread-global-next self)))))
       (%reschedule))))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
@@ -563,10 +565,11 @@ Interrupts must be off, the current thread must be locked."
 
 (defun wake-thread (thread)
   "Wake a sleeping thread."
-  (with-thread-lock (thread)
-    (with-symbol-spinlock (*global-thread-lock*)
-      (setf (thread-state thread) :runnable)
-      (push-run-queue thread))))
+  (without-interrupts
+    (with-thread-lock (thread)
+      (with-symbol-spinlock (*global-thread-lock*)
+        (setf (thread-state thread) :runnable)
+        (push-run-queue thread)))))
 
 ;;; current-thread interrupt-frame next-thread
 ;;; Interrupts must be off, current & next must be locked.
@@ -760,6 +763,7 @@ Interrupts must be off, the current thread must be locked."
       thread)))
 
 (defun lock-wait-queue (wait-queue)
+  (ensure-interrupts-disabled)
   (do ((current-thread (current-thread)))
       ((sys.int::%cas-array-like wait-queue
                                  2
@@ -773,12 +777,11 @@ Interrupts must be off, the current thread must be locked."
 (defmacro with-wait-queue-lock ((wait-queue) &body body)
   (let ((sym (gensym "WAIT-QUEUE")))
     `(let ((,sym ,wait-queue))
-       (without-interrupts
-         (unwind-protect
-              (progn
-                (lock-wait-queue ,sym)
-                ,@body)
-           (unlock-wait-queue ,sym))))))
+       (unwind-protect
+            (progn
+              (lock-wait-queue ,sym)
+              ,@body)
+         (unlock-wait-queue ,sym)))))
 
 (defstruct (mutex
              (:include wait-queue)
@@ -797,8 +800,7 @@ Interrupts must be off, the current thread must be locked."
 
 (defun acquire-block-mutex (mutex wait-p)
   (let ((self (current-thread)))
-    (unless (sys.int::%interrupt-state)
-      (panic "Trying to acquire block mutex " mutex " with interrupts disabled."))
+    (ensure-interrupts-enabled)
     (unless (not *pseudo-atomic*)
       (panic "Trying to acquire block mutex " mutex " while pseudo-atomic."))
     ;; Fast path - try to lock.
@@ -893,22 +895,23 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
   (values))
 
 (defun release-block-mutex (mutex)
-  (with-wait-queue-lock (mutex)
-    (let ((self (current-thread)))
-      (when (not (eql mutex (thread-mutex-stack self)))
-        (panic "Thread " self " releasing mutex " mutex " out of order."))
-      (setf (thread-mutex-stack self) (mutex-stack-next mutex)))
-    ;; Look for a thread to wake.
-    (let ((thread (pop-wait-queue mutex)))
-      (cond (thread
-             ;; Found one, wake it & transfer the lock.
-             (setf (mutex-owner mutex) thread)
-             (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
-                   (thread-mutex-stack thread) mutex)
-             (wake-thread thread))
-            (t
-             ;; No threads sleeping, just drop the lock.
-             (setf (mutex-owner mutex) nil))))))
+  (without-interrupts
+    (with-wait-queue-lock (mutex)
+      (let ((self (current-thread)))
+        (when (not (eql mutex (thread-mutex-stack self)))
+          (panic "Thread " self " releasing mutex " mutex " out of order."))
+        (setf (thread-mutex-stack self) (mutex-stack-next mutex)))
+      ;; Look for a thread to wake.
+      (let ((thread (pop-wait-queue mutex)))
+        (cond (thread
+               ;; Found one, wake it & transfer the lock.
+               (setf (mutex-owner mutex) thread)
+               (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
+                     (thread-mutex-stack thread) mutex)
+               (wake-thread thread))
+              (t
+               ;; No threads sleeping, just drop the lock.
+               (setf (mutex-owner mutex) nil)))))))
 
 (defun release-spin-mutex (mutex)
   (let ((istate (mutex-%lock mutex)))
@@ -943,11 +946,11 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
   (assert (mutex-held-p mutex))
   (ecase (mutex-kind mutex)
     ;; Interrupts must be enabled.
-    (:block (assert (sys.int::%interrupt-state)))
+    (:block (ensure-interrupts-enabled))
     ;; Interrupts must have been enabled when the lock was taken.
     ;; TODO: Track how many spin mutexes are currently taken and assert when
     ;; count != 1.
-    (:spin (assert (mutex-%lock mutex))))
+    (:spin (ensure-interrupts-disabled)))
   (let ((self (current-thread))
         (prior-istate (mutex-%lock mutex)))
     (sys.int::%cli)
@@ -980,16 +983,17 @@ May be used from an interrupt handler, assuming the associated mutex is interrup
   (flet ((pop-one ()
            (wake-thread (pop-wait-queue condition-variable))))
     (declare (dynamic-extent #'pop-one))
-    (with-wait-queue-lock (condition-variable)
-      (cond (broadcast
-             ;; Loop until all the threads have been woken.
-             (do ()
-                 ((null (condition-variable-head condition-variable)))
-               (pop-one)))
-            (t
-             ;; Wake exactly one.
-             (when (condition-variable-head condition-variable)
-               (pop-one))))))
+    (without-interrupts
+      (with-wait-queue-lock (condition-variable)
+        (cond (broadcast
+               ;; Loop until all the threads have been woken.
+               (do ()
+                   ((null (condition-variable-head condition-variable)))
+                 (pop-one)))
+              (t
+               ;; Wake exactly one.
+               (when (condition-variable-head condition-variable)
+                 (pop-one)))))))
   (values))
 
 (defstruct (semaphore
