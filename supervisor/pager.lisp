@@ -380,19 +380,18 @@
   "Called by the page fault handler when a non-present page is accessed.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread)))
-    (acquire-mutex *pager-lock*)
-    (%lock-thread self)
-    (setf (thread-state self) :waiting-for-page
-          (thread-wait-item self) address
-          (thread-%next self) *pager-waiting-threads*
-          *pager-waiting-threads* self)
-    (with-thread-lock (sys.int::*pager-thread*)
-      (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
-                 (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
-        (setf (thread-state sys.int::*pager-thread*) :runnable)
-        (with-symbol-spinlock (*global-thread-lock*)
-          (push-run-queue sys.int::*pager-thread*))))
-    (release-mutex *pager-lock*)
+    (with-symbol-spinlock (*pager-lock*)
+      (%lock-thread self)
+      (setf (thread-state self) :waiting-for-page
+            (thread-wait-item self) address
+            (thread-%next self) *pager-waiting-threads*
+            *pager-waiting-threads* self)
+      (with-thread-lock (sys.int::*pager-thread*)
+        (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                   (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+          (setf (thread-state sys.int::*pager-thread*) :runnable)
+          (with-symbol-spinlock (*global-thread-lock*)
+            (push-run-queue sys.int::*pager-thread*)))))
     (%reschedule-via-interrupt interrupt-frame)))
 
 (defun map-physical-memory (base size name)
@@ -412,7 +411,7 @@ It will put the thread to sleep, while it waits for the page."
   (when (not (boundp '*pager-waiting-threads*))
     (setf *pager-waiting-threads* '()
           *pager-current-thread* nil
-          *pager-lock* (make-mutex "Pager lock" :spin)))
+          *pager-lock* (place-spinlock-initializer)))
   (when *pager-current-thread*
     ;; Push any current thread back on the waiting threads list.
     (setf (thread-%next *pager-current-thread*) *pager-waiting-threads*
@@ -427,23 +426,23 @@ It will put the thread to sleep, while it waits for the page."
 (defun pager-thread ()
   (loop
      ;; Select a thread.
-     (with-mutex (*pager-lock*)
-       (loop
-          (when *pager-waiting-threads*
-            (setf *pager-current-thread* *pager-waiting-threads*
-                  *pager-waiting-threads* (thread-%next *pager-current-thread*))
-            (set-paging-light t)
-            (return))
-          (set-paging-light nil)
-          ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
-          (setf (mutex-%lock *pager-lock*) nil)
-          (sys.int::%cli)
-          (%lock-thread sys.int::*pager-thread*)
-          (release-mutex *pager-lock*)
-          (setf (thread-state sys.int::*pager-thread*) :sleeping
-                (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
-          (%reschedule)
-          (acquire-mutex *pager-lock*)))
+     (without-interrupts
+       (with-symbol-spinlock (*pager-lock*)
+         (loop
+            (when *pager-waiting-threads*
+              (setf *pager-current-thread* *pager-waiting-threads*
+                    *pager-waiting-threads* (thread-%next *pager-current-thread*))
+              (set-paging-light t)
+              (return))
+            (set-paging-light nil)
+            ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
+            (%lock-thread sys.int::*pager-thread*)
+            (release-place-spinlock *pager-lock*)
+            (setf (thread-state sys.int::*pager-thread*) :sleeping
+                  (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
+            (%reschedule)
+            (sys.int::%cli)
+            (acquire-place-spinlock *pager-lock*))))
      ;; Page it in
      (when (not (wait-for-page (thread-wait-item *pager-current-thread*)))
        ;; TODO: Dispatch this to a debugger thread.

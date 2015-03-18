@@ -399,7 +399,7 @@
     (setf *global-thread-lock* :unlocked)
     (setf *thread-run-queue-head* nil
           *thread-run-queue-tail* nil)
-    (setf *world-stop-lock* (make-mutex "World stop lock" :spin)
+    (setf *world-stop-lock* (make-mutex "World stop lock")
           *world-stop-resume-cvar* (make-condition-variable "World resume cvar")
           *world-stop-pa-exit-cvar* (make-condition-variable "World stop PA exit cvar")
           *world-stop-pending* nil
@@ -685,6 +685,7 @@ Interrupts must be off, the current thread must be locked."
       (panic "Nested world stop!"))
     (when *pseudo-atomic*
       (panic "Stopping world while pseudo-atomic!"))
+    (ensure-interrupts-enabled)
     (with-mutex (*world-stop-lock*)
       ;; First, try to position ourselves as the next thread to stop the world.
       ;; This prevents any more threads from becoming PA.
@@ -715,6 +716,7 @@ Interrupts must be off, the current thread must be locked."
 (defun call-with-pseudo-atomic (thunk)
   (when (eql *world-stopper* (current-thread))
     (panic "Going PA with world stopped!"))
+  (ensure-interrupts-enabled)
   (with-mutex (*world-stop-lock*)
     (when *world-stop-pending*
       ;; Wait for the world to stop & resume.
@@ -736,8 +738,7 @@ Interrupts must be off, the current thread must be locked."
 (defstruct (wait-queue
              (:area :wired))
   name
-  ;; Spin mutexes also abuse this field as a place to store the old interrupt state.
-  (%lock :unlocked) ; must be 2nd slot.
+  (%lock (place-spinlock-initializer))
   (head nil)
   (tail nil))
 
@@ -764,16 +765,10 @@ Interrupts must be off, the current thread must be locked."
       thread)))
 
 (defun lock-wait-queue (wait-queue)
-  (ensure-interrupts-disabled)
-  (do ((current-thread (current-thread)))
-      ((sys.int::%cas-array-like wait-queue
-                                 2
-                                 :unlocked
-                                 current-thread))
-    (sys.int::cpu-relax)))
+  (acquire-place-spinlock (wait-queue-%lock wait-queue)))
 
 (defun unlock-wait-queue (wait-queue)
-  (setf (wait-queue-%lock wait-queue) :unlocked))
+  (release-place-spinlock (wait-queue-%lock wait-queue)))
 
 (defmacro with-wait-queue-lock ((wait-queue) &body body)
   (let ((sym (gensym "WAIT-QUEUE")))
@@ -786,30 +781,24 @@ Interrupts must be off, the current thread must be locked."
 
 (defstruct (mutex
              (:include wait-queue)
-             (:constructor make-mutex (&optional name (kind :block)))
+             (:constructor make-mutex (&optional name))
              (:area :wired))
   ;; When NIL, the lock is free, otherwise is set to
   ;; the thread that holds the lock.
   (owner nil) ; must be slot 5, after wait-queue is included.
-  (kind nil :type (member :block :spin) :read-only t)
   (stack-next nil))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
-  (ecase (mutex-kind mutex)
-    (:block (acquire-block-mutex mutex wait-p))
-    (:spin (acquire-spin-mutex mutex wait-p))))
-
-(defun acquire-block-mutex (mutex wait-p)
   (let ((self (current-thread)))
     (ensure-interrupts-enabled)
     (unless (not *pseudo-atomic*)
-      (panic "Trying to acquire block mutex " mutex " while pseudo-atomic."))
+      (panic "Trying to acquire mutex " mutex " while pseudo-atomic."))
     ;; Fast path - try to lock.
     (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
       (setf (mutex-stack-next mutex) (thread-mutex-stack self)
             (thread-mutex-stack self) mutex)
-      (return-from acquire-block-mutex t))
+      (return-from acquire-mutex t))
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
       (error "Recursive locking detected on ~S." mutex))
@@ -824,7 +813,7 @@ Interrupts must be off, the current thread must be locked."
               (thread-mutex-stack self) mutex)
         (sys.int::%sti)
         (unlock-wait-queue mutex)
-        (return-from acquire-block-mutex t))
+        (return-from acquire-mutex t))
       ;; No good, have to sleep.
       ;; Add to wait queue. Release will directly transfer ownership
       ;; to this thread.
@@ -859,30 +848,6 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
       (%reschedule)
       t)))
 
-(defun acquire-spin-mutex (mutex wait-p)
-  (let ((self (current-thread))
-        (istate (sys.int::%interrupt-state)))
-    (sys.int::%cli)
-    ;; Fast path - try to lock.
-    (when (sys.int::%cas-struct-slot mutex 5 nil self)
-      ;; We got it.
-      (setf (mutex-%lock mutex) istate)
-      (return-from acquire-spin-mutex t))
-    ;; Idiot check.
-    (unless (not (mutex-held-p mutex))
-      (panic "Recursive locking detected."))
-    (panic "Spin-mutex " mutex " held by " (mutex-owner mutex))
-    (cond (wait-p
-           ;; Spin path.
-           (do ()
-               ((sys.int::%cas-struct-slot mutex 5 nil self))
-             (sys.int::cpu-relax))
-           (setf (mutex-%lock mutex) istate)
-           t)
-          (t ;; Trylock path.
-           (when istate
-             (sys.int::%sti))))))
-
 (defun mutex-held-p (mutex)
   "Return true if this thread holds MUTEX."
   (eql (mutex-owner mutex) (current-thread)))
@@ -890,12 +855,6 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
 (defun release-mutex (mutex)
   (unless (mutex-held-p mutex)
     (panic "Tryin to release mutex " mutex " not held by thread."))
-  (ecase (mutex-kind mutex)
-    (:block (release-block-mutex mutex))
-    (:spin (release-spin-mutex mutex)))
-  (values))
-
-(defun release-block-mutex (mutex)
   (without-interrupts
     (with-wait-queue-lock (mutex)
       (let ((self (current-thread)))
@@ -912,13 +871,8 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
                (wake-thread thread))
               (t
                ;; No threads sleeping, just drop the lock.
-               (setf (mutex-owner mutex) nil)))))))
-
-(defun release-spin-mutex (mutex)
-  (let ((istate (mutex-%lock mutex)))
-    (setf (mutex-owner mutex) nil)
-    (when istate
-      (sys.int::%sti))))
+               (setf (mutex-owner mutex) nil))))))
+  (values))
 
 (defun call-with-mutex (thunk mutex wait-p)
   (let ((got-it nil))
@@ -945,13 +899,7 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
 
 (defun condition-wait (condition-variable mutex)
   (assert (mutex-held-p mutex))
-  (ecase (mutex-kind mutex)
-    ;; Interrupts must be enabled.
-    (:block (ensure-interrupts-enabled))
-    ;; Interrupts must have been enabled when the lock was taken.
-    ;; TODO: Track how many spin mutexes are currently taken and assert when
-    ;; count != 1.
-    (:spin (panic "Waiting on spin mutex not supported.")))
+  (ensure-interrupts-enabled)
   (let ((self (current-thread)))
     (sys.int::%cli)
     (lock-wait-queue condition-variable)
@@ -1086,7 +1034,7 @@ May be used from an interrupt handler."
   (element-type)
   (buffer (error "no buffer supplied") :read-only t)
   (count (make-semaphore 0))
-  (lock (make-mutex "fifo-lock" :spin)))
+  (lock (place-spinlock-initializer)))
 
 (defun make-irq-fifo (size &key (element-type 't))
   ;; TODO: non-t element types.
@@ -1098,16 +1046,17 @@ May be used from an interrupt handler."
   "Push a byte onto FIFO. Returns true if there was space adn value was pushed successfully.
 If the fifo is full, then FIFO-PUSH will return false.
 Safe to use from an interrupt handler."
-  (with-mutex ((irq-fifo-lock fifo))
-    (let ((next (1+ (irq-fifo-tail fifo))))
-      (when (>= next (irq-fifo-size fifo))
-        (setf next 0))
-      ;; When next reaches head, the buffer is full.
-      (unless (= next (irq-fifo-head fifo))
-        (setf (svref (irq-fifo-buffer fifo) (irq-fifo-tail fifo)) value
-              (irq-fifo-tail fifo) next)
-        (semaphore-up (irq-fifo-count fifo))
-        t))))
+  (without-interrupts
+    (with-place-spinlock ((irq-fifo-lock fifo))
+      (let ((next (1+ (irq-fifo-tail fifo))))
+        (when (>= next (irq-fifo-size fifo))
+          (setf next 0))
+        ;; When next reaches head, the buffer is full.
+        (unless (= next (irq-fifo-head fifo))
+          (setf (svref (irq-fifo-buffer fifo) (irq-fifo-tail fifo)) value
+                (irq-fifo-tail fifo) next)
+          (semaphore-up (irq-fifo-count fifo))
+          t)))))
 
 (defun irq-fifo-pop (fifo &optional (wait-p t))
   "Pop a byte from FIFO.
@@ -1117,16 +1066,17 @@ It is only possible for the second value to be false when wait-p is false."
   (when (not (semaphore-down (irq-fifo-count fifo) wait-p))
     (return-from irq-fifo-pop
       (values nil nil)))
-  (with-mutex ((irq-fifo-lock fifo))
-    ;; FIFO must not be empty.
-    (ensure (not (eql (irq-fifo-head fifo) (irq-fifo-tail fifo))))
-    ;; Pop byte.
-    (let ((value (svref (irq-fifo-buffer fifo) (irq-fifo-head fifo)))
-          (next (1+ (irq-fifo-head fifo))))
-      (when (>= next (irq-fifo-size fifo))
-        (setf next 0))
-      (setf (irq-fifo-head fifo) next)
-      (values value t))))
+  (without-interrupts
+    (with-place-spinlock ((irq-fifo-lock fifo))
+      ;; FIFO must not be empty.
+      (ensure (not (eql (irq-fifo-head fifo) (irq-fifo-tail fifo))))
+      ;; Pop byte.
+      (let ((value (svref (irq-fifo-buffer fifo) (irq-fifo-head fifo)))
+            (next (1+ (irq-fifo-head fifo))))
+        (when (>= next (irq-fifo-size fifo))
+          (setf next 0))
+        (setf (irq-fifo-head fifo) next)
+        (values value t)))))
 
 (defun irq-fifo-reset (fifo)
   "Flush any waiting data."
@@ -1139,19 +1089,14 @@ It is only possible for the second value to be false when wait-p is false."
 
 (defstruct (fifo
              (:area :wired)
-             (:constructor %make-fifo))
+             (:constructor (make-fifo (size &key (element-type 't) &aux (buffer (make-array size :element-type element-type))))))
   (head 0 :type fixnum)
   (tail 0 :type fixnum)
-  (size)
-  (element-type)
-  (buffer (error "no buffer supplied") :read-only t)
+  (size nil :read-only t)
+  (element-type nil :read-only t)
+  (buffer nil :read-only t)
   (cv (make-condition-variable))
   (lock (make-mutex "fifo-lock")))
-
-(defun make-fifo (size &key (element-type 't))
-  (%make-fifo :size size
-              :buffer (make-array size :element-type element-type)
-              :element-type element-type))
 
 (defun fifo-push (value fifo &optional (wait-p t))
   "Push a byte onto FIFO. Returns true if successful.

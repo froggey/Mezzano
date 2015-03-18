@@ -42,20 +42,35 @@
             (progn ,@body)
          (sys.int::%restore-irq-state ,irq-state)))))
 
+(defun place-spinlock-initializer ()
+  :unlocked)
+
+(defmacro initialize-place-spinlock (place)
+  `(setf ,place (place-spinlock-initializer)))
+
+(defmacro acquire-place-spinlock (place)
+  (let ((self (gensym)))
+    `(let ((,self (current-thread)))
+       (ensure-interrupts-disabled)
+       ;; TODO... Need generic CAS, but this can wait until SMP support.
+       (when (not (eql ,place :unlocked))
+         (panic "Place spinlock " ',place " held by " ,place))
+       (setf ,place ,self))))
+
+(defmacro release-place-spinlock (place)
+  `(setf ,place :unlocked))
+
+(defmacro with-place-spinlock ((place) &body body)
+  `(progn
+     (acquire-place-spinlock ,place)
+     (unwind-protect
+          (progn ,@body)
+       (release-place-spinlock ,place))))
+
 (defmacro with-symbol-spinlock ((lock) &body body)
   (check-type lock symbol)
-  (let ((current-thread (gensym)))
-    `(progn
-       (ensure-interrupts-disabled)
-       (do ((,current-thread (current-thread)))
-           ((sys.int::%cas-symbol-global-value ',lock
-                                               :unlocked
-                                               ,current-thread))
-         (panic "Symbol spinlock " ',lock " held by " ,lock)
-         (sys.int::cpu-relax))
-       (unwind-protect
-            (progn ,@body)
-         (setf (sys.int::symbol-global-value ',lock) :unlocked)))))
+  `(with-place-spinlock ((sys.int::symbol-global-value ',lock))
+     ,@body))
 
 ;;; Low-level interrupt support.
 

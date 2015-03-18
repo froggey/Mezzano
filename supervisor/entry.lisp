@@ -277,7 +277,6 @@ Returns two values, the packet data and the receiving NIC."
             ;; FIXME: This should be a normal non-IRQ FIFO, but
             ;; creating a FIFO won't work until the cold load finishes.
             *received-packets* (make-irq-fifo 50)))
-    (fifo-reset *received-packets*)
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)
     (initialize-i8259)
@@ -289,6 +288,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-debug-serial serial-port-io-base 4 38400)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
+    (irq-fifo-reset *received-packets*)
     (initialize-time)
     (initialize-ata)
     (initialize-virtio)

@@ -12,7 +12,7 @@
 (defun initialize-time ()
   (when (not (boundp '*heartbeat-wait-queue*))
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
-    (setf *rtc-lock* (make-mutex "RTC lock" :spin)))
+    (setf *rtc-lock* (place-spinlock-initializer)))
   (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
   (i8259-unmask-irq +pit-irq+))
 
@@ -72,22 +72,19 @@
   (setf (system:io-port/8 +rtc-index-io-reg+) register
         (system:io-port/8 +rtc-data-io-reg+) value))
 
-(defun read-rtc-time (&optional (century-boundary 2012))
-  "Read the time values from the RTC.
-CENTURY-BOUNDARY is used to calculate the full year.
-It should be the current year, or earlier."
+(defun wait-for-rtc ()
+  "Wait for the update-in-progress flag to clear. Returns false if the RTC times out."
+  (dotimes (i 10000 nil)
+    (when (zerop (logand (rtc +rtc-status-a+) +rtc-status-a-update-in-progress+))
+      (return t))))
+
+(defun read-rtc-time-1 ()
+  "Read raw values from the RTC."
   ;; http://wiki.osdev.org/CMOS
   ;; This repeatedly reads the RTC until the values match.
-  (with-mutex (*rtc-lock*)
-    (flet ((wait-for-rtc ()
-             "Wait for the update-in-progress flag to clear. Returns false if the RTC times out."
-             (dotimes (i 10000 nil)
-               (when (zerop (logand (rtc +rtc-status-a+) +rtc-status-a-update-in-progress+))
-                 (return t))))
-           (conv-bcd (v)
-             "Convert a BCD byte to binary."
-             (+ (ldb (byte 4 0) v)
-                (* (ldb (byte 4 4) v) 10))))
+  ;; Prevents reading a strange value when the RTC ticks.
+  (without-interrupts
+    (with-symbol-spinlock (*rtc-lock*)
       ;; Don't care about failure here.
       (wait-for-rtc)
       (let ((second (rtc +rtc-second+))
@@ -113,22 +110,34 @@ It should be the current year, or earlier."
           (when (not (wait-for-rtc))
             ;; RTC timed out, use these values anyway.
             (return)))
-        (when (zerop (logand status-b +rtc-status-b-binary-mode+))
-          ;; RTC is running in BCD mode.
-          (setf second (conv-bcd second)
-                minute (conv-bcd minute)
-                ;; Preserve the 12-hour AM/PM bit.
-                hour (logior (conv-bcd (logand hour (lognot +rtc-hour-pm+)))
-                             (logand hour +rtc-hour-pm+))
-                day (conv-bcd day)
-                month (conv-bcd month)
-                year (conv-bcd year)))
-        (when (and (not (logtest status-b +rtc-status-b-24-hour-mode+))
-                   (logtest hour +rtc-hour-pm+))
-          ;; RTC in 12-hour mode and it's PM.
-          (setf hour (rem (+ (logand hour (lognot +rtc-hour-pm+)) 12) 24)))
-        ;; Calculate the full year.
-        (let ((century (* (truncate century-boundary 100) 100)))
-          (incf year century)
-          (when (< year century-boundary) (incf year 100)))
-        (values second minute hour day month year)))))
+        (values second minute hour day month year status-b)))))
+
+(defun read-rtc-time (&optional (century-boundary 2012))
+  "Read the time values from the RTC.
+CENTURY-BOUNDARY is used to calculate the full year.
+It should be the current year, or earlier."
+  (flet ((conv-bcd (v)
+               "Convert a BCD byte to binary."
+               (+ (ldb (byte 4 0) v)
+                  (* (ldb (byte 4 4) v) 10))))
+    (multiple-value-bind (second minute hour day month year status-b)
+        (read-rtc-time-1)
+      (when (zerop (logand status-b +rtc-status-b-binary-mode+))
+        ;; RTC is running in BCD mode.
+        (setf second (conv-bcd second)
+              minute (conv-bcd minute)
+              ;; Preserve the 12-hour AM/PM bit.
+              hour (logior (conv-bcd (logand hour (lognot +rtc-hour-pm+)))
+                           (logand hour +rtc-hour-pm+))
+              day (conv-bcd day)
+              month (conv-bcd month)
+              year (conv-bcd year)))
+      (when (and (not (logtest status-b +rtc-status-b-24-hour-mode+))
+                 (logtest hour +rtc-hour-pm+))
+        ;; RTC in 12-hour mode and it's PM.
+        (setf hour (rem (+ (logand hour (lognot +rtc-hour-pm+)) 12) 24)))
+      ;; Calculate the full year.
+      (let ((century (* (truncate century-boundary 100) 100)))
+        (incf year century)
+        (when (< year century-boundary) (incf year 100)))
+      (values second minute hour day month year))))
