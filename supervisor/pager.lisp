@@ -272,7 +272,7 @@
                                                                   flags)))))
 
 (defun release-vm-page (frame)
-  (without-interrupts
+  (safe-without-interrupts (frame)
     (let ((flags (physical-page-frame-flags frame)))
       (setf (ldb (byte 1 +page-frame-flag-cache+) flags) 0
             (physical-page-frame-flags frame) flags)
@@ -282,7 +282,6 @@
 (defun release-memory-range (base length)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
   (debug-print-line "Release range " base "-" (+ base length))
-  (%stack-probe (* 32 1024))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
       ;; Update block map.
@@ -302,7 +301,6 @@
               (logtest sys.int::+block-map-zero-fill+ flags))
           () "TODO: Cannot mark block not-present without zero-fill")
   (debug-print-line "Protect range " base "-" (+ base length) "  " flags)
-  (%stack-probe (* 32 1024))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
       ;; Update block map.
@@ -398,7 +396,6 @@ It will put the thread to sleep, while it waits for the page."
   ;; Page alignment required.
   (assert (zerop (logand base #xFFF)))
   (assert (zerop (logand size #xFFF)))
-  (%stack-probe (* 32 1024))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate size #x1000))
       (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))

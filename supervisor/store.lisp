@@ -221,7 +221,7 @@ Should be called with the freelist lock held."
       (return))))
 
 (defun store-free (start n-blocks)
-  (without-interrupts
+  (safe-without-interrupts (start n-blocks)
     (with-symbol-spinlock (*store-freelist-lock*)
       (incf *store-freelist-n-free-blocks* n-blocks)
       (store-insert-range start n-blocks t))))
@@ -241,7 +241,7 @@ Should be called with the freelist lock held."
           (return start))))))
 
 (defun store-alloc (n-blocks)
-  (without-interrupts
+  (safe-without-interrupts (n-blocks)
     (with-symbol-spinlock (*store-freelist-lock*)
       (store-alloc-1 n-blocks))))
 
@@ -291,41 +291,46 @@ Should be called with the freelist lock held."
 
 (defun store-statistics ()
   "Return two values: The number of blocks free, and the total number of blocks."
-  (without-interrupts
+  (safe-without-interrupts ()
     (with-symbol-spinlock (*store-freelist-lock*)
       (values *store-freelist-n-free-blocks*
               *store-freelist-total-blocks*))))
 
-(defun regenerate-store-freelist ()
+(defun regenerate-store-freelist-1 ()
   (let ((first-block nil))
-    (without-interrupts
-      (with-symbol-spinlock (*store-freelist-lock*)
-        ;; Resulting freelist needs to fit in one block.
-        ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
-        (do ((range *store-freelist-head* (freelist-metadata-next range))
-             (total-allocated-ranges 0))
-            ((null range)
-             (when (>= total-allocated-ranges 250)
-               (return-from regenerate-store-freelist nil)))
-          (when (not (freelist-metadata-free-p range))
-            (incf total-allocated-ranges)))
-        (setf first-block (store-alloc-1 1))
-        (when (not first-block)
-          (return-from regenerate-store-freelist))
-        (zero-cached-block first-block)
-        (setf *store-freelist-block* first-block
-              *store-freelist-block-offset* 0)
-        (do ((range *store-freelist-head* (freelist-metadata-next range)))
-            ((null range))
-          (when (not (freelist-metadata-free-p range))
-            (store-freelist-log (freelist-metadata-start range)
-                                (- (freelist-metadata-end range) (freelist-metadata-start range))
-                                nil)))))
-    (do ((range *store-freelist-head*
-                (freelist-metadata-next range)))
-        ((null range))
-      (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
-    ;; Update header.
-    (let ((header (read-cached-block 0)))
-      (setf (sys.int::memref-unsigned-byte-64 header 13) first-block))
-    t))
+    (with-symbol-spinlock (*store-freelist-lock*)
+      ;; Resulting freelist needs to fit in one block.
+      ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
+      (do ((range *store-freelist-head* (freelist-metadata-next range))
+           (total-allocated-ranges 0))
+          ((null range)
+           (when (>= total-allocated-ranges 250)
+             (return-from regenerate-store-freelist-1 nil)))
+        (when (not (freelist-metadata-free-p range))
+          (incf total-allocated-ranges)))
+      (setf first-block (store-alloc-1 1))
+      (when (not first-block)
+        (return-from regenerate-store-freelist-1 nil))
+      (zero-cached-block first-block)
+      (setf *store-freelist-block* first-block
+            *store-freelist-block-offset* 0)
+      (do ((range *store-freelist-head* (freelist-metadata-next range)))
+          ((null range))
+        (when (not (freelist-metadata-free-p range))
+          (store-freelist-log (freelist-metadata-start range)
+                              (- (freelist-metadata-end range) (freelist-metadata-start range))
+                              nil))))
+    first-block))
+
+(defun regenerate-store-freelist ()
+  (let ((first-block (safe-without-interrupts ()
+                       (regenerate-store-freelist-1))))
+    (when first-block
+      (do ((range *store-freelist-head*
+                  (freelist-metadata-next range)))
+          ((null range))
+        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
+      ;; Update header.
+      (let ((header (read-cached-block 0)))
+        (setf (sys.int::memref-unsigned-byte-64 header 13) first-block))
+      t)))

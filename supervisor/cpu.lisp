@@ -5,6 +5,8 @@
 
 (defvar sys.int::*interrupt-service-routines*)
 
+(defvar sys.int::*bsp-wired-stack-base*)
+(defvar sys.int::*bsp-wired-stack-size*)
 (defvar sys.int::*bsp-info-vector*)
 
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
@@ -25,6 +27,7 @@
     (values value (ldb (byte 32 32) offset))))
 
 (defconstant +cpu-info-self-offset+ 8)
+(defconstant +cpu-info-wired-stack-offset+ 16)
 (defconstant +cpu-info-gdt-offset+ 128)
 (defconstant +cpu-info-tss-offset+ 256)
 (defconstant +cpu-info-tss-size+ 104)
@@ -132,6 +135,8 @@
     (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+)
     ;; Other stuff.
     (setf (sys.int::memref-t (+ addr +cpu-info-self-offset+) 0) addr)
+    (setf (sys.int::memref-signed-byte-64 (+ addr +cpu-info-wired-stack-offset+) 0)
+          (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*))
     ;; Shove the cpu info page into FS.
     (setf (sys.int::msr sys.int::+msr-ia32-fs-base+) addr)
     ;; Load various bits.

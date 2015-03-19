@@ -153,7 +153,7 @@ If the allocation could not be satisfied then NIL will be returned
 when MANDATORY-P is false, otherwise PANIC will be called.
 If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
-  (without-interrupts
+  (safe-without-interrupts (n-pages mandatory-p 32-bit-only)
     (with-symbol-spinlock (*physical-lock*)
       (let ((frame (or (when (not 32-bit-only)
                          ;; Try 64-bit allocator first, save 32-bit pages for things that really need it.
@@ -224,7 +224,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
     (debug-print-line "Freeing " n-pages " pages " page-number))
   (when (not (zerop (ldb (byte 1 +page-frame-flag-free+) (physical-page-frame-flags page-number))))
     (panic "Freed free page " page-number))
-  (without-interrupts
+  (safe-without-interrupts (page-number n-pages)
     (with-symbol-spinlock (*physical-lock*)
       (cond ((< page-number (truncate #x100000000 +4k-page-size+))
              (release-physical-pages-1 page-number
@@ -239,9 +239,9 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (values))
 
 (defun physical-memory-statistics ()
-  (let ((n-free-pages 0)
-        (total-pages 0))
-    (without-interrupts
+  (safe-without-interrupts ()
+    (let ((n-free-pages 0)
+          (total-pages 0))
       (with-symbol-spinlock (*physical-lock*)
         (dotimes (i (n-memory-map-entries))
           (incf total-pages (truncate (- (memory-map-entry-end i)
@@ -256,5 +256,5 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
           (incf n-free-pages (* (physical-buddy-bin-count
                                  +boot-information-64-bit-physical-buddy-bins-offset+
                                  bin)
-                                (ash 1 bin))))))
-    (values n-free-pages total-pages)))
+                                (ash 1 bin)))))
+      (values n-free-pages total-pages))))

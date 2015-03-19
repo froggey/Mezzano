@@ -33,7 +33,7 @@
 (defstruct (disk-request
              (:constructor make-disk-request ())
              (:area :wired))
-  (state :error :type (member :waiting :in-progress :complete :error))
+  (state :error :type (member :setup :waiting :in-progress :complete :error))
   (error-reason :uninitialized)
   disk
   direction
@@ -213,31 +213,46 @@ Returns true on success; false on failure."
   ;; Wonder if these should fail async...
   (check-type direction (member :read :write))
   (assert (<= 0 lba (+ lba n-sectors) (1- (disk-n-sectors disk))))
-  (without-interrupts
+  ;; This terrible nonsense is because SAFE-WITHOUT-INTERRUPTS
+  ;; can't pass more than 3 arguments to the lambda.
+  ;; Check if the request has already been submitted.
+  (when (safe-without-interrupts (request)
+          (with-place-spinlock ((disk-request-lock request))
+            (let ((state (disk-request-state request)))
+              (case state
+                ((:in-progress :waiting :setup)
+                 t)
+                (nil
+                 ;; Transition to setup phase. This effectively locks the request,
+                 ;; preventing anything else from modifying it.
+                 (setf (disk-request-state request) :setup)
+                 nil)))))
+    ;; Request is already active.
+    (return-from disk-submit-request-1 nil))
+  ;; Setup.
+  ;; Safe to do with interrupts enabled because the request is in :SETUP.
+  (setf (disk-request-disk request) disk
+        (disk-request-direction request) direction
+        (disk-request-lba request) lba
+        (disk-request-n-sectors request) n-sectors
+        (disk-request-buffer request) buffer)
+  ;; Now submit.
+  (safe-without-interrupts (request disk)
     (with-symbol-spinlock (*disk-request-queue-lock*)
       (with-place-spinlock ((disk-request-lock request))
-        (let ((state (disk-request-state request)))
-          (when (or (eql state :in-progress) (eql state :waiting))
-            ;; Bad! Request has already been submitted, no resubmitting.
-            (return-from disk-submit-request-1 nil)))
-        (setf (disk-request-state request) :waiting
-              (disk-request-disk request) disk
-              (disk-request-direction request) direction
-              (disk-request-lba request) lba
-              (disk-request-n-sectors request) n-sectors
-              (disk-request-buffer request) buffer)
+        (setf (disk-request-state request) :waiting)
         (latch-reset (disk-request-latch request))
-        (when (not (disk-valid disk))
-          (latch-trigger (disk-request-latch request))
-          (setf (disk-request-state request) :error
-                (disk-request-error-reason request) :system-reinitialized)
-          (return-from disk-submit-request-1 t))
-        ;; Attach to request list.
-        (setf (disk-request-next request) *disk-request-queue-head*
-              *disk-request-queue-head* request)
-        ;; Wake the disk thread.
-        (latch-trigger *disk-request-queue-latch*))))
-  ;; All good.
+        (cond ((disk-valid disk)
+               ;; Attach to request list.
+               (setf (disk-request-next request) *disk-request-queue-head*
+                     *disk-request-queue-head* request)
+               ;; Wake the disk thread.
+               (latch-trigger *disk-request-queue-latch*))
+              (t
+               (latch-trigger (disk-request-latch request))
+               (setf (disk-request-state request) :error
+                     (disk-request-error-reason request) :system-reinitialized))))))
+  ;; All done.
   t)
 
 (defun disk-submit-request (request disk direction lba n-sectors buffer)

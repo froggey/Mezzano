@@ -132,7 +132,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 (defmacro deflight (name colour position)
   (let ((setter (intern (format nil "SET-~A-LIGHT" name))))
     `(defun ,setter (state)
-       (without-interrupts
+       (safe-without-interrupts (state)
          (when *current-framebuffer*
            (let ((fb-addr (+ +physical-map-base+
                              (framebuffer-base-address *current-framebuffer*)

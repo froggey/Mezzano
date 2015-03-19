@@ -182,7 +182,7 @@
 
 (defun debug-serial-write-byte (byte)
   (setf (sys.int::io-port/8 +bochs-log-port+) byte)
-  (without-interrupts
+  (safe-without-interrupts (byte)
     (loop
        (with-symbol-spinlock (*debug-serial-lock*)
          ;; Try to write directly to the serial port if the TX buffer is empty.

@@ -5,22 +5,27 @@
 
 (in-package :mezzano.supervisor)
 
-(sys.int::define-lap-function %stack-probe ()
+(sys.int::define-lap-function ensure-on-wired-stack ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
   (:gc :frame)
-  (sys.lap-x86:xor32 :eax :eax)
-  LOOP
-  (sys.lap-x86:sub64 :r8 #x1000)
-  (sys.lap-x86:jb DONE)
-  (sys.lap-x86:sub64 :rsp #x1000)
-  (sys.lap-x86:mov64 (:rsp) :rax)
-  (sys.lap-x86:jmp LOOP)
-  DONE
+  (sys.lap-x86:mov64 :rax :rsp)
+  (sys.lap-x86:mov64 :rcx #x200000000000)
+  (sys.lap-x86:sub64 :rax :rcx)
+  (sys.lap-x86:mov64 :rcx #x8000000000)
+  (sys.lap-x86:cmp64 :rax :rcx)
+  (sys.lap-x86:jae BAD)
+  (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:leave)
   (:gc :no-frame)
-  (sys.lap-x86:ret))
+  (sys.lap-x86:ret)
+  BAD
+  (sys.lap-x86:mov64 :r8 (:constant "Not on wired stack."))
+  (sys.lap-x86:mov64 :r13 (:function panic))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2))
 
 (declaim (inline ensure-interrupts-enabled ensure-interrupts-disabled))
 (defun ensure-interrupts-enabled ()
@@ -35,12 +40,74 @@
   "Execute body with local IRQs inhibited."
   (let ((irq-state (gensym)))
     `(let ((,irq-state (sys.int::%save-irq-state)))
-       (when (logtest #x200 ,irq-state)
-         (%stack-probe ,(* 16 1024)))
+       (ensure-on-wired-stack)
        (sys.int::%cli)
        (unwind-protect
             (progn ,@body)
          (sys.int::%restore-irq-state ,irq-state)))))
+
+(defmacro safe-without-interrupts ((&rest captures) &body body)
+  "Execute body with local IRQs inhibited.
+This can be used when executing on any stack.
+RETURN-FROM/GO must not be used to leave this form."
+  (let ((sp (gensym))
+        (fp (gensym)))
+    (assert (<= (length captures) 3))
+    `(%call-on-wired-stack-without-interrupts
+      (lambda (,sp ,fp ,@captures)
+        (declare (ignore ,sp ,fp))
+        ,@body)
+      nil ,@captures)))
+
+;; (function unused &optional arg1 arg2 arg3)
+;; Call FUNCTION on the wired stack with interrupts disabled.
+;; FUNCTION must be a function, not a function designator.
+;; UNUSED should be NIL.
+;; FUNCTION will be called with the old stack pointer & frame pointer and
+;; any additional arguments.
+;; If %C-O-W-S-W-I is called with interrupts enabled, then it will switch over
+;; to the CPU's wired stack for the duration of the call.
+;; %C-O-W-S-W-I must not be exited using a non-local exit.
+;; %RESCHEDULE and similar functions must not be called.
+(sys.int::define-lap-function %call-on-wired-stack-without-interrupts ()
+  ;; Argument setup.
+  (sys.lap-x86:mov64 :rbx :r8) ; function
+  (sys.lap-x86:mov64 :r8 :rsp) ; sp
+  (sys.lap-x86:mov64 :r9 :rbp) ; fp
+  ;; Test if interrupts are enabled.
+  (sys.lap-x86:pushf)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:test64 (:rsp) #x200)
+  (sys.lap-x86:jnz INTERRUPTS-ENABLED)
+  ;; Interrupts are already disabled, tail-call to the function.
+  (sys.lap-x86:add64 :rsp 8) ; drop pushed flags.
+  (sys.lap-x86:jmp (:object :rbx 0))
+  INTERRUPTS-ENABLED
+  ;; Save the old stack pointer.
+  (sys.lap-x86:mov64 (:rsp) :rbp) ; overwrite the saved interrupt state.
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  ;; Disable interrupts after setting up the frame, not before.
+  ;; Modifying the normal stack may cause page-faults which can't
+  ;; occur with interrupts disabled.
+  (sys.lap-x86:cli)
+  ;; Switch over to the wired stack.
+  (sys.lap-x86:fs)
+  (sys.lap-x86:mov64 :rsp (#.+cpu-info-wired-stack-offset+))
+  ;; Call function, argument were setup above.
+  (sys.lap-x86:call (:object :rbx 0))
+  (:gc :frame :multiple-values 0)
+  ;; Switch back to the old stack.
+  ;; Do not restore :RBP here, that would touch the old stack with
+  ;; interrupts disabled.
+  (sys.lap-x86:mov64 :rsp :rbp)
+  (:gc :no-frame :multiple-values 0)
+  ;; Reenable interrupts, must not be done when on the wired stack.
+  (sys.lap-x86:sti)
+  ;; Now safe to restore :RBP.
+  (sys.lap-x86:pop :rbp)
+  ;; Done, return.
+  (sys.lap-x86:ret))
 
 (defun place-spinlock-initializer ()
   :unlocked)

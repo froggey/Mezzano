@@ -1194,7 +1194,8 @@
                                      (collect (symbol-name sym)))
                                :test #'string=))
          (pf-exception-stack (create-stack (* 128 1024)))
-         (irq-stack (create-stack (* 128 1024))))
+         (irq-stack (create-stack (* 128 1024)))
+         (wired-stack (create-stack (* 128 1024))))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (create-low-level-interrupt-support)
@@ -1202,6 +1203,8 @@
           (cold-symbol-value 'sys.int::*exception-stack-size*) (make-fixnum (stack-size pf-exception-stack)))
     (setf (cold-symbol-value 'sys.int::*irq-stack-base*) (make-fixnum (stack-base irq-stack))
           (cold-symbol-value 'sys.int::*irq-stack-size*) (make-fixnum (stack-size irq-stack)))
+    (setf (cold-symbol-value 'sys.int::*bsp-wired-stack-base*) (make-fixnum (stack-base wired-stack))
+          (cold-symbol-value 'sys.int::*bsp-wired-stack-size*) (make-fixnum (stack-size wired-stack)))
     (setf initial-thread (create-initial-thread))
     ;; Load all cold source files, emitting the top-level forms into an array
     ;; FIXME: Top-level forms generally show up as functions in .LLF files,

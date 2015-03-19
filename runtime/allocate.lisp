@@ -182,7 +182,7 @@
             (%allocate-from-pinned-area tag data words 'sys.int::*pinned-area-freelist*)
             sys.int::+tag-object+))))
       (:wired
-       (mezzano.supervisor:without-interrupts
+       (mezzano.supervisor::safe-without-interrupts (tag data words)
          (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
            (when *paranoid-allocation*
              (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
@@ -207,7 +207,7 @@
                  (cdr val) cdr)
            val))))
     (:wired
-     (mezzano.supervisor:without-interrupts
+     (mezzano.supervisor::safe-without-interrupts (car cdr)
        (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
          (when *paranoid-allocation*
            (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))

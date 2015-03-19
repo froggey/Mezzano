@@ -83,7 +83,7 @@
   ;; http://wiki.osdev.org/CMOS
   ;; This repeatedly reads the RTC until the values match.
   ;; Prevents reading a strange value when the RTC ticks.
-  (without-interrupts
+  (safe-without-interrupts ()
     (with-symbol-spinlock (*rtc-lock*)
       ;; Don't care about failure here.
       (wait-for-rtc)
