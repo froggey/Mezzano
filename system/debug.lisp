@@ -269,12 +269,15 @@
      (write-char #\Newline)
      (write-integer fp 16)
      (write-char #\Space)
-     (let* ((fn (return-address-to-function (memref-unsigned-byte-64 fp 1)))
-            (name (when (functionp fn) (function-name fn))))
-       (write-integer (lisp-object-address fn) 16)
-       (when name
-         (write-char #\Space)
-         (write name))))))
+     (let ((return-address (memref-unsigned-byte-64 fp 1)))
+       (when (zerop return-address)
+         (return-from backtrace))
+       (let* ((fn (return-address-to-function return-address))
+              (name (when (functionp fn) (function-name fn))))
+         (write-integer (lisp-object-address fn) 16)
+         (when name
+           (write-char #\Space)
+           (write name)))))))
 
 (defvar *traced-functions* '())
 (defvar *trace-depth* 0)
