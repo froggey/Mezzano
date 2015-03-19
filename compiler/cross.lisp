@@ -183,9 +183,11 @@
            #:thread-state-rbx
            #:thread-state-rbx-value
            #:thread-state-rdx
+           #:thread-state-rdx-value
            #:thread-state-rcx
            #:thread-state-rcx-value
            #:thread-state-rax
+           #:thread-state-rax-value
            #:thread-state-rbp
            #:thread-frame-pointer
            #:thread-state-rip

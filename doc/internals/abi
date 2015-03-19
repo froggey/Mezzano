@@ -6,7 +6,7 @@ RAX, RCX, RDX, RSI, and RDI are all caller-save and only store immediate or
 raw values. These registers were chosen because they're all used as implicit
 operands in a number of x86 instructions. They are never scanned by the GC.
 Exception: CMPXCHG and CMPXCHG16B use these registers to hold values, so must
-be executed with the GC deferred or only on pinned/wired values.
+be executed with :EXTRA-REGISTERS metadata to indicate liveness.
 
 RSP is the stack pointer.
 RBP is the frame pointer, it is callee-save.
@@ -317,3 +317,13 @@ When present, the stack & frame pointer are taken from the NLX information
 object in :RAX, and :RSP/:RBP are ignored.
 
 Defaults to NIL.
+
+
+** :EXTRA-REGISTERS
+
+Specifies that additional registers contain values.
+This may be either NIL (no extra registers), :RAX (only :RAX),
+:RAX-RCX (:RAX and :RCX), or :RAX-RCX-RDX (:RAX, :RCX and :RDX).
+
+Defaults to NIL.
+This is only valid when the function is not in a call.

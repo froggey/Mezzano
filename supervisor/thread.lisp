@@ -148,9 +148,11 @@
   (field state-rbx               437 :accessor sys.int::%array-like-ref-signed-byte-64)
   (field state-rbx-value         437 :accessor sys.int::%array-like-ref-t)
   (field state-rdx               438 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rdx-value         438 :accessor sys.int::%array-like-ref-t)
   (field state-rcx               439 :accessor sys.int::%array-like-ref-signed-byte-64)
-  (field state-rcx-value         439 :accessor sys.int::%array-like-ref-t) ; sometimes holds a fixnum
+  (field state-rcx-value         439 :accessor sys.int::%array-like-ref-t)
   (field state-rax               440 :accessor sys.int::%array-like-ref-signed-byte-64)
+  (field state-rax-value         440 :accessor sys.int::%array-like-ref-t)
   (field state-rbp               441 :accessor sys.int::%array-like-ref-signed-byte-64)
   (field frame-pointer           441 :accessor sys.int::%array-like-ref-signed-byte-64)
   (field state-rip               442 :accessor sys.int::%array-like-ref-signed-byte-64)

@@ -237,7 +237,8 @@ This is required to make the GC interrupt safe."
 
 (defun debug-stack-frame (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
-                          multiple-values incoming-arguments block-or-tagbody-thunk)
+                          multiple-values incoming-arguments
+                          block-or-tagbody-thunk extra-registers)
   (when *gc-debug-scavenge-stack*
     (if framep
         (mezzano.supervisor:debug-print-line "frame")
@@ -257,7 +258,10 @@ This is required to make the GC interrupt safe."
           (t (mezzano.supervisor:debug-print-line "no-incoming-arguments")))
     (if block-or-tagbody-thunk
         (mezzano.supervisor:debug-print-line "btt: " block-or-tagbody-thunk)
-        (mezzano.supervisor:debug-print-line "no-btt"))))
+        (mezzano.supervisor:debug-print-line "no-btt"))
+    (if extra-registers
+        (mezzano.supervisor:debug-print-line "xr: " extra-registers)
+        (mezzano.supervisor:debug-print-line "no-xr"))))
 
 (defun scavenge-stack (stack-pointer frame-pointer return-address)
   (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Scav stack..."))
@@ -278,7 +282,8 @@ This is required to make the GC interrupt safe."
        (scavenge-object fn)
        (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                     layout-address layout-length
-                                    multiple-values incoming-arguments block-or-tagbody-thunk)
+                                    multiple-values incoming-arguments
+                                    block-or-tagbody-thunk extra-registers)
            (gc-info-for-function-offset fn fn-offset)
          (when *gc-debug-metadata*
            (flet ((bad-metadata (message)
@@ -290,7 +295,8 @@ This is required to make the GC interrupt safe."
                       (mezzano.supervisor:debug-print-line "FNo: " fn-offset)
                       (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                          layout-address layout-length
-                                         multiple-values incoming-arguments block-or-tagbody-thunk))
+                                         multiple-values incoming-arguments
+                                         block-or-tagbody-thunk extra-registers))
                     (mezzano.supervisor:panic "Bad GC metadata: " message)))
              (declare (dynamic-extent #'bad-metadata))
              ;; Validate metadata.
@@ -311,7 +317,9 @@ This is required to make the GC interrupt safe."
              (when block-or-tagbody-thunk
                (bad-metadata ":BLOCK-OR-TAGBODY-THUNK seen outside full-save'd function."))
              (when (eql incoming-arguments :rcx)
-               (bad-metadata ":INCOMING-ARGUMENTS :RCX seen outside full-save'd function."))))
+               (bad-metadata ":INCOMING-ARGUMENTS :RCX seen outside full-save'd function."))
+             (when extra-registers
+               (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))))
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
@@ -351,7 +359,8 @@ This is required to make the GC interrupt safe."
     (scavengef (mezzano.supervisor:thread-state-rbx-value thread))
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
-                          multiple-values incoming-arguments block-or-tagbody-thunk)
+                          multiple-values incoming-arguments
+                          block-or-tagbody-thunk extra-registers)
         (gc-info-for-function-offset fn fn-offset)
       (when *gc-debug-metadata*
         (flet ((bad-metadata (message)
@@ -363,7 +372,8 @@ This is required to make the GC interrupt safe."
                    (mezzano.supervisor:debug-print-line "FNo: " fn-offset)
                    (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                       layout-address layout-length
-                                      multiple-values incoming-arguments block-or-tagbody-thunk))
+                                      multiple-values incoming-arguments
+                                      block-or-tagbody-thunk extra-registers))
                  (mezzano.supervisor:panic "Bad GC metadata: " message)))
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
@@ -374,11 +384,18 @@ This is required to make the GC interrupt safe."
             (bad-metadata "Non-zero :PUSHED-VALUES is incompatible with :NO-FRAME. Use :LAYOUT."))
           (when (and (not framep)
                      pushed-values-register)
-            (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))
-          (when (and pushed-values-register
-                     (not (eql pushed-values-register :rcx)))
-            ;; ### This should be removed from the GC metadata entirely.
-            (bad-metadata ":PUSHED-VALUES-REGISTER with non-:RCX register not supported."))))
+            (bad-metadata ":PUSHED-VALUES-REGISTER is incompatible with :NO-FRAME."))))
+      (ecase extra-registers
+        ((nil))
+        ((:rax)
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread)))
+        ((:rax-rcx)
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread))
+         (scavengef (mezzano.supervisor:thread-state-rcx-value thread)))
+        ((:rax-rcx-rdx)
+         (scavengef (mezzano.supervisor:thread-state-rax-value thread))
+         (scavengef (mezzano.supervisor:thread-state-rcx-value thread))
+         (scavengef (mezzano.supervisor:thread-state-rdx-value thread))))
       (when block-or-tagbody-thunk
         ;; Active NLX thunk, true stack/frame pointers stored in the NLX info
         ;; pointed to by RAX.
@@ -476,7 +493,8 @@ This is required to make the GC interrupt safe."
           ;; Default to RCX here for closures & other stuff. Generally the right thing.
           ;; Stuff can override if needed.
           (incoming-arguments :rcx)
-          (block-or-tagbody-thunk nil))
+          (block-or-tagbody-thunk nil)
+          (extra-registers nil))
       (flet ((consume ()
                ;; Read one byte from the GC metadata.
                (when (>= position length)
@@ -513,6 +531,11 @@ This is required to make the GC interrupt safe."
                (setf pushed-values-register (if (logtest flags-and-pvr #b10000)
                                                 :rcx
                                                 nil))
+               (setf extra-registers (case (ldb (byte 2 6) flags-and-pvr)
+                                       (0 nil)
+                                       (1 :rax)
+                                       (2 :rax-rcx)
+                                       (3 :rax-rcx-rdx)))
                (if (eql (ldb (byte 4 0) mv-and-iabtt) 15)
                    (setf multiple-values nil)
                    (setf multiple-values (ldb (byte 4 0) mv-and-iabtt)))
@@ -552,10 +575,12 @@ This is required to make the GC interrupt safe."
                (incf position (ceiling layout-length 8))))))
       (debug-stack-frame framep interruptp pushed-values pushed-values-register
                          layout-address layout-length
-                         multiple-values incoming-arguments block-or-tagbody-thunk)
+                         multiple-values incoming-arguments
+                         block-or-tagbody-thunk extra-registers)
       (values framep interruptp pushed-values pushed-values-register
               layout-address layout-length multiple-values
-              incoming-arguments block-or-tagbody-thunk))))
+              incoming-arguments block-or-tagbody-thunk
+              extra-registers))))
 
 (defun scan-array-like (object)
   ;; Careful here. Functions with lots of GC info can have the header fall

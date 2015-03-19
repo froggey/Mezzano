@@ -694,30 +694,35 @@
    ;; Convert size and slot number to integers.
    `(sys.lap-x86:mov64 :rcx :r10)
    `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-   ;; Begin GC danger.
-   `(sys.lap-x86:mov64 :rax :r8)
+   `(sys.lap-x86:mov64 :rax :r8))
+  (emit-gc-info :extra-registers :rax)
+  (emit
    `(sys.lap-x86:lock)
    `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
   (cond ((member *for-value* '(:multiple :tail))
          ;; Return success and the old value.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
-         ;; End GC danger.
+         (emit-gc-info)
          (emit `(sys.lap-x86:mov64 :r8 nil)
                `(sys.lap-x86:cmov64z :r8 (:constant t)))
          (load-constant :rcx 2)
          :multiple)
         (t ;; Just return the success state.
+         (emit-gc-info)
          (predicate-result :z))))
 
 (defbuiltin sys.int::%dcas-array-like (object offset old-1 old-2 new-1 new-2) ()
   (load-in-reg :r10 offset t)
   (fixnum-check :r10)
   (load-in-reg :r8 object t)
-  ;; All the GC danger.
-  (load-in-reg :rcx new-2 t)
-  (load-in-reg :rbx new-1 t)
-  (load-in-reg :rdx old-2 t)
-  (load-in-reg :rax old-1 t)
+  ;; Carefully load registers to avoid exposing the GC to a raw value.
+  (load-in-reg :rbx new-1 t) ; rbx loaded (rbx is a value register).
+  (load-in-reg :rax old-1 t) ; rbx, rax loaded.
+  (emit-gc-info :extra-registers :rax)
+  (load-in-reg :rcx new-2 t) ; rbx, rax, rcx loaded.
+  (emit-gc-info :extra-registers :rax-rcx)
+  (load-in-reg :rdx old-2 t) ; all registers loaded.
+  (emit-gc-info :extra-registers :rax-rcx-rdx)
   (smash-r8)
   (emit
    ;; Convert size and slot number to integers.
@@ -729,11 +734,13 @@
          ;; Return status and the old values.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
          (emit `(sys.lap-x86:mov64 :r10 :rdx))
+         (emit-gc-info)
          (emit `(sys.lap-x86:mov64 :r8 nil)
                `(sys.lap-x86:cmov64z :r8 (:constant t)))
          (load-constant :rcx 3)
          :multiple)
         (t ;; Just return the status.
+         (emit-gc-info)
          (predicate-result :z))))
 
 (defbuiltin sys.int::%simple-1d-array-p (object) ()
@@ -1335,20 +1342,21 @@
   (load-in-reg :r8 old t)
   (smash-r8)
   (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
-  ;; CAS. Aiee, cmpxchg uses RAX for the old value.
-  ;; GC issues.
-  (emit `(sys.lap-x86:mov64 :rax :r8)
-        `(sys.lap-x86:lock)
+  ;; CAS.
+  (emit `(sys.lap-x86:mov64 :rax :r8))
+  (emit-gc-info :extra-registers :rax)
+  (emit `(sys.lap-x86:lock)
         `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot +symbol-value+) :r11))
   (cond ((member *for-value* '(:multiple :tail))
          ;; Return success and the old value.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
-         ;; End GC danger.
+         (emit-gc-info)
          (emit `(sys.lap-x86:mov64 :r8 nil)
                `(sys.lap-x86:cmov64z :r8 (:constant t)))
          (load-constant :rcx 2)
          :multiple)
         (t ;; Just return the success state.
+         (emit-gc-info)
          (predicate-result :z))))
 
 (define-array-like-accessor sys.int::symbol-fref symbol sys.int::+object-tag-symbol+ +symbol-function+)
@@ -1818,19 +1826,21 @@
           ;; Check bounds.
           `(sys.lap-x86:cmp64 :rcx :rax)
           `(sys.lap-x86:jae ,bounds-error-label)
-          ;; Begin GC danger.
+          ;; Load value.
           `(sys.lap-x86:mov64 :rax :r8)
+          (emit-gc-info :extra-registers :rax)
           `(sys.lap-x86:lock)
           `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
     (cond ((member *for-value* '(:multiple :tail))
            ;; Return success and the old value.
            (emit `(sys.lap-x86:mov64 :r9 :rax))
-           ;; End GC danger.
+           (emit-gc-info)
            (emit `(sys.lap-x86:mov64 :r8 nil)
                  `(sys.lap-x86:cmov64z :r8 (:constant t)))
            (load-constant :rcx 2)
            :multiple)
           (t ;; Just return the success state.
+           (emit-gc-info)
            (predicate-result :z)))))
 
 (defbuiltin char-code (char) ()

@@ -463,15 +463,13 @@ VALUE may be nil to make the fref unbound."
     ;; Atomically update both values.
     ;; Functions is followed by entry point.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
-    ;; Defer the GC over the CAS, it does bad things to registers.
-    (mezzano.supervisor:with-pseudo-atomic
-      (let ((old-1 (%array-like-ref-t fref +fref-function+))
-            (old-2 (%array-like-ref-t fref +fref-entry-point+)))
-        ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
-        ;; this write succeeded, but was immediately overwritten.
-        (%dcas-array-like fref +fref-function+
-                          old-1 old-2
-                          new-fn new-entry-point))))
+    (let ((old-1 (%array-like-ref-t fref +fref-function+))
+          (old-2 (%array-like-ref-t fref +fref-entry-point+)))
+      ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
+      ;; this write succeeded, but was immediately overwritten.
+      (%dcas-array-like fref +fref-function+
+                        old-1 old-2
+                        new-fn new-entry-point)))
   value)
 
 (defun fdefinition (name)
@@ -643,6 +641,11 @@ VALUE may be nil to make the fref unbound."
                           (ldb (byte 4 0) mv-and-ia)))
                   (when (logtest flags-and-pvr #x10000)
                     (setf (getf entry :pushed-values-register) :rcx))
+                  (case (ldb (byte 2 6) flags-and-pvr)
+                    (0)
+                    (1 (setf (getf entry :extra-registers) :rax))
+                    (2 (setf (getf entry :extra-registers) :rax-rcx))
+                    (3 (setf (getf entry :extra-registers) :rax-rcx-rdx)))
                   (unless (zerop pv)
                     (setf (getf entry :pushed-values) pv))
                   (when (logtest flags-and-pvr #b0010)
