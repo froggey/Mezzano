@@ -233,23 +233,27 @@ a vector of constants and an alist of symbols & addresses."
     (let ((bytes (make-array 10 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
       (append-vu32 address bytes)
       (vector-push-extend (logior (ecase frame-mode
-                                    (:frame #b0001)
+                                    (:frame
+                                     #b00000001)
                                     (:no-frame 0))
-                                  (if interrupt #b0010 0)
+                                  (cond
+                                    (interrupt
+                                     #b00000010)
+                                    (t 0))
                                   (cond
                                     (block-or-tagbody-thunk
                                      (assert (eql block-or-tagbody-thunk :rax))
-                                     #b0100)
+                                     #b00000100)
                                     (t 0))
                                   (cond
                                     (incoming-arguments
-                                     #b1000)
+                                     #b00001000)
                                     (t 0))
-                                  (ash (if pushed-values-register
-                                           ;; ehhhh
-                                           (funcall (intern "REG-NUMBER" :sys.lap-x86) pushed-values-register)
-                                           4)
-                                       4))
+                                  (cond
+                                    (pushed-values-register
+                                     (assert (eql pushed-values-register :rcx))
+                                     #b00010000)
+                                    (t 0)))
                           bytes)
       (vector-push-extend (logior (or multiple-values #b1111)
                                   (ash (cond ((keywordp incoming-arguments)

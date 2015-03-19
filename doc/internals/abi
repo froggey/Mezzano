@@ -302,11 +302,9 @@ This is only valid when :FRAME is active.
 
 ** :PUSHED-VALUES-REGISTER
 
-A register (except :RSP) or NIL. It is ignored when NIL.
+This must be :RCX or NIL. It is ignored when NIL.
 The register it specifies contains a fixnum, the number of additional live
 values on the stack. This is additive with :PUSHED-VALUES.
-
-### Always seems to be :RCX or NIL, could be cut to just that.
 
 Defaults to NIL.
 This is only valid when :FRAME is active and the function is not in a call.
