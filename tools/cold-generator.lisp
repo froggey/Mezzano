@@ -14,6 +14,7 @@
     "supervisor/serial.lisp"
     "supervisor/disk.lisp"
     "supervisor/ata.lisp"
+    "supervisor/ahci.lisp"
     "supervisor/thread.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"

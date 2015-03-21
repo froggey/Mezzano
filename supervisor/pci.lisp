@@ -112,6 +112,15 @@
 (defun pci-bar (location bar)
   (pci-config/32 location (+ +pci-config-bar-start+ (* bar 4))))
 
+(defun pci-io-region (location bar size)
+  (let ((address (pci-bar location bar)))
+    (when (not (logbitp 0 location))
+      (map-physical-memory (logand address (lognot #b1111)) size "PCI MMIO"))
+    address))
+
+(defun pci-intr-line (location)
+  (pci-config/8 location +pci-config-intr-line+))
+
 (defun pci-io-region/8 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
@@ -197,6 +206,16 @@
                         (eql sub-class-code #x01))
                    ;; A PATA controller.
                    (ata-pci-register location))
+                  ((or
+                    ;; SATA controller implementing AHCI 1.0.
+                    (and (eql base-class-code #x01)
+                         (eql sub-class-code #x06)
+                         (eql programming-interface #x01))
+                    ;; The RAID controller in my test machine.
+                    (and (eql vendor-id #x8086)
+                         (eql device-id #x2822)))
+                   ;; An AHCI controller.
+                   (ahci-pci-register location))
                   ((eql (pci-config/8 location +pci-config-hdr-type+) +pci-bridge-htype+)
                    ;; Bridge device, scan the other side.
                    (pci-scan (pci-config/8 location +pci-bridge-secondary-bus+))))))))))

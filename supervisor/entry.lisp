@@ -291,6 +291,7 @@ Returns two values, the packet data and the receiving NIC."
     (irq-fifo-reset *received-packets*)
     (initialize-time)
     (initialize-ata)
+    (initialize-ahci)
     (initialize-virtio)
     (initialize-virtio-net)
     (initialize-ps/2)
