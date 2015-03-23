@@ -12,10 +12,16 @@
   layout)
 
 (defvar *current-framebuffer*)
+(defvar *debug-video-x* 0)
+(defvar *debug-video-y* 0)
+(defvar *debug-video-col* 0)
 
 (defun initialize-early-video ()
   ;; Trash old framebuffer.
-  (setf *current-framebuffer* nil))
+  (setf *current-framebuffer* nil)
+  (setf *debug-video-x* 0
+        *debug-video-y* 0
+        *debug-video-col* 0))
 
 (defun initialize-video ()
   (let ((phys (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-physical-address+) 0))
@@ -122,6 +128,18 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
 
+;; (to-base colour ncols)
+(sys.int::define-lap-function %%bitset-row ()
+  (sys.lap-x86:mov64 :rdi :r8) ; to-storage
+  (sys.lap-x86:mov64 :rax :r9) ; colour
+  (sys.lap-x86:mov64 :rcx :r10) ; ncols
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:rep)
+  (sys.lap-x86:stos32)
+  (sys.lap-x86:ret))
+
 (defun set-panic-light ()
   (when *current-framebuffer*
     (let ((fb-addr (+ +physical-map-base+
@@ -148,3 +166,60 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
 (deflight run #xFF00FFFF 3)
 (deflight snapshot #xFFFFFF00 4)
 (deflight paging #xFFFF8000 5)
+
+(defvar sys.int::*debug-8x8-font*)
+
+(defun debug-video-write-char (char)
+  (cond ((not *current-framebuffer*))
+        ((eql char #\Newline)
+         (incf *debug-video-y* 8)
+         (setf *debug-video-x* 0)
+         (when (>= *debug-video-y* (framebuffer-height *current-framebuffer*))
+           (setf *debug-video-y* 0)
+           (incf *debug-video-col*)
+           (when (>= *debug-video-col* 3)
+             (setf *debug-video-col* 0)))
+         (let* ((fb *current-framebuffer*)
+                (stride (framebuffer-pitch fb))
+                (col-width (truncate (framebuffer-width fb) 3))
+                (addr (+ +physical-map-base+
+                         (framebuffer-base-address fb)
+                         (* *debug-video-col* col-width 4)
+                         (* *debug-video-y* stride))))
+           (dotimes (i 8)
+             (%%bitset-row addr #xFFFFFFFF col-width)
+             (incf addr stride))))
+        (t
+         (let ((code (char-code char)))
+           (when (< code 128)
+             (let* ((blob (svref sys.int::*debug-8x8-font* code))
+                    (fb *current-framebuffer*)
+                    (col-width (truncate (framebuffer-width fb) 3))
+                    (to-base (+ +physical-map-base+
+                                (framebuffer-base-address fb)
+                                (* *debug-video-y* (framebuffer-pitch fb))
+                                (* *debug-video-x* 4)
+                                (* *debug-video-col* col-width 4)))
+                    (to-pitch (framebuffer-pitch fb))
+                    (from-base (+ (sys.int::lisp-object-address blob) (- sys.int::+tag-object+) 8))
+                    (from-pitch (* 8 4)))
+               (dotimes (i 8)
+                 (%%bitblt-row to-base from-base 8)
+                 (incf to-base to-pitch)
+                 (incf from-base from-pitch))
+               (incf *debug-video-x* 8)
+               (when (>= *debug-video-x* col-width)
+                 (debug-video-write-char #\Newline))))))))
+
+(defun debug-video-write-string (string)
+  (dotimes (i (string-length string))
+    (debug-video-write-char (char string i))))
+
+(defun debug-video-stream (op &optional arg)
+  (ecase op
+    (:read-char (loop))
+    (:clear-input)
+    (:write-char (debug-video-write-char arg))
+    (:write-string (debug-video-write-string arg))
+    (:force-output)
+    (:start-line-p (eql *debug-video-x* 0))))

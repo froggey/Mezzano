@@ -932,6 +932,22 @@
     (setf (cold-symbol-value 'sys.int::*unifont-bmp*) (save-object tree :pinned))
     (setf (cold-symbol-value 'sys.int::*unifont-bmp-data*) (save-object data :pinned))))
 
+(defun save-debug-8x8-font (path)
+  (let* ((font-data (with-open-file (s path) (read s)))
+         (font-array (make-array 128 :initial-element nil)))
+    (assert (eql (array-dimension font-data 0) 128))
+    (dotimes (i 128)
+      (let ((array (make-array (* 8 8) :element-type '(unsigned-byte 32))))
+        (setf (aref font-array i) array)
+        (dotimes (y 8)
+          (let ((line (aref font-data i y)))
+            (dotimes (x 8)
+              (setf (aref array (+ (* y 8) x)) (if (logbitp x line)
+                                                   #xFF000000
+                                                   #xFFFFFFFF)))))))
+    (setf (cold-symbol-value 'sys.int::*debug-8x8-font*) (save-object font-array :wired))))
+
+
 ;; Handlers for the defined CPU exceptions, a bool indicating if they take
 ;; an error code or not and the IST to use.
 (defparameter *cpu-exception-info*
@@ -1226,6 +1242,8 @@
     (let ((*load-time-evals* '()))
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*additional-cold-toplevel-forms*))
+    (format t "Saving 8x8 debug font.~%")
+    (save-debug-8x8-font "tools/font8x8")
     (format t "Saving Unifont...~%")
     (save-unifont-data "tools/unifont-5.1.20080820.hex")
     (format t "Saving Unicode data...~%")
