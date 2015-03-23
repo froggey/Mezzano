@@ -41,6 +41,8 @@
 (defconstant +pci-bridge-io-limit+          #x1D)
 (defconstant +pci-bridge-secondary-status+  #x1E)
 
+(defconstant +pci-command-bus-master+ 2)
+
 (defvar *pci-config-lock*)
 
 (defun make-pci-location (bus device function)

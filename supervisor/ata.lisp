@@ -57,8 +57,10 @@
 ;; Commands.
 (defconstant +ata-command-read-sectors+ #x20)
 (defconstant +ata-command-read-dma+ #xC8)
+(defconstant +ata-command-read-dma-ext+ #x25)
 (defconstant +ata-command-write-sectors+ #x30)
 (defconstant +ata-command-write-dma+ #xCA)
+(defconstant +ata-command-write-dma-ext+ #x35)
 (defconstant +ata-command-identify+ #xEC)
 
 (defvar *ata-devices*)
@@ -469,8 +471,7 @@ This is used to implement the INTRQ_Wait state."
   (let* ((prdt-page (allocate-physical-pages 1 "ATA PRDT page" t)))
     ;; Make sure to enable PCI bus mastering for this device.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
-                                                                ;; Bit 2 is Bus Master bit.
-                                                                (ash 1 2)))
+                                                                (ash 1 +pci-command-bus-master+)))
     ;; Ignore controllers not in compatibility mode, they share IRQs.
     ;; It's not a problem for the ATA driver, but the supervisor's IRQ handling
     ;; doesn't deal with shared IRQs at all.

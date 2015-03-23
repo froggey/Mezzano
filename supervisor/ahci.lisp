@@ -3,7 +3,10 @@
 
 (in-package :mezzano.supervisor)
 
+;;; "Serial ATA Advancd Host Controller Interface (AHCI) 1.3"
 ;;; http://www.microbe.cz/docs/serial-ata-ahci-spec-rev1_3.pdf
+;;; "Serial ATA: High Speed Serialized AT Attachment. Revision 1.0a"
+;;; http://www.ece.umd.edu/courses/enee759h.S2003/references/serialata10a.pdf
 
 ;;; Register offsets in the HBA Memory Registers.
 
@@ -211,7 +214,7 @@
 (defconstant +ahci-PxSERR-ERR-I+ 0 "Recovered Data Integrity Error.")
 
 ;;; Bits in PxFBS.
-(defconstant +ahci-PxFBS-DWE-position+ 16 "Device Withe Error.")
+(defconstant +ahci-PxFBS-DWE-position+ 16 "Device With Error.")
 (defconstant +ahci-PxFBS-DWE-size+ 4 "DWE field size.")
 (defconstant +ahci-PxFBS-ADO-position+ 12 "Active Device Optimization.")
 (defconstant +ahci-PxFBS-ADO-size+ 4 "ADO field size.")
@@ -268,12 +271,42 @@
 
 (defconstant +ahci-rfis-size+ #x100)
 
+;;; SATA FIS types.
+(defconstant +sata-fis-register-h2d+ #x27)
+(defconstant +sata-fis-register-d2h+ #x34)
+(defconstant +sata-fis-set-device-bits-d2h+ #xA1)
+(defconstant +sata-fis-dma-activate-d2h+ #x39)
+(defconstant +sata-fis-dma-setup+ #x41)
+(defconstant +sata-fis-bist-activate+ #x58)
+(defconstant +sata-fis-pio-setup-d2h+ #x5F)
+(defconstant +sata-fis-data+ #x46)
+
+;;; ATA register offsets in the register FIS.
+(defconstant +sata-register-fis-size+ 5) ; in dwords.
+(defconstant +sata-register-fis-type+ 0)
+(defconstant +sata-register-command-register-update-field+ 1)
+(defconstant +sata-register-command-register-update-bit+ 7)
+(defconstant +sata-register-command+ 2) ; h2d
+(defconstant +sata-register-status+ 2) ; d2h
+(defconstant +sata-register-features+ 3) ; h2d
+(defconstant +sata-register-error+ 3) ; d2h
+(defconstant +sata-register-lba-low+ 4)
+(defconstant +sata-register-lba-mid+ 5)
+(defconstant +sata-register-lba-high+ 6)
+(defconstant +sata-register-device+ 7)
+(defconstant +sata-register-lba-low-exp+ 8)
+(defconstant +sata-register-lba-mid-exp+ 9)
+(defconstant +sata-register-lba-high-exp+ 10)
+(defconstant +sata-register-features-exp+ 11) ; h2d
+(defconstant +sata-register-count+ 12)
+(defconstant +sata-register-count-exp+ 13)
+(defconstant +sata-register-control+ 15) ; h2d
+
 (defstruct (ahci
              (:area :wired))
   location
   abar
-  irq-handler
-  (irq-latch (make-latch "AHCI IRQ Notifier"))
+  irq-handler-function
   (ports (sys.int::make-simple-vector +ahci-maximum-n-ports+ :wired)))
 
 (defstruct (ahci-port
@@ -282,7 +315,11 @@
   id
   command-list
   received-fis
-  command-table)
+  command-table
+  (irq-latch (make-latch "AHCI Port IRQ Notifier"))
+  lba48-capable
+  sector-size
+  sector-count)
 
 (defun ahci-port (ahci port)
   (svref (ahci-ports ahci) port))
@@ -303,9 +340,238 @@
   (logbitp +ahci-CAP-S46A+
            (ahci-global-register ahci +ahci-register-CAP+)))
 
+(defun ahci-dump-global-registers (ahci)
+  (debug-print-line "Host Capabilities " (ahci-global-register ahci +ahci-register-CAP+))
+  (debug-print-line "Global Host Control " (ahci-global-register ahci +ahci-register-GHC+))
+  (debug-print-line "Interrupt Status " (ahci-global-register ahci +ahci-register-IS+))
+  (debug-print-line "Ports Implemented " (ahci-global-register ahci +ahci-register-PI+))
+  (debug-print-line "Version " (ahci-global-register ahci +ahci-register-VS+))
+  (debug-print-line "Command Completion Coalescing Control " (ahci-global-register ahci +ahci-register-CCC_CTL+))
+  (debug-print-line "Command Completion Coalescing Ports " (ahci-global-register ahci +ahci-register-CCC_PORTS+))
+  (debug-print-line "Enclosure Management Location " (ahci-global-register ahci +ahci-register-EM_LOC+))
+  (debug-print-line "Enclosure Management Control " (ahci-global-register ahci +ahci-register-EM_CTL+))
+  (debug-print-line "Host Capabilities Extended " (ahci-global-register ahci +ahci-register-CAP2+))
+  (debug-print-line "BIOS/OS Handoff Control and Status " (ahci-global-register ahci +ahci-register-BOHC+)))
+
+(defun ahci-dump-port-registers (ahci port)
+  (debug-print-line " Command List Base Address " (ahci-port-register ahci port +ahci-register-PxCLB+))
+  (debug-print-line " Command List Base Address Upper 32-bits " (ahci-port-register ahci port +ahci-register-PxCLBU+))
+  (debug-print-line " FIS Base Address " (ahci-port-register ahci port +ahci-register-PxFB+))
+  (debug-print-line " FIS Base Address Upper 32-bits " (ahci-port-register ahci port +ahci-register-PxFBU+))
+  (debug-print-line " Interrupt Status " (ahci-port-register ahci port +ahci-register-PxIS+))
+  (debug-print-line " Interrupt Enable " (ahci-port-register ahci port +ahci-register-PxIE+))
+  (debug-print-line " Command and Status " (ahci-port-register ahci port +ahci-register-PxCMD+))
+  (debug-print-line " Task File Data " (ahci-port-register ahci port +ahci-register-PxTFD+))
+  (debug-print-line " Signature " (ahci-port-register ahci port +ahci-register-PxSIG+))
+  (debug-print-line " SATA Status (SCR0: SStatus) " (ahci-port-register ahci port +ahci-register-PxSSTS+))
+  (debug-print-line " SATA Control (SCR2: SControl) " (ahci-port-register ahci port +ahci-register-PxSCTL+))
+  (debug-print-line " SATA Error (SCR1: SError) " (ahci-port-register ahci port +ahci-register-PxSERR+))
+  (debug-print-line " SATA Active (SCR3: SActive) " (ahci-port-register ahci port +ahci-register-PxSACT+))
+  (debug-print-line " Command Issue " (ahci-port-register ahci port +ahci-register-PxCI+))
+  (debug-print-line " SATA Notification (SCR4: SNotification) " (ahci-port-register ahci port +ahci-register-PxSNTF+))
+  (debug-print-line " FIS-based Switching Control " (ahci-port-register ahci port +ahci-register-PxFBS+)))
+
+(defun dump-mem (base count)
+  (dotimes (i count)
+    (debug-print-line (+ base (* i 16)) ":"
+                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 0))
+                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 1))
+                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 2))
+                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 3)))))
+
+(defun ahci-port-reset (ahci port)
+  (debug-print-line "Resetting port " port)
+  ;; Stop command processing. Clear ST and wait for CR to clear.
+  (setf (ldb (byte 1 +ahci-PxCMD-ST+)
+             (ahci-port-register ahci port +ahci-register-PxCMD+))
+        0)
+  (loop
+     (when (not (logbitp +ahci-PxCMD-CR+
+                         (ahci-port-register ahci port +ahci-register-PxCMD+)))
+       (return)))
+  ;; Issue COMRESET.
+  (debug-print-line "Issue COMRESET.")
+  (setf (ldb (byte +ahci-PxSCTL-DET-size+ +ahci-PxSCTL-DET-position+)
+             (ahci-port-register ahci port +ahci-register-PxSCTL+))
+        1)
+  (wait-for-heartbeat)
+  (setf (ldb (byte +ahci-PxSCTL-DET-size+ +ahci-PxSCTL-DET-position+)
+             (ahci-port-register ahci port +ahci-register-PxSCTL+))
+        0)
+  ;; Wait for PHY communication to be reestablished.
+  (debug-print-line "Waiting for PHY.")
+  (loop
+     (when (logbitp 0
+                    (ldb (byte +ahci-PxSSTS-DET-size+ +ahci-PxSSTS-DET-position+)
+                         (ahci-port-register ahci port +ahci-register-PxSSTS+)))
+       (return)))
+  ;; Clear errors.
+  (setf (ahci-port-register ahci port +ahci-register-PxSERR+) #xFFFFFFFF)
+  ;; Wait for BSY to clear and the device to come back up.
+  (debug-print-line "Waiting for BSY to clear.")
+  (loop
+     (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+            (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+       (when (not (logtest +ata-bsy+ sts))
+         (return))))
+  ;; Reenable command processing.
+    ;; Stop command processing. Clear ST and wait for CR to clear.
+  (setf (ldb (byte 1 +ahci-PxCMD-ST+)
+             (ahci-port-register ahci port +ahci-register-PxCMD+))
+        1)
+  (debug-print-line "Port reset complete."))
+
+(defun ahci-rw-command (port-info lba count mem-addr command command-ext write)
+  ;; FIXME: Bounce buffer on non-64-bit capable HBAs
+  (setf mem-addr (- mem-addr +physical-map-base+))
+  (let ((ahci (ahci-port-ahci port-info))
+        (port (ahci-port-id port-info)))
+    (ahci-setup-buffer ahci port mem-addr (* count (ahci-port-sector-size port-info)) write)
+    (cond ((ahci-port-lba48-capable port-info)
+           (ahci-setup-lba48 ahci port lba count)
+           (ahci-run-command ahci port command-ext))
+          (t
+           (ahci-setup-lba28 ahci port lba count)
+           (ahci-run-command ahci port command)))
+    (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+           (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+      (cond ((logtest sts +ata-err+)
+             (debug-print-line (if write "Write" "Read") " failed. TFD: " tfd)
+             nil)
+            (t t)))))
+
+(defun ahci-read (port-info lba count mem-addr)
+  (ahci-rw-command port-info
+                   lba
+                   count
+                   mem-addr
+                   +ata-command-read-dma+
+                   +ata-command-read-dma-ext+
+                   nil))
+
+(defun ahci-write (port-info lba count mem-addr)
+  (ahci-rw-command port-info
+                   lba
+                   count
+                   mem-addr
+                   +ata-command-write-dma+
+                   +ata-command-write-dma-ext+
+                   t))
+
+(defun ahci-detect-drive (ahci port)
+  ;; Issue IDENTIFY.
+  ;; Dump the IDENTIFY data just after the command table.
+  (let* ((port-info (ahci-port ahci port))
+         (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
+         (identify-data (+ +physical-map-base+ identify-data-phys)))
+    (ahci-setup-buffer ahci port identify-data-phys 512 nil)
+    (ahci-dump-port-registers ahci port)
+    (ahci-run-command ahci port +ata-command-identify+)
+    ;; ### Not sure if ATAPI devices still abort IDENTIFY. I guess they do.
+    ;; Check in vbox - easy.
+    (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+           (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+      (when (logtest sts +ata-err+)
+        (debug-print-line "IDENTIFY aborted by device. TFD: " tfd)
+        (return-from ahci-detect-drive)))
+    ;; Done!
+    (debug-print-line "Command completed.")
+    (dump-mem identify-data-phys 32)
+    ;; FIXME: These should be little-endian reads.
+    (let* ((supported-command-sets (sys.int::memref-unsigned-byte-16 identify-data 83))
+           (lba48-capable (logbitp 10 supported-command-sets))
+           (sector-size (if (and (logbitp 14 (sys.int::memref-unsigned-byte-16 identify-data 106))
+                                 (not (logbitp 13 (sys.int::memref-unsigned-byte-16 identify-data 106))))
+                            ;; Data in logical sector size field valid.
+                            (logior (sys.int::memref-unsigned-byte-16 identify-data 117)
+                                    (ash (sys.int::memref-unsigned-byte-16 identify-data 118) 16))
+                            ;; Not valid, use 512. (TODO: PACKET devices? when was this field introduced?)
+                            512))
+           (sector-count (if lba48-capable
+                             (logior (sys.int::memref-unsigned-byte-16 identify-data 100)
+                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 101) 16)
+                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 102) 32)
+                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 103) 48))
+                             (logior (sys.int::memref-unsigned-byte-16 identify-data 60)
+                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 61) 16)))))
+      (setf (ahci-port-lba48-capable port-info) lba48-capable
+            (ahci-port-sector-size port-info) sector-size
+            (ahci-port-sector-count port-info) sector-count)
+      (debug-print-line "Features (83): " supported-command-sets)
+      (debug-print-line "Sector size: " sector-size)
+      (debug-print-line "Sector count: " sector-count)
+      ;; FIXME: Can transfer more than 256 sectors at once...
+      (register-disk port-info sector-count sector-size 256 'ahci-read 'ahci-write))))
+
+(defun (setf ahci-fis) (value ahci port offset)
+  "Write an octet into the command FIS for PORT."
+  (let* ((command-table (ahci-port-command-table (ahci-port ahci port)))
+         (ct (+ +physical-map-base+ command-table +ahci-ct-CFIS+)))
+    (setf (sys.int::memref-unsigned-byte-8 ct offset) value)))
+
+(defun ahci-setup-lba28 (ahci port lba count)
+  "Set registers in the FIS for an LBA28 command."
+  ;; FIXME: Limit checking LBA & COUNT and if COUNT = MAX, then handle that.
+  ;; Count.
+  (setf (ahci-fis ahci port +sata-register-count+) (ldb (byte 8 0) count))
+  ;; LBA.
+  (setf (ahci-fis ahci port +sata-register-lba-low+) (ldb (byte 8 0) lba)
+        (ahci-fis ahci port +sata-register-lba-mid+) (ldb (byte 8 8) lba)
+        (ahci-fis ahci port +sata-register-lba-high+) (ldb (byte 8 16) lba))
+  ;; LBA bit and high bits of LBA.
+  (setf (ahci-fis ahci port +sata-register-device+) (logior +ata-lba+
+                                                            (ldb (byte 4 24) lba))))
+
+(defun ahci-setup-lba48 (ahci port lba count)
+  "Set registers in the FIS for an LBA48 command."
+  ;; FIXME: Limit checking LBA & COUNT and if COUNT = MAX, then handle that.
+  ;; Count.
+  (setf (ahci-fis ahci port +sata-register-count+) (ldb (byte 8 0) count)
+        (ahci-fis ahci port +sata-register-count-exp+) (ldb (byte 8 8) count))
+  ;; LBA.
+  (setf (ahci-fis ahci port +sata-register-lba-low+) (ldb (byte 8 0) lba)
+        (ahci-fis ahci port +sata-register-lba-mid+) (ldb (byte 8 8) lba)
+        (ahci-fis ahci port +sata-register-lba-high+) (ldb (byte 8 16) lba)
+        (ahci-fis ahci port +sata-register-lba-low-exp+) (ldb (byte 8 24) lba)
+        (ahci-fis ahci port +sata-register-lba-mid-exp+) (ldb (byte 8 32) lba)
+        (ahci-fis ahci port +sata-register-lba-high-exp+) (ldb (byte 8 40) lba))
+  ;; LBA bit.
+  (setf (ahci-fis ahci port +sata-register-device+) +ata-lba+))
+
+(defun ahci-setup-buffer (ahci port buffer length write)
+  "Configure the DMA buffer for this command."
+  (let* ((command-table (ahci-port-command-table (ahci-port ahci port)))
+         (ct (+ +physical-map-base+ command-table))
+         (command-list (ahci-port-command-list (ahci-port ahci port)))
+         (cl (+ +physical-map-base+ command-list)))
+    ;; Update write bit in the command header.
+    (setf (ldb (byte 1 +ahci-ch-di-W+)
+               (sys.int::memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+))
+          (if write 1 0))
+    ;; Point the PRDT 0 to the buffer.
+    (setf (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBA+) (ldb (byte 32 0) buffer)
+          (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBAU+) (ldb (byte 32 32) buffer))
+    (setf (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-descriptor-information+) (ash (1- length) +ahci-PRDT-di-DBC-position+))))
+
+(defun ahci-run-command (ahci port command)
+  (let* ((port-info (ahci-port ahci port))
+         (irq-latch (ahci-port-irq-latch port-info)))
+    ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
+    ;; if it keeps track of DMA progress or if it's just for reporting.
+    (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ (ahci-port-command-list port-info)) +ahci-ch-PRDBC+) 0)
+    ;; Final FIS configuration.
+    (setf (ahci-fis ahci port +sata-register-fis-type+) +sata-fis-register-h2d+
+          (ahci-fis ahci port +sata-register-command-register-update-field+) (ash 1 +sata-register-command-register-update-bit+)
+          (ahci-fis ahci port +sata-register-command+) command)
+    ;; Reset latch before starting the command.
+    (latch-reset irq-latch)
+    ;; Start command 1.
+    (setf (ahci-port-register ahci port +ahci-register-PxCI+) 1)
+    ;; Wait for it... Wait for it...
+    (latch-wait irq-latch)))
+
 (defun ahci-initialize-port (ahci port)
   ;; Disable Command List processing and FIS RX.
-  ;; TODO: power on & spin-up bits?
   (let ((cmd (ahci-port-register ahci port +ahci-register-PxCMD+)))
     (setf (ldb (byte 1 +ahci-PxCMD-ST+) cmd) 0
           (ldb (byte 1 +ahci-PxCMD-FRE+) cmd) 0)
@@ -344,58 +610,86 @@
           (ldb (byte 32 0) received-fis))
     (setf (ahci-port-register ahci port +ahci-register-PxFBU+)
           (ldb (byte 32 32) received-fis))
-    ;; Enable FIS RX.
-    (let ((cmd (ahci-port-register ahci port +ahci-register-PxCMD+)))
+    ;; Disable power managment transitions.
+    (setf (ldb (byte +ahci-PxSCTL-IPM-size+ +ahci-PxSCTL-IPM-position+)
+               (ahci-port-register ahci port +ahci-register-PxSCTL+))
+          +ahci-PxSCTL-IPM-partial-and-slumber-disabled+)
+    (let ((cmd (ahci-port-register ahci port +ahci-register-PxCMD+))
+          (cap (ahci-global-register ahci +ahci-register-CAP+)))
+      ;; Power on and spin up the device.
+      (when (logbitp +ahci-PxCMD-CPD+ cmd)
+        (setf (ldb (byte 1 +ahci-PxCMD-POD+) cmd) 1))
+      (when (logbitp +ahci-CAP-SSS+ cap)
+        (setf (ldb (byte 1 +ahci-PxCMD-SUD+) cmd) 1))
+      ;; Activate the port.
+      (setf (ldb (byte +ahci-PxCMD-ICC-size+ +ahci-PxCMD-ICC-position+) cmd)
+            +ahci-PxCMD-ICC-active+)
+      ;; Enable FIS RX.
       (setf (ldb (byte 1 +ahci-PxCMD-FRE+) cmd) 1)
+      ;; And command processing.
+      (setf (ldb (byte 1 +ahci-PxCMD-ST+) cmd) 1)
       (setf (ahci-port-register ahci port +ahci-register-PxCMD+) cmd))
     ;; Flush PxSERR.
-    ;; FIXME: Should limit this to implemented bits only. Not sure how to detect that?
-    (setf (ahci-port-register ahci port +ahci-register-PxSERR+) #xFFFFFFFF)
+    (setf (ahci-port-register ahci port +ahci-register-PxSERR+)
+          (ahci-port-register ahci port +ahci-register-PxSERR+))
     ;; Clear any outstanding interrupts on this port.
-    (setf (ahci-port-register ahci port +ahci-register-PxIS+) #xFFFFFFFF)
+    (setf (ahci-port-register ahci port +ahci-register-PxIS+)
+          (ahci-port-register ahci port +ahci-register-PxIS+))
     (setf (ahci-global-register ahci +ahci-register-IS+) (ash 1 port))
-    ;; Clear all the interrupt enable bits. TODO: Enable required interrupts here.
-    (setf (ahci-port-register ahci port +ahci-register-PxIE+) 0)))
+    ;; Clear all the interrupt enable bits.
+    ;; Keep PCS and PRCS disabled, I get a flood of these on my machine.
+    (setf (ahci-port-register ahci port +ahci-register-PxIE+) (logior (ash 1 +ahci-PxIS-DHRS+)
+                                                                      (ash 1 +ahci-PxIS-SDBS+)
+                                                                      (ash 1 +ahci-PxIS-PSS+)
+                                                                      (ash 1 +ahci-PxIS-DSS+)
+                                                                      (ash 1 +ahci-PxIS-DPS+)
+                                                                      (ash 1 +ahci-PxIS-UFS+)
+                                                                      (ash 1 +ahci-PxIS-IPMS+)
+                                                                      (ash 1 +ahci-PxIS-OFS+)
+                                                                      (ash 1 +ahci-PxIS-INFS+)
+                                                                      (ash 1 +ahci-PxIS-IFS+)
+                                                                      (ash 1 +ahci-PxIS-HBDS+)
+                                                                      (ash 1 +ahci-PxIS-HBFS+)
+                                                                      (ash 1 +ahci-PxIS-TFES+)))
+    (let ((cl (+ +physical-map-base+ command-list)))
+      ;; Prep command header 0.
+      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+)
+            ;; Sending a register FIS (length 5) with one PRDT entry.
+            (logior (ash +sata-register-fis-size+ +ahci-ch-di-CFL-position+)
+                    (ash 1 +ahci-ch-di-PRDTL-position+)
+                    (ash 1 +ahci-ch-di-P+)))
+      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-CTBA+) (ldb (byte 32 0) command-table))
+      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-CTBAU+) (ldb (byte 32 32) command-table)))))
 
-(defun ahci-dump-global-registers (ahci)
-  (debug-print-line "Host Capabilities " (ahci-global-register ahci +ahci-register-CAP+))
-  (debug-print-line "Global Host Control " (ahci-global-register ahci +ahci-register-GHC+))
-  (debug-print-line "Interrupt Status " (ahci-global-register ahci +ahci-register-IS+))
-  (debug-print-line "Ports Implemented " (ahci-global-register ahci +ahci-register-PI+))
-  (debug-print-line "Version " (ahci-global-register ahci +ahci-register-VS+))
-  (debug-print-line "Command Completion Coalescing Control " (ahci-global-register ahci +ahci-register-CCC_CTL+))
-  (debug-print-line "Command Completion Coalescing Ports " (ahci-global-register ahci +ahci-register-CCC_PORTS+))
-  (debug-print-line "Enclosure Management Location " (ahci-global-register ahci +ahci-register-EM_LOC+))
-  (debug-print-line "Enclosure Management Control " (ahci-global-register ahci +ahci-register-EM_CTL+))
-  (debug-print-line "Host Capabilities Extended " (ahci-global-register ahci +ahci-register-CAP2+))
-  (debug-print-line "BIOS/OS Handoff Control and Status " (ahci-global-register ahci +ahci-register-BOHC+)))
+(defun ahci-port-irq-handler (ahci port)
+  (let ((state (ahci-port-register ahci port +ahci-register-PxIS+)))
+    (when (not (zerop state))
+      #+(or)(debug-print-line "AHCI IRQ for port " port ": " state)
+      ;; Need to do something with error interrupts here as well.
+      ;; Wake sleepers.
+      (latch-trigger (ahci-port-irq-latch (ahci-port ahci port)))
+      ;; Ack interrupts.
+      (setf (ahci-port-register ahci port +ahci-register-PxIS+) state))))
 
-(defun ahci-dump-port-registers (ahci port)
-  (debug-print-line " Command List Base Address " (ahci-port-register ahci port +ahci-register-PxCLB+))
-  (debug-print-line " Command List Base Address Upper 32-bits " (ahci-port-register ahci port +ahci-register-PxCLBU+))
-  (debug-print-line " FIS Base Address " (ahci-port-register ahci port +ahci-register-PxFB+))
-  (debug-print-line " FIS Base Address Upper 32-bits " (ahci-port-register ahci port +ahci-register-PxFBU+))
-  (debug-print-line " Interrupt Status " (ahci-port-register ahci port +ahci-register-PxIS+))
-  (debug-print-line " Interrupt Enable " (ahci-port-register ahci port +ahci-register-PxIE+))
-  (debug-print-line " Command and Status " (ahci-port-register ahci port +ahci-register-PxCMD+))
-  (debug-print-line " Task File Data " (ahci-port-register ahci port +ahci-register-PxTFD+))
-  (debug-print-line " Signature " (ahci-port-register ahci port +ahci-register-PxSIG+))
-  (debug-print-line " SATA Status (SCR0: SStatus) " (ahci-port-register ahci port +ahci-register-PxSSTS+))
-  (debug-print-line " SATA Control (SCR2: SControl) " (ahci-port-register ahci port +ahci-register-PxSCTL+))
-  (debug-print-line " SATA Error (SCR1: SError) " (ahci-port-register ahci port +ahci-register-PxSERR+))
-  (debug-print-line " SATA Active (SCR3: SActive) " (ahci-port-register ahci port +ahci-register-PxSACT+))
-  (debug-print-line " Command Issue " (ahci-port-register ahci port +ahci-register-PxCI+))
-  (debug-print-line " SATA Notification (SCR4: SNotification) " (ahci-port-register ahci port +ahci-register-PxSNTF+))
-  (debug-print-line " FIS-based Switching Control " (ahci-port-register ahci port +ahci-register-PxFBS+)))
+(defun ahci-irq-handler (ahci)
+  (let ((pending (ahci-global-register ahci +ahci-register-IS+))
+        (ports (ahci-ports ahci)))
+    #+(or)(debug-print-line "AHCI IRQ " pending)
+    (dotimes (i 32)
+      (when (and (svref ports i)
+                 (logbitp i pending))
+        (ahci-port-irq-handler ahci i)))
+    ;; And clear any pending interrupts that were handled.
+    (setf (ahci-global-register ahci +ahci-register-IS+) pending)))
 
 (defun ahci-pci-register (location)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
   (let ((ahci (make-ahci :location location
                          :abar (pci-io-region location 5 #x2000))))
-    (setf (ahci-irq-handler ahci) (lambda (interrupt-frame irq)
-                                    (declare (ignore interrupt-frame irq))
-                                    (ahci-irq-handler ahci)))
+    (setf (ahci-irq-handler-function ahci) (lambda (interrupt-frame irq)
+                                             (declare (ignore interrupt-frame irq))
+                                             (ahci-irq-handler ahci)))
     (debug-print-line "Detected AHCI ABAR at " (ahci-abar ahci))
     (debug-print-line "AHCI IRQ is " (pci-intr-line location))
     (ahci-dump-global-registers ahci)
@@ -409,6 +703,21 @@
         (return-from ahci-pci-register)))
     ;; Clear IE and set AE in GHC.
     (setf (ahci-global-register ahci +ahci-register-GHC+) (ash 1 +ahci-GHC-AE+))
+    ;; Attach interrupt handler.
+    (debug-print-line "Handler: " (ahci-irq-handler ahci))
+    (i8259-hook-irq (pci-intr-line location) (ahci-irq-handler-function ahci))
+    ;; Make sure to enable PCI bus mastering for this device.
+    (debug-print-line "Config register: " (pci-config/16 location +pci-config-command+))
+    (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
+                                                                (ash 1 +pci-command-bus-master+)))
+    ;; Magic hacks for Intel devices?
+    ;; Set port enable bits in Port Control and Status on Intel controllers.
+    (when (eql (pci-config/16 location +pci-config-vendorid+) #x8086)
+      (let* ((n-ports (1+ (ldb (byte +ahci-CAP-NP-size+ +ahci-CAP-NP-position+)
+                               (ahci-global-register ahci +ahci-register-CAP+))))
+             (pcs (pci-config/16 location #x92)))
+        (setf (pci-config/16 location #x92) (logior pcs
+                                                    (ash #xFF (- (- 8 n-ports)))))))
     ;; Initialize each port.
     (dotimes (i 32)
       (setf (svref (ahci-ports ahci) i) nil)
@@ -416,9 +725,28 @@
         (debug-print-line "Port " i)
         (setf (svref (ahci-ports ahci) i) (make-ahci-port :ahci ahci
                                                           :id i))
-        (ahci-dump-port-registers ahci i)
-        (ahci-initialize-port ahci i)
-        (ahci-dump-port-registers ahci i)))
+        (ahci-initialize-port ahci i)))
+    ;; Port interrupts cleared, now clear HBA interrupts.
+    (setf (ahci-global-register ahci +ahci-register-IS+) (ahci-global-register ahci +ahci-register-IS+))
+    ;; Now safe to enable HBA interrupts.
+    (setf (ldb (byte 1 +ahci-GHC-IE+) (ahci-global-register ahci +ahci-register-GHC+)) 1)
+    (i8259-unmask-irq (pci-intr-line location))
+    ;; Initialize devices attached to ports.
+    (dotimes (port 32)
+      (when (ahci-port ahci port)
+        (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+               (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd))
+               (sata-sts (ahci-port-register ahci port +ahci-register-PxSSTS+)))
+          (cond ((and (not (logtest +ata-err+ sts))
+                      (not (logtest +ata-drq+ sts))
+                      (eql (ldb (byte +ahci-PxSSTS-DET-size+ +ahci-PxSSTS-DET-position+)
+                                sata-sts)
+                           +ahci-PxSSTS-DET-ready+))
+                 ;; A device is attached and ready for use.
+                 (debug-print-line "Initializing device on port " port)
+                 (ahci-detect-drive ahci port))
+                (t (debug-print-line "No device present on port. TFD:" tfd " SSTS:" sata-sts))))))
+    (ahci-dump-global-registers ahci)
     ))
 
 (defun initialize-ahci ())
