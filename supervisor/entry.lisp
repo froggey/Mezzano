@@ -258,7 +258,6 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-early-debug-serial serial-port-io-base)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
-          *block-cache* nil
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
           *nics* '()
