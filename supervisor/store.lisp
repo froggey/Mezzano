@@ -246,26 +246,26 @@ Should be called with the freelist lock held."
       (store-alloc-1 n-blocks))))
 
 (defun process-one-freelist-block (block-id)
-  (let* ((blk (read-block-from-disk block-id))
-         (next (sys.int::memref-unsigned-byte-64 blk 511)))
-    (dotimes (i 255)
-      (let* ((start (sys.int::memref-unsigned-byte-64 blk (* i 2)))
-             (size (sys.int::memref-unsigned-byte-64 blk (1+ (* i 2))))
-             (freep (logbitp 0 size)))
-        (setf size (ash size -1))
-        (when (zerop size)
-          (debug-print-line " freelist processing complete final " block-id ":" i)
-          (return-from process-one-freelist-block
-            (values i nil)))
-        (cond (freep
-               (incf *store-freelist-n-free-blocks* size))
-              (t
-               (decf *store-freelist-n-free-blocks* size)))
-        (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated"))
-        (store-insert-range start size freep)))
-    (assert (not (zerop next)) () "Corrupt freelist! No next block.")
-    (debug-print-line " next freelist block " next)
-    (values nil next)))
+  (with-disk-block (blk block-id)
+    (let ((next (sys.int::memref-unsigned-byte-64 blk 511)))
+      (dotimes (i 255)
+        (let* ((start (sys.int::memref-unsigned-byte-64 blk (* i 2)))
+               (size (sys.int::memref-unsigned-byte-64 blk (1+ (* i 2))))
+               (freep (logbitp 0 size)))
+          (setf size (ash size -1))
+          (when (zerop size)
+            (debug-print-line " freelist processing complete final " block-id ":" i)
+            (return-from process-one-freelist-block
+              (values i nil)))
+          (cond (freep
+                 (incf *store-freelist-n-free-blocks* size))
+                (t
+                 (decf *store-freelist-n-free-blocks* size)))
+          (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated"))
+          (store-insert-range start size freep)))
+      (assert (not (zerop next)) () "Corrupt freelist! No next block.")
+      (debug-print-line " next freelist block " next)
+      (values nil next))))
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
   (setf *store-freelist-metadata-freelist* '()
@@ -278,12 +278,9 @@ Should be called with the freelist lock held."
   (loop
      (multiple-value-bind (last-entry-offset next-block)
          (process-one-freelist-block freelist-block)
-       (cond (next-block
-              (setf freelist-block next-block))
-             (t (setf *store-freelist-block* freelist-block
-                      *store-freelist-block-offset* last-entry-offset)
-                (read-cached-block *store-freelist-block*)
-                (return)))))
+       (when (not next-block)
+         (return))
+       (setf freelist-block next-block)))
   (do ((range *store-freelist-head*
               (freelist-metadata-next range)))
       ((null range))
