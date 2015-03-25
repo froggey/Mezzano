@@ -268,46 +268,49 @@ Should be called with the freelist lock held."
       (values *store-freelist-n-free-blocks*
               *store-freelist-total-blocks*))))
 
+(defun regenerate-store-freelist-1 ()
+  (let ((disk-block nil)
+        (memory-block nil))
+    ;; Resulting freelist needs to fit in one block.
+    ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
+    (do ((range *store-freelist-head* (freelist-metadata-next range))
+         (total-allocated-ranges 0))
+        ((null range)
+         (when (>= total-allocated-ranges 250)
+           (debug-print-line "FIXME: Freelist too large. Can't rebuild freelist.")
+           (return-from regenerate-store-freelist-1 nil)))
+      (when (not (freelist-metadata-free-p range))
+        (incf total-allocated-ranges)))
+    ;; Allocate disk block & memory page.
+    (setf disk-block (store-alloc-1 1))
+    (when (not disk-block)
+      ;; Oh, the irony.
+      (debug-print-line "Unable to allocate store for freelist.")
+      (return-from regenerate-store-freelist-1 nil))
+    (setf memory-block (allocate-page))
+    (when (not memory-block)
+      (store-free-1 disk-block 1)
+      (debug-print-line "Unable to allocate memory for freelist.")
+      (return-from regenerate-store-freelist-1 nil))
+    (zeroize-page memory-block)
+    ;; Write every allocated region to the block.
+    (do ((range *store-freelist-head* (freelist-metadata-next range))
+         (offset 0))
+        ((null range))
+      (when (not (freelist-metadata-free-p range))
+        (let ((start (freelist-metadata-start range))
+              (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range)))
+              (free nil))
+          (let ((blk memory-block))
+            ;; Address.
+            (setf (sys.int::memref-unsigned-byte-64 memory-block (* offset 2)) start)
+            ;; Size and free bit (clear).
+            (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
+            (incf offset)))))
+    (values disk-block memory-block)))
+
 ;; FIXME: Need to free the old freelist/block map as well.
 (defun regenerate-store-freelist ()
   (safe-without-interrupts ()
-    (let ((disk-block nil)
-          (memory-block nil))
-      (with-symbol-spinlock (*store-freelist-lock*)
-        ;; Resulting freelist needs to fit in one block.
-        ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
-        (do ((range *store-freelist-head* (freelist-metadata-next range))
-             (total-allocated-ranges 0))
-            ((null range)
-             (when (>= total-allocated-ranges 250)
-               (debug-print-line "FIXME: Freelist too large. Can't rebuild freelist.")
-               (return-from regenerate-store-freelist-1 nil)))
-          (when (not (freelist-metadata-free-p range))
-            (incf total-allocated-ranges)))
-        ;; Allocate disk block & memory page.
-        (setf disk-block (store-alloc-1 1))
-        (when (not disk-block)
-          ;; Oh, the irony.
-          (debug-print-line "Unable to allocate store for freelist.")
-          (return-from regenerate-store-freelist-1 nil))
-        (setf memory-block (allocate-page))
-        (when (not memory-block)
-          (store-free-1 disk-block 1)
-          (debug-print-line "Unable to allocate memory for freelist.")
-          (return-from regenerate-store-freelist-1 nil))
-        (zeroize-page memory-block)
-        ;; Write every allocated region to the block.
-        (do ((range *store-freelist-head* (freelist-metadata-next range))
-             (offset 0))
-            ((null range))
-          (when (not (freelist-metadata-free-p range))
-            (let ((start (freelist-metadata-start range))
-                  (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range)))
-                  (free nil))
-              (let ((blk memory-block))
-                ;; Address.
-                (setf (sys.int::memref-unsigned-byte-64 memory-block (* offset 2)) start)
-                ;; Size and free bit (clear).
-                (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
-                (incf offset))))))
-      (values disk-block memory-block))))
+    (with-symbol-spinlock (*store-freelist-lock*)
+      (regenerate-store-freelist-1))))

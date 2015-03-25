@@ -74,7 +74,8 @@
   "Read a block from the disk, returning a freshly allocated page containing
 the data. Free the page with FREE-PAGE when done."
   (let ((page (allocate-page "Disk block")))
-    ;; Reuse *PAGER-DISK-REQUEST*, it's mostly protected by the *VM-LOCK*.
+    ;; This is only used during boot to read the freelist & block map, so
+    ;; reusing *PAGER-DISK-REQUEST* is ok.
     (disk-submit-request *pager-disk-request*
                          *paging-disk*
                          :read
@@ -86,6 +87,7 @@ the data. Free the page with FREE-PAGE when done."
     page))
 
 (defun initialize-block-map (bml4-block)
+  (debug-print-line "Reading block map.")
   (labels ((one-level (block-id fn)
              ;; Process a non-leaf level of the block map.
              ;; FN is called on each present block id to produce the next level.
@@ -112,12 +114,15 @@ the data. Free the page with FREE-PAGE when done."
     (setf *bml4* (level-4 bml4-block))
     (debug-print-line "BML4 at " *bml4*)))
 
-(defun initialize-paging-system (disk page-addr)
+(defconstant +image-header-image-size+ 64)
+(defconstant +image-header-block-map+ 96)
+(defconstant +image-header-freelist+ 104)
+
+(defun initialize-paging-system (disk header)
   (setf *paging-disk* disk)
-  (debug-print-line "Reading block map.")
-  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
-  (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
-                             (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
+  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0))
+  (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ header +image-header-image-size+) 0)
+                             (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0)))
 
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))

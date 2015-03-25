@@ -5,27 +5,10 @@
 
 (defvar *snapshot-in-progress* nil)
 
+(defvar *snapshot-disk-request*)
 (defvar *snapshot-bounce-buffer-page*)
 (defvar *snapshot-pending-writeback-pages-count*)
 (defvar *snapshot-pending-writeback-pages*)
-
-(defun snapshot-block-cache ()
-  ;; Write all block metadata (block cache) back.
-  ;; TODO: When cache dirtiness is implemented, only write back dirty pages.
-  (do ((cache-page *block-cache* (sys.int::memref-t cache-page 511)))
-      ((null cache-page))
-    (dotimes (i 255)
-      (let ((block-id (sys.int::memref-unsigned-byte-64 cache-page (* i 2)))
-            (address (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2)))))
-        (when (zerop address)
-          (return))
-        #+(or)(debug-print-line "Writing back block " block-id "/" address)
-        (or (disk-write *paging-disk*
-                        (* block-id
-                           (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                        (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                        address)
-            (panic "Unable to write page to disk! Everything is fucked, sorry."))))))
 
 ;;; (destination source)
 (sys.int::define-lap-function %fast-page-copy ()
@@ -212,43 +195,120 @@
        (multiple-value-bind (frame freep block-id address)
            (pop-pending-snapshot-page)
          #+(or)(debug-print-line "Writing back page " frame "/" block-id "/" address)
-         (or (disk-write *paging-disk*
-                         (* block-id
-                            (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                         (+ +physical-map-base+ (ash frame 12)))
+         (or (snapshot-write-disk block-id (+ +physical-map-base+ (ash frame 12)))
              (panic "Unable to write page to disk! Everything is fucked, sorry."))
          (when freep
            (release-physical-pages frame 1))))))
 
+(defun snapshot-write-disk (block data)
+  (disk-submit-request *snapshot-disk-request*
+                       *paging-disk*
+                       :write
+                       (* block
+                          (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                       (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                       data)
+  (disk-await-request *snapshot-disk-request*))
+
+(defun snapshot-freelist ()
+  (multiple-value-bind (disk-block memory-block)
+      (regenerate-store-freelist)
+    (snapshot-write-disk disk-block memory-block)
+    (free-page memory-block)
+    disk-block))
+
+(defun snapshot-block-map ()
+  (let ((bml4-disk (or (store-alloc 1)
+                       (return-from snapshot-block-map nil)))
+        (bml4-memory (or (allocate-page)
+                         (return-from snapshot-block-map nil))))
+    (zeroize-page bml4-memory)
+    (dotimes (i 512)
+      (let ((bml3 (sys.int::memref-signed-byte-64 *bml4* i)))
+        (when (not (zerop bml3))
+          (let ((bml3-disk (or (store-alloc 1)
+                               (return-from snapshot-block-map nil)))
+                (bml3-memory (or (allocate-page)
+                                 (return-from snapshot-block-map nil)))
+                (bml3-count 0))
+            (zeroize-page bml3-memory)
+            (dotimes (j 512)
+              (let ((bml2 (sys.int::memref-signed-byte-64 bml3 j)))
+                (when (not (zerop bml2))
+                  (let ((bml2-disk (or (store-alloc 1)
+                                       (return-from snapshot-block-map nil)))
+                        (bml2-memory (or (allocate-page)
+                                         (return-from snapshot-block-map nil)))
+                        (bml2-count 0))
+                    (zeroize-page bml2-memory)
+                    (dotimes (k 512)
+                      (let ((bml1 (sys.int::memref-signed-byte-64 bml2 k)))
+                        (when (not (zerop bml1))
+                          (let ((bml1-disk (or (store-alloc 1)
+                                               (return-from snapshot-block-map nil)))
+                                (bml1-memory bml1)
+                                (bml1-count 0))
+                            (dotimes (l 512)
+                              (when (not (zerop (sys.int::memref-unsigned-byte-64 bml1 l)))
+                                (incf bml1-count)))
+                            (cond ((zerop bml1-count)
+                                   ;; No entries, don't bother with this level.
+                                   (store-free bml1-disk 1))
+                                  (t (incf bml2-count)
+                                     (setf (sys.int::memref-signed-byte-64 bml2-memory k) (logior (ash bml1-disk sys.int::+block-map-id-shift+)
+                                                                                                  sys.int::+block-map-present+))
+                                     (snapshot-write-disk bml1-disk bml1-memory)))))))
+                    (cond ((zerop bml2-count)
+                           ;; No entries, don't bother with this level.
+                           (store-free bml2-disk 1))
+                          (t (incf bml3-count)
+                             (setf (sys.int::memref-signed-byte-64 bml3-memory j) (logior (ash bml2-disk sys.int::+block-map-id-shift+)
+                                                                                          sys.int::+block-map-present+))
+                             (snapshot-write-disk bml2-disk bml2-memory)))
+                    (free-page bml2-memory)))))
+            (cond ((zerop bml3-count)
+                   ;; No entries, don't bother with this level.
+                   (store-free bml3-disk 1))
+                  (t (setf (sys.int::memref-signed-byte-64 bml4-memory i) (logior (ash bml3-disk sys.int::+block-map-id-shift+)
+                                                                                  sys.int::+block-map-present+))
+                     (snapshot-write-disk bml3-disk bml3-memory)))
+            (free-page bml3-memory)))))
+    (snapshot-write-disk bml4-disk bml4-memory)
+    (free-page bml4-memory)
+    bml4-disk))
+
 (defun take-snapshot ()
   (debug-write-line "Begin snapshot.")
-  #|
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
-  ;; That'll be enough to boot the system.
+  ;; That should be enough to boot the system.
   (set-snapshot-light t)
   (setf *snapshot-pending-writeback-pages* nil
         *snapshot-pending-writeback-pages-count* 0)
-  (let ((disk-req (make-disk-request)))
+  (let ((freelist-block nil)
+        (bml4-block nil))
     (with-mutex (*vm-lock*)
       (with-world-stopped
-        (multiple-value-bind (disk-block memory-block)
-            (regenerate-store-freelist)
-          (disk-submit-request disk-req
-                               *paging-disk*
-                               :write
-                               (* disk-block
-                                  (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
-                               (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                               memory-block)
-          (disk-await-request request)
-          (free-page memory-block))
-        (snapshot-block-cache)
+        ;; FIXME: Disk writes are slow and should be done outside WITH-WORLD-STOPPED.
+        (setf bml4-block (snapshot-block-map))
+        (setf freelist-block (snapshot-freelist))
         (snapshot-copy-wired-area)
-        (snapshot-mark-cow-dirty-pages))))
-  (snapshot-write-back-pages)
+        (snapshot-mark-cow-dirty-pages)))
+    (snapshot-write-back-pages)
+    ;; Update the block map & freelist entries in the header.
+    (let ((header (allocate-page "Image Header")))
+      (disk-submit-request *snapshot-disk-request*
+                           *paging-disk*
+                           :read
+                           0
+                           (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                           header)
+      (unless (disk-await-request *snapshot-disk-request*)
+        (panic "Unable to read header from disk"))
+      (setf (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0) bml4-block)
+      (setf (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0) freelist-block)
+      (snapshot-write-disk 0 header)
+      (free-page header)))
   (set-snapshot-light nil)
-  |#
   (debug-write-line "End snapshot."))
 
 (defun snapshot-thread ()
@@ -264,6 +324,7 @@
      (%reschedule)))
 
 (defun initialize-snapshot ()
+  (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
