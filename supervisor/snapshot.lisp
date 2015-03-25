@@ -223,6 +223,7 @@
 
 (defun take-snapshot ()
   (debug-write-line "Begin snapshot.")
+  #|
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
   ;; This'll be enough to boot the system.
   (set-snapshot-light t)
@@ -236,6 +237,7 @@
       (snapshot-mark-cow-dirty-pages)))
   (snapshot-write-back-pages)
   (set-snapshot-light nil)
+  |#
   (debug-write-line "End snapshot."))
 
 (defun snapshot-thread ()

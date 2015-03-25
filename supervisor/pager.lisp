@@ -11,7 +11,7 @@
 (defvar *pager-disk-request*)
 
 (defvar *paging-disk*)
-(defvar *bml4-block*)
+(defvar *bml4*)
 
 (defconstant +page-table-present+        #x001)
 (defconstant +page-table-write+          #x002)
@@ -52,6 +52,73 @@
   (dotimes (i 512)
     (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
 
+(defun allocate-page (&optional mandatory)
+  (let ((frame (allocate-physical-pages 1 mandatory)))
+    (when frame
+      (+ +physical-map-base+ (* frame +4k-page-size+)))))
+
+(defun free-page (page)
+  (let ((frame (truncate (- page +physical-map-base+) +4k-page-size+)))
+    (release-physical-pages frame 1)))
+
+(defmacro with-disk-block ((page block-id) &body body)
+  `(let ((,page nil))
+     (unwind-protect
+          (progn
+            (setf ,page (read-disk-block ,block-id))
+            ,@body)
+       (when ,page
+         (free-page ,page)))))
+
+(defun read-disk-block (block-id)
+  "Read a block from the disk, returning a freshly allocated page containing
+the data. Free the page with FREE-PAGE when done."
+  (let ((page (allocate-page "Disk block")))
+    ;; Reuse *PAGER-DISK-REQUEST*, it's mostly protected by the *VM-LOCK*.
+    (disk-submit-request *pager-disk-request*
+                         *paging-disk*
+                         :read
+                         (* block-id (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                         (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                         page)
+    (unless (disk-await-request *pager-disk-request*)
+      (panic "Unable to read page from disk"))
+    page))
+
+(defun initialize-block-map (bml4-block)
+  (labels ((one-level (block-id fn)
+             ;; Process a non-leaf level of the block map.
+             ;; FN is called on each present block id to produce the next level.
+             ;; Generate a table of memory pointers to the next level.
+             (let ((memory-repr (allocate-page "Block Map")))
+               (zeroize-page memory-repr)
+               (with-disk-block (disk-repr block-id)
+                 (dotimes (i 512)
+                   (let ((entry (sys.int::memref-unsigned-byte-64 disk-repr i)))
+                     (when (logtest sys.int::+block-map-present+ entry)
+                       (setf (sys.int::memref-signed-byte-64 memory-repr i)
+                             (funcall fn
+                                      (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+)
+                                           entry)))))))
+               memory-repr))
+           (level-1 (block-id)
+             (read-disk-block block-id))
+           (level-2 (block-id)
+             (one-level block-id #'level-1))
+           (level-3 (block-id)
+             (one-level block-id #'level-2))
+           (level-4 (block-id)
+             (one-level block-id #'level-3)))
+    (setf *bml4* (level-4 bml4-block))
+    (debug-print-line "BML4 at " *bml4*)))
+
+(defun initialize-paging-system (disk page-addr)
+  (setf *paging-disk* disk)
+  (debug-print-line "Reading block map.")
+  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
+  (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
+                             (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
+
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
@@ -62,30 +129,28 @@
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
         (panic "Unable to read first block on disk " disk))
       ;; Search for a Mezzano header here.
-      ;; TODO: Scan for partition maps.
-      (when (and
-             (not *paging-disk*)
-             ;; Match magic.
-             (loop
-                for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
-                for offset from 0
-                do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
-                     (return nil))
-                finally (return t))
-             ;; Match boot UUID.
-             (loop
-                for offset from 0 below 16
-                do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
-                                   (boot-uuid offset)))
-                     (return nil))
-                finally (return t)))
-        (debug-write-line "Found boot image!")
-        (setf *paging-disk* disk)
-        (setf *bml4-block* (sys.int::memref-unsigned-byte-64 (+ page-addr 96) 0))
-        (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ page-addr 64) 0)
-                                   (sys.int::memref-unsigned-byte-64 (+ page-addr 104) 0)))
-      ;; Release the pages.
-      (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)))))
+      (unwind-protect
+           (when (and
+                  (not *paging-disk*)
+                  ;; Match magic.
+                  (loop
+                     for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+                     for offset from 0
+                     do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
+                          (return nil))
+                     finally (return t))
+                  ;; Match boot UUID.
+                  (loop
+                     for offset from 0 below 16
+                     do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
+                                        (boot-uuid offset)))
+                          (return nil))
+                     finally (return t)))
+             (debug-print-line "Found boot image on disk " disk "!")
+             (initialize-paging-system disk page-addr)
+             (return))
+        ;; Release the pages.
+        (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))))
 
 (defun descend-page-table (page-table index allocate)
   (if (not (page-present-p page-table index))
@@ -171,105 +236,67 @@
                  (not (zerop (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))))))
         (return-from read-cached-block (sys.int::memref-signed-byte-64 cache-page (1+ (* i 2))))))))
 
-(defun block-info-for-virtual-address (address)
-  (flet ((read-level (map entry)
-           ;; Stop if there is no block, or if the level is not present.
-           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
-                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
-             (when (or (zerop id)
-                       (not (logtest sys.int::+block-map-present+ info)))
-               (return-from block-info-for-virtual-address nil))
-             (read-cached-block id))))
+(defun block-info-for-virtual-address-1 (address &optional allocate)
+  "Return the address (access with (memref-ub64 X 0)) of the block map entry for ADDRESS.
+If ALLOCATE is true, then allocate intermediate block map levels as required.
+Returns NIL if the entry is missing and ALLOCATE is false."
+  (flet ((get-level (map entry)
+           (let ((info (sys.int::memref-signed-byte-64 map entry)))
+             (cond ((not (zerop info))
+                    info)
+                   ((not allocate)
+                    (return-from block-info-for-virtual-address-1 nil))
+                   (t (let ((new-level (allocate-page "Block map")))
+                        (zeroize-page new-level)
+                        (setf (sys.int::memref-signed-byte-64 map entry) new-level)
+                        new-level))))))
     (let* ((bml4e (address-l4-bits address))
            (bml3e (address-l3-bits address))
            (bml2e (address-l2-bits address))
            (bml1e (address-l1-bits address))
-           (bml4 (read-cached-block *bml4-block*))
-           (bml3 (read-level bml4 bml4e))
-           (bml2 (read-level bml3 bml3e))
-           (bml1 (read-level bml2 bml2e)))
-      (when (zerop (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+)
-                        (sys.int::memref-unsigned-byte-64 bml1 bml1e)))
-        (return-from block-info-for-virtual-address nil))
-      (sys.int::memref-unsigned-byte-64 bml1 bml1e))))
+           (bml3 (get-level *bml4* bml4e))
+           (bml2 (get-level bml3 bml3e))
+           (bml1 (get-level bml2 bml2e)))
+      (+ bml1 (* bml1e 8)))))
+
+(defun block-info-for-virtual-address (address)
+  (let ((bme (block-info-for-virtual-address-1 address)))
+    (cond ((or (null bme)
+               (zerop (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+)
+                           (sys.int::memref-unsigned-byte-64 bme 0))))
+           nil)
+          (t (sys.int::memref-unsigned-byte-64 bme 0)))))
 
 (defun allocate-new-block-for-virtual-address (address flags)
-  (let ((new-block (store-alloc 1)))
-    (when (not new-block)
-      (panic "Aiiee, out of store."))
+  (let ((new-block (or (store-alloc 1)
+                       (panic "Aiiee, out of store.")))
+        (bme (block-info-for-virtual-address-1 address t)))
     ;; Update the block info for this address.
-    (flet ((read-level (map entry)
-             ;; Allocate a new block if there is no block.
-             (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
-                    (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
-               (when (zerop id)
-                 (setf id (or (store-alloc 1)
-                              (panic "Aiiee, out of store."))
-                       (sys.int::memref-unsigned-byte-64 map entry) (logior (ash id sys.int::+block-map-id-shift+)
-                                                                            sys.int::+block-map-present+))
-                 (zero-cached-block id))
-               (read-cached-block id))))
-      (let* ((bml4e (address-l4-bits address))
-             (bml3e (address-l3-bits address))
-             (bml2e (address-l2-bits address))
-             (bml1e (address-l1-bits address))
-             (bml4 (read-cached-block *bml4-block*))
-             (bml3 (read-level bml4 bml4e))
-             (bml2 (read-level bml3 bml3e))
-             (bml1 (read-level bml2 bml2e)))
-        (when (not (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e)))
-          (panic "Block " address " entry not zero!"))
-        (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (ash new-block sys.int::+block-map-id-shift+)
-                                                                    flags))))))
+    (when (not (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
+      (panic "Block " address " entry not zero!"))
+    (setf (sys.int::memref-unsigned-byte-64 bme 0)
+          (logior (ash new-block sys.int::+block-map-id-shift+)
+                  flags))))
 
 (defun release-block-at-virtual-address (address)
   ;; Update the block info for this address.
-  (flet ((read-level (map entry)
-           ;; Allocate a new block if there is no block.
-           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
-                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
-             (when (zerop id)
-               (setf id (or (store-alloc 1)
-                            (panic "Aiiee, out of store."))
-                     (sys.int::memref-unsigned-byte-64 map entry) (logior (ash id sys.int::+block-map-id-shift+)
-                                                                          sys.int::+block-map-present+))
-               (zero-cached-block id))
-             (read-cached-block id))))
-    (let* ((bml4e (address-l4-bits address))
-           (bml3e (address-l3-bits address))
-           (bml2e (address-l2-bits address))
-           (bml1e (address-l1-bits address))
-           (bml4 (read-cached-block *bml4-block*))
-           (bml3 (read-level bml4 bml4e))
-           (bml2 (read-level bml3 bml3e))
-           (bml1 (read-level bml2 bml2e)))
-      (when (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e))
-        (panic "Block " address " entry is zero!"))
-      (store-free (ash (sys.int::memref-unsigned-byte-64 bml1 bml1e) (- sys.int::+block-map-id-shift+)) 1)
-      (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) 0))))
+  (let ((bme (block-info-for-virtual-address-1 address)))
+    (when (or (not bme)
+              (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
+      (panic "Block " address " entry is zero or not allocated!"))
+    (store-free (ash (sys.int::memref-unsigned-byte-64 bme 0) (- sys.int::+block-map-id-shift+)) 1)
+    (setf (sys.int::memref-unsigned-byte-64 bme 0) 0)))
 
 (defun set-address-flags (address flags)
   ;; Update the block info for this address.
-  (flet ((read-level (map entry)
-           ;; Allocate a new block if there is no block.
-           (let* ((info (sys.int::memref-unsigned-byte-64 map entry))
-                  (id (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) info)))
-             (when (zerop id)
-               (panic "Block " address " not present!"))
-             (read-cached-block id))))
-    (let* ((bml4e (address-l4-bits address))
-           (bml3e (address-l3-bits address))
-           (bml2e (address-l2-bits address))
-           (bml1e (address-l1-bits address))
-           (bml4 (read-cached-block *bml4-block*))
-           (bml3 (read-level bml4 bml4e))
-           (bml2 (read-level bml3 bml3e))
-           (bml1 (read-level bml2 bml2e)))
-      (when (zerop (sys.int::memref-unsigned-byte-64 bml1 bml1e))
-        (panic "Block " address " not present!"))
-      (setf (sys.int::memref-unsigned-byte-64 bml1 bml1e) (logior (logand (sys.int::memref-unsigned-byte-64 bml1 bml1e)
-                                                                          (lognot sys.int::+block-map-flag-mask+))
-                                                                  flags)))))
+  (let ((bme (block-info-for-virtual-address-1 address)))
+    (when (or (not bme)
+              (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
+      (panic "Block " address " entry is zero or not allocated!"))
+    (setf (sys.int::memref-unsigned-byte-64 bme 0)
+          (logior (logand (sys.int::memref-unsigned-byte-64 bme 0)
+                          (lognot sys.int::+block-map-flag-mask+))
+                  flags))))
 
 (defun release-vm-page (frame)
   (safe-without-interrupts (frame)
