@@ -225,16 +225,27 @@
   (debug-write-line "Begin snapshot.")
   #|
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
-  ;; This'll be enough to boot the system.
+  ;; That'll be enough to boot the system.
   (set-snapshot-light t)
   (setf *snapshot-pending-writeback-pages* nil
         *snapshot-pending-writeback-pages-count* 0)
-  (with-mutex (*vm-lock*)
-    (with-world-stopped
-      (regenerate-store-freelist)
-      (snapshot-block-cache)
-      (snapshot-copy-wired-area)
-      (snapshot-mark-cow-dirty-pages)))
+  (let ((disk-req (make-disk-request)))
+    (with-mutex (*vm-lock*)
+      (with-world-stopped
+        (multiple-value-bind (disk-block memory-block)
+            (regenerate-store-freelist)
+          (disk-submit-request disk-req
+                               *paging-disk*
+                               :write
+                               (* disk-block
+                                  (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                               (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                               memory-block)
+          (disk-await-request request)
+          (free-page memory-block))
+        (snapshot-block-cache)
+        (snapshot-copy-wired-area)
+        (snapshot-mark-cow-dirty-pages))))
   (snapshot-write-back-pages)
   (set-snapshot-light nil)
   |#

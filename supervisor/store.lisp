@@ -7,10 +7,6 @@
 
 (defvar *store-freelist-lock*)
 
-;;; On-disk log-structured freelist.
-(defvar *store-freelist-block*)
-(defvar *store-freelist-block-offset*)
-
 ;;; In-memory freelist linked list
 (defvar *store-freelist-head*)
 (defvar *store-freelist-tail*)
@@ -80,30 +76,6 @@
     (with-symbol-spinlock (*store-freelist-metadata-freelist-lock*)
       (setf (freelist-metadata-next md) *store-freelist-metadata-freelist*
             *store-freelist-metadata-freelist* md))))
-
-(defun store-freelist-log (start n-blocks freep)
-  "Internal function. Append an allocation to the on-disk freelist log.
-Should be called with the freelist lock held."
-  (let ((blk (read-cached-block *store-freelist-block*)))
-    ;; TODO: See if the previous log entry can be extended (or shrunk?).
-    (setf (sys.int::memref-unsigned-byte-64 blk (* *store-freelist-block-offset* 2)) start
-          (sys.int::memref-unsigned-byte-64 blk (1+ (* *store-freelist-block-offset* 2))) (logior (ash n-blocks 1)
-                                                                                                  (if freep 1 0)))
-    (incf *store-freelist-block-offset*)
-    (when (eql *store-freelist-block-offset* 255)
-      ;; This block is now full, allocate a new one.
-      (let* ((new-block (or (store-alloc-1 1)
-                            ;; TODO: Compact the freelist or something here.
-                            (error "No space for new freelist log entries!")))
-             (data (zero-cached-block new-block)))
-        ;; First entry covers the new block.
-        (setf (sys.int::memref-unsigned-byte-64 data 0) new-block
-              (sys.int::memref-unsigned-byte-64 data 1) (logior (ash 1 1) 0))
-        ;; Set next block pointer.
-        (setf (sys.int::memref-unsigned-byte-64 blk 511) new-block)
-        ;; Advance.
-        (setf *store-freelist-block-offset* 1
-              *store-freelist-block* new-block)))))
 
 (defun adjust-freelist-range-start (range new-start)
   (cond ((freelist-metadata-prev range)
@@ -220,11 +192,14 @@ Should be called with the freelist lock held."
         (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (return))))
 
+(defun store-free-1 (start n-blocks)
+  (incf *store-freelist-n-free-blocks* n-blocks)
+  (store-insert-range start n-blocks t))
+
 (defun store-free (start n-blocks)
   (safe-without-interrupts (start n-blocks)
     (with-symbol-spinlock (*store-freelist-lock*)
-      (incf *store-freelist-n-free-blocks* n-blocks)
-      (store-insert-range start n-blocks t))))
+      (store-free-1 start n-blocks))))
 
 (defun store-alloc-1 (n-blocks)
   "Allocate from the in-memory freelist only. The freelist lock must be held."
@@ -293,41 +268,46 @@ Should be called with the freelist lock held."
       (values *store-freelist-n-free-blocks*
               *store-freelist-total-blocks*))))
 
-(defun regenerate-store-freelist-1 ()
-  (let ((first-block nil))
-    (with-symbol-spinlock (*store-freelist-lock*)
-      ;; Resulting freelist needs to fit in one block.
-      ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
-      (do ((range *store-freelist-head* (freelist-metadata-next range))
-           (total-allocated-ranges 0))
-          ((null range)
-           (when (>= total-allocated-ranges 250)
-             (return-from regenerate-store-freelist-1 nil)))
-        (when (not (freelist-metadata-free-p range))
-          (incf total-allocated-ranges)))
-      (setf first-block (store-alloc-1 1))
-      (when (not first-block)
-        (return-from regenerate-store-freelist-1 nil))
-      (zero-cached-block first-block)
-      (setf *store-freelist-block* first-block
-            *store-freelist-block-offset* 0)
-      (do ((range *store-freelist-head* (freelist-metadata-next range)))
-          ((null range))
-        (when (not (freelist-metadata-free-p range))
-          (store-freelist-log (freelist-metadata-start range)
-                              (- (freelist-metadata-end range) (freelist-metadata-start range))
-                              nil))))
-    first-block))
-
+;; FIXME: Need to free the old freelist/block map as well.
 (defun regenerate-store-freelist ()
-  (let ((first-block (safe-without-interrupts ()
-                       (regenerate-store-freelist-1))))
-    (when first-block
-      (do ((range *store-freelist-head*
-                  (freelist-metadata-next range)))
-          ((null range))
-        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
-      ;; Update header.
-      (let ((header (read-cached-block 0)))
-        (setf (sys.int::memref-unsigned-byte-64 header 13) first-block))
-      t)))
+  (safe-without-interrupts ()
+    (let ((disk-block nil)
+          (memory-block nil))
+      (with-symbol-spinlock (*store-freelist-lock*)
+        ;; Resulting freelist needs to fit in one block.
+        ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
+        (do ((range *store-freelist-head* (freelist-metadata-next range))
+             (total-allocated-ranges 0))
+            ((null range)
+             (when (>= total-allocated-ranges 250)
+               (debug-print-line "FIXME: Freelist too large. Can't rebuild freelist.")
+               (return-from regenerate-store-freelist-1 nil)))
+          (when (not (freelist-metadata-free-p range))
+            (incf total-allocated-ranges)))
+        ;; Allocate disk block & memory page.
+        (setf disk-block (store-alloc-1 1))
+        (when (not disk-block)
+          ;; Oh, the irony.
+          (debug-print-line "Unable to allocate store for freelist.")
+          (return-from regenerate-store-freelist-1 nil))
+        (setf memory-block (allocate-page))
+        (when (not memory-block)
+          (store-free-1 disk-block 1)
+          (debug-print-line "Unable to allocate memory for freelist.")
+          (return-from regenerate-store-freelist-1 nil))
+        (zeroize-page memory-block)
+        ;; Write every allocated region to the block.
+        (do ((range *store-freelist-head* (freelist-metadata-next range))
+             (offset 0))
+            ((null range))
+          (when (not (freelist-metadata-free-p range))
+            (let ((start (freelist-metadata-start range))
+                  (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range)))
+                  (free nil))
+              (let ((blk memory-block))
+                ;; Address.
+                (setf (sys.int::memref-unsigned-byte-64 memory-block (* offset 2)) start)
+                ;; Size and free bit (clear).
+                (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
+                (incf offset))))))
+      (values disk-block memory-block))))
