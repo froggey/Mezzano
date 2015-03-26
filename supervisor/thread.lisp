@@ -127,11 +127,11 @@
   (field wait-item                5)
   (field special-stack-pointer    6)
   (field full-save-p              7)
-  (field pending-footholds        8)
+  ;; 8
   (field %next                    9)
   (field %prev                   10)
-  ;; 11
-  ;; 12
+  (field pending-footholds       11)
+  (field inhibit-footholds       12)
   (field mutex-stack             13)
   (field global-next             14)
   (field global-prev             15)
@@ -242,7 +242,8 @@
           (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
           (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
           (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
-          (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '())
+          (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '()
+          (sys.int::%array-like-ref-t thread +thread-inhibit-footholds+) 1)
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
       (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
@@ -307,6 +308,7 @@
   (let ((self (current-thread)))
     (unwind-protect
          (catch 'terminate-thread
+           (decf (thread-inhibit-footholds self))
            (funcall function))
       ;; Cleanup, terminate the thread.
       (safe-without-interrupts (self)
@@ -387,6 +389,7 @@
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
         (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
         (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '()
+        (sys.int::%array-like-ref-t thread +thread-inhibit-footholds+) 1
         (thread-full-save-p thread) t)
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
@@ -637,11 +640,15 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
   (sys.lap-x86:jne RUN-FOOTHOLDS)
   ;; No value return.
+  NORMAL-RETURN
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
   ;; Return, restoring RIP.
   (sys.lap-x86:ret)
   RUN-FOOTHOLDS
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-inhibit-footholds+) 0)
+  (sys.lap-x86:jne NORMAL-RETURN)
   ;; Jump to the support function to run the footholds.
   (sys.lap-x86:mov64 :r8 nil)
   (sys.lap-x86:gs)
@@ -712,6 +719,18 @@ Interrupts must be off, the current thread must be locked."
      do (funcall fn))
   (values))
 
+(defmacro without-footholds (&body body)
+  (let ((thread (gensym)))
+    `(unwind-protect
+          (progn
+            (sys.int::%atomic-fixnum-add-array-like (current-thread) +thread-inhibit-footholds+ 1)
+            ,@body)
+       (let ((,thread (current-thread)))
+         (sys.int::%atomic-fixnum-add-array-like ,thread +thread-inhibit-footholds+ -1)
+         (when (and (zerop (sys.int::%array-like-ref-t ,thread +thread-inhibit-footholds+))
+                    (sys.int::%array-like-ref-t ,thread +thread-pending-footholds+))
+           (%run-thread-footholds (sys.int::%xchg-array-like ,thread +thread-pending-footholds+ nil)))))))
+
 (defun establish-thread-foothold (thread function)
   (loop
      (let ((old (thread-pending-footholds thread)))
@@ -720,6 +739,12 @@ Interrupts must be off, the current thread must be locked."
        (when (sys.int::%cas-array-like thread +thread-pending-footholds+
                                        old (cons function old))
          (return)))))
+
+(defun terminate-thread (thread)
+  (establish-thread-foothold
+   thread
+   (lambda ()
+     (throw 'terminate-thread nil))))
 
 (defmacro dx-lambda (lambda-list &body body)
   `(flet ((dx-lambda ,lambda-list ,@body))

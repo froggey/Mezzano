@@ -708,12 +708,14 @@
     ;; +6, unused
     ;; Special stack pointer.
     (setf (word (+ address 7)) (vsym 'nil))
-    ;; Pending stack pointer.
-    (setf (word (+ address 9)) (vsym 'nil))
     ;; Next.
     (setf (word (+ address 10)) (vsym 'nil))
     ;; Prev.
     (setf (word (+ address 11)) (vsym 'nil))
+    ;; Pending footholds.
+    (setf (word (+ address 12)) (vsym 'nil))
+    ;; Inhibit footholds.
+    (setf (word (+ address 13)) (make-fixnum 1))
     ;; mutex stack.
     (setf (word (+ address 14)) (vsym 'nil))
     (make-value address sys.int::+tag-object+)))

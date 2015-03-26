@@ -130,8 +130,9 @@
            #:thread-state-ss
            #:thread-yield
            #:all-threads
+           #:without-footholds
            #:establish-thread-foothold
-           #:destroy-thread
+           #:terminate-thread
            #:make-mutex
            #:with-mutex
            #:make-condition-variable
