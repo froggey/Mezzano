@@ -60,6 +60,14 @@
                  (> freelist (+ prev (* (freelist-entry-size prev) 8)))))
       (mezzano.supervisor:panic "Corrupt freelist."))))
 
+(defun set-allocated-object-header (address tag data mark-bit)
+  ;; Be careful to avoid bignum consing here. Some functions can have a
+  ;; data value larger than a fixnum when shifted.
+  (setf (sys.int::memref-unsigned-byte-32 address 0) (logior mark-bit
+                                                             (ash tag sys.int::+array-type-shift+)
+                                                             (ash (ldb (byte (- 32 sys.int::+array-length-shift+) 0) data) sys.int::+array-length-shift+))
+        (sys.int::memref-unsigned-byte-32 address 1) (ldb (byte 32 (- 32 sys.int::+array-length-shift+)) data)))
+
 ;;; FIXME: The pinned/general/cons allocators must somehow initialize their objects with the
 ;;; allocator lock released. taking a pagefault with it taken is bad, as it will cause
 ;;; IRQs to be reenabled. What to do? Make it a mutex? actaully reasonable, but a bit heavy?
@@ -97,10 +105,7 @@
                 (t
                  (setf (symbol-value freelist-symbol) next))))
         ;; Write object header.
-        (setf (sys.int::memref-unsigned-byte-64 freelist 0)
-              (logior sys.int::*pinned-mark-bit*
-                      (ash tag sys.int::+array-type-shift+)
-                      (ash data sys.int::+array-length-shift+)))
+        (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
         ;; Clear data.
         (dotimes (i (1- words))
           (setf (sys.int::memref-unsigned-byte-64 freelist (1+ i)) 0))
@@ -130,9 +135,7 @@
                                        sys.int::*dynamic-mark-bit*)))
                      (incf sys.int::*general-area-bump* (* words 8))
                      ;; Write array header.
-                     (setf (sys.int::memref-unsigned-byte-64 addr 0)
-                           (logior (ash tag sys.int::+array-type-shift+)
-                                   (ash data sys.int::+array-length-shift+)))
+                     (set-allocated-object-header addr tag data 0)
                      (sys.int::%%assemble-value addr sys.int::+tag-object+))))
              EXPAND-AREA
                ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
