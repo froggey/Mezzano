@@ -196,7 +196,7 @@
 
 (defconstant call-arguments-limit 500)
 (defconstant lambda-parameters-limit 500)
-(defconstant multiple-values-limit 500)
+(defconstant multiple-values-limit (+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
 
 (defconstant most-negative-short-float (%integer-as-single-float #xFF7FFFFF))
 (defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
