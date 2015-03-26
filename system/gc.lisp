@@ -453,6 +453,7 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-wait-item object))
   (scavengef (mezzano.supervisor:thread-%next object))
   (scavengef (mezzano.supervisor:thread-%prev object))
+  (scavengef (mezzano.supervisor:thread-pending-footholds object))
   (scavengef (mezzano.supervisor:thread-mutex-stack object))
   (scavengef (mezzano.supervisor:thread-global-next object))
   (scavengef (mezzano.supervisor:thread-global-prev object))

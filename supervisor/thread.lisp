@@ -127,7 +127,7 @@
   (field wait-item                5)
   (field special-stack-pointer    6)
   (field full-save-p              7)
-  ;; 8
+  (field pending-footholds        8)
   (field %next                    9)
   (field %prev                   10)
   ;; 11
@@ -241,7 +241,8 @@
           (sys.int::%array-like-ref-t thread +thread-stack+) stack
           (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
           (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
-          (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil)
+          (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
+          (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '())
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
       (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
@@ -385,6 +386,7 @@
         (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
         (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
         (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
+        (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '()
         (thread-full-save-p thread) t)
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
@@ -630,12 +632,25 @@ Interrupts must be off, the current thread must be locked."
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (sys.lap-x86:sti)
   (:gc :no-frame)
+  ;; Check for pending footholds.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
+  (sys.lap-x86:jne RUN-FOOTHOLDS)
   ;; No value return.
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:mov64 :r8 nil)
   ;; Return, restoring RIP.
   (sys.lap-x86:ret)
+  RUN-FOOTHOLDS
+  ;; Jump to the support function to run the footholds.
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
+  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   ;; Returning to an interrupted thread. Restore saved registers and stuff.
+  ;; TODO: How to deal with footholds here? The stack might be paged out here.
   FULL-RESTORE
   (sys.lap-x86:lea64 :rsp (:object :r9 #.+thread-interrupt-save-area+))
   (sys.lap-x86:pop :r15)
@@ -686,6 +701,25 @@ Interrupts must be off, the current thread must be locked."
       ((null current)
        list)
     (push current list)))
+
+(defun %pop-foothold ()
+  (safe-without-interrupts ()
+    (pop (thread-pending-footholds (current-thread)))))
+
+(defun %run-thread-footholds (footholds)
+  (loop
+     for fn in footholds
+     do (funcall fn))
+  (values))
+
+(defun establish-thread-foothold (thread function)
+  (loop
+     (let ((old (thread-pending-footholds thread)))
+       ;; Use CAS to avoid having to disable interrupts/lock the thread/etc.
+       ;; Tricky to mix with allocation.
+       (when (sys.int::%cas-array-like thread +thread-pending-footholds+
+                                       old (cons function old))
+         (return)))))
 
 (defmacro dx-lambda (lambda-list &body body)
   `(flet ((dx-lambda ,lambda-list ,@body))
@@ -917,25 +951,29 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
 (defun condition-wait (condition-variable mutex)
   (assert (mutex-held-p mutex))
   (ensure-interrupts-enabled)
-  (%call-on-wired-stack-without-interrupts
-   (lambda (sp fp condition-variable mutex)
-     (let ((self (current-thread)))
-       (lock-wait-queue condition-variable)
-       (%lock-thread self)
-       ;; Attach to the list.
-       (push-wait-queue self condition-variable)
-       ;; Drop the mutex.
-       (release-mutex mutex)
-       ;; Sleep.
-       ;; need to be careful with that, returning or unwinding from condition-wait
-       ;; with the lock unlocked would be quite bad.
-       (setf (thread-wait-item self) condition-variable
-             (thread-state self) :sleeping)
-       (unlock-wait-queue condition-variable)
-       (%reschedule-via-wired-stack sp fp)))
-   nil condition-variable mutex)
-  ;; Got woken up. Reacquire the mutex.
-  (acquire-mutex mutex t)
+  (unwind-protect
+       (%call-on-wired-stack-without-interrupts
+        (lambda (sp fp condition-variable mutex)
+          (let ((self (current-thread)))
+            (lock-wait-queue condition-variable)
+            (%lock-thread self)
+            ;; Attach to the list.
+            (push-wait-queue self condition-variable)
+            ;; Drop the mutex.
+            (release-mutex mutex)
+            ;; Sleep.
+            ;; need to be careful with that, returning or unwinding from condition-wait
+            ;; with the lock unlocked would be quite bad.
+            (setf (thread-wait-item self) condition-variable
+                  (thread-state self) :sleeping)
+            (unlock-wait-queue condition-variable)
+            (%reschedule-via-wired-stack sp fp)))
+        nil condition-variable mutex)
+    ;; Got woken up. Reacquire the mutex.
+    ;; Slightly tricky, if the thread was interrupted and unwound before
+    ;; interrupts were disabled, then the mutex won't have been released.
+    (when (not (mutex-held-p mutex))
+      (acquire-mutex mutex t)))
   (values))
 
 (defun condition-notify (condition-variable &optional broadcast)

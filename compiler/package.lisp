@@ -92,6 +92,7 @@
            #:thread-full-save-p
            #:thread-%next
            #:thread-%prev
+           #:thread-pending-footholds
            #:thread-mutex-stack
            #:thread-global-next
            #:thread-global-prev

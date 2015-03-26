@@ -708,6 +708,8 @@
     ;; +6, unused
     ;; Special stack pointer.
     (setf (word (+ address 7)) (vsym 'nil))
+    ;; Pending stack pointer.
+    (setf (word (+ address 9)) (vsym 'nil))
     ;; Next.
     (setf (word (+ address 10)) (vsym 'nil))
     ;; Prev.
