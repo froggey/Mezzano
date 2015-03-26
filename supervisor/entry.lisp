@@ -46,12 +46,10 @@
                          (incf sys.int::*stack-area-bump* (align-up size #x200000)))))))
          (stack (sys.int::cons-in-area addr size :wired)))
     ;; Allocate blocks.
-    (with-mutex (*vm-lock*)
-      (dotimes (i (ceiling size #x1000))
-        (allocate-new-block-for-virtual-address (+ addr (* i #x1000))
-                                                (logior sys.int::+block-map-present+
-                                                        sys.int::+block-map-writable+
-                                                        sys.int::+block-map-zero-fill+))))
+    (allocate-memory-range addr size
+                           (logior sys.int::+block-map-present+
+                                   sys.int::+block-map-writable+
+                                   sys.int::+block-map-zero-fill+))
     stack))
 
 ;; TODO.

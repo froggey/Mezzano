@@ -247,6 +247,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (when (not (logbitp +page-frame-flag-writeback+ flags))
         (release-physical-pages frame 1)))))
 
+(defun allocate-memory-range (base length flags)
+  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (debug-print-line "Allocate range " base "-" (+ base length) "  " flags)
+  (with-mutex (*vm-lock*)
+    (dotimes (i (truncate length #x1000))
+      (allocate-new-block-for-virtual-address
+       (+ base (* i #x1000))
+       flags))))
+
 (defun release-memory-range (base length)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
   (debug-print-line "Release range " base "-" (+ base length))

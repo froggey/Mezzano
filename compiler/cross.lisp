@@ -206,6 +206,7 @@
            #:condition-wait
            #:condition-notify
            #:snapshot
+           #:allocate-memory-range
            #:protect-memory-range
            #:release-memory-range
            #:compact-block-freelist
