@@ -1036,14 +1036,10 @@ A passive drag sends no drag events to the window.")
        (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event)
                                      *event-queue*))))
 
-(when *compositor*
-  (format t "Restarting compositor thread.")
-  (mezzano.supervisor:destroy-thread *compositor*))
-(setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
-                                                   :name "Compositor"))
+(when (not *compositor*)
+  (setf *compositor* (mezzano.supervisor:make-thread 'compositor-thread
+                                                     :name "Compositor")))
 
-(when *compositor-heartbeat*
-  (format t "Restarting compositor heartbeat thread.")
-  (mezzano.supervisor:destroy-thread *compositor-heartbeat*))
-(setf *compositor-heartbeat* (mezzano.supervisor:make-thread 'compositor-heartbeat-thread
-                                                             :name "Compositor Heartbeat"))
+(when (not *compositor-heartbeat*)
+  (setf *compositor-heartbeat* (mezzano.supervisor:make-thread 'compositor-heartbeat-thread
+                                                               :name "Compositor Heartbeat")))

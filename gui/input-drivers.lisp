@@ -76,15 +76,11 @@
             (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
             (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))))))) ; y-motion
 
-(when *keyboard-forwarder*
-  (format t "Restarting keyboard forwarding thread.")
-  (mezzano.supervisor:destroy-thread *keyboard-forwarder*))
-(setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
-                                                             :name "Keyboard Forwarder"))
+(when (not *keyboard-forwarder*)
+  (setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
+                                                             :name "Keyboard Forwarder")))
 
-(when *mouse-forwarder*
-  (format t "Restarting mouse forwarding thread.")
-  (mezzano.supervisor:destroy-thread *mouse-forwarder*))
-(setf *mouse-forwarder* (mezzano.supervisor:make-thread 'mouse-forwarder-thread
-                                                          :name "Mouse Forwarder"))
-(format t "~S  ~S~%" *keyboard-forwarder* *mouse-forwarder*)
+
+(when (not *mouse-forwarder*)
+  (setf *mouse-forwarder* (mezzano.supervisor:make-thread 'mouse-forwarder-thread
+                                                          :name "Mouse Forwarder")))

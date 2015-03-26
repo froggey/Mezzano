@@ -301,11 +301,9 @@
                        (%receive-packet nic packet))
          (drop-packet ())))))
 
-(when *ethernet-thread*
-  (format t "Restarting ethernet thread.")
-  (mezzano.supervisor:destroy-thread *ethernet-thread*))
-(setf *ethernet-thread* (mezzano.supervisor:make-thread 'ethernet-thread
-                                                        :name "Ethernet thread"))
+(when (not *ethernet-thread*)
+  (setf *ethernet-thread* (mezzano.supervisor:make-thread 'ethernet-thread
+                                                          :name "Ethernet thread")))
 
 (defun detach-tcp-connection (connection)
   (mezzano.supervisor:with-mutex (*tcp-connection-lock*)
