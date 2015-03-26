@@ -683,6 +683,38 @@
   (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
   *r8-value*)
 
+;; Add DELTA to the slot at OFFSET in OBJECT.
+;; Returns the old value of the slot.
+(defbuiltin sys.int::%atomic-fixnum-add-array-like (object offset delta) ()
+  (load-in-reg :r10 offset t)
+  (fixnum-check :r10)
+  (load-in-reg :r9 object t)
+  (load-in-reg :r8 delta t)
+  (fixnum-check :r8)
+  (smash-r8)
+  (emit
+   ;; Convert slot number to integers.
+   `(sys.lap-x86:mov64 :rcx :r10)
+   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
+   ;; Atomic add.
+   `(sys.lap-x86:lock)
+   `(sys.lap-x86:xadd64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin sys.int::%xchg-array-like (object offset new) ()
+  (load-in-reg :r10 offset t)
+  (fixnum-check :r10)
+  (load-in-reg :r9 object t)
+  (load-in-reg :r8 new t)
+  (smash-r8)
+  (emit
+   ;; Convert slot number to integers.
+   `(sys.lap-x86:mov64 :rcx :r10)
+   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
+   ;; Do the swap. xchg has an implicit lock prefix.
+   `(sys.lap-x86:xchg64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
+  (setf *r8-value* (list (gensym))))
+
 (defbuiltin sys.int::%cas-array-like (object offset old new) ()
   (load-in-reg :r10 offset t)
   (fixnum-check :r10)

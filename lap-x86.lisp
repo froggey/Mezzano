@@ -828,6 +828,10 @@ Remaining values describe the effective address: base index scale disp rip-relat
   (let ((width-bit (if (eql class :gpr-8) 0 1)))
     (modrm class lhs rhs (logior #x86 width-bit))))
 
+(define-integer-instruction xadd (lhs rhs) (class)
+  (let ((width-bit (if (eql class :gpr-8) 0 1)))
+    (modrm class lhs rhs `(#x0F ,(logior #xC1 width-bit)))))
+
 (define-integer-instruction shld (dst src count) (class)
   (when (eql count :cl)
     (modrm class dst src '(#x0F #xA5)))
