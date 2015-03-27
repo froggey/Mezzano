@@ -725,9 +725,10 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     ;; FIXME? conses are 4 words when not in the cons area.
     (#.+tag-cons+ 2)
     (#.+tag-object+
-     (let* ((header (%array-like-ref-unsigned-byte-64 object -1))
-            (length (ldb (byte +array-length-size+ +array-length-shift+) header))
-            (type (ldb (byte +array-type-size+ +array-type-shift+) header)))
+     ;; Be careful extracting the length field, avoid creating bignums.
+     (let* ((header (%array-like-ref-t object -1))
+            (length (ldb (byte +array-length-size+ (- +array-length-shift+ +n-fixnum-bits+)) header))
+            (type (ldb (byte +array-type-size+ (- +array-type-shift+ +n-fixnum-bits+)) header)))
        ;; Dispatch again based on the type.
        (case type
          ((#.+object-tag-array-t+
@@ -934,7 +935,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (loop
      (when (>= start limit)
        (return nil))
-     (when (not (eql (logand (memref-unsigned-byte-64 start 0) +array-like-mark-bit+)
+     (when (not (eql (logand (memref-unsigned-byte-8 start 0) +array-like-mark-bit+)
                      *pinned-mark-bit*))
        ;; Not marked, must be free.
        (return start))
@@ -976,7 +977,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (setf (memref-signed-byte-64 current (+ i 2)) -1)))
            (return))
          ;; Test the mark bit.
-         (cond ((eql (logand (memref-unsigned-byte-64 next-addr 0) +array-like-mark-bit+)
+         (cond ((eql (logand (memref-unsigned-byte-8 next-addr 0) +array-like-mark-bit+)
                      *pinned-mark-bit*)
                 ;; Is marked, finish this entry and start the next one.
                 (setf next-addr (find-next-free-object current limit))
