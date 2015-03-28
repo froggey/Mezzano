@@ -951,12 +951,11 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
   (values))
 
 (defun call-with-mutex (thunk mutex wait-p)
-  (let ((got-it nil))
-    (unwind-protect
-         (when (setf got-it (acquire-mutex mutex wait-p))
-           (funcall thunk))
-      (when got-it
-        (release-mutex mutex)))))
+  (unwind-protect
+       (when (acquire-mutex mutex wait-p)
+         (funcall thunk))
+    (when (mutex-held-p mutex)
+      (release-mutex mutex))))
 
 (defmacro with-mutex ((mutex &optional (wait-p t)) &body body)
   "Run body with MUTEX locked.
