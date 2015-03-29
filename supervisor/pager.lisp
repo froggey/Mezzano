@@ -420,7 +420,14 @@ It will put the thread to sleep, while it waits for the page."
      ;; Page it in
      (when (not (wait-for-page (thread-wait-item *pager-current-thread*)))
        ;; TODO: Dispatch this to a debugger thread.
-       (panic "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*))
+       ;; This strange contortion is here to get a dynamic-extent list that can be passed
+       ;; to PANIC-1. Need to implement DX list allocation in the compiler.
+       ((lambda (&rest stuff)
+          (declare (dynamic-extent stuff))
+          (panic-1 stuff (lambda ()
+                           (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                           (debug-print-line "-------"))))
+        "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*))
      ;; Release the thread.
      (wake-thread *pager-current-thread*)
      (setf *pager-current-thread* nil)))
