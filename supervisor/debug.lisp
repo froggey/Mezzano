@@ -178,3 +178,18 @@
   (when *cold-unread-char*
     (error "Multiple unread-char!"))
   (setf *cold-unread-char* character))
+
+;;; Early error functions, replaced later as part of cold load.
+
+(defun sys.int::assert-error (test-form datum &rest arguments)
+  (declare (dynamic-extent arguments))
+  (panic "Assert error " datum " " arguments))
+
+(defun sys.int::raise-undefined-function (fref)
+  (let ((name (sys.int::%array-like-ref-t fref sys.int::+fref-name+)))
+    (cond ((consp name)
+           (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
+          (t (panic "Undefined function " (symbol-name name))))))
+
+(defun sys.int::raise-unbound-error (symbol)
+  (panic "Unbound symbol " (symbol-name symbol)))

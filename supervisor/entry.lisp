@@ -22,10 +22,6 @@
   (assert (sys.int::character-array-p string))
   (sys.int::%array-like-ref-t string 3))
 
-(defun sys.int::assert-error (test-form datum &rest arguments)
-  (declare (dynamic-extent arguments))
-  (panic "Assert error " datum " " arguments))
-
 (defun stack-base (stack)
   (car stack))
 
@@ -55,15 +51,6 @@
 ;; TODO.
 (defun sleep (seconds)
   nil)
-
-(defun sys.int::raise-undefined-function (fref)
-  (let ((name (sys.int::%array-like-ref-t fref sys.int::+fref-name+)))
-    (cond ((consp name)
-           (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
-          (t (panic "Undefined function " (symbol-name name))))))
-
-(defun sys.int::raise-unbound-error (symbol)
-  (panic "Unbound symbol " (symbol-name symbol)))
 
 ;;; <<<<<<
 
