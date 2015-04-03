@@ -132,12 +132,21 @@
 (declaim (inline remove-if remove remove-if-not))
 (defun remove-if (test sequence &key key); from-end (start 0) end count
   (unless key (setf key 'identity))
-  (let* ((list (cons nil nil))
-	 (tail list))
-    (dolist (e sequence (cdr list))
-      (when (not (funcall test (funcall key e)))
-	(setf (cdr tail) (cons e nil)
-	      tail (cdr tail))))))
+  (etypecase sequence
+    (list
+     (let* ((list (cons nil nil))
+            (tail list))
+       (dolist (e sequence (cdr list))
+         (when (not (funcall test (funcall key e)))
+           (setf (cdr tail) (cons e nil)
+                 tail (cdr tail))))))
+    (vector
+     (loop
+        with result = (make-array (length sequence) :element-type (array-element-type sequence) :fill-pointer 0)
+        for e across sequence
+        unless (funcall test (funcall key e))
+        do (vector-push e result)
+        finally (return result)))))
 
 (defun remove (item sequence &key key test test-not); from-end (start 0) end count
   (when (and test test-not)
