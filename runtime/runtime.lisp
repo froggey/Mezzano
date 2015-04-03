@@ -16,7 +16,9 @@
        (function
         (sys.int::%%disestablish-unwind-protect)))))
 
-(sys.int::define-lap-function values-list ()
+(sys.int::define-lap-function values-list ((list)
+                                           ((list 0)))
+  "Returns the elements of LIST as multiple values."
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)
@@ -129,7 +131,8 @@
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
 
-(sys.int::define-lap-function sys.int::values-simple-vector ()
+(sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
+  "Returns the elements of SIMPLE-VECTOR as multiple values."
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
   (sys.lap-x86:mov64 :rbp :rsp)

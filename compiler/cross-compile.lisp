@@ -655,11 +655,26 @@
         ((and (consp form)
               (eql (first form) 'sys.int::define-lap-function)
               (>= (length form) 3))
-         (let ((name (second form))
-               (options (third form))
-               (code (cdddr form)))
-           (assert (null options) () "No DEFINE-LAP-FUNCTION options supported yet.")
-           (add-to-llf sys.int::+llf-setf-fdefinition+ (sys.int::assemble-lap code name) name)))
+         (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
+             (cdr form)
+           (let ((docstring nil))
+             (when (stringp (first code))
+               (setf docstring (pop code)))
+             (add-to-llf sys.int::+llf-setf-fdefinition+
+                         (sys.int::assemble-lap
+                          code
+                          name
+                          (list :debug-info
+                                name
+                                frame-layout
+                                environment-vector-offset
+                                environment-vector-layout
+                                (when *compile-file-pathname*
+                                  (princ-to-string *compile-file-pathname*))
+                                sys.int::*top-level-form-number*
+                                lambda-list
+                                docstring))
+                         name))))
         ;; And (quote form)
         ((and (consp form)
               (eql (first form) 'quote)

@@ -357,12 +357,26 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (>= (list-length form) 3)
               (eql (first form) 'define-lap-function)
               (listp (third form)))
-         ;; FORM looks like (DEFINE-LAP-FUNCTION name (options) code...)
-         (unless (= (list-length (third form)) 0)
-           (error "TODO: DEFINE-LAP-FUNCTION with options."))
-         (add-to-llf +llf-setf-fdefinition+
-                     (assemble-lap (cdddr form) (second form))
-                     (second form))
+         (destructuring-bind (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body code)
+             (cdr form)
+           (let ((docstring nil))
+             (when (stringp (first code))
+               (setf docstring (pop code)))
+             (add-to-llf +llf-setf-fdefinition+
+                         (assemble-lap
+                          code
+                          name
+                          (list :debug-info
+                                name
+                                frame-layout
+                                environment-vector-offset
+                                environment-vector-layout
+                                (when *compile-file-pathname*
+                                  (princ-to-string *compile-file-pathname*))
+                                sys.int::*top-level-form-number*
+                                lambda-list
+                                docstring))
+                         name)))
          t)
         ((and (listp form)
               (= (list-length form) 2)

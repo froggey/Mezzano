@@ -694,22 +694,25 @@ VALUE may be nil to make the fref unbound."
   (logand (1- (ash 1 +array-type-size+))
           (ash (%array-like-header object) (- +array-type-shift+))))
 
-(defmacro define-lap-function (name options &body body)
-  `(progn
-     (eval-when (:compile-toplevel :load-toplevel :execute)
-       (%compiler-defun ',name nil))
-     ;; This isn't great, it invokes the assembler at load to build the function.
-     ;; But it's OK, compile-file special-cases define-lap-function and produces
-     ;; a properly compiled function from it.
-     (%defun ',name (assemble-lap ',body ',name
-                                  (list :debug-info
-                                        ',name
-                                        nil ; stack layout
-                                        nil ; environment layout
-                                        nil ; environment location
-                                        ',(when *compile-file-pathname*
-                                                (princ-to-string *compile-file-pathname*))
-                                        sys.int::*top-level-form-number*
-                                        nil ; lambda list (unknown!)
-                                        nil))) ; docstring
-     ',name))
+(defmacro define-lap-function (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body body)
+  (let ((docstring nil))
+    (when (stringp (first body))
+      (setf docstring (pop body)))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (%compiler-defun ',name nil))
+       ;; This isn't great, it invokes the assembler at load to build the function.
+       ;; But it's OK, compile-file special-cases define-lap-function and produces
+       ;; a properly compiled function from it.
+       (%defun ',name (assemble-lap ',body ',name
+                                    ',(list :debug-info
+                                            name
+                                            frame-layout
+                                            environment-vector-offset
+                                            environment-vector-layout
+                                            (when *compile-file-pathname*
+                                              (princ-to-string *compile-file-pathname*))
+                                            sys.int::*top-level-form-number*
+                                            lambda-list
+                                            docstring)))
+       ',name)))
