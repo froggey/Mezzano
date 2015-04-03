@@ -32,7 +32,7 @@
 
 (defun debugger-show-variables (frame)
   (let* ((fn (function-from-frame frame))
-         (info (function-pool-object fn 1))
+         (info (function-debug-info fn))
          (var-id 0))
     (when (and (listp info) (eql (first info) :debug-info))
       (format t "Locals:~%")
@@ -51,7 +51,7 @@
 
 (defun debugger-read-variable (frame id)
   (let* ((fn (function-from-frame frame))
-         (info (function-pool-object fn 1))
+         (info (function-debug-info fn))
          (var-id 0))
     (when (and (listp info) (eql (first info) :debug-info))
       (dolist (var (third info))
@@ -73,7 +73,7 @@
 
 (defun debugger-write-variable (frame id value)
   (let* ((fn (function-from-frame frame))
-         (info (function-pool-object fn 1))
+         (info (function-debug-info fn))
          (var-id 0))
     (when (and (listp info) (eql (first info) :debug-info))
       (dolist (var (third info))
