@@ -54,11 +54,15 @@
   (sys.lap-x86:sar64 :rax #.+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rcx :r9)
   (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+)
+  ;; Temporarily disable interrupts, CPUID sets RBX to an unsafe value.
+  (sys.lap-x86:cli)
   (sys.lap-x86:cpuid)
   (sys.lap-x86:lea64 :r8 ((:rax #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r9 ((:rbx #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r10 ((:rcx #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r11 ((:rdx #.(ash 1 +n-fixnum-bits+))))
+  (sys.lap-x86:xor32 :ebx :ebx)
+  (sys.lap-x86:sti)
   (sys.lap-x86:mov32 :ecx #.(ash 4 +n-fixnum-bits+))
   (sys.lap-x86:ret))
 
