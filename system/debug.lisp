@@ -258,7 +258,9 @@
   (do ((i 0 (1+ i))
        (fp (read-frame-pointer)
            (memref-unsigned-byte-64 fp 0)))
-      ((= fp 0))
+      ;; Stop when return address or frame pointer is zero.
+      ((or (= fp 0)
+           (eql (memref-signed-byte-64 fp 1) 0)))
     (funcall fn i fp)))
 
 (defun backtrace (&optional limit)
