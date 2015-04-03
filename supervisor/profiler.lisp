@@ -55,7 +55,10 @@
     (do ((fp initial-frame-pointer
              (sys.int::memref-unsigned-byte-64 fp 0)))
         ((eql fp 0))
-      (profile-append-return-address (sys.int::memref-unsigned-byte-64 fp 1)))))
+      (let ((return-address (sys.int::memref-unsigned-byte-64 fp 1)))
+        (when (zerop return-address)
+          (return))
+        (profile-append-return-address return-address)))))
 
 ;;; Watch out, this runs in an interrupt handler.
 (defun profile-sample (interrupt-frame)
@@ -76,22 +79,10 @@
            (profile-append-entry thread)
            (profile-append-entry (thread-state thread))
            (profile-append-entry (thread-wait-item thread))
-           (cond ((eql (thread-stack-pointer thread)
-                       (+ (logand (sys.int::lisp-object-address thread) -16)
-                          8
-                          (* +thread-interrupt-save-area+ 8)))
-                  ;; Thread was interrupted and the state is in the interrupt save area.
-                  (profile-append-return-address
-                   (sys.int::%array-like-ref-signed-byte-64
-                    thread
-                    (+ +thread-interrupt-save-area+ 15))) ; rip
-                  (profile-append-call-stack
-                   (sys.int::%array-like-ref-signed-byte-64
-                    thread
-                    (+ +thread-interrupt-save-area+ 14)))) ;rbp
-                 (t ;; Thread went to sleep normally. Frame-pointer is valid.
-                  (profile-append-call-stack
-                   (thread-frame-pointer thread))))))))
+           (when (thread-full-save-p thread)
+             ;; RIP is valid in the save area.
+             (profile-append-return-address (thread-state-rip thread)))
+           (profile-append-call-stack (thread-frame-pointer thread))))))
 
 (defun start-profiling (&optional (buffer-size (* 1024 1024)))
   "Set up a profile sample buffer and enable sampling."
