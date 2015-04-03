@@ -219,18 +219,20 @@ If clear, the fault occured in supervisor mode.")
 
 (defvar *pagefault-hook* nil)
 
+(defun fatal-page-fault (interrupt-frame info reason address)
+  (declare (ignore interrupt-frame info))
+  (panic reason " on address " address))
+
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
     (when (and (boundp '*pagefault-hook*)
                *pagefault-hook*)
       (funcall *pagefault-hook* interrupt-frame info fault-addr))
     (cond ((not *paging-disk*)
-           (debug-print-line "Fault addr: " fault-addr)
-           (unhandled-interrupt interrupt-frame info "early page fault"))
+           (fatal-page-fault interrupt-frame info "Early page fault" fault-addr))
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
-           (debug-print-line "Fault addr: " fault-addr)
-           (unhandled-interrupt interrupt-frame info "IRQL_NOT_LESS_OR_EQUAL"))
+           (fatal-page-fault interrupt-frame info "Page fault with interrupts disabled" fault-addr))
           ((or (<= 0 fault-addr (1- (* 2 1024 1024 1024)))
                (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
                    fault-addr
@@ -238,8 +240,7 @@ If clear, the fault occured in supervisor mode.")
                       (* 512 1024 1024 1024))))
            ;; Pages below 2G are wired and should never be unmapped or protected.
            ;; Same for pages in the wired stack area.
-           (debug-print-line "Fault addr: " fault-addr)
-           (unhandled-interrupt interrupt-frame info "page fault in wired area"))
+           (fatal-page-fault interrupt-frame info "Page fault in wired area" fault-addr))
           ((and (logbitp +page-fault-error-present+ info)
                 (logbitp +page-fault-error-write+ info))
            ;; Copy on write page.
@@ -248,8 +249,7 @@ If clear, the fault occured in supervisor mode.")
           ((or (logbitp +page-fault-error-present+ info)
                (logbitp +page-fault-error-user+ info)
                (logbitp +page-fault-error-reserved-violation+ info))
-           (debug-print-line "Fault addr: " fault-addr)
-           (unhandled-interrupt interrupt-frame info "page fault"))
+           (fatal-page-fault interrupt-frame info "Page fault" fault-addr))
           (t ;; Non-present page. Try to load it from the store.
            ;; Will not return.
            (wait-for-page-via-interrupt interrupt-frame fault-addr)))))
