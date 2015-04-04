@@ -27,12 +27,6 @@ be generated instead.")
 (defconstant +tls-base-offset+ (- sys.int::+tag-object+))
 (defconstant +tls-offset-shift+ (+ sys.int::+array-length-shift+ 2))
 
-(defconstant +symbol-name+ 0)
-(defconstant +symbol-package+ 1)
-(defconstant +symbol-value+ 2)
-(defconstant +symbol-function+ 3)
-(defconstant +symbol-plist+ 4)
-
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (push i *code-accum*)))

@@ -230,26 +230,26 @@
   (sys.lap-x86:jne SLOW-PATH)
   ;; Check *GC-IN-PROGRESS*.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*gc-in-progress*))
-  (sys.lap-x86:cmp64 (:object :rax #.sys.c::+symbol-value+) nil)
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
   ;; Grovel directly in the allocator mutex to make sure that it isn't held.
   (sys.lap-x86:mov64 :rax (:constant *allocator-lock*))
-  (sys.lap-x86:mov64 :rax (:object :rax #.sys.c::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
   (sys.lap-x86:cmp64 (:object :rax 5) nil) ; mutex-owner
   (sys.lap-x86:jne SLOW-PATH)
   ;; Fetch current bump pointer.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*cons-area-bump*))
-  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.c::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.int::+symbol-value+))
   ;; + 16, size of cons.
   ;; Keep the old bump pointer, that's the address of the cons.
   (sys.lap-x86:lea64 :rsi (:rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)))
   ;; Test against limit.
   (sys.lap-x86:mov64 :rdx (:constant sys.int::*cons-area-limit*))
-  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.c::+symbol-value+))
+  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.int::+symbol-value+))
   (sys.lap-x86:ja SLOW-PATH)
   ;; Enough space.
   ;; Update the bump pointer.
-  (sys.lap-x86:mov64 (:object :rax #.sys.c::+symbol-value+) :rsi)
+  (sys.lap-x86:mov64 (:object :rax #.sys.int::+symbol-value+) :rsi)
   ;; Generate the cons object.
   ;; Unfixnumize address.
   (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
@@ -259,7 +259,7 @@
   (sys.lap-x86:or64 :rbx :rax)
   ;; Set mark bit.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*dynamic-mark-bit*))
-  (sys.lap-x86:mov64 :rax (:object :rax #.sys.c::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
   (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:or64 :rbx :rax)
   ;; RBX now holds a valid cons, with the CAR and CDR set to zero.

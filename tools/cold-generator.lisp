@@ -748,7 +748,7 @@
   (setf (word (+ (symbol-address (symbol-name symbol)
                                  (canonical-symbol-package symbol))
                  1
-                 sys.c::+symbol-value+))
+                 sys.int::+symbol-value+))
         value))
 
 (defun generate-toplevel-form-array (functions symbol)

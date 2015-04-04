@@ -120,6 +120,13 @@
 (defconstant +last-function-object-tag+ +object-tag-funcallable-instance+)
 ;;#b111111
 
+;;; Layout of symbols.
+(defconstant +symbol-name+ 0)
+(defconstant +symbol-package+ 1)
+(defconstant +symbol-value+ 2)
+(defconstant +symbol-function+ 3)
+(defconstant +symbol-plist+ 4)
+
 (defconstant +symbol-mode-nil+ 0)
 (defconstant +symbol-mode-special+ 1)
 (defconstant +symbol-mode-constant+ 2)

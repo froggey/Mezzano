@@ -1292,8 +1292,8 @@
 (define-conditional-builtin sys.int::binary-= sys.int::generic-= :e)
 
 (define-array-like-predicate symbolp sys.int::+object-tag-symbol+)
-(define-array-like-reader symbol-name symbol sys.int::+object-tag-symbol+ +symbol-name+)
-(define-array-like-accessor symbol-package symbol sys.int::+object-tag-symbol+ +symbol-package+)
+(define-array-like-reader symbol-name symbol sys.int::+object-tag-symbol+ sys.int::+symbol-name+)
+(define-array-like-accessor symbol-package symbol sys.int::+object-tag-symbol+ sys.int::+symbol-package+)
 
 (defbuiltin symbol-value (symbol) ()
   (let ((unbound-error-label (gensym))
@@ -1318,7 +1318,7 @@
           `(sys.lap-x86:cmp64 :r8 :unbound-tls-slot)
           `(sys.lap-x86:jne ,test-bound)
           no-tls-slot
-	  `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot +symbol-value+))
+	  `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot sys.int::+symbol-value+))
           test-bound
 	  `(sys.lap-x86:cmp64 :r8 :unbound-value)
 	  `(sys.lap-x86:je ,unbound-error-label))
@@ -1343,7 +1343,7 @@
           `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-value+) :r8)
+          `(sys.lap-x86:mov64 ,(object-ea :r9 :slot sys.int::+symbol-value+) :r8)
           out)
     *r8-value*))
 
@@ -1356,7 +1356,7 @@
     (load-in-reg :r9 symbol t)
     (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
     (smash-r8)
-    (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot +symbol-value+))
+    (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r9 :slot sys.int::+symbol-value+))
 	  `(sys.lap-x86:cmp64 :r8 :unbound-value)
 	  `(sys.lap-x86:je ,unbound-error-label))
     (setf *r8-value* (list (gensym)))))
@@ -1365,7 +1365,7 @@
   (load-in-reg :r9 symbol t)
   (load-in-reg :r8 value t)
   (emit-object-type-check :r9 sys.int::+object-tag-symbol+ 'symbol symbol)
-  (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot +symbol-value+) :r8))
+  (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot sys.int::+symbol-value+) :r8))
   *r8-value*)
 
 (defbuiltin sys.int::%cas-symbol-global-value (symbol old new) ()
@@ -1378,7 +1378,7 @@
   (emit `(sys.lap-x86:mov64 :rax :r8))
   (emit-gc-info :extra-registers :rax)
   (emit `(sys.lap-x86:lock)
-        `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot +symbol-value+) :r11))
+        `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot sys.int::+symbol-value+) :r11))
   (cond ((member *for-value* '(:multiple :tail))
          ;; Return success and the old value.
          (emit `(sys.lap-x86:mov64 :r9 :rax))
@@ -1391,10 +1391,10 @@
          (emit-gc-info)
          (predicate-result :z))))
 
-(define-array-like-accessor sys.int::symbol-fref symbol sys.int::+object-tag-symbol+ +symbol-function+)
+(define-array-like-accessor sys.int::symbol-fref symbol sys.int::+object-tag-symbol+ sys.int::+symbol-function+)
 
 ;; TODO type checking? ensure value is a plist?
-(define-array-like-accessor symbol-plist symbol sys.int::+object-tag-symbol+ +symbol-plist+)
+(define-array-like-accessor symbol-plist symbol sys.int::+object-tag-symbol+ sys.int::+symbol-plist+)
 
 ;; TODO: type checking, value should be a fixnum.
 #+(or)(define-array-like-accessor sys.int::%symbol-flags symbol sys.int::+object-tag-symbol+ :symbol-flags)
@@ -1420,7 +1420,7 @@
 	  `(sys.lap-x86:cmp64 :r9 :unbound-value)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot +symbol-value+)
+	  `(sys.lap-x86:cmp64 ,(object-ea :r8 :slot sys.int::+symbol-value+)
                               :unbound-value)
           out)
     (predicate-result :ne)))
@@ -1443,7 +1443,7 @@
           `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :unbound-value)
           `(sys.lap-x86:jmp ,out)
           no-tls-slot
-	  `(sys.lap-x86:mov64 ,(object-ea :r8 :slot +symbol-value+) :unbound-value)
+	  `(sys.lap-x86:mov64 ,(object-ea :r8 :slot sys.int::+symbol-value+) :unbound-value)
           out)
     *r8-value*))
 
