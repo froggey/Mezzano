@@ -432,8 +432,8 @@ This is required to make the GC interrupt safe."
               (+ stack-pointer (* (1+ layout-length) 8))
               ;; Frame pointer should be unchanged.
               frame-pointer
-              ;; Return address should be one below the stack pointer.
-              (memref-unsigned-byte-64 stack-pointer -1)))
+              ;; Return address should be above the layout variables.
+              (memref-unsigned-byte-64 stack-pointer layout-length)))
             ((not (zerop frame-pointer))
              (scavenge-stack (+ frame-pointer 16) ; sp
                              (memref-unsigned-byte-64 frame-pointer 0) ; fp
