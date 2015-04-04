@@ -284,7 +284,7 @@
       (area-for-address address)
     (ub64ref/le data-vector (* offset 8))))
 
-(defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t))
+(defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t) (name 'sys.int::support-function))
   "Compile a list of LAP code as a function. Constants must only be symbols."
   (let ((base-address (if position-independent
                           0
@@ -295,7 +295,9 @@
             :base-address base-address
             :initial-symbols (list* '(nil . :fixup)
                                     '(t . :fixup)
-                                    extra-symbols)))
+                                    extra-symbols)
+            ;; Name & debug info.
+            :info (list name nil)))
       (declare (ignore symbols))
       (setf mc (adjust-array mc (* (ceiling (length mc) 16) 16) :fill-pointer t))
       (let ((total-size (+ (* (truncate (length mc) 16) 2)
@@ -412,8 +414,8 @@
         (cl-keyword (allocate 6 :wired))
         (unbound-val (allocate 2 :wired))
         (unbound-tls-val (allocate 2 :wired))
-        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired))
-        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired))
+        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline))
+        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline))
         (struct-def-def (allocate 7 :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
@@ -1121,11 +1123,13 @@
                                    collect (create-user-interrupt-isr i)))
            (common-code (compile-lap-function *common-interrupt-code*
                                               :area :wired
-                                              :position-independent nil))
+                                              :position-independent nil
+                                              :name 'sys.int::%%common-isr-thunk))
            (common-user-code (compile-lap-function *common-user-interrupt-code*
                                                    :area :wired
                                                    :position-independent nil
-                                                   :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))))))
+                                                   :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16)))
+                                                   :name 'sys.int::%%common-user-isr-thunk)))
       (let ((fref (function-reference 'sys.int::%%common-isr-thunk)))
         (setf (word (+ fref 1 sys.int::+fref-function+)) (make-value common-code sys.int::+tag-object+)
               (word (+ fref 1 sys.int::+fref-entry-point+)) (+ (* common-code 8) 16)))
@@ -1141,7 +1145,8 @@
                                              :area :wired
                                              :position-independent nil
                                              :extra-symbols (list (cons 'interrupt-common (+ (* common-code 8) 16))
-                                                                  (cons 'user-interrupt-common (+ (* common-user-code 8) 16))))))
+                                                                  (cons 'user-interrupt-common (+ (* common-user-code 8) 16)))
+                                             :name (intern (format nil "%%ISR-THUNK-~D" i) "SYS.INT"))))
              (setf (word (+ isr-table 1 i)) (make-value addr sys.int::+tag-object+)))
          else do
            (setf (word (+ isr-table 1 i)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))))))
@@ -1297,6 +1302,12 @@
             sys.int::*stack-area-bump*
             :wired :pinned :general :cons :nursery :stack
             ))
+    (loop
+       for (what address byte-offset type debug-info) in *pending-fixups*
+       when (and (consp what)
+                 (symbolp (second what)))
+       do (symbol-address (string (second what))
+                          (package-name (symbol-package (second what)))))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
                          :stack-size (* 16 1024)))
