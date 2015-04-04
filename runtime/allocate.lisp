@@ -219,7 +219,67 @@
                  (cdr val) cdr)
            val))))))
 
-(defun cons (car cdr)
+(sys.int::define-lap-function cons ((car cdr))
+  ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
+  ;; This is not even remotely SMP safe.
+  ;; R8 = car; R9 = cdr
+  ;; Big hammer, disable interrupts. Faster than taking locks & stuff.
+  (sys.lap-x86:cli)
+  ;; Check argument count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 2 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Check *GC-IN-PROGRESS*.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*gc-in-progress*))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.c::+symbol-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Grovel directly in the allocator mutex to make sure that it isn't held.
+  (sys.lap-x86:mov64 :rax (:constant *allocator-lock*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.c::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rax 5) nil) ; mutex-owner
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Fetch current bump pointer.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*cons-area-bump*))
+  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.c::+symbol-value+))
+  ;; + 16, size of cons.
+  ;; Keep the old bump pointer, that's the address of the cons.
+  (sys.lap-x86:lea64 :rsi (:rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)))
+  ;; Test against limit.
+  (sys.lap-x86:mov64 :rdx (:constant sys.int::*cons-area-limit*))
+  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.c::+symbol-value+))
+  (sys.lap-x86:ja SLOW-PATH)
+  ;; Enough space.
+  ;; Update the bump pointer.
+  (sys.lap-x86:mov64 (:object :rax #.sys.c::+symbol-value+) :rsi)
+  ;; Generate the cons object.
+  ;; Unfixnumize address.
+  (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits and the tag bits.
+  (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                    sys.int::+tag-cons+))
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; Set mark bit.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*dynamic-mark-bit*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.c::+symbol-value+))
+  (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
+  ;; It is safe to turn interrupts on again.
+  (sys.lap-x86:sti)
+  ;; Initialize the CAR & CDR with interrupts on because touching them may
+  ;; trigger paging.
+  (sys.lap-x86:mov64 (:car :rbx) :r8)
+  (sys.lap-x86:mov64 (:cdr :rbx) :r9)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  (sys.lap-x86:sti)
+  ;; Tail call into SLOW-CONS.
+  (sys.lap-x86:mov64 :r13 (:function slow-cons))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
+(defun slow-cons (car cdr)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
   (mezzano.supervisor:without-footholds
@@ -228,7 +288,7 @@
        (mezzano.supervisor:with-mutex (*allocator-lock*)
          (tagbody
           INNER-LOOP
-            (return-from cons
+            (return-from slow-cons
               (mezzano.supervisor:with-pseudo-atomic
                 (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
                   (go EXPAND-AREA))
