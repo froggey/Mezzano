@@ -19,15 +19,23 @@
            #:character-to-glyph
            #:*default-font*
            #:*default-font-size*
+           #:*default-bold-font*
+           #:*default-bold-font-size*
            #:*default-monospace-font*
-           #:*default-monospace-font-size*))
+           #:*default-monospace-font-size*
+           #:*default-monospace-bold-font*
+           #:*default-monospace-bold-font-size*))
 
 (in-package :mezzano.gui.font)
 
 (defvar *default-font* "DejaVuSans")
 (defvar *default-font-size* 12)
+(defvar *default-bold-font* "DejaVuSans-Bold")
+(defvar *default-bold-font-size* 12)
 (defvar *default-monospace-font* "DejaVuSansMono")
 (defvar *default-monospace-font-size* 12)
+(defvar *default-monospace-bold-font* "DejaVuSansMono-Bold")
+(defvar *default-monospace-bold-font-size* 12)
 
 (defclass typeface ()
   ((%font-loader :initarg :font-loader :reader font-loader)
