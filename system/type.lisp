@@ -573,7 +573,6 @@
        (#b011000 `(simple-array xmm-vector (,(array-dimension object 0))))
        (#b011001 'object-tag-011001)
        (#b011010 'object-tag-011010)
-       (#b011011 `(memory-array ,(array-element-type object) ,(array-dimension object)))
        (#b011100 (if (eql (array-rank object) 1)
                      `(simple-string ,(array-dimension object 0))
                      `(simple-array character ,(array-dimensions object))))

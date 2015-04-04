@@ -59,8 +59,7 @@
 (defconstant +last-simple-1d-array-object-tag+ +object-tag-array-xmm-vector+)
 ;;#b011001
 ;;#b011010
-;; Arrays that point to somewhere special in memory (for MMIO, etc).
-(defconstant +object-tag-memory-array+            #b011011)
+;;#b011011
 ;; Strings. Simple strings are the same as normal strings, except marked as simple.
 ;; These are actually character arrays, they're only string when rank = 1.
 (defconstant +object-tag-simple-string+           #b011100)
@@ -68,7 +67,7 @@
 ;; Other arrays.
 (defconstant +object-tag-simple-array+            #b011110)
 (defconstant +object-tag-array+                   #b011111)
-(defconstant +first-complex-array-object-tag+ +object-tag-memory-array+)
+(defconstant +first-complex-array-object-tag+ +object-tag-simple-string+)
 (defconstant +last-complex-array-object-tag+ +object-tag-array+)
 
 ;; When set, the array or string is not simple.

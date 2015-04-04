@@ -218,30 +218,6 @@
      (setf (%array-like-ref-unsigned-byte-32 array index)
            (%single-float-as-integer value)))))
 
-(defun %memory-aref (type address index)
-  (cond
-    ((equal type '(unsigned-byte 8))
-     (memref-unsigned-byte-8 address index))
-    ((equal type '(unsigned-byte 16))
-     (memref-unsigned-byte-16 address index))
-    ((equal type '(unsigned-byte 32))
-     (memref-unsigned-byte-32 address index))
-    ((equal type '(unsigned-byte 64))
-     (memref-unsigned-byte-64 address index))
-    (t (error "TODO: %MEMORY-AREF ~S." type))))
-
-(defun (setf %memory-aref) (value type address index)
-  (cond
-    ((equal type '(unsigned-byte 8))
-     (setf (memref-unsigned-byte-8 address index) value))
-    ((equal type '(unsigned-byte 16))
-     (setf (memref-unsigned-byte-16 address index) value))
-    ((equal type '(unsigned-byte 32))
-     (setf (memref-unsigned-byte-32 address index) value))
-    ((equal type '(unsigned-byte 64))
-     (setf (memref-unsigned-byte-64 address index) value))
-    (t (error "TODO: SETF %MEMORY-AREF ~S." type))))
-
 (defun %simple-array-element-type (array)
   (svref *array-types* (%simple-array-type array)))
 
@@ -301,9 +277,11 @@
     (let ((to-offset 0)
           (from-offset 0))
       (when (integerp (%complex-array-info to-array))
+        ;; Undisplace array.
         (setf to-offset (%complex-array-info to-array)
               to-array (%complex-array-storage to-array)))
       (when (integerp (%complex-array-info from-array))
+        ;; Undisplace array.
         (setf from-offset (%complex-array-info from-array)
               from-array (%complex-array-storage from-array)))
       (let* ((to-storage (%complex-array-storage to-array))
@@ -321,10 +299,10 @@
              (from-stride (* from-width stride))
              (bytes-per-col (* ncols stride)))
         (assert (equal (array-element-type from-array) type))
-        (unless (integerp to-storage)
-          (setf to-storage (+ (lisp-object-address to-storage) (- +tag-object+) 8)))
-        (unless (integerp from-storage)
-          (setf from-storage (+ (lisp-object-address from-storage) (- +tag-object+) 8)))
+        ;; Objects to addresses.
+        (setf to-storage (+ (lisp-object-address to-storage) (- +tag-object+) 8))
+        (setf from-storage (+ (lisp-object-address from-storage) (- +tag-object+) 8))
+        ;; Offset into arrays.
         (incf to-storage (* (+ (* to-row to-width) to-col to-offset) stride))
         (incf from-storage (* (+ (* from-row from-width) from-col from-offset) stride))
         (%%bitblt to-storage from-storage bytes-per-col to-stride from-stride nrows)))))
@@ -384,14 +362,16 @@
   (mezzano.supervisor:with-pseudo-atomic
     (let ((to-displacement 0))
       (when (integerp (%complex-array-info to-array))
+        ;; Undisplace array.
         (setf to-displacement (%complex-array-info to-array)
               to-array (%complex-array-storage to-array)))
       (let* ((to-storage (%complex-array-storage to-array))
              (to-width (array-dimension to-array 1))
              (to-offset (+ (* to-row to-width) to-col))
              (type (array-element-type to-array)))
-        (unless (fixnump to-storage)
-          (setf to-storage (+ (lisp-object-address to-storage) (- +tag-object+) 8)))
+        ;; Object to address.
+        (setf to-storage (+ (lisp-object-address to-storage) (- +tag-object+) 8))
+        ;; Offset into array.
         (incf to-storage (* to-displacement 4))
         (cond
           ((equal type '(unsigned-byte 8))

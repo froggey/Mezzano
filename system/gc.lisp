@@ -596,8 +596,7 @@ This is required to make the GC interrupt safe."
        ;; 1+ to account for the header word.
        (scan-generic object (1+ (ldb (byte +array-length-size+ +array-length-shift+)
                                      (memref-unsigned-byte-64 address 0)))))
-      ((#.+object-tag-memory-array+
-        #.+object-tag-simple-string+
+      ((#.+object-tag-simple-string+
         #.+object-tag-string+
         #.+object-tag-simple-array+
         #.+object-tag-array+)
@@ -804,8 +803,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                       (* (ldb (byte 16 24) length) 8)  ; pool size
                       (ldb (byte 16 40) length)) ; gc-info size.
                    8))
-         ((#.+object-tag-memory-array+
-           #.+object-tag-simple-string+
+         ((#.+object-tag-simple-string+
            #.+object-tag-string+
            #.+object-tag-simple-array+
            #.+object-tag-array+)

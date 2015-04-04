@@ -65,13 +65,12 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (when (integerp (sys.int::%complex-array-info from-array))
       (setf from-offset (sys.int::%complex-array-info from-array)
             from-storage (sys.int::%complex-array-storage from-storage)))
-    ;; Storage must be a simple ub32 array, not a fixnum (memory array)
-    (when (or (sys.int::fixnump from-storage)
-              (not (eql (sys.int::%object-tag from-storage)
-                        sys.int::+object-tag-array-unsigned-byte-32+)))
+    ;; Storage must be a simple ub32 array.
+    (when (not (and (eql (sys.int::%tag-field from-storage) sys.int::+tag-object+)
+                    (eql (sys.int::%object-tag from-storage)
+                         sys.int::+object-tag-array-unsigned-byte-32+)))
       (error 'type-error
-             :expected-type '(and (array (unsigned-byte 32) (* *))
-                                  (not sys.int::memory-array))
+             :expected-type (array (unsigned-byte 32) (* *))
              :datum from-array))
     ;; Clamp parameters.
     ;; Only need to clamp values below zero here. nrows/ncols will

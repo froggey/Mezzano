@@ -207,7 +207,6 @@
 		   adjustable
 		   fill-pointer
 		   displaced-to displaced-index-offset
-                   memory
                    area)
   ;; n => (n)
   (when (not (listp dimensions))
@@ -228,15 +227,12 @@
         (error "Invalid :FILL-POINTER ~S." fill-pointer))
       (unless (<= 0 fill-pointer (first dimensions))
         (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer (first dimensions))))
-    (when (and memory displaced-to)
-      (error ":MEMORY and :DISPLACED-TO are mutually exclusive."))
     (dolist (dimension dimensions)
       (check-type dimension (integer 0)))
     (cond ((and (eql rank 1)
                 (not adjustable)
                 (not fill-pointer)
                 (not displaced-to)
-                (not memory)
                 ;; character arrays are special.
                 (not (and (subtypep element-type 'character)
                           (not (subtypep element-type 'nil)))))
@@ -251,16 +247,6 @@
            (unless displaced-index-offset
              (setf displaced-index-offset 0))
            (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
-          (memory
-           ;; Element types must be exact matches.
-           (when (not (member element-type *array-info*
-                              :test (lambda (x y) (and (subtypep x y) (subtypep y x)))
-                              :key #'first))
-             (error "Element type ~S is not supported for memory arrays." element-type))
-           (check-type memory fixnum)
-           (when (or initial-element-p initial-contents-p)
-             (error "TODO: Initialization of memory arrays."))
-           (%make-array-header +object-tag-memory-array+ memory fill-pointer element-type dimensions area))
           ((and (subtypep element-type 'character)
                 (not (subtypep element-type 'nil)))
            (let* ((total-size (apply #'* dimensions))
@@ -380,9 +366,6 @@
          (%simple-array-element-type array))
         ((character-array-p array)
          'character)
-        ((integerp (%complex-array-storage array))
-         ;; Memory arrays store the type in the info slot.
-         (%complex-array-info array))
         ((%complex-array-info array)
          ;; Displaced arrays inherit the type of the array they displace on.
          (array-element-type (%complex-array-storage array)))
@@ -443,13 +426,9 @@
   (cond ((%simple-1d-array-p array)
          (%simple-array-aref array index))
         ((%complex-array-info array)
-         ;; Either a memory array or a displaced array.
-         (if (eql (%object-tag array) +object-tag-memory-array+)
-             (%memory-aref (%complex-array-info array)
-                           (%complex-array-storage array)
-                           index)
-             (row-major-aref (%complex-array-storage array)
-                             (+ index (%complex-array-info array)))))
+         ;; A displaced array.
+         (row-major-aref (%complex-array-storage array)
+                         (+ index (%complex-array-info array))))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (%%assemble-value (ash (%simple-array-aref (%complex-array-storage array) index)
@@ -463,15 +442,10 @@
   (cond ((%simple-1d-array-p array)
          (setf (%simple-array-aref array index) value))
         ((%complex-array-info array)
-         ;; Either a memory array or a displaced array.
-         (if (eql (%object-tag array) +object-tag-memory-array+)
-             (setf (%memory-aref (%complex-array-info array)
-                                 (%complex-array-storage array)
-                                 index)
-                   value)
-             (setf (row-major-aref (%complex-array-storage array)
-                                   (+ index (%complex-array-info array)))
-                   value)))
+         ;; A displaced array.
+         (setf (row-major-aref (%complex-array-storage array)
+                               (+ index (%complex-array-info array)))
+               value))
         ((character-array-p array)
          ;; Character array. Elements are characters, stored as integers.
          (let ((min-len (cond ((<= (char-int value) #xFF)

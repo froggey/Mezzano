@@ -35,13 +35,6 @@
                  (fresh-line)
                  (write v)))))))))
 
-(defun hexdump-range (start end &optional stream)
-  (when (< start end)
-    (write-sequence (make-array (- end start)
-                                :element-type '(unsigned-byte 8)
-                                :memory (+ #x8000000000 start))
-                    stream)))
-
 (defgeneric documentation (x doc-type))
 (defgeneric (setf documentation) (new-value x doc-type))
 

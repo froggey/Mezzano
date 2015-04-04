@@ -114,13 +114,14 @@
       (sys.int::%bitset nrows ncols val to-array to-row to-col))))
 
 (defun %simple-array-data-pointer (array)
-  "Find the address of ARRAY's first data element."
+  "Find the address of ARRAY's first data element.
+ARRAY must not be a displaced array."
   (when (not (sys.int::%simple-1d-array-p array))
+    ;; Complex array, convert to storage.
     (setf array (sys.int::%complex-array-storage array)))
-  (unless (integerp array)
-    (assert (sys.int::%simple-1d-array-p array))
-    (setf array (+ (sys.int::lisp-object-address array) (- sys.int::+tag-object+) 8)))
-  array)
+  (assert (sys.int::%simple-1d-array-p array))
+  ;; Array to address.
+  (+ (sys.int::lisp-object-address array) (- sys.int::+tag-object+) 8))
 
 ;;; SETTER(:r8) NCOLS(:r9) COLOUR(:r10) MASK(:r11) MASK-OFFSET(:r12) TO(+8) TO-OFFSET(+16)
 ;;; TO and TO-OFFSET are fixnums, no GC info required.
