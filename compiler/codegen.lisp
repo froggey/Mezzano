@@ -22,6 +22,7 @@ be generated instead.")
 (defvar *trailers* nil)
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
+(defvar *active-nl-exits* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-object+))
@@ -84,6 +85,11 @@ be generated instead.")
                               '(:unboxed . :home))
                           *stack-values*))))
 
+(defun add-dx-root (stack-slot)
+  (do ((i *active-nl-exits* (cdr i)))
+      ((endp i))
+    (push stack-slot (car i))))
+
 (defun no-tail (value-mode)
   (ecase value-mode
     ((:multiple :predicate t nil) value-mode)
@@ -104,7 +110,8 @@ be generated instead.")
          (*code-accum* '())
          (*trailers* '())
          (arg-registers '(:r8 :r9 :r10 :r11 :r12))
-         (*gc-info-fixups* '()))
+         (*gc-info-fixups* '())
+         (*active-nl-exits* '()))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -534,12 +541,24 @@ be generated instead.")
                                                 sys.int::+tag-object+)))))))
   (setf *r8-value* (list (gensym))))
 
+(defun emit-nlx-thunk (thunk-name target-label multiple-values-active)
+  (emit-trailer (thunk-name nil)
+    (if multiple-values-active
+        (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
+        (emit-gc-info :block-or-tagbody-thunk :rax))
+    (emit `(sys.lap-x86:mov64 :csp (:rax 16))
+          `(sys.lap-x86:mov64 :cfp (:rax 24)))
+    (dolist (slot (first *active-nl-exits*))
+      (emit `(sys.lap-x86:mov64 (:stack ,slot) nil)))
+    (emit `(sys.lap-x86:jmp ,target-label))))
+
 (defun cg-block (form)
   (let* ((info (second form))
          (exit-label (gensym "block"))
          (thunk-label (gensym "block-thunk"))
          (escapes (block-information-env-var info))
-         (*for-value* *for-value*))
+         (*for-value* *for-value*)
+         (*active-nl-exits* (list* '() *active-nl-exits*)))
     ;; Allowing predicate values here is too complicated.
     (when (eql *for-value* :predicate)
       (setf *for-value* t))
@@ -565,57 +584,52 @@ be generated instead.")
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
               ;; Save pointer to info
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
-              `(sys.lap-x86:mov64 (:stack ,slot) :rax)))
-      (emit-trailer (thunk-label nil)
-        (case *for-value*
-          ((:multiple :tail)
-           (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0))
-          (t (emit-gc-info :block-or-tagbody-thunk :rax)))
-        (emit `(sys.lap-x86:mov64 :csp (:rax 16))
-              `(sys.lap-x86:mov64 :cfp (:rax 24))
-              `(sys.lap-x86:jmp ,exit-label))))
-    (let* ((*rename-list* (cons (list (second form) exit-label) *rename-list*))
-           (stack-slots (set-up-for-branch))
-           (tag (cg-form `(progn ,@(cddr form)))))
-      (cond ((and *for-value* tag (/= (block-information-count info) 0))
-             ;; Returning a value, exit is reached normally and there were return-from forms reached.
-             ;; Unify the results, so :MULTIPLE is always returned.
-             (let ((return-mode nil))
-               (ecase *for-value*
-                 ((:multiple :tail)
-                  (unless (eql tag :multiple)
-                    (load-multiple-values tag)
-                    (smash-r8))
-                  (setf return-mode :multiple))
-                 (t (load-in-r8 tag t)
-                    (smash-r8)
-                    (setf return-mode (list (gensym)))))
-               (emit exit-label)
-               (when (member *for-value* '(:multiple :tail))
-                 (emit-gc-info :multiple-values 0))
-               (setf *stack-values* (copy-stack-values stack-slots)
-                     *r8-value* return-mode)))
-            ((and *for-value* tag)
-             ;; Returning a value, exit is reached normally, but no return-from forms were reached.
-             tag)
-            ((and *for-value* (/= (block-information-count info) 0))
-             ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
-             (smash-r8)
-             (emit exit-label)
-             (when (member *for-value* '(:multiple :tail))
-               (emit-gc-info :multiple-values 0))
-             (setf *stack-values* (copy-stack-values stack-slots)
-                   *r8-value* (if (member *for-value* '(:multiple :tail))
-                                  :multiple
-                                  (list (gensym)))))
-            ((/= (block-information-count info) 0)
-             ;; Not returning a value, but there were return-from forms reached.
-             (smash-r8)
-             (emit exit-label)
-             (setf *stack-values* (copy-stack-values stack-slots)
-                   *r8-value* (list (gensym))))
-            ;; No value returned, no return-from forms reached.
-            (t nil)))))
+              `(sys.lap-x86:mov64 (:stack ,slot) :rax))))
+    (prog1
+        (let* ((*rename-list* (cons (list (second form) exit-label) *rename-list*))
+               (stack-slots (set-up-for-branch))
+               (tag (cg-form `(progn ,@(cddr form)))))
+          (cond ((and *for-value* tag (/= (block-information-count info) 0))
+                 ;; Returning a value, exit is reached normally and there were return-from forms reached.
+                 ;; Unify the results, so :MULTIPLE is always returned.
+                 (let ((return-mode nil))
+                   (ecase *for-value*
+                     ((:multiple :tail)
+                      (unless (eql tag :multiple)
+                        (load-multiple-values tag)
+                        (smash-r8))
+                      (setf return-mode :multiple))
+                     (t (load-in-r8 tag t)
+                        (smash-r8)
+                        (setf return-mode (list (gensym)))))
+                   (emit exit-label)
+                   (when (member *for-value* '(:multiple :tail))
+                     (emit-gc-info :multiple-values 0))
+                   (setf *stack-values* (copy-stack-values stack-slots)
+                         *r8-value* return-mode)))
+                ((and *for-value* tag)
+                 ;; Returning a value, exit is reached normally, but no return-from forms were reached.
+                 tag)
+                ((and *for-value* (/= (block-information-count info) 0))
+                 ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
+                 (smash-r8)
+                 (emit exit-label)
+                 (when (member *for-value* '(:multiple :tail))
+                   (emit-gc-info :multiple-values 0))
+                 (setf *stack-values* (copy-stack-values stack-slots)
+                       *r8-value* (if (member *for-value* '(:multiple :tail))
+                                      :multiple
+                                      (list (gensym)))))
+                ((/= (block-information-count info) 0)
+                 ;; Not returning a value, but there were return-from forms reached.
+                 (smash-r8)
+                 (emit exit-label)
+                 (setf *stack-values* (copy-stack-values stack-slots)
+                       *r8-value* (list (gensym))))
+                ;; No value returned, no return-from forms reached.
+                (t nil)))
+      (when escapes
+        (emit-nlx-thunk thunk-label exit-label (member *for-value* '(:multiple :tail)))))))
 
 (defun cg-function (form)
   (let ((name (second form))
@@ -1063,7 +1077,8 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:jnz ,save-loop-head))
            ;; Finished saving values. Turn MV GC mode off.
            (emit save-done)
-           (emit-gc-info))
+           (emit-gc-info)
+           (add-dx-root sv-save-area))
          (let ((*for-value* nil))
            (when (not (cg-progn `(progn ,@(cddr form))))
              ;; No return.
@@ -1174,21 +1189,9 @@ Returns an appropriate tag."
         (thunk-labels (mapcar (lambda (tag)
                                 (declare (ignore tag))
                                 (gensym))
-                              (tagbody-information-go-tags (second form)))))
+                              (tagbody-information-go-tags (second form))))
+        (*active-nl-exits* (list* '() *active-nl-exits*)))
     (when escapes
-      ;; Emit the jump-table.
-      ;; TODO: Prune local labels out.
-      (emit-trailer (jump-table nil)
-        (dolist (i thunk-labels)
-          (emit `(:d64/le (- ,i ,jump-table)))))
-      ;; And the all the thunks.
-      (loop for thunk in thunk-labels
-         for label in tag-labels do
-           (emit-trailer (thunk nil)
-             (emit-gc-info :block-or-tagbody-thunk :rax)
-             (emit `(sys.lap-x86:mov64 :csp (:rax 16))
-                   `(sys.lap-x86:mov64 :cfp (:rax 24))
-                   `(sys.lap-x86:jmp ,label))))
       (smash-r8)
       (let ((slot (find-stack-slot))
             (control-info (allocate-control-stack-slots 4)))
@@ -1216,6 +1219,17 @@ Returns an appropriate tag."
 	    (setf last-value t)
 	    (emit (second (assoc stmt *rename-list*))))
 	  (setf last-value (cg-form stmt))))
+    (when escapes
+      ;; Emit the jump-table.
+      ;; TODO: Prune local labels out.
+      (emit-trailer (jump-table nil)
+        (dolist (i thunk-labels)
+          (emit `(:d64/le (- ,i ,jump-table)))))
+      ;; And the all the thunks.
+      (loop
+         for thunk in thunk-labels
+         for label in tag-labels do
+           (emit-nlx-thunk thunk label nil)))
     (if last-value
 	''nil
 	'nil)))
