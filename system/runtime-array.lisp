@@ -3,33 +3,69 @@
 
 (in-package :sys.int)
 
-;;; (type tag size-in-bits 16-byte-aligned-p)
-(defvar *array-info*
-  '((bit #.+object-tag-array-bit+ 1 nil)
-    ((unsigned-byte 2) #.+object-tag-array-unsigned-byte-2+ 2 nil)
-    ((unsigned-byte 4) #.+object-tag-array-unsigned-byte-4+ 4 nil)
-    ((unsigned-byte 8) #.+object-tag-array-unsigned-byte-8+ 8 nil)
-    ((unsigned-byte 16) #.+object-tag-array-unsigned-byte-16+ 16 nil)
-    ((unsigned-byte 32) #.+object-tag-array-unsigned-byte-32+ 32 nil)
-    ((unsigned-byte 64) #.+object-tag-array-unsigned-byte-64+ 64 nil)
-    ((signed-byte 1) #.+object-tag-array-signed-byte-1+ 1 nil)
-    ((signed-byte 2) #.+object-tag-array-signed-byte-2+ 2 nil)
-    ((signed-byte 4) #.+object-tag-array-signed-byte-4+ 4 nil)
-    ((signed-byte 8) #.+object-tag-array-signed-byte-8+ 8 nil)
-    ((signed-byte 16) #.+object-tag-array-signed-byte-16+ 16 nil)
-    ((signed-byte 32) #.+object-tag-array-signed-byte-32+ 32 nil)
-    ((signed-byte 64) #.+object-tag-array-signed-byte-64+ 64 nil)
-    (single-float #.+object-tag-array-single-float+ 32 t)
-    (double-float #.+object-tag-array-double-float+ 64 t)
-    (long-float #.+object-tag-array-long-float+ 128 t)
-    (xmm-vector #.+object-tag-array-xmm-vector+ 128 t)
-    ((complex single-float) #.+object-tag-array-complex-single-float+ 64 t)
-    ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t)
-    ((complex long-float) #.+object-tag-array-complex-long-float+ 256 t)
-    (fixnum #.+object-tag-array-fixnum+ 64 nil)
-    (t #.+object-tag-array-t+ 64 nil)))
+;; Information about the various specialized arrays.
+;; A list of (type tag size-in-bits 16-byte-aligned-p) lists.
+;; This must be sorted from most-specific type to least-specific type.
+(defvar *array-info*)
+;; A simple-vector mapping simple 1D array object tags to their element type.
+(defvar *array-types*)
 
-(defun %allocate-and-clear-array (length real-element-type &optional area)
+(defun cold-array-initialization ()
+  "Called during cold-load to initialize array support variables."
+  (setf *array-info*
+        '((bit                    #.+object-tag-array-bit+                    1 nil)
+          ((unsigned-byte 2)      #.+object-tag-array-unsigned-byte-2+        2 nil)
+          ((unsigned-byte 4)      #.+object-tag-array-unsigned-byte-4+        4 nil)
+          ((unsigned-byte 8)      #.+object-tag-array-unsigned-byte-8+        8 nil)
+          ((unsigned-byte 16)     #.+object-tag-array-unsigned-byte-16+      16 nil)
+          ((unsigned-byte 32)     #.+object-tag-array-unsigned-byte-32+      32 nil)
+          ((unsigned-byte 64)     #.+object-tag-array-unsigned-byte-64+      64 nil)
+          ((signed-byte 1)        #.+object-tag-array-signed-byte-1+          1 nil)
+          ((signed-byte 2)        #.+object-tag-array-signed-byte-2+          2 nil)
+          ((signed-byte 4)        #.+object-tag-array-signed-byte-4+          4 nil)
+          ((signed-byte 8)        #.+object-tag-array-signed-byte-8+          8 nil)
+          ((signed-byte 16)       #.+object-tag-array-signed-byte-16+        16 nil)
+          ((signed-byte 32)       #.+object-tag-array-signed-byte-32+        32 nil)
+          (fixnum                 #.+object-tag-array-fixnum+                64 nil)
+          ((signed-byte 64)       #.+object-tag-array-signed-byte-64+        64 nil)
+          (single-float           #.+object-tag-array-single-float+          32 t)
+          (double-float           #.+object-tag-array-double-float+          64 t)
+          (short-float            #.+object-tag-array-short-float+           16 t)
+          (long-float             #.+object-tag-array-long-float+           128 t)
+          (xmm-vector             #.+object-tag-array-xmm-vector+           128 t)
+          ((complex single-float) #.+object-tag-array-complex-single-float+  64 t)
+          ((complex double-float) #.+object-tag-array-complex-double-float+ 128 t)
+          ((complex short-float)  #.+object-tag-array-complex-short-float+   32 t)
+          ((complex long-float)   #.+object-tag-array-complex-long-float+   256 t)
+          (t                      #.+object-tag-array-t+                     64 nil)))
+  (setf *array-types*
+        #(t
+          fixnum
+          bit
+          (unsigned-byte 2)
+          (unsigned-byte 4)
+          (unsigned-byte 8)
+          (unsigned-byte 16)
+          (unsigned-byte 32)
+          (unsigned-byte 64)
+          (signed-byte 1)
+          (signed-byte 2)
+          (signed-byte 4)
+          (signed-byte 8)
+          (signed-byte 16)
+          (signed-byte 32)
+          (signed-byte 64)
+          single-float
+          double-float
+          short-float
+          long-float
+          (complex single-float)
+          (complex double-float)
+          (complex short-float)
+          (complex long-float)
+          xmm-vector)))
+
+(defun make-simple-array-1 (length real-element-type area)
   (let* ((info (assoc real-element-type *array-info* :test 'equal))
          (total-size (+ (if (fourth info) 64 0) ; padding for alignment.
                         (* length (third info)))))
@@ -38,19 +74,7 @@
       (incf total-size (- 64 (rem total-size 64))))
     (%allocate-array-like (second info) (truncate total-size 64) length area)))
 
-(defun %allocate-and-fill-array (length real-element-type initial-element &optional area)
-  (let ((array (%allocate-and-clear-array length real-element-type area)))
-    (dotimes (i length)
-      (setf (aref array i) initial-element))
-    array))
-
-#+(or)(defun make-simple-vector (length &optional area)
-  "Allocate a SIMPLE-VECTOR with LENGTH elements.
-Equivalent to (make-array length). Used by the compiler to
-allocate environment frames."
-  (%allocate-array-like +object-tag-array-t+ length length area))
-
-(defun signify (value width)
+(defun sign-extend (value width)
   "Convert an unsigned integer to a signed value."
   (if (logbitp (1- width) value)
       (logior value (lognot (1- (ash 1 width))))
@@ -87,21 +111,21 @@ allocate environment frames."
     (#.+object-tag-array-signed-byte-1+
      (multiple-value-bind (offset bit)
          (truncate index 8)
-       (signify (ldb (byte 1 bit)
-                     (%array-like-ref-unsigned-byte-8 array offset))
-                1)))
+       (sign-extend (ldb (byte 1 bit)
+                         (%array-like-ref-unsigned-byte-8 array offset))
+                    1)))
     (#.+object-tag-array-signed-byte-2+
      (multiple-value-bind (offset bit)
          (truncate index 4)
-       (signify (ldb (byte 2 bit)
-                     (%array-like-ref-unsigned-byte-8 array offset))
-                2)))
+       (sign-extend (ldb (byte 2 bit)
+                         (%array-like-ref-unsigned-byte-8 array offset))
+                    2)))
     (#.+object-tag-array-signed-byte-4+
      (multiple-value-bind (offset bit)
          (truncate index 2)
-       (signify (ldb (byte 4 bit)
-                     (%array-like-ref-unsigned-byte-8 array offset))
-                4)))
+       (sign-extend (ldb (byte 4 bit)
+                         (%array-like-ref-unsigned-byte-8 array offset))
+                    4)))
     (#.+object-tag-array-signed-byte-8+
      (%array-like-ref-signed-byte-8 array index))
     (#.+object-tag-array-signed-byte-16+
@@ -217,33 +241,6 @@ allocate environment frames."
     ((equal type '(unsigned-byte 64))
      (setf (memref-unsigned-byte-64 address index) value))
     (t (error "TODO: SETF %MEMORY-AREF ~S." type))))
-
-(defparameter *array-types*
-  #(t
-    fixnum
-    bit
-    (unsigned-byte 2)
-    (unsigned-byte 4)
-    (unsigned-byte 8)
-    (unsigned-byte 16)
-    (unsigned-byte 32)
-    (unsigned-byte 64)
-    (signed-byte 1)
-    (signed-byte 2)
-    (signed-byte 4)
-    (signed-byte 8)
-    (signed-byte 16)
-    (signed-byte 32)
-    (signed-byte 64)
-    single-float
-    double-float
-    short-float
-    long-float
-    (complex single-float)
-    (complex double-float)
-    (complex short-float)
-    (complex long-float)
-    xmm-vector))
 
 (defun %simple-array-element-type (array)
   (svref *array-types* (%simple-array-type array)))

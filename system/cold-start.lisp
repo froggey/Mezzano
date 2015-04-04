@@ -239,32 +239,8 @@
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
 structures to exist, and for memory to be allocated, but not much beyond that."
-  (setf *array-types* #(t
-                        fixnum
-                        bit
-                        (unsigned-byte 2)
-                        (unsigned-byte 4)
-                        (unsigned-byte 8)
-                        (unsigned-byte 16)
-                        (unsigned-byte 32)
-                        (unsigned-byte 64)
-                        (signed-byte 1)
-                        (signed-byte 2)
-                        (signed-byte 4)
-                        (signed-byte 8)
-                        (signed-byte 16)
-                        (signed-byte 32)
-                        (signed-byte 64)
-                        single-float
-                        double-float
-                        short-float
-                        long-float
-                        (complex single-float)
-                        (complex double-float)
-                        (complex short-float)
-                        (complex long-float)
-                        xmm-vector)
-        *package* nil
+  (cold-array-initialization)
+  (setf *package* nil
         *cold-stream* (make-cold-stream)
         *terminal-io* *cold-stream*
         *standard-output* *cold-stream*

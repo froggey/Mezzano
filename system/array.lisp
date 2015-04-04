@@ -101,45 +101,19 @@
 (%define-type-symbol 'array 'arrayp)
 )
 
-(defparameter *specialized-array-types*
-  '(bit
-    (unsigned-byte 2)
-    (unsigned-byte 4)
-    (unsigned-byte 8)
-    (unsigned-byte 16)
-    (unsigned-byte 32)
-    (unsigned-byte 64)
-    (signed-byte 1)
-    (signed-byte 2)
-    (signed-byte 4)
-    (signed-byte 8)
-    (signed-byte 16)
-    (signed-byte 32)
-    (signed-byte 64)
-    base-char
-    character
-    single-float
-    double-float
-    long-float
-    (complex single-float)
-    (complex double-float)
-    (complex long-float)
-    t)
-  "A list of specialized array types supported by the runtime.
-This must be sorted from most-specific to least-specific.")
-
 (defun upgraded-array-element-type (typespec &optional environment)
   ;; Pick off a few obvious cases.
   (case typespec
     ((t) 't)
-    ((base-char) 'base-char)
-    ((character) 'character)
+    ((character base-char) 'character)
     ((bit) 'bit)
     (t (if (subtypep typespec 'nil environment)
+           ;; NIL promotes to T.
            't
-           (dolist (type *specialized-array-types* 't)
-             (when (subtypep typespec type environment)
-               (return type)))))))
+           (dolist (info *array-info* 't)
+             (let ((type (first info)))
+               (when (subtypep typespec type environment)
+                 (return type))))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
@@ -165,12 +139,13 @@ This must be sorted from most-specific to least-specific.")
 )
 
 (defun make-simple-array (length &optional (element-type 't) area (initial-element nil initial-element-p))
-  (let ((real-element-type (upgraded-array-element-type element-type)))
-    (cond (initial-element-p
-	   (unless (typep initial-element element-type)
-	     (error 'type-error :expected-type element-type :datum initial-element))
-	   (%allocate-and-fill-array length real-element-type initial-element area))
-	  (t (%allocate-and-clear-array length real-element-type area)))))
+  (let* ((real-element-type (upgraded-array-element-type element-type))
+         (array (make-simple-array-1 length real-element-type area)))
+    (when initial-element-p
+      (unless (typep initial-element element-type)
+        (error 'type-error :expected-type element-type :datum initial-element))
+      (fill array initial-element))
+    array))
 
 (defun initialize-from-sequence (array sequence)
   "Fill an array using a sequence."
@@ -278,8 +253,9 @@ This must be sorted from most-specific to least-specific.")
            (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
           (memory
            ;; Element types must be exact matches.
-           (when (not (member element-type *specialized-array-types*
-                              :test (lambda (x y) (and (subtypep x y) (subtypep y x)))))
+           (when (not (member element-type *array-info*
+                              :test (lambda (x y) (and (subtypep x y) (subtypep y x)))
+                              :key #'first))
              (error "Element type ~S is not supported for memory arrays." element-type))
            (check-type memory fixnum)
            (when (or initial-element-p initial-contents-p)
