@@ -7,23 +7,6 @@
 
 ;;; Examining the object header.
 
-(defbuiltin sys.int::%array-like-length (thing) ()
-  (let ((type-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 '%array-like))
-    (load-in-r8 thing t)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-	  `(sys.lap-x86:and8 :al #b1111)
-	  `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-	  `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
-	  ;; Convert length to fixnum.
-	  `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
-	  `(sys.lap-x86:shl64 :rax ,sys.int::+n-fixnum-bits+)
-	  `(sys.lap-x86:mov64 :r8 :rax))
-    (setf *r8-value* (list (gensym)))))
-
 (defbuiltin sys.int::%object-tag (thing) ()
   (load-in-r8 thing t)
   (smash-r8)
