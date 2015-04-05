@@ -6,22 +6,6 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-;; fixme: multiple-evaluation of PLACE.
-(defmacro push-wired-locked (item place mutex)
-  (let ((new-cons (gensym)))
-    `(let ((,new-cons (sys.int::cons-in-area ,item nil :wired)))
-       (with-mutex (,mutex)
-         (setf (cdr ,new-cons) ,place
-               place ,new-cons)))))
-
-;; fixme: multiple-evaluation of PLACE.
-(defmacro push-wired (item place)
-  `(setf ,place (sys.int::cons-in-area ,item ,place :wired)))
-
-(defun string-length (string)
-  (assert (sys.int::character-array-p string))
-  (sys.int::%complex-array-dimension string 0))
-
 (defun stack-base (stack)
   (car stack))
 
@@ -109,10 +93,6 @@
     (handler-case (funcall hook)
       (error (c)
         (format t "~&Error ~A while running boot hook ~S.~%" c hook)))))
-
-(defun align-up (value power-of-two)
-  "Align VALUE up to the nearest multiple of POWER-OF-TWO."
-  (logand (+ value (1- power-of-two)) (lognot (1- power-of-two))))
 
 (defvar *boot-id*)
 

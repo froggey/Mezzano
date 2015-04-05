@@ -27,6 +27,7 @@
     "supervisor/virtio.lisp"
     "supervisor/virtio-net.lisp"
     "supervisor/profiler.lisp"
+    "supervisor/support.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"

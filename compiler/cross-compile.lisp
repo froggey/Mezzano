@@ -796,6 +796,7 @@
     "supervisor/interrupts.lisp"
     "supervisor/entry.lisp"
     "supervisor/physical.lisp"
+    "supervisor/support.lisp"
     "runtime/struct.lisp"
     "runtime/array.lisp"
     "runtime/symbol.lisp"
