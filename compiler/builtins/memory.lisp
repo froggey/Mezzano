@@ -293,25 +293,37 @@
 (defmacro define-u-b-alref (name width read-op write-op register)
   `(progn
      (defbuiltin ,name (array offset) ()
-       (load-in-reg :r9 array t)
-       (load-in-reg :r10 offset t)
-       (fixnum-check :r10)
-       (emit `(sys.lap-x86:mov64 :rcx :r10))
-       (smash-r8)
-       ;; Convert OFFSET to a raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-             '(,read-op :eax ,(object-ea :r9 :index `(:rcx ,width))))
-       ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
-       (setf *r8-value* (list (gensym))))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
+         (unless constant-offset
+           (load-in-reg :r10 offset t)
+           (fixnum-check :r10)
+           ;; Convert to unboxed integer.
+           (emit `(sys.lap-x86:mov64 :rdi :r10)
+                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+         (load-in-reg :r9 array t)
+         (smash-r8)
+         ;; Read.
+         (cond (constant-offset
+                (emit '(,read-op :eax (list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
+               (t
+                (emit '(,read-op :eax ,(object-ea :r9 :index `(:rdi ,width))))))
+         ;; Convert to fixnum.
+         (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
+         (setf *r8-value* (list (gensym)))))
      (defbuiltin (setf ,name) (new-value array offset) ()
-       (let ((type-error-label (gensym)))
+       (let ((type-error-label (gensym))
+             (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
          (emit-trailer (type-error-label)
            (raise-type-error :r8 '(unsigned-byte ,(* width 8))))
+         (unless constant-offset
+           (load-in-reg :r10 offset t)
+           (fixnum-check :r10)
+           ;; Convert to unboxed integer.
+           (emit `(sys.lap-x86:mov64 :rdi :r10)
+                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
          (load-in-reg :r9 array t)
-         (load-in-reg :r10 offset t)
-         (fixnum-check :r10)
-         (emit `(sys.lap-x86:mov64 :rcx :r10))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
                '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
@@ -319,11 +331,13 @@
                '(sys.lap-x86:mov64 :rsi ,(fixnum-to-raw (ash 1 (* width 8))))
                '(sys.lap-x86:cmp64 :rax :rsi)
                `(sys.lap-x86:jae ,type-error-label)
-               ;; Convert to raw integers.
-               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
-               ;; Write.
-               '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))
+               ;; Convert to raw integer.
+               '(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+))
+         ;; Write.
+         (cond (constant-offset
+                (emit `(,',write-op ,(list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))) ,',register)))
+               (t
+                (emit '(,write-op ,(object-ea :r9 :index `(:rdi ,width)) ,register))))
          *r8-value*))))
 
 (define-u-b-alref sys.int::%array-like-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
@@ -331,24 +345,30 @@
 (define-u-b-alref sys.int::%array-like-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
 
 (defbuiltin sys.int::%array-like-ref-unsigned-byte-64 (array offset) ()
-  (load-in-reg :r8 array t)
-  (load-in-reg :r9 offset t)
-  (fixnum-check :r9)
-  (smash-r8)
-  (emit `(sys.lap-x86:mov64 :rcx :r9)
-        ;; Convert to raw integers.
-        `(sys.lap-x86:sar64 :rax ,sys.int::+n-fixnum-bits+)
-        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-        ;; Read.
-        `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index `(:rcx 8))))
-  (box-unsigned-byte-64-rax)
-  (setf *r8-value* (list (gensym))))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r8 array t)
+    ;; Read.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot constant-offset))))
+          (t
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index '(:rdi 8))))))
+    (box-unsigned-byte-64-rax)
+    (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf sys.int::%array-like-ref-unsigned-byte-64) (new-value array offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-ub64-bignum"))
         (len-2-bignum (gensym "alr-ub64-len-2-bignum"))
-        (value-extracted (gensym "alr-ub64-value-extracted")))
+        (value-extracted (gensym "alr-ub64-value-extracted"))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
@@ -381,10 +401,13 @@
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(unsigned-byte 64)))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 array t)
-    (load-in-reg :r10 offset t)
-    (fixnum-check :r10)
-    (emit `(sys.lap-x86:mov64 :rcx :r10))
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
@@ -393,34 +416,49 @@
           `(sys.lap-x86:jl ,type-error-label)
 	  ;; Convert to raw integer.
 	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
-          value-extracted
-	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-	  ;; Write.
-	  `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :rdx))
+          value-extracted)
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot constant-offset) :rdx)))
+          (t
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rdi 8)) :rdx))))
     *r8-value*))
 
 (defmacro define-s-b-alref (name width read-op write-op register)
   `(progn
+     ;; Read function.
      (defbuiltin ,name (array offset) ()
-       (load-in-reg :r9 array t)
-       (load-in-reg :r10 offset t)
-       (fixnum-check :r10)
-       (emit `(sys.lap-x86:mov64 :rcx :r10))
-       (smash-r8)
-       ;; Convert OFFSET to a raw integer & read it.
-       (emit '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-             '(,read-op :rax ,(object-ea :r9 :index `(:rcx ,width))))
-       ;; Convert to fixnum.
-       (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
-       (setf *r8-value* (list (gensym))))
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
+         (unless constant-offset
+           (load-in-reg :r10 offset t)
+           (fixnum-check :r10)
+           ;; Convert to unboxed integer.
+           (emit `(sys.lap-x86:mov64 :rdi :r10)
+                 `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+         (load-in-reg :r9 array t)
+         (smash-r8)
+         ;; Read.
+         (cond (constant-offset
+                (emit '(,read-op :rax (list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
+               (t
+                (emit '(,read-op :rax ,(object-ea :r9 :index `(:rdi ,width))))))
+         ;; Convert to fixnum.
+         (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
+         (setf *r8-value* (list (gensym)))))
+     ;; Write function.
      (defbuiltin (setf ,name) (new-value array offset) ()
-       (let ((type-error-label (gensym)))
+       (let ((type-error-label (gensym))
+             (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
+         (unless constant-offset
+           (load-in-reg :r10 offset t)
+           (fixnum-check :r10)
+           ;; Convert to unboxed integer.
+           (emit `(sys.lap-x86:mov64 :rcx :r10)
+                 `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)))
          (emit-trailer (type-error-label)
            (raise-type-error :r8 '(signed-byte ,(* width 8))))
          (load-in-reg :r9 array t)
-         (load-in-reg :r10 offset t)
-         (fixnum-check :r10)
-         (emit `(sys.lap-x86:mov64 :rcx :r10))
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
                '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
@@ -432,11 +470,12 @@
                `(sys.lap-x86:jge ,type-error-label)
                '(sys.lap-x86:mov64 :rdi ,(- (ash 1 (1- (* width 8)))))
                '(sys.lap-x86:cmp64 :rsi :rdi)
-               `(sys.lap-x86:jl ,type-error-label)
-               ;; Convert to raw integer.
-               '(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-               ;; Write.
-               '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))
+               `(sys.lap-x86:jl ,type-error-label))
+         ;; Write
+         (cond (constant-offset
+                (emit `(,',write-op ,(list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))) ,',register)))
+               (t
+                (emit '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))))
          *r8-value*))))
 
 (define-s-b-alref sys.int::%array-like-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
@@ -445,22 +484,29 @@
 
 (defbuiltin sys.int::%array-like-ref-signed-byte-64 (array offset) ()
   (let ((overflow-label (gensym))
-        (resume (gensym)))
+        (resume (gensym))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
     (emit-trailer (overflow-label)
       (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
             `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
             `(sys.lap-x86:jmp ,resume)))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r8 array t)
-    (load-in-reg :r9 offset t)
-    (fixnum-check :r9)
     (smash-r8)
-    (emit `(sys.lap-x86:mov64 :rcx :r9)
-          `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-          ;; Read.
-          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index '(:rcx 8)))
-          ;; Convert to fixnum & check for signed overflow.
-          ;; Assumes fixnum size of 1!
-          `(sys.lap-x86:shl64 :rax 1)
+    ;; Read.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot constant-offset))))
+          (t
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :index '(:rdi 8))))))
+    ;; Convert to fixnum & check for signed overflow.
+    ;; Assumes fixnum size of 1!
+    (emit `(sys.lap-x86:shl64 :rax 1)
           `(sys.lap-x86:jo ,overflow-label)
           `(sys.lap-x86:mov64 :r8 :rax)
           resume)
@@ -469,7 +515,9 @@
 (defbuiltin (setf sys.int::%array-like-ref-signed-byte-64) (new-value array offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-sb64-bignum"))
-        (value-extracted (gensym "alr-sb64-value-extracted")))
+        (value-extracted (gensym "alr-sb64-value-extracted"))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
     (emit-trailer (bignum-path)
       ;; Check for bignumness.
       (emit `(sys.lap-x86:and8 :dl #b1111)
@@ -487,43 +535,62 @@
             `(sys.lap-x86:jmp ,value-extracted)
             type-error-label)
       (raise-type-error :r8 '(signed-byte 64)))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
     (load-in-reg :r9 array t)
-    (load-in-reg :r10 offset t)
-    (fixnum-check :r10)
-    (emit `(sys.lap-x86:mov64 :rcx :r10))
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
 	  `(sys.lap-x86:jnz ,bignum-path)
 	  ;; Convert to raw integer.
 	  `(sys.lap-x86:sar64 :rdx ,sys.int::+n-fixnum-bits+)
-          value-extracted
-	  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-	  ;; Write.
-	  `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :rdx))
+          value-extracted)
+    ;; Write.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot constant-offset) :rdx)))
+          (t
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rdi 8)) :rdx))))
     *r8-value*))
 
 (defbuiltin sys.int::%array-like-ref-t (array offset) ()
-  (load-in-reg :r8 array t)
-  (load-in-reg :r9 offset t)
-  (fixnum-check :r9)
-  (emit `(sys.lap-x86:mov64 :rcx :r9)
-        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
-  (smash-r8)
-  ;; Read.
-  (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rcx 8))))
-  (setf *r8-value* (list (gensym))))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r8 array t)
+    (smash-r8)
+    ;; Read.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot constant-offset))))
+          (t
+           (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rdi 8))))))
+    (setf *r8-value* (list (gensym)))))
 
 (defbuiltin (setf sys.int::%array-like-ref-t) (new-value array offset) ()
-  (load-in-reg :r9 array t)
-  (load-in-reg :r10 offset t)
-  (fixnum-check :r10)
-  (emit `(sys.lap-x86:mov64 :rcx :r10)
-        `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+))
-  (load-in-r8 new-value t)
-  ;; Write.
-  (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
-  *r8-value*)
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r9 array t)
+    (load-in-r8 new-value t)
+    ;; Write.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot constant-offset) :r8)))
+          (t
+           (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rdi 8)) :r8))))
+    *r8-value*))
 
 ;;; Atomic operations.
 ;;; These functions index into the object like %ARRAY-LIKE-REF-T.
@@ -535,39 +602,49 @@
 ;; (defun fixnum-add (object slot delta)
 ;;   (prog1 (%array-like-ref-t object slot)
 ;;     (incf (%array-like-ref-t object slot) delta)))
-(defbuiltin sys.int::%atomic-fixnum-add-array-like (object slot delta) ()
-  (load-in-reg :r10 slot t)
-  (fixnum-check :r10)
-  (load-in-reg :r9 object t)
-  (load-in-reg :r8 delta t)
-  (fixnum-check :r8)
-  (smash-r8)
-  (emit
-   ;; Convert slot number to integers.
-   `(sys.lap-x86:mov64 :rcx :r10)
-   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-   ;; Atomic add.
-   `(sys.lap-x86:lock)
-   `(sys.lap-x86:xadd64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
-  (setf *r8-value* (list (gensym))))
+(defbuiltin sys.int::%atomic-fixnum-add-array-like (object offset delta) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r9 object t)
+    (load-in-reg :r8 delta t)
+    (fixnum-check :r8)
+    (smash-r8)
+    ;; Atomic add.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:xadd64 ,(object-ea :r9 :slot constant-offset) :r8)))
+          (t
+           (emit `(sys.lap-x86:xadd64 ,(object-ea :r9 :index '(:rdi 8)) :r8))))
+    (setf *r8-value* (list (gensym)))))
 
 ;; Set the value in SLOT to NEW, and return the old value.
 ;; (defun xchg (object slot new)
 ;;   (prog1 (%array-like-ref-t object slot)
 ;;     (setf (%array-like-ref-t object slot) new)))
 (defbuiltin sys.int::%xchg-array-like (object offset new) ()
-  (load-in-reg :r10 offset t)
-  (fixnum-check :r10)
-  (load-in-reg :r9 object t)
-  (load-in-reg :r8 new t)
-  (smash-r8)
-  (emit
-   ;; Convert slot number to integers.
-   `(sys.lap-x86:mov64 :rcx :r10)
-   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-   ;; Do the swap. xchg has an implicit lock prefix.
-   `(sys.lap-x86:xchg64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
-  (setf *r8-value* (list (gensym))))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r9 object t)
+    (load-in-reg :r8 new t)
+    (smash-r8)
+    ;; Do the swap. xchg has an implicit lock prefix.
+    (cond (constant-offset
+           (emit `(sys.lap-x86:xchg64 ,(object-ea :r9 :slot constant-offset) :r8)))
+          (t
+           (emit `(sys.lap-x86:xchg64 ,(object-ea :r9 :index '(:rdi 8)) :r8))))
+    (setf *r8-value* (list (gensym)))))
 
 ;; If the value in SLOT matches OLD, set it to NEW; otherwise do nothing.
 ;; Returns true as the primary value if the slot was modified, false otherwise.
@@ -580,32 +657,37 @@
 ;;                   (t nil))
 ;;             slot-value)))
 (defbuiltin sys.int::%cas-array-like (object offset old new) ()
-  (load-in-reg :r10 offset t)
-  (fixnum-check :r10)
-  (load-in-reg :r9 object t)
-  (load-in-reg :r11 new t)
-  (load-in-reg :r8 old t)
-  (smash-r8)
-  (emit
-   ;; Convert size and slot number to integers.
-   `(sys.lap-x86:mov64 :rcx :r10)
-   `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-   `(sys.lap-x86:mov64 :rax :r8))
-  (emit-gc-info :extra-registers :rax)
-  (emit
-   `(sys.lap-x86:lock)
-   `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
-  (cond ((member *for-value* '(:multiple :tail))
-         ;; Return success and the old value.
-         (emit `(sys.lap-x86:mov64 :r9 :rax))
-         (emit-gc-info)
-         (emit `(sys.lap-x86:mov64 :r8 nil)
-               `(sys.lap-x86:cmov64z :r8 (:constant t)))
-         (load-constant :rcx 2)
-         :multiple)
-        (t ;; Just return the success state.
-         (emit-gc-info)
-         (predicate-result :z))))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r9 object t)
+    (load-in-reg :r11 new t)
+    (load-in-reg :r8 old t)
+    (smash-r8)
+    (emit `(sys.lap-x86:mov64 :rax :r8))
+    (emit-gc-info :extra-registers :rax)
+    (cond (constant-offset
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:cmpxchg ,(object-ea :r9 :slot constant-offset) :r11)))
+          (t
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rdi 8)) :r11))))
+    (cond ((member *for-value* '(:multiple :tail))
+           ;; Return success and the old value.
+           (emit `(sys.lap-x86:mov64 :r9 :rax))
+           (emit-gc-info)
+           (emit `(sys.lap-x86:mov64 :r8 nil)
+                 `(sys.lap-x86:cmov64z :r8 (:constant t)))
+           (load-constant :rcx 2)
+           :multiple)
+          (t ;; Just return the success state.
+           (emit-gc-info)
+           (predicate-result :z)))))
 
 ;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
 ;; Returns the two old slot values and a success boolean.
@@ -621,33 +703,39 @@
 ;;             slot-value-1
 ;;             slot-value-2)))
 (defbuiltin sys.int::%dcas-array-like (object offset old-1 old-2 new-1 new-2) ()
-  (load-in-reg :r10 offset t)
-  (fixnum-check :r10)
-  (load-in-reg :r8 object t)
-  ;; Carefully load registers to avoid exposing the GC to a raw value.
-  (load-in-reg :rbx new-1 t) ; rbx loaded (rbx is a value register).
-  (load-in-reg :rax old-1 t) ; rbx, rax loaded.
-  (emit-gc-info :extra-registers :rax)
-  (load-in-reg :rcx new-2 t) ; rbx, rax, rcx loaded.
-  (emit-gc-info :extra-registers :rax-rcx)
-  (load-in-reg :rdx old-2 t) ; all registers loaded.
-  (emit-gc-info :extra-registers :rax-rcx-rdx)
-  (smash-r8)
-  (emit
-   ;; Convert size and slot number to integers.
-   `(sys.lap-x86:mov64 :rdi :r10)
-   `(sys.lap-x86:shr64 :rdi ,sys.int::+n-fixnum-bits+)
-   `(sys.lap-x86:lock)
-   `(sys.lap-x86:cmpxchg16b ,(object-ea :r8 :index '(:rdi 8))))
-  (cond ((member *for-value* '(:multiple :tail))
-         ;; Return status and the old values.
-         (emit `(sys.lap-x86:mov64 :r9 :rax))
-         (emit `(sys.lap-x86:mov64 :r10 :rdx))
-         (emit-gc-info)
-         (emit `(sys.lap-x86:mov64 :r8 nil)
-               `(sys.lap-x86:cmov64z :r8 (:constant t)))
-         (load-constant :rcx 3)
-         :multiple)
-        (t ;; Just return the status.
-         (emit-gc-info)
-         (predicate-result :z))))
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :r10 offset t)
+      (fixnum-check :r10)
+      ;; Convert to unboxed integer.
+      (emit `(sys.lap-x86:mov64 :rdi :r10)
+            `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
+    (load-in-reg :r8 object t)
+    ;; Carefully load registers to avoid exposing the GC to a raw value.
+    (load-in-reg :rbx new-1 t) ; rbx loaded (rbx is a value register).
+    (load-in-reg :rax old-1 t) ; rbx, rax loaded.
+    (emit-gc-info :extra-registers :rax)
+    (load-in-reg :rcx new-2 t) ; rbx, rax, rcx loaded.
+    (emit-gc-info :extra-registers :rax-rcx)
+    (load-in-reg :rdx old-2 t) ; all registers loaded.
+    (emit-gc-info :extra-registers :rax-rcx-rdx)
+    (smash-r8)
+    (cond (constant-offset
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:cmpxchg16b ,(object-ea :r8 :slot constant-offset))))
+          (t
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:cmpxchg16b ,(object-ea :r8 :index '(:rdi 8))))))
+    (cond ((member *for-value* '(:multiple :tail))
+           ;; Return status and the old values.
+           (emit `(sys.lap-x86:mov64 :r9 :rax))
+           (emit `(sys.lap-x86:mov64 :r10 :rdx))
+           (emit-gc-info)
+           (emit `(sys.lap-x86:mov64 :r8 nil)
+                 `(sys.lap-x86:cmov64z :r8 (:constant t)))
+           (load-constant :rcx 3)
+           :multiple)
+          (t ;; Just return the status.
+           (emit-gc-info)
+           (predicate-result :z)))))
