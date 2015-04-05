@@ -225,16 +225,6 @@
 (defun find-package-or-die (name)
   t)
 
-(defun load-additional-modules ()
-  (let ((modules (mezzano.supervisor:fetch-boot-modules)))
-    (when modules
-      (dolist (m modules)
-        (write-string "Loading ")
-        (write-line (car m))
-        (handler-case (mini-load-llf (mini-vector-stream (cdr m)))
-          (error (c)
-            (format t "~&Error ~A while loading boot module ~S.~%" c (car m))))))))
-
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
@@ -318,8 +308,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
     (write-line (car (aref *warm-llf-files* i)))
     (mini-load-llf (mini-vector-stream (cdr (aref *warm-llf-files* i)))))
   (makunbound '*warm-llf-files*)
-  (mezzano.supervisor:add-boot-hook 'load-additional-modules)
-  (load-additional-modules)
   (mezzano.supervisor:snapshot)
   (write-line "Hello, world.")
   (terpri)

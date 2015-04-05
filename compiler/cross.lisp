@@ -222,7 +222,6 @@
            #:fifo-element-type
            #:add-boot-hook
            #:remove-boot-hook
-           #:fetch-boot-modules
            #:store-statistics
            #:physical-memory-statistics
 
