@@ -641,7 +641,7 @@
       (add-region-to-block-map bml4
                                (/ (+ *general-area-store* (align-up *general-area-bump* #x200000)) #x1000)
                                (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                       (ash 1 sys.int::+address-mark-bit+))
+                                       (ash 1 sys.int::+address-newspace/oldspace-bit+))
                                (/ (align-up *general-area-bump* #x200000) #x1000)
                                (logior sys.int::+block-map-zero-fill+))
       (add-region-to-block-map bml4
@@ -653,7 +653,7 @@
       (add-region-to-block-map bml4
                                (/ (+ *cons-area-store* (align-up *cons-area-bump* #x200000)) #x1000)
                                (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                       (ash 1 sys.int::+address-mark-bit+))
+                                       (ash 1 sys.int::+address-newspace/oldspace-bit+))
                                (/ (align-up *cons-area-bump* #x200000) #x1000)
                                (logior sys.int::+block-map-zero-fill+))
       (dolist (stack *stack-list*)

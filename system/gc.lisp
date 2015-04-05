@@ -152,11 +152,11 @@ This is required to make the GC interrupt safe."
   (let ((address (ash (%pointer-field object) 4)))
     (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
       (#.+address-tag-general+
-       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
+       (when (eql (logand (ash 1 +address-newspace/oldspace-bit+) address) *dynamic-mark-bit*)
          (return-from scavenge-object object))
        (transport-object object))
       (#.+address-tag-cons+
-       (when (eql (logand (ash 1 +address-mark-bit+) address) *dynamic-mark-bit*)
+       (when (eql (logand (ash 1 +address-newspace/oldspace-bit+) address) *dynamic-mark-bit*)
          (return-from scavenge-object object))
        (transport-object object))
       (#.+address-tag-pinned+
@@ -1008,7 +1008,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (setf *objects-copied* 0
         *words-copied* 0)
   ;; Flip.
-  (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+  (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
          *pinned-mark-bit* (logxor *pinned-mark-bit* +array-like-mark-bit+))
   (setf *general-area-bump* 0
         *cons-area-bump* 0)
@@ -1039,11 +1039,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; No scavenging can take place after this.
   (scavenge-dynamic)
   ;; Inhibit access to oldspace.
-  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
                                                    (ash +address-tag-general+ +address-tag-shift+))
                                            *general-area-limit*
                                            +block-map-zero-fill+)
-  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-mark-bit+))
+  (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
                                                    (ash +address-tag-cons+ +address-tag-shift+))
                                            *cons-area-limit*
                                            +block-map-zero-fill+)
@@ -1055,7 +1055,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (mezzano.supervisor:release-memory-range (logior new-limit
                                                      (ash +address-tag-general+ +address-tag-shift+))
                                              (- *general-area-limit* new-limit))
-    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-newspace/oldspace-bit+)
                                                      new-limit
                                                      (ash +address-tag-general+ +address-tag-shift+))
                                              (- *general-area-limit* new-limit))
@@ -1064,7 +1064,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (mezzano.supervisor:release-memory-range (logior new-limit
                                                      (ash +address-tag-cons+ +address-tag-shift+))
                                              (- *cons-area-limit* new-limit))
-    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-mark-bit+)
+    (mezzano.supervisor:release-memory-range (logior (ash 1 +address-newspace/oldspace-bit+)
                                                      new-limit
                                                      (ash +address-tag-cons+ +address-tag-shift+))
                                              (- *cons-area-limit* new-limit))

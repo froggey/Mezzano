@@ -143,7 +143,7 @@
 (defconstant +address-tag-shift+ 45)
 (defconstant +address-tag-size+ 3)
 
-(defconstant +address-mark-bit+ 44)
+(defconstant +address-newspace/oldspace-bit+ 44)
 
 ;; Pinned must be zero, a number of critical objects are pinned & wired and stored
 ;; below 2GB to permit fast access to them.

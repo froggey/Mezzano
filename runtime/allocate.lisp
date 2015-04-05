@@ -160,7 +160,7 @@
                             sys.int::+block-map-zero-fill+))
                    (mezzano.supervisor:allocate-memory-range
                     (logior (logxor sys.int::*dynamic-mark-bit*
-                                    (ash 1 sys.int::+address-mark-bit+))
+                                    (ash 1 sys.int::+address-newspace/oldspace-bit+))
                             (ash sys.int::+address-tag-general+
                                  sys.int::+address-tag-shift+)
                             sys.int::*general-area-limit*)
@@ -325,7 +325,7 @@
               ;; Allocate oldspace.
               (mezzano.supervisor:allocate-memory-range
                (logior (logxor sys.int::*dynamic-mark-bit*
-                               (ash 1 sys.int::+address-mark-bit+))
+                               (ash 1 sys.int::+address-newspace/oldspace-bit+))
                        (ash sys.int::+address-tag-cons+
                             sys.int::+address-tag-shift+)
                        sys.int::*cons-area-limit*)
