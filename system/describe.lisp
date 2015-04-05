@@ -54,9 +54,9 @@
 (defun describe-bignum (object stream)
   (format stream "~S is a bignum, with address ~X~%"
           object (lisp-object-address object))
-  (format stream "  It is ~D fragments long.~%" (%array-like-length object))
-  (dotimes (i (%array-like-length object))
-    (format stream "  ~D: ~16,'0X~%" i (%array-like-ref-unsigned-byte-64 object i))))
+  (format stream "  It is ~D fragments long.~%" (%n-bignum-fragments object))
+  (dotimes (i (%n-bignum-fragments object))
+    (format stream "  ~D: ~16,'0X~%" i (%bignum-fragment object i))))
 
 (defun describe-structure (object stream)
   (format stream "~S is a structure of type ~:(~S~), with address ~X~%"

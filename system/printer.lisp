@@ -61,12 +61,12 @@
 (defun write-integer (x &optional (base 10) stream)
   (cond ((and *print-bignums-safely*
               (bignump x)
-              (>= (%array-like-length x) 2))
+              (>= (%n-bignum-fragments x) 2))
          ;; Very large bignum.
          (write-string "#<Bignum" stream)
-         (dotimes (i (%array-like-length x))
+         (dotimes (i (%n-bignum-fragments x))
            (format stream " ~16,'0X"
-                   (%array-like-ref-unsigned-byte-64 x (- (%array-like-length x) i 1))))
+                   (%bignum-fragment bignum (- (%n-bignum-fragments x) i 1))))
          (write-char #\> stream))
         ((= x 0)
          (write-char #\0 stream))

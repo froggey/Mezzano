@@ -139,6 +139,17 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+(declaim (inline %n-bignum-fragments %bignum-fragment (setf %bignum-fragment)))
+(defun %n-bignum-fragments (bignum)
+  (%object-header-data bignum))
+
+;; Watch out - this can create another bignum to hold the fragment.
+(defun %bignum-fragment (bignum n)
+  (%array-like-ref-unsigned-byte-64 bignum n))
+
+(defun (setf %bignum-fragment) (value bignum n)
+  (setf (%array-like-ref-unsigned-byte-64 bignum n) value))
+
 (define-lap-function %%bignum-< ()
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
@@ -701,29 +712,29 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun %%bignum-multiply-unsigned (a b)
   (assert (bignump a))
   (assert (bignump b))
-  (let* ((digs (+ (%array-like-length a)
-                  (%array-like-length b)
+  (let* ((digs (+ (%n-bignum-fragments a)
+                  (%n-bignum-fragments b)
                   1))
          (c (%make-bignum-of-length digs)))
     (dotimes (i digs)
-      (setf (%array-like-ref-unsigned-byte-64 c i) 0))
-    (loop for ix from 0 below (%array-like-length a) do
+      (setf (%bignum-fragment c i) 0))
+    (loop for ix from 0 below (%n-bignum-fragments a) do
          (let ((u 0)
-               (pb (min (%array-like-length b)
+               (pb (min (%n-bignum-fragments b)
                         (- digs ix))))
            (when (< pb 1)
              (return))
            (loop for iy from 0 to (1- pb) do
-                (let ((r-hat (+ (%array-like-ref-unsigned-byte-64 c (+ iy ix))
+                (let ((r-hat (+ (%bignum-fragment c (+ iy ix))
                                 (%%bignum-multiply-step
-                                 (%array-like-ref-unsigned-byte-64 a ix)
-                                 (%array-like-ref-unsigned-byte-64 b iy))
+                                 (%bignum-fragment a ix)
+                                 (%bignum-fragment b iy))
                                 u)))
-                  (setf (%array-like-ref-unsigned-byte-64 c (+ iy ix))
+                  (setf (%bignum-fragment c (+ iy ix))
                         (ldb (byte 64 0) r-hat))
                   (setf u (ash r-hat -64))))
            (when (< (+ ix pb) digs)
-             (setf (%array-like-ref-unsigned-byte-64 c (+ ix pb)) u))))
+             (setf (%bignum-fragment c (+ ix pb)) u))))
     (%%canonicalize-bignum c)))
 
 (defun %%bignum-multiply-signed (a b)
