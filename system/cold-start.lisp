@@ -90,47 +90,6 @@
 (defun print-object (object stream)
   (print-unreadable-object (object stream :type t :identity t)))
 
-;;; Early debug stuff.
-
-(defun low-level-backtrace (&optional limit (resolve-names t))
-  (do ((i 0 (1+ i))
-       (fp (read-frame-pointer)
-           (memref-unsigned-byte-64 fp 0)))
-      ((or (and limit (> i limit))
-           (= fp 0)))
-    (write-char #\Newline *cold-stream*)
-    (write-integer fp 16 *cold-stream*)
-    (write-char #\Space *cold-stream*)
-    (let* ((ret-addr (memref-unsigned-byte-64 fp 1))
-           (fn (when resolve-names
-                 (return-address-to-function ret-addr)))
-           (name (when (functionp fn) (function-name fn))))
-      (write-integer ret-addr 16 *cold-stream*)
-      (when (and resolve-names name)
-        (write-char #\Space *cold-stream*)
-        (write name :stream *cold-stream*)))))
-(setf (fdefinition 'backtrace) #'low-level-backtrace)
-
-(defun error (datum &rest arguments)
-  (write-char #\!)
-  (write datum)
-  (write-char #\Space)
-  (write arguments)
-  (low-level-backtrace)
-  (mezzano.supervisor:panic "Early ERROR"))
-
-(defun enter-debugger (condition)
-  (write-char #\!)
-  (write condition)
-  (low-level-backtrace)
-  (mezzano.supervisor:panic "Early ENTER-DEBUGGER"))
-
-(defun invoke-debugger (condition)
-  (write-char #\!)
-  (write condition)
-  (low-level-backtrace)
-  (mezzano.supervisor:panic "EARLY INVOKE-DEBUGGER"))
-
 ;;; Pathname stuff before pathnames exist (file.lisp defines real pathnames).
 
 (defun pathnamep (x) nil)

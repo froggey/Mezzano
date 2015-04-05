@@ -196,3 +196,13 @@
 
 (defun sys.int::raise-unbound-error (symbol)
   (panic "Unbound symbol " (symbol-name symbol)))
+
+(defun error (datum &rest arguments)
+  (declare (dynamic-extent arguments))
+  (panic "Early ERROR. " datum " " arguments))
+
+(defun enter-debugger (condition)
+  (panic "Early enter debugger. " condition))
+
+(defun invoke-debugger (condition)
+  (panic "Early invoke debugger. " condition))
