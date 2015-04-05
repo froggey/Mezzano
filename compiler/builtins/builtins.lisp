@@ -58,48 +58,6 @@
            `(sys.lap-x86:cmp8 :al ,,tag))
      (predicate-result :e)))
 
-(defmacro define-array-like-predicate (name array-type)
-  `(defbuiltin ,name (object) ()
-     (let ((out (gensym)))
-       (load-in-reg :r9 object t)
-       (smash-r8)
-       ;; Check tag.
-       (emit `(sys.lap-x86:mov8 :al :r9l)
-             `(sys.lap-x86:and8 :al #b1111)
-             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-             `(sys.lap-x86:jne ,out)
-             `(sys.lap-x86:mov8 :al ,(object-ea :r9 :slot -1))
-             `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                          sys.int::+array-type-shift+))
-             `(sys.lap-x86:cmp8 :al ,(ash ,array-type sys.int::+array-type-shift+))
-             ;; Subtle. OUT can be reached through either the tag check
-             ;; or through the array type check. Both checks clear ZF when
-             ;; they fail.
-             out)
-       (predicate-result :z))))
-
-(defmacro define-array-like-reader (name type-name array-type slot)
-  `(defbuiltin ,name (object) ()
-     (load-in-reg :r8 object t)
-     (smash-r8)
-     (emit-object-type-check :r8 ,array-type ',type-name object)
-     ;; Load.
-     (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :slot ,slot)))
-     (setf *r8-value* (list (gensym)))))
-
-(defmacro define-array-like-writer (name type-name array-type slot)
-  `(defbuiltin ,name (value object) ()
-     (load-in-reg :r9 object t)
-     (load-in-reg :r8 value t)
-     (emit-object-type-check :r9 ,array-type ',type-name object)
-     ;; Store.
-     (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :slot ,slot) :r8))
-     *r8-value*))
-
-(defmacro define-array-like-accessor (name type-name array-type slot)
-  `(progn (define-array-like-reader ,name ,type-name ,array-type ,slot)
-          (define-array-like-writer (setf ,name) ,type-name ,array-type ,slot)))
-
 ;; Produce an alist of symbol names and their associated functions.
 (defun generate-builtin-functions ()
   (let ((functions '()))

@@ -30,7 +30,10 @@
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
-    "runtime/string.lisp"))
+    "runtime/string.lisp"
+    "runtime/array.lisp"
+    "runtime/struct.lisp"
+    "runtime/symbol.lisp"))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"

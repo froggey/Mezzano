@@ -18,7 +18,7 @@
 
 (defun profile-append-entry (thing)
   "Append one THING to the profile buffer, wrapping around as required."
-  (let ((buffer-len (sys.int::%simple-1d-array-length *profile-buffer*))
+  (let ((buffer-len (sys.int::%object-header-data *profile-buffer*))
         (place *profile-buffer-head*))
     (incf *profile-buffer-head*)
     (when (eql *profile-buffer-head* buffer-len)

@@ -420,7 +420,7 @@
 (defun function-reference (name)
   "Convert a function name to a function reference."
   (cond ((symbolp name)
-         (or (symbol-fref name)
+         (or (%array-like-ref-t name +symbol-function+)
              ;; No fref, create one and add it to the function.
              (let ((new-fref (make-function-reference name)))
                ;; Try to atomically update the function cell.
@@ -734,3 +734,20 @@ VALUE may be nil to make the fref unbound."
                                             lambda-list
                                             docstring)))
        ',name)))
+
+(defun std-instance-p (object)
+  (%object-of-type-p object +object-tag-std-instance+))
+
+(defun std-instance-class (std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (%array-like-ref-t std-instance 0))
+(defun (setf std-instance-class) (value std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (setf (%array-like-ref-t std-instance 0) value))
+
+(defun std-instance-slots (std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (%array-like-ref-t std-instance 1))
+(defun (setf std-instance-slots) (value std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (setf (%array-like-ref-t std-instance 1) value))

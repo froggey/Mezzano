@@ -36,144 +36,135 @@
         `(sys.lap-x86:mov64 ,(object-ea :r8 :slot -1) :rax))
   value)
 
-;;; Structures.
+;;(defun object-of-type-p (object type)
+;;  (and (eql (%tag-field object) +tag-object+)
+;;       (eql (%object-tag object) type)))
+(defbuiltin sys.int::%object-of-type-p (object object-tag) ()
+  (cond ((constant-type-p object-tag `(unsigned-byte ,sys.int::+array-type-size+))
+         ;; Fast case where the tag is a constant.
+         (let ((out (gensym)))
+           (load-in-reg :r8 object t)
+           ;; Test tag = +tag-object+
+           (emit `(sys.lap-x86:mov8 :al :r8l)
+                 `(sys.lap-x86:and8 :al #b1111)
+                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                 `(sys.lap-x86:jne ,out))
+           ;; Test object type.
+           (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+                 `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                              sys.int::+array-type-shift+))
+                 `(sys.lap-x86:cmp8 :al ,(ash (second object-tag)
+                                              sys.int::+array-type-shift+)))
+           (emit out)
+           (predicate-result :e)))
+        (t ;; Slow path.
+         (load-in-reg :r8 object t)
+         (load-in-reg :r10 object-tag t)
+         (let ((out (gensym)))
+           ;; Test tag = +tag-object+
+           (emit `(sys.lap-x86:mov8 :al :r8l)
+                 `(sys.lap-x86:and8 :al #b1111)
+                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                 `(sys.lap-x86:jne ,out))
+           ;; Test object type.
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+                 `(sys.lap-x86:and64 :rax ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                                sys.int::+array-type-shift+))
+                 ;; Convert type to fixnum.
+                 `(sys.lap-x86:shr64 :rax ,(- sys.int::+array-type-shift+
+                                            sys.int::+n-fixnum-bits+))
+                 `(sys.lap-x86:cmp64 :rax :r10))
+           (emit out)
+           (predicate-result :e)))))
 
-(define-array-like-predicate system.internals::structure-object-p
-    sys.int::+object-tag-structure-object+)
+;;(defun type-check (object object-tag expected-type)
+;;  (unless (and (eql (%tag-field object) +tag-object+)
+;;               (eql (%object-tag object) object-tag))
+;;    (raise-type-error object expected-type)))
+(defbuiltin sys.int::%type-check (object object-tag expected-type) ()
+  (cond ((and (constant-type-p object-tag `(unsigned-byte ,sys.int::+array-type-size+))
+              (quoted-constant-p expected-type))
+         ;; Fast case where the tag & type are constants.
+         (let ((type-error-label (gensym)))
+           (emit-trailer (type-error-label)
+             (raise-type-error :r8 (second expected-type)))
+           (load-in-reg :r8 object t)
+           ;; Test tag = +tag-object+
+           (emit `(sys.lap-x86:mov8 :al :r8l)
+                 `(sys.lap-x86:and8 :al #b1111)
+                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                 `(sys.lap-x86:jne ,type-error-label))
+           ;; Test object type.
+           (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+                 `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                              sys.int::+array-type-shift+))
+                 `(sys.lap-x86:cmp8 :al ,(ash (second object-tag)
+                                              sys.int::+array-type-shift+))
+                 `(sys.lap-x86:jne ,type-error-label))))
+        (t ;; Slow path.
+         (load-in-reg :r8 object t)
+         (load-in-reg :r10 object-tag t)
+         (let ((type-error-label (gensym)))
+           (emit-trailer (type-error-label)
+             (load-in-reg :r9 expected-type t)
+             (call-support-function 'sys.int::raise-type-error 2)
+             (emit `(sys.lap-x86:ud2)))
+           ;; Test tag = +tag-object+
+           (emit `(sys.lap-x86:mov8 :al :r8l)
+                 `(sys.lap-x86:and8 :al #b1111)
+                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                 `(sys.lap-x86:jne ,type-error-label))
+           ;; Test object type.
+           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+                 `(sys.lap-x86:and64 :rax ,(ash (1- (ash 1 sys.int::+array-type-size+))
+                                                sys.int::+array-type-shift+))
+                 ;; Convert type to fixnum.
+                 `(sys.lap-x86:shr64 :rax ,(- sys.int::+array-type-shift+
+                                            sys.int::+n-fixnum-bits+))
+                 `(sys.lap-x86:cmp64 :rax :r10)
+                 `(sys.lap-x86:jne ,type-error-label)))))
+  *r8-value*)
 
-(defbuiltin system.internals::%struct-slot (object slot) ()
-  (let ((type-error-label (gensym))
-        (bounds-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r8 'structure-object))
+;;(defun bounds-check (object slot)
+;;  (unless (fixnump slot)
+;;    (raise-type-error slot 'fixnum))
+;;  (unless (< slot (%object-header-data object))
+;;    (raise-bounds-error object slot)))
+(defbuiltin sys.int::%bounds-check (object slot) ()
+  (let ((bounds-error-label (gensym))
+        (constant-slot (and (constant-type-p slot `(unsigned-byte ,sys.int::+array-length-size+))
+                            (second slot))))
     (emit-trailer (bounds-error-label)
-      (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::raise-bounds-error))
-            `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-            `(sys.lap-x86:ud2)))
-    (load-in-reg :r9 slot t)
-    (fixnum-check :r9)
+      (when constant-slot
+        (load-constant :r9 constant-slot))
+      (call-support-function 'sys.int::raise-bounds-error 2)
+      (emit `(sys.lap-x86:ud2)))
     (load-in-reg :r8 object t)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov8 :al :r8l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-          `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
-          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:jne ,type-error-label)
-          ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
-          `(sys.lap-x86:mov64 :rcx :r9)
-          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-          ;; Check bounds.
-          `(sys.lap-x86:cmp64 :rcx :rax)
-          `(sys.lap-x86:jae ,bounds-error-label)
-          ;; Load.
-          `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rcx 8))))
-    (setf *r8-value* (list (gensym)))))
-
-(defbuiltin (setf system.internals::%struct-slot) (value object slot) ()
-  (let ((type-error-label (gensym))
-        (bounds-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r9 'structure-object))
-    (emit-trailer (bounds-error-label)
-      (emit `(sys.lap-x86:mov64 :r8 :r9)
-            `(sys.lap-x86:mov64 :r9 :r10)
-            `(sys.lap-x86:mov64 :r13 (:function sys.int::raise-bounds-error))
-            `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-            `(sys.lap-x86:ud2)))
-    (load-in-reg :r10 slot t)
-    (fixnum-check :r10)
-    (load-in-reg :r9 object t)
-    (load-in-reg :r8 value t)
-    (emit `(sys.lap-x86:mov8 :al :r9l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-          `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
-          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:jne ,type-error-label)
-          ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
-          `(sys.lap-x86:mov64 :rcx :r10)
-          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-          ;; Check bounds.
-          `(sys.lap-x86:cmp64 :rcx :rax)
-          `(sys.lap-x86:jae ,bounds-error-label)
-          ;; Store.
-          `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rcx 8)) :r8))
-    *r8-value*))
-
-(defbuiltin sys.int::%cas-struct-slot (object slot old new) ()
-  (let ((type-error-label (gensym))
-        (bounds-error-label (gensym)))
-    (emit-trailer (type-error-label)
-      (raise-type-error :r9 'structure-object))
-    (emit-trailer (bounds-error-label)
-      (emit `(sys.lap-x86:mov64 :r8 :r9)
-            `(sys.lap-x86:mov64 :r9 :r10)
-            `(sys.lap-x86:mov64 :r13 (:function sys.int::raise-bounds-error))
-            `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-            `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-            `(sys.lap-x86:ud2)))
-    (load-in-reg :r10 slot t)
-    (fixnum-check :r10)
-    (load-in-reg :r9 object t)
-    (load-in-reg :r11 new t)
-    (load-in-reg :r8 old t)
-    (smash-r8)
-    (emit `(sys.lap-x86:mov8 :al :r9l)
-          `(sys.lap-x86:and8 :al #b1111)
-          `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-          `(sys.lap-x86:jne ,type-error-label)
-          `(sys.lap-x86:mov64 :rax ,(object-ea :r9 :slot -1))
-          `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:cmp8 :al ,(ash sys.int::+object-tag-structure-object+
-                                       sys.int::+array-type-shift+))
-          `(sys.lap-x86:jne ,type-error-label)
-          ;; Convert size and slot number to integers.
-          `(sys.lap-x86:shr64 :rax ,sys.int::+array-length-shift+)
-          `(sys.lap-x86:mov64 :rcx :r10)
-          `(sys.lap-x86:shr64 :rcx ,sys.int::+n-fixnum-bits+)
-          ;; Check bounds.
-          `(sys.lap-x86:cmp64 :rcx :rax)
-          `(sys.lap-x86:jae ,bounds-error-label)
-          ;; Load value.
-          `(sys.lap-x86:mov64 :rax :r8)
-          (emit-gc-info :extra-registers :rax)
-          `(sys.lap-x86:lock)
-          `(sys.lap-x86:cmpxchg ,(object-ea :r9 :index '(:rcx 8)) :r11))
-    (cond ((member *for-value* '(:multiple :tail))
-           ;; Return success and the old value.
-           (emit `(sys.lap-x86:mov64 :r9 :rax))
-           (emit-gc-info)
-           (emit `(sys.lap-x86:mov64 :r8 nil)
-                 `(sys.lap-x86:cmov64z :r8 (:constant t)))
-           (load-constant :rcx 2)
-           :multiple)
-          (t ;; Just return the success state.
-           (emit-gc-info)
-           (predicate-result :z)))))
-
-;;; Standard object instances.
-
-(define-array-like-predicate sys.int::std-instance-p sys.int::+object-tag-std-instance+)
-(define-array-like-accessor sys.int::std-instance-class
-    sys.int::std-instance sys.int::+object-tag-std-instance+
-    0)
-(define-array-like-accessor sys.int::std-instance-slots
-    sys.int::std-instance sys.int::+object-tag-std-instance+
-    1)
+    ;; Load & mask length.
+    (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+          `(sys.lap-x86:and64 :rax ,(lognot (ldb (byte 64 0) (lognot (ash (1- (ash 1 sys.int::+array-length-size+)) sys.int::+array-length-shift+))))))
+    (cond ((and constant-slot
+                (typep (ash constant-slot sys.int::+array-length-shift+)
+                       '(signed-byte 32)))
+           ;; Compare directly against the header. The header layout allows
+           ;; the comparison to be done safely without masking away the type
+           ;; bits.
+           (emit `(sys.lap-x86:cmp64 :rax ,(ash constant-slot sys.int::+array-length-shift+))))
+          (constant-slot
+           ;; Same as above, but the slot won't fit in an imm32.
+           (emit `(sys.lap-x86:mov64 :rcx ,(ash constant-slot sys.int::+array-length-shift+))
+                 `(sys.lap-x86:cmp64 :rax :rcx)))
+          (t ;; Nonconstant. Do fixnum check, then unbox & compare.
+           (load-in-reg :r9 slot t)
+           (fixnum-check :r9)
+           (emit `(sys.lap-x86:mov64 :rcx :r9)
+                 `(sys.lap-x86:shl64 :rcx ,(- sys.int::+array-length-shift+
+                                              sys.int::+n-fixnum-bits+))
+                 `(sys.lap-x86:cmp64 :rax :rcx))))
+    ;; Comparison done.
+    ;; value >= slot
+    (emit `(sys.lap-x86:jbe ,bounds-error-label)))
+  *r8-value*)
 
 ;;; Functions.
 

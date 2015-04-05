@@ -365,7 +365,7 @@
   (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
     (setf (sys.int::%array-like-ref-t symbol sys.int::+symbol-name+) name)
     (makunbound symbol)
-    (setf (sys.int::symbol-fref symbol) nil
+    (setf (sys.int::%array-like-ref-t symbol sys.int::+symbol-function+) nil
           (symbol-plist symbol) nil
           (symbol-package symbol) nil)
     symbol))

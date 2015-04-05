@@ -10,7 +10,6 @@
   (emit `(sys.lap-x86:test8 :r8l ,sys.int::+fixnum-tag-mask+))
   (predicate-result :z))
 
-(define-array-like-predicate sys.int::bignump sys.int::+object-tag-bignum+)
 (define-tag-type-predicate floatp sys.int::+tag-single-float+)
 
 ;;; Bitwise operators.

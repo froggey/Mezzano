@@ -19,7 +19,7 @@
     (if (eql size '*)
         `(simple-vector-p ,object)
         `(and (simple-vector-p ,object)
-              (eq (%simple-1d-array-length ,object) ',size)))))
+              (eq (%object-header-data ,object) ',size)))))
 (%define-compound-type-optimizer 'simple-vector 'compile-simple-vector-type)
 (%define-type-symbol 'simple-vector 'simple-vector-p)
 )
@@ -343,7 +343,7 @@
   (cond ((%simple-1d-array-p array)
          (unless (zerop axis-number)
            (error "Axis ~S exceeds array rank 1." axis-number))
-         (%simple-1d-array-length array))
+         (%object-header-data array))
         (t
          (when (>= axis-number (array-rank array))
            (error "Axis ~S exceeds array rank ~D."

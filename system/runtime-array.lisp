@@ -219,7 +219,7 @@
            (%single-float-as-integer value)))))
 
 (defun %simple-array-element-type (array)
-  (svref *array-types* (%simple-array-type array)))
+  (svref *array-types* (%object-tag array)))
 
 ;;; (destination source count)
 (define-lap-function %fast-copy ()

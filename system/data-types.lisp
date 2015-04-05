@@ -182,6 +182,13 @@
 (defconstant +fref-function+ 1)
 (defconstant +fref-entry-point+ 2)
 
+;;; Layout of complex arrays.
+
+(defconstant +complex-array-storage+ 0)
+(defconstant +complex-array-fill-pointer+ 1)
+(defconstant +complex-array-info+ 2)
+(defconstant +complex-array-axis-0+ 3)
+
 ;; Some bits are stored in the high(ish) bits of the address.
 ;; These are used to support the GC.
 

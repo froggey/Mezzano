@@ -271,7 +271,7 @@
     (function object)
     (symbol
      ;; Fast-path for symbols.
-     (let ((fref (sys.int::symbol-fref object)))
+     (let ((fref (sys.int::%array-like-ref-t object sys.int::+symbol-function+)))
        (when (not fref)
          (return-from sys.int::%coerce-to-callable
            (fdefinition object)))

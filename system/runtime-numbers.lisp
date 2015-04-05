@@ -139,7 +139,14 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
-(declaim (inline %n-bignum-fragments %bignum-fragment (setf %bignum-fragment)))
+(declaim (inline bignump
+                 %n-bignum-fragments
+                 %bignum-fragment
+                 (setf %bignum-fragment)))
+
+(defun bignump (object)
+  (%object-of-type-p object +object-tag-bignum+))
+
 (defun %n-bignum-fragments (bignum)
   (%object-header-data bignum))
 
