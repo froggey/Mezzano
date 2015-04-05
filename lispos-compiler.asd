@@ -37,9 +37,18 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/lower-special-bindings"
                       :depends-on ("compiler/cross" "compiler/compiler"))
-               (:file "compiler/builtins"
+               (:file "compiler/builtins/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
                                    "compiler/codegen" "system/data-types" "lap" "lap-x86"))
+               (:file "compiler/builtins/array" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/character" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/cons" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/memory" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/misc" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/numbers" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/objects" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/symbols" :depends-on ("compiler/builtins/builtins"))
+               (:file "compiler/builtins/unwind" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/codegen"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
                                    "system/data-types" "lap" "lap-x86"))
