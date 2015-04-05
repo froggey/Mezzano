@@ -80,8 +80,9 @@
          (when (>= (+ base (* offset 8)) limit)
            (return))
          (let ((size (align-up (size-of-pinned-area-allocation (+ base (* offset 8))) 2))
+               ;; Carefully read the type, avoid bignums.
                (type (ldb (byte +object-type-size+ +object-type-shift+)
-                          (memref-unsigned-byte-64 base offset))))
+                          (memref-unsigned-byte-8 base offset))))
            (incf total-words size)
            (cond ((not (eql type +object-tag-freelist-entry+))
                   (incf allocated-words size))
