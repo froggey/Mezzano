@@ -20,7 +20,7 @@
 
 (defun string-length (string)
   (assert (sys.int::character-array-p string))
-  (sys.int::%array-like-ref-t string 3))
+  (sys.int::%complex-array-dimension string 0))
 
 (defun stack-base (stack)
   (car stack))

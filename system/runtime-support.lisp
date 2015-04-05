@@ -27,11 +27,16 @@
          (setf (get sym indicator) nil))))))
 
 (defun system:symbol-mode (symbol)
-  (svref #(nil :special :constant :symbol-macro)
-         (ldb (byte 2 8) (%array-like-ref-unsigned-byte-64 symbol -1))))
+  (ecase (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
+              (%object-header-data symbol))
+    (#.+symbol-mode-nil+ nil)
+    (#.+symbol-mode-special+ :special)
+    (#.+symbol-mode-constant+ :constant)
+    (#.+symbol-mode-symbol-macro+ :symbol-macro)))
 
 (defun (setf system:symbol-mode) (value symbol)
-  (setf (ldb (byte 2 8) (%array-like-ref-unsigned-byte-64 symbol -1))
+  (setf (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
+             (%object-header-data symbol))
         (ecase value
           ((nil) +symbol-mode-nil+)
           ((:special) +symbol-mode-special+)
@@ -194,8 +199,11 @@
 
 (defun symbol-tls-slot (symbol)
   (check-type symbol symbol)
-  (let ((slot (ldb (byte 16 10) (sys.int::%array-like-ref-unsigned-byte-64 symbol -1))))
-    (if (zerop slot) nil slot)))
+  (let ((slot (ldb (byte +symbol-header-tls-size+ +symbol-header-tls-position+)
+                   (%object-header-data symbol))))
+    (if (zerop slot)
+        nil
+        slot)))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))
@@ -282,75 +290,82 @@
 (defun funcallable-instance-compiled-function-p (function)
   t)
 
+(defun %closure-function (closure)
+  ;; Return the closed-over function associated with CLOSURE.
+  (%array-like-ref-t closure +closure-function+))
+
 (defun function-name (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ecase (%object-tag function)
-      (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
-       (memref-t address (* (logand (ash info -16) #xFFFF) 2)))
-      (#.+object-tag-closure+ ;; Closure.
-       (function-name (%array-like-ref-t function 1)))
-      (#.+object-tag-funcallable-instance+
-       (multiple-value-bind (lambda closurep name)
-           (funcallable-instance-lambda-expression function)
-         (declare (ignore lambda closurep))
-         name)))))
+  (ecase (%object-tag function)
+    (#.+object-tag-function+
+     ;; Regular function. First entry in the constant pool.
+     (function-pool-object function 0))
+    (#.+object-tag-closure+
+     ;; Closure. Return the name of the closed-over function.
+     (function-name (%closure-function function)))
+    (#.+object-tag-funcallable-instance+
+     (multiple-value-bind (lambda closurep name)
+         (funcallable-instance-lambda-expression function)
+       (declare (ignore lambda closurep))
+       name))))
 
 (defun function-lambda-expression (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ecase (%object-tag function)
-      (#.+object-tag-function+ ;; Regular function. First entry in the constant pool.
-       (values nil nil (memref-t address (* (logand (ash info -16) #xFFFF) 2))))
-      (#.+object-tag-closure+ ;; Closure.
-       (values nil t (function-name (%array-like-ref-t function 1))))
-      (#.+object-tag-funcallable-instance+
-       (funcallable-instance-lambda-expression function)))))
+  (ecase (%object-tag function)
+    (#.+object-tag-function+
+     (values nil nil (function-name function)))
+    (#.+object-tag-closure+
+     (values nil t (function-name function)))
+    (#.+object-tag-funcallable-instance+
+     (funcallable-instance-lambda-expression function))))
 
 (defun function-debug-info (function)
   (check-type function function)
-  (let* ((address (logand (lisp-object-address function) -16))
-         (info (memref-unsigned-byte-64 address 0)))
-    (ecase (%object-tag function)
-      (#.+object-tag-function+ ;; Regular function. second entry in the constant pool.
-       (memref-t address (1+ (* (logand (ash info -16) #xFFFF) 2))))
-      (#.+object-tag-closure+ ;; Closure.
-       (function-debug-info (%array-like-ref-t function 1)))
-      (#.+object-tag-funcallable-instance+
-       (funcallable-instance-debug-info function)))))
+  (ecase (%object-tag function)
+    (#.+object-tag-function+
+     ;; Regular function. Second entry in the constant pool.
+     (function-pool-object function 1))
+    (#.+object-tag-closure+
+     ;; Closure. Return the debug-info of the closed-over function.
+     (function-debug-info (%closure-function function)))
+    (#.+object-tag-funcallable-instance+
+     (funcallable-instance-debug-info function))))
 
 (defun funcallable-std-instance-p (object)
-  (and (functionp object)
-       (eql (%object-tag object)
-            +object-tag-funcallable-instance+)))
+  (and (eql (%tag-field object) +tag-object+)
+       (eql (%object-tag object) +object-tag-funcallable-instance+)))
 
 (defun funcallable-std-instance-function (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance 4))
+  (%array-like-ref-t funcallable-instance +funcallable-instance-function+))
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let ((entry-point (%array-like-ref-unsigned-byte-64 value 0)))
-    ;; Fixme: need to do this atomically (use cmpxchg16b, like the fref code)
-    ;; Must update entry-point first to avoid old function from being gc'd away.
-    (setf (%array-like-ref-unsigned-byte-64 funcallable-instance 3) entry-point
-          (%array-like-ref-t funcallable-instance 4) value)))
+  (let ((entry-point (%array-like-ref-t value +function-entry-point+))
+        (old-1 (%array-like-ref-t funcallable-instance +funcallable-instance-entry-point+))
+        (old-2 (%array-like-ref-t funcallable-instance +funcallable-instance-function+)))
+    ;; Entry point is followed by function.
+    ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
+    ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
+    ;; this write succeeded, but was immediately overwritten.
+    (%dcas-array-like funcallable-instance +funcallable-instance-entry-point+
+                      old-1 old-2
+                      entry-point value)
+    value))
 
 (defun funcallable-std-instance-class (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance 5))
+  (%array-like-ref-t funcallable-instance +funcallable-instance-class+))
 (defun (setf funcallable-std-instance-class) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (setf (%array-like-ref-t funcallable-instance 5) value))
+  (setf (%array-like-ref-t funcallable-instance +funcallable-instance-class+) value))
 
 (defun funcallable-std-instance-slots (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance 6))
+  (%array-like-ref-t funcallable-instance +funcallable-instance-slots+))
 (defun (setf funcallable-std-instance-slots) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (setf (%array-like-ref-t funcallable-instance 6) value))
+  (setf (%array-like-ref-t funcallable-instance +funcallable-instance-slots+) value))
 
 (defun compiled-function-p (object)
   (when (functionp object)
@@ -404,13 +419,18 @@
 
 (defun function-reference (name)
   "Convert a function name to a function reference."
-  ;; FIXME: lock here.
   (cond ((symbolp name)
-         (let ((fref (symbol-fref name)))
-           (unless fref
-             (setf fref (make-function-reference name)
-                   (symbol-fref name) fref))
-           fref))
+         (or (symbol-fref name)
+             ;; No fref, create one and add it to the function.
+             (let ((new-fref (make-function-reference name)))
+               ;; Try to atomically update the function cell.
+               (multiple-value-bind (successp old-value)
+                   (%cas-array-like name +symbol-function+ nil new-fref)
+                 (if successp
+                     new-fref
+                     old-value)))))
+        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
+        ;; a hash-table or something like that.
 	((and (consp name)
 	      (= (list-length name) 2)
 	      (eql (first name) 'setf)
@@ -452,14 +472,17 @@ VALUE may be nil to make the fref unbound."
          ;; This must be stored in function slot so the closure-trampoline
          ;; works correctly.
          (values (%undefined-function)
-                 (%array-like-ref-t (%undefined-function) 0)))
+                 (%array-like-ref-t (%undefined-function)
+                                    +function-entry-point+)))
         ((eql (%object-tag value) +object-tag-closure+)
          ;; Use the closure trampoline.
          (values value
-                 (%array-like-ref-t (%closure-trampoline) 0)))
+                 (%array-like-ref-t (%closure-trampoline)
+                                    +function-entry-point+)))
         (t ;; Normal call.
          (values value
-                 (%array-like-ref-t value 0))))
+                 (%array-like-ref-t value
+                                    +function-entry-point+))))
     ;; Atomically update both values.
     ;; Functions is followed by entry point.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
@@ -537,13 +560,16 @@ VALUE may be nil to make the fref unbound."
 
 (defun function-pool-size (function)
   (check-type function function)
-  (let ((address (logand (lisp-object-address function) -16)))
-    (memref-unsigned-byte-16 address 2)))
+  (ldb (byte +function-constant-pool-size+
+             +function-constant-pool-position+)
+       (%object-header-data function)))
 
 (defun function-code-size (function)
   (check-type function function)
-  (let ((address (logand (lisp-object-address function) -16)))
-    (* (memref-unsigned-byte-16 address 1) 16)))
+  (* (ldb (byte +function-machine-code-size+
+                +function-machine-code-position+)
+          (%object-header-data function))
+     16))
 
 (defun function-pool-object (function offset)
   (check-type function function)
@@ -560,7 +586,9 @@ VALUE may be nil to make the fref unbound."
   "Return the address of and the number of bytes in FUNCTION's GC info."
   (check-type function function)
   (let* ((address (logand (lisp-object-address function) -16))
-         (gc-length (memref-unsigned-byte-16 address 3))
+         (gc-length (ldb (byte +function-gc-metadata-size+
+                               +function-gc-metadata-position+)
+                         (%object-header-data function)))
          (mc-size (function-code-size function))
          (n-constants (function-pool-size function)))
     (values (+ address mc-size (* n-constants 8)) ; Address.
@@ -683,16 +711,6 @@ VALUE may be nil to make the fref unbound."
                    multiple-value-call multiple-value-prog1
                    progn progv quote return-from setq symbol-macrolet
                    tagbody the throw unwind-protect)))
-
-(defun %array-like-p (object)
-  (eql (%tag-field object) +tag-object+))
-
-(defun %array-like-header (object)
-  (memref-unsigned-byte-64 (ash (%pointer-field object) 4) 0))
-
-(defun %array-like-type (object)
-  (logand (1- (ash 1 +array-type-size+))
-          (ash (%array-like-header object) (- +array-type-shift+))))
 
 (defmacro define-lap-function (name (&optional lambda-list frame-layout environment-vector-offset environment-vector-layout) &body body)
   (let ((docstring nil))

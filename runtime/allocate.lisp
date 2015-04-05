@@ -348,12 +348,14 @@
   "Allocate a closure object."
   (check-type function function)
   (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 5 area))
-         (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0)))
+         (entry-point (sys.int::%array-like-ref-unsigned-byte-64
+                       function
+                       sys.int::+function-entry-point+)))
     (setf
      ;; Entry point
-     (sys.int::%array-like-ref-unsigned-byte-64 closure 0) entry-point
+     (sys.int::%array-like-ref-unsigned-byte-64 closure sys.int::+function-entry-point+) entry-point
      ;; Initialize constant pool
-     (sys.int::%array-like-ref-t closure 1) function
+     (sys.int::%array-like-ref-t closure sys.int::+closure-function+) function
      (sys.int::%array-like-ref-t closure 2) environment)
     closure))
 
@@ -361,8 +363,7 @@
   (check-type name string)
   ;; FIXME: Copy name into the wired area and unicode normalize it.
   (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
-    ;; symbol-name.
-    (setf (sys.int::%array-like-ref-t symbol 0) name)
+    (setf (sys.int::%array-like-ref-t symbol sys.int::+symbol-name+) name)
     (makunbound symbol)
     (setf (sys.int::symbol-fref symbol) nil
           (symbol-plist symbol) nil
@@ -438,7 +439,7 @@
                                      (if wired :wired :pinned)))
            (address (ash (sys.int::%pointer-field object) 4)))
       ;; Initialize entry point.
-      (setf (sys.int::%array-like-ref-unsigned-byte-64 object 0) (+ address 16))
+      (setf (sys.int::%array-like-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16))
       ;; Initialize code.
       (dotimes (i (length machine-code))
         (setf (sys.int::memref-unsigned-byte-8 address (+ i 16)) (aref machine-code i)))
@@ -482,10 +483,10 @@
                                    8
                                    :pinned))
          (address (ash (sys.int::%pointer-field object) 4))
-         (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function 0)))
+         (entry-point (sys.int::%array-like-ref-unsigned-byte-64 function sys.int::+function-entry-point+)))
     (setf
      ;; Entry point
-     (sys.int::%array-like-ref-unsigned-byte-64 object 0) (+ address 16)
+     (sys.int::%array-like-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16)
      ;; The code.
      ;; mov :rbx (:rip 17)/pool[1]
      ;; jmp (:rip 3)/pool[0]
@@ -494,8 +495,8 @@
      (sys.int::%array-like-ref-unsigned-byte-32 object 4) #x00000325
      (sys.int::%array-like-ref-unsigned-byte-32 object 5) #xCCCCCC00
      ;; entry-point and constant pool entries.
-     (sys.int::%array-like-ref-unsigned-byte-64 object 3) entry-point
-     (sys.int::%array-like-ref-t object 4) function
-     (sys.int::%array-like-ref-t object 5) class
-     (sys.int::%array-like-ref-t object 6) slots)
+     (sys.int::%array-like-ref-unsigned-byte-64 object sys.int::+funcallable-instance-entry-point+) entry-point
+     (sys.int::%array-like-ref-t object sys.int::+funcallable-instance-function+) function
+     (sys.int::%array-like-ref-t object sys.int::+funcallable-instance-class+) class
+     (sys.int::%array-like-ref-t object sys.int::+funcallable-instance-slots+) slots)
     object))

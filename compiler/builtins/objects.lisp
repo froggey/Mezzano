@@ -26,6 +26,16 @@
                                     sys.int::+n-fixnum-bits+)))
   (setf *r8-value* (list (gensym))))
 
+(defbuiltin (setf sys.int::%object-header-data) (value object) ()
+  (load-in-reg :rax value t)
+  (load-in-reg :r8 object t)
+  (emit `(sys.lap-x86:shl64 :rax ,(- sys.int::+array-length-shift+
+                                     sys.int::+n-fixnum-bits+))
+        ;; low 8 bits of the header only.
+        `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+        `(sys.lap-x86:mov64 ,(object-ea :r8 :slot -1) :rax))
+  value)
+
 ;;; Structures.
 
 (define-array-like-predicate system.internals::structure-object-p

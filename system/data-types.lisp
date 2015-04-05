@@ -127,13 +127,58 @@
 (defconstant +symbol-function+ 3)
 (defconstant +symbol-plist+ 4)
 
+(defconstant +symbol-header-tls-size+ 16)
+(defconstant +symbol-header-tls-position+ 2)
+
+(defconstant +symbol-header-mode-size+ 2)
+(defconstant +symbol-header-mode-position+ 0)
+
 (defconstant +symbol-mode-nil+ 0)
 (defconstant +symbol-mode-special+ 1)
 (defconstant +symbol-mode-constant+ 2)
 (defconstant +symbol-mode-symbol-macro+ 3)
 
+;;; Layout of a function's header.
+;;; Currently applies to all 3 function types.
+
+;; Machine code size is measured in paragraphs (16 byte units) and starts
+;; at the beginning of the object, including the header.
+(defconstant +function-machine-code-size+ 16)
+(defconstant +function-machine-code-position+ 8)
+;; Number of entries in the constant pool.
+(defconstant +function-constant-pool-size+ 16)
+(defconstant +function-constant-pool-position+ 24)
+;; Size of the GC metadata in bytes.
+(defconstant +function-gc-metadata-size+ 16)
+(defconstant +function-gc-metadata-position+ 40)
+
+;;; Layout of functions.
+;;; Common to all functions.
+
+;; Entry point of the function, used by function call machinery.
+(defconstant +function-entry-point+ 0)
+
+;;; Closures.
+;;; Only the position of the function is specified. The compiler may arrange
+;;; closure environments however it wants, including inlining them into the
+;;; closure object.
+(defconstant +closure-function+ 1)
+
+;;; Funcallable instances.
+;; Funcallable instances store the entry point of their function to avoid an
+;; additional indirection when invoked. This is seperate from the function
+;; entry point slot.
+;; Layout is important. Update (setf funcallable-std-instance-function) if
+;; it changes.
+(defconstant +funcallable-instance-entry-point+ 3)
+(defconstant +funcallable-instance-function+ 4)
+(defconstant +funcallable-instance-class+ 5)
+(defconstant +funcallable-instance-slots+ 6)
+
+;;; Layout of function-references.
+
 (defconstant +fref-name+ 0)
-;; Layout of this to slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
+;; Layout of these two slots is important, update (SETF FUNCTION-REFERENCE-FUNCTION) if it changes.
 (defconstant +fref-function+ 1)
 (defconstant +fref-entry-point+ 2)
 

@@ -117,10 +117,13 @@
                                      (debug-write-string "#<unknown>")
                                      (return)))
                  (function (sys.int::return-address-to-function return-address))
-                 (info (sys.int::%array-like-ref-t function -1))
+                 (info (sys.int::%object-header-data function))
+                 (mc-size (ldb (byte sys.int::+function-machine-code-size+
+                                     sys.int::+function-machine-code-position+)
+                               info))
                  ;; First entry in the constant pool.
                  (address (logand (sys.int::lisp-object-address function) -16))
-                 (name (sys.int::memref-t address (* (ldb (byte 16 (- 16 sys.int::+n-fixnum-bits+)) info) 2))))
+                 (name (sys.int::memref-t address (* mc-size 2))))
             (debug-write name)))
         (debug-print-line)))))
 

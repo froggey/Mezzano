@@ -102,7 +102,7 @@
           (if (svref sys.int::*interrupt-service-routines* i)
               (make-idt-entry :offset (sys.int::%array-like-ref-signed-byte-64
                                        (svref sys.int::*interrupt-service-routines* i)
-                                       0)
+                                       sys.int::+function-entry-point+)
                               :ist (cond ((eql i 14) 1) ; page fault.
                                          ((>= i 32) 2) ; IRQ
                                          (t 0)))

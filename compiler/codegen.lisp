@@ -931,7 +931,7 @@ be generated instead.")
   "Emit the common code for funcall, argument registers must
 be set up and the function must be in RBX.
 Returns an appropriate tag."
-  (emit `(sys.lap-x86:call ,(object-ea :rbx :slot 0)))
+  (emit `(sys.lap-x86:call ,(object-ea :rbx :slot sys.int::+function-entry-point+)))
   (cond ((member *for-value* '(:multiple :tail))
          (emit-gc-info :multiple-values 0)
          :multiple)

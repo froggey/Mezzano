@@ -51,9 +51,8 @@ xx8+0        | Return address
 Funcallable objects are normal compiled functions, closures and
 funcallable-instances.
 The object is loaded into RBX, then the entry point is called.
-The first word of a funcallable object is the entry point address.
 
-(call (:object :rbx 0))
+(call (:object :rbx +function-entry-point+))
 
 
 **  Calling convention for function references.

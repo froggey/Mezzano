@@ -6,7 +6,7 @@
 ;; Hardcoded string accessor, the support stuff for arrays doesn't function at this point.
 (defun char (string index)
   (assert (sys.int::character-array-p string) (string))
-  (let ((data (sys.int::%array-like-ref-t string 0)))
+  (let ((data (sys.int::%complex-array-storage string)))
     (assert (and (<= 0 index)
                  (< index (sys.int::%object-header-data data)))
             (string index))

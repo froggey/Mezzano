@@ -193,11 +193,13 @@
                                      (+ 3 rank)
                                      rank
                                      area)))
-    (setf (%array-like-ref-t array 0) storage
-          (%array-like-ref-t array 1) fill-pointer
-          (%array-like-ref-t array 2) info)
-    (loop for i from 3 for d in dimensions
-       do (setf (%array-like-ref-t array i) d))
+    (setf (%complex-array-storage array) storage
+          (%complex-array-fill-pointer array) fill-pointer
+          (%complex-array-info array) info)
+    (loop
+       for rank from 0
+       for d in dimensions
+       do (setf (%complex-array-dimension array rank) d))
     array))
 
 (defun make-array (dimensions &key
@@ -309,12 +311,12 @@
                                                   (adjust-array (%complex-array-storage array) new-dimensions
                                                             :initial-element (char-int initial-element))
                                                   (adjust-array (%complex-array-storage array) new-dimensions))
-               (%array-like-ref-t array 3) (first new-dimensions))
+               (%complex-array-dimension array 0) (first new-dimensions))
          (when fill-pointer
            (setf (fill-pointer array) fill-pointer))
          array)
         ((null (%complex-array-info array))
-         (setf (%array-like-ref-t array 3) (first new-dimensions)
+         (setf (%complex-array-dimension array 0) (first new-dimensions)
                (%complex-array-storage array) (if initial-element-p
                                                   (adjust-array (%complex-array-storage array) new-dimensions
                                                                 :initial-element initial-element)

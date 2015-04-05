@@ -730,12 +730,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     ;; FIXME? conses are 4 words when not in the cons area.
     (#.+tag-cons+ 2)
     (#.+tag-object+
-     ;; Be careful extracting the length field, avoid creating bignums.
-     (let* ((header (%array-like-ref-t object -1))
-            (length (ldb (byte +array-length-size+ (- +array-length-shift+ +n-fixnum-bits+)) header))
-            (type (ldb (byte +array-type-size+ (- +array-type-shift+ +n-fixnum-bits+)) header)))
+     (let ((length (%object-header-data object)))
        ;; Dispatch again based on the type.
-       (case type
+       (case (%object-tag object)
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
            #.+object-tag-structure-object+)

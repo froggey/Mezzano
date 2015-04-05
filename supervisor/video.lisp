@@ -105,7 +105,9 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
                         (* to-row (framebuffer-pitch fb))
                         (* to-col 4)))
             (to-pitch (framebuffer-pitch fb))
-            (from-base (+ (sys.int::lisp-object-address from-storage) (- sys.int::+tag-object+) 8
+            (from-base (+ (sys.int::lisp-object-address from-storage)
+                          (- sys.int::+tag-object+)
+                          8
                           (* from-row from-width 4)
                           (* from-col 4)))
             (from-pitch (* from-width 4)))
