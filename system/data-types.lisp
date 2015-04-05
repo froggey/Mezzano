@@ -5,12 +5,15 @@
 
 (defconstant +n-fixnum-bits+ 1)
 (defconstant +fixnum-tag-mask+ (1- (ash 1 +n-fixnum-bits+)))
-(defconstant +array-type-shift+ 2)
-(defconstant +array-type-size+ 6)
-(defconstant +array-length-shift+ 8)
-(defconstant +array-length-size+ 56)
-(defconstant +array-like-mark-bit+ #b10)
 
+;;; Fields in the object header.
+(defconstant +object-type-shift+ 2)
+(defconstant +object-type-size+ 6)
+(defconstant +object-data-shift+ 8)
+(defconstant +object-data-size+ 56)
+(defconstant +pinned-object-mark-bit+ #b10)
+
+;;; Low 4 bits of a value are tag bits:
 (defconstant +tag-fixnum-000+     #b0000)
 (defconstant +tag-dx-root-object+ #b0001)
 (defconstant +tag-fixnum-001+     #b0010)

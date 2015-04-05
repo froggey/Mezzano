@@ -147,11 +147,11 @@
   (sys.lap-x86:jne type-error)
   (sys.lap-x86:mov64 :rax (:object :r8 -1))
   ;; Simple vector object tag is zero.
-  (sys.lap-x86:test8 :al #.(ash (1- (ash 1 sys.int::+array-type-size+))
-                                sys.int::+array-type-shift+))
+  (sys.lap-x86:test8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
+                                sys.int::+object-type-shift+))
   (sys.lap-x86:jnz type-error)
   ;; Get number of values.
-  (sys.lap-x86:shr64 :rax #.sys.int::+array-length-shift+)
+  (sys.lap-x86:shr64 :rax #.sys.int::+object-data-shift+)
   (sys.lap-x86:jz zero-values)
   (sys.lap-x86:cmp64 :rax #.(+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
   (sys.lap-x86:jae too-many-values)
@@ -271,11 +271,11 @@
     (function object)
     (symbol
      ;; Fast-path for symbols.
-     (let ((fref (sys.int::%array-like-ref-t object sys.int::+symbol-function+)))
+     (let ((fref (sys.int::%object-ref-t object sys.int::+symbol-function+)))
        (when (not fref)
          (return-from sys.int::%coerce-to-callable
            (fdefinition object)))
-       (let ((fn (sys.int::%array-like-ref-t fref sys.int::+fref-function+)))
+       (let ((fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
          (or fn
              (fdefinition object)))))))
 
@@ -341,7 +341,7 @@ thread's stack if this function is called from normal code."
   (loop
      with address = (logand return-address -16)
      ;; Be careful when reading to avoid bignums.
-     for potential-header-type = (ldb (byte +array-type-size+ +array-type-shift+)
+     for potential-header-type = (ldb (byte +object-type-size+ +object-type-shift+)
                                       (memref-unsigned-byte-8 address 0))
      do
        (when (and

@@ -80,7 +80,7 @@
          (when (>= (+ base (* offset 8)) limit)
            (return))
          (let ((size (align-up (size-of-pinned-area-allocation (+ base (* offset 8))) 2))
-               (type (ldb (byte +array-type-size+ +array-type-shift+)
+               (type (ldb (byte +object-type-size+ +object-type-shift+)
                           (memref-unsigned-byte-64 base offset))))
            (incf total-words size)
            (cond ((not (eql type +object-tag-freelist-entry+))
@@ -119,8 +119,7 @@
 This is required to make the GC interrupt safe."
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
-    (let ((orig (gensym "ORIG"))
-          (address (gensym "ADDRESS")))
+    (let ((orig (gensym "ORIG")))
       `(let* (,@(mapcar #'list vars vals)
               (,orig ,getter)
               (,(car stores) (scavenge-object ,orig)))
@@ -589,18 +588,18 @@ This is required to make the GC interrupt safe."
               incoming-arguments block-or-tagbody-thunk
               extra-registers))))
 
-(defun scan-array-like (object)
+(defun scan-object-1 (object)
   ;; Careful here. Functions with lots of GC info can have the header fall
   ;; into bignumness when read as a ub64.
   (let* ((address (ash (%pointer-field object) 4))
-         (type (ldb (byte +array-type-size+ +array-type-shift+)
+         (type (ldb (byte +object-type-size+ +object-type-shift+)
                     (memref-unsigned-byte-8 address 0))))
     ;; Dispatch again based on the type.
     (case type
       (#.+object-tag-array-t+
        ;; simple-vector
        ;; 1+ to account for the header word.
-       (scan-generic object (1+ (ldb (byte +array-length-size+ +array-length-shift+)
+       (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
                                      (memref-unsigned-byte-64 address 0)))))
       ((#.+object-tag-simple-string+
         #.+object-tag-string+
@@ -616,7 +615,7 @@ This is required to make the GC interrupt safe."
       (#.+object-tag-structure-object+
        (when (hash-table-p object)
          (setf (hash-table-rehash-required object) 't))
-       (scan-generic object (1+ (ldb (byte +array-length-size+ +array-length-shift+)
+       (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
                                      (memref-unsigned-byte-64 address 0)))))
       (#.+object-tag-std-instance+
        (scan-generic object 3))
@@ -679,7 +678,7 @@ This is required to make the GC interrupt safe."
     (#.+tag-cons+
      (scan-generic object 2))
     (#.+tag-object+
-     (scan-array-like object))
+     (scan-object-1 object))
     (t (scan-error object))))
 
 (defun transport-error (object)
@@ -820,16 +819,16 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (let ((address (ash (%pointer-field object) 4)))
     (cond ((consp object)
            ;; The object header for conses is 16 bytes behind the address.
-           (when (not (eql (ldb (byte +array-type-size+ +array-type-shift+)
+           (when (not (eql (ldb (byte +object-type-size+ +object-type-shift+)
                                 (memref-unsigned-byte-64 address -2))
                            +object-tag-cons+))
              (mezzano.supervisor:panic "Invalid pinned cons " object))
            (when (not (eql (logand (memref-unsigned-byte-64 address -2)
-                                   +array-like-mark-bit+)
+                                   +pinned-object-mark-bit+)
                            *pinned-mark-bit*))
              ;; Not marked, mark it.
              (setf (memref-unsigned-byte-64 address -2) (logior (logand (memref-unsigned-byte-64 address -2)
-                                                                        (lognot +array-like-mark-bit+))
+                                                                        (lognot +pinned-object-mark-bit+))
                                                                 *pinned-mark-bit*))
              ;; And scan.
              (scan-object object)))
@@ -837,11 +836,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (mezzano.supervisor:debug-print-line
                 "Marking freelist entry " object))
              (when (not (eql (logand (memref-unsigned-byte-64 address 0)
-                                          +array-like-mark-bit+)
+                                          +pinned-object-mark-bit+)
                                   *pinned-mark-bit*))
                ;; Not marked, mark it.
                (setf (memref-unsigned-byte-64 address 0) (logior (logand (memref-unsigned-byte-64 address 0)
-                                                                         (lognot +array-like-mark-bit+))
+                                                                         (lognot +pinned-object-mark-bit+))
                                                                  *pinned-mark-bit*))
                ;; And scan.
                (scan-object object))))))
@@ -922,11 +921,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun size-of-pinned-area-allocation (address)
   "Return the size of an allocation in the wired or pinned area."
-  (let ((type (ash (memref-unsigned-byte-8 address 0) (- +array-type-shift+))))
+  (let ((type (ash (memref-unsigned-byte-8 address 0) (- +object-type-shift+))))
     (case type
       (#.+object-tag-cons+ 4)
       (#.+object-tag-freelist-entry+ (ash (memref-unsigned-byte-64 address 0)
-                                          (- +array-length-shift+)))
+                                          (- +object-data-shift+)))
       (t (object-size (%%assemble-value address +tag-object+))))))
 
 (defun align-up (value boundary)
@@ -936,7 +935,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (loop
      (when (>= start limit)
        (return nil))
-     (when (not (eql (logand (memref-unsigned-byte-8 start 0) +array-like-mark-bit+)
+     (when (not (eql (logand (memref-unsigned-byte-8 start 0) +pinned-object-mark-bit+)
                      *pinned-mark-bit*))
        ;; Not marked, must be free.
        (return start))
@@ -944,8 +943,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun make-freelist-header (len)
   (logior *pinned-mark-bit*
-          (ash +object-tag-freelist-entry+ +array-type-shift+)
-          (ash (align-up len 2) +array-length-shift+)))
+          (ash +object-tag-freelist-entry+ +object-type-shift+)
+          (ash (align-up len 2) +object-data-shift+)))
 
 (defun rebuild-freelist (freelist-symbol base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist."
@@ -966,7 +965,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (let ((current (symbol-value freelist-symbol)))
     (loop
        ;; Expand this entry as much as possible.
-       (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +array-length-shift+)))
+       (let* ((len (ash (memref-unsigned-byte-64 current 0) (- +object-data-shift+)))
               (next-addr (+ current (* len 8))))
          (when *gc-debug-freelist-rebuild*
            (mezzano.supervisor:debug-print-line "len: " len "  next: " next-addr))
@@ -978,7 +977,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                (setf (memref-signed-byte-64 current (+ i 2)) -1)))
            (return))
          ;; Test the mark bit.
-         (cond ((eql (logand (memref-unsigned-byte-8 next-addr 0) +array-like-mark-bit+)
+         (cond ((eql (logand (memref-unsigned-byte-8 next-addr 0) +pinned-object-mark-bit+)
                      *pinned-mark-bit*)
                 ;; Is marked, finish this entry and start the next one.
                 (setf next-addr (find-next-free-object current limit))
@@ -1006,7 +1005,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
         *words-copied* 0)
   ;; Flip.
   (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
-         *pinned-mark-bit* (logxor *pinned-mark-bit* +array-like-mark-bit+))
+         *pinned-mark-bit* (logxor *pinned-mark-bit* +pinned-object-mark-bit+))
   (setf *general-area-bump* 0
         *cons-area-bump* 0)
   ;; Unprotect newspace.
@@ -1084,7 +1083,7 @@ No type information will be provided."
              (loop
                 (when (>= offset limit)
                   (return))
-                (let* ((type (ash (memref-unsigned-byte-8 offset 0) (- +array-type-shift+)))
+                (let* ((type (ash (memref-unsigned-byte-8 offset 0) (- +object-type-shift+)))
                        (size (size-of-pinned-area-allocation offset)))
                   (when (and (not (eql type +object-tag-freelist-entry+))
                              (<= offset address (+ offset (* size 8) -1)))

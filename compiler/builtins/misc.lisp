@@ -292,12 +292,12 @@
                      `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
                      `(sys.lap-x86:jne ,type-error-label)
                      `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
-                     `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                                  sys.int::+array-type-shift+))
+                     `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                                  sys.int::+object-type-shift+))
                      `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
-                                                  sys.int::+array-type-shift+))
+                                                  sys.int::+object-type-shift+))
                      `(sys.lap-x86:jne ,type-error-label)
-                     `(sys.lap-x86:shr64 :rdx ,sys.int::+array-length-shift+)
+                     `(sys.lap-x86:shr64 :rdx ,sys.int::+object-data-shift+)
                      ;; RDX = bignum length.
                      `(sys.lap-x86:cmp64 :rdx 2)
                      `(sys.lap-x86:je ,len-2-bignum)
@@ -389,7 +389,7 @@
           ;; Function tag, flags and MC size.
           `(sys.lap-x86:mov32 (:rax) ,(logior #x00010000
                                               (ash sys.int::+object-tag-closure+
-                                                   sys.int::+array-type-shift+)))
+                                                   sys.int::+object-type-shift+)))
           ;; Constant pool size and slot count.
           `(sys.lap-x86:mov32 (:rax 4) #x00000002)
           ;; Entry point is CODE's entry point.

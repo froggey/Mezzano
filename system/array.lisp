@@ -189,10 +189,10 @@
 
 (defun %make-array-header (tag storage fill-pointer info dimensions area)
   (let* ((rank (length dimensions))
-         (array (%allocate-array-like tag
-                                     (+ 3 rank)
-                                     rank
-                                     area)))
+         (array (%allocate-object tag
+                                  (+ 3 rank)
+                                  rank
+                                  area)))
     (setf (%complex-array-storage array) storage
           (%complex-array-fill-pointer array) fill-pointer
           (%complex-array-info array) info)

@@ -98,7 +98,7 @@
   (and (eql (sys.int::%tag-field object) sys.int::+tag-object+)
        (eql (sys.int::%object-tag object) sys.int::+object-tag-thread+)))
 
-(macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%array-like-ref-t))
+(macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%object-ref-t))
              (let ((field-name (intern (format nil "+THREAD-~A+" (symbol-name name))
                                        (symbol-package name)))
                    (accessor-name (intern (format nil "THREAD-~A" (symbol-name name))
@@ -117,8 +117,8 @@
             (let ((state-name (intern (format nil "STATE-~A" name) (symbol-package name)))
                   (state-name-value (intern (format nil "STATE-~A-VALUE" name) (symbol-package name))))
               `(progn
-                 (field ,state-name ,offset :accessor sys.int::%array-like-ref-signed-byte-64)
-                 (field ,state-name-value ,offset :accessor sys.int::%array-like-ref-t)))))
+                 (field ,state-name ,offset :accessor sys.int::%object-ref-signed-byte-64)
+                 (field ,state-name-value ,offset :accessor sys.int::%object-ref-t)))))
   (field name                     0)
   (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page))
   (field lock                     2)
@@ -189,17 +189,17 @@
   (ensure-interrupts-disabled)
   (let ((current-thread (current-thread)))
     (do ()
-        ((sys.int::%cas-array-like thread
-                                   +thread-lock+
-                                   :unlocked
-                                   current-thread))
-      (panic "thread lock " thread " held by " (sys.int::%array-like-ref-t thread +thread-lock+))
+        ((sys.int::%cas-object thread
+                               +thread-lock+
+                               :unlocked
+                               current-thread))
+      (panic "thread lock " thread " held by " (sys.int::%object-ref-t thread +thread-lock+))
       (sys.int::cpu-relax))))
 
 (defun %unlock-thread (thread)
-  (assert (eql (sys.int::%array-like-ref-t thread +thread-lock+)
+  (assert (eql (sys.int::%object-ref-t thread +thread-lock+)
                (current-thread)))
-  (setf (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked))
+  (setf (sys.int::%object-ref-t thread +thread-lock+) :unlocked))
 
 (defun push-run-queue (thread)
   (when (or (eql thread *world-stopper*)
@@ -235,32 +235,32 @@
   ;; FIXME: need to make the GC aware of partially initialized threads.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
-    (setf (sys.int::%array-like-ref-t thread +thread-name+) name
-          (sys.int::%array-like-ref-t thread +thread-state+) :runnable
-          (sys.int::%array-like-ref-t thread +thread-lock+) :unlocked
-          (sys.int::%array-like-ref-t thread +thread-stack+) stack
-          (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
-          (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
-          (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
-          (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '()
-          (sys.int::%array-like-ref-t thread +thread-inhibit-footholds+) 1)
+    (setf (sys.int::%object-ref-t thread +thread-name+) name
+          (sys.int::%object-ref-t thread +thread-state+) :runnable
+          (sys.int::%object-ref-t thread +thread-lock+) :unlocked
+          (sys.int::%object-ref-t thread +thread-stack+) stack
+          (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
+          (sys.int::%object-ref-t thread +thread-wait-item+) nil
+          (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
+          (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
+          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1)
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-      (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
+      (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
             (sys.int::%unbound-tls-slot)))
     ;; Perform initial bindings.
     (loop for (symbol value) in initial-bindings do
          (let ((slot (or (sys.int::symbol-tls-slot symbol)
                          (sys.int::%allocate-tls-slot symbol))))
-           (setf (sys.int::%array-like-ref-t thread (1- slot)) value)))
+           (setf (sys.int::%object-ref-t thread (1- slot)) value)))
     ;; Initialize the FXSAVE area.
     ;; All FPU/SSE interrupts masked, round to nearest,
     ;; x87 using 80 bit precision (long-float).
     (dotimes (i 64)
-      (setf (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
-    (setf (ldb (byte 16 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
+      (setf (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
+    (setf (ldb (byte 16 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
           #x037F) ; FCW
-    (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
+    (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
           #x00001F80) ; MXCSR
     ;; Set up the initial register state.
     (let ((stack-pointer (+ (stack-base stack) (stack-size stack)))
@@ -275,7 +275,7 @@
             ;; Kernel code segment (defined in cpu.lisp).
             (thread-state-cs thread) 8
             ;; Trampoline entry point.
-            (thread-state-rip thread) (sys.int::%array-like-ref-signed-byte-64 trampoline 0)
+            (thread-state-rip thread) (sys.int::%object-ref-signed-byte-64 trampoline 0)
             (thread-state-rax thread) 0
             ;; 1 argument passed.
             (thread-state-rcx-value thread) 1
@@ -367,7 +367,7 @@
           ;; Kernel code segment (defined in cpu.lisp).
           (thread-state-cs thread) 8
           ;; Entry point.
-          (thread-state-rip thread) (sys.int::%array-like-ref-signed-byte-64 function 0)
+          (thread-state-rip thread) (sys.int::%object-ref-signed-byte-64 function 0)
           (thread-state-rax thread) 0
           ;; 0 arguments passed.
           (thread-state-rcx-value thread) 0
@@ -385,24 +385,24 @@
           (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
   (setf (thread-state thread) state
-        (sys.int::%array-like-ref-t thread +thread-special-stack-pointer+) nil
-        (sys.int::%array-like-ref-t thread +thread-wait-item+) nil
-        (sys.int::%array-like-ref-t thread +thread-mutex-stack+) nil
-        (sys.int::%array-like-ref-t thread +thread-pending-footholds+) '()
-        (sys.int::%array-like-ref-t thread +thread-inhibit-footholds+) 1
+        (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
+        (sys.int::%object-ref-t thread +thread-wait-item+) nil
+        (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
+        (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
+        (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
         (thread-full-save-p thread) t)
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
   ;; x87 using 80 bit precision (long-float).
   (dotimes (i 64)
-    (setf (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
-  (setf (ldb (byte 16 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
+    (setf (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ i)) 0))
+  (setf (ldb (byte 16 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
         #x037F) ; FCW
-  (setf (ldb (byte 32 0) (sys.int::%array-like-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
+  (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
         #x00001F80) ; MXCSR
   ;; Reset TLS slots.
   (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-    (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
+    (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
           (sys.int::%unbound-tls-slot))))
 
 (defun initialize-threads ()
@@ -682,7 +682,7 @@ Interrupts must be off, the current thread must be locked."
   (let* ((thread (current-thread)))
     (setf *world-stopper* thread)
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-      (setf (sys.int::%array-like-ref-t thread (+ +thread-tls-slots-start+ i))
+      (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
             (sys.int::%unbound-tls-slot)))
     (setf (thread-state thread) :active)))
 
@@ -723,21 +723,21 @@ Interrupts must be off, the current thread must be locked."
   (let ((thread (gensym)))
     `(unwind-protect
           (progn
-            (sys.int::%atomic-fixnum-add-array-like (current-thread) +thread-inhibit-footholds+ 1)
+            (sys.int::%atomic-fixnum-add-object (current-thread) +thread-inhibit-footholds+ 1)
             ,@body)
        (let ((,thread (current-thread)))
-         (sys.int::%atomic-fixnum-add-array-like ,thread +thread-inhibit-footholds+ -1)
-         (when (and (zerop (sys.int::%array-like-ref-t ,thread +thread-inhibit-footholds+))
-                    (sys.int::%array-like-ref-t ,thread +thread-pending-footholds+))
-           (%run-thread-footholds (sys.int::%xchg-array-like ,thread +thread-pending-footholds+ nil)))))))
+         (sys.int::%atomic-fixnum-add-object ,thread +thread-inhibit-footholds+ -1)
+         (when (and (zerop (sys.int::%object-ref-t ,thread +thread-inhibit-footholds+))
+                    (sys.int::%object-ref-t ,thread +thread-pending-footholds+))
+           (%run-thread-footholds (sys.int::%xchg-object ,thread +thread-pending-footholds+ nil)))))))
 
 (defun establish-thread-foothold (thread function)
   (loop
      (let ((old (thread-pending-footholds thread)))
        ;; Use CAS to avoid having to disable interrupts/lock the thread/etc.
        ;; Tricky to mix with allocation.
-       (when (sys.int::%cas-array-like thread +thread-pending-footholds+
-                                       old (cons function old))
+       (when (sys.int::%cas-object thread +thread-pending-footholds+
+                                   old (cons function old))
          (return)))))
 
 (defun terminate-thread (thread)

@@ -189,7 +189,7 @@
   (panic "Assert error " datum " " arguments))
 
 (defun sys.int::raise-undefined-function (fref)
-  (let ((name (sys.int::%array-like-ref-t fref sys.int::+fref-name+)))
+  (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))
     (cond ((consp name)
            (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))
           (t (panic "Undefined function " (symbol-name name))))))

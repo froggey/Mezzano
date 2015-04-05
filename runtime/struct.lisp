@@ -16,14 +16,14 @@
 (defun sys.int::%struct-slot (object slot)
   (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
   (sys.int::%bounds-check object slot)
-  (sys.int::%array-like-ref-t object slot))
+  (sys.int::%object-ref-t object slot))
 
 (defun (setf sys.int::%struct-slot) (value object slot)
   (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
   (sys.int::%bounds-check object slot)
-  (setf (sys.int::%array-like-ref-t object slot) value))
+  (setf (sys.int::%object-ref-t object slot) value))
 
 (defun sys.int::%cas-struct-slot (object slot old new)
   (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
   (sys.int::%bounds-check object slot)
-  (sys.int::%cas-array-like object slot old new))
+  (sys.int::%cas-object object slot old new))

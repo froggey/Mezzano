@@ -26,7 +26,7 @@ be generated instead.")
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 (defconstant +tls-base-offset+ (- sys.int::+tag-object+))
-(defconstant +tls-offset-shift+ (+ sys.int::+array-length-shift+ 2))
+(defconstant +tls-offset-shift+ (+ sys.int::+object-data-shift+ 2))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)
@@ -348,7 +348,7 @@ be generated instead.")
     (emit `(sys.lap-x86:sub64 :rsp :rdx))
     ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
     (emit `(sys.lap-x86:lea64 :rdx ((:rcx 2) ,(fixnum-to-raw 1)))) ; *2 as conses are 2 words and +1 for padding word at the start.
-    (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+array-length-shift+ sys.int::+n-fixnum-bits+)))
+    (emit `(sys.lap-x86:shl64 :rdx ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(sys.lap-x86:mov64 (:rsp) :rdx))
     ;; Clear the padding slot.
     (emit `(sys.lap-x86:mov64 (:rsp 8) 0))
@@ -535,7 +535,7 @@ be generated instead.")
       (smash-r8)
       (let ((slots (allocate-control-stack-slots words t)))
         ;; Set the header.
-        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (second size) sys.int::+array-length-shift+)))
+        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (second size) sys.int::+object-data-shift+)))
         ;; Generate pointer.
         (emit `(sys.lap-x86:lea64 :r8 (:rbp ,(+ (control-stack-frame-offset (+ slots words -1))
                                                 sys.int::+tag-object+)))))))
@@ -1028,7 +1028,7 @@ Returns an appropriate tag."
            (emit `(sys.lap-x86:sub64 :rsp :rax))
            ;; Write the simple-vector header.
            (emit `(sys.lap-x86:mov64 :rax :rcx))
-           (emit `(sys.lap-x86:shl64 :rax ,(- sys.int::+array-length-shift+ sys.int::+n-fixnum-bits+)))
+           (emit `(sys.lap-x86:shl64 :rax ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
            (emit `(sys.lap-x86:mov64 (:rsp) :rax))
            ;; Clear the SV body. Don't modify RCX, needed for MV GC info.
            (let ((clear-loop-head (gensym "MVP1-CLEAR-LOOP"))

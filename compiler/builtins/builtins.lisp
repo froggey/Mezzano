@@ -45,9 +45,9 @@
             `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov8 :al (,reg ,(- sys.int::+tag-object+)))
-            `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                       sys.int::+array-type-shift+))
-            `(sys.lap-x86:cmp8 :al ,(ash object-tag sys.int::+array-type-shift+))
+            `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                       sys.int::+object-type-shift+))
+            `(sys.lap-x86:cmp8 :al ,(ash object-tag sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)))))
 
 (defmacro define-tag-type-predicate (name tag)

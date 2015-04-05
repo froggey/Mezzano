@@ -85,10 +85,10 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
-            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                         sys.int::+array-type-shift+))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
-                                         sys.int::+array-type-shift+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:shr64 :rdx 8)
             ;; RDX = bignum length.
@@ -221,13 +221,13 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
-            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                         sys.int::+array-type-shift+))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
-                                         sys.int::+array-type-shift+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             ;; Length check.
-            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+array-length-shift+))
+            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+object-data-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
@@ -283,16 +283,18 @@
   *r8-value*)
 
 ;;; Access to slots in homogeneous objects.
-;;; (%ARRAY-LIKE-REF-type object slot) accesses the value in OBJECT at SLOT.
+;;; (%OBJECT-REF-type object slot) accesses the value in OBJECT at SLOT.
 ;;; Slots are stored linearly after the object's header and are assumed to all be the same size.
 ;;; This does not account for the additional alignment constraints of float arrays & similar.
 ;;; Valid types are: (un)signed-byte-{8,16,32,64} and t.
-;;; %ARRAY-LIKE-REF-T reads or writes a Lisp object.
+;;; %OBJECT-REF-T reads or writes a Lisp object.
 ;;; These functions are only valid on objects tagged with +TAG-OBJECT+, and do not test this.
+;;; These functions are GC safe, while accessing a slot using MEMREF-type and
+;;; LISP-OBJECT-ADDRESS is not.
 
-(defmacro define-u-b-alref (name width read-op write-op register)
+(defmacro define-u-b-object-ref (name width read-op write-op register)
   `(progn
-     (defbuiltin ,name (array offset) ()
+     (defbuiltin ,name (object offset) ()
        (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
@@ -301,7 +303,7 @@
            ;; Convert to unboxed integer.
            (emit `(sys.lap-x86:mov64 :rdi :r10)
                  `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-         (load-in-reg :r9 array t)
+         (load-in-reg :r9 object t)
          (smash-r8)
          ;; Read.
          (cond (constant-offset
@@ -311,7 +313,7 @@
          ;; Convert to fixnum.
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
-     (defbuiltin (setf ,name) (new-value array offset) ()
+     (defbuiltin (setf ,name) (new-value object offset) ()
        (let ((type-error-label (gensym))
              (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
@@ -323,7 +325,7 @@
            ;; Convert to unboxed integer.
            (emit `(sys.lap-x86:mov64 :rdi :r10)
                  `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-         (load-in-reg :r9 array t)
+         (load-in-reg :r9 object t)
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
                '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
@@ -340,11 +342,11 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rdi ,width)) ,register))))
          *r8-value*))))
 
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
-(define-u-b-alref sys.int::%array-like-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
+(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-8  1 sys.lap-x86:movzx8  sys.lap-x86:mov8  :al)
+(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
+(define-u-b-object-ref sys.int::%object-ref-unsigned-byte-32 4 sys.lap-x86:mov32   sys.lap-x86:mov32 :eax)
 
-(defbuiltin sys.int::%array-like-ref-unsigned-byte-64 (array offset) ()
+(defbuiltin sys.int::%object-ref-unsigned-byte-64 (object offset) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -353,7 +355,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r8 array t)
+    (load-in-reg :r8 object t)
     ;; Read.
     (cond (constant-offset
            (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot constant-offset))))
@@ -362,7 +364,7 @@
     (box-unsigned-byte-64-rax)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf sys.int::%array-like-ref-unsigned-byte-64) (new-value array offset) ()
+(defbuiltin (setf sys.int::%object-ref-unsigned-byte-64) (new-value object offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-ub64-bignum"))
         (len-2-bignum (gensym "alr-ub64-len-2-bignum"))
@@ -375,12 +377,12 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
-            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                         sys.int::+array-type-shift+))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
-                                         sys.int::+array-type-shift+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:shr64 :rdx ,sys.int::+array-length-shift+)
+            `(sys.lap-x86:shr64 :rdx ,sys.int::+object-data-shift+)
             ;; RDX = bignum length.
             `(sys.lap-x86:cmp64 :rdx 2)
             `(sys.lap-x86:je ,len-2-bignum)
@@ -407,7 +409,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r9 array t)
+    (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
@@ -423,10 +425,10 @@
            (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rdi 8)) :rdx))))
     *r8-value*))
 
-(defmacro define-s-b-alref (name width read-op write-op register)
+(defmacro define-s-b-object-ref (name width read-op write-op register)
   `(progn
      ;; Read function.
-     (defbuiltin ,name (array offset) ()
+     (defbuiltin ,name (object offset) ()
        (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
          (unless constant-offset
@@ -435,7 +437,7 @@
            ;; Convert to unboxed integer.
            (emit `(sys.lap-x86:mov64 :rdi :r10)
                  `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-         (load-in-reg :r9 array t)
+         (load-in-reg :r9 object t)
          (smash-r8)
          ;; Read.
          (cond (constant-offset
@@ -446,7 +448,7 @@
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
      ;; Write function.
-     (defbuiltin (setf ,name) (new-value array offset) ()
+     (defbuiltin (setf ,name) (new-value object offset) ()
        (let ((type-error-label (gensym))
              (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                                    (second offset))))
@@ -458,7 +460,7 @@
                  `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)))
          (emit-trailer (type-error-label)
            (raise-type-error :r8 '(signed-byte ,(* width 8))))
-         (load-in-reg :r9 array t)
+         (load-in-reg :r9 object t)
          (load-in-r8 new-value t)
          (emit '(sys.lap-x86:mov64 :rax :r8)
                '(sys.lap-x86:test64 :rax ,sys.int::+fixnum-tag-mask+)
@@ -478,11 +480,11 @@
                 (emit '(,write-op ,(object-ea :r9 :index `(:rcx ,width)) ,register))))
          *r8-value*))))
 
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
-(define-s-b-alref sys.int::%array-like-ref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-8  1 sys.lap-x86:movsx8  sys.lap-x86:mov8  :al)
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
 
-(defbuiltin sys.int::%array-like-ref-signed-byte-64 (array offset) ()
+(defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym))
         (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
@@ -497,7 +499,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r8 array t)
+    (load-in-reg :r8 object t)
     (smash-r8)
     ;; Read.
     (cond (constant-offset
@@ -512,7 +514,7 @@
           resume)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf sys.int::%array-like-ref-signed-byte-64) (new-value array offset) ()
+(defbuiltin (setf sys.int::%object-ref-signed-byte-64) (new-value object offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "alr-sb64-bignum"))
         (value-extracted (gensym "alr-sb64-value-extracted"))
@@ -524,12 +526,12 @@
             `(sys.lap-x86:cmp8 :dl ,sys.int::+tag-object+)
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot -1))
-            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+array-type-size+))
-                                         sys.int::+array-type-shift+))
+            `(sys.lap-x86:and8 :dl ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
-                                         sys.int::+array-type-shift+))
+                                         sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
-            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+array-length-shift+))
+            `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+object-data-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
             `(sys.lap-x86:jmp ,value-extracted)
@@ -541,7 +543,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r9 array t)
+    (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     (emit `(sys.lap-x86:mov64 :rdx :r8)
 	  `(sys.lap-x86:test64 :rdx ,sys.int::+fixnum-tag-mask+)
@@ -556,7 +558,7 @@
            (emit `(sys.lap-x86:mov64 ,(object-ea :r9 :index '(:rdi 8)) :rdx))))
     *r8-value*))
 
-(defbuiltin sys.int::%array-like-ref-t (array offset) ()
+(defbuiltin sys.int::%object-ref-t (object offset) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -565,7 +567,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r8 array t)
+    (load-in-reg :r8 object t)
     (smash-r8)
     ;; Read.
     (cond (constant-offset
@@ -574,7 +576,7 @@
            (emit `(sys.lap-x86:mov64 :r8 ,(object-ea :r8 :index '(:rdi 8))))))
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf sys.int::%array-like-ref-t) (new-value array offset) ()
+(defbuiltin (setf sys.int::%object-ref-t) (new-value object offset) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -583,7 +585,7 @@
       ;; Convert to unboxed integer.
       (emit `(sys.lap-x86:mov64 :rdi :r10)
             `(sys.lap-x86:sar64 :rdi ,sys.int::+n-fixnum-bits+)))
-    (load-in-reg :r9 array t)
+    (load-in-reg :r9 object t)
     (load-in-r8 new-value t)
     ;; Write.
     (cond (constant-offset
@@ -593,16 +595,16 @@
     *r8-value*))
 
 ;;; Atomic operations.
-;;; These functions index into the object like %ARRAY-LIKE-REF-T.
+;;; These functions index into the object like %OBJECT-REF-T.
 ;;; There are no atomic functions that access memory like MEMREF.
 
 ;; Add DELTA to the slot at SLOT in OBJECT.
 ;; Returns the old value of the slot.
 ;; DELTA and the value of the slot must both be fixnums.
 ;; (defun fixnum-add (object slot delta)
-;;   (prog1 (%array-like-ref-t object slot)
-;;     (incf (%array-like-ref-t object slot) delta)))
-(defbuiltin sys.int::%atomic-fixnum-add-array-like (object offset delta) ()
+;;   (prog1 (%object-ref-t object slot)
+;;     (incf (%object-ref-t object slot) delta)))
+(defbuiltin sys.int::%atomic-fixnum-add-object (object offset delta) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -625,9 +627,9 @@
 
 ;; Set the value in SLOT to NEW, and return the old value.
 ;; (defun xchg (object slot new)
-;;   (prog1 (%array-like-ref-t object slot)
-;;     (setf (%array-like-ref-t object slot) new)))
-(defbuiltin sys.int::%xchg-array-like (object offset new) ()
+;;   (prog1 (%object-ref-t object slot)
+;;     (setf (%object-ref-t object slot) new)))
+(defbuiltin sys.int::%xchg-object (object offset new) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -650,13 +652,13 @@
 ;; Returns true as the primary value if the slot was modified, false otherwise.
 ;; Additionally returns the old value of SLOT as the second value.
 ;; (defun cas (object offset old new)
-;;   (let ((slot-value (%array-like-ref-t object slot)))
+;;   (let ((slot-value (%object-ref-t object slot)))
 ;;     (values (cond ((eql slot-value old)
-;;                    (setf (%array-like-ref-t object slot) new)
+;;                    (setf (%object-ref-t object slot) new)
 ;;                    t)
 ;;                   (t nil))
 ;;             slot-value)))
-(defbuiltin sys.int::%cas-array-like (object offset old new) ()
+(defbuiltin sys.int::%cas-object (object offset old new) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset
@@ -692,17 +694,17 @@
 ;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
 ;; Returns the two old slot values and a success boolean.
 ;; (defun dcas (object offset old-1 old-2 new-1 new-2)
-;;   (let ((slot-value-1 (%array-like-ref-t object slot))
-;;         (slot-value-2 (%array-like-ref-t object (1+ slot))))
+;;   (let ((slot-value-1 (%object-ref-t object slot))
+;;         (slot-value-2 (%object-ref-t object (1+ slot))))
 ;;     (values (cond ((and (eql slot-value-1 old-1)
 ;;                         (eql slot-value-2 old-2))
-;;                    (setf (%array-like-ref-t object slot) new-1
-;;                          (%array-like-ref-t object (1+ slot)) new-2)
+;;                    (setf (%object-ref-t object slot) new-1
+;;                          (%object-ref-t object (1+ slot)) new-2)
 ;;                    t)
 ;;                   (t nil))
 ;;             slot-value-1
 ;;             slot-value-2)))
-(defbuiltin sys.int::%dcas-array-like (object offset old-1 old-2 new-1 new-2) ()
+(defbuiltin sys.int::%dcas-object (object offset old-1 old-2 new-1 new-2) ()
   (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (unless constant-offset

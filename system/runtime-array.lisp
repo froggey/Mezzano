@@ -72,7 +72,7 @@
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))
       (incf total-size (- 64 (rem total-size 64))))
-    (%allocate-array-like (second info) (truncate total-size 64) length area)))
+    (%allocate-object (second info) (truncate total-size 64) length area)))
 
 (defun sign-extend (value width)
   "Convert an unsigned integer to a signed value."
@@ -84,98 +84,98 @@
   (ecase (%object-tag array)
     ((#.+object-tag-array-t+
       #.+object-tag-array-fixnum+)
-     (%array-like-ref-t array index))
+     (%object-ref-t array index))
     (#.+object-tag-array-bit+
      (multiple-value-bind (offset bit)
          (truncate index 8)
        (ldb (byte 1 bit)
-            (%array-like-ref-unsigned-byte-8 array offset))))
+            (%object-ref-unsigned-byte-8 array offset))))
     (#.+object-tag-array-unsigned-byte-2+
      (multiple-value-bind (offset bit)
          (truncate index 4)
        (ldb (byte 2 bit)
-            (%array-like-ref-unsigned-byte-8 array offset))))
+            (%object-ref-unsigned-byte-8 array offset))))
     (#.+object-tag-array-unsigned-byte-4+
      (multiple-value-bind (offset bit)
          (truncate index 2)
        (ldb (byte 4 bit)
-            (%array-like-ref-unsigned-byte-8 array offset))))
+            (%object-ref-unsigned-byte-8 array offset))))
     (#.+object-tag-array-unsigned-byte-8+
-     (%array-like-ref-unsigned-byte-8 array index))
+     (%object-ref-unsigned-byte-8 array index))
     (#.+object-tag-array-unsigned-byte-16+
-     (%array-like-ref-unsigned-byte-16 array index))
+     (%object-ref-unsigned-byte-16 array index))
     (#.+object-tag-array-unsigned-byte-32+
-     (%array-like-ref-unsigned-byte-32 array index))
+     (%object-ref-unsigned-byte-32 array index))
     (#.+object-tag-array-unsigned-byte-64+
-     (%array-like-ref-unsigned-byte-64 array index))
+     (%object-ref-unsigned-byte-64 array index))
     (#.+object-tag-array-signed-byte-1+
      (multiple-value-bind (offset bit)
          (truncate index 8)
        (sign-extend (ldb (byte 1 bit)
-                         (%array-like-ref-unsigned-byte-8 array offset))
+                         (%object-ref-unsigned-byte-8 array offset))
                     1)))
     (#.+object-tag-array-signed-byte-2+
      (multiple-value-bind (offset bit)
          (truncate index 4)
        (sign-extend (ldb (byte 2 bit)
-                         (%array-like-ref-unsigned-byte-8 array offset))
+                         (%object-ref-unsigned-byte-8 array offset))
                     2)))
     (#.+object-tag-array-signed-byte-4+
      (multiple-value-bind (offset bit)
          (truncate index 2)
        (sign-extend (ldb (byte 4 bit)
-                         (%array-like-ref-unsigned-byte-8 array offset))
+                         (%object-ref-unsigned-byte-8 array offset))
                     4)))
     (#.+object-tag-array-signed-byte-8+
-     (%array-like-ref-signed-byte-8 array index))
+     (%object-ref-signed-byte-8 array index))
     (#.+object-tag-array-signed-byte-16+
-     (%array-like-ref-signed-byte-16 array index))
+     (%object-ref-signed-byte-16 array index))
     (#.+object-tag-array-signed-byte-32+
-     (%array-like-ref-signed-byte-32 array index))
+     (%object-ref-signed-byte-32 array index))
     (#.+object-tag-array-signed-byte-64+
-     (%array-like-ref-signed-byte-64 array index))
+     (%object-ref-signed-byte-64 array index))
     (#.+object-tag-array-single-float+
-     (%integer-as-single-float (%array-like-ref-unsigned-byte-32 array index)))))
+     (%integer-as-single-float (%object-ref-unsigned-byte-32 array index)))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%object-tag array)
     (#.+object-tag-array-t+ ;; simple-vector
-     (setf (%array-like-ref-t array index) value))
+     (setf (%object-ref-t array index) value))
     (#.+object-tag-array-fixnum+
      (check-type value fixnum)
-     (setf (%array-like-ref-t array index) value))
+     (setf (%object-ref-t array index) value))
     (#.+object-tag-array-bit+
      (check-type value bit)
      (multiple-value-bind (offset bit)
          (truncate index 8)
        (setf (ldb (byte 1 bit)
-                  (%array-like-ref-unsigned-byte-8 array offset))
+                  (%object-ref-unsigned-byte-8 array offset))
              value)))
     (#.+object-tag-array-unsigned-byte-2+
      (check-type value (unsigned-byte 2))
      (multiple-value-bind (offset bit)
          (truncate index 4)
        (setf (ldb (byte 2 bit)
-                  (%array-like-ref-unsigned-byte-8 array offset))
+                  (%object-ref-unsigned-byte-8 array offset))
              value)))
     (#.+object-tag-array-unsigned-byte-4+
      (check-type value (unsigned-byte 4))
      (multiple-value-bind (offset bit)
          (truncate index 2)
        (setf (ldb (byte 4 bit)
-                  (%array-like-ref-unsigned-byte-8 array offset))
+                  (%object-ref-unsigned-byte-8 array offset))
              value)))
     (#.+object-tag-array-unsigned-byte-8+
-     (setf (%array-like-ref-unsigned-byte-8 array index)
+     (setf (%object-ref-unsigned-byte-8 array index)
            value))
     (#.+object-tag-array-unsigned-byte-16+
-     (setf (%array-like-ref-unsigned-byte-16 array index)
+     (setf (%object-ref-unsigned-byte-16 array index)
            value))
     (#.+object-tag-array-unsigned-byte-32+
-     (setf (%array-like-ref-unsigned-byte-32 array index)
+     (setf (%object-ref-unsigned-byte-32 array index)
            value))
     (#.+object-tag-array-unsigned-byte-64+
-     (setf (%array-like-ref-unsigned-byte-64 array index)
+     (setf (%object-ref-unsigned-byte-64 array index)
            value))
     (#.+object-tag-array-signed-byte-1+
      (check-type value (signed-byte 1))
@@ -183,7 +183,7 @@
          (truncate index 8)
        (setf (ldb (byte 1 bit)
                   (ldb (byte 1 0)
-                       (%array-like-ref-unsigned-byte-8 array offset)))
+                       (%object-ref-unsigned-byte-8 array offset)))
              value)))
     (#.+object-tag-array-signed-byte-2+
      (check-type value (signed-byte 2))
@@ -191,7 +191,7 @@
          (truncate index 4)
        (setf (ldb (byte 2 bit)
                   (ldb (byte 2 0)
-                       (%array-like-ref-unsigned-byte-8 array offset)))
+                       (%object-ref-unsigned-byte-8 array offset)))
              value)))
     (#.+object-tag-array-signed-byte-4+
      (check-type value (signed-byte 4))
@@ -199,23 +199,23 @@
          (truncate index 2)
        (setf (ldb (byte 4 bit)
                   (ldb (byte 4 0)
-                       (%array-like-ref-unsigned-byte-8 array offset)))
+                       (%object-ref-unsigned-byte-8 array offset)))
              value)))
     (#.+object-tag-array-signed-byte-8+
-     (setf (%array-like-ref-signed-byte-8 array index)
+     (setf (%object-ref-signed-byte-8 array index)
            value))
     (#.+object-tag-array-signed-byte-16+
-     (setf (%array-like-ref-signed-byte-16 array index)
+     (setf (%object-ref-signed-byte-16 array index)
            value))
     (#.+object-tag-array-signed-byte-32+
-     (setf (%array-like-ref-signed-byte-32 array index)
+     (setf (%object-ref-signed-byte-32 array index)
            value))
     (#.+object-tag-array-signed-byte-64+
-     (setf (%array-like-ref-signed-byte-64 array index)
+     (setf (%object-ref-signed-byte-64 array index)
            value))
     (#.+object-tag-array-single-float+
      (check-type value single-float)
-     (setf (%array-like-ref-unsigned-byte-32 array index)
+     (setf (%object-ref-unsigned-byte-32 array index)
            (%single-float-as-integer value)))))
 
 (defun %simple-array-element-type (array)

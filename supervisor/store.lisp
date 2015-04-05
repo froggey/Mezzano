@@ -18,7 +18,7 @@
 (defvar *store-freelist-n-free-blocks*)
 (defvar *store-freelist-total-blocks*)
 
-(macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%array-like-ref-t))
+(macrolet ((field (name offset)
              (let ((field-name (intern (format nil "+FREELIST-METADATA-~A+" (symbol-name name))
                                        (symbol-package name)))
                    (accessor-name (intern (format nil "FREELIST-METADATA-~A" (symbol-name name))

@@ -323,7 +323,7 @@
           ;; Set header word.
           (setf (word address) 0)
           (setf (ldb (byte 16 0) (word address)) (ash sys.int::+object-tag-function+
-                                                      sys.int::+array-type-shift+) ; tag
+                                                      sys.int::+object-type-shift+) ; tag
                 (ldb (byte 16 16) (word address)) (truncate (length mc) 16)
                 (ldb (byte 16 32) (word address)) (length constants)
                 (ldb (byte 16 48) (word address)) (length gc-info))
@@ -688,8 +688,8 @@
   (values))
 
 (defun array-header (tag length)
-  (logior (ash tag sys.int::+array-type-shift+)
-          (ash length sys.int::+array-length-shift+)))
+  (logior (ash tag sys.int::+object-type-shift+)
+          (ash length sys.int::+object-data-shift+)))
 
 (defun pack-halfwords (low high)
   (check-type low (unsigned-byte 32))
@@ -1009,7 +1009,7 @@
     ;; Realign the stack.
     (sys.lap-x86:and64 :rsp ,(lognot 15))
     (sys.lap-x86:sub64 :rsp 16) ; 2 elements.
-    (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+array-type-shift+)) ; header
+    (sys.lap-x86:mov64 (:rsp) ,(ash sys.int::+object-tag-interrupt-frame+ sys.int::+object-type-shift+)) ; header
     (sys.lap-x86:lea64 :rax (:rbp :rbp)) ; Convert frame pointer to fixnum.
     (sys.lap-x86:mov64 (:rsp 8) :rax) ; 2nd element.
     (sys.lap-x86:lea64 :r8 (:rsp ,sys.int::+tag-object+))
@@ -1170,19 +1170,19 @@
   (let ((wired-free-area (allocate (* 2048 1024) :wired))
         (pinned-free-area (allocate (* 1024 1024) :pinned)))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
-    (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+    (setf (word wired-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                          (ash (truncate (- *wired-area-bump*
                                                            (ldb (byte 44 0) (* wired-free-area 8)))
                                                         8)
-                                              sys.int::+array-length-shift+))
+                                              sys.int::+object-data-shift+))
           (word (1+ wired-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
     (setf (cold-symbol-value 'sys.int::*wired-area-freelist*) (make-fixnum (* wired-free-area 8)))
     (setf *pinned-area-bump* (align-up *pinned-area-bump* #x200000))
-    (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+array-type-shift+)
+    (setf (word pinned-free-area) (logior (ash sys.int::+object-tag-freelist-entry+ sys.int::+object-type-shift+)
                                           (ash (truncate (- *pinned-area-bump*
                                                             (ldb (byte 44 0) (* pinned-free-area 8)))
                                                          8)
-                                               sys.int::+array-length-shift+))
+                                               sys.int::+object-data-shift+))
           (word (1+ pinned-free-area)) (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
     (setf (cold-symbol-value 'sys.int::*pinned-area-freelist*) (make-fixnum (* pinned-free-area 8)))
     (setf *wired-area-bump* (align-up *wired-area-bump* #x200000))
@@ -1510,8 +1510,8 @@
              (extract-object (word (1+ address)))))
       (#.sys.int::+tag-object+
        (let* ((header (word address))
-              (tag (ldb (byte sys.int::+array-type-size+
-                              sys.int::+array-type-shift+)
+              (tag (ldb (byte sys.int::+object-type-size+
+                              sys.int::+object-type-shift+)
                         header)))
          (ecase tag
            (#.sys.int::+object-tag-symbol+
@@ -1606,7 +1606,7 @@
     (setf (word address) 0)
     (setf (word (1+ address)) (* (+ address 2) 8))
     (lock-word (1+ address))
-    (setf (ldb (byte  8 0) (word address)) (ash tag sys.int::+array-type-shift+)
+    (setf (ldb (byte  8 0) (word address)) (ash tag sys.int::+object-type-shift+)
           (ldb (byte 16 16) (word address)) (ceiling (+ mc-length 16) 16)
           (ldb (byte 16 32) (word address)) n-constants
           (ldb (byte 16 48) (word address)) gc-info-length)

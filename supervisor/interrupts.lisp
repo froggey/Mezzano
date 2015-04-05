@@ -406,7 +406,7 @@ If clear, the fault occured in supervisor mode.")
         whole)))
 
 (defun interrupt-frame-pointer (frame)
-  (sys.int::%array-like-ref-t frame 0))
+  (sys.int::%object-ref-t frame 0))
 
 (defun interrupt-frame-raw-register (frame register)
   (sys.int::memref-unsigned-byte-64 (interrupt-frame-pointer frame)

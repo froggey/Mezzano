@@ -13,11 +13,11 @@
     (sys.int::%%assemble-value
      (ash (case (sys.int::%object-tag data)
             (#.sys.int::+object-tag-array-unsigned-byte-8+
-             (sys.int::%array-like-ref-unsigned-byte-8 data index))
+             (sys.int::%object-ref-unsigned-byte-8 data index))
             (#.sys.int::+object-tag-array-unsigned-byte-16+
-             (sys.int::%array-like-ref-unsigned-byte-16 data index))
+             (sys.int::%object-ref-unsigned-byte-16 data index))
             (#.sys.int::+object-tag-array-unsigned-byte-32+
-             (sys.int::%array-like-ref-unsigned-byte-32 data index))
+             (sys.int::%object-ref-unsigned-byte-32 data index))
             (t 0))
           4)
      sys.int::+tag-character+)))

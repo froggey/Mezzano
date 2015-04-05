@@ -84,11 +84,11 @@
           ;; #b0111
           (#b1001 ; objects
            (let* ((header (image-word image address))
-                  (type (ldb (byte sys.int::+array-type-size+
-                                   sys.int::+array-type-shift+)
+                  (type (ldb (byte sys.int::+object-type-size+
+                                   sys.int::+object-type-shift+)
                              header))
-                  (len (ldb (byte sys.int::+array-length-size+
-                                  sys.int::+array-length-shift+)
+                  (len (ldb (byte sys.int::+object-data-size+
+                                  sys.int::+object-data-shift+)
                             header)))
              (if (<= sys.int::+first-function-object-tag+
                      type
@@ -177,8 +177,8 @@ Assumes that everything can be reached from NIL."
        (cons (extract-image-object image (image-word image address))
              (extract-image-object image (image-word image (+ address 8)))))
       (#.sys.int::+tag-object+
-       (ecase (ldb (byte sys.int::+array-type-size+
-                         sys.int::+array-type-shift+)
+       (ecase (ldb (byte sys.int::+object-type-size+
+                         sys.int::+object-type-shift+)
                    (image-word image address))
          (#.sys.int::+object-tag-symbol+
           (when (eql value (image-nil image))
@@ -218,8 +218,8 @@ Assumes that everything can be reached from NIL."
   (let ((symbols '()))
     (map-objects (lambda (value)
                    (when (and (eql (logand value #b1111) sys.int::+tag-object+)
-                              (eql (ldb (byte sys.int::+array-type-size+
-                                              sys.int::+array-type-shift+)
+                              (eql (ldb (byte sys.int::+object-type-size+
+                                              sys.int::+object-type-shift+)
                                         (image-word image (logand value (lognot #b1111))))
                                    sys.int::+object-tag-symbol+))
                      (push (list (extract-image-object image (image-word image (+ (logand value (lognot #b1111)) 8)))

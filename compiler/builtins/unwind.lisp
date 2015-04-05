@@ -40,7 +40,7 @@
 (defun push-special-stack (object value &optional (tmp :rbx) (tmp2 :r12))
   (let ((slots (allocate-control-stack-slots 4 t)))
     ;; Flush slots.
-    (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+array-length-shift+))
+    (emit `(sys.lap-x86:mov64 (:stack ,(+ slots 3)) ,(ash 3 sys.int::+object-data-shift+))
           `(sys.lap-x86:mov64 (:stack ,(+ slots 2)) nil)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 1)) nil)
           `(sys.lap-x86:mov64 (:stack ,(+ slots 0)) nil))

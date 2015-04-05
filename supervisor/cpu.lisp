@@ -100,7 +100,7 @@
     (dotimes (i 256)
       (multiple-value-bind (lo hi)
           (if (svref sys.int::*interrupt-service-routines* i)
-              (make-idt-entry :offset (sys.int::%array-like-ref-signed-byte-64
+              (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
                                        (svref sys.int::*interrupt-service-routines* i)
                                        sys.int::+function-entry-point+)
                               :ist (cond ((eql i 14) 1) ; page fault.

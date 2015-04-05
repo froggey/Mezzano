@@ -292,7 +292,7 @@
 
 (defun %closure-function (closure)
   ;; Return the closed-over function associated with CLOSURE.
-  (%array-like-ref-t closure +closure-function+))
+  (%object-ref-t closure +closure-function+))
 
 (defun function-name (function)
   (check-type function function)
@@ -337,35 +337,35 @@
 
 (defun funcallable-std-instance-function (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance +funcallable-instance-function+))
+  (%object-ref-t funcallable-instance +funcallable-instance-function+))
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let ((entry-point (%array-like-ref-t value +function-entry-point+))
-        (old-1 (%array-like-ref-t funcallable-instance +funcallable-instance-entry-point+))
-        (old-2 (%array-like-ref-t funcallable-instance +funcallable-instance-function+)))
+  (let ((entry-point (%object-ref-t value +function-entry-point+))
+        (old-1 (%object-ref-t funcallable-instance +funcallable-instance-entry-point+))
+        (old-2 (%object-ref-t funcallable-instance +funcallable-instance-function+)))
     ;; Entry point is followed by function.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
     ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
     ;; this write succeeded, but was immediately overwritten.
-    (%dcas-array-like funcallable-instance +funcallable-instance-entry-point+
-                      old-1 old-2
-                      entry-point value)
+    (%dcas-object funcallable-instance +funcallable-instance-entry-point+
+                  old-1 old-2
+                  entry-point value)
     value))
 
 (defun funcallable-std-instance-class (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance +funcallable-instance-class+))
+  (%object-ref-t funcallable-instance +funcallable-instance-class+))
 (defun (setf funcallable-std-instance-class) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (setf (%array-like-ref-t funcallable-instance +funcallable-instance-class+) value))
+  (setf (%object-ref-t funcallable-instance +funcallable-instance-class+) value))
 
 (defun funcallable-std-instance-slots (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (%array-like-ref-t funcallable-instance +funcallable-instance-slots+))
+  (%object-ref-t funcallable-instance +funcallable-instance-slots+))
 (defun (setf funcallable-std-instance-slots) (value funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (setf (%array-like-ref-t funcallable-instance +funcallable-instance-slots+) value))
+  (setf (%object-ref-t funcallable-instance +funcallable-instance-slots+) value))
 
 (defun compiled-function-p (object)
   (when (functionp object)
@@ -412,20 +412,20 @@
 ;;; Function references, FUNCTION, et al.
 
 (defun make-function-reference (name)
-  (let ((fref (%allocate-array-like +object-tag-function-reference+ 4 0 :wired)))
-    (setf (%array-like-ref-t fref +fref-name+) name
+  (let ((fref (%allocate-object +object-tag-function-reference+ 4 0 :wired)))
+    (setf (%object-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
 
 (defun function-reference (name)
   "Convert a function name to a function reference."
   (cond ((symbolp name)
-         (or (%array-like-ref-t name +symbol-function+)
+         (or (%object-ref-t name +symbol-function+)
              ;; No fref, create one and add it to the function.
              (let ((new-fref (make-function-reference name)))
                ;; Try to atomically update the function cell.
                (multiple-value-bind (successp old-value)
-                   (%cas-array-like name +symbol-function+ nil new-fref)
+                   (%cas-object name +symbol-function+ nil new-fref)
                  (if successp
                      new-fref
                      old-value)))))
@@ -451,11 +451,11 @@
 
 (defun function-reference-name (fref)
   (check-type fref function-reference)
-  (%array-like-ref-t fref +fref-name+))
+  (%object-ref-t fref +fref-name+))
 
 (defun function-reference-function (fref)
   (check-type fref function-reference)
-  (let ((fn (%array-like-ref-t fref +fref-function+)))
+  (let ((fn (%object-ref-t fref +fref-function+)))
     (if (%undefined-function-p fn)
         nil
         fn)))
@@ -472,27 +472,27 @@ VALUE may be nil to make the fref unbound."
          ;; This must be stored in function slot so the closure-trampoline
          ;; works correctly.
          (values (%undefined-function)
-                 (%array-like-ref-t (%undefined-function)
+                 (%object-ref-t (%undefined-function)
                                     +function-entry-point+)))
         ((eql (%object-tag value) +object-tag-closure+)
          ;; Use the closure trampoline.
          (values value
-                 (%array-like-ref-t (%closure-trampoline)
+                 (%object-ref-t (%closure-trampoline)
                                     +function-entry-point+)))
         (t ;; Normal call.
          (values value
-                 (%array-like-ref-t value
+                 (%object-ref-t value
                                     +function-entry-point+))))
     ;; Atomically update both values.
     ;; Functions is followed by entry point.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
-    (let ((old-1 (%array-like-ref-t fref +fref-function+))
-          (old-2 (%array-like-ref-t fref +fref-entry-point+)))
+    (let ((old-1 (%object-ref-t fref +fref-function+))
+          (old-2 (%object-ref-t fref +fref-entry-point+)))
       ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
       ;; this write succeeded, but was immediately overwritten.
-      (%dcas-array-like fref +fref-function+
-                        old-1 old-2
-                        new-fn new-entry-point)))
+      (%dcas-object fref +fref-function+
+                    old-1 old-2
+                    new-fn new-entry-point)))
   value)
 
 (defun fdefinition (name)
@@ -740,14 +740,14 @@ VALUE may be nil to make the fref unbound."
 
 (defun std-instance-class (std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (%array-like-ref-t std-instance 0))
+  (%object-ref-t std-instance 0))
 (defun (setf std-instance-class) (value std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (setf (%array-like-ref-t std-instance 0) value))
+  (setf (%object-ref-t std-instance 0) value))
 
 (defun std-instance-slots (std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (%array-like-ref-t std-instance 1))
+  (%object-ref-t std-instance 1))
 (defun (setf std-instance-slots) (value std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
-  (setf (%array-like-ref-t std-instance 1) value))
+  (setf (%object-ref-t std-instance 1) value))
