@@ -228,7 +228,7 @@
 
 (defun current-thread ()
   "Returns the thread object for the calling thread."
-  (sys.int::%%assemble-value (sys.int::msr sys.int::+msr-ia32-gs-base+) 0))
+  (sys.int::%%assemble-value (sys.int::msr +msr-ia32-gs-base+) 0))
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
   (check-type function (or function symbol))
@@ -610,7 +610,7 @@ Interrupts must be off, the current thread must be locked."
 (sys.int::define-lap-function %%switch-to-thread-common ()
   ;; Old thread's state has been saved, restore the new-thread's state.
   ;; Switch threads.
-  (sys.lap-x86:mov32 :ecx #.sys.int::+msr-ia32-gs-base+)
+  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
   (sys.lap-x86:mov64 :rax :r9)
   (sys.lap-x86:mov64 :rdx :r9)
   (sys.lap-x86:shr64 :rdx 32)

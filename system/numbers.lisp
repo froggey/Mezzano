@@ -3,6 +3,15 @@
 
 (in-package :sys.int)
 
+(defconstant most-negative-short-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-double-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-negative-long-float (%integer-as-single-float #xFF7FFFFF))
+(defconstant most-positive-short-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-single-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-double-float (%integer-as-single-float #x7F7FFFFF))
+(defconstant most-positive-long-float (%integer-as-single-float #x7F7FFFFF))
+
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)
             (declare (dynamic-extent numbers))

@@ -41,13 +41,18 @@
 		   :reader simple-condition-format-control)
    (format-arguments :initarg :format-arguments
 		     :initform nil
-		     :reader simple-condition-format-arguments))
-  (:report (lambda (condition stream)
-	     (if (simple-condition-format-control condition)
-		 (apply #'format stream
-			(simple-condition-format-control condition)
-			(simple-condition-format-arguments condition))
-		 (call-next-method)))))
+		     :reader simple-condition-format-arguments)))
+
+(defmethod print-object ((c simple-condition) s)
+  (cond ((and (simple-condition-format-control c)
+              (not *print-escape*))
+         (apply #'format s
+                (simple-condition-format-control c)
+                (simple-condition-format-arguments c)))
+        (t (print-unreadable-object (c s :type t)
+             (apply #'format s
+                    (simple-condition-format-control c)
+                    (simple-condition-format-arguments c))))))
 
 (defun make-condition (type &rest slot-initializations)
   (declare (dynamic-extent slot-initializations))

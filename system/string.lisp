@@ -107,3 +107,8 @@ same characters in the corresponding positions; otherwise it returns false."))
     (cond (right-position
            (subseq string 0 (1+ right-position)))
           (t ""))))
+
+(defun make-string (size &key initial-element (element-type 'character))
+  (if initial-element
+      (make-array size :element-type element-type :initial-element initial-element)
+      (make-array size :element-type element-type)))

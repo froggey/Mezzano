@@ -3,10 +3,17 @@
 
 (in-package :sys.int)
 
-;;; Mini FASL loader.
+(defvar *load-verbose* nil)
+(defvar *load-print* nil)
+
+(defvar *load-pathname* nil)
+(defvar *load-truename* nil)
+
+(defvar *modules* '())
+(defvar *require-hooks* '())
 
 (defvar *noisy-load* nil)
-(defvar *load-wired* nil)
+(defvar *load-wired* nil "When true, allocate objects in the wired area.")
 
 (defun llf-command-name (command)
   (ecase command
@@ -246,7 +253,7 @@
     (#.+llf-function-reference+
      (function-reference (vector-pop stack)))))
 
-(defun mini-load-llf (stream &optional (*load-wired* nil))
+(defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
   (let ((*package* *package*)
         (omap (make-hash-table))
@@ -273,3 +280,73 @@
               (t (let ((value (multiple-value-list (load-one-object command stream stack))))
                    (when value
                      (vector-push-extend (first value) stack)))))))))
+
+(defun load-lisp-source (stream)
+  (let ((*readtable* *readtable*)
+        (*package* *package*)
+        (*load-truename* stream)
+        (*load-pathname* stream)
+        (eof (cons nil nil)))
+    (loop (let ((form (read stream nil eof)))
+            (when (eql form eof) (return))
+            (when *load-print* (format t ";; Loading ~S~%" form))
+            (eval form)))
+    t))
+
+(defun load-from-stream (stream)
+  (when *load-verbose*
+    (format t ";;; Loading from ~S~%" stream))
+  (if (subtypep (stream-element-type stream) 'character)
+      (load-lisp-source stream)
+      (load-llf stream)))
+
+(defun load (filespec &key
+             (verbose *load-verbose*)
+             (print *load-print*)
+             (if-does-not-exist t)
+             (external-format :default))
+  (let ((*load-verbose* verbose)
+        (*load-print* print))
+    (cond ((streamp filespec)
+           (let* ((*load-pathname* (pathname filespec))
+                  (*load-truename* (pathname filespec)))
+             (load-from-stream filespec)))
+          (t (let* ((path (merge-pathnames filespec))
+                    (*load-pathname* (pathname path))
+                    (*load-truename* (pathname path)))
+               (with-open-file (stream filespec
+                                       :if-does-not-exist (if if-does-not-exist
+                                                              :error
+                                                              nil)
+                                       :element-type (if (string-equal (pathname-type path) "LLF")
+                                                         '(unsigned-byte 8)
+                                                         'character)
+                                       :external-format (if (string-equal (pathname-type path) "LLF")
+                                                            :default
+                                                            external-format))
+                 (when stream
+                   (load-from-stream stream))))))))
+
+(defun provide (module-name)
+  (pushnew (string module-name) *modules*
+           :test #'string=)
+  (values))
+
+(defun require (module-name &optional pathname-list)
+  (unless (member (string module-name) *modules*
+                  :test #'string=)
+    (if pathname-list
+        (if (listp pathname-list)
+            (dolist (pathname pathname-list)
+              (load pathname))
+            (load pathname-list))
+        (dolist (hook *require-hooks*
+                 (error "Unable to REQUIRE module ~A." module-name))
+          (when (funcall hook module-name)
+            (return)))))
+  (values))
+
+(defun pprint-indent (relative-to n &optional stream)
+  (check-type relative-to (member :block :current))
+  (check-type n real)
+  nil)

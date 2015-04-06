@@ -3,6 +3,8 @@
 
 (in-package :sys.int)
 
+(defconstant char-code-limit #x110000)
+
 (declaim (special *unicode-info*
                   *unicode-name-store*
                   *unicode-encoding-table*

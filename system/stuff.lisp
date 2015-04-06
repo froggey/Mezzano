@@ -5,8 +5,12 @@
 
 (in-package :sys.int)
 
-(defconstant +msr-ia32-fs-base+ #xC0000100)
-(defconstant +msr-ia32-gs-base+ #xC0000101)
+(defconstant call-arguments-limit 500)
+(defconstant lambda-parameters-limit 500)
+(defconstant multiple-values-limit (+ (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+) 5))
+
+(unless (boundp 'lambda-list-keywords)
+  (defconstant lambda-list-keywords '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)))
 
 (declaim (inline null not))
 
@@ -172,6 +176,51 @@
 (defun complement (fn)
   #'(lambda (&rest args) (not (apply fn args))))
 
+(defun set (symbol value)
+  (setf (symbol-value symbol) value))
+
+(defun remprop (symbol indicator)
+  (remf (symbol-plist symbol) indicator))
+
+;; (%cpuid leaf ecx) -> eax ebx ecx edx
+(sys.int::define-lap-function %cpuid ()
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:sar64 :rax #.+n-fixnum-bits+)
+  (sys.lap-x86:mov64 :rcx :r9)
+  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+)
+  ;; Temporarily disable interrupts, CPUID sets RBX to an unsafe value.
+  (sys.lap-x86:cli)
+  (sys.lap-x86:cpuid)
+  (sys.lap-x86:lea64 :r8 ((:rax #.(ash 1 +n-fixnum-bits+))))
+  (sys.lap-x86:lea64 :r9 ((:rbx #.(ash 1 +n-fixnum-bits+))))
+  (sys.lap-x86:lea64 :r10 ((:rcx #.(ash 1 +n-fixnum-bits+))))
+  (sys.lap-x86:lea64 :r11 ((:rdx #.(ash 1 +n-fixnum-bits+))))
+  (sys.lap-x86:xor32 :ebx :ebx)
+  (sys.lap-x86:sti)
+  (sys.lap-x86:mov32 :ecx #.(ash 4 +n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(defun cpuid (leaf &optional (rcx 0))
+  (check-type leaf (unsigned-byte 32))
+  (check-type rcx (unsigned-byte 32))
+  (%cpuid leaf rcx))
+
+(defun decode-cpuid-vendor (vendor-1 vendor-2 vendor-3)
+  (let ((vendor (make-string (* 4 3))))
+    (setf (char vendor 0) (code-char (ldb (byte 8 0) vendor-1))
+          (char vendor 1) (code-char (ldb (byte 8 8) vendor-1))
+          (char vendor 2) (code-char (ldb (byte 8 16) vendor-1))
+          (char vendor 3) (code-char (ldb (byte 8 24) vendor-1))
+          (char vendor 4) (code-char (ldb (byte 8 0) vendor-2))
+          (char vendor 5) (code-char (ldb (byte 8 8) vendor-2))
+          (char vendor 6) (code-char (ldb (byte 8 16) vendor-2))
+          (char vendor 7) (code-char (ldb (byte 8 24) vendor-2))
+          (char vendor 8) (code-char (ldb (byte 8 0) vendor-3))
+          (char vendor 9) (code-char (ldb (byte 8 8) vendor-3))
+          (char vendor 10) (code-char (ldb (byte 8 16) vendor-3))
+          (char vendor 11) (code-char (ldb (byte 8 24) vendor-3)))
+    vendor))
+
 ;;; cl-nibbles-style accessors.
 
 (defun ub16ref/be (vector index)
@@ -253,3 +302,22 @@
 	(aref vector (+ index 6)) (ldb (byte 8 48) value)
 	(aref vector (+ index 7)) (ldb (byte 8 56) value))
   value)
+
+;;; Random.
+
+;; TODO: Implement this properly.
+
+(defstruct (random-state
+             (:constructor %make-random-state (bits)))
+  bits)
+
+(defvar *random-state* (%make-random-state 0))
+
+(defun make-random-state (&optional state)
+  (case state
+    ((t) (%make-random-state 0))
+    ((nil) (copy-random-state *random-state*))
+    (otherwise (copy-random-state state))))
+
+(defun random (limit &optional (random-state *random-state*))
+  (rem (incf (random-state-bits random-state)) limit))

@@ -481,3 +481,17 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
             (write-byte (car cmd) output-stream))))
       (write-byte +llf-end-of-load+ output-stream))
     (values (truename output-stream) nil nil)))
+
+(defun assemble-lap (code &optional name debug-info wired)
+  (multiple-value-bind (mc constants fixups symbols gc-data)
+      (sys.lap-x86:assemble code
+        :base-address 16
+        :initial-symbols '((nil . :fixup)
+                           (t . :fixup)
+                           (:unbound-value . :fixup)
+                           (:unbound-tls-slot . :fixup)
+                           (:undefined-function . :fixup)
+                           (:closure-trampoline . :fixup))
+        :info (list name debug-info))
+    (declare (ignore fixups symbols))
+    (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))

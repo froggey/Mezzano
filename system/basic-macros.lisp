@@ -1,10 +1,6 @@
 ;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-;;;; This file contains final versions of basic CL macros.
-;;;; It should be loaded during bootstrap after the full defmacro
-;;;; is installed.
-
 (in-package :sys.int)
 
 (defmacro lambda (lambda-list &body body)
@@ -340,3 +336,8 @@
        (let* ,variables
          (declare ,@declares)
          (tagbody ,@body-forms)))))
+
+(defmacro multiple-value-setq (vars form)
+  (dolist (v vars)
+    (check-type v symbol))
+  `(values (setf (values ,@vars) ,form)))

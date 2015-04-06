@@ -5,6 +5,10 @@
 
 (in-package :sys.int)
 
+(defconstant array-rank-limit (- (ash 1 +object-data-size+) +complex-array-axis-0+))
+(defconstant array-dimension-limit (ash 1 +object-data-size+))
+(defconstant array-total-size-limit (ash 1 +object-data-size+))
+
 (deftype array-axis ()
   `(integer 0 (,array-rank-limit)))
 

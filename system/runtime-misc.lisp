@@ -52,3 +52,23 @@
 (defmethod print-object ((object mezzano.supervisor:thread) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (mezzano.supervisor:thread-name object))))
+
+(defmethod print-object ((object mezzano.supervisor::nic) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~:(~A~) ~/sys.net::format-mac-address/"
+            (type-of (mezzano.supervisor::nic-device object))
+            (mezzano.supervisor:nic-mac object))))
+
+(defmethod print-object ((object mezzano.supervisor::disk) stream)
+  (print-unreadable-object (object stream :identity t)
+    (format stream "Disk")
+    (when (typep (mezzano.supervisor::disk-device object) 'mezzano.supervisor::partition)
+      (format stream " Partition on ~S" (mezzano.supervisor::partition-disk (mezzano.supervisor::disk-device object))))))
+
+(defmethod print-object ((object package) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~:(~S~)" (package-shortest-name object))))
+
+(defmethod print-object ((o structure-definition) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (write (structure-name o) :stream stream)))

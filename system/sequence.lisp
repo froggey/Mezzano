@@ -542,6 +542,18 @@
 ;; missing function...
 (setf (fdefinition 'delete-duplicates) #'remove-duplicates)
 
+(defun make-sequence (result-type size &key (initial-element nil initial-element-p))
+  (cond ((subtypep result-type 'list)
+         (loop for i below size collect initial-element))
+        ((subtypep result-type 'vector)
+         (if initial-element-p
+             (make-array size
+                         :element-type (or (coerce-vector-element-type result-type) 't)
+                         :initial-element initial-element)
+             (make-array size
+                         :element-type (or (coerce-vector-element-type result-type) 't))))
+        (t (error "Type ~S is not a recognized sequence type." result-type))))
+
 ;;; Bastardized SEARCH from SBCL.
 (defun search (sequence-1 sequence-2 &key from-end test test-not key (start1 0) (start2 0) end1 end2)
   (setf end1 (or end1 (length sequence-1)))
@@ -587,3 +599,137 @@
                         (funcall key (elt sequence-1 (+ start1 position)))
                         (funcall key (elt sequence-2 (+ start2 position)))))
       (return (+ start1 position)))))
+
+
+;;;; MERGE, from SBCL.
+
+;;; Destructively merge LIST-1 with LIST-2 (given that they're already
+;;; sorted w.r.t. PRED-FUN on KEY-FUN, giving output sorted the same
+;;; way). In the resulting list, elements of LIST-1 are guaranteed to
+;;; come before equal elements of LIST-2.
+;;;
+;;; Enqueues the values in the right order in HEAD's cdr, and returns
+;;; the merged list.
+(defun merge-lists* (head list1 list2 test key &aux (tail head))
+  (declare (type cons head list1 list2)
+           (type function test key)
+           (optimize speed))
+  (let ((key1 (funcall key (car list1)))
+        (key2 (funcall key (car list2))))
+    (macrolet ((merge-one (l1 k1 l2)
+                 `(progn
+                    (setf (cdr tail) ,l1
+                          tail       ,l1)
+                    (let ((rest (cdr ,l1)))
+                      (cond (rest
+                             (setf ,l1 rest
+                                   ,k1 (funcall key (first rest))))
+                            (t
+                             (setf (cdr ,l1) ,l2)
+                             (return (cdr head))))))))
+      (loop
+       (if (funcall test key2           ; this way, equivalent
+                         key1)          ; values are first popped
+           (merge-one list2 key2 list1) ; from list1
+           (merge-one list1 key1 list2))))))
+
+;;; Convenience wrapper for CL:MERGE
+(declaim (inline merge-lists))
+(defun merge-lists (list1 list2 test key)
+  (cond ((null list1)
+         list2)
+        ((null list2)
+         list1)
+        (t
+         (let ((head (cons nil nil)))
+           (declare (dynamic-extent head))
+           (merge-lists* head list1 list2 test key)))))
+
+(defmacro funcall2-using-key (pred key one two)
+  `(if ,key
+       (funcall ,pred (funcall ,key ,one)
+                (funcall ,key  ,two))
+       (funcall ,pred ,one ,two)))
+
+;;; MERGE-VECTORS returns a new vector which contains an interleaving
+;;; of the elements of VECTOR-1 and VECTOR-2. Elements from VECTOR-2
+;;; are chosen only if they are strictly less than elements of
+;;; VECTOR-1, (PRED ELT-2 ELT-1), as specified in the manual.
+(defmacro merge-vectors (vector-1 length-1 vector-2 length-2
+                               result-vector pred key access)
+  (let ((result-i (gensym))
+        (i (gensym))
+        (j (gensym)))
+    `(let* ((,result-i 0)
+            (,i 0)
+            (,j 0))
+       (declare (fixnum ,result-i ,i ,j))
+       (loop
+        (cond ((= ,i ,length-1)
+               (loop (if (= ,j ,length-2) (return))
+                     (setf (,access ,result-vector ,result-i)
+                           (,access ,vector-2 ,j))
+                     (incf ,result-i)
+                     (incf ,j))
+               (return ,result-vector))
+              ((= ,j ,length-2)
+               (loop (if (= ,i ,length-1) (return))
+                     (setf (,access ,result-vector ,result-i)
+                           (,access ,vector-1 ,i))
+                     (incf ,result-i)
+                     (incf ,i))
+               (return ,result-vector))
+              ((funcall2-using-key ,pred ,key
+                                   (,access ,vector-2 ,j) (,access ,vector-1 ,i))
+               (setf (,access ,result-vector ,result-i)
+                     (,access ,vector-2 ,j))
+               (incf ,j))
+              (t (setf (,access ,result-vector ,result-i)
+                       (,access ,vector-1 ,i))
+                 (incf ,i)))
+        (incf ,result-i)))))
+
+(defun merge (result-type sequence1 sequence2 predicate &key key)
+  "Merge the sequences SEQUENCE1 and SEQUENCE2 destructively into a
+   sequence of type RESULT-TYPE using PREDICATE to order the elements."
+  ;; FIXME: This implementation is remarkably inefficient in various
+  ;; ways. In decreasing order of estimated user astonishment, I note:
+  ;; full calls to SPECIFIER-TYPE at runtime; copying input vectors
+  ;; to lists before doing MERGE-LISTS -- WHN 2003-01-05
+  (cond
+    ((subtypep result-type 'list)
+     ;; the VECTOR clause, below, goes through MAKE-SEQUENCE, so
+     ;; benefits from the error checking there. Short of
+     ;; reimplementing everything, we can't do the same for the LIST
+     ;; case, so do relevant length checking here:
+     (let ((s1 (coerce sequence1 'list))
+           (s2 (coerce sequence2 'list))
+           (pred-fun predicate)
+           (key-fun (or key
+                        #'identity)))
+       (when (subtypep 'list result-type) ; result-type = 'list
+         (return-from merge (merge-lists s1 s2 pred-fun key-fun)))
+       (when (and (subtypep 'null result-type)
+                  (subtypep result-type 'null))
+         (if (and (null s1) (null s2))
+             (return-from merge 'nil)
+             ;; FIXME: This will break on circular lists (as,
+             ;; indeed, will the whole MERGE function).
+             (error "MERGE result type has too few elements.")))
+       (error "Result type ~S looks a bit like 'LIST, but is too complicated!" result-type)))
+    ((subtypep result-type 'vector)
+     (let* ((vector-1 (coerce sequence1 'vector))
+            (vector-2 (coerce sequence2 'vector))
+            (length-1 (length vector-1))
+            (length-2 (length vector-2))
+            (result (make-sequence result-type (+ length-1 length-2))))
+       (declare (vector vector-1 vector-2)
+                (fixnum length-1 length-2))
+       (if (and (simple-vector-p result)
+                (simple-vector-p vector-1)
+                (simple-vector-p vector-2))
+           (merge-vectors vector-1 length-1 vector-2 length-2
+                          result predicate key svref)
+           (merge-vectors vector-1 length-1 vector-2 length-2
+                          result predicate key aref))))
+    (t (error "Unknown MERGE result-type ~S." result-type))))
