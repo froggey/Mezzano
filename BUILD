@@ -82,5 +82,10 @@ The disk image can be run directly in qemu:
 or it can be converted to a .vmdk for use in VirtualBox:
   VBoxManage convertfromraw --format vmdk mezzano.image mezzano.vmdk
 
-Initially loading the whole system takes approximately 2 hours in
-VirtualBox running on a 2.4GHz Core 2 Quad.
+The VM's RAM must be at least twice as large as the size of the disk image.
+512MB for a 256MB image (the default), 1GB for a 512MB image, etc.
+The size of the image can be specified by using MAKE-IMAGE's :IMAGE-SIZE argument,
+ specified in bytes.
+
+Initially loading the whole system takes approximately 25 minutes in
+VirtualBox running on a 2.4GHz Core 2 Quad with a 512MB disk image.
