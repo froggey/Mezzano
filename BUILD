@@ -1,8 +1,9 @@
 Prerequisites
 -------------
 
-SBCL 1.2.4 with the default external format set to UTF-8. Newer versions
-should work, but have not been tested.
+SBCL 1.2.4 with the default external format set to UTF-8.
+SBCL 1.2.10 is also known to work.
+Newer versions should work, but have not been tested.
 (setf sb-impl::*default-external-format* :utf-8)
 
 Required systems, available via Quicklisp:
@@ -10,7 +11,6 @@ Alexandria
 Iterate
 Nibbles
 CL-PPCRE
-IOLIB (may require libfixposix)
 CL-FAD
 
 Home Directory
@@ -48,7 +48,7 @@ Create an ASDF config file in home/.config/common-lisp/source-registry.conf cont
 Build Instructions
 ------------------
 
-Tested under SBCL 1.2.4
+Tested under SBCL 1.2.4 and SBCL 1.2.10.
 
 Load the remote filesystem server.
 (ql:quickload :lispos-file)

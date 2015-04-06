@@ -10,4 +10,4 @@
   :licence "MIT"
   :components ((:file "package")
                (:file "server" :depends-on ("package")))
-  :depends-on (:iolib :iterate :alexandria :cl-fad))
+  :depends-on (#-sbcl :iolib #+sbcl :sb-bsd-sockets :iterate :alexandria :cl-fad))

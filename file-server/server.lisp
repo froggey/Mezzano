@@ -3,6 +3,8 @@
 
 (in-package #:file-server)
 
+(defparameter *default-file-server-port* 2599)
+
 (defvar *commands* (make-hash-table))
 (defvar *file-table*)
 (defvar *client*)
@@ -159,11 +161,12 @@
             (finish-output *client*))
       (loop for file across *file-table*
          do (when file (close file)))
-      (finish-output *client*))))
+      (finish-output *client*)
+      (format t "Client closed.~%"))))
 
-#-lisp-os
-(progn
-(defun run-file-server (&key (port 2599))
+
+#-sbcl
+(defun run-file-server (&key (port *default-file-server-port*))
   (iolib:with-open-socket (server :connect :passive
                                   :address-family :internet
                                   :type :stream
@@ -183,30 +186,40 @@
     (finish-output)
     t))
 
+#+sbcl
+(progn
+(defun accept (socket)
+  "Like socket-accept, but retry on EAGAIN."
+  (loop (handler-case
+            (return (sb-bsd-sockets:socket-accept socket))
+          (sb-bsd-sockets:interrupted-error ()))))
+
+(defun run-file-server (&key (port *default-file-server-port*))
+  (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                               :type :stream
+                               :protocol :tcp)))
+    (unwind-protect
+         (progn
+           (setf (sb-bsd-sockets:sockopt-reuse-address socket) t)
+           (sb-bsd-sockets:socket-bind socket (sb-bsd-sockets:make-inet-address "0.0.0.0") port)
+           (sb-bsd-sockets:socket-listen socket 5)
+           (loop
+                (with-open-stream (client
+                                   (sb-bsd-sockets:socket-make-stream
+                                    (accept socket)
+                                    :input t
+                                    :output t
+                                    :auto-close t
+                                    :external-format :utf-8
+                                    :element-type :default))
+                  (format t "Got a connection: ~S~%" client)
+                  (handler-case (handle-client client)
+                    (end-of-file ())))))
+      (sb-bsd-sockets:socket-close socket))))
+)
+
 (defun spawn-file-server (&rest args)
   (bordeaux-threads:make-thread (lambda () (catch 'finished (apply 'run-file-server args)))))
 
 (defun kill-server (thread)
   (bordeaux-threads:interrupt-thread thread (lambda () (throw 'finished nil))))
-)
-
-#+lisp-os
-(progn
-(defvar *pending-file-connections* '())
-(defun handle-file-server-connection (connection)
-  (push connection *pending-file-connections*))
-
-(defun run-file-server ()
-  (loop
-     (sys.int::process-wait "Awaiting connection"
-                            (lambda ()
-                              (not (endp *pending-file-connections*))))
-     (let ((connection (pop *pending-file-connections*)))
-       (format t "Got a connection from ~/sys.net::format-tcp4-address/:~D on port ~D~%"
-               (sys.net::tcp-connection-remote-ip connection)
-               (sys.net::tcp-connection-remote-port connection)
-               (sys.net::tcp-connection-local-port connection))
-       (handler-case (handle-client (make-instance 'sys.net::tcp-stream
-                                                   :connection connection))
-         (end-of-file ())))))
-)
