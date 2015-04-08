@@ -214,7 +214,7 @@ This is required to make the GC interrupt safe."
                           ;; The exit may cause a DX object's scope to be exited, which
                           ;; requires the DX pointer to be cleared. If the thread is
                           ;; interrupted before the pointer can be cleared, this happens.
-                          (when (<= (lisp-object-address value) stack-pointer)
+                          (when (>= (lisp-object-address value) stack-pointer)
                             (mezzano.supervisor:debug-print-line
                              "Scav DX root " (lisp-object-address value))
                             (scan-object (%%assemble-value (ash (%pointer-field value) 4)
