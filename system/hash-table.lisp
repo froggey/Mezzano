@@ -150,7 +150,6 @@ Requires at least one completely unbound slot to terminate."
 (defun hash-table-rehash (hash-table resize-p)
   "Resize and rehash HASH-TABLE so that there are no tombstones the usage
 is below the rehash-threshold."
-  (mezzano.supervisor:debug-print-line "Begin rehash of " hash-table)
   (let ((new-size (if resize-p
                       (if (floatp (hash-table-rehash-size hash-table))
                           (ceiling (* (hash-table-size hash-table) (hash-table-rehash-size hash-table)))
@@ -175,8 +174,7 @@ is below the rehash-threshold."
 	    (incf (hash-table-used hash-table))
 	    (incf (hash-table-count hash-table))
 	    (setf (hash-table-key-at hash-table free-slot) key
-		  (hash-table-value-at hash-table free-slot) value))))))
-  (mezzano.supervisor:debug-print-line "Finish rehash of " hash-table))
+		  (hash-table-value-at hash-table free-slot) value)))))))
 
 (defun make-hash-table-iterator (hash-table)
   (declare (type hash-table hash-table))
