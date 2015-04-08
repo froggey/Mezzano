@@ -23,6 +23,8 @@
 ;; This is shared between all areas.
 (defvar *memory-expansion-remaining* 0)
 
+(defvar *gc-epoch* 0)
+
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
         (total 0))
@@ -614,8 +616,6 @@ This is required to make the GC interrupt safe."
       (#.+object-tag-symbol+
        (scan-generic object 6))
       (#.+object-tag-structure-object+
-       (when (hash-table-p object)
-         (setf (hash-table-rehash-required object) 't))
        (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
                                      (memref-unsigned-byte-64 address 0)))))
       (#.+object-tag-std-instance+
@@ -1072,6 +1072,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     ;; Always leave about 1MB worth of blocks free, need to update the block map & freelist.
     (setf *memory-expansion-remaining* (logand (* (- n-free-blocks 256) #x1000) (lognot #x3FFFFF)))
     (mezzano.supervisor:debug-print-line "Set *M-E-R* to " *memory-expansion-remaining* " (" n-free-blocks " blocks remain)"))
+  (incf *gc-epoch*)
   (mezzano.supervisor:debug-print-line "GC complete")
   (mezzano.supervisor::set-gc-light nil))
 

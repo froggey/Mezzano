@@ -429,12 +429,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *llf-forms*)))
-          (gc) ; ### working around a hash-table bug
           (let ((*llf-dry-run* t))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o omap (make-broadcast-stream)))))
-          (gc) ; ### working around a hash-table bug
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
@@ -468,12 +466,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
       (let ((commands (reverse *llf-forms*)))
-        (gc) ; ### working around a hash-table bug
         (let ((*llf-dry-run* t))
           (dolist (cmd commands)
             (dolist (o (cdr cmd))
               (save-object o omap (make-broadcast-stream)))))
-        (gc) ; ### working around a hash-table bug
         (let ((*llf-dry-run* nil))
           (dolist (cmd commands)
             (dolist (o (cdr cmd))
@@ -493,5 +489,5 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                            (:undefined-function . :fixup)
                            (:closure-trampoline . :fixup))
         :info (list name debug-info))
-    (declare (ignore fixups symbols))
+    (declare (ignore symbols))
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))
