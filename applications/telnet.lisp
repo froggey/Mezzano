@@ -238,7 +238,7 @@ party to perform, the indicated option.")
                                                     (mezzano.gui.compositor:height window))
               (unwind-protect
                    (progn
-                     (setf (connection telnet) (sys.net::tcp-stream-connect server port)
+                     (setf (connection telnet) (mezzano.network.tcp:tcp-stream-connect server port)
                            (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
                                                                                    :name "Telnet receive"))
                      (loop

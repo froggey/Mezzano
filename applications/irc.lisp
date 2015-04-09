@@ -373,7 +373,7 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                                    0 0
                                                    (mezzano.gui.compositor:width (window irc))
                                                    (mezzano.gui.compositor:height (window irc)))
-             (setf (irc-connection irc) (sys.net::tcp-stream-connect address port)
+             (setf (irc-connection irc) (mezzano.network.tcp:tcp-stream-connect address port)
                    (receive-thread irc) (mezzano.supervisor:make-thread (lambda () (irc-receive irc))
                                                                         :name "IRC receive"))
              (buffered-format (irc-connection irc) "USER ~A hostname servername :~A~%" (nickname irc) (nickname irc))

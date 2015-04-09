@@ -131,9 +131,9 @@
                                         nil))
                               ;; Drop connections when they can't be handled.
                               (close connection)))))
-    (setf sys.net::*server-alist* (remove port sys.net::*server-alist*
-                                          :key #'first))
-    (push (list port listen-function) sys.net::*server-alist*)
+    (setf mezzano.network.tcp::*server-alist* (remove port mezzano.network.tcp::*server-alist*
+                                                      :key #'first))
+    (push (list port listen-function) mezzano.network.tcp::*server-alist*)
     (values server-thread listen-function connection-queue)))
 
 (defvar *http-server-thread* nil)
