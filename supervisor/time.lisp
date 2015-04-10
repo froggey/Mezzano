@@ -9,10 +9,20 @@
 
 (defvar *rtc-lock*)
 
+;; http://wiki.osdev.org/Programmable_Interval_Timer
+(defun configure-pit-tick-rate (hz)
+  (let ((divisor (truncate 1193180 hz)))
+    ;; Channel 0. lobyte/hibyte. Square wave generator. Not BCD.
+    (setf (system:io-port/8 #x43) #x36)
+    ;; Write low & high bytes to channel 0.
+    (setf (system:io-port/8 #x40) (ldb (byte 8 0) divisor)
+          (system:io-port/8 #x40) (ldb (byte 8 8) divisor))))
+
 (defun initialize-time ()
   (when (not (boundp '*heartbeat-wait-queue*))
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
     (setf *rtc-lock* (place-spinlock-initializer)))
+  (configure-pit-tick-rate 100)
   (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
   (i8259-unmask-irq +pit-irq+))
 
