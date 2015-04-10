@@ -24,7 +24,8 @@
 	 (tpa-start (+ tha-start hlen))
 	 (packet-end (+ tpa-start plen))
 	 (merge-flag nil)
-         (address (mezzano.network.ip:ipv4-interface-address interface nil)))
+         (address (mezzano.network.ip::ipv4-address-address
+                   (mezzano.network.ip:ipv4-interface-address interface nil))))
     ;; Ethernet hardware type and IPv4.
     (when (and (eql htype +arp-hrd-ethernet+) (eql hlen 6)
 	       (eql ptype mezzano.network.ethernet:+ethertype-ipv4+) (eql plen 4))
@@ -77,7 +78,9 @@
 	    ;; ARP source hardware address.
 	    (aref packet (+ 22 i)) (aref mac i)))
     ;; Set the source and target protocol addresses.
-    (setf (ub32ref/be packet 28) (mezzano.network.ip:ipv4-interface-address interface)
+    (setf (ub32ref/be packet 28) (mezzano.network.ip::ipv4-address-address
+                                  (mezzano.network.ip:ipv4-interface-address
+                                   interface))
 	  (ub32ref/be packet 38) address
 	  ;; Various other fields.
 	  (ub16ref/be packet 12) mezzano.network.ethernet:+ethertype-arp+

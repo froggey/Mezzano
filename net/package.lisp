@@ -8,14 +8,15 @@
            #:buffered-format
            #:send #:receive
            #:disconnect
-           #:resolve-address))
+           #:resolve-address
+           #:octet))
 
 (defpackage :mezzano.network.ethernet
   (:use :cl)
   (:import-from :sys.int
-                :ub16ref/be :ub16ref/le
-                :ub32ref/be :ub32ref/le
-                :ub64ref/be :ub64ref/le)
+                #:ub16ref/be #:ub16ref/le
+                #:ub32ref/be #:ub32ref/le
+                #:ub64ref/be #:ub64ref/le)
   (:export #:ethernet-mac
            #:format-mac-address
            #:*ethernet-broadcast*
@@ -41,11 +42,16 @@
                 #:ub16ref/be #:ub16ref/le
                 #:ub32ref/be #:ub32ref/le
                 #:ub64ref/be #:ub64ref/le)
+  (:import-from :sys.net
+                #:octet)
   (:export #:make-ipv4-address
            #:format-ipv4-address
            #:invalid-ipv4-address
            #:parse-ipv4-address
            #:ipv4-interface-address
+           #:address-network
+           #:address-host
+           #:address-equal
            #:compute-ip-checksum
            #:compute-ip-partial-checksum
            #:ipv4-route

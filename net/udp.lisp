@@ -44,7 +44,9 @@
 (defun get-udp-connection (remote-ip remote-port local-port)
   (mezzano.supervisor:with-mutex (*udp-connection-lock*)
     (dolist (connection *udp-connections*)
-      (when (and (eql (remote-address connection) remote-ip)
+      (when (and (mezzano.network.ip:address-equal
+                       (remote-address connection)
+                       remote-ip)
                  (eql (remote-port connection) remote-port)
                  (eql (local-port connection) local-port))
         (return connection)))))
@@ -105,6 +107,7 @@
               (mezzano.supervisor:wait-for-heartbeat))))))
 
 (defun %udp4-receive (packet remote-ip start end)
+  (setf remote-ip (mezzano.network.ip:make-ipv4-address remote-ip))
   (let* ((remote-port (ub16ref/be packet start))
          (local-port (ub16ref/be packet (+ start 2)))
          (length (ub16ref/be packet (+ start 4)))

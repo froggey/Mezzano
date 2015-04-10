@@ -77,12 +77,19 @@
     (dolist (route *routing-table*)
       (cond ((null (first route))
 	     (setf default-route route))
-	    ((eql (logand destination (third route)) (first route))
+	    ((address-equal (address-network destination (third route))
+                            (first route))
 	     (return-from ipv4-route
-	       (values (mezzano.network.arp:arp-lookup (fourth route) mezzano.network.ethernet:+ethertype-ipv4+ destination)
+	       (values (mezzano.network.arp:arp-lookup
+                        (fourth route)
+                        mezzano.network.ethernet:+ethertype-ipv4+
+                        (ipv4-address-address destination))
 		       (fourth route))))))
     (if default-route
-        (values (mezzano.network.arp:arp-lookup (fourth default-route) mezzano.network.ethernet:+ethertype-ipv4+ (second default-route))
+        (values (mezzano.network.arp:arp-lookup
+                 (fourth default-route)
+                 mezzano.network.ethernet:+ethertype-ipv4+
+                 (ipv4-address-address (second default-route)))
                 (fourth default-route))
         (error "No route to host."))))
 
@@ -110,20 +117,42 @@
 	 ;; Protocol.
 	 (aref ip-header 9) protocol
 	 ;; Source address.
-	 (ub32ref/be ip-header 12) source
+	 (ub32ref/be ip-header 12) (mezzano.network.ip::ipv4-address-address source)
 	 ;; Destination address.
-	 (ub32ref/be ip-header 16) destination
+	 (ub32ref/be ip-header 16) (mezzano.network.ip::ipv4-address-address destination)
 	 ;; Header checksum.
 	 (ub16ref/be ip-header 10) (compute-ip-checksum ip-header))
-	(mezzano.network.ethernet:transmit-ethernet-packet interface ethernet-mac mezzano.network.ethernet:+ethertype-ipv4+ packet)))))
+	(mezzano.network.ethernet:transmit-ethernet-packet
+         interface
+         ethernet-mac
+         mezzano.network.ethernet:+ethertype-ipv4+
+         packet)))))
 
 ;;; IP addresses.
 
-(defun make-ipv4-address (a b c d)
-  (logior (ash a 24)
-	  (ash b 16)
-	  (ash c 8)
-	  d))
+(defstruct (ipv4-address
+             (:constructor %make-ipv4-address (address)))
+  (address 0 :read-only t :type (unsigned-byte 32)))
+
+(defun make-ipv4-address (address)
+  "Turn ADDRESS into an IPv4 address object.
+ADDRESS can be a string containing an IP address in dotted-decimal notation,
+A sequence of 4 octets, with element 0 being the MSB and element 3 the LSB,
+an (UNSIGNED-BYTE 32) or an IPV4-ADDRESS."
+  (etypecase address
+    (ipv4-address
+     address)
+    ((unsigned-byte 32)
+     (%make-ipv4-address address))
+    (string
+     (make-ipv4-address (parse-ipv4-address address)))
+    (sequence
+     (assert (eql (length address) 4))
+     (assert (every (lambda (x) (typep x 'octet)) address))
+     (make-ipv4-address (logior (ash (elt address 0) 24)
+                                (ash (elt address 1) 16)
+                                (ash (elt address 2) 8)
+                                (elt address 3))))))
 
 (defun format-ipv4-address (stream argument &optional colon-p at-sign-p)
   "Print the (UNSIGNED-BYTE 32) argument in dotted-decimal notation."
@@ -135,6 +164,12 @@
           (ldb (byte 8 16) argument)
           (ldb (byte 8 8) argument)
           (ldb (byte 8 0) argument)))
+
+(defmethod print-object ((object ipv4-address) stream)
+  (if (or *print-readably*
+          *print-escape*)
+      (call-next-method)
+      (format-ipv4-address stream (ipv4-address-address object))))
 
 (define-condition invalid-ipv4-address (simple-error)
   ((address :initarg :address
@@ -182,6 +217,25 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
     (check-type value (unsigned-byte 32))
     value))
 
+(defgeneric address-equal (x y))
+
+(defgeneric address-network (local-ip netmask)
+  (:documentation "Return the address of LOCAL-IP's network, based on NETMASK."))
+
+(defgeneric address-host (local-ip netmask)
+  (:documentation "Return the address of LOCAL-IP's host, based on NETMASK."))
+
+(defmethod address-equal ((x ipv4-address) (y ipv4-address))
+  (eql (ipv4-address-address x) (ipv4-address-address y)))
+
+(defmethod address-network ((local-ip ipv4-address) (netmask ipv4-address))
+  (make-ipv4-address (logand (ipv4-address-address local-ip)
+                             (ipv4-address-address netmask))))
+
+(defmethod address-host ((local-ip ipv4-address) (netmask ipv4-address))
+  (make-ipv4-address (logand (ipv4-address-address local-ip)
+                             (lognot (ipv4-address-address netmask)))))
+
 ;;; ICMP.
 
 (defun ping4-identifier (packet)
@@ -223,7 +277,8 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
         (declare (ignore interface))
         (when (and (eql (ethertype p) mezzano.network.ethernet:+ethertype-ipv4+)
                    (eql (ipv4-protocol p) +ip-protocol-icmp+)
-                   (eql (ipv4-source p) host-ip)
+                   (address-equal (make-ipv4-address (ipv4-source p))
+                                  host-ip)
                    (eql (ping4-identifier p) identifier)
                    (find (ping4-sequence-number p) in-flight-pings))
           ;; ### Need locking here.

@@ -220,4 +220,5 @@ the seperator character."
                 (when (eql rx-id id)
                   (dolist (a answers)
                     (when (eql (second a) :a)
-                      (return-from resolve-address (fifth a)))))))))))))
+                      (return-from resolve-address
+                        (mezzano.network.ip:make-ipv4-address (fifth a))))))))))))))

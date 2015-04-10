@@ -3,6 +3,9 @@
 
 (in-package :sys.net)
 
+(deftype octet ()
+  '(unsigned-byte 8))
+
 (defun packet-length (packet)
   (reduce '+ (mapcar 'length packet)))
 
@@ -75,12 +78,12 @@
 
 (defun resolve-address (address &optional (errorp t))
   (cond ((listp address)
-         (apply 'mezzano.network.ip:make-ipv4-address address))
+         (mezzano.network.ip:make-ipv4-address address))
         ((stringp address)
          (or
           ;; 1. Try to parse it as an IP address.
           (ignore-errors
-            (mezzano.network.ip:parse-ipv4-address address))
+            (mezzano.network.ip:make-ipv4-address address))
           ;; 2. Look in the hosts table.
           (second (assoc address *hosts* :test 'string-equal))
           ;; 3. Finally do a DNS lookup.

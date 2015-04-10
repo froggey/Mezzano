@@ -52,7 +52,7 @@
       (format t " ~S~%" card)
       (format t "   Mac: ~/mezzano.network.ethernet:format-mac-address/~%" (mezzano.supervisor:nic-mac card))
       (when address
-        (format t "   IPv4 address: ~/mezzano.network.ip:format-ipv4-address/~%" address))
+        (format t "   IPv4 address: ~A~%" address))
       (multiple-value-bind (rx-bytes rx-packets rx-errors tx-bytes tx-packets tx-errors collisions)
           (mezzano.supervisor:net-statistics card)
         (format t "   ~:D octets, ~:D packets received. ~:D RX errors.~%"
@@ -71,21 +71,21 @@
     (if (second route)
         (mezzano.network.ip:format-ipv4-address *standard-output* (second route))
         (write-string "N/A"))
-    (format t "~33T~/mezzano.network.ip:format-ipv4-address/~49T~/mezzano.gui.peek::format-nic/~%" (third route) (fourth route)))
+    (format t "~33T~A~49T~/mezzano.gui.peek::format-nic/~%" (third route) (fourth route)))
   (format t "Servers:~%")
   (dolist (server mezzano.network.tcp::*server-alist*)
     (format t "~S  TCPv4 ~D~%" (second server) (first server)))
   (format t "TCPv4 connections:~%")
   (format t " Local~8TRemote~40TState~%")
   (dolist (conn mezzano.network.tcp::*tcp-connections*)
-    (format t " ~D~8T~/mezzano.network.ip:format-ipv4-address/:~D~40T~S~%"
+    (format t " ~D~8T~A:~D~40T~S~%"
             (mezzano.network.tcp::tcp-connection-local-port conn)
             (mezzano.network.tcp::tcp-connection-remote-ip conn) (mezzano.network.tcp::tcp-connection-remote-port conn)
             (mezzano.network.tcp::tcp-connection-state conn)))
   (format t "UDPv4 connections:~%")
   (format t " Local~8TRemote~%")
   (dolist (conn mezzano.network.udp::*udp-connections*)
-    (format t " ~D~8T~/mezzano.network.ip:format-ipv4-address/:~D~%"
+    (format t " ~D~8T~A:~D~%"
             (mezzano.network.udp::local-port conn)
             (mezzano.network.udp::remote-address conn) (mezzano.network.udp::remote-port conn))))
 
