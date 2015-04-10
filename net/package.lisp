@@ -55,6 +55,8 @@
            #:compute-ip-checksum
            #:compute-ip-partial-checksum
            #:ipv4-route
+           #:add-route
+           #:remove-route
            #:transmit-ipv4-packet
            #:+ip-protocol-icmp+
            #:+ip-protocol-igmp+

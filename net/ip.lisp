@@ -26,8 +26,45 @@
 (defconstant +icmp-code-ttl-exceeded+ 0)
 (defconstant +icmp-code-fragment-timeout+ 1)
 
-;;; (network gateway netmask interface)
+;; Sorted from longest prefix to shortest.
+;; Default route has a prefix of 0.
+(defvar *routing-table-lock* (mezzano.supervisor:make-mutex "IPv4 routing table."))
 (defvar *routing-table* nil)
+
+(defclass ipv4-route ()
+  ;; No netmask, just the network address & length of the prefix.
+  ;; 192.168.0.0/24  network/prefix-length
+  ((%network :initarg :network :reader route-network)
+   (%prefix-length :initarg :prefix-length :reader route-prefix-length)
+   (%gateway :initarg :gateway :reader route-gateway)
+   (%interface :initarg :interface :reader route-interface)))
+
+(defun add-route (network prefix-length gateway interface)
+  (assert (eql (ipv4-address-address (address-host network prefix-length)) 0))
+  (let ((route (make-instance 'ipv4-route
+                              :network (make-ipv4-address network)
+                              :prefix-length prefix-length
+                              :gateway gateway
+                              :interface interface)))
+    (mezzano.supervisor:with-mutex (*routing-table-lock*)
+      (setf *routing-table*
+            (merge 'list
+                   (remove-if (lambda (x)
+                                (and (address-equal network (route-network x))
+                                     (eql prefix-length (route-prefix-length x))))
+                              *routing-table*)
+                   (list route)
+                   #'>
+                   :key #'route-prefix-length))
+      route)))
+
+(defun remove-route (network prefix-length)
+  (mezzano.supervisor:with-mutex (*routing-table-lock*)
+    (setf *routing-table*
+          (remove-if (lambda (x)
+                       (and (address-equal network (route-network x))
+                            (eql prefix-length (route-prefix-length x))))
+                     *routing-table*))))
 
 (defvar *ipv4-interfaces* '())
 
@@ -72,26 +109,23 @@
     (logand (lognot total) #xFFFF)))
 
 (defun ipv4-route (destination)
-  "Return the interface and destination mac for the destination IP address."
-  (let ((default-route nil))
-    (dolist (route *routing-table*)
-      (cond ((null (first route))
-	     (setf default-route route))
-	    ((address-equal (address-network destination (third route))
-                            (first route))
-	     (return-from ipv4-route
-	       (values (mezzano.network.arp:arp-lookup
-                        (fourth route)
-                        mezzano.network.ethernet:+ethertype-ipv4+
-                        (ipv4-address-address destination))
-		       (fourth route))))))
-    (if default-route
-        (values (mezzano.network.arp:arp-lookup
-                 (fourth default-route)
-                 mezzano.network.ethernet:+ethertype-ipv4+
-                 (ipv4-address-address (second default-route)))
-                (fourth default-route))
-        (error "No route to host."))))
+  "Return the interface and destination MAC for the destination IP address."
+  (dolist (route *routing-table*
+           (error "No route to host ~A." destination))
+    (when (address-equal (address-network destination
+                                          (route-prefix-length route))
+                         (route-network route))
+      (return
+        (values
+         ;; Destination MAC.
+         (mezzano.network.arp:arp-lookup
+          (route-interface route)
+          mezzano.network.ethernet:+ethertype-ipv4+
+          (ipv4-address-address
+           (or (route-gateway route)
+               destination)))
+         ;; Interface.
+         (route-interface route))))))
 
 (defun transmit-ipv4-packet (destination protocol payload)
   (multiple-value-bind (ethernet-mac interface)
@@ -219,22 +253,26 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
 
 (defgeneric address-equal (x y))
 
-(defgeneric address-network (local-ip netmask)
-  (:documentation "Return the address of LOCAL-IP's network, based on NETMASK."))
+(defgeneric address-network (local-ip prefix-length)
+  (:documentation "Return the address of LOCAL-IP's network, based on PREFIX-LENGTH."))
 
-(defgeneric address-host (local-ip netmask)
-  (:documentation "Return the address of LOCAL-IP's host, based on NETMASK."))
+(defgeneric address-host (local-ip prefix-length)
+  (:documentation "Return the address of LOCAL-IP's host, based on PREFIX-LENGTH."))
 
 (defmethod address-equal ((x ipv4-address) (y ipv4-address))
   (eql (ipv4-address-address x) (ipv4-address-address y)))
 
-(defmethod address-network ((local-ip ipv4-address) (netmask ipv4-address))
-  (make-ipv4-address (logand (ipv4-address-address local-ip)
-                             (ipv4-address-address netmask))))
+(defmethod address-network ((local-ip ipv4-address) prefix-length)
+  (check-type prefix-length (integer 0 (32)))
+  (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
+    (make-ipv4-address (logand (ipv4-address-address local-ip)
+                               mask))))
 
-(defmethod address-host ((local-ip ipv4-address) (netmask ipv4-address))
-  (make-ipv4-address (logand (ipv4-address-address local-ip)
-                             (lognot (ipv4-address-address netmask)))))
+(defmethod address-host ((local-ip ipv4-address) prefix-length)
+  (check-type prefix-length (integer 0 (32)))
+  (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
+    (make-ipv4-address (logand (ipv4-address-address local-ip)
+                               (lognot mask)))))
 
 ;;; ICMP.
 
