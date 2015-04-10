@@ -90,9 +90,13 @@
 
 (defun run-boot-hooks ()
   (dolist (hook *boot-hooks*)
-    (handler-case (funcall hook)
-      (error (c)
-        (format t "~&Error ~A while running boot hook ~S.~%" c hook)))))
+    (block next
+      (handler-bind
+          ((error (lambda (c)
+                   (format t "~&Error ~A while running boot hook ~S.~%" c hook)
+                   (sys.int::backtrace)
+                   (return-from next))))
+        (funcall hook)))))
 
 (defvar *boot-id*)
 
