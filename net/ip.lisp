@@ -26,6 +26,8 @@
 (defconstant +icmp-code-ttl-exceeded+ 0)
 (defconstant +icmp-code-fragment-timeout+ 1)
 
+;;; Routing.
+
 ;; Sorted from longest prefix to shortest.
 ;; Default route has a prefix of 0.
 (defvar *routing-table-lock* (mezzano.supervisor:make-mutex "IPv4 routing table."))
@@ -36,16 +38,16 @@
   ;; 192.168.0.0/24  network/prefix-length
   ((%network :initarg :network :reader route-network)
    (%prefix-length :initarg :prefix-length :reader route-prefix-length)
-   (%gateway :initarg :gateway :reader route-gateway)
-   (%interface :initarg :interface :reader route-interface)))
+   (%gateway :initarg :gateway :reader route-gateway)))
 
-(defun add-route (network prefix-length gateway interface)
-  (assert (eql (ipv4-address-address (address-host network prefix-length)) 0))
+(defun add-route (network prefix-length gateway)
+  (if prefix-length
+      (assert (eql (ipv4-address-address (address-host network prefix-length)) 0))
+      (setf prefix-length 32))
   (let ((route (make-instance 'ipv4-route
                               :network (make-ipv4-address network)
                               :prefix-length prefix-length
-                              :gateway gateway
-                              :interface interface)))
+                              :gateway gateway)))
     (mezzano.supervisor:with-mutex (*routing-table-lock*)
       (setf *routing-table*
             (merge 'list
@@ -66,6 +68,27 @@
                             (eql prefix-length (route-prefix-length x))))
                      *routing-table*))))
 
+(defun ipv4-route (destination &optional gateway-lookup)
+  "Return the host IP and interface for the destination IP address."
+  (dolist (route *routing-table*
+           (error "No route to host ~A." destination))
+    (when (address-equal (address-network destination
+                                          (route-prefix-length route))
+                         (route-network route))
+      (return
+        (cond ((ipv4-address-p (route-gateway route))
+               (when gateway-lookup
+                 (error "Gateway lookup failed."))
+               ;; Route to this host is via a gateway.
+               ;; Find a route to the gateway.
+               (values (route-gateway route)
+                       (nth-value 1 (ipv4-route (route-gateway route) t))))
+              (t ;; Local host on this network
+               (values destination
+                       (route-gateway route))))))))
+
+;;; Interfaces.
+
 (defvar *ipv4-interfaces* '())
 
 (defun ifup (nic address)
@@ -79,14 +102,7 @@
       (and errorp
            (error "No IPv4 address for interface ~S." nic))))
 
-(defun ethertype (packet)
-  (ub16ref/be packet 12))
-
-(defun ipv4-protocol (packet)
-  (aref packet (+ 14 9)))
-
-(defun ipv4-source (packet)
-  (ub32ref/be packet (+ 14 12)))
+;;; Checksums.
 
 (defun compute-ip-partial-checksum (buffer &optional (start 0) end (initial 0))
   ;; From RFC 1071.
@@ -108,59 +124,164 @@
 		     (ash total -16))))
     (logand (lognot total) #xFFFF)))
 
-(defun ipv4-route (destination)
-  "Return the interface and destination MAC for the destination IP address."
-  (dolist (route *routing-table*
-           (error "No route to host ~A." destination))
-    (when (address-equal (address-network destination
-                                          (route-prefix-length route))
-                         (route-network route))
-      (return
-        (values
-         ;; Destination MAC.
-         (mezzano.network.arp:arp-lookup
-          (route-interface route)
-          mezzano.network.ethernet:+ethertype-ipv4+
-          (ipv4-address-address
-           (or (route-gateway route)
-               destination)))
-         ;; Interface.
-         (route-interface route))))))
+;;; Other.
+
+(defconstant +ipv4-header-version-and-ihl+ 0)
+(defconstant +ipv4-header-version-size+ 4)
+(defconstant +ipv4-header-version-position+ 4)
+(defconstant +ipv4-header-ihl-size+ 4)
+(defconstant +ipv4-header-ihl-position+ 0)
+(defconstant +ipv4-header-dsf+ 1)
+(defconstant +ipv4-header-total-length+ 2)
+(defconstant +ipv4-header-identification+ 4)
+(defconstant +ipv4-header-fragmentation-control+ 6)
+(defconstant +ipv4-header-fragment-offset-size+ 12)
+(defconstant +ipv4-header-fragment-offset-position+ 0)
+(defconstant +ipv4-header-flag-more-fragments+ 13)
+(defconstant +ipv4-header-flag-do-not-fragment+ 14)
+(defconstant +ipv4-header-flag-reserved+ 15)
+(defconstant +ipv4-header-ttl+ 8)
+(defconstant +ipv4-header-protocol+ 9)
+(defconstant +ipv4-header-checksum+ 10)
+(defconstant +ipv4-header-source-ip+ 12)
+(defconstant +ipv4-header-destination-ip+ 16)
+
+(defgeneric transmit-ipv4-packet-on-interface (destination-host interface packet))
+
+(defmethod transmit-ipv4-packet-on-interface (destination-host (interface mezzano.supervisor:nic) packet)
+  (mezzano.network.ethernet:transmit-ethernet-packet
+   interface
+   (mezzano.network.arp:arp-lookup interface
+                                   mezzano.network.ethernet:+ethertype-ipv4+
+                                   (ipv4-address-address destination-host))
+   mezzano.network.ethernet:+ethertype-ipv4+
+   packet))
+
+(defmethod transmit-ipv4-packet-on-interface (destination-host (interface sys.net::loopback-interface) packet)
+  ;; Bounce loopback packets out over the nic for testing as well.
+  (mezzano.network.ethernet:transmit-ethernet-packet
+   (first mezzano.supervisor::*nics*)
+   #(0 0 0 1 2 3)
+   mezzano.network.ethernet:+ethertype-ipv4+
+   packet)
+  ;; This is a bit very hacky...
+  ;; Trying to avoid recursively calling back into the receive path. The
+  ;; ethernet worker will pick packet up and deal with it normally.
+  (mezzano.supervisor::irq-fifo-push
+   (cons interface
+         (let ((loopback-packet (make-array (+ 14 (sys.net::packet-length packet))
+                                            :element-type '(unsigned-byte 8))))
+           (sys.net::copy-packet loopback-packet
+                                 (cons #(0 0 0 0 0 0
+                                         0 0 0 0 0 0
+                                         8 0)
+                                       packet))
+           loopback-packet))
+   mezzano.supervisor::*received-packets*))
+
+(defun assemble-ipv4-packet (source destination protocol payload)
+  (let* ((ip-header (make-array 20 :element-type '(unsigned-byte 8)))
+         (packet (cons ip-header payload)))
+    (setf
+     ;; Version (4) and header length (5 32-bit words).
+     (aref ip-header +ipv4-header-version-and-ihl+) #x45
+     ;; Differentiated Services Field, normal packet.
+     (aref ip-header +ipv4-header-dsf+) #x00
+     ;; Total length.
+     (ub16ref/be ip-header +ipv4-header-total-length+) (sys.net:packet-length packet)
+     ;; Packet ID. No fragmentation support yet, no ID needed.
+     (ub16ref/be ip-header +ipv4-header-identification+) 0
+     ;; Flags & fragment offset.
+     (ub16ref/be ip-header +ipv4-header-fragmentation-control+) 0
+     ;; Time-to-Live. Specified in RFC1122.
+     (aref ip-header +ipv4-header-ttl+) 64
+     ;; Protocol.
+     (aref ip-header +ipv4-header-protocol+) protocol
+     ;; Source address.
+     (ub32ref/be ip-header +ipv4-header-source-ip+) (mezzano.network.ip::ipv4-address-address source)
+     ;; Destination address.
+     (ub32ref/be ip-header +ipv4-header-destination-ip+) (mezzano.network.ip::ipv4-address-address destination)
+     ;; Header checksum.
+     (ub16ref/be ip-header +ipv4-header-checksum+) 0
+     (ub16ref/be ip-header +ipv4-header-checksum+) (compute-ip-checksum ip-header))
+    packet))
 
 (defun transmit-ipv4-packet (destination protocol payload)
-  (multiple-value-bind (ethernet-mac interface)
+  (multiple-value-bind (host interface)
       (ipv4-route destination)
-    (when (and ethernet-mac interface)
-      (let* ((source (or (ipv4-interface-address interface) #x00000000))
-	     (ip-header (make-array 20 :element-type '(unsigned-byte 8)
-				    :initial-element 0))
-	     (packet (cons ip-header payload)))
-	(setf
-	 ;; Version (4) and header length (5 32-bit words).
-	 (aref ip-header 0) #x45
-	 ;; Type of service, normal packet.
-	 (aref ip-header 1) #x00
-	 ;; Total length.
-	 (ub16ref/be ip-header 2) (sys.net:packet-length packet)
-	 ;; Packet ID(?).
-	 (ub16ref/be ip-header 4) 0
-	 ;; Flags & fragment offset.
-	 (ub16ref/be ip-header 6) 0
-	 ;; Time-to-Live. ### What should this be set to?
-	 (aref ip-header 8) #xFF
-	 ;; Protocol.
-	 (aref ip-header 9) protocol
-	 ;; Source address.
-	 (ub32ref/be ip-header 12) (mezzano.network.ip::ipv4-address-address source)
-	 ;; Destination address.
-	 (ub32ref/be ip-header 16) (mezzano.network.ip::ipv4-address-address destination)
-	 ;; Header checksum.
-	 (ub16ref/be ip-header 10) (compute-ip-checksum ip-header))
-	(mezzano.network.ethernet:transmit-ethernet-packet
-         interface
-         ethernet-mac
-         mezzano.network.ethernet:+ethertype-ipv4+
-         packet)))))
+    (when (and host interface)
+      (transmit-ipv4-packet-on-interface
+       host interface
+       (assemble-ipv4-packet (or (ipv4-interface-address interface) #x00000000)
+                             destination
+                             protocol
+                             payload)))))
+
+(defun ipv4-receive (interface packet start end)
+  (let ((actual-length (- end start)))
+    (when (< actual-length 20)
+      ;; Runt packet with an incomplete header.
+      (format t "Discarding runt IPv4 packet (~D bytes).~%" actual-length)
+      (return-from ipv4-receive))
+    (let* ((version-and-ihl (aref packet (+ start +ipv4-header-version-and-ihl+)))
+           (version (ldb (byte +ipv4-header-version-size+ +ipv4-header-version-position+)
+                         version-and-ihl))
+           (header-length (* (ldb (byte +ipv4-header-ihl-size+ +ipv4-header-ihl-position+)
+                                  version-and-ihl)
+                             4))
+           (total-length (ub16ref/be packet (+ start +ipv4-header-total-length+)))
+           (frag-control (ub16ref/be packet (+ start +ipv4-header-fragmentation-control+)))
+           (frag-offset (ldb (byte +ipv4-header-fragment-offset-size+ +ipv4-header-fragment-offset-position+)
+                             frag-control))
+           (ttl (aref packet (+ start +ipv4-header-ttl+)))
+           (protocol (aref packet (+ start +ipv4-header-protocol+)))
+           (source-ip (ub32ref/be packet (+ start +ipv4-header-source-ip+)))
+           (dest-ip (ub32ref/be packet (+ start +ipv4-header-destination-ip+))))
+      (when (not (eql version 4))
+        (format t "Discarding IPv4 packet with bad version ~D.~%" version)
+        (return-from ipv4-receive))
+      (when (< header-length 20)
+        (format t "Discarding IPv4 packet with too-short header-length ~D.~%" header-length)
+        (return-from ipv4-receive))
+      (when (> header-length actual-length)
+        (format t "Discarding IPv4 packet with too-long header-length ~D (max ~D).~%" header-length actual-length)
+        (return-from ipv4-receive))
+      (when (> header-length total-length)
+        (format t "Discarding IPv4 packet with too-short total-length ~D (smaller than header-length ~D).~%" total-length header-length)
+        (return-from ipv4-receive))
+      (when (> total-length actual-length)
+        (format t "Discarding IPv4 packet with too-long total-length ~D (max ~D).~%" total-length actual-length)
+        (return-from ipv4-receive))
+      (when (logbitp +ipv4-header-flag-reserved+ frag-control)
+        (format t "Discarding IPv4 packet with reserved flag set.~%")
+        (return-from ipv4-receive))
+      (when (not (eql (compute-ip-checksum packet start (+ start header-length)) 0))
+        (format t "Discarding IPv4 packet with bad header checksum.~%")
+        (return-from ipv4-receive))
+      ;; TODO: Fragmentation support.
+      (when (or (not (eql frag-offset 0))
+                (logbitp +ipv4-header-flag-more-fragments+ frag-control))
+        (format t "Discarding fragmented IPv4 packet (not supported). ~X~%" frag-control)
+        (return-from ipv4-receive))
+      ;; Is it address to one of our interfaces?
+      ;; If not, forward or reject it.
+      (case protocol
+        (#.+ip-protocol-tcp+
+         (mezzano.network.tcp::%tcp4-receive packet
+                                             source-ip
+                                             (+ start header-length)
+                                             (+ start total-length)))
+        (#.+ip-protocol-udp+
+         (mezzano.network.udp::%udp4-receive packet
+                                             source-ip
+                                             (+ start header-length)
+                                             (+ start total-length)))
+        (#.+ip-protocol-icmp+
+         (icmp4-receive packet
+                        source-ip
+                        (+ start header-length)
+                        (+ start total-length)))
+        (t (format t "Discarding IPv4 packet from ~X with unknown protocol ~X ~S.~%" source-ip protocol packet))))))
 
 ;;; IP addresses.
 
@@ -263,74 +384,113 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
   (eql (ipv4-address-address x) (ipv4-address-address y)))
 
 (defmethod address-network ((local-ip ipv4-address) prefix-length)
-  (check-type prefix-length (integer 0 (32)))
+  (check-type prefix-length (integer 0 32))
   (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
     (make-ipv4-address (logand (ipv4-address-address local-ip)
                                mask))))
 
 (defmethod address-host ((local-ip ipv4-address) prefix-length)
-  (check-type prefix-length (integer 0 (32)))
+  (check-type prefix-length (integer 0 32))
   (let ((mask (ash (1- (ash 1 prefix-length)) (- 32 prefix-length))))
     (make-ipv4-address (logand (ipv4-address-address local-ip)
                                (lognot mask)))))
 
 ;;; ICMP.
 
-(defun ping4-identifier (packet)
-  (let ((header-length (* (ldb (byte 4 0) (aref packet 14)) 4)))
-    (ub16ref/be packet (+ 14 header-length 4))))
+(defconstant +icmp4-header-size+ 8)
+(defconstant +icmp4-type+ 0)
+(defconstant +icmp4-code+ 1)
+(defconstant +icmp4-checksum+ 2)
+(defconstant +icmp4-identifier+ 4)
+(defconstant +icmp4-sequence-number+ 6)
 
-(defun ping4-sequence-number (packet)
-  (let ((header-length (* (ldb (byte 4 0) (aref packet 14)) 4)))
-    (ub16ref/be packet (+ 14 header-length 6))))
+(defvar *icmp-listeners* '())
+(defvar *icmp-listener-lock* (mezzano.supervisor:make-mutex "ICMP listener list"))
+
+(defun icmp4-receive (packet source-ip start end)
+  (let ((length (- end start)))
+    (when (< length +icmp4-header-size+)
+      (format t "Discarding runt ICMPv4 packet from ~X.~%" source-ip)
+      (return-from icmp4-receive))
+    (let ((type (aref packet (+ start +icmp4-type+)))
+          (code (aref packet (+ start +icmp4-code+)))
+          (identifier (ub16ref/be packet (+ start +icmp4-identifier+)))
+          (sequence-number (ub16ref/be packet (+ start +icmp4-sequence-number+))))
+      (when (not (eql (compute-ip-checksum packet start end) 0))
+        (format t "Discarding ICMPv4 packet with bad header checksum.~%")
+        (return-from icmp4-receive))
+      (dolist (l *icmp-listeners*)
+        (funcall (first l) packet source-ip start end))
+      (case type
+        (#.+icmp-echo-request+
+         (format t "Responding to ping from ~X.~%" source-ip)
+         (transmit-icmp-packet (make-ipv4-address source-ip)
+                               +icmp-echo-reply+ 0
+                               identifier sequence-number
+                               (subseq packet (+ start +icmp4-header-size+))))
+        (#.+icmp-echo-reply+)
+        (t (format t "Ignoring ICMP packet with unknown type/code ~D/~D.~%"
+                   type code))))))
+
+(defun transmit-icmp-packet (destination type code &optional (identifier 0) (sequence-number 0) payload)
+  (let ((packet (make-array (+ +icmp4-header-size+ (if payload (length payload) 0)))))
+    (setf (aref packet +icmp4-type+) type
+          (aref packet +icmp4-code+) code
+          (ub16ref/be packet +icmp4-checksum+) 0
+          (ub16ref/be packet +icmp4-identifier+) identifier
+          (ub16ref/be packet +icmp4-sequence-number+) sequence-number)
+    (when payload
+      (replace packet payload :start1 +icmp4-header-size+))
+    (setf (ub16ref/be packet +icmp4-checksum+) (mezzano.network.ip:compute-ip-checksum packet))
+    (transmit-ipv4-packet destination +ip-protocol-icmp+ (list packet))))
 
 (defun send-ping (destination &optional (identifier 0) (sequence-number 0) payload)
-  (let ((packet (make-array (+ 8 (if payload (length payload) 56)))))
-    (setf
-     ;; Type.
-     (aref packet 0) +icmp-echo-request+
-     ;; Code.
-     (aref packet 1) 0
-     ;; Checksum.
-     (ub16ref/be packet 2) 0
-     ;; Identifier.
-     (ub16ref/be packet 4) identifier
-     ;; Sequence number.
-     (ub16ref/be packet 6) sequence-number)
-    (if payload
-	(dotimes (i (length payload))
-	  (setf (aref packet (+ 8 i)) (aref payload i)))
-	(dotimes (i 56)
-	  (setf (aref packet (+ 8 i)) i)))
-    (setf (ub16ref/be packet 2) (mezzano.network.ip:compute-ip-checksum packet))
-    (transmit-ipv4-packet destination mezzano.network.ip:+ip-protocol-icmp+ (list packet))))
+  (when (not payload)
+    (setf payload (make-array 56 :element-type '(unsigned-byte 8)))
+    (dotimes (i 56)
+      (setf (aref payload i) i)))
+  (transmit-icmp-packet destination +icmp-echo-request+ 0 identifier sequence-number payload))
+
+(defmacro with-icmp-listener (listener &body body)
+  `(call-with-icmp-listener ,listener (lambda () ,@body)))
+
+(defun call-with-icmp-listener (listener fn)
+  (setf listener (cons listener nil))
+  (unwind-protect
+       (progn
+         (mezzano.supervisor:with-mutex (*icmp-listener-lock*)
+           (push listener *icmp-listeners*))
+         (funcall fn))
+    (mezzano.supervisor:with-mutex (*icmp-listener-lock*)
+      (setf *icmp-listeners* (remove listener *icmp-listeners*)))))
 
 (defun ping-host (host &optional (count 4))
   (let ((in-flight-pings nil)
-        (received-pings '())
+        (received-packets '())
         (identifier 1234)
-        (host-ip (sys.net::resolve-address host)))
-    (mezzano.network.ethernet:with-raw-packet-hook
-      (lambda (interface p)
-        (declare (ignore interface))
-        (when (and (eql (ethertype p) mezzano.network.ethernet:+ethertype-ipv4+)
-                   (eql (ipv4-protocol p) +ip-protocol-icmp+)
-                   (address-equal (make-ipv4-address (ipv4-source p))
-                                  host-ip)
-                   (eql (ping4-identifier p) identifier)
-                   (find (ping4-sequence-number p) in-flight-pings))
-          ;; ### Need locking here.
-          (setf in-flight-pings (delete (ping4-sequence-number p) in-flight-pings))
-          (push (ping4-sequence-number p) received-pings)
-          (signal (make-condition 'mezzano.network.ethernet:drop-packet))))
+        (host-ip (sys.net::resolve-address host))
+        (rx-lock (mezzano.supervisor:make-mutex "ping lock")))
+    (with-icmp-listener
+      (lambda (packet source-ip start end)
+        (mezzano.supervisor:with-mutex (rx-lock)
+          (push (list packet source-ip start end) received-packets)))
       (dotimes (i count)
         (push i in-flight-pings)
         (send-ping host-ip identifier i))
       (let ((timeout-absolute (+ (get-universal-time) 10)))
         (loop
-           (dolist (ping received-pings)
-             (format t "Pong ~S.~%" ping))
-           (setf received-pings '())
+           (let ((packets (mezzano.supervisor:with-mutex (rx-lock)
+                            (prog1 received-packets
+                              (setf received-packets '())))))
+             (loop
+                for (packet source-ip start end) in packets
+                do (when (and (address-equal (make-ipv4-address source-ip) host-ip)
+                              (eql (aref packet (+ start +icmp4-type+)) +icmp-echo-reply+)
+                              (eql (ub16ref/be packet (+ start +icmp4-identifier+)) identifier))
+                     (let ((seq (ub16ref/be packet (+ start +icmp4-sequence-number+))))
+                       (when (find seq in-flight-pings)
+                         (setf in-flight-pings (remove seq in-flight-pings))
+                         (format t "Pong ~S.~%" seq))))))
            (when (or (> (get-universal-time) timeout-absolute)
                      (null in-flight-pings))
              (return))

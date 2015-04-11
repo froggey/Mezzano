@@ -24,9 +24,7 @@
            #:transmit-ethernet-packet
            #:+ethertype-ipv4+
            #:+ethertype-arp+
-           #:+ethertype-ipv6+
-           #:drop-packet
-           #:with-raw-packet-hook))
+           #:+ethertype-ipv6+))
 
 (defpackage :mezzano.network.arp
   (:use :cl)
@@ -58,6 +56,7 @@
            #:add-route
            #:remove-route
            #:transmit-ipv4-packet
+           #:transmit-ipv4-packet-on-interface
            #:+ip-protocol-icmp+
            #:+ip-protocol-igmp+
            #:+ip-protocol-tcp+

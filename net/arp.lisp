@@ -93,6 +93,10 @@
 
 (defun arp-lookup (interface ptype address)
   "Convert ADDRESS to an Ethernet address."
+  (when (equalp (mezzano.network.ip::ipv4-address-address
+                 (mezzano.network.ip:ipv4-interface-address interface))
+                address)
+    (return-from arp-lookup (mezzano.network.ethernet:ethernet-mac interface)))
   ;; Scan the ARP table.
   (dolist (e *arp-table*)
     (when (and (eql (first e) ptype)

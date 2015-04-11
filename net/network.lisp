@@ -92,3 +92,7 @@
           (when errorp
             (error "Unknown host ~S." address))))
         (t address)))
+
+;;; Loopback adapter.
+
+(defclass loopback-interface () ())

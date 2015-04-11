@@ -174,9 +174,9 @@
     (mezzano.supervisor:condition-notify (tcp-connection-cvar connection) t)))
 
 (defun tcp4-send-packet (connection seq ack data &key (ack-p t) psh-p rst-p syn-p fin-p)
-  (multiple-value-bind (ethernet-mac interface)
+  (multiple-value-bind (remote-host interface)
       (mezzano.network.ip:ipv4-route (tcp-connection-remote-ip connection))
-    (cond ((and ethernet-mac interface)
+    (cond ((and remote-host interface)
            (let* ((source (mezzano.network.ip:ipv4-interface-address interface))
                   (source-port (tcp-connection-local-port connection))
                   (packet (assemble-tcp4-packet source source-port
@@ -190,11 +190,8 @@
                                                 :rst-p rst-p
                                                 :syn-p syn-p
                                                 :fin-p fin-p)))
-             (mezzano.network.ethernet:transmit-ethernet-packet
-              interface
-              ethernet-mac
-              mezzano.network.ethernet:+ethertype-ipv4+
-              packet)))
+             (mezzano.network.ip:transmit-ipv4-packet-on-interface
+              remote-host interface packet)))
            (t (format t "No route to ~A? Discarding TCPv4 packet.~%"
                       (tcp-connection-remote-ip connection))))))
 
@@ -209,59 +206,41 @@
 (defun assemble-tcp4-packet (src-ip src-port dst-ip dst-port seq-num ack-num window payload
 			     &key (ack-p t) psh-p rst-p syn-p fin-p)
   "Build a full TCP & IP header."
-  (let* ((checksum 0)
-	 (payload-size (length payload))
-	 (header (make-array 44 :element-type '(unsigned-byte 8)
-			     :initial-element 0))
-	 (packet (list header payload)))
-    ;; Assemble the IP header.
-    (setf
-     ;; Version (4) and header length (5 32-bit words).
-     (aref header 0) #x45
-     ;; Type of service, normal packet.
-     (aref header 1) #x00
-     ;; Total length.
-     (ub16ref/be header 2) (+ payload-size 44)
-     ;; Packet ID(?).
-     (ub16ref/be header 4) 0
-     ;; Flags & fragment offset.
-     (ub16ref/be header 6) 0
-     ;; Time-to-Live. ### What should this be set to?
-     (aref header 8) #xFF
-     ;; Protocol.
-     (aref header 9) mezzano.network.ip:+ip-protocol-tcp+
-     ;; Source address.
-     (ub32ref/be header 12) (mezzano.network.ip::ipv4-address-address src-ip)
-     ;; Destination address.
-     (ub32ref/be header 16) (mezzano.network.ip::ipv4-address-address dst-ip)
-     ;; IP header checksum.
-     (ub16ref/be header 10) (mezzano.network.ip:compute-ip-checksum header 0 20))
-    ;; Assemble the TCP header.
-    (setf
-     (ub16ref/be header 20) src-port
-     (ub16ref/be header 22) dst-port
-     (ub32ref/be header 24) seq-num
-     (ub32ref/be header 28) ack-num
-     ;; Data offset/header length (6 32-bit words).
-     (aref header 32) #x60
-     ;; Flags.
-     (aref header 33) (logior (if fin-p +tcp4-flag-fin+ 0)
-			      (if syn-p +tcp4-flag-syn+ 0)
-			      (if rst-p +tcp4-flag-rst+ 0)
-			      (if psh-p +tcp4-flag-psh+ 0)
-			      (if ack-p +tcp4-flag-ack+ 0))
-     ;; Window.
-     (ub16ref/be header 34) window)
+  (mezzano.network.ip::assemble-ipv4-packet
+   src-ip dst-ip mezzano.network.ip:+ip-protocol-tcp+
+   (let* ((checksum 0)
+          (payload-size (length payload))
+          (header (make-array 20 :element-type '(unsigned-byte 8)))
+          (packet (list header payload)))
+     ;; Assemble the TCP header.
+    (setf (ub16ref/be header 0) src-port
+          (ub16ref/be header 2) dst-port
+          (ub32ref/be header 4) seq-num
+          (ub32ref/be header 8) ack-num
+          ;; Data offset/header length (5 32-bit words) and flags.
+          (aref header 12) #x50
+          ;; Flags.
+          (aref header 13) (logior (if fin-p +tcp4-flag-fin+ 0)
+                                   (if syn-p +tcp4-flag-syn+ 0)
+                                   (if rst-p +tcp4-flag-rst+ 0)
+                                   (if psh-p +tcp4-flag-psh+ 0)
+                                   (if ack-p +tcp4-flag-ack+ 0))
+          ;; Window.
+          (ub16ref/be header 14) window
+          ;; Checksum.
+          (ub16ref/be header 16) 0
+          ;; Urgent pointer.
+          (ub16ref/be header 18) 0)
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
                     (mezzano.network.ip::ipv4-address-address dst-ip)
                     mezzano.network.ip:+ip-protocol-tcp+
-                    (+ 24 payload-size)))
-    (setf checksum (mezzano.network.ip:compute-ip-partial-checksum header 20 nil checksum))
+                    (+ (length header) payload-size)))
+    (setf checksum (mezzano.network.ip:compute-ip-partial-checksum header 0 nil checksum))
     (setf checksum (mezzano.network.ip:compute-ip-checksum payload 0 nil checksum))
-    (setf (ub16ref/be header 36) checksum)
-    packet))
+    (setf (ub16ref/be header 16) checksum)
+    packet)))
 
 (defun allocate-local-tcp-port ()
   (do ()

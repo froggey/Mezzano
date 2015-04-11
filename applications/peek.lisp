@@ -61,14 +61,12 @@
                 tx-bytes tx-packets tx-errors)
         (format t "   ~:D collisions.~%" collisions))))
   (format t "Routing table:~%")
-  (format t " Network~20TGateway~40TInterface~%")
+  (format t " Network~20TGateway~%")
   (dolist (route mezzano.network.ip::*routing-table*)
-    (format t " ~A/~D~20T~A~40T~/mezzano.gui.peek::format-nic/~%"
+    (format t " ~A/~D~20T~A~%"
             (mezzano.network.ip::route-network route)
             (mezzano.network.ip::route-prefix-length route)
-            (or (mezzano.network.ip::route-gateway route)
-                "N/A")
-            (mezzano.network.ip::route-interface route)))
+            (mezzano.network.ip::route-gateway route)))
   (format t "Servers:~%")
   (dolist (server mezzano.network.tcp::*server-alist*)
     (format t "~S  TCPv4 ~D~%" (second server) (first server)))
