@@ -224,11 +224,8 @@
       (unwind-protect
            (catch 'quitting-time
              (loop
-                (handler-case
-                    (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo))
-                  (error (c)
-                    (ignore-errors
-                      (format t "~&Error ~A in desktop.~%" c))))))
+                (sys.int::log-and-ignore-errors
+                  (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo)))))
         (mezzano.gui.compositor:close-window notification-window)
         (mezzano.gui.compositor:close-window (window desktop))))))
 

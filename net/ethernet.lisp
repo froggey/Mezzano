@@ -41,7 +41,7 @@
           (ldb (byte 8 32) mac)
           (ldb (byte 8 40) mac)))
 
-(defun %receive-packet (interface packet)
+(defun receive-ethernet-packet (interface packet)
   (dolist (hook *raw-packet-hooks*)
     (funcall hook interface packet))
   (let ((ethertype (ub16ref/be packet 12)))
@@ -63,11 +63,10 @@
 
 (defun ethernet-thread ()
   (loop
-     (with-simple-restart (abort "Ignore this packet.")
-       (handler-case (multiple-value-bind (packet nic)
-                         (mezzano.supervisor:net-receive-packet)
-                       (%receive-packet nic packet))
-         (drop-packet ())))))
+     (sys.int::log-and-ignore-errors
+      (multiple-value-bind (packet nic)
+          (mezzano.supervisor:net-receive-packet)
+        (receive-ethernet-packet nic packet)))))
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))

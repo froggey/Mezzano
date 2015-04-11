@@ -142,3 +142,17 @@
 (defmacro ignore-errors (&body forms)
   `(handler-case (progn ,@forms)
      (error (condition) (values nil condition))))
+
+(defmacro log-and-ignore-errors (&body forms)
+  (let ((exit-block (gensym "exit-block")))
+    `(block ,exit-block
+       ;; Use HANDLER-BIND instead of HANDLER-CASE so that the whole backtrace
+       ;; is caught.
+       (handler-bind
+           ((error (lambda (c)
+                     (ignore-errors
+                       (let ((*standard-output* *error-output*))
+                         (format *error-output* "~&Error ~A.~%" c)
+                         (backtrace)))
+                     (return-from ,exit-block (values nil c)))))
+         ,@forms))))

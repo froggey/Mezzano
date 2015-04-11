@@ -1019,11 +1019,8 @@ A passive drag sends no drag events to the window.")
                                (make-instance 'screen-geometry-update
                                               :width (mezzano.supervisor:framebuffer-width *main-screen*)
                                               :height (mezzano.supervisor:framebuffer-height *main-screen*))))
-     (handler-case
-         (process-event (mezzano.supervisor:fifo-pop *event-queue*))
-       (error (c)
-         (ignore-errors
-           (format t "~&Error ~A in compositor.~%" c))))))
+     (sys.int::log-and-ignore-errors
+       (process-event (mezzano.supervisor:fifo-pop *event-queue*)))))
 
 (defun compositor-heartbeat-thread ()
   (loop

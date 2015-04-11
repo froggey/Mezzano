@@ -44,37 +44,36 @@
 (defun keyboard-forwarder-thread ()
   ;; Read bytes from the keyboard and translate them into HID events for the input manager.
   (loop
-     (handler-case
-         (let ((byte (mezzano.supervisor:ps/2-key-read)))
-           (cond
-             ((eql byte +extended-scan-code+)
-              ;; Reading extended scan code.
-              (setf byte (mezzano.supervisor:ps/2-key-read))
-              (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
-                (cond (extended-key
-                       ;; Got a recognized extended key, submit it.
-                       (mezzano.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
-                      (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))
-             (t (let ((key (aref *translation-table* (logand byte #x7F))))
-                  (cond (key
-                         ;; Got a regular key, submit it.
-                         (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
-                        (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte)))))))
-       (error (c)
-         (format t "Aieee ~S.~%" c)))))
+     (sys.int::log-and-ignore-errors
+       (let ((byte (mezzano.supervisor:ps/2-key-read)))
+         (cond
+           ((eql byte +extended-scan-code+)
+            ;; Reading extended scan code.
+            (setf byte (mezzano.supervisor:ps/2-key-read))
+            (let ((extended-key (assoc (logand byte #x7F) *extended-key-alist*)))
+              (cond (extended-key
+                     ;; Got a recognized extended key, submit it.
+                     (mezzano.gui.compositor:submit-key (second extended-key) (logtest byte #x80)))
+                    (t (format *error-output* "Ignoring unknown extended scancode ~2,'0X~%" byte)))))
+           (t (let ((key (aref *translation-table* (logand byte #x7F))))
+                (cond (key
+                       ;; Got a regular key, submit it.
+                       (mezzano.gui.compositor:submit-key key (logtest byte #x80)))
+                      (t (format *error-output* "Ignoring unknown scancode ~2,'0X~%" byte))))))))))
 
 (defun mouse-forwarder-thread ()
   ;; Read bytes from the mouse and turn them into HID events.
   (loop
-     (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
-       ;; Check sync bit.
-       (when (logtest byte-1 #b00001000)
-         (let ((byte-2 (mezzano.supervisor:ps/2-aux-read))
-               (byte-3 (mezzano.supervisor:ps/2-aux-read)))
-           (mezzano.gui.compositor:submit-mouse
-            (logand byte-1 #b111) ; Buttons 1 to 3.
-            (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
-            (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0))))))))) ; y-motion
+     (sys.int::log-and-ignore-errors
+       (let ((byte-1 (mezzano.supervisor:ps/2-aux-read)))
+         ;; Check sync bit.
+         (when (logtest byte-1 #b00001000)
+           (let ((byte-2 (mezzano.supervisor:ps/2-aux-read))
+                 (byte-3 (mezzano.supervisor:ps/2-aux-read)))
+             (mezzano.gui.compositor:submit-mouse
+              (logand byte-1 #b111) ; Buttons 1 to 3.
+              (logior byte-2 (if (logtest byte-1 #b00010000) -256 0)) ; x-motion
+              (- (logior byte-3 (if (logtest byte-1 #b00100000) -256 0)))))))))) ; y-motion
 
 (when (not *keyboard-forwarder*)
   (setf *keyboard-forwarder* (mezzano.supervisor:make-thread 'keyboard-forwarder-thread
