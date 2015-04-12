@@ -3,6 +3,15 @@
 
 (in-package :mezzano.network.tcp)
 
+(defconstant +tcp4-header-source-port+ 0)
+(defconstant +tcp4-header-destination-port+ 2)
+(defconstant +tcp4-header-sequence-number+ 4)
+(defconstant +tcp4-header-acknowledgment-number+ 8)
+(defconstant +tcp4-header-flags-and-data-offset+ 12)
+(defconstant +tcp4-header-window-size+ 14)
+(defconstant +tcp4-header-checksum+ 16)
+(defconstant +tcp4-header-urgent-pointer+ 18)
+
 (defconstant +tcp4-flag-fin+ #b00000001)
 (defconstant +tcp4-flag-syn+ #b00000010)
 (defconstant +tcp4-flag-rst+ #b00000100)
@@ -44,16 +53,16 @@
 
 (defun %tcp4-receive (packet remote-ip start end)
   (setf remote-ip (mezzano.network.ip:make-ipv4-address remote-ip))
-  (let* ((remote-port (ub16ref/be packet start))
-         (local-port (ub16ref/be packet (+ start 2)))
-         (flags (aref packet (+ start 13)))
+  (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
+         (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
+         (flags (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
          (connection (get-tcp-connection remote-ip remote-port local-port)))
     (cond
       (connection
        (tcp4-receive connection packet start end))
       ((eql flags +tcp4-flag-syn+)
        (format t "Establishing TCP connection. l ~D  r ~D  from ~X.~%" local-port remote-port remote-ip)
-       (let* ((seq (ub32ref/be packet (+ start 4)))
+       (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
               (blah (random #x100000000))
               (connection (make-tcp-connection :state :syn-received
                                                :local-port local-port
@@ -92,10 +101,10 @@
 (defun tcp4-receive (connection packet &optional (start 0) end)
   (unless end (setf end (length packet)))
   (with-tcp-connection-locked connection
-    (let* ((seq (ub32ref/be packet (+ start 4)))
-           (ack (ub32ref/be packet (+ start 8)))
-           (flags (aref packet (+ start 13)))
-           (header-length (* (ash (aref packet (+ start 12)) -4) 4))
+    (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
+           (ack (ub32ref/be packet (+ start +tcp4-header-acknowledgment-number+)))
+           (flags (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
+           (header-length (* (ldb (byte 4 12) flags) 4))
            (data-length (- end (+ start header-length))))
       (case (tcp-connection-state connection)
         (:syn-sent
@@ -213,24 +222,23 @@
           (header (make-array 20 :element-type '(unsigned-byte 8)))
           (packet (list header payload)))
      ;; Assemble the TCP header.
-    (setf (ub16ref/be header 0) src-port
-          (ub16ref/be header 2) dst-port
-          (ub32ref/be header 4) seq-num
-          (ub32ref/be header 8) ack-num
+    (setf (ub16ref/be header +tcp4-header-source-port+) src-port
+          (ub16ref/be header +tcp4-header-destination-port+) dst-port
+          (ub32ref/be header +tcp4-header-sequence-number+) seq-num
+          (ub32ref/be header +tcp4-header-acknowledgment-number+) ack-num
           ;; Data offset/header length (5 32-bit words) and flags.
-          (aref header 12) #x50
-          ;; Flags.
-          (aref header 13) (logior (if fin-p +tcp4-flag-fin+ 0)
-                                   (if syn-p +tcp4-flag-syn+ 0)
-                                   (if rst-p +tcp4-flag-rst+ 0)
-                                   (if psh-p +tcp4-flag-psh+ 0)
-                                   (if ack-p +tcp4-flag-ack+ 0))
+          (ub16ref/be header +tcp4-header-flags-and-data-offset+) (logior #x5000
+                                                                          (if fin-p +tcp4-flag-fin+ 0)
+                                                                          (if syn-p +tcp4-flag-syn+ 0)
+                                                                          (if rst-p +tcp4-flag-rst+ 0)
+                                                                          (if psh-p +tcp4-flag-psh+ 0)
+                                                                          (if ack-p +tcp4-flag-ack+ 0))
           ;; Window.
-          (ub16ref/be header 14) window
+          (ub16ref/be header +tcp4-header-window-size+) window
           ;; Checksum.
-          (ub16ref/be header 16) 0
+          (ub16ref/be header +tcp4-header-checksum+) 0
           ;; Urgent pointer.
-          (ub16ref/be header 18) 0)
+          (ub16ref/be header +tcp4-header-urgent-pointer+) 0)
     ;; Compute the final checksum.
     (setf checksum (compute-ip-pseudo-header-partial-checksum
                     (mezzano.network.ip::ipv4-address-address src-ip)
@@ -239,7 +247,7 @@
                     (+ (length header) payload-size)))
     (setf checksum (mezzano.network.ip:compute-ip-partial-checksum header 0 nil checksum))
     (setf checksum (mezzano.network.ip:compute-ip-checksum payload 0 nil checksum))
-    (setf (ub16ref/be header 16) checksum)
+    (setf (ub16ref/be header +tcp4-header-checksum+) checksum)
     packet)))
 
 (defun allocate-local-tcp-port ()
