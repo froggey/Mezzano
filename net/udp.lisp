@@ -107,7 +107,6 @@
               (mezzano.supervisor:wait-for-heartbeat))))))
 
 (defun %udp4-receive (packet remote-ip start end)
-  (setf remote-ip (mezzano.network.ip:make-ipv4-address remote-ip))
   (let* ((remote-port (ub16ref/be packet start))
          (local-port (ub16ref/be packet (+ start 2)))
          (length (ub16ref/be packet (+ start 4)))

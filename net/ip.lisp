@@ -235,8 +235,8 @@
                              frag-control))
            (ttl (aref packet (+ start +ipv4-header-ttl+)))
            (protocol (aref packet (+ start +ipv4-header-protocol+)))
-           (source-ip (ub32ref/be packet (+ start +ipv4-header-source-ip+)))
-           (dest-ip (ub32ref/be packet (+ start +ipv4-header-destination-ip+))))
+           (source-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-source-ip+))))
+           (dest-ip (make-ipv4-address (ub32ref/be packet (+ start +ipv4-header-destination-ip+)))))
       (when (not (eql version 4))
         (format t "Discarding IPv4 packet with bad version ~D.~%" version)
         (return-from ipv4-receive))
@@ -410,7 +410,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
 (defun icmp4-receive (packet source-ip start end)
   (let ((length (- end start)))
     (when (< length +icmp4-header-size+)
-      (format t "Discarding runt ICMPv4 packet from ~X.~%" source-ip)
+      (format t "Discarding runt ICMPv4 packet from ~A.~%" source-ip)
       (return-from icmp4-receive))
     (let ((type (aref packet (+ start +icmp4-type+)))
           (code (aref packet (+ start +icmp4-code+)))
@@ -423,8 +423,8 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
         (funcall (first l) packet source-ip start end))
       (case type
         (#.+icmp-echo-request+
-         (format t "Responding to ping from ~X.~%" source-ip)
-         (transmit-icmp-packet (make-ipv4-address source-ip)
+         (format t "Responding to ping from ~A.~%" source-ip)
+         (transmit-icmp-packet source-ip
                                +icmp-echo-reply+ 0
                                identifier sequence-number
                                (subseq packet (+ start +icmp4-header-size+))))
@@ -484,7 +484,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                               (setf received-packets '())))))
              (loop
                 for (packet source-ip start end) in packets
-                do (when (and (address-equal (make-ipv4-address source-ip) host-ip)
+                do (when (and (address-equal source-ip host-ip)
                               (eql (aref packet (+ start +icmp4-type+)) +icmp-echo-reply+)
                               (eql (ub16ref/be packet (+ start +icmp4-identifier+)) identifier))
                      (let ((seq (ub16ref/be packet (+ start +icmp4-sequence-number+))))

@@ -52,7 +52,6 @@
         (return connection)))))
 
 (defun %tcp4-receive (packet remote-ip start end)
-  (setf remote-ip (mezzano.network.ip:make-ipv4-address remote-ip))
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
          (flags (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
