@@ -37,7 +37,7 @@
        (mezzano.network.arp::arp-receive interface packet))
       ((eql ethertype +ethertype-ipv4+)
        (mezzano.network.ip::ipv4-receive interface packet 14 (length packet)))
-      (t (format t "Unknown ethertype ~S ~S.~%" ethertype packet)))))
+      (t (format t "Unknown ethertype ~X ~X.~%" ethertype packet)))))
 
 (defun ethernet-thread ()
   (loop
@@ -75,7 +75,3 @@
 
 (defun transmit-packet (nic packet)
   (mezzano.supervisor:net-transmit-packet nic packet))
-
-(when (not *ethernet-thread*)
-  (setf *ethernet-thread* (mezzano.supervisor:make-thread 'ethernet-thread
-                                                          :name "Ethernet thread")))
