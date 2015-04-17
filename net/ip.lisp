@@ -92,15 +92,23 @@
 (defvar *ipv4-interfaces* '())
 
 (defun ifup (nic address)
-  (setf (getf *ipv4-interfaces* nic) address))
+  (let ((existing (find nic *ipv4-interfaces* :key #'car)))
+    (if existing
+        (setf (cdr existing) address)
+        (push (cons nic address) *ipv4-interfaces*))))
 
 (defun ifdown (nic)
-  (setf (getf *ipv4-interfaces* nic) nil))
+  (setf *ipv4-interfaces* (remove nic *ipv4-interfaces* :key #'car)))
 
 (defun ipv4-interface-address (nic &optional (errorp t))
-  (or (getf *ipv4-interfaces* nic)
+  (or (cdr (find nic *ipv4-interfaces* :key #'car))
       (and errorp
            (error "No IPv4 address for interface ~S." nic))))
+
+(defun ipv4-address-interface (address &optional (errorp t))
+  (or (car (find address *ipv4-interfaces* :key #'cdr :test #'address-equal))
+      (and errorp
+           (error "No interface for IPv4 address ~A." address))))
 
 ;;; Checksums.
 
@@ -265,6 +273,9 @@
         (return-from ipv4-receive))
       ;; Is it address to one of our interfaces?
       ;; If not, forward or reject it.
+      (when (not (ipv4-address-interface dest-ip nil))
+        (format t "Discarding IPv4 packet addressed to someone else. ~A~%" dest-ip)
+        (return-from ipv4-receive))
       (case protocol
         (#.+ip-protocol-tcp+
          (mezzano.network.tcp::%tcp4-receive packet
