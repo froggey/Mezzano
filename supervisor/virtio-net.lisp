@@ -96,6 +96,7 @@ and then some alignment.")
          (rx-queue (virtio-virtqueue dev +virtio-net-receiveq+)))
     (loop
        #+(or)(debug-print-line "Process RX... " (virtio-ring-used-idx rx-queue) " " (virtqueue-last-seen-used rx-queue))
+       ;; FIXME: The card will be consuming RX buffers while we're pushing buffers.
        (when (eql (virtio-ring-used-idx rx-queue)
                   (virtqueue-last-seen-used rx-queue))
          ;; All packets have been processed, notify the device that buffers are available.
@@ -108,7 +109,9 @@ and then some alignment.")
               ;; to offsets in the RX buffer.
               (rx-offset (+ (* (truncate id 2) +virtio-net-rx-buffer-size+) +virtio-net-hdr-size+))
               (packet-cons (or (virtio-net-rx-buffers nic)
-                               (panic "Where are my RX buffers?")))
+                               (panic "Where are my RX buffers? "
+                                      (virtio-ring-used-idx rx-queue) " "
+                                      (virtqueue-last-seen-used rx-queue))))
               (packet (car packet-cons)))
          (setf (virtio-net-rx-buffers nic) (cdr packet-cons))
          (decf (virtio-net-rx-buffer-count nic))
