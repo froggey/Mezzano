@@ -135,35 +135,35 @@
   (format *client* ":ok~%"))
 
 (defun handle-client (*client*)
-  (let ((*file-table* (make-array 8 :initial-element nil)))
-    (unwind-protect
-         (loop
-            (let ((form (read-preserving-whitespace *client*)))
-              (format t "Command: ~S~%" form)
-              (cond
-                ((or (not (consp form))
-                     (not (keywordp (first form))))
-                 (format *client* "(:invalid-command \"Invalid command\")"))
-                ((eql (first form) :quit)
-                 (format *client* ":bye")
-                 (return))
-                (t (let ((fn (gethash (first form) *commands*)))
-                     (if fn
-                         (handler-case (funcall fn form)
-                           (error-with-class (c)
-                             (format *client* "(~S ~S)"
-                                     (error-class c)
-                                     (format nil "~A" c)))
-                           (error (c)
-                             (format *client* "(:error ~S)"
-                                     (format nil "~A" c))))
-                         (format *client* "(:invalid-command \"Invalid command\")"))))))
-            (finish-output *client*))
-      (loop for file across *file-table*
-         do (when file (close file)))
-      (finish-output *client*)
-      (format t "Client closed.~%"))))
-
+  (ignore-errors
+    (let ((*file-table* (make-array 8 :initial-element nil)))
+      (unwind-protect
+           (loop
+              (let ((form (read-preserving-whitespace *client*)))
+                (format t "Command: ~S~%" form)
+                (cond
+                  ((or (not (consp form))
+                       (not (keywordp (first form))))
+                   (format *client* "(:invalid-command \"Invalid command\")"))
+                  ((eql (first form) :quit)
+                   (format *client* ":bye")
+                   (return))
+                  (t (let ((fn (gethash (first form) *commands*)))
+                       (if fn
+                           (handler-case (funcall fn form)
+                             (error-with-class (c)
+                               (format *client* "(~S ~S)"
+                                       (error-class c)
+                                       (format nil "~A" c)))
+                             (error (c)
+                               (format *client* "(:error ~S)"
+                                       (format nil "~A" c))))
+                           (format *client* "(:invalid-command \"Invalid command\")"))))))
+              (finish-output *client*))
+        (loop for file across *file-table*
+           do (when file (close file)))
+        (finish-output *client*)
+        (format t "Client closed.~%")))))
 
 #-sbcl
 (defun run-file-server (&key (port *default-file-server-port*))
