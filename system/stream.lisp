@@ -23,6 +23,9 @@
    :close
    :stream-file-position
    :stream-file-length
+   :open-stream-p
+   :input-stream-p
+   :output-stream-p
    ;; Input stream methods.
    :stream-clear-input
    :stream-read-sequence
@@ -59,7 +62,7 @@
 ;;; Gray Streams classes.
 
 (defclass fundamental-stream (stream standard-object)
-  ()
+  ((%openp :initform t))
   (:documentation "The base class for all Gray streams."))
 
 (defclass fundamental-input-stream (fundamental-stream)
@@ -98,6 +101,9 @@
 
 (defgeneric stream-element-type (stream))
 (defgeneric close (stream &key abort))
+(defgeneric open-stream-p (stream))
+(defgeneric input-stream-p (stream))
+(defgeneric output-stream-p (stream))
 (defgeneric stream-file-position (stream &optional position-spec))
 (defgeneric stream-file-length (stream))
 (defgeneric stream-clear-input (stream))
@@ -421,6 +427,34 @@
 
 (defmethod close ((stream stream) &key abort)
   t)
+
+(defmethod close :after ((stream sys.gray:fundamental-stream) &key abort)
+  (declare (ignore abort))
+  (setf (slot-value stream 'sys.gray::%openp) nil))
+
+(defmethod open-stream-p ((stream synonym-stream))
+  (open-stream-p (follow-synonym-stream stream)))
+
+(defmethod open-stream-p ((stream sys.gray:fundamental-stream))
+  (slot-value stream 'sys.gray::%openp))
+
+(defmethod input-stream-p ((stream sys.gray:fundamental-stream))
+  'nil)
+
+(defmethod input-stream-p ((stream sys.gray:fundamental-input-stream))
+  't)
+
+(defmethod input-stream-p ((stream synonym-stream))
+  (input-stream-p (follow-synonym-stream stream)))
+
+(defmethod output-stream-p ((stream sys.gray:fundamental-stream))
+  'nil)
+
+(defmethod output-stream-p ((stream sys.gray:fundamental-output-stream))
+  't)
+
+(defmethod output-stream-p ((stream synonym-stream))
+  (output-stream-p (follow-synonym-stream stream)))
 
 (defun listen (&optional (input-stream *standard-input*))
   (let ((s (frob-input-stream input-stream)))
