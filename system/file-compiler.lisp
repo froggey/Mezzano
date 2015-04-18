@@ -307,6 +307,17 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (function-reference-name object) omap stream)
   (write-byte +llf-function-reference+ stream))
 
+(defmethod make-load-form ((object hash-table) &optional environment)
+  (declare (ignore environment))
+  ;; FIXME: Should produce creation & initialzation forms, but not that's not implemented yet.
+  `(let ((ht (make-hash-table :test ',(hash-table-test object)
+                              :rehash-size ',(hash-table-rehash-size object)
+                              :rehash-threshold ',(hash-table-rehash-threshold object))))
+     ,@(loop
+          for keys being the hash-keys in object using (hash-value value)
+          collect `(setf (gethash ',keys ht) ',value))
+     ht))
+
 (defmethod save-one-object (object omap stream)
   (multiple-value-bind (creation-form initialization-form)
       (make-load-form object)
