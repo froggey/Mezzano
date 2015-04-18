@@ -72,3 +72,7 @@
 (defmethod print-object ((o structure-definition) stream)
   (print-unreadable-object (o stream :identity t :type t)
     (write (structure-name o) :stream stream)))
+
+(defmethod print-object ((o function-reference) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (write (function-reference-name o) :stream stream)))
