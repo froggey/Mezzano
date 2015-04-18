@@ -61,30 +61,36 @@ same characters in the corresponding positions; otherwise it returns false."))
   (def nstring-upcase char-upcase nil)
   (def nstring-downcase char-downcase nil))
 
-(defun string< (string1 string2 &key (start1 0) end1 (start2 0) end2)
-  (setf string1 (string string1))
-  (setf string2 (string string2))
-  (unless end1 (setf end1 (length string1)))
-  (unless end2 (setf end2 (length string2)))
-  (dotimes (i (min (- end1 start1)
-                   (- end2 start2))
-            (if (< (- end1 start1) (- end2 start2))
-                end1
-                nil))
-    ;; Compare prefix.
-    (unless (char= (char string1 (+ start1 i))
-                   (char string2 (+ start2 i)))
-      (return (if (char< (char string1 (+ start1 i))
-                         (char string2 (+ start2 i)))
-                  (+ start1 i)
-                  nil)))))
-
-(defun string-lessp (string1 string2 &key (start1 0) end1 (start2 0) end2)
-  (string< (string-downcase string1) (string-downcase string2)
-           :start1 start1
-           :end1 end1
-           :start2 start2
-           :end2 end2))
+(macrolet ((def (sensitive-name insensitive-name char-comparator numeric-comparator)
+             `(progn
+                (defun ,sensitive-name (string1 string2 &key (start1 0) end1 (start2 0) end2)
+                  (setf string1 (string string1))
+                  (setf string2 (string string2))
+                  (unless end1 (setf end1 (length string1)))
+                  (unless end2 (setf end2 (length string2)))
+                  (dotimes (i (min (- end1 start1)
+                                   (- end2 start2))
+                            (if (,numeric-comparator (- end1 start1) (- end2 start2))
+                                end1
+                                nil))
+                    ;; Compare prefix.
+                    (unless (char= (char string1 (+ start1 i))
+                                   (char string2 (+ start2 i)))
+                      (return (if (,char-comparator (char string1 (+ start1 i))
+                                                    (char string2 (+ start2 i)))
+                                  (+ start1 i)
+                                  nil)))))
+                (defun ,insensitive-name (string1 string2 &key (start1 0) end1 (start2 0) end2)
+                  (,sensitive-name (string-downcase string1) (string-downcase string2)
+                                   :start1 start1
+                                   :end1 end1
+                                   :start2 start2
+                                   :end2 end2)))))
+  (def string< string-lessp char< <)
+  (def string> string-greaterp char> >)
+  (def string<= string-not-greaterp char<= <=)
+  (def string>= string-not-lessp char>= >=)
+  (def string/= string-not-equal char/= /=))
 
 (defun string-trim (character-bag string)
   (let* ((string (string string))
