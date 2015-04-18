@@ -101,7 +101,7 @@
           structure-class structure-object
           intern-eql-specializer eql-specializer eql-specializer-object
 
-          with-slots
+          with-slots with-accessors
           ))
 
 (export exports)
@@ -2269,4 +2269,14 @@ Dispatching on class ~S." gf class))
                                            slot
                                          `(,variable-name (slot-value ,in ',slot-name)))))
                                  slot-entries)
+         ,@body))))
+
+(defmacro with-accessors (slot-entries instance-form &body body)
+  (let ((instance (gensym)))
+    `(let ((,instance ,instance-form))
+       (symbol-macrolet ,(loop
+                            for entry in slot-entries
+                            collect (destructuring-bind (variable-name accessor-name)
+                                        entry
+                                      `(,variable-name (,accessor-name ,instance))))
          ,@body))))
