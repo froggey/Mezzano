@@ -355,10 +355,9 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-read (values nil :too-many-sectors)))
     (when (eql count 0)
       (return-from ata-read t))
-    (cond ((<= +physical-map-base+
-               mem-addr
-               ;; 4GB limit.
-               (+ +physical-map-base+ (* 4 1024 1024 1024)))
+    (cond ((and (<= +physical-map-base+ mem-addr)
+                ;; 4GB limit.
+                (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
            (ata-read-dma controller device lba count (- mem-addr +physical-map-base+)))
           ((<= (* count (ata-device-block-size device)) +4k-page-size+)
            ;; Transfer is small enough that the bounce page can be used.
@@ -406,10 +405,9 @@ This is used to implement the INTRQ_Wait state."
       (return-from ata-write (values nil :too-many-sectors)))
     (when (eql count 0)
       (return-from ata-write t))
-    (cond ((<= +physical-map-base+
-               mem-addr
-               ;; 4GB limit.
-               (+ +physical-map-base+ (* 4 1024 1024 1024)))
+    (cond ((and (<= +physical-map-base+ mem-addr)
+                ;; 4GB limit.
+                (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
            (ata-write-dma controller device lba count (- mem-addr +physical-map-base+)))
           ((<= (* count (ata-device-block-size device)) +4k-page-size+)
            ;; Transfer is small enough that the bounce page can be used.
