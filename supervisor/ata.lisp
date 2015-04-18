@@ -319,6 +319,34 @@ This is used to implement the INTRQ_Wait state."
                                                                                                 (:read +ata-bmr-direction-read/write+)
                                                                                                 (:write 0)))))
 
+(defun ata-read-write (device lba count mem-addr what dma-fn pio-fn)
+  (let ((controller (ata-device-controller device)))
+    (assert (>= lba 0))
+    (assert (>= count 0))
+    (assert (< (+ lba count) (ata-device-sector-count device)))
+    (when (> count 256)
+      (debug-print-line "Can't do " what " of more than 256 sectors.")
+      (return-from ata-read-write (values nil :too-many-sectors)))
+    (when (eql count 0)
+      (return-from ata-read-write t))
+    (cond ((and (<= +physical-map-base+ mem-addr)
+                ;; 4GB limit.
+                (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
+           (funcall dma-fn controller device lba count (- mem-addr +physical-map-base+)))
+          ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+           ;; Transfer is small enough that the bounce page can be used.
+           (let* ((bounce-frame (ata-controller-bounce-buffer controller))
+                  (bounce-phys (ash bounce-frame 12))
+                  (bounce-virt (+ +physical-map-base+ bounce-phys)))
+             (when (eql what :write)
+               (%fast-page-copy bounce-virt mem-addr))
+             (funcall dma-fn controller device lba count bounce-phys)
+             (when (eql what :read)
+               (%fast-page-copy bounce-virt mem-addr))))
+          (t ;; Give up and do a slow PIO transfer.
+           (funcall pio-fn controller device lba count mem-addr))))
+  t)
+
 (defun ata-read-pio (controller device lba count mem-addr)
   (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
     (return-from ata-read-pio (values nil :device-error)))
@@ -346,29 +374,8 @@ This is used to implement the INTRQ_Wait state."
         t)))
 
 (defun ata-read (device lba count mem-addr)
-  (let ((controller (ata-device-controller device)))
-    (assert (>= lba 0))
-    (assert (>= count 0))
-    (assert (< (+ lba count) (ata-device-sector-count device)))
-    (when (> count 256)
-      (debug-write-line "Can't do reads of more than 256 sectors.")
-      (return-from ata-read (values nil :too-many-sectors)))
-    (when (eql count 0)
-      (return-from ata-read t))
-    (cond ((and (<= +physical-map-base+ mem-addr)
-                ;; 4GB limit.
-                (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
-           (ata-read-dma controller device lba count (- mem-addr +physical-map-base+)))
-          ((<= (* count (ata-device-block-size device)) +4k-page-size+)
-           ;; Transfer is small enough that the bounce page can be used.
-           (let* ((bounce-frame (ata-controller-bounce-buffer controller))
-                  (bounce-phys (ash bounce-frame 12))
-                  (bounce-virt (+ +physical-map-base+ bounce-phys)))
-             (ata-read-dma controller device lba count bounce-phys)
-             (%fast-page-copy mem-addr bounce-virt)))
-          (t ;; Give up and do a slow PIO transfer.
-           (ata-read-pio controller device lba count mem-addr))))
-  t)
+  (ata-read-write device lba count mem-addr
+                  :read #'ata-read-dma #'ata-read-pio))
 
 (defun ata-write-pio (controller device lba count mem-addr)
   (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
@@ -396,29 +403,8 @@ This is used to implement the INTRQ_Wait state."
         t)))
 
 (defun ata-write (device lba count mem-addr)
-  (let ((controller (ata-device-controller device)))
-    (assert (>= lba 0))
-    (assert (>= count 0))
-    (assert (< (+ lba count) (ata-device-sector-count device)))
-    (when (> count 256)
-      (debug-write-line "Can't do writes of more than 256 sectors.")
-      (return-from ata-write (values nil :too-many-sectors)))
-    (when (eql count 0)
-      (return-from ata-write t))
-    (cond ((and (<= +physical-map-base+ mem-addr)
-                ;; 4GB limit.
-                (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
-           (ata-write-dma controller device lba count (- mem-addr +physical-map-base+)))
-          ((<= (* count (ata-device-block-size device)) +4k-page-size+)
-           ;; Transfer is small enough that the bounce page can be used.
-           (let* ((bounce-frame (ata-controller-bounce-buffer controller))
-                  (bounce-phys (ash bounce-frame 12))
-                  (bounce-virt (+ +physical-map-base+ bounce-phys)))
-             (%fast-page-copy bounce-virt mem-addr)
-             (ata-write-dma controller device lba count bounce-phys)))
-          (t ;; Give up and do a slow PIO transfer.
-           (ata-write-pio controller device lba count mem-addr))))
-  t)
+  (ata-read-write device lba count mem-addr
+                  :write #'ata-write-dma #'ata-write-pio))
 
 (defun ata-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame))
