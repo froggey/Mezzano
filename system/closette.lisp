@@ -95,7 +95,6 @@
           compute-applicable-methods
           compute-effective-method-function compute-method-function
           apply-methods apply-method
-          find-generic-function  ; Necessary artifact of this implementation
 
           metaobject specializer class
           structure-class structure-object
@@ -1062,25 +1061,6 @@
 
 )
 
-;;; find-generic-function looks up a generic function by name.  It's an
-;;; artifact of the fact that our generic function metaobjects can't legally
-;;; be stored a symbol's function value.
-
-(defvar *generic-function-table* (make-hash-table :test #'equal))
-
-(defun find-generic-function (symbol &optional (errorp t))
-  (let ((gf (gethash symbol *generic-function-table* nil)))
-    (if (and (null gf) errorp)
-        (error "No generic function named ~S." symbol)
-        gf)))
-
-(defun (setf find-generic-function) (new-value symbol)
-  (setf (gethash symbol *generic-function-table*) new-value))
-
-(defun forget-all-generic-functions ()
-  (clrhash *generic-function-table*)
-  (values))
-
 ;;; ensure-generic-function
 
 (defun ensure-generic-function
@@ -1094,7 +1074,7 @@
          ;; Can't override special operators.
          (error "~S names a special operator" function-name))
         ((or (and (fboundp function-name)
-                  (not (find-generic-function function-name nil)))
+                  (not (typep (fdefinition function-name) 'standard-generic-function)))
              (and (symbolp function-name)
                   (macro-function function-name)))
          (cerror "Clobber it" 'simple-error
@@ -1104,18 +1084,23 @@
          (when (symbolp function-name)
            (setf (macro-function function-name) nil))
          (when (fboundp function-name)
-           (fmakunbound function-name))))
-  (if (find-generic-function function-name nil)
-      (find-generic-function function-name)
-      (let ((gf (apply (if (eq generic-function-class the-class-standard-gf)
-                           #'make-instance-standard-generic-function
-                           #'make-instance)
-                       generic-function-class
-                       :name function-name
-                       :method-class method-class
-                       all-keys)))
-         (setf (find-generic-function function-name) gf)
-         gf)))
+           (fmakunbound function-name))
+         (setf (compiler-macro-function name) nil)))
+  (cond ((fboundp function-name)
+         ;; This should call reinitialize-instance here, but whatever.
+         (fdefinition function-name))
+        (t
+         (let ((gf (apply (if (eq generic-function-class the-class-standard-gf)
+                              #'make-instance-standard-generic-function
+                              #'make-instance)
+                          generic-function-class
+                          :name function-name
+                          :method-class method-class
+                          all-keys)))
+           ;; Not entirely sure where this should be done.
+           ;; SBCL seems to do it in (ENSURE-GENERIC-FUNCTION-USING-CLASS NULL).
+           (setf (fdefinition function-name) gf)
+           gf))))
 
 (defun generic-function-single-dispatch-p (gf)
   "Returns true when the generic function only one non-t specialized argument and
@@ -1126,7 +1111,7 @@ has only has class specializer."
           (count 0)
           (offset 0))
       (dotimes (i (length specializers))
-        (unless (zerop (aref specializers i))
+        (unless (zerop (bit specializers i))
           (setf offset i)
           (incf count)))
       (if (eql count 1)
@@ -1143,7 +1128,7 @@ has only has class specializer."
   ;; Examine all methods and compute the relevant argument bit-vector.
   (let* ((required-args (gf-required-arglist gf))
          (relevant-args (make-array (length required-args)
-                                    ;:element-type 'bit
+                                    :element-type 'bit
                                     :initial-element 0))
          (class-t (find-class 't)))
     (setf (generic-function-has-unusual-specializers gf) nil)
@@ -1154,7 +1139,7 @@ has only has class specializer."
         (unless (typep (first spec) '(or standard-class funcallable-standard-class class))
           (setf (generic-function-has-unusual-specializers gf) t))
         (unless (eql (first spec) class-t)
-          (setf (aref relevant-args i) 1))))
+          (setf (bit relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
   (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
                                                              #'eq
@@ -1165,7 +1150,6 @@ has only has class specializer."
                      #'compute-discriminating-function)
                  gf))
   (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
-  (setf (fdefinition (generic-function-name gf)) gf)
   (values))
 
 ;;; make-instance-standard-generic-function creates and initializes an
@@ -1185,11 +1169,18 @@ has only has class specializer."
 
 ;;; defmethod
 
+(defun defmethod-1 (gf-name &rest args)
+  (when (not (fboundp gf-name))
+    (warn "Implicit defintion of generic function ~S." gf-name))
+  (apply #'ensure-method
+         (ensure-generic-function gf-name)
+         args))
+
 (defmacro defmethod (&rest args)
   (multiple-value-bind (function-name qualifiers
                         lambda-list specializers function)
         (parse-defmethod args)
-    `(ensure-method (find-generic-function ',function-name)
+    `(defmethod-1 ',function-name
        :lambda-list ',lambda-list
        :qualifiers ',qualifiers
        :specializers ,(canonicalize-specializers specializers)
@@ -1381,6 +1372,11 @@ has only has class specializer."
 ;;; programs without this feature of full CLOS.
 
 (defun add-method (gf method)
+  ;; If the GF has no methods and an empty lambda-list, then it may have
+  ;; been implicitly created via defmethod. Fill in the lambda-list.
+  (when (and (endp (generic-function-methods gf))
+             (endp (generic-function-lambda-list gf)))
+    (setf (generic-function-lambda-list gf) (method-lambda-list method)))
   (let ((old-method
            (find-method gf (method-qualifiers method)
                            (method-specializers method) nil)))
@@ -1785,7 +1781,6 @@ Dispatching on class ~S." gf class))
 (progn  ; Extends to end-of-file (to avoid printing intermediate results).
 (format t "Beginning to bootstrap Closette...")
 (forget-all-classes)
-(forget-all-generic-functions)
 ;; How to create the class hierarchy in 10 easy steps:
 ;; 1. Figure out standard-class's slots.
 (setq the-slots-of-standard-class
