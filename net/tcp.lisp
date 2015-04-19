@@ -434,9 +434,8 @@
   (tcp-send (tcp-stream-connection stream) sequence))
 
 (defmethod sys.gray:stream-write-char ((stream tcp-stream) character)
-  (when (eql character #\Newline)
-    (write-byte #x0D stream))
-  (write-byte (char-code character) stream))
+  (sys.gray:stream-write-sequence stream (string character))
+  character)
 
 (defmethod close ((stream tcp-stream) &key abort)
   (let* ((connection (tcp-stream-connection stream)))

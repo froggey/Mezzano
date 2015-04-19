@@ -403,7 +403,10 @@
     (+ start bytes-read)))
 
 (defmethod sys.gray:stream-write-char ((stream simple-file-character-stream) char)
-  (sys.gray:stream-write-byte stream (char-code char)))
+  (let ((encoded (sys.net::encode-utf-8-string (string char))))
+    (loop
+       for byte across encoded
+       do (sys.gray:stream-write-byte stream byte))))
 
 ;;; Explicitly fall back on the generic function so the byte read-sequence function
 ;;; doesn't get called.

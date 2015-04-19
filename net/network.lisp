@@ -31,7 +31,8 @@
         ((eql (logand leader #b11111000) #b11110000)
          (values 3 (logand leader #b00000111)))))
 
-(defun encode-utf-8-string (sequence start end)
+(defun encode-utf-8-string (sequence &optional (start 0) end)
+  (setf end (or end (length sequence)))
   (let ((bytes (make-array (- end start)
                            :element-type '(unsigned-byte 8)
                            :adjustable t
