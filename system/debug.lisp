@@ -125,6 +125,7 @@
       (backtrace *default-frames-to-print*)
       (fresh-line)
       (write-line "Enter a restart number or evaluate a form. :help for help.")
+      (clear-input)
       (loop
          (let ((* nil) (** nil) (*** nil)
                (/ nil) (// nil) (/// nil)

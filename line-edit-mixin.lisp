@@ -347,3 +347,7 @@
                        ;; Redraw.
                        (redraw-line stream)
                        (setf (last-command stream) ch))))))))
+
+(defmethod sys.gray:stream-clear-input :around ((stream line-edit-mixin))
+  (when (output-progress stream)
+    (setf (output-progress stream) (length (buffer stream)))))

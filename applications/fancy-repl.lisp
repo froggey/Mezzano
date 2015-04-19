@@ -89,6 +89,14 @@
   ;; Catch up with window manager events.
   (pump-event-loop stream))
 
+(defmethod sys.gray:stream-clear-input ((stream fancy-repl))
+  ;; Catch up with window manager events.
+  (pump-event-loop stream)
+  ;; Munch all waiting characters.
+  (loop
+     (when (not (mezzano.supervisor:fifo-pop (input-buffer stream) nil))
+       (return))))
+
 (defun repl-main (&optional initial-function title width height)
   (with-font (font *default-monospace-font* *default-monospace-font-size*)
     (let ((fifo (mezzano.supervisor:make-fifo 50)))
