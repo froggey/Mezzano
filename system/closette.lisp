@@ -461,7 +461,10 @@
        (slot-position-cache :initform ()) ; :accessor class-slot-cache
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
-       (direct-default-initargs :initform ())))) ; :accessor class-direct-default-initargs
+       (direct-default-initargs :initform ())) ; :accessor class-direct-default-initargs
+   (:default-initargs
+    :name nil
+    :direct-superclasses (list (find-class 'standard-object)))))
 
 (defparameter the-defclass-funcallable-standard-class
   '(defclass funcallable-standard-class ()
@@ -474,7 +477,10 @@
        (slot-position-cache :initform ()) ; :accessor class-slot-cache
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
-       (direct-default-initargs :initform ())))) ; :accessor class-direct-default-initargs
+       (direct-default-initargs :initform ())) ; :accessor class-direct-default-initargs
+    (:default-initargs
+     :name nil
+     :direct-superclasses (list (find-class 'funcallable-standard-object)))))
 
 ;;; Defining the metaobject slot accessor function as regular functions
 ;;; greatly simplifies the implementation without removing functionality.
@@ -632,15 +638,19 @@
 (defun ensure-class (name &rest all-keys
                           &key (metaclass the-class-standard-class)
                           &allow-other-keys)
-  (when (find-class name nil)
-    (cerror "Smash the existing class." "Can't redefine the class named ~S." name))
-  (let ((class (apply (cond ((eq metaclass the-class-standard-class)
-                             #'make-instance-standard-class)
-                            ((eq metaclass the-class-funcallable-standard-class)
-                             #'make-instance-funcallable-standard-class)
-                            (t #'make-instance))
-                      metaclass :name name all-keys)))
-    (setf (find-class name) class)
+  (let* ((existing (find-class name nil))
+         (class (apply (cond (existing
+                              #'reinitialize-instance)
+                             ((eq metaclass the-class-standard-class)
+                              #'make-instance-standard-class)
+                             ((eq metaclass the-class-funcallable-standard-class)
+                              #'make-instance-funcallable-standard-class)
+                             (t #'make-instance))
+                       (or existing metaclass)
+                       :name name
+                       all-keys)))
+    (when (not existing)
+      (setf (find-class name) class))
     class))
 
 ;;; make-instance-standard-class creates and initializes an instance of
@@ -943,6 +953,10 @@
        (relevant-arguments)       ; :accessor generic-function-relevant-arguments
        (weird-specializers-p)     ; :accessor generic-function-has-unusual-specializers
        )
+      (:default-initargs
+       :name nil
+       :lambda-list '()
+       :method-class (find-class 'standard-method))
       (:metaclass funcallable-standard-class)))
 
 (defvar the-class-standard-gf) ;standard-generic-function's class metaobject
@@ -999,7 +1013,10 @@
     (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
     (specializers :initarg :specializers)   ; :accessor method-specializers
     (generic-function :initform nil)        ; :accessor method-generic-function
-    (function :initarg :function))))        ; :accessor method-function
+    (function :initarg :function))          ; :accessor method-function
+   (:default-initargs
+    :qualifiers '()
+    :specializers '())))
 
 (defvar the-class-standard-method)    ;standard-method's class metaobject
 (defvar the-class-standard-reader-method)    ;standard-reader-method's class metaobject
