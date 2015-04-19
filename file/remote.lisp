@@ -403,7 +403,7 @@
     (+ start bytes-read)))
 
 (defmethod sys.gray:stream-write-char ((stream simple-file-character-stream) char)
-  (let ((encoded (sys.net::encode-utf-8-string (string char))))
+  (let ((encoded (sys.net::encode-utf-8-string (string char) 0 nil :lf)))
     (loop
        for byte across encoded
        do (sys.gray:stream-write-byte stream byte))))
