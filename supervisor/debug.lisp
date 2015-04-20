@@ -196,6 +196,10 @@
     (error "Multiple unread-char!"))
   (setf *cold-unread-char* character))
 
+(defun sys.int::cold-clear-input (stream)
+  (declare (ignore stream))
+  (debug-clear-input))
+
 ;;; Early error functions, replaced later as part of cold load.
 
 (defun sys.int::assert-error (test-form datum &rest arguments)
