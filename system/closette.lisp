@@ -60,6 +60,7 @@
           make-instance change-class
           initialize-instance reinitialize-instance shared-initialize
           update-instance-for-different-class
+          update-instance-for-redefined-class
           print-object
           set-funcallable-instance-function
 
@@ -250,21 +251,33 @@
                     (std-instance-slots instance))))
     (setf (slot-contents slots location) new-value)))
 
+(defun fetch-up-to-date-instance-slots-and-layout (instance)
+  (loop
+     (let* ((storage-layout (slot-contents (std-instance-slots (class-of instance))
+                                           *standard-class-slot-storage-layout-position*))
+            (funcallable-instance-p (funcallable-std-instance-p instance))
+            (instance-layout (if funcallable-instance-p
+                                 (funcallable-std-instance-layout instance)
+                                 (std-instance-layout instance)))
+            (slots (if funcallable-instance-p
+                       (funcallable-std-instance-slots instance)
+                       (std-instance-slots instance))))
+       (when (eql storage-layout instance-layout)
+         (return (values slots instance-layout)))
+       (update-instance-for-new-layout instance))))
+
 (defun std-slot-value (instance slot-name)
   (when (not (symbolp slot-name))
     (setf slot-name (slot-definition-name slot-name)))
-  (let* ((funcallable-instance-p (funcallable-std-instance-p instance))
-         (instance-layout (if funcallable-instance-p
-                              (funcallable-std-instance-layout instance)
-                              (std-instance-layout instance)))
-         (slots (if funcallable-instance-p
-                    (funcallable-std-instance-slots instance)
-                    (std-instance-slots instance)))
-         (location (fast-sv-position slot-name instance-layout))
-         (val (svref slots location)))
-    (if (eq secret-unbound-value val)
-        (error "The slot ~S is unbound in the object ~S." slot-name instance)
-        val)))
+  (multiple-value-bind (slots layout)
+      (fetch-up-to-date-instance-slots-and-layout instance)
+    (let* ((location (or (fast-sv-position slot-name layout)
+                         (error "The slot ~S is missing from the class ~S."
+                                slot-name (class-of instance))))
+           (val (svref slots location)))
+      (if (eq secret-unbound-value val)
+          (error "The slot ~S is unbound in the object ~S." slot-name instance)
+          val))))
 
 (defun slot-value (object slot-name)
   (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
@@ -275,15 +288,12 @@
 (defun (setf std-slot-value) (value instance slot-name)
   (when (not (symbolp slot-name))
     (setf slot-name (slot-definition-name slot-name)))
-  (let* ((funcallable-instance-p (funcallable-std-instance-p instance))
-         (instance-layout (if funcallable-instance-p
-                              (funcallable-std-instance-layout instance)
-                              (std-instance-layout instance)))
-         (slots (if funcallable-instance-p
-                    (funcallable-std-instance-slots instance)
-                    (std-instance-slots instance)))
-         (location (fast-sv-position slot-name instance-layout)))
-    (setf (svref slots location) value)))
+  (multiple-value-bind (slots layout)
+      (fetch-up-to-date-instance-slots-and-layout instance)
+    (let* ((location (or (fast-sv-position slot-name layout)
+                         (error "The slot ~S is missing from the class ~S."
+                                slot-name (class-of instance)))))
+      (setf (svref slots location) value))))
 
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
@@ -2307,3 +2317,114 @@ Dispatching on class ~S." gf class))
                                         entry
                                       `(,variable-name (,accessor-name ,instance))))
          ,@body))))
+
+;;; Class redefinition.
+
+(defun std-after-reinitialization-for-classes (class &rest args &key &allow-other-keys)
+  ;; Remove the class as a subclass from all existing superclasses.
+  (dolist (super (class-direct-superclasses class))
+    (setf (class-direct-subclasses superclass) (remove class (class-direct-subclasses superclass))))
+  ;; Remove any slot reader/writer methods.
+  (dolist (direct-slot (class-direct-slots class))
+    (dolist (reader (slot-definition-readers direct-slot))
+      (remove-reader-method class reader (slot-definition-name direct-slot)))
+    (dolist (writer (slot-definition-writers direct-slot))
+      (remove-writer-method class writer (slot-definition-name direct-slot))))
+  ;; TODO: Need to invalidate the EMF tables of any generic function specializing on this class.
+  ;; TODO: Need to update subclasses.
+  ;;       Use the dependents protocol.
+  ;; Fall into the initialize-instance code.
+  (apply #'std-after-initialization-for-classes class (append args
+                                                              (list :direct-superclasses (class-direct-superclasses class))
+                                                              (list :direct-slots (class-direct-slots class))
+                                                              (list :direct-default-initargs (class-direct-default-initargs class)))))
+
+(defmethod reinitialize-instance :after ((class standard-class) &rest args &key direct-superclasses &allow-other-keys)
+  (apply #'std-after-reinitialization-for-classes
+         class
+         :direct-superclasses (or direct-superclasses
+                                  (list (find-class 'standard-object)))
+         args))
+
+(defmethod reinitialize-instance :after ((class funcallable-standard-class) &rest args &key direct-superclasses &allow-other-keys)
+  (apply #'std-after-reinitialization-for-classes
+         class
+         :direct-superclasses (or direct-superclasses
+                                  (list (find-class 'funcallable-standard-object)))
+         args))
+
+(defun remove-reader-method (class reader slot-name)
+  (declare (ignore slot-name))
+  (remove-method (fdefinition reader)
+                 (find-method (fdefinition reader)
+                              '()
+                              (list class))))
+
+(defun remove-writer-method (class writer slot-name)
+  (declare (ignore slot-name))
+  (remove-method (fdefinition writer)
+                 (find-method (fdefinition writer)
+                              '()
+                              (list (find-class 't) class))))
+
+(defun update-instance-for-new-layout (instance)
+  (let* ((class (class-of instance))
+         (funcallable-instance-p (funcallable-std-instance-p instance))
+         (old-slots (if funcallable-instance-p
+                        (funcallable-std-instance-slots instance)
+                        (std-instance-slots instance)))
+         (old-layout (if funcallable-instance-p
+                         (funcallable-std-instance-layout instance)
+                         (std-instance-layout instance)))
+         (new-layout (class-slot-storage-layout class)))
+    (if funcallable-instance-p
+        (setf (funcallable-std-instance-layout instance) new-layout)
+        (setf (std-instance-layout instance) new-layout))
+    ;; Don't do anything if the layout hasn't really changed.
+    (when (not (equal old-layout new-layout))
+      (let* ((old-layout-list (coerce old-layout 'list))
+             (new-layout-list (coerce new-layout 'list))
+             (added-slots (set-difference new-layout-list old-layout-list))
+             (discarded-slots (set-difference old-layout-list new-layout-list)))
+        (cond ((and (endp added-slots)
+                    (endp discarded-slots))
+               ;; No slots added or removed, only the order changed.
+               ;; Just build a new slot vector with the correct layout.
+               (let ((new-slots (make-array (length new-layout))))
+                 (loop
+                    for location from 0
+                    for slot in new-layout-list
+                    do (setf (svref new-slots location) (svref old-slots (fast-sv-position slot old-layout))))
+                 (if funcallable-instance-p
+                     (setf (funcallable-std-instance-slots instance) new-slots)
+                     (setf (std-instance-slots instance) new-slots))))
+              (t
+               ;; The complicated bit.
+               ;; Slots have been added or removed.
+               (let ((new-slots (make-array (length new-layout)
+                                            :initial-element secret-unbound-value))
+                     (property-list '()))
+                 ;; Copy slots that were not added/discarded.
+                 (loop
+                    for slot in (intersection new-layout-list old-layout-list)
+                    do (setf (svref new-slots (fast-sv-position slot new-layout))
+                             (svref old-slots (fast-sv-position slot old-layout))))
+                 ;; Assemble the list of discarded values.
+                 (loop
+                    for slot in discarded-slots
+                    do (let ((value (svref old-slots (fast-sv-position slot old-layout))))
+                         (when (not (eql value secret-unbound-value))
+                           (setf property-list (list* slot value
+                                                      property-list)))))
+                 ;; New slots.
+                 (if funcallable-instance-p
+                     (setf (funcallable-std-instance-slots instance) new-slots)
+                     (setf (std-instance-slots instance) new-slots))
+                 ;; Magic.
+                 (update-instance-for-redefined-class instance added-slots discarded-slots property-list))))))))
+
+(defgeneric update-instance-for-redefined-class (instance added-slots discarded-slots property-list &rest initargs &key &allow-other-keys))
+
+(defmethod update-instance-for-redefined-class ((instance standard-object) added-slots discarded-slots property-list &rest initargs &key &allow-other-keys)
+  (declare (ignore discarded-slots property-list))
+  (apply #'shared-initialize instance added-slots initargs))
