@@ -215,7 +215,7 @@
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 56)
 
-(defparameter *llf-version* 5)
+(defparameter *llf-version* 6)
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
