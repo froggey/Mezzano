@@ -418,10 +418,11 @@
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
 
-(defun sys.int::allocate-std-instance (class slots &optional area)
-  (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 2 2 area)))
+(defun sys.int::allocate-std-instance (class slots layout &optional area)
+  (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 3 3 area)))
     (setf (sys.int::std-instance-class value) class
-          (sys.int::std-instance-slots value) slots)
+          (sys.int::std-instance-slots value) slots
+          (sys.int::std-instance-layout value) layout)
     value))
 
 (defun sys.int::make-function-with-fixups (tag machine-code fixups constants gc-info &optional wired)
@@ -472,15 +473,15 @@
 (defun sys.int::make-function (machine-code constants gc-info &optional wired)
   (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
-(defun sys.int::allocate-funcallable-std-instance (function class slots)
+(defun sys.int::allocate-funcallable-std-instance (function class slots layout)
   "Allocate a funcallable instance."
   (check-type function function)
   (let* ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
                                    ;; MC size (2 2-word units)
-                                   ;; constant pool size (4 entries)
+                                   ;; constant pool size (5 entries)
                                    ;; GC info size (0 octets)
-                                   #x00000004000200
-                                   8
+                                   #x00000005000200
+                                   9
                                    :pinned))
          (address (ash (sys.int::%pointer-field object) 4))
          (entry-point (sys.int::%object-ref-unsigned-byte-64 function sys.int::+function-entry-point+)))
@@ -498,5 +499,6 @@
      (sys.int::%object-ref-unsigned-byte-64 object sys.int::+funcallable-instance-entry-point+) entry-point
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-class+) class
-     (sys.int::%object-ref-t object sys.int::+funcallable-instance-slots+) slots)
+     (sys.int::%object-ref-t object sys.int::+funcallable-instance-slots+) slots
+     (sys.int::%object-ref-t object sys.int::+funcallable-instance-layout+) layout)
     object))

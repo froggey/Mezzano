@@ -367,6 +367,13 @@
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
   (setf (%object-ref-t funcallable-instance +funcallable-instance-slots+) value))
 
+(defun funcallable-std-instance-layout (funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%object-ref-t funcallable-instance +funcallable-instance-layout+))
+(defun (setf funcallable-std-instance-layout) (value funcallable-instance)
+  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (setf (%object-ref-t funcallable-instance +funcallable-instance-layout+) value))
+
 (defun compiled-function-p (object)
   (when (functionp object)
     (ecase (%object-tag object)
@@ -751,3 +758,10 @@ VALUE may be nil to make the fref unbound."
 (defun (setf std-instance-slots) (value std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
   (setf (%object-ref-t std-instance 1) value))
+
+(defun std-instance-layout (std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (%object-ref-t std-instance 2))
+(defun (setf std-instance-layout) (value std-instance)
+  (%type-check std-instance +object-tag-std-instance+ 'std-instance)
+  (setf (%object-ref-t std-instance 2) value))

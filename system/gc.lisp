@@ -619,7 +619,7 @@ This is required to make the GC interrupt safe."
        (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
                                      (memref-unsigned-byte-64 address 0)))))
       (#.+object-tag-std-instance+
-       (scan-generic object 3))
+       (scan-generic object 4))
       (#.+object-tag-function-reference+
        (scan-generic object 4))
       ((#.+object-tag-function+
@@ -795,7 +795,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-symbol+
           6)
          (#.+object-tag-std-instance+
-          3)
+          4)
          (#.+object-tag-function-reference+
           4)
          ((#.+object-tag-function+

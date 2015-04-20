@@ -177,6 +177,7 @@
 (defconstant +funcallable-instance-function+ 4)
 (defconstant +funcallable-instance-class+ 5)
 (defconstant +funcallable-instance-slots+ 6)
+(defconstant +funcallable-instance-layout+ 7)
 
 ;;; Layout of function-references.
 

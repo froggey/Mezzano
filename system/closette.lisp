@@ -40,11 +40,13 @@
 		:std-instance-p
 		:std-instance-class
 		:std-instance-slots
+		:std-instance-layout
                 :allocate-funcallable-std-instance
                 :funcallable-std-instance-p
                 :funcallable-std-instance-function
                 :funcallable-std-instance-class
-                :funcallable-std-instance-slots))
+                :funcallable-std-instance-slots
+                :funcallable-std-instance-layout))
 
 (in-package #:system.closette)
 
@@ -168,7 +170,8 @@
   (allocate-std-instance
     class
     (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
-                           secret-unbound-value)))
+                           secret-unbound-value)
+    (class-slot-storage-layout class)))
 
 (defun fc-std-allocate-instance (class)
   (allocate-funcallable-std-instance
@@ -177,7 +180,8 @@
      (error "The function of this funcallable instance has not been set."))
     class
     (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
-                           secret-unbound-value)))
+                           secret-unbound-value)
+    (class-slot-storage-layout class)))
 
 (defun set-funcallable-instance-function (funcallable-instance function)
   (setf (funcallable-std-instance-function funcallable-instance) function))
@@ -197,7 +201,7 @@
 (defvar the-class-standard-class)    ;standard-class's class metaobject
 (defvar the-class-funcallable-standard-class)
 (defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
-(defvar *standard-class-slot-cache-position*)
+(defvar *standard-class-slot-storage-layout-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -249,21 +253,18 @@
 (defun std-slot-value (instance slot-name)
   (when (not (symbolp slot-name))
     (setf slot-name (slot-definition-name slot-name)))
-  (flet ((cached-location ()
-           (let ((cache (slot-contents (std-instance-slots (class-of instance))
-                                       *standard-class-slot-cache-position*)))
-             (when (simple-vector-p cache)
-               (fast-sv-position slot-name cache)))))
-    (let* ((location (or (cached-location)
-                         (slot-location (class-of instance) slot-name)))
-           (slots (if (funcallable-std-instance-p instance)
-                      (funcallable-std-instance-slots instance)
-                      (std-instance-slots instance)))
-           (val (slot-contents slots location)))
-      (if (eq secret-unbound-value val)
-          (error "The slot ~S is unbound in the object ~S."
-                 slot-name instance)
-          val))))
+  (let* ((funcallable-instance-p (funcallable-std-instance-p instance))
+         (instance-layout (if funcallable-instance-p
+                              (funcallable-std-instance-layout instance)
+                              (std-instance-layout instance)))
+         (slots (if funcallable-instance-p
+                    (funcallable-std-instance-slots instance)
+                    (std-instance-slots instance)))
+         (location (fast-sv-position slot-name instance-layout))
+         (val (svref slots location)))
+    (if (eq secret-unbound-value val)
+        (error "The slot ~S is unbound in the object ~S." slot-name instance)
+        val)))
 
 (defun slot-value (object slot-name)
   (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
@@ -271,20 +272,18 @@
          (std-slot-value object slot-name))
         (t (slot-value-using-class (class-of object) object slot-name))))
 
-(defun (setf std-slot-value) (new-value instance slot-name)
+(defun (setf std-slot-value) (value instance slot-name)
   (when (not (symbolp slot-name))
     (setf slot-name (slot-definition-name slot-name)))
-  (flet ((cached-location ()
-           (let ((cache (slot-contents (std-instance-slots (class-of instance))
-                                       *standard-class-slot-cache-position*)))
-             (when (simple-vector-p cache)
-               (fast-sv-position slot-name cache)))))
-    (let* ((location (or (cached-location)
-                         (slot-location (class-of instance) slot-name)))
-           (slots (if (funcallable-std-instance-p instance)
-                      (funcallable-std-instance-slots instance)
-                      (std-instance-slots instance))))
-      (setf (slot-contents slots location) new-value))))
+  (let* ((funcallable-instance-p (funcallable-std-instance-p instance))
+         (instance-layout (if funcallable-instance-p
+                              (funcallable-std-instance-layout instance)
+                              (std-instance-layout instance)))
+         (slots (if funcallable-instance-p
+                    (funcallable-std-instance-slots instance)
+                    (std-instance-slots instance)))
+         (location (fast-sv-position slot-name instance-layout)))
+    (setf (svref slots location) value)))
 
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
@@ -458,7 +457,7 @@
        (direct-slots)                     ; :accessor class-direct-slots
        (class-precedence-list)            ; :accessor class-precedence-list
        (effective-slots)                  ; :accessor class-slots
-       (slot-position-cache :initform ()) ; :accessor class-slot-cache
+       (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
        (direct-default-initargs :initform ())) ; :accessor class-direct-default-initargs
@@ -474,7 +473,7 @@
        (direct-slots)                     ; :accessor class-direct-slots
        (class-precedence-list)            ; :accessor class-precedence-list
        (effective-slots)                  ; :accessor class-slots
-       (slot-position-cache :initform ()) ; :accessor class-slot-cache
+       (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
        (direct-default-initargs :initform ())) ; :accessor class-direct-default-initargs
@@ -510,10 +509,10 @@
 (defun (setf class-slots) (new-value class)
   (setf (slot-value class 'effective-slots) new-value))
 
-(defun class-slot-cache (class)
-  (slot-value class 'slot-position-cache))
-(defun (setf class-slot-cache) (new-value class)
-  (setf (slot-value class 'slot-position-cache) new-value))
+(defun class-slot-storage-layout (class)
+  (slot-value class 'slot-storage-layout))
+(defun (setf class-slot-storage-layout) (new-value class)
+  (setf (slot-value class 'slot-storage-layout) new-value))
 
 (defun class-direct-subclasses (class)
   (slot-value class 'direct-subclasses))
@@ -806,7 +805,7 @@
                  class))
   (let ((instance-slots (remove-if-not 'instance-slot-p
                                        (class-slots class))))
-    (setf (class-slot-cache class)
+    (setf (class-slot-storage-layout class)
           (make-array (length instance-slots)
                       :initial-contents (mapcar 'slot-definition-name instance-slots))))
   (values))
@@ -1816,15 +1815,23 @@ Dispatching on class ~S." gf class))
 (setf *standard-class-effective-slots-position*
       (position 'effective-slots the-slots-of-standard-class
                 :key #'slot-definition-name))
-(setf *standard-class-slot-cache-position*
-      (position 'slot-position-cache the-slots-of-standard-class
+(setf *standard-class-slot-storage-layout-position*
+      (position 'slot-storage-layout the-slots-of-standard-class
                 :key #'slot-definition-name))
 ;; 2. Create the standard-class metaobject by hand.
-(setq the-class-standard-class
-      (allocate-std-instance
+(let ((layout (make-array (length the-slots-of-standard-class)))
+      (slots (make-array (length the-slots-of-standard-class)
+                         :initial-element secret-unbound-value)))
+  (loop
+     for slot in the-slots-of-standard-class
+     for i from 0
+     do (setf (svref layout i) (slot-definition-name slot)))
+  (setf the-class-standard-class
+        (allocate-std-instance
          'tba
-         (make-array (length the-slots-of-standard-class)
-                     :initial-element secret-unbound-value)))
+         slots
+         layout))
+  (setf (svref slots *standard-class-slot-storage-layout-position*) layout))
 ;; 3. Install standard-class's (circular) class-of link.
 (setf (std-instance-class the-class-standard-class)
       the-class-standard-class)
@@ -1842,21 +1849,24 @@ Dispatching on class ~S." gf class))
     (setf (class-direct-slots class) ())
     (setf (class-direct-default-initargs class) ())
     (setf (class-precedence-list class) (list class))
-    (setf (class-slot-cache class) (make-array 0))
+    (setf (class-slot-storage-layout class) (make-array 0))
     (setf (class-slots class) ())
     class))
 ;; (It's now okay to define subclasses of t.)
 ;; 6. Create the other superclass of standard-class (i.e., standard-object).
 (defclass standard-object (t) ())
 ;; 7. Define the full-blown version of standard-class.
-(setq the-class-standard-class (eval the-defclass-standard-class))
+(setf the-class-standard-class (eval the-defclass-standard-class))
 ;; 8. Replace all (3) existing pointers to the skeleton with real one.
-(setf (std-instance-class (find-class 't))
-      the-class-standard-class)
-(setf (std-instance-class (find-class 'standard-object))
-      the-class-standard-class)
-(setf (std-instance-class the-class-standard-class)
-      the-class-standard-class)
+(setf (std-instance-class (find-class 't)) the-class-standard-class)
+(setf (std-instance-class (find-class 'standard-object)) the-class-standard-class)
+(setf (std-instance-class the-class-standard-class) the-class-standard-class)
+;; 8a. Update layout pointers as well.
+(let ((real-layout (svref (std-instance-slots the-class-standard-class)
+                          *standard-class-slot-storage-layout-position*)))
+  (setf (std-instance-layout (find-class 't)) real-layout
+        (std-instance-layout (find-class 'standard-object)) real-layout
+        (std-instance-layout the-class-standard-class) real-layout))
 ;; (Clear sailing from here on in).
 ;; 9. Define the other built-in classes.
 (defclass symbol (t) ())
@@ -2028,6 +2038,8 @@ Dispatching on class ~S." gf class))
              (std-instance-slots old-instance))
     (rotatef (std-instance-class new-instance)
              (std-instance-class old-instance))
+    (rotatef (std-instance-layout new-instance)
+             (std-instance-layout old-instance))
     (apply #'update-instance-for-different-class
            new-instance old-instance initargs)
     old-instance))
@@ -2209,7 +2221,7 @@ Dispatching on class ~S." gf class))
    (direct-slots)                     ; :accessor class-direct-slots
    (class-precedence-list)            ; :accessor class-precedence-list
    (effective-slots)                  ; :accessor class-slots
-   (slot-position-cache :initform ()) ; :accessor class-slot-cache
+   (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
    (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
    (direct-methods :initform ())      ; :accessor class-direct-methods
    (direct-default-initargs :initform ())
@@ -2217,6 +2229,9 @@ Dispatching on class ~S." gf class))
 
 (defmethod initialize-instance :after ((class structure-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
+
+(defmethod reinitialize-instance :before ((class structure-class) &rest args)
+  (error "Cannot reinitialize structure classes."))
 
 (defmethod slot-value-using-class ((class structure-class) instance slot-name)
   (dolist (slot (class-slots class)

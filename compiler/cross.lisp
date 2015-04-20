@@ -118,11 +118,13 @@
            :std-instance-p
            :std-instance-class
            :std-instance-slots
+           :std-instance-layout
            :allocate-funcallable-std-instance
            :funcallable-std-instance-p
            :funcallable-std-instance-function
            :funcallable-std-instance-class
            :funcallable-std-instance-slots
+           :funcallable-std-instance-layout
            :funcallable-standard-object))
 
 (defpackage :system.closette
