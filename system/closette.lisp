@@ -235,20 +235,20 @@
       (return i))))
 
 (defun fast-slot-read (instance location)
-  (let* ((slots (if (funcallable-std-instance-p instance)
-                    (funcallable-std-instance-slots instance)
-                    (std-instance-slots instance)))
-         (val (slot-contents slots location)))
-    (if (eq secret-unbound-value val)
-        (error "The slot ~S is unbound in the object ~S."
-               (slot-definition-name (elt (class-slots (class-of instance)) location))
-               instance)
-        val)))
+  (multiple-value-bind (slots layout)
+      (fetch-up-to-date-instance-slots-and-layout instance)
+    (declare (ignore layout))
+    (let* ((val (slot-contents slots location)))
+      (if (eq secret-unbound-value val)
+          (error "The slot ~S is unbound in the object ~S."
+                 (slot-definition-name (elt (class-slots (class-of instance)) location))
+                 instance)
+          val))))
 
 (defun fast-slot-write (new-value instance location)
-  (let* ((slots (if (funcallable-std-instance-p instance)
-                    (funcallable-std-instance-slots instance)
-                    (std-instance-slots instance))))
+  (multiple-value-bind (slots layout)
+      (fetch-up-to-date-instance-slots-and-layout instance)
+    (declare (ignore layout))
     (setf (slot-contents slots location) new-value)))
 
 (defun fetch-up-to-date-instance-slots-and-layout (instance)
