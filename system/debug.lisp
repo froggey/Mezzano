@@ -134,7 +134,7 @@
            (loop
               (with-simple-restart (abort "Return to debugger top level.")
                 (fresh-line)
-                (format t "~D] " debug-level)
+                (format t "~A/~D] " (package-shortest-name *package*) debug-level)
                 (finish-output)
                 (let ((form (read)))
                   (fresh-line)
