@@ -130,6 +130,12 @@
     "file/remote.lisp"
     "ipl.lisp"))
 
+(defparameter *cl-symbol-list-file* "tools/cl-symbols.lisp-expr")
+(defparameter *8x8-debug-font* "tools/font8x8")
+(defparameter *unifont* "tools/unifont-5.1.20080820.hex")
+(defparameter *unicode-data* "tools/UnicodeData.txt")
+(defparameter *pci-ids* "tools/pci.ids")
+
 (defun compile-warm-source (&optional force)
   (dolist (file *warm-source-files*)
     (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
@@ -1236,7 +1242,7 @@
          (*function-map* '())
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
-         (cl-symbol-names (with-open-file (s "tools/cl-symbols.lisp-expr") (read s)))
+         (cl-symbol-names (with-open-file (s *cl-symbol-list-file*) (read s)))
          (system-symbol-names (remove-duplicates
                                (iter (for sym in-package :system external-only t)
                                      (collect (symbol-name sym)))
@@ -1274,12 +1280,12 @@
       (load-source-files extra-source-files nil)
       (generate-toplevel-form-array (reverse *load-time-evals*) 'sys.int::*additional-cold-toplevel-forms*))
     (format t "Saving 8x8 debug font.~%")
-    (save-debug-8x8-font "tools/font8x8")
+    (save-debug-8x8-font *8x8-debug-font*)
     (format t "Saving Unifont...~%")
-    (save-unifont-data "tools/unifont-5.1.20080820.hex")
+    (save-unifont-data *unifont*)
     (format t "Saving Unicode data...~%")
     (multiple-value-bind (planes name-store encoding-table name-trie)
-        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data "tools/UnicodeData.txt"))
+        (build-unicode:generate-unicode-data-tables (build-unicode:read-unicode-data *unicode-data*))
       (setf (cold-symbol-value 'sys.int::*unicode-info*) (save-object planes :pinned)
             (cold-symbol-value 'sys.int::*unicode-name-store*) (save-ub8-vector name-store :pinned)
             (cold-symbol-value 'sys.int::*unicode-encoding-table*) (save-object encoding-table :pinned)
@@ -1299,7 +1305,7 @@
               (vector-push-extend (cons (pathname-name llf-path) vec) warm-files)))))
       (setf (cold-symbol-value 'sys.int::*warm-llf-files*) (save-object warm-files :pinned)))
     #+nil(format t "Saving PCI IDs...~%")
-    #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids "tools/pci.ids"))
+    #+nil(let* ((pci-ids (build-pci-ids:build-pci-ids *pci-ids*))
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist. This avoids memory allocation after finalize-areas runs.
