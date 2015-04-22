@@ -160,7 +160,7 @@
 
 (defparameter *closure-trampoline*
   `(;; Load the real function from the fref.
-    (sys.lap-x86:mov64 :rbx (:object :r13 1))
+    (sys.lap-x86:mov64 :rbx (:object :r13 ,sys.int::+fref-function+))
     ;; Invoke the real function via the FUNCTION calling convention.
     ;; This will work even if the fref was altered or made funbound.
     ;; (SETF FUNCTION-REFERENCE-FUNCTION) will set the function to the
