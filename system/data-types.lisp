@@ -112,8 +112,6 @@
 (defconstant +object-tag-freelist-entry+          #b111001)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
 (defconstant +last-misc-object-tag+ +object-tag-freelist-entry+)
-;;#b111000
-;;#b111001
 ;;#b111010
 ;;#b111011
 (defconstant +object-tag-function+                #b111100)
