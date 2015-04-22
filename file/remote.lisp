@@ -368,8 +368,7 @@
                 (read-buffer-offset stream) 0)
           t)))))
 
-(defmethod sys.gray:stream-read-byte ((stream simple-file-stream))
-  (assert (member (direction stream) '(:input :io)))
+(defun remote-read-byte (stream)
   (if (refill-read-buffer stream)
       ;; Data available
       (prog1 (aref (read-buffer stream) (read-buffer-offset stream))
@@ -378,7 +377,12 @@
       ;; End of file
       :eof))
 
+(defmethod sys.gray:stream-read-byte ((stream simple-file-stream))
+  (assert (member (direction stream) '(:input :io)))
+  (remote-read-byte stream))
+
 (defmethod sys.gray:stream-read-sequence ((stream simple-file-stream) sequence &optional (start 0) end)
+  (assert (member (direction stream) '(:input :io)))
   (unless end (setf end (length sequence)))
   (let ((bytes-read 0)
         (offset start)
@@ -408,37 +412,47 @@
        for byte across encoded
        do (sys.gray:stream-write-byte stream byte))))
 
-;;; Explicitly fall back on the generic function so the byte read-sequence function
-;;; doesn't get called.
-(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence start end)
-  (if (stringp sequence)
-      (sys.int::generic-read-sequence sequence stream start end)
-      (call-next-method)))
-
-(defmethod sys.gray:stream-read-char ((stream simple-file-character-stream))
-  (let ((leader (read-byte stream nil)))
-    (unless leader
-      (return-from sys.gray:stream-read-char :eof))
+(defun read-and-decode-char (stream)
+  (let ((leader (remote-read-byte stream)))
+    (when (eql leader :eof)
+      (return-from read-and-decode-char :eof))
     (when (eql leader #x0D)
-      (read-byte stream nil)
-      (setf leader #x0A))
+      ;; Munch CR characters.
+      (return-from read-and-decode-char
+        (read-and-decode-char stream)))
     (multiple-value-bind (length code-point)
         (sys.net::utf-8-decode-leader leader)
       (when (null length)
-        (return-from sys.gray:stream-read-char
-          (code-char #xFFFE)))
+        (return-from read-and-decode-char
+          #\REPLACEMENT_CHARACTER))
       (dotimes (i length)
         (let ((byte (read-byte stream nil)))
           (when (or (null byte)
                     (/= (ldb (byte 2 6) byte) #b10))
-            (return-from sys.gray:stream-read-char
-              (code-char #xFFFE)))
+            (return-from read-and-decode-char
+              #\REPLACEMENT_CHARACTER))
           (setf code-point (logior (ash code-point 6)
                                    (ldb (byte 6 0) byte)))))
-      (if (or (> code-point #x0010FFFF)
-              (<= #xD800 code-point #xDFFF))
-          (code-char #xFFFE)
-          (code-char code-point)))))
+      (or (and (< code-point char-code-limit)
+               (code-char code-point))
+          #\REPLACEMENT_CHARACTER))))
+
+(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence start end)
+  (assert (member (direction stream) '(:input :io)))
+  (cond ((stringp sequence)
+         ;; This is slightly faster than going through method dispatch, but it's not great.
+         (unless end (setf end (length sequence)))
+         (dotimes (i (- end start)
+                   end)
+           (let ((ch (read-and-decode-char stream)))
+             (when (eql ch :eof)
+               (return (+ start i)))
+             (setf (char sequence (+ start i)) ch))))
+        (t (call-next-method))))
+
+(defmethod sys.gray:stream-read-char ((stream simple-file-character-stream))
+  (assert (member (direction stream) '(:input :io)))
+  (read-and-decode-char stream))
 
 (defmethod sys.gray:stream-file-position ((stream simple-file-stream) &optional (position-spec nil position-specp))
   (cond (position-specp
