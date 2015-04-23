@@ -154,6 +154,7 @@
   (setf *world-stopper* (current-thread)
         *panic-in-progress* t)
   (when (eql *debug-pseudostream* 'debug-serial-stream)
+    (debug-force-output)
     (setf *debug-pseudostream* 'debug-early-serial-stream))
   (set-panic-light)
   (debug-print-line-1 things)

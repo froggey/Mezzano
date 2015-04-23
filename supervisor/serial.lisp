@@ -178,6 +178,28 @@
         (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
               +serial-ier-received-data-available+)))))
 
+(defun debug-serial-force-output ()
+  (safe-without-interrupts ()
+    ;; Disable the TX interrupt.
+    (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
+          +serial-ier-received-data-available+)
+    ;; Write everything to the port.
+    (loop
+       (when (debug-fifo-emptyp *debug-serial-tx-buffer*
+                                +debug-serial-buffer-size+
+                                *debug-serial-tx-buffer-head*
+                                *debug-serial-tx-buffer-tail*)
+         (return))
+       (loop
+          (when (logbitp +serial-lsr-thr-empty+
+                         (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
+            (return)))
+       (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
+             (debug-fifo-pop *debug-serial-tx-buffer*
+                             +debug-serial-buffer-size+
+                             *debug-serial-tx-buffer-head*
+                             *debug-serial-tx-buffer-tail*)))))
+
 ;; Low-level byte functions.
 
 (defun debug-serial-write-byte (byte)
@@ -294,7 +316,7 @@
     (:clear-input (irq-fifo-reset *debug-serial-rx-fifo*))
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
-    (:force-output)
+    (:force-output (debug-serial-force-output))
     (:start-line-p *serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port irq baud)
