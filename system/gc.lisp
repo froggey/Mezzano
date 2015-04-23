@@ -602,108 +602,49 @@ This is required to make the GC interrupt safe."
                    (scavenge-stack stack-pointer frame-pointer return-address))))))))
 
 (defun gc-info-for-function-offset (function offset)
-  (multiple-value-bind (info-address length)
-      (function-gc-info function)
-    (let ((position 0)
-          ;; Defaults.
-          (framep nil)
-          (interruptp nil)
-          (pushed-values 0)
-          (pushed-values-register nil)
-          (layout-address 0)
-          (layout-length 0)
-          (multiple-values nil)
-          ;; Default to RCX here for closures & other stuff. Generally the right thing.
-          ;; Stuff can override if needed.
-          (incoming-arguments :rcx)
-          (block-or-tagbody-thunk nil)
-          (extra-registers nil))
-      (flet ((consume ()
-               ;; Read one byte from the GC metadata.
-               (when (>= position length)
-                 (mezzano.supervisor:panic "Reached end of GC Info??"))
-               (prog1 (memref-unsigned-byte-8 info-address position)
-                 (incf position))))
-        (declare (dynamic-extent #'consume))
-        (loop
-           (when (>= position length)
-             ;; No more metadata entries past here.
-             (return))
-           (let ((address 0))
-             ;; Read first byte of address, this is where we can terminate.
-             (let ((byte (consume))
-                   (offset 0))
-               (setf address (ldb (byte 7 0) byte)
-                     offset 7)
-               (when (logtest byte #x80)
-                 ;; Read remaining bytes.
-                 (loop (let ((byte (consume)))
-                         (setf (ldb (byte 7 offset) address)
-                               (ldb (byte 7 0) byte))
-                         (incf offset 7)
-                         (unless (logtest byte #x80)
-                           (return))))))
-             (when (< offset address)
-               ;; This metadata entry is past the offset, return the previous values.
-               (return))
-             ;; Read flag/pvr byte & mv-and-iabtt.
-             (let ((flags-and-pvr (consume))
-                   (mv-and-iabtt (consume)))
-               (setf framep (logtest flags-and-pvr #b0001))
-               (setf interruptp (logtest flags-and-pvr #b0010))
-               (setf pushed-values-register (if (logtest flags-and-pvr #b10000)
-                                                :rcx
-                                                nil))
-               (setf extra-registers (case (ldb (byte 2 6) flags-and-pvr)
-                                       (0 nil)
-                                       (1 :rax)
-                                       (2 :rax-rcx)
-                                       (3 :rax-rcx-rdx)))
-               (if (eql (ldb (byte 4 0) mv-and-iabtt) 15)
-                   (setf multiple-values nil)
-                   (setf multiple-values (ldb (byte 4 0) mv-and-iabtt)))
-               (setf block-or-tagbody-thunk nil
-                     incoming-arguments nil)
-               (when (logtest flags-and-pvr #b0100)
-                 (setf block-or-tagbody-thunk :rax))
-               (when (logtest flags-and-pvr #b1000)
-                 (setf incoming-arguments (if (eql (ldb (byte 4 4) mv-and-iabtt) 15)
-                                              :rcx
-                                              (ldb (byte 4 4) mv-and-iabtt)))))
-             ;; Read vs32 pv.
-             (let ((shift 0)
-                   (value 0))
-               (loop
-                  (let ((b (consume)))
-                    (when (not (logtest b #x80))
-                      (setf value (logior value (ash (logand b #x3F) shift)))
-                      (when (logtest b #x40)
-                        (setf value (- value)))
-                      (return))
-                    (setf value (logior value (ash (logand b #x7F) shift)))
-                    (incf shift 7)))
-               (setf pushed-values value))
-             ;; Read vu32 n-layout bits.
-             (let ((shift 0)
-                   (value 0))
-               (loop
-                  (let ((b (consume)))
-                    (setf value (logior value (ash (logand b #x7F) shift)))
-                    (when (not (logtest b #x80))
-                      (return))
-                    (incf shift 7)))
-               (setf layout-length value)
-               (setf layout-address (+ info-address position))
-               ;; Consume layout bits.
-               (incf position (ceiling layout-length 8))))))
-      (debug-stack-frame framep interruptp pushed-values pushed-values-register
-                         layout-address layout-length
-                         multiple-values incoming-arguments
-                         block-or-tagbody-thunk extra-registers)
-      (values framep interruptp pushed-values pushed-values-register
-              layout-address layout-length multiple-values
-              incoming-arguments block-or-tagbody-thunk
-              extra-registers))))
+  ;; Defaults.
+  (let ((framep nil)
+        (interruptp nil)
+        (pushed-values 0)
+        (pushed-values-register nil)
+        (layout-address 0)
+        (layout-length 0)
+        (multiple-values nil)
+        ;; Default to RCX here for closures & other stuff. Generally the right thing.
+        ;; Stuff can override if needed.
+        (incoming-arguments :rcx)
+        (block-or-tagbody-thunk nil)
+        (extra-registers nil))
+    (block nil
+      (flet ((f (entry-offset
+                 entry-framep entry-interruptp
+                 entry-pushed-values entry-pushed-values-register
+                 entry-layout-address entry-layout-length
+                 entry-multiple-values entry-incoming-arguments
+                 entry-block-or-tagbody-thunk entry-extra-registers)
+               (when (< offset entry-offset)
+                 ;; This metadata entry is past the offset, return the previous values.
+                 (return))
+               (setf framep entry-framep
+                     interrupt entry-interruptp
+                     pushed-values entry-pushed-values
+                     pushed-values-register entry-pushed-values-register
+                     layout-address entry-layout-address
+                     layout-length entry-layout-length
+                     multiple-values entry-multiple-values
+                     incoming-arguments entry-incoming-arguments
+                     block-or-tagbody-thunk entry-block-or-tagbody-thunk
+                     extra-registers entry-extra-registers)))
+        (declare (dynamic-extent #'f))
+        (map-function-gc-metadata #'f function)))
+    (debug-stack-frame framep interruptp pushed-values pushed-values-register
+                       layout-address layout-length
+                       multiple-values incoming-arguments
+                       block-or-tagbody-thunk extra-registers)
+    (values framep interruptp pushed-values pushed-values-register
+            layout-address layout-length multiple-values
+            incoming-arguments block-or-tagbody-thunk
+            extra-registers)))
 
 (defun scan-object-1 (object)
   ;; Careful here. Functions with lots of GC info can have the header fall

@@ -357,3 +357,128 @@ thread's stack if this function is called from normal code."
                    (memref-unsigned-byte-32 (+ address 12) 0)))
          (return (%%assemble-value address sys.int::+tag-object+)))
        (decf address 16)))
+
+(defun map-function-gc-metadata (function function-to-inspect)
+  "Call FUNCTION with every GC metadata entry in FUNCTION-TO-INSPECT.
+Arguments to FUNCTION:
+ start-offset
+ framep
+ interruptp
+ pushed-values
+ pushed-values-register
+ layout-address
+ layout-length
+ multiple-values
+ incoming-arguments
+ block-or-tagbody-thunk
+ extra-registers"
+  (check-type function function)
+  (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
+         (header-data (%object-header-data function-to-inspect))
+         (mc-size (* (ldb (byte +function-machine-code-size+
+                                +function-machine-code-position+)
+                          header-data)
+                     16))
+         (n-constants (ldb (byte +function-constant-pool-size+
+                                 +function-constant-pool-position+)
+                           header-data))
+         ;; Address of GC metadata & the length.
+         (address (+ fn-address mc-size (* n-constants 8)))
+         (length (ldb (byte +function-gc-metadata-size+
+                            +function-gc-metadata-position+)
+                      header-data))
+         ;; Position within the metadata.
+         (position 0))
+    (flet ((consume (&optional (errorp t))
+             (when (>= position length)
+               (when errorp
+                 (mezzano.supervisor:panic "Corrupt GC info in function " function-to-inspect))
+               (return-from map-function-gc-metadata))
+             (prog1 (memref-unsigned-byte-8 address position)
+               (incf position))))
+      (declare (dynamic-extent #'consume))
+      (loop (let ((start-offset-in-function 0)
+                  flags-and-pvr
+                  mv-and-ia
+                  (pv 0)
+                  (n-layout-bits 0)
+                  layout-address)
+              ;; Read first byte of address, this is where we can terminate.
+              (let ((byte (consume nil))
+                    (offset 0))
+                (setf start-offset-in-function (ldb (byte 7 0) byte)
+                      offset 7)
+                (when (logtest byte #x80)
+                  ;; Read remaining bytes.
+                  (loop (let ((byte (consume)))
+                          (setf (ldb (byte 7 offset) start-offset-in-function)
+                                (ldb (byte 7 0) byte))
+                          (incf offset 7)
+                          (unless (logtest byte #x80)
+                            (return))))))
+              ;; Read flag/pvr byte
+              (setf flags-and-pvr (consume))
+              ;; Read mv-and-ia
+              (setf mv-and-ia (consume))
+              ;; Read vs32 pv.
+              (let ((shift 0))
+                (loop
+                   (let ((b (consume)))
+                     (when (not (logtest b #x80))
+                       (setf pv (logior pv (ash (logand b #x3F) shift)))
+                       (when (logtest b #x40)
+                         (setf pv (- pv)))
+                       (return))
+                     (setf pv (logior pv (ash (logand b #x7F) shift)))
+                     (incf shift 7))))
+              ;; Read vu32 n-layout bits.
+              (let ((shift 0))
+                (loop
+                   (let ((b (consume)))
+                     (setf n-layout-bits (logior n-layout-bits (ash (logand b #x7F) shift)))
+                     (when (not (logtest b #x80))
+                       (return))
+                     (incf shift 7))))
+              (setf layout-address (+ address position))
+              ;; Consume layout bits.
+              (incf position (ceiling n-layout-bits 8))
+              ;; Decode this entry and do something else.
+              (funcall function
+                       ;; Start offset in the function.
+                       start-offset-in-function
+                       ;; Frame/no-frame.
+                       (logtest flags-and-pvr #b00001)
+                       ;; Interrupt.
+                       (logtest flags-and-pvr #b00010)
+                       ;; Pushed-values.
+                       pv
+                       ;; Pushed-values-register.
+                       (if (logtest flags-and-pvr #b10000)
+                           :rcx
+                           nil)
+                       ;; Layout-address. Fixnum pointer to virtual memory
+                       ;; the inspected function must remain live to keep
+                       ;; this valid.
+                       layout-address
+                       ;; Number of bits in the layout.
+                       n-layout-bits
+                       ;; Multiple-values.
+                       (if (eql (ldb (byte 4 0) mv-and-ia) 15)
+                           nil
+                           (ldb (byte 4 0) mv-and-ia))
+                       ;; Incoming-arguments.
+                       (if (logtest flags-and-pvr #b1000)
+                           (if (eql (ldb (byte 4 4) mv-and-ia) 15)
+                               :rcx
+                               (ldb (byte 4 4) mv-and-ia))
+                           nil)
+                       ;; Block-or-tagbody-thunk.
+                       (if (logtest flags-and-pvr #b0100)
+                           :rax
+                           nil)
+                       ;; Extra-registers.
+                       (case (ldb (byte 2 6) flags-and-pvr)
+                         (0 nil)
+                         (1 :rax)
+                         (2 :rax-rcx)
+                         (3 :rax-rcx-rdx))))))))

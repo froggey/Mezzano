@@ -602,95 +602,45 @@ VALUE may be nil to make the fref unbound."
             gc-length))) ; Length.
 
 (defun decode-function-gc-info (function)
-  (multiple-value-bind (address length)
-      (function-gc-info function)
-    (let ((position 0)
-          (result '()))
-      (flet ((consume (&optional (errorp t))
-               (when (>= position length)
-                 (when errorp
-                   (error "Reached end of GC Info??"))
-                 (return-from decode-function-gc-info (reverse result)))
-               (prog1 (memref-unsigned-byte-8 address position)
-                 (incf position))))
-        (loop (let ((address 0)
-                    flags-and-pvr
-                    mv-and-ia
-                    (pv 0)
-                    (n-layout-bits 0)
-                    (layout (make-array 32 :element-type 'bit :adjustable t :fill-pointer 0)))
-                ;; Read first byte of address, this is where we can terminate.
-                (let ((byte (consume nil))
-                      (offset 0))
-                  (setf address (ldb (byte 7 0) byte)
-                        offset 7)
-                  (when (logtest byte #x80)
-                    ;; Read remaining bytes.
-                    (loop (let ((byte (consume)))
-                            (setf (ldb (byte 7 offset) address)
-                                  (ldb (byte 7 0) byte))
-                            (incf offset 7)
-                            (unless (logtest byte #x80)
-                              (return))))))
-                ;; Read flag/pvr byte
-                (setf flags-and-pvr (consume))
-                ;; Read mv-and-ia
-                (setf mv-and-ia (consume))
-                ;; Read vs32 pv.
-                (let ((shift 0))
-                  (loop
-                     (let ((b (consume)))
-                       (when (not (logtest b #x80))
-                         (setf pv (logior pv (ash (logand b #x3F) shift)))
-                         (when (logtest b #x40)
-                           (setf pv (- pv)))
-                         (return))
-                       (setf pv (logior pv (ash (logand b #x7F) shift)))
-                       (incf shift 7))))
-                ;; Read vu32 n-layout bits.
-                (let ((shift 0))
-                  (loop
-                     (let ((b (consume)))
-                       (setf n-layout-bits (logior n-layout-bits (ash (logand b #x7F) shift)))
-                       (when (not (logtest b #x80))
-                         (return))
-                       (incf shift 7))))
-                ;; Consume layout bits.
-                (dotimes (i (ceiling n-layout-bits 8))
-                  (let ((byte (consume)))
-                    (dotimes (j 8)
-                      (vector-push-extend (ldb (byte 1 j) byte) layout))))
-                (setf (fill-pointer layout) n-layout-bits)
-                (let ((entry '()))
-                  (unless (zerop n-layout-bits)
-                    (setf (getf entry :layout) layout))
-                  (when (logtest flags-and-pvr #b0100)
-                    (setf (getf entry :block-or-tagbody-thunk) :rax))
-                  (when (logtest flags-and-pvr #b1000)
-                    (setf (getf entry :incoming-arguments)
-                          (if (eql (ldb (byte 4 4) mv-and-ia) 15)
-                              :rcx
-                              (ldb (byte 4 4) mv-and-ia))))
-                  (unless (eql (ldb (byte 4 0) mv-and-ia) 15)
-                    (setf (getf entry :multiple-values)
-                          (ldb (byte 4 0) mv-and-ia)))
-                  (when (logtest flags-and-pvr #x10000)
-                    (setf (getf entry :pushed-values-register) :rcx))
-                  (case (ldb (byte 2 6) flags-and-pvr)
-                    (0)
-                    (1 (setf (getf entry :extra-registers) :rax))
-                    (2 (setf (getf entry :extra-registers) :rax-rcx))
-                    (3 (setf (getf entry :extra-registers) :rax-rcx-rdx)))
-                  (unless (zerop pv)
-                    (setf (getf entry :pushed-values) pv))
-                  (when (logtest flags-and-pvr #b0010)
-                    (setf (getf entry :interrupt) t))
-                  (push (list* address
-                               (if (logtest flags-and-pvr #b0001)
-                                   :frame
-                                   :no-frame)
-                               entry)
-                        result))))))))
+  (let ((result '()))
+    (map-function-gc-metadata
+     (lambda (offset
+              framep interruptp
+              pushed-values pushed-values-register
+              layout-address layout-length
+              multiple-values incoming-arguments
+              block-or-tagbody-thunk extra-registers)
+       (let ((layout (make-array 32 :element-type 'bit :adjustable t :fill-pointer 0)))
+         ;; Consume layout bits.
+         (dotimes (i (ceiling layout-length 8))
+           (let ((byte (memref-unsigned-byte-8 layout-address i)))
+             (dotimes (j 8)
+               (vector-push-extend (ldb (byte 1 j) byte) layout))))
+         (setf (fill-pointer layout) layout-length)
+         ;; Assemble something that looks like a LAP GC entry.
+         (let ((entry '()))
+           (unless (zerop layout-length)
+             (setf (getf entry :layout) layout))
+           (when block-or-tagbody-thunk
+             (setf (getf entry :block-or-tagbody-thunk) block-or-tagbody-thunk))
+           (when incoming-arguments
+             (setf (getf entry :incoming-arguments) incoming-arguments))
+           (when multiple-values
+             (setf (getf entry :multiple-values) multiple-values))
+           (when pushed-values-register
+             (setf (getf entry :pushed-values-register) pushed-values-register))
+           (when extra-registers
+             (setf (getf entry :extra-registers) extra-registers))
+           (unless (zerop pushed-values)
+             (setf (getf entry :pushed-values) pushed-values))
+           (when interruptp
+             (setf (getf entry :interrupt) t))
+           (push (list* offset
+                        (if framep :frame :no-frame)
+                        entry)
+                 result))))
+     function)
+    (reverse result)))
 
 (defun get-structure-type (name &optional (errorp t))
   (or (get name 'structure-type)
