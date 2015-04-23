@@ -647,79 +647,72 @@ This is required to make the GC interrupt safe."
             extra-registers)))
 
 (defun scan-object-1 (object)
-  ;; Careful here. Functions with lots of GC info can have the header fall
-  ;; into bignumness when read as a ub64.
-  (let* ((address (ash (%pointer-field object) 4))
-         (type (ldb (byte +object-type-size+ +object-type-shift+)
-                    (memref-unsigned-byte-8 address 0))))
-    ;; Dispatch again based on the type.
-    (case type
-      (#.+object-tag-array-t+
-       ;; simple-vector
-       ;; 1+ to account for the header word.
-       (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
-                                     (memref-unsigned-byte-64 address 0)))))
-      ((#.+object-tag-simple-string+
-        #.+object-tag-string+
-        #.+object-tag-simple-array+
-        #.+object-tag-array+)
-       ;; Dimensions don't need to be scanned
-       (scan-generic object 4))
-      ((#.+object-tag-complex-rational+
-        #.+object-tag-ratio+)
-       (scan-generic object 3))
-      (#.+object-tag-symbol+
-       (scan-generic object 6))
-      (#.+object-tag-structure-object+
-       (scan-generic object (1+ (ldb (byte +object-data-size+ +object-data-shift+)
-                                     (memref-unsigned-byte-64 address 0)))))
-      (#.+object-tag-std-instance+
-       (scan-generic object 4))
-      (#.+object-tag-function-reference+
-       (scan-generic object 4))
-      ((#.+object-tag-function+
-        #.+object-tag-closure+
-        #.+object-tag-funcallable-instance+)
-       (scan-function object))
-      ;; Things that don't need to be scanned.
-      ((#.+object-tag-array-fixnum+
-        #.+object-tag-array-bit+
-        #.+object-tag-array-unsigned-byte-2+
-        #.+object-tag-array-unsigned-byte-4+
-        #.+object-tag-array-unsigned-byte-8+
-        #.+object-tag-array-unsigned-byte-16+
-        #.+object-tag-array-unsigned-byte-32+
-        #.+object-tag-array-unsigned-byte-64+
-        #.+object-tag-array-signed-byte-1+
-        #.+object-tag-array-signed-byte-2+
-        #.+object-tag-array-signed-byte-4+
-        #.+object-tag-array-signed-byte-8+
-        #.+object-tag-array-signed-byte-16+
-        #.+object-tag-array-signed-byte-32+
-        #.+object-tag-array-signed-byte-64+
-        #.+object-tag-array-single-float+
-        #.+object-tag-array-double-float+
-        #.+object-tag-array-short-float+
-        #.+object-tag-array-long-float+
-        #.+object-tag-array-complex-single-float+
-        #.+object-tag-array-complex-double-float+
-        #.+object-tag-array-complex-short-float+
-        #.+object-tag-array-complex-long-float+
-        #.+object-tag-array-xmm-vector+
-        #.+object-tag-bignum+
-        #.+object-tag-double-float+
-        #.+object-tag-short-float+
-        #.+object-tag-long-float+
-        ;; not complex-rational or ratio, they may hold other numbers.
-        #.+object-tag-complex-single-float+
-        #.+object-tag-complex-double-float+
-        #.+object-tag-complex-short-float+
-        #.+object-tag-complex-long-float+
-        #.+object-tag-xmm-vector+
-        #.+object-tag-unbound-value+))
-      (#.+object-tag-thread+
-       (scan-thread object))
-      (t (scan-error object)))))
+  ;; Dispatch again based on the type.
+  (case (%object-tag object)
+    (#.+object-tag-array-t+
+     ;; simple-vector
+     ;; 1+ to account for the header word.
+     (scan-generic object (1+ (%object-header-data object))))
+    ((#.+object-tag-simple-string+
+      #.+object-tag-string+
+      #.+object-tag-simple-array+
+      #.+object-tag-array+)
+     ;; Dimensions don't need to be scanned
+     (scan-generic object 4))
+    ((#.+object-tag-complex-rational+
+      #.+object-tag-ratio+)
+     (scan-generic object 3))
+    (#.+object-tag-symbol+
+     (scan-generic object 6))
+    (#.+object-tag-structure-object+
+     (scan-generic object (1+ (%object-header-data object))))
+    (#.+object-tag-std-instance+
+     (scan-generic object 4))
+    (#.+object-tag-function-reference+
+     (scan-generic object 4))
+    ((#.+object-tag-function+
+      #.+object-tag-closure+
+      #.+object-tag-funcallable-instance+)
+     (scan-function object))
+    ;; Things that don't need to be scanned.
+    ((#.+object-tag-array-fixnum+
+      #.+object-tag-array-bit+
+      #.+object-tag-array-unsigned-byte-2+
+      #.+object-tag-array-unsigned-byte-4+
+      #.+object-tag-array-unsigned-byte-8+
+      #.+object-tag-array-unsigned-byte-16+
+      #.+object-tag-array-unsigned-byte-32+
+      #.+object-tag-array-unsigned-byte-64+
+      #.+object-tag-array-signed-byte-1+
+      #.+object-tag-array-signed-byte-2+
+      #.+object-tag-array-signed-byte-4+
+      #.+object-tag-array-signed-byte-8+
+      #.+object-tag-array-signed-byte-16+
+      #.+object-tag-array-signed-byte-32+
+      #.+object-tag-array-signed-byte-64+
+      #.+object-tag-array-single-float+
+      #.+object-tag-array-double-float+
+      #.+object-tag-array-short-float+
+      #.+object-tag-array-long-float+
+      #.+object-tag-array-complex-single-float+
+      #.+object-tag-array-complex-double-float+
+      #.+object-tag-array-complex-short-float+
+      #.+object-tag-array-complex-long-float+
+      #.+object-tag-array-xmm-vector+
+      #.+object-tag-bignum+
+      #.+object-tag-double-float+
+      #.+object-tag-short-float+
+      #.+object-tag-long-float+
+      ;; not complex-rational or ratio, they may hold other numbers.
+      #.+object-tag-complex-single-float+
+      #.+object-tag-complex-double-float+
+      #.+object-tag-complex-short-float+
+      #.+object-tag-complex-long-float+
+      #.+object-tag-xmm-vector+
+      #.+object-tag-unbound-value+))
+    (#.+object-tag-thread+
+     (scan-thread object))
+    (t (scan-error object))))
 
 (defun scan-function (object)
   ;; Scan the constant pool.
