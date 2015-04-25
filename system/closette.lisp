@@ -1106,7 +1106,7 @@
            (setf (macro-function function-name) nil))
          (when (fboundp function-name)
            (fmakunbound function-name))
-         (setf (compiler-macro-function name) nil)))
+         (setf (compiler-macro-function function-name) nil)))
   (cond ((fboundp function-name)
          ;; This should call reinitialize-instance here, but whatever.
          (fdefinition function-name))
