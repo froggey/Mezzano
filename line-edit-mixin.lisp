@@ -9,6 +9,7 @@
            #:buffer
            #:cursor-position
            #:last-command
+           #:compute-completions
            #:history-table
            #:history-position
            ;; History table protocol.
@@ -88,11 +89,16 @@
    (%history-table :initarg :history-table :reader history-table)
    (%history-position :initarg :history-position :accessor history-position)
    (%history-search-fragment :initarg :history-search-fragment :accessor history-search-fragment)
-   (%last-command :initarg :last-command :accessor last-command))
+   (%last-command :initarg :last-command :accessor last-command)
+   (%completions :initarg :completions :accessor completions)
+   (%current-completion :initarg :current-completion :accessor current-completion)
+   (%current-completion-start :initarg :current-completion :accessor current-completion-start)
+   (%current-completion-end :initarg :current-completion :accessor current-completion-end))
   (:default-initargs :history-table *line-editor-history*
                      :history-position nil
                      :history-search-fragment nil
-                     :last-command nil))
+                     :last-command nil
+                     :current-completion nil))
 
 (defvar *line-editor-command-table* (make-hash-table))
 
@@ -274,7 +280,51 @@
     (setf (buffer stream) nil)
     (abort)))
 
+;; Returns the start & end position of the string in buffer to be replaced with the completions
+;; and a sequence of completions.
+(defgeneric compute-completions (stream buffer cursor-position))
+
+(defmethod compute-completions ((stream line-edit-mixin) buffer cursor-position)
+  (declare (ignore stream buffer cursor-position))
+  nil)
+
+(define-command complete (stream #\Tab)
+  (when (not (eql (last-command stream) 'complete))
+    (setf (values (current-completion-start stream)
+                  (current-completion-end stream)
+                  (completions stream))
+          (compute-completions stream (buffer stream) (cursor-position stream)))
+    (when (or (not (current-completion-start stream))
+              (zerop (length (completions stream))))
+      (setf (completions stream) #("")
+            (current-completion-start stream) (cursor-position stream)
+            (current-completion-end stream) (cursor-position stream)))
+    (setf (current-completion stream) -1))
+  (setf (current-completion stream) (rem (1+ (current-completion stream))
+                                         (length (completions stream))))
+  ;; Do the buffer shuffle. Move anything past the end of the completable thing
+  ;; up or down so there is exactly enough space for the next completion.
+  (let* ((next-completion (elt (completions stream) (current-completion stream)))
+         (chars-to-remove (- (current-completion-end stream)
+                             (current-completion-start stream)))
+         (buffer (buffer stream))
+         (new-size (+ (- (length buffer) chars-to-remove) (length next-completion)))
+         (new-end (+ (current-completion-start stream) (length next-completion))))
+    ;; Only grow the buffer, never shrink.
+    (when (< (length buffer) new-size)
+      (adjust-array buffer new-size))
+    (setf (fill-pointer buffer) (max (length buffer) new-size))
+    (replace buffer buffer
+             :start1 new-end
+             :start2 (current-completion-end stream))
+    (setf (fill-pointer buffer) new-size)
+    (replace buffer next-completion
+             :start1 (current-completion-start stream))
+    (setf (current-completion-end stream) new-end)
+    (setf (cursor-position stream) (current-completion-end stream))))
+
 (defmethod sys.gray:stream-unread-char ((stream line-edit-mixin) character)
+  (declare (ignore character))
   (decf (output-progress stream)))
 
 (defun redraw-line (stream)

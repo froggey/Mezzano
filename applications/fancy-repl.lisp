@@ -19,6 +19,71 @@
   (:default-initargs :input (mezzano.supervisor:make-fifo 500 :element-type 'character)
                      :window-closed nil))
 
+(defmethod mezzano.line-editor:compute-completions ((stream fancy-repl) buffer cursor-position)
+  (let ((start cursor-position)
+        (end cursor-position))
+    ;; Walk backwards, looking for the start of the completable thing.
+    ;; TODO: Deal with non-terminating macro characters, escape characters and strings.
+    (loop
+       (when (zerop start)
+         (return))
+       (let ((ch (char buffer (1- start))))
+         (when (eql (sys.int::readtable-syntax-type ch) :whitespace)
+           (return))
+         (when (get-macro-character ch)
+           (return)))
+       (decf start))
+    ;; Find the end.
+    (loop
+       (when (eql end (length buffer))
+         (return))
+       (let ((ch (char buffer end)))
+         (when (get-macro-character ch)
+           (return))
+         (when (eql (sys.int::readtable-syntax-type ch) :whitespace)
+           (return)))
+       (incf end))
+    ;; Divide into package and symbol.
+    (let* ((marker (position #\: buffer
+                             :start start
+                             :end end))
+           (internalp (or (not marker)
+                          (and (< (1+ marker) end)
+                               (eql (char buffer (1+ marker)) #\:))))
+           (package-name (if marker
+                             (subseq buffer start marker)
+                             (package-name *package*)))
+           (package (find-package (if (string= package-name "")
+                                      "KEYWORD"
+                                      (string-upcase package-name))))
+           (name (if marker
+                     (subseq buffer (+ marker (if internalp 2 1)) end)
+                     (subseq buffer start end))))
+      (when package
+        (let ((completions '()))
+          (flet ((frob (sym)
+                   (when (and (>= (length (symbol-name sym)) (length name))
+                              (string-equal (symbol-name sym) name :end1 (length name)))
+                     (pushnew (string-downcase (subseq (symbol-name sym) (length name)))
+                              completions
+                              :test #'string-equal))))
+            (cond (internalp
+                   (do-symbols (sym package)
+                     (frob sym)))
+                  (t
+                   (do-external-symbols (sym package)
+                     (frob sym)))))
+          (when (not marker)
+            (dolist (package (list-all-packages))
+              (dolist (package-name (list* (package-name package) (package-nicknames package)))
+                (when (and (>= (length package-name) (length name))
+                           (string-equal package-name name :end1 (length name)))
+                  (pushnew (string-downcase (format nil "~A:" (subseq package-name (length name))))
+                           completions
+                           :test #'string-equal)))))
+          (values cursor-position cursor-position
+                  (sort completions #'string<)))))))
+
 (defgeneric dispatch-event (window event)
   ;; Eat unknown events.
   (:method (w e)))
