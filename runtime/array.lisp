@@ -73,13 +73,3 @@
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
   (sys.int::%bounds-check simple-vector index)
   (setf (sys.int::%object-ref-t simple-vector index) value))
-
-(defun sys.int::%svref (simple-vector index)
-  "Fast SVREF. No type check or bounds check.
-Used to implement closures."
-  (sys.int::%object-ref-t simple-vector index))
-
-(defun (setf sys.int::%svref) (value simple-vector index)
-  "Fast SVREF. No type check or bounds check.
-Used to implement closures."
-  (setf (sys.int::%object-ref-t simple-vector index) value))

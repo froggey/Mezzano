@@ -322,25 +322,25 @@ of statements opens a new contour."
              (setf (lambda-information-body lambda)
                    `((let ((,new-env ,(generate-make-environment lambda (1+ (length local-env)))))
                        ,@(when (rest *environment-chain*)
-                           (list (list '(setf sys.int::%svref)
+                           (list (list '(setf sys.int::%object-ref-t)
                                        (second (second *environment-chain*))
                                        new-env
                                        ''0)))
                        ,@(mapcar (lambda (arg)
-                                   (list '(setf sys.int::%svref)
+                                   (list '(setf sys.int::%object-ref-t)
                                          arg
                                          new-env
                                          `',(1+ (position arg local-env))))
                                  (remove-if #'localp (lambda-information-required-args lambda)))
                        ,@(mapcar (lambda (arg)
-                                   (list '(setf sys.int::%svref)
+                                   (list '(setf sys.int::%object-ref-t)
                                          (first arg)
                                          new-env
                                          `',(1+ (position (first arg) local-env))))
                                  (remove-if #'localp (lambda-information-optional-args lambda)
                                             :key #'first))
                        ,@(mapcar (lambda (arg)
-                                   (list '(setf sys.int::%svref)
+                                   (list '(setf sys.int::%object-ref-t)
                                          (third arg)
                                          new-env
                                          `',(1+ (position (third arg) local-env))))
@@ -349,7 +349,7 @@ of statements opens a new contour."
                                             :key #'third))
                        ,@(when (and (lambda-information-rest-arg lambda)
                                     (not (localp (lambda-information-rest-arg lambda))))
-                               (list (list '(setf sys.int::%svref)
+                               (list (list '(setf sys.int::%object-ref-t)
                                            (lambda-information-rest-arg lambda)
                                            new-env
                                            `',(1+ (position (lambda-information-rest-arg lambda) local-env)))))
@@ -364,7 +364,7 @@ of statements opens a new contour."
            collect (list variable (if (or (symbolp variable)
                                           (localp variable))
                                       (lower-env-form init-form)
-                                      (list '(setf sys.int::%svref)
+                                      (list '(setf sys.int::%object-ref-t)
                                             (lower-env-form init-form)
                                             (second (first *environment-chain*))
                                             `',(1+ (position variable (gethash (first *environment*) *environment-layout*))))))))
@@ -383,7 +383,7 @@ of statements opens a new contour."
        (let ((result (second (car c))))
          (dolist (env (cdr e)
                   (error "Can't find environment for ~S?" vector-id))
-           (setf result `(sys.int::%svref ,result '0))
+           (setf result `(sys.int::%object-ref-t ,result '0))
            (when (eql env vector-id)
              (return result)))))))
 
@@ -412,7 +412,7 @@ of statements opens a new contour."
         (let* ((layout (gethash e *environment-layout*))
                (offset (position form layout)))
           (when offset
-            (return `(sys.int::%svref ,(get-env-vector e) ',(1+ offset))))))))
+            (return `(sys.int::%object-ref-t ,(get-env-vector e) ',(1+ offset))))))))
 
 (defun le-form*-cdr (form)
   (list* (first form)
@@ -426,7 +426,7 @@ of statements opens a new contour."
                   (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
               (setf (block-information-env-var (second form)) env-var
                     (block-information-env-offset (second form)) env-offset)
-              (list (list '(setf sys.int::%svref)
+              (list (list '(setf sys.int::%object-ref-t)
                           (second form)
                           env-var
                           `',env-offset))))
@@ -441,7 +441,7 @@ of statements opens a new contour."
              (let* ((layout (gethash e *environment-layout*))
                     (offset (position (second form) layout)))
                (when offset
-                 (return (list '(setf sys.int::%svref)
+                 (return (list '(setf sys.int::%object-ref-t)
                                (lower-env-form (third form))
                                (get-env-vector e)
                                `',(1+ offset)))))))))
@@ -452,7 +452,7 @@ of statements opens a new contour."
      ,@(mapcan (lambda (var)
                  (when (and (not (symbolp var))
                             (not (localp var)))
-                   (list (list '(setf sys.int::%svref)
+                   (list (list '(setf sys.int::%object-ref-t)
                                var
                                (second (first *environment-chain*))
                                `',(1+ (position var (gethash (first *environment*) *environment-layout*)))))))
@@ -485,7 +485,7 @@ of statements opens a new contour."
                            (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
                        (setf (tagbody-information-env-var (second form)) env-var
                              (tagbody-information-env-offset (second form)) env-offset)
-                       (list (list '(setf sys.int::%svref)
+                       (list (list '(setf sys.int::%object-ref-t)
                                    (second form)
                                    env-var
                                    `',env-offset))))
@@ -493,7 +493,7 @@ of statements opens a new contour."
                      (when info
                        (if *environment*
                            (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))
-                                 (list '(setf sys.int::%svref)
+                                 (list '(setf sys.int::%object-ref-t)
                                        (second (first *environment-chain*))
                                        (second info)
                                        ''0))
@@ -508,7 +508,7 @@ of statements opens a new contour."
                                           (when info
                                             (list `(setq ,(second info) ,(generate-make-environment current-env (1+ (length (third info)))))))
                                           (when (and info *environment*)
-                                            (list (list '(setf sys.int::%svref)
+                                            (list (list '(setf sys.int::%object-ref-t)
                                                         (second (first *environment-chain*))
                                                         (second info)
                                                         ''0))))))
