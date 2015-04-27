@@ -748,6 +748,8 @@
     (setf (word (+ address 13)) (make-fixnum 1))
     ;; mutex stack.
     (setf (word (+ address 14)) (vsym 'nil))
+    ;; Priority
+    (setf (word (+ address 17)) (vsym ':normal))
     (make-value address sys.int::+tag-object+)))
 
 (defun create-initial-thread ()

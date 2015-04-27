@@ -7,6 +7,8 @@
   "This lock protects the special variables that make up the thread list and run queues.")
 (defvar *thread-run-queue-head*)
 (defvar *thread-run-queue-tail*)
+(defvar *low-priority-thread-run-queue-head*)
+(defvar *low-priority-thread-run-queue-tail*)
 (defvar *all-threads*)
 
 (defvar *world-stop-lock*)
@@ -135,6 +137,7 @@
   (field mutex-stack             13)
   (field global-next             14)
   (field global-prev             15)
+  (field priority                16 :type (member :low :normal))
   (reg-field r15                427)
   (reg-field r14                428)
   (reg-field r13                429)
@@ -201,37 +204,55 @@
                (current-thread)))
   (setf (sys.int::%object-ref-t thread +thread-lock+) :unlocked))
 
+(defun push-run-queue-1 (thread head tail)
+  (cond ((null (symbol-value head))
+         (setf (symbol-value head) thread
+               (symbol-value tail) thread)
+         (setf (thread-%next thread) nil
+               (thread-%prev thread) nil))
+        (t
+         (setf (thread-%next (symbol-value tail)) thread
+               (thread-%prev thread) (symbol-value tail)
+               (thread-%next thread) nil
+               (symbol-value tail) thread))))
+
 (defun push-run-queue (thread)
   (when (or (eql thread *world-stopper*)
             (eql thread sys.int::*pager-thread*)
             (eql thread sys.int::*disk-io-thread*))
     (return-from push-run-queue))
-  (cond ((null *thread-run-queue-head*)
-         (setf *thread-run-queue-head* thread
-               *thread-run-queue-tail* thread)
-         (setf (thread-%next thread) nil
-               (thread-%prev thread) nil))
-        (t
-         (setf (thread-%next *thread-run-queue-tail*) thread
-               (thread-%prev thread) *thread-run-queue-tail*
-               (thread-%next thread) nil
-               *thread-run-queue-tail* thread))))
+  (ecase (thread-priority thread)
+    (:normal
+     (push-run-queue-1 thread
+                       '*thread-run-queue-head*
+                       '*thread-run-queue-tail*))
+    (:low
+     (push-run-queue-1 thread
+                       '*low-priority-thread-run-queue-head*
+                       '*low-priority-thread-run-queue-tail*))))
+
+(defun pop-run-queue-1 (head tail)
+  (let ((thread (symbol-value head)))
+    (when thread
+      (cond ((thread-%next (symbol-value head))
+             (setf (thread-%prev (thread-%next (symbol-value head))) nil)
+             (setf (symbol-value head) (thread-%next (symbol-value head))))
+            (t
+             (setf (symbol-value head) nil
+                   (symbol-value tail) nil)))
+      thread)))
 
 (defun pop-run-queue ()
-  (when *thread-run-queue-head*
-    (prog1 *thread-run-queue-head*
-      (cond ((thread-%next *thread-run-queue-head*)
-             (setf (thread-%prev (thread-%next *thread-run-queue-head*)) nil)
-             (setf *thread-run-queue-head* (thread-%next *thread-run-queue-head*)))
-            (t (setf *thread-run-queue-head* nil
-                     *thread-run-queue-tail* nil))))))
+  (or (pop-run-queue-1 '*thread-run-queue-head* '*thread-run-queue-tail*)
+      (pop-run-queue-1 '*low-priority-thread-run-queue-head* '*low-priority-thread-run-queue-tail*)))
 
 (defun current-thread ()
   "Returns the thread object for the calling thread."
   (sys.int::%%assemble-value (sys.int::msr +msr-ia32-gs-base+) 0))
 
-(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)))
+(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
   (check-type function (or function symbol))
+  (check-type priority (member :normal :low))
   ;; FIXME: need to make the GC aware of partially initialized threads.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
@@ -243,7 +264,8 @@
           (sys.int::%object-ref-t thread +thread-wait-item+) nil
           (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
           (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
-          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1)
+          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
+          (sys.int::%object-ref-t thread +thread-priority+) priority)
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
       (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
@@ -411,6 +433,8 @@
     (setf *global-thread-lock* :unlocked)
     (setf *thread-run-queue-head* nil
           *thread-run-queue-tail* nil)
+    (setf *low-priority-thread-run-queue-head* nil
+          *low-priority-thread-run-queue-tail* nil)
     (setf *world-stop-lock* (make-mutex "World stop lock")
           *world-stop-resume-cvar* (make-condition-variable "World resume cvar")
           *world-stop-pa-exit-cvar* (make-condition-variable "World stop PA exit cvar")
