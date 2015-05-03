@@ -216,9 +216,11 @@
     (let* ((fifo (fifo desktop)))
       (setf (font desktop) font)
       ;; Create a zero-size window for listening on system notifications.
-      (setf (slot-value desktop '%notification-window) (mezzano.gui.compositor:make-window fifo 0 0))
+      (setf (slot-value desktop '%notification-window) (mezzano.gui.compositor:make-window fifo 0 0
+                                                                                           :initial-z-order :below-current))
       ;; And a dummy window before we know the screen geometry.
-      (setf (slot-value desktop '%window) (mezzano.gui.compositor:make-window fifo 0 0))
+      (setf (slot-value desktop '%window) (mezzano.gui.compositor:make-window fifo 0 0
+                                                                              :initial-z-order :below-current))
       ;; Subscribe to screen geometry change notifications.
       (mezzano.gui.compositor:subscribe-notification (notification-window desktop) :screen-geometry)
       (unwind-protect
