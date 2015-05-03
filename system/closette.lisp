@@ -424,6 +424,7 @@
     (function                                      (find-class 'function))
     (mezzano.supervisor:thread                     (find-class 'mezzano.supervisor:thread))
     (sys.int::function-reference                   (find-class 'sys.int::function-reference))
+    (sys.int::weak-pointer                         (find-class 'sys.int::weak-pointer))
     (structure-object
      (class-of-structure-definition (sys.int::%struct-slot x 0)))
     (t                                             (find-class 't))))
@@ -1911,6 +1912,7 @@ Dispatching on class ~S." gf class))
 (defclass float (number) ())
 (defclass mezzano.supervisor:thread (t) ())
 (defclass sys.int::function-reference (t) ())
+(defclass sys.int::weak-pointer (t) ())
 ;; 10. Define the other standard metaobject classes.
 (setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
 (defclass funcallable-standard-object (standard-object function)

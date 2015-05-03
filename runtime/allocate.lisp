@@ -502,3 +502,22 @@
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-slots+) slots
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-layout+) layout)
     object))
+
+(defun sys.int::make-weak-pointer (key &optional area)
+  ;; Disallow weak pointers to objects with dynamic-extent allocation.
+  (assert (or (sys.int::immediatep value)
+              (not (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+)
+                             (sys.int::lisp-object-address value))
+                        sys.int::+address-tag-stack+)))
+          (value)
+          "Weak pointers to object with dynamic-extent allocation not supported.")
+  (let ((object (%allocate-object sys.int::+object-tag-weak-pointer+
+                                  ;; Set the live bit in the header before setting the value cell.
+                                  ;; If a GC occurs during initialization then the value will
+                                  ;; remain live because MAKE-WEAK-POINTER has a strong reference
+                                  ;; to it.
+                                  (ash 1 sys.int::+weak-pointer-header-livep+)
+                                  3
+                                  area)))
+    (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-value+) value)
+    object))

@@ -81,6 +81,15 @@
                  (function-reference-function object)))
         (t (format stream "  It is not bound.~%"))))
 
+(defun describe-weak-pointer (object stream)
+  (format stream "~S is a weak pointer, with address ~X~%"
+          object (lisp-object-address object))
+  (multiple-value-bind (value livep)
+      (weak-pointer-value object)
+    (if livep
+        (format stream "  It points to the live value ~S.~%" value)
+        (format stream "  It is dead.~%"))))
+
 (defun describe (object &optional (stream *standard-output*))
   (case stream
     ((nil) (setf stream *standard-output*))
@@ -113,6 +122,8 @@
                        (format stream "This is an unbound value marker.~%"))
                       (#.+object-tag-function-reference+
                        (describe-function-reference object stream))
+                      (#.+object-tag-weak-pointer+
+                       (describe-weak-pointer object stream))
                       ((#.+object-tag-function+
                         #.+object-tag-closure+)
                        (describe-function object stream))

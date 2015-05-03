@@ -110,9 +110,9 @@
 ;; Cons values always point to the pair of pointers, never to the header.
 (defconstant +object-tag-cons+                    #b111000)
 (defconstant +object-tag-freelist-entry+          #b111001)
+(defconstant +object-tag-weak-pointer+            #b111010)
 (defconstant +first-misc-object-tag+ +object-tag-symbol+)
-(defconstant +last-misc-object-tag+ +object-tag-freelist-entry+)
-;;#b111010
+(defconstant +last-misc-object-tag+ +object-tag-weak-pointer+)
 ;;#b111011
 (defconstant +object-tag-function+                #b111100)
 (defconstant +object-tag-closure+                 #b111101)
@@ -190,6 +190,11 @@
 (defconstant +complex-array-fill-pointer+ 1)
 (defconstant +complex-array-info+ 2)
 (defconstant +complex-array-axis-0+ 3)
+
+;;; Layout of weak pointers.
+(defconstant +weak-pointer-header-livep+ 0) ; The value is live when this bit is set in the header.
+(defconstant +weak-pointer-link+ 0)
+(defconstant +weak-pointer-value+ 1)
 
 ;; Some bits are stored in the high(ish) bits of the address.
 ;; These are used to support the GC.

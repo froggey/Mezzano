@@ -1,6 +1,15 @@
 ;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
+;;; Weak pointers:
+;;;
+;;; "Weak References: Data Types and Implementation" - Bruno Haible
+;;; http://www.haible.de/bruno/papers/cs/weak/WeakDatastructures-writeup.html
+;;;
+;;; "Streching the storage manager: weak pointers and stable names in Haskell"
+;;; - Simon Peyton Jones, Simon Marlow, and Conal Elliott
+;;; http://community.haskell.org/~simonmar/papers/weak.pdf
+
 (in-package :sys.int)
 
 (defvar *gc-debug-scavenge-stack* nil)
@@ -18,6 +27,8 @@
 (defvar *dynamic-mark-bit* 0)
 ;; State of the object header mark bit, used for pinned objects.
 (defvar *pinned-mark-bit* 0)
+
+(defvar *weak-pointer-worklist* nil)
 
 ;; How many bytes the allocators can expand their areas by before a GC must occur.
 ;; This is shared between all areas.
@@ -84,7 +95,7 @@
     interrupt-frame            ; #b110111
     cons                       ; #b111000
     freelist-entry             ; #b111001
-    invalid-111010             ; #b111010
+    weak-pointer               ; #b111010
     invalid-111011             ; #b111011
     function                   ; #b111100
     closure                    ; #b111101
@@ -712,6 +723,11 @@ This is required to make the GC interrupt safe."
       #.+object-tag-unbound-value+))
     (#.+object-tag-thread+
      (scan-thread object))
+    (#.+object-tag-weak-pointer+
+     ;; Add to the worklist, only when previously live.
+     (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+       (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
+             *weak-pointer-worklist* object)))
     (t (scan-error object))))
 
 (defun scan-function (object)
@@ -862,7 +878,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-unbound-value+
           2)
          (#.+object-tag-thread+
-          512))))))
+          512)
+         (#.+object-tag-weak-pointer+
+          4))))))
 
 (defun mark-pinned-object (object)
   (let ((address (ash (%pointer-field object) 4)))
@@ -882,8 +900,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
              ;; And scan.
              (scan-object object)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
-               (mezzano.supervisor:debug-print-line
-                "Marking freelist entry " object))
+               (mezzano.supervisor:panic "Marking freelist entry " object))
              (when (not (eql (logand (memref-unsigned-byte-64 address 0)
                                           +pinned-object-mark-bit+)
                                   *pinned-mark-bit*))
@@ -1052,6 +1069,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Clear per-cycle meters
   (setf *objects-copied* 0
         *words-copied* 0)
+  ;; Reset the weak pointer worklist.
+  (setf *weak-pointer-worklist* '())
   ;; Flip.
   (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
          *pinned-mark-bit* (logxor *pinned-mark-bit* +pinned-object-mark-bit+))
@@ -1083,6 +1102,8 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Now do the bulk of the work by scavenging the dynamic areas.
   ;; No scavenging can take place after this.
   (scavenge-dynamic)
+  ;; Weak pointers...
+  (update-weak-pointers)
   ;; Inhibit access to oldspace.
   (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
                                                    (ash +address-tag-general+ +address-tag-shift+))
@@ -1144,3 +1165,63 @@ No type information will be provided."
     (search (* 2 1024 1024) *wired-area-bump*)
     ;; Search pinned area.
     (search (* 2 1024 1024 1024) *pinned-area-bump*)))
+
+(deftype weak-pointer ()
+  '(satisfies weak-pointer-p))
+
+(defun weak-pointer-p (object)
+  (%object-of-type-p object +object-tag-weak-pointer+))
+
+(defun weak-pointer-value (object)
+  (check-type object weak-pointer)
+  ;; Make a strong reference to value first.
+  ;; It'll be set to some other live value if the weak pointer is dead.
+  (let ((value (%object-ref-t object +weak-pointer-value+)))
+    ;; Inspect the livep header bit.
+    (if (logbitp +weak-pointer-header-livep+ (%object-header-data object))
+        (values value t)
+        (values nil nil))))
+
+(defun update-weak-pointer (weak-pointer)
+  "Update WEAK-POINTER. If the value is live, then update the reference.
+If not, invalidate the value and clear the livep bit."
+  (let ((object (%object-ref-t weak-pointer +weak-pointer-value+)))
+    (mezzano.supervisor:debug-print-line "Updating weak pointer " weak-pointer " with object " object)
+    (when (immediatep object)
+      ;; Immediate objects are always live.
+      (return-from update-weak-pointer))
+    (let ((address (ash (%pointer-field object) 4)))
+      (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
+        ((#.+address-tag-general+
+          #.+address-tag-cons+)
+         ;; Look for a forwarding pointer.
+         (let ((first-word (memref-t address 0)))
+           (cond ((eql (%tag-field first-word) +tag-gc-forward+)
+                  ;; Object is still live. Update the reference.
+                  (setf (%object-ref-t weak-pointer +weak-pointer-value+)
+                        (%%assemble-value (ash (%pointer-field first-word) 4)
+                                          (%tag-field object))))
+                 (t ;; Object is dead. Clear the live bit and flush the value.
+                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
+                        (%object-header-data weak-pointer) 0)))))
+        (#.+address-tag-pinned+
+         (cond ((consp object)
+                (when (not (eql (logand (memref-unsigned-byte-64 address -2)
+                                        +pinned-object-mark-bit+)
+                                *pinned-mark-bit*))
+                  ;; Not marked, object is dead.
+                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
+                        (%object-header-data weak-pointer) 0)))
+               (t
+                (when (not (eql (logand (memref-unsigned-byte-64 address 0)
+                                        +pinned-object-mark-bit+)
+                                *pinned-mark-bit*))
+                  ;; Not marked, object is dead.
+                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
+                        (%object-header-data weak-pointer) 0)))))))))
+
+(defun update-weak-pointers ()
+  (do ((weak-pointer *weak-pointer-worklist*
+                     (%object-ref-t weak-pointer +weak-pointer-link+)))
+      ((not weak-pointer))
+    (update-weak-pointer weak-pointer)))

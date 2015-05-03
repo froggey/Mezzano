@@ -76,3 +76,11 @@
 (defmethod print-object ((o function-reference) stream)
   (print-unreadable-object (o stream :identity t :type t)
     (write (function-reference-name o) :stream stream)))
+
+(defmethod print-object ((o weak-pointer) stream)
+  (print-unreadable-object (o stream :identity t :type t)
+    (multiple-value-bind (value livep)
+        (weak-pointer-value o)
+      (if livep
+          (format stream "pointing to ~S" value)
+          (format stream "dead")))))
