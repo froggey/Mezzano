@@ -1872,6 +1872,7 @@ Dispatching on class ~S." gf class))
     (setf (class-precedence-list class) (list class))
     (setf (class-slot-storage-layout class) (make-array 0))
     (setf (class-slots class) ())
+    (setf (class-dependents class) ())
     class))
 ;; (It's now okay to define subclasses of t.)
 ;; 6. Create the other superclass of standard-class (i.e., standard-object).
