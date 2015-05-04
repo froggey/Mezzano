@@ -503,21 +503,41 @@
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-layout+) layout)
     object))
 
-(defun sys.int::make-weak-pointer (key &optional area)
+(defun sys.int::make-weak-pointer (key &optional (value key) finalizer area)
+  ;; Hold VALUE as long as KEY is live.
+  ;; Call FINALIZER when the weak-pointer dies.
   ;; Disallow weak pointers to objects with dynamic-extent allocation.
-  (assert (or (sys.int::immediatep value)
+  (check-type finalizer (or null function))
+  (assert (or (sys.int::immediatep key)
               (not (eql (ldb (byte sys.int::+address-tag-size+ sys.int::+address-tag-shift+)
-                             (sys.int::lisp-object-address value))
+                             (sys.int::lisp-object-address key))
                         sys.int::+address-tag-stack+)))
-          (value)
+          (key)
           "Weak pointers to object with dynamic-extent allocation not supported.")
   (let ((object (%allocate-object sys.int::+object-tag-weak-pointer+
-                                  ;; Set the live bit in the header before setting the value cell.
-                                  ;; If a GC occurs during initialization then the value will
+                                  ;; Set the live bit in the header before setting the key cell.
+                                  ;; If a GC occurs during initialization then the key will
                                   ;; remain live because MAKE-WEAK-POINTER has a strong reference
                                   ;; to it.
+                                  ;; %ALLOCATE-OBJECT will initialize the key cell to some
+                                  ;; safe object (probably 0).
                                   (ash 1 sys.int::+weak-pointer-header-livep+)
-                                  3
+                                  5
                                   area)))
-    (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-value+) value)
+    (when finalizer
+      ;; Atomically add to the finalizer list.
+      (loop
+         for prev-finalizer = sys.int::*known-finalizers*
+         do
+           (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer-link+)
+                 prev-finalizer)
+           (when (sys.int::%cas-symbol-global-value 'sys.int::*known-finalizers*
+                                                    prev-finalizer
+                                                    object)
+             (return))))
+    ;; Order carefully, KEY must be set last or the GC might finalize this
+    ;; too soon.
+    (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-value+) value
+          (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer+) finalizer
+          (sys.int::%object-ref-t object sys.int::+weak-pointer-key+) key)
     object))

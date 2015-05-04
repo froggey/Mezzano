@@ -194,7 +194,10 @@
 ;;; Layout of weak pointers.
 (defconstant +weak-pointer-header-livep+ 0) ; The value is live when this bit is set in the header.
 (defconstant +weak-pointer-link+ 0)
-(defconstant +weak-pointer-value+ 1)
+(defconstant +weak-pointer-key+ 1)
+(defconstant +weak-pointer-value+ 2)
+(defconstant +weak-pointer-finalizer+ 3)
+(defconstant +weak-pointer-finalizer-link+ 4)
 
 ;; Some bits are stored in the high(ish) bits of the address.
 ;; These are used to support the GC.

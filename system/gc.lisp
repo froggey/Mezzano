@@ -28,7 +28,12 @@
 ;; State of the object header mark bit, used for pinned objects.
 (defvar *pinned-mark-bit* 0)
 
+;; List of weak pointers that need to be updated.
 (defvar *weak-pointer-worklist* nil)
+;; List of finalizers that don't be need to be run yet.
+(defvar *known-finalizers* nil)
+;; List of finalizers that should be run now.
+(defvar *pending-finalizers* nil)
 
 ;; How many bytes the allocators can expand their areas by before a GC must occur.
 ;; This is shared between all areas.
@@ -228,7 +233,9 @@ Should be kept in sync with data-types.")
          (progn
            (setf *gc-in-progress* t)
            (gc-cycle))
-      (setf *gc-in-progress* nil))))
+      (setf *gc-in-progress* nil)))
+  ;; TODO: run in a seperate thread & catch errors.
+  (run-finalizers))
 
 (declaim (inline immediatep))
 (defun immediatep (object)
@@ -727,7 +734,9 @@ This is required to make the GC interrupt safe."
      ;; Add to the worklist, only when previously live.
      (when (logbitp +weak-pointer-header-livep+ (%object-header-data object))
        (setf (%object-ref-t object +weak-pointer-link+) *weak-pointer-worklist*
-             *weak-pointer-worklist* object)))
+             *weak-pointer-worklist* object))
+     (scavengef (%object-ref-t object +weak-pointer-finalizer-link+))
+     (scavengef (%object-ref-t object +weak-pointer-finalizer+)))
     (t (scan-error object))))
 
 (defun scan-function (object)
@@ -791,7 +800,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 
 (defun object-size (object)
   (case (%tag-field object)
-    ;; FIXME? conses are 4 words when not in the cons area.
     (#.+tag-cons+ 2)
     (#.+tag-object+
      (let ((length (%object-header-data object)))
@@ -880,7 +888,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
          (#.+object-tag-thread+
           512)
          (#.+object-tag-weak-pointer+
-          4))))))
+          6))))))
 
 (defun mark-pinned-object (object)
   (let ((address (ash (%pointer-field object) 4)))
@@ -943,47 +951,48 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                  (rest current) reversed-result
                  reversed-result current)))))
 
+(defvar *scavenge-general-finger*)
+(defvar *scavenge-cons-finger*)
+
 (defun scavenge-dynamic ()
-  (let ((general-finger 0)
-        (cons-finger 0))
-    (loop
-       (mezzano.supervisor:debug-print-line
-        "General. Limit: " *general-area-limit*
-        "  Bump: " *general-area-bump*
-        "  Curr: " general-finger)
-       (mezzano.supervisor:debug-print-line
-        "Cons.    Limit: " *cons-area-limit*
-        "  Bump: " *cons-area-bump*
-        "  Curr: " cons-finger)
-       ;; Stop when both area sets have been fully scavenged.
-       (when (and (eql general-finger *general-area-bump*)
-                  (eql cons-finger *cons-area-bump*))
-         (return))
-       (mezzano.supervisor:debug-print-line "Scav main seq")
-       ;; Scavenge general area.
-       (loop
-          (when (eql general-finger *general-area-bump*)
-            (return))
-          (let* ((object (%%assemble-value (logior general-finger
-                                                   (ash +address-tag-general+ +address-tag-shift+)
-                                                   *dynamic-mark-bit*)
-                                           +tag-object+))
-                 (size (object-size object)))
-            (when (oddp size)
-              (incf size))
-            (scan-object object)
-            (incf general-finger (* size 8))))
-       ;; Scavenge cons area.
-       (loop
-          (when (eql cons-finger *cons-area-bump*)
-            (return))
-          ;; Cons region is just pointers.
-          (let ((addr (logior cons-finger
-                              (ash +address-tag-cons+ +address-tag-shift+)
-                              *dynamic-mark-bit*)))
-            (scavengef (memref-t addr 0))
-            (scavengef (memref-t addr 1)))
-          (incf cons-finger 16)))))
+  (loop
+     (mezzano.supervisor:debug-print-line
+      "General. Limit: " *general-area-limit*
+      "  Bump: " *general-area-bump*
+      "  Curr: " *scavenge-general-finger*)
+     (mezzano.supervisor:debug-print-line
+      "Cons.    Limit: " *cons-area-limit*
+      "  Bump: " *cons-area-bump*
+      "  Curr: " *scavenge-cons-finger*)
+     ;; Stop when both area sets have been fully scavenged.
+     (when (and (eql *scavenge-general-finger* *general-area-bump*)
+                (eql *scavenge-cons-finger* *cons-area-bump*))
+       (return))
+     (mezzano.supervisor:debug-print-line "Scav main seq")
+     ;; Scavenge general area.
+     (loop
+        (when (eql *scavenge-general-finger* *general-area-bump*)
+          (return))
+        (let* ((object (%%assemble-value (logior *scavenge-general-finger*
+                                                 (ash +address-tag-general+ +address-tag-shift+)
+                                                 *dynamic-mark-bit*)
+                                         +tag-object+))
+               (size (object-size object)))
+          (when (oddp size)
+            (incf size))
+          (scan-object object)
+          (incf *scavenge-general-finger* (* size 8))))
+     ;; Scavenge cons area.
+     (loop
+        (when (eql *scavenge-cons-finger* *cons-area-bump*)
+          (return))
+        ;; Cons region is just pointers.
+        (let ((addr (logior *scavenge-cons-finger*
+                            (ash +address-tag-cons+ +address-tag-shift+)
+                            *dynamic-mark-bit*)))
+          (scavengef (memref-t addr 0))
+          (scavengef (memref-t addr 1)))
+        (incf *scavenge-cons-finger* 16))))
 
 (defun size-of-pinned-area-allocation (address)
   "Return the size of an allocation in the wired or pinned area."
@@ -1075,7 +1084,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (psetf *dynamic-mark-bit* (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
          *pinned-mark-bit* (logxor *pinned-mark-bit* +pinned-object-mark-bit+))
   (setf *general-area-bump* 0
-        *cons-area-bump* 0)
+        *cons-area-bump* 0
+        *scavenge-general-finger* 0
+        *scavenge-cons-finger* 0)
   ;; Unprotect newspace.
   (mezzano.supervisor:protect-memory-range (logior *dynamic-mark-bit*
                                                    (ash +address-tag-general+ +address-tag-shift+))
@@ -1100,10 +1111,10 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   ;; Scavenge the current thread's stack.
   (scavenge-current-thread)
   ;; Now do the bulk of the work by scavenging the dynamic areas.
-  ;; No scavenging can take place after this.
   (scavenge-dynamic)
-  ;; Weak pointers...
+  ;; Weak pointers.
   (update-weak-pointers)
+  (finalizer-processing)
   ;; Inhibit access to oldspace.
   (mezzano.supervisor:protect-memory-range (logior (logxor *dynamic-mark-bit* (ash 1 +address-newspace/oldspace-bit+))
                                                    (ash +address-tag-general+ +address-tag-shift+))
@@ -1182,46 +1193,105 @@ No type information will be provided."
         (values value t)
         (values nil nil))))
 
-(defun update-weak-pointer (weak-pointer)
-  "Update WEAK-POINTER. If the value is live, then update the reference.
-If not, invalidate the value and clear the livep bit."
-  (let ((object (%object-ref-t weak-pointer +weak-pointer-value+)))
-    (mezzano.supervisor:debug-print-line "Updating weak pointer " weak-pointer " with object " object)
-    (when (immediatep object)
-      ;; Immediate objects are always live.
-      (return-from update-weak-pointer))
-    (let ((address (ash (%pointer-field object) 4)))
-      (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
-        ((#.+address-tag-general+
-          #.+address-tag-cons+)
-         ;; Look for a forwarding pointer.
-         (let ((first-word (memref-t address 0)))
-           (cond ((eql (%tag-field first-word) +tag-gc-forward+)
-                  ;; Object is still live. Update the reference.
-                  (setf (%object-ref-t weak-pointer +weak-pointer-value+)
-                        (%%assemble-value (ash (%pointer-field first-word) 4)
-                                          (%tag-field object))))
-                 (t ;; Object is dead. Clear the live bit and flush the value.
-                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
-                        (%object-header-data weak-pointer) 0)))))
-        (#.+address-tag-pinned+
-         (cond ((consp object)
-                (when (not (eql (logand (memref-unsigned-byte-64 address -2)
-                                        +pinned-object-mark-bit+)
-                                *pinned-mark-bit*))
-                  ;; Not marked, object is dead.
-                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
-                        (%object-header-data weak-pointer) 0)))
-               (t
-                (when (not (eql (logand (memref-unsigned-byte-64 address 0)
-                                        +pinned-object-mark-bit+)
-                                *pinned-mark-bit*))
-                  ;; Not marked, object is dead.
-                  (setf (%object-ref-t weak-pointer +weak-pointer-value+) 0
-                        (%object-header-data weak-pointer) 0)))))))))
+(defun examine-weak-pointer-key (key)
+  (when (immediatep key)
+    ;; Immediate objects are always live.
+    (return-from examine-weak-pointer-key
+      (values key t)))
+  (let ((address (ash (%pointer-field key) 4)))
+    (ecase (ldb (byte +address-tag-size+ +address-tag-shift+) address)
+      ((#.+address-tag-general+
+        #.+address-tag-cons+)
+       ;; Look for a forwarding pointer.
+       (let ((first-word (memref-t address 0)))
+         (cond ((eql (%tag-field first-word) +tag-gc-forward+)
+                ;; Object is still live.
+                (values (%%assemble-value (ash (%pointer-field first-word) 4)
+                                          (%tag-field key))
+                        t))
+               (t ;; Object is dead.
+                (values nil nil)))))
+      (#.+address-tag-pinned+
+       (cond ((eql (logand (memref-unsigned-byte-64 address
+                                                    (if (consp key)
+                                                        -2
+                                                        0))
+                           +pinned-object-mark-bit+)
+                   *pinned-mark-bit*)
+              ;; Object is live.
+              (values key t))
+             (t
+              (values nil nil)))))))
 
 (defun update-weak-pointers ()
-  (do ((weak-pointer *weak-pointer-worklist*
-                     (%object-ref-t weak-pointer +weak-pointer-link+)))
+  (loop
+     with did-something = nil
+     do
+       (do* ((new-worklist nil)
+             (iter *weak-pointer-worklist*))
+            ((not iter)
+             (setf *weak-pointer-worklist* new-worklist))
+         (let ((weak-pointer iter))
+           (setf iter (%object-ref-t weak-pointer +weak-pointer-link+))
+           (multiple-value-bind (new-key livep)
+               (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+             (cond (livep
+                    ;; Key is live.
+                    ;; Drop this weak pointer from the worklist.
+                    (setf did-something t)
+                    (setf (%object-ref-t weak-pointer +weak-pointer-key+) new-key)
+                    ;; Keep the value live.
+                    (scavengef (%object-ref-t weak-pointer +weak-pointer-value+)))
+                   (t ;; Key is either dead or not scanned yet. Add to the new worklist.
+                    (setf (%object-ref-t weak-pointer +weak-pointer-link+) new-worklist
+                          new-worklist weak-pointer))))))
+     ;; Stop when no more memory needs to be scavenged.
+       (when (not did-something)
+         (return))
+       (setf did-something nil)
+       (scavenge-dynamic))
+  ;; Final pass, no more memory will be scanned.
+  ;; All weak pointers left on the worklist should be dead.
+  (do ((weak-pointer *weak-pointer-worklist* (%object-ref-t weak-pointer +weak-pointer-link+)))
       ((not weak-pointer))
-    (update-weak-pointer weak-pointer)))
+    (multiple-value-bind (new-key livep)
+        (examine-weak-pointer-key (%object-ref-t weak-pointer +weak-pointer-key+))
+      (declare (ignore new-key))
+      (when livep
+        (mezzano.supervisor:panic "Weak pointer key live?")))
+    (setf (%object-ref-t weak-pointer +weak-pointer-key+) nil
+          (%object-ref-t weak-pointer +weak-pointer-value+) nil
+          (%object-header-data weak-pointer) 0)))
+
+(defun finalizer-processing ()
+  ;; Walk the list of known finalizers, remove any weak pointers
+  ;; that have become dead and add them to the pending finalizers list.
+  (do* ((weak-pointer *known-finalizers* next)
+        (next (when weak-pointer (%object-ref-t weak-pointer +weak-pointer-finalizer-link+))
+              (when weak-pointer (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
+        (prev nil weak-pointer))
+       ((null weak-pointer))
+    (when (not (logbitp (%object-header-data weak-pointer) +weak-pointer-header-livep+))
+      ;; This one has become dead.
+      (cond (prev
+             (setf (%object-ref-t prev +weak-pointer-finalizer-link+)
+                   (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
+            (t (setf *known-finalizers* (%object-ref-t weak-pointer +weak-pointer-finalizer-link+))))
+      (setf (%object-ref-t weak-pointer +weak-pointer-finalizer-link+) *pending-finalizers*
+            *pending-finalizers* weak-pointer))))
+
+(defun run-finalizers ()
+  (flet ((pop-finalizer ()
+           (loop
+              for f = *pending-finalizers*
+              when (%cas-symbol-global-value '*pending-finalizers*
+                                             f
+                                             (%object-ref-t f +weak-pointer-finalizer-link+))
+                do (return f))))
+    (loop
+       for finalizer = (pop-finalizer)
+       until (not finalizer)
+       do
+         (funcall (%object-ref-t finalizer +weak-pointer-finalizer+))
+         ;; Leave the weak pointer completely empty. No references to any other object.
+         (setf (%object-ref-t finalizer +weak-pointer-finalizer+) nil))))
