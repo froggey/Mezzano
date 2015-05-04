@@ -9,6 +9,7 @@
 (defstruct (hash-table
 	     (:constructor %make-hash-table))
   (test 'eql :type (member eq eql equal equalp) :read-only t)
+  (hash-function nil :read-only t)
   (count 0)
   (used 0)
   rehash-size
@@ -37,6 +38,13 @@
 (deftype hash-table ()
   `(satisfies hash-table-p))
 
+(defun hash-table-test-hash-function (test)
+  (ecase test
+    ((eq) 'eq-hash)
+    ((eql) 'eql-hash)
+    ((equal) 'sxhash)
+    ((equalp) 'equalp-hash)))
+
 (defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5))
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
@@ -48,9 +56,10 @@
   (check-type rehash-size (or (integer 1 *) (float (1.0) *)))
   (check-type rehash-threshold (real 0 1))
   (%make-hash-table :test test
-		    :rehash-size rehash-size
-		    :rehash-threshold rehash-threshold
-		    :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)))
+                    :hash-function (hash-table-test-hash-function test)
+                    :rehash-size rehash-size
+                    :rehash-threshold rehash-threshold
+                    :storage (make-array (* size 2) :initial-element *hash-table-unbound-value*)))
 
 (defun gethash (key hash-table &optional default)
   (check-type hash-table hash-table)
@@ -118,7 +127,7 @@
 
 (defun find-hash-table-slot-1 (key hash-table)
   (do* ((free-slot nil)
-        (hash (compute-hash key (hash-table-test hash-table)))
+        (hash (funcall (hash-table-hash-function hash-table) key))
         (size (hash-table-size hash-table))
         (test (hash-table-test hash-table))
         (storage (hash-table-storage hash-table))
@@ -208,13 +217,6 @@ is below the rehash-threshold."
       (multiple-value-bind (more key value) (next-entry)
 	(unless more (return nil))
 	(funcall function key value)))))
-
-(defun compute-hash (key style)
-  (ecase style
-    (eq (eq-hash key))
-    (eql (eql-hash key))
-    (equal (sxhash key))
-    (equalp (equalp-hash key))))
 
 (defun eq-hash (object)
   (lisp-object-address object))
