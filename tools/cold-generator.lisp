@@ -1706,7 +1706,7 @@ Tag with +TAG-OBJECT+."
            (fn (vector-pop stack))
            (value (vector-pop stack))
            (name (vector-pop stack))
-           (address (allocate 6)))
+           (address (allocate 6 :wired)))
        ;; FN and VALUE may be the unbound tag.
        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
              (word (+ address 1)) name
