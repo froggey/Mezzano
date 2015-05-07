@@ -342,7 +342,7 @@ This is used to implement the INTRQ_Wait state."
                (%fast-page-copy bounce-virt mem-addr))
              (funcall dma-fn controller device lba count bounce-phys)
              (when (eql what :read)
-               (%fast-page-copy bounce-virt mem-addr))))
+               (%fast-page-copy mem-addr bounce-virt))))
           (t ;; Give up and do a slow PIO transfer.
            (funcall pio-fn controller device lba count mem-addr))))
   t)
