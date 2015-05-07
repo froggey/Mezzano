@@ -397,6 +397,10 @@ It will put the thread to sleep, while it waits for the page."
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
   (setf *vm-lock* (make-mutex "Global VM Lock")))
 
+;;; When true, the system will panic if a thread touches a truely unmapped page.
+;;; When false, the system will continue on and leave the thread in limbo.
+(defvar *panic-on-unhandled-paging-requests* t)
+
 (defun pager-thread ()
   (loop
      ;; Select a thread.
@@ -418,16 +422,20 @@ It will put the thread to sleep, while it waits for the page."
             (sys.int::%cli)
             (acquire-place-spinlock *pager-lock*))))
      ;; Page it in
-     (when (not (wait-for-page (thread-wait-item *pager-current-thread*)))
-       ;; TODO: Dispatch this to a debugger thread.
-       ;; This strange contortion is here to get a dynamic-extent list that can be passed
-       ;; to PANIC-1. Need to implement DX list allocation in the compiler.
-       ((lambda (&rest stuff)
-          (declare (dynamic-extent stuff))
-          (panic-1 stuff (lambda ()
-                           (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
-                           (debug-print-line "-------"))))
-        "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*))
-     ;; Release the thread.
-     (wake-thread *pager-current-thread*)
+     (cond ((wait-for-page (thread-wait-item *pager-current-thread*))
+            ;; Release the thread.
+            (wake-thread *pager-current-thread*))
+           ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.
+           (*panic-on-unhandled-paging-requests*
+            ;; This strange contortion is here to get a dynamic-extent list that can be passed
+            ;; to PANIC-1. Need to implement DX list allocation in the compiler.
+            ((lambda (&rest stuff)
+               (declare (dynamic-extent stuff))
+               (panic-1 stuff (lambda ()
+                                (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))
+                                (debug-print-line "-------"))))
+             "page fault on unmapped page " (thread-wait-item *pager-current-thread*) " in thread " *pager-current-thread*))
+           (t
+            (debug-print-line "Thread " *pager-current-thread* " faulted on address " (thread-wait-item *pager-current-thread*))
+            (panic-print-backtrace (thread-frame-pointer *pager-current-thread*))))
      (setf *pager-current-thread* nil)))
