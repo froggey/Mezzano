@@ -110,13 +110,17 @@
   "Mapping from object tags to more friendly names.
 Should be kept in sync with data-types.")
 
-(defun print-n-allocated-objects-table (n-allocated-objects allocated-object-sizes)
+(defun print-n-allocated-objects-table (n-allocated-objects allocated-object-sizes allocated-classes)
   (dotimes (i (length n-allocated-objects))
     (when (not (zerop (aref n-allocated-objects i)))
       (format t "  ~A:~35T~:D objects. ~:D words.~%"
               (aref *object-tags-to-basic-types* i)
               (aref n-allocated-objects i)
-              (aref allocated-object-sizes i)))))
+              (aref allocated-object-sizes i))))
+  (loop for i below (length allocated-classes) by 2 do
+       (let ((class (aref allocated-classes i))
+             (count (aref allocated-classes (1+ i))))
+         (format t "  ~A: ~:D objects.~%" class count))))
 
 (defun room (&optional (verbosity :default))
   (let ((total-used 0)
@@ -127,16 +131,22 @@ Should be kept in sync with data-types.")
     (incf total-used (truncate *general-area-bump* 8))
     (incf total (truncate *general-area-limit* 8))
     (when (eql verbosity t)
-      (multiple-value-bind (n-allocated-objects allocated-object-sizes)
-          (general-area-info)
-        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes)))
+      (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
+          (area-info :general)
+        (declare (ignore allocated-words total-words largest-free-space))
+        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
     (format t "Cons area: ~:D/~:D words used (~D%).~%"
             (truncate *cons-area-bump* 8) (truncate *cons-area-limit* 8)
             (truncate (* *cons-area-bump* 100) *cons-area-limit*))
     (incf total-used (truncate *cons-area-bump* 8))
     (incf total (truncate *cons-area-limit* 8))
-    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes)
-        (pinned-area-info (* 2 1024 1024) *wired-area-bump*)
+    (when (eql verbosity t)
+      (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
+          (area-info :cons)
+        (declare (ignore allocated-words total-words largest-free-space))
+        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
+    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
+        (area-info :wired)
       (format t "Wired area: ~:D/~:D words allocated (~D%).~%"
               allocated-words total-words
               (truncate (* allocated-words 100) total-words))
@@ -144,9 +154,9 @@ Should be kept in sync with data-types.")
       (incf total-used allocated-words)
       (incf total total-words)
       (when (eql verbosity t)
-        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes)))
-    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes)
-        (pinned-area-info (* 2 1024 1024 1024) *pinned-area-bump*)
+        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
+    (multiple-value-bind (allocated-words total-words largest-free-space n-allocated-objects allocated-object-sizes allocated-classes)
+        (area-info :pinned)
       (format t "Pinned area: ~:D/~:D words allocated (~D%).~%"
               allocated-words total-words
               (truncate (* allocated-words 100) total-words))
@@ -154,7 +164,7 @@ Should be kept in sync with data-types.")
       (incf total-used allocated-words)
       (incf total total-words)
       (when (eql verbosity t)
-        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes)))
+        (print-n-allocated-objects-table n-allocated-objects allocated-object-sizes allocated-classes)))
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
@@ -172,56 +182,104 @@ Should be kept in sync with data-types.")
     (format t "~:D words to next GC.~%" (truncate *memory-expansion-remaining* 8)))
   (values))
 
-(defun general-area-info ()
-  (let ((n-allocated-objects (make-array (ash 1 +object-type-size+)
+(defun %walk-pinned-area (base limit fn)
+  (let ((address base))
+    (loop
+       (when (>= address limit)
+         (return))
+       (let ((size (align-up (size-of-pinned-area-allocation address) 2))
+             ;; Carefully read the type, avoid bignums.
+             (type (ldb (byte +object-type-size+ +object-type-shift+)
+                        (memref-unsigned-byte-8 address 0))))
+         (funcall fn
+                  (if (eql type +object-tag-cons+)
+                      (%%assemble-value (+ address 16) +tag-cons+)
+                      (%%assemble-value address +tag-object+))
+                  address
+                  size)
+         (incf address (* size 8))))))
+
+(defun %walk-general-area (fn)
+  (let ((finger 0))
+    (loop
+       (when (eql finger *general-area-bump*)
+         (return))
+       (let* ((address (logior finger
+                               (ash +address-tag-general+ +address-tag-shift+)
+                               *dynamic-mark-bit*))
+              (object (%%assemble-value address +tag-object+))
+              (size (object-size object)))
+         (funcall fn object address size)
+         (when (oddp size)
+           (incf size))
+         (incf finger (* size 8))))))
+
+(defun %walk-cons-area (fn)
+  (let ((finger 0))
+    (loop
+       (when (eql finger *cons-area-bump*)
+         (return))
+       (let* ((address (logior finger
+                               (ash +address-tag-cons+ +address-tag-shift+)
+                               *dynamic-mark-bit*))
+              (object (%%assemble-value address +tag-cons+)))
+         (funcall fn object address 2)
+         (incf finger 16)))))
+
+(defun walk-area (area fn)
+  "Call FN with the value, address and size of every object in AREA.
+FN will be called with the world stopped, it must not allocate."
+  (check-type area (member :pinned :wired :general :cons))
+  (mezzano.supervisor:with-world-stopped ()
+    (case area
+      (:pinned (%walk-pinned-area (* 2 1024 1024 1024) *pinned-area-bump* fn))
+      (:wired (%walk-pinned-area (* 2 1024 1024) *wired-area-bump* fn))
+      (:general (%walk-general-area fn))
+      (:cons (%walk-cons-area fn)))))
+
+(defun area-info (area)
+  (let ((largest-free-space 0)
+        (allocated-words 0)
+        (total-words 0)
+        (n-allocated-objects (make-array (ash 1 +object-type-size+)
                                          :initial-element 0))
         (allocated-objects-sizes (make-array (ash 1 +object-type-size+)
                                              :initial-element 0))
-        (finger 0))
-    (mezzano.supervisor:with-world-stopped ()
-      (loop
-         (when (eql finger *general-area-bump*)
-           (return))
-         (let* ((object (%%assemble-value (logior finger
-                                                  (ash +address-tag-general+ +address-tag-shift+)
-                                                  *dynamic-mark-bit*)
-                                          +tag-object+))
-                (size (object-size object)))
-           (incf (svref n-allocated-objects (%object-tag object)))
-           (incf (svref allocated-objects-sizes (%object-tag object)) size)
-           (when (oddp size)
-             (incf size))
-           (scan-object object)
-           (incf finger (* size 8)))))
-    (values n-allocated-objects allocated-objects-sizes)))
-
-(defun pinned-area-info (base limit)
-  ;; Yup. Scanning a pinned area atomically requires the world to be stopped.
-  (let ((n-allocated-objects (make-array (ash 1 +object-type-size+)
-                                         :initial-element 0))
-        (allocated-objects-sizes (make-array (ash 1 +object-type-size+)
-                                             :initial-element 0)))
-    (mezzano.supervisor:with-world-stopped
-      (let ((allocated-words 0)
-            (total-words 0)
-            (largest-free-space 0)
-            (address base))
-        (loop
-           (when (>= address limit)
-             (return))
-           (let ((size (align-up (size-of-pinned-area-allocation address) 2))
-                 ;; Carefully read the type, avoid bignums.
-                 (type (ldb (byte +object-type-size+ +object-type-shift+)
-                            (memref-unsigned-byte-8 address 0))))
-             (incf (svref n-allocated-objects type))
-             (incf (svref allocated-objects-sizes type) size)
-             (incf total-words size)
-             (cond ((not (eql type +object-tag-freelist-entry+))
-                    (incf allocated-words size))
-                   (t ; free block.
-                    (setf largest-free-space (max largest-free-space size))))
-             (incf address (* size 8))))
-        (values allocated-words total-words largest-free-space n-allocated-objects allocated-objects-sizes)))))
+        ;; TODO: Should keep this sorted by address for binary searching, and
+        ;; need to expand it when needed. Not possible with-world-stopped.
+        (allocated-classes (make-array 1000 :fill-pointer 0)))
+    (flet ((add-class (class)
+             (loop
+                for i below (length allocated-classes) by 2
+                when (eql (aref allocated-classes i) class)
+                do
+                  (incf (aref allocated-classes (1+ i)))
+                  (return)
+                finally
+                  ;; Not seen yet.
+                  (vector-push class allocated-classes)
+                  (vector-push 1 allocated-classes))))
+      (walk-area area
+                 (lambda (object address size)
+                   (let ((tag (if (consp object)
+                                  +object-tag-cons+
+                                  (%object-tag object))))
+                     (incf (svref n-allocated-objects tag))
+                     (incf (svref allocated-objects-sizes tag) size)
+                     (incf total-words size)
+                     (when (not (eql tag +object-tag-freelist-entry+))
+                       (incf allocated-words size))
+                     (case tag
+                       (#.+object-tag-freelist-entry+
+                        (setf largest-free-space (max largest-free-space size)))
+                       (#.+object-tag-std-instance+
+                        (add-class (std-instance-class object)))
+                       (#.+object-tag-funcallable-instance+
+                        (add-class (funcallable-std-instance-class object)))
+                       (#.+object-tag-structure-object+
+                        (add-class (%struct-slot object 0))))))))
+    (values allocated-words total-words largest-free-space
+            n-allocated-objects allocated-objects-sizes allocated-classes)))
 
 (defun gc ()
   "Run a garbage-collection cycle."
