@@ -35,24 +35,17 @@ If the compiled file is out of date, recompile it."
     (format t "; Loading ~S~%" compiled)
     (load compiled)))
 
-(defun sys.int::copy-file (filespec new-name &optional (element-type 'character) (source-external-format :default) (destination-external-format :default))
+(defun sys.int::copy-file (filespec new-name &optional (element-type 'character) (source-external-format :default) (destination-external-format :default) (buffer-size (* 1 1024 1024)))
   (let* ((source (merge-pathnames filespec))
-         (dest (merge-pathnames new-name source)))
+         (dest (merge-pathnames new-name source))
+         (buf (make-array buffer-size :element-type element-type)))
     (with-open-file (s source :element-type element-type :external-format source-external-format)
       (with-open-file (d dest :direction :output :element-type element-type :external-format destination-external-format)
-        (cond ((subtypep element-type 'character)
-               ;; FILE-LENGTH cannot be trusted when doing character IO. Go line-by-line.
-               (loop
-                  (multiple-value-bind (line missing-newline-p)
-                      (read-line s nil)
-                    (when (not line)
-                      (return))
-                    (write-string line d)
-                    (when (not missing-newline-p)
-                      (terpri d)))))
-              (t (let ((seq (make-array (file-length s) :element-type element-type)))
-                   (read-sequence seq s)
-                   (write-sequence seq d))))))
+        (loop
+           (let ((n-elements-read (read-sequence buf s)))
+             (write-sequence buf d :end n-elements-read)
+             (when (< n-elements-read buffer-size)
+               (return))))))
     dest))
 
 ;; Local FS. Loaded from the source tree, not the home directory.
