@@ -350,7 +350,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *llf-forms*))
 
-(defun fastload-form (form omap stream)
+(defun fastload-form (form omap)
   (cond ((and (consp form)
               (eql (first form) 'sys.int::%defun)
               (= (list-length form) 3)
@@ -395,62 +395,60 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
          t)))
 
 (defun compile-file (input-file &key
-                     (output-file (compile-file-pathname input-file))
-                     (verbose *compile-verbose*)
-                     (print *compile-print*)
-                     (external-format :default))
+                                  (output-file (compile-file-pathname input-file))
+                                  (verbose *compile-verbose*)
+                                  (print *compile-print*)
+                                  (external-format :default))
   (with-open-file (input-stream input-file :external-format external-format)
-    ;; Work around wonkyness in the FS.
-    (ignore-errors (delete-file output-file))
-    ;; FIXME: Really really really need to delete the output file on error.
-    (with-open-file (output-stream output-file
-                     :element-type '(unsigned-byte 8)
-                     :if-exists :supersede
-                     :direction :output)
-      (format t ";; Compiling file ~S.~%" input-file)
-      (write-llf-header output-stream input-file)
-      (let* ((*package* *package*)
-             (*readtable* *readtable*)
-             (*compile-verbose* verbose)
-             (*compile-print* print)
-             (*llf-forms* nil)
-             (omap (make-hash-table))
-             (eof-marker (cons nil nil))
-             (*compile-file-pathname* (pathname (merge-pathnames input-file)))
-             (*compile-file-truename* (truename *compile-file-pathname*))
-             (*top-level-form-number* 0))
-        (do ((form (read input-stream nil eof-marker)
-                   (read input-stream nil eof-marker)))
-            ((eql form eof-marker))
-          (when *compile-print*
-            (let ((*print-length* 3)
-                  (*print-level* 3))
-              (declare (special *print-length* *print-level*))
-              (format t ";; Compiling form ~S.~%" form)))
-          ;; TODO: Deal with lexical environments.
-          (handle-top-level-form form
-                                 (lambda (f env)
-                                   (or (fastload-form f omap output-stream)
-                                       (add-to-llf +llf-invoke+
-                                                   (sys.c::compile-lambda `(lambda () (progn ,f))
-                                                                          (cons env nil)))))
-                                 (lambda (f env)
-                                   (eval-in-lexenv f env)))
-          (incf *top-level-form-number*))
-        ;; Now write everything to the fasl.
-        ;; Do two passes to detect circularity.
-        (let ((commands (reverse *llf-forms*)))
-          (let ((*llf-dry-run* t))
-            (dolist (cmd commands)
-              (dolist (o (cdr cmd))
-                (save-object o omap (make-broadcast-stream)))))
+    (format t ";; Compiling file ~S.~%" input-file)
+    (let* ((*package* *package*)
+           (*readtable* *readtable*)
+           (*compile-verbose* verbose)
+           (*compile-print* print)
+           (*llf-forms* nil)
+           (omap (make-hash-table))
+           (eof-marker (cons nil nil))
+           (*compile-file-pathname* (pathname (merge-pathnames input-file)))
+           (*compile-file-truename* (truename *compile-file-pathname*))
+           (*top-level-form-number* 0))
+      (do ((form (read input-stream nil eof-marker)
+                 (read input-stream nil eof-marker)))
+          ((eql form eof-marker))
+        (when *compile-print*
+          (let ((*print-length* 3)
+                (*print-level* 3))
+            (declare (special *print-length* *print-level*))
+            (format t ";; Compiling form ~S.~%" form)))
+        ;; TODO: Deal with lexical environments.
+        (handle-top-level-form form
+                               (lambda (f env)
+                                 (or (fastload-form f omap)
+                                     (add-to-llf +llf-invoke+
+                                                 (sys.c::compile-lambda `(lambda () (progn ,f))
+                                                                        (cons env nil)))))
+                               (lambda (f env)
+                                 (eval-in-lexenv f env)))
+        (incf *top-level-form-number*))
+      ;; Now write everything to the fasl.
+      ;; Do two passes to detect circularity.
+      (let ((commands (reverse *llf-forms*)))
+        (let ((*llf-dry-run* t))
+          (dolist (cmd commands)
+            (dolist (o (cdr cmd))
+              (save-object o omap (make-broadcast-stream)))))
+        (with-open-file (output-stream output-file
+                                       :element-type '(unsigned-byte 8)
+                                       :if-exists :supersede
+                                       :direction :output)
+          (write-llf-header output-stream input-file)
+
           (let ((*llf-dry-run* nil))
             (dolist (cmd commands)
               (dolist (o (cdr cmd))
                 (save-object o omap output-stream))
-              (write-byte (car cmd) output-stream))))
-        (write-byte +llf-end-of-load+ output-stream))
-      (values (truename output-stream) nil nil))))
+              (write-byte (car cmd) output-stream)))
+          (write-byte +llf-end-of-load+ output-stream)
+          (values (truename output-stream) nil nil))))))
 
 (defmacro with-compilation-unit ((&key override) &body body)
   `(progn ,override ,@body))
@@ -472,7 +470,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                  (*print-level* 3))
              (declare (special *print-length* *print-level*))
              (format t ";; Compiling form ~S.~%" form))
-           (or (fastload-form form omap output-stream)
+           (or (fastload-form form omap)
                (error "Could not fastload builtin.")))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
