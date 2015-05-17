@@ -223,10 +223,15 @@
     ;;  then we must be stuck in a circular list.
     (when (and (eq fast slow) (> n 0)) (return nil))))
 
-(defun last (list)
-  (do ((i list (cdr i)))
-      ((null (cdr i))
-       i)))
+(defun last (list &optional (n 1))
+  (check-type n (integer 0))
+  (do ((l list (cdr l))
+       (r list)
+       (i 0 (+ i 1)))
+      ((atom l)
+       r)
+    (if (>= i n)
+        (pop r))))
 
 (defun butlast (list &optional (n 1))
   (do* ((result (cons nil nil))
