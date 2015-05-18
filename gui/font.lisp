@@ -37,6 +37,35 @@
 (defvar *default-monospace-bold-font* "DejaVuSansMono-Bold")
 (defvar *default-monospace-bold-font-size* 12)
 
+(defclass memory-file-stream (sys.gray:fundamental-binary-input-stream file-stream)
+  ((%vector :initarg :vector :reader memory-file-stream-vector)
+   (%fpos :initform 0)))
+
+(defmethod initialize-instance :after ((stream memory-file-stream) &key vector &allow-other-keys)
+  (check-type vector (array (unsigned-byte 8))))
+
+(defmethod sys.gray:stream-element-type ((stream memory-file-stream))
+  '(unsigned-byte 8))
+
+(defmethod sys.gray:stream-file-position ((stream memory-file-stream) &optional (position-spec nil position-specp))
+  (with-slots (%fpos) stream
+    (cond (position-specp
+           (setf %fpos (if (eql position-spec :end)
+                           (length (memory-file-stream-vector stream))
+                           position-spec)))
+          (t %fpos))))
+
+(defmethod sys.gray:stream-file-length ((stream memory-file-stream))
+  (length (memory-file-stream-vector stream)))
+
+(defmethod sys.gray:stream-read-byte ((stream memory-file-stream))
+  (with-slots (%fpos) stream
+    (cond ((>= %fpos (length (memory-file-stream-vector stream)))
+           :eof)
+          (t (prog1
+                 (aref (memory-file-stream-vector stream) %fpos)
+               (incf %fpos))))))
+
 (defclass typeface ()
   ((%font-loader :initarg :font-loader :reader font-loader)
    (%name :initarg :name :reader name)
@@ -199,8 +228,15 @@
           (slot-value font '%glyph-cache) (make-array 17 :initial-element nil))))
 
 (defun find-font (name &optional (errorp t))
-  "Return the truename of the font named NAME"
-  (truename (make-pathname :name name :type "ttf" :defaults "LOCAL:>Fonts>" #+(or)"SYS:FONTS;")))
+  (with-open-file (s (make-pathname :name name :type "ttf" :defaults "LOCAL:>Fonts>" #+(or)"SYS:FONTS;")
+                     :element-type '(unsigned-byte 8)
+                     :if-does-not-exist (if errorp
+                                            :error
+                                            nil))
+    (when s
+      (let ((font-data (make-array (file-length s) :element-type '(unsigned-byte 8))))
+        (read-sequence font-data s)
+        (make-instance 'memory-file-stream :vector font-data)))))
 
 (defun open-font (name size)
   (check-type name (or string symbol))
