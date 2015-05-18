@@ -1089,7 +1089,7 @@ No type information will be provided."
               (when weak-pointer (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
         (prev nil weak-pointer))
        ((null weak-pointer))
-    (when (not (logbitp (%object-header-data weak-pointer) +weak-pointer-header-livep+))
+    (when (not (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer)))
       ;; This one has become dead.
       (cond (prev
              (setf (%object-ref-t prev +weak-pointer-finalizer-link+)
