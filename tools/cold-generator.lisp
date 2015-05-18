@@ -54,6 +54,7 @@
     "system/numbers.lisp"
     "system/data-types.lisp"
     "system/gc.lisp"
+    "system/room.lisp"
     "system/reader.lisp"
     "system/character.lisp"
     "system/backquote.lisp"
