@@ -40,8 +40,7 @@
 (defclass typeface ()
   ((%font-loader :initarg :font-loader :reader font-loader)
    (%name :initarg :name :reader name)
-   (%lock :reader typeface-lock)
-   (%refcount :initform 1)))
+   (%lock :reader typeface-lock)))
 
 (defmethod initialize-instance :after ((instance typeface) &key &allow-other-keys)
   (setf (slot-value instance '%lock) (mezzano.supervisor:make-mutex (format nil "Typeface ~A lock" (name instance)))))
@@ -54,8 +53,7 @@
    (%em-square-width :reader em-square-width)
    (%font-ascender :reader ascender)
    (%glyph-cache-lock :reader glyph-cache-lock)
-   (%glyph-cache :reader glyph-cache)
-   (%refcount :initform 1)))
+   (%glyph-cache :reader glyph-cache)))
 
 (defmethod print-object ((typeface typeface) stream)
   (print-unreadable-object (typeface stream :type t :identity t)
@@ -86,10 +84,10 @@
 (defvar *font-lock* (mezzano.supervisor:make-mutex "Font lock")
   "Lock protecting the typeface and font caches.")
 
-;; font-name (lowercase) -> typeface
+;; TODO: Replace these when weak hash-tables are implemented.
+;; font-name (lowercase) -> [weak-pointer typeface]
 (defvar *typeface-cache* (make-hash-table :test 'equal))
-;; (lowercase font name . single-float size) -> font
-;; This should really be a weak hash-table, to get rid of the ref-counting.
+;; (lowercase font name . single-float size) -> [weak-pointer font]
 (defvar *font-cache* (make-hash-table :test 'equal))
 
 (defun path-map-line (path function)
@@ -210,61 +208,52 @@
   (let* ((typeface-key (string-downcase name))
          (font-key (cons typeface-key (float size))))
     (mezzano.supervisor:with-mutex (*font-lock*)
-      (let ((font (gethash font-key *font-cache*)))
+      (let* ((font-pointer (gethash font-key *font-cache* (sys.int::make-weak-pointer nil)))
+             (font (sys.int::weak-pointer-value font-pointer)))
         (when font
-          (incf (slot-value font '%refcount))
           (return-from open-font font))
         ;; No font object, create a new one.
-        (let ((typeface (gethash typeface-key *typeface-cache*)))
+        (let* ((typeface-pointer (gethash typeface-key *typeface-cache* (sys.int::make-weak-pointer nil)))
+               (typeface (sys.int::weak-pointer-value typeface-pointer)))
           (when typeface
-            (incf (slot-value typeface '%refcount))
             (setf font (make-instance 'font
                                       :typeface typeface
                                       :size (float size))
-                  (gethash font-key *font-cache*) font)
+                  (gethash font-key *font-cache*) (sys.int::make-weak-pointer font))
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (return-from open-font font)))))
     ;; Neither font nor typeface in cache. Open the TTF outside the lock
-    ;; to signalling lock held.
+    ;; to avoid signalling with the lock held.
     (let ((loader (zpb-ttf:open-font-loader (find-font name))))
       (mezzano.supervisor:with-mutex (*font-lock*)
-        ;; Repeat font test.
-        (let ((font (gethash font-key *font-cache*)))
+        ;; Repeat font test, another thread may have created the font while
+        ;; the lock was dropped.
+        (let* ((font-pointer (gethash font-key *font-cache* (sys.int::make-weak-pointer nil)))
+               (font (sys.int::weak-pointer-value font-pointer)))
           (when font
-            (incf (slot-value font '%refcount))
             (return-from open-font font)))
-        (let ((typeface (gethash typeface-key *typeface-cache*)))
+        (let* ((typeface-pointer (gethash typeface-key *typeface-cache* (sys.int::make-weak-pointer nil)))
+               (typeface (sys.int::weak-pointer-value typeface-pointer)))
           (cond (typeface
                  ;; A typeface was created for this font while the lock
                  ;; was dropped. Forget our font loader and use this one.
-                 (zpb-ttf:close-font-loader loader)
-                 (incf (slot-value typeface '%refcount)))
+                 (zpb-ttf:close-font-loader loader))
                 (t (setf typeface (make-instance 'typeface :name (format nil "~:(~A~)" name) :font-loader loader)
-                         (gethash typeface-key *typeface-cache*) typeface)
+                         (gethash typeface-key *typeface-cache*) (sys.int::make-weak-pointer typeface typeface
+                                                                                             (lambda ()
+                                                                                               (zpb-ttf:close-font-loader loader))))
                    #+(or)(format t "Creating new typeface ~S.~%" typeface)))
           (let ((font (make-instance 'font
                                      :typeface typeface
                                      :size (float size))))
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
-            (setf (gethash font-key *font-cache*) font)
+            (setf (gethash font-key *font-cache*) (sys.int::make-weak-pointer font))
             font))))))
 
-(defun close-font (font)
-  (mezzano.supervisor:with-mutex (*font-lock*)
-    (decf (slot-value font '%refcount))
-    (when (zerop (slot-value font '%refcount))
-      ;; Flush this font, and release the typeface.
-      (remhash (cons (string-downcase (name font)) (size font)) *font-cache*)
-      (let ((typeface (typeface font)))
-        (decf (slot-value typeface '%refcount))
-        (when (zerop (slot-value typeface '%refcount))
-          (remhash (string-downcase (name font)) *typeface-cache*))))))
-
+;; TODO: Remove these at some point. They're not needed any more.
 (defmacro with-font ((font name size) &body body)
-  `(let (,font)
-    (unwind-protect
-         (progn
-           (setf ,font (open-font ,name ,size))
-           ,@body)
-      (when ,font
-        (close-font ,font)))))
+  `(let ((,font (open-font ,name ,size)))
+     ,@body))
+
+(defun close-font (font)
+  (declare (ignore font)))
