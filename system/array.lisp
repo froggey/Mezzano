@@ -218,6 +218,8 @@
   (when (not (listp dimensions))
     (setf dimensions (list dimensions)))
   (let ((rank (length dimensions)))
+    (when (>= rank array-rank-limit)
+      (error "Array has too many dimensions."))
     (when (and initial-element-p initial-contents-p)
       (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
     (when (and displaced-to (or initial-element-p initial-contents-p))
