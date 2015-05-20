@@ -171,11 +171,11 @@
                ;; The value is constant. Attempt to push it back to the
                ;; original binding.
                (cond ((zerop (third info))
-                      ;; Send it back, and remove this form.
+                      ;; Send it back, and replace this form with the variable.
                       (change-made)
                       (setf (second info) (third form))
                       (setf (second (fourth info)) (third form))
-                      ''nil)
+                      (second form))
                      (t ;; Leave this form alone.
                       form)))
               (t ;; Non-constant, flush.
