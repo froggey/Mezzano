@@ -25,28 +25,6 @@
            (emit `(sys.lap-x86:cmp64 :r8 :r9))
            (predicate-result :e))))
 
-;; FIXME: Wrong for non-immediate numbers.
-(defbuiltin eql (x y) ()
-  ;; Ensure constants are on the right-hand side.
-  (when (quoted-constant-p x)
-    (rotatef x y))
-  (cond ((quoted-constant-p y)
-         (let ((constant (second y)))
-           (load-in-reg :r8 x t)
-           ;; Should characters and single-floats be loaded into a register
-           ;; for comparison or should they be compared through the constant
-           ;; pool? Currently they go through the constant pool...
-           (cond
-             ((small-fixnum-p constant)
-              (emit `(sys.lap-x86:cmp64 :r8 ,(fixnum-to-raw constant))))
-             (t (emit `(sys.lap-x86:cmp64 :r8 (:constant ,constant)))))
-           (predicate-result :e)))
-        (t (load-in-reg :r9 y t)
-           (load-in-reg :r8 x t)
-           ;; FIXME: Broken.
-           (emit `(sys.lap-x86:cmp64 :r8 :r9))
-           (predicate-result :e))))
-
 ;;; Constructing and deconstructing Lisp values.
 
 (defbuiltin sys.int::%%assemble-value (address tag) ()

@@ -330,6 +330,80 @@
       (when (eq object-type struct-type)
         (return t)))))
 
+;; (defun eql (x y)
+;;   (or (eq x y)
+;;       (and (eq (%tag-field x) +tag-object+)
+;;            (eq (%tag-field y) +tag-object+)
+;;            (eq (%object-tag x) (%object-tag y))
+;;            (<= +first-numeric-object-tag+ (%object-tag x) +last-numeric-object-tag+)
+;;            (= x y))))
+(sys.int::define-lap-function eql ((x y))
+  "Compare X and Y."
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  ;; Check arg count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:jne BAD-ARGUMENTS)
+  ;; EQ test.
+  ;; This additionally covers fixnums, characters and single-floats.
+  (sys.lap-x86:cmp64 :r8 :r9)
+  (sys.lap-x86:jne MAYBE-NUMBER-CASE)
+  ;; Objects are EQ.
+  (sys.lap-x86:mov32 :r8d t)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:ret)
+  (:gc :frame)
+  MAYBE-NUMBER-CASE
+  ;; Not EQ.
+  ;; Both must be objects.
+  (sys.lap-x86:mov8 :al :r8l)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
+  (sys.lap-x86:jne OBJECTS-UNEQUAL)
+  (sys.lap-x86:mov8 :al :r9l)
+  (sys.lap-x86:and8 :al #b1111)
+  (sys.lap-x86:cmp8 :al #.sys.int::+tag-object+)
+  (sys.lap-x86:jne OBJECTS-UNEQUAL)
+  ;; Both are objects.
+  ;; Test that both are the same kind of object.
+  (sys.lap-x86:mov64 :rax (:object :r8 -1))
+  (sys.lap-x86:and8 :al #.(ash (1- (ash 1 sys.int::+object-type-size+))
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:mov64 :rdx (:object :r9 -1))
+  (sys.lap-x86:and8 :dl #.(ash (1- (ash 1 sys.int::+object-type-size+))
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:cmp8 :al :dl)
+  (sys.lap-x86:jne OBJECTS-UNEQUAL)
+  ;; They must be numbers. Characters were handled above.
+  (sys.lap-x86:sub8 :al #.(ash sys.int::+first-numeric-object-tag+
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:cmp8 :al #.(ash (- sys.int::+last-numeric-object-tag+
+                                  sys.int::+first-numeric-object-tag+)
+                               sys.int::+object-type-shift+))
+  (sys.lap-x86:ja OBJECTS-UNEQUAL)
+  ;; Both are numbers of the same type. Tail-call to generic-=.
+  ;; RCX was set to fixnum 2 on entry.
+  (sys.lap-x86:mov64 :r13 (:function sys.int::generic-=))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
+  OBJECTS-UNEQUAL
+  ;; Objects are not EQL.
+  (sys.lap-x86:mov32 :r8d nil)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:ret)
+  (:gc :frame)
+  BAD-ARGUMENTS
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2))
+
 (in-package :sys.int)
 
 (defun return-address-to-function (return-address)
