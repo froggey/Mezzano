@@ -246,8 +246,8 @@
 		       (cond
 			 ((or (eql keys 't)
 			      (eql keys 'otherwise))
-			  `(t ,@body))
-			 (t `((typep ,test-key ',keys) ,@body)))))
+			  `(t nil ,@body))
+			 (t `((typep ,test-key ',keys) nil ,@body)))))
 		   cases)))))
 
 (defmacro etypecase (keyform &rest cases)
@@ -259,7 +259,7 @@
 		     (declare (type cons clause))
 		     (let ((key (car clause))
 			   (body (cdr clause)))
-                       `((typep ,test-key ',key) ,@body)))
+                       `((typep ,test-key ',key) nil ,@body)))
 		   cases)
 	 (t (error 'simple-type-error
                    :expected-type '(or ,@(mapcar #'first cases))
