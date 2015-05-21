@@ -177,14 +177,19 @@
 			 (t (push keys all-keys)
 			    `((eql ',keys ,test-key) ,@body)))))
 		   cases)
-	 (t (error "~S fell through ECASE expression. Wanted one of ~S" ,test-key ',all-keys))))))
+	 (t (error 'simple-type-error
+                   :expected-type '(member ,@all-keys)
+                   :datum ,test-key
+                   :format-control "~S fell through ECASE form"
+                   :format-arguments (list ,test-key)))))))
 
 ;;; Generate a jump table for all-integer key sets.
 (define-compiler-macro ecase (&whole whole keyform &body cases)
   (let ((keys (loop for (keys . forms) in cases
                  when (listp keys) append keys
                  else collect keys)))
-    (if (every #'integerp keys)
+    (if (and keys
+             (every #'integerp keys))
         (let* ((unique-keys (remove-duplicates keys))
                (n-keys (length unique-keys))
                (min-key (apply #'min unique-keys))
@@ -220,7 +225,11 @@
                                                             `(go ,default-label)))))
                             (go ,default-label))
                         ,default-label
-                        (error "~S fell through ECASE expression. Wanted one of ~S" ,key-sym ',keys)
+                        (error 'simple-type-error
+                               :expected-type '(member ,@keys)
+                               :datum ,key-sym
+                               :format-control "~S fell through ECASE form"
+                               :format-arguments (list ,key-sym))
                         ,@(apply #'append form-and-labels)))))
               whole))
         whole)))
