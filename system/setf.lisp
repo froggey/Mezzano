@@ -237,3 +237,20 @@
 ;; Just for now.
 (define-setf-expander the (value-type form &environment env)
   (get-setf-expansion form env))
+
+(define-setf-expander apply (function &rest arguments &environment env)
+  ;; 5.1.2.5 APPLY Forms as Places.
+  ;; FUNCTION must look like #'SYMBOL.
+  (unless (and (listp function)
+               (= (list-length function) 2)
+               (eql (first function) 'function)
+               (symbolp (second function)))
+    (error "Bad FUNCTION in (SETF APPLY) place."))
+  (let ((real-function (second function))
+        (store (gensym))
+        (vars (loop repeat (length arguments) collect (gensym))))
+    (values vars
+            arguments
+            (list store)
+            `(apply #'(setf ,real-function) ,store ,@vars)
+            `(apply #',real-function ,@vars))))
