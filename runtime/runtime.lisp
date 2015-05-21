@@ -127,7 +127,7 @@
   (sys.lap-x86:ud2)
   bad-arguments
   (:gc :frame)
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
 
@@ -220,7 +220,7 @@
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2)
   bad-arguments
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
@@ -400,7 +400,7 @@
   (sys.lap-x86:ret)
   (:gc :frame)
   BAD-ARGUMENTS
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%invalid-argument-error))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
