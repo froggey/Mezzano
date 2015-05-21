@@ -471,7 +471,10 @@
                                                                               (#.+object-tag-array-unsigned-byte-32+ '(unsigned-byte 32)))
                                                               :initial-contents (%complex-array-storage array))))
            (setf (%simple-array-aref (%complex-array-storage array) index)
-                 (char-int value))))
+                 (char-int value)))
+         ;; Return VALUE, not the result of setting the storage array, which
+         ;; is an integer.
+         value)
         (t ;; Normal array, backed by a simple array.
          (setf (%simple-array-aref (%complex-array-storage array) index) value))))
 
