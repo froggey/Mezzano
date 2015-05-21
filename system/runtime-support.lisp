@@ -716,3 +716,20 @@ VALUE may be nil to make the fref unbound."
 (defun (setf std-instance-layout) (value std-instance)
   (%type-check std-instance +object-tag-std-instance+ 'std-instance)
   (setf (%object-ref-t std-instance 2) value))
+
+(macrolet ((def (op)
+             `(setf (fdefinition ',op)
+                    (lambda (&rest args)
+                      (declare (ignore args)
+                               (system:lambda-name (special-operator ,op)))
+                      (error "Cannot FUNCALL the special-operator ~A." ',op))))
+           (all (&rest ops)
+             `(progn
+                ,@(loop
+                     for op in ops
+                     collect `(def ,op)))))
+  (all block catch eval-when flet function go if labels
+       let let* load-time-value locally macrolet
+       multiple-value-call multiple-value-prog1
+       progn progv quote return-from setq symbol-macrolet
+       tagbody the throw unwind-protect))
