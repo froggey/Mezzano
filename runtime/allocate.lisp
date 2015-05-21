@@ -370,6 +370,17 @@
           (symbol-package symbol) nil)
     symbol))
 
+(defun copy-symbol (symbol &optional copy-properties)
+  (check-type symbol symbol)
+  (let ((new-sym (make-symbol (symbol-name symbol))))
+    (when copy-properties
+      (when (boundp symbol)
+        (setf (symbol-value new-sym) (symbol-value symbol)))
+      (when (fboundp symbol)
+        (setf (symbol-function new-sym) (symbol-function symbol)))
+      (setf (symbol-plist new-sym) (copy-list (symbol-plist symbol))))
+    new-sym))
+
 (defun sys.int::%allocate-object (tag word-count length &optional area)
   (%allocate-object tag length word-count area))
 
