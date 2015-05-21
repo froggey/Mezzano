@@ -80,13 +80,13 @@
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (declare (ignore getter))
-    `(let ,(mapcar #'list vars vals)
-                         ,(if (or (null stores) (cdr stores))
-                              `(multiple-value-bind ,stores
-                                   ,value
-                                 (progn ,setter))
-                              `(let ((,(car stores) ,value))
-                                 (progn ,setter))))))
+    `(let* ,(mapcar #'list vars vals)
+       ,(if (or (null stores) (cdr stores))
+            `(multiple-value-bind ,stores
+                 ,value
+               (progn ,setter))
+            `(let ((,(car stores) ,value))
+               (progn ,setter))))))
 )
 
 (defmacro setf (&environment env &rest forms)
@@ -152,13 +152,14 @@
 	     (get-setf-expansion ,reference ,env)
 	   (when (cdr newvals)
 	     (error "Can't expand this"))
-	   `(let* (,@(mapcar #'list dummies vals) (,(car newvals)
-						   ,(list* ',function getter
-                                                           ,@required
-                                                           ,@(mapcar #'car optional)
-                                                           ,@(if rest
-                                                                 (list rest)
-                                                                 (list '())))))
+	   `(let* (,@(mapcar #'list dummies vals)
+                   (,(car newvals)
+                    ,(list* ',function getter
+                            ,@required
+                            ,@(mapcar #'car optional)
+                            ,@(if rest
+                                  (list rest)
+                                  (list '())))))
 	      ,setter))))))
 
 (defmacro define-setf-expander (access-fn lambda-list &body body)
