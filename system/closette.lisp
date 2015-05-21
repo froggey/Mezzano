@@ -391,11 +391,11 @@
                                                 (find-class 'structure-object)))))
 
 (defun class-of-structure-definition (struct-def)
-  (let* ((class (sys.int::structure-class struct-def)))
+  (let* ((class (sys.int::structure-definition-class struct-def)))
     ;; Lazily create classes for structs.
     (when (null class)
       (setf class (make-structure-class struct-def)
-            (sys.int::structure-class struct-def) class))
+            (sys.int::structure-definition-class struct-def) class))
     class))
 
 (defun built-in-class-of (x)

@@ -501,7 +501,7 @@
                                              (vlist (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
                                              (vlist (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
                                              (vlist (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
-                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-class)  (vsym 'nil) (vsym 't) (vsym 'nil) (vsym 'nil)))
+                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class)  (vsym 'nil) (vsym 't) (vsym 'nil) (vsym 'nil)))
           (word (+ struct-def-def 4)) (vsym 'nil)
           (word (+ struct-def-def 5)) (vsym :wired)
           (word (+ struct-def-def 6)) (vsym nil)
@@ -511,7 +511,7 @@
                                                                           (sys.int::slots sys.int::structure-slots nil t t nil)
                                                                           (sys.int::parent sys.int::structure-parent nil t t nil)
                                                                           (sys.int::area sys.int::structure-area nil t t nil)
-                                                                          (sys.int::class sys.int::structure-class nil t nil nil))))))
+                                                                          (sys.int::class sys.int::structure-definition-class nil t nil nil))))))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))

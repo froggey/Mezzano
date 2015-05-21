@@ -308,9 +308,9 @@
   (def sys.int::structure-slots 2)
   (def sys.int::structure-parent 3)
   (def sys.int::structure-area 4)
-  (def sys.int::structure-class 5))
+  (def sys.int::structure-definition-class 5))
 
-(defun (setf sys.int::structure-class) (value object)
+(defun (setf sys.int::structure-definition-class) (value object)
   (unless (sys.int::structure-definition-p object)
     (error 'type-error :datum object :expected-type 'sys.int::structure-definition))
   (setf (sys.int::%struct-slot object 5) value))
