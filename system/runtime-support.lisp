@@ -390,7 +390,8 @@
 
 (defun %defmacro (name function &optional lambda-list)
   (setf (get name 'macro-lambda-list) lambda-list)
-  (setf (macro-function name) function))
+  (setf (macro-function name) function)
+  name)
 
 (defun %compiler-defun (name source-lambda)
   "Compile-time defun code. Store the inline form if required."
