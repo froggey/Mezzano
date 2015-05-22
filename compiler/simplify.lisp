@@ -340,15 +340,16 @@
               (t (setf prev i)))))
     ;; Reduce tagbodys with no tags to progn.
     (cond ((tagbody-information-go-tags (second form))
+           ;; Has go tags.
 	   form)
 	  ((null (cddr form))
+           ;; Empty tagbody.
 	   (change-made)
 	   ''nil)
-	  ((null (cdddr form))
-	   (change-made)
-	   (caddr form))
-	  (t (change-made)
-	     `(progn ,@(cddr form))))))
+          (t
+           ;; Non-empty tagbody with no go tags.
+           (change-made)
+           `(progn ,@(cddr form) 'nil)))))
 
 (defun simp-the (form)
   (cond ((eql (second form) 't)
