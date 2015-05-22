@@ -87,7 +87,9 @@ If the compiled file is out of date, recompile it."
 (require :cl-vectors)
 (require :cl-paths-ttf)
 ;; TCE is required for Chipz's decompressor.
-(let ((sys.c::*perform-tce* t))
+(let ((sys.c::*perform-tce* t)
+      ;; Prevent extremely excessive inlining.
+      (sys.c::*constprop-lambda-copy-limit* -1))
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)
