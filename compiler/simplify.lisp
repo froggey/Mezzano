@@ -224,7 +224,8 @@
                                           (second form))
                 ,(simp-form (third form))
               (let ,bindings
-                ,@(simp-implicit-progn (cdddr form) t)))))
+                ,@(progn (simp-implicit-progn (cdddr form) t)
+                         (cdddr form))))))
         (t (setf (third form) (simp-form (third form)))
            (simp-implicit-progn (cdddr form) t)
            form)))
