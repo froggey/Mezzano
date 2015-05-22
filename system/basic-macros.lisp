@@ -107,7 +107,9 @@
          (let ((,itr ,list-form))
            (tagbody ,head
               (if (null ,itr)
-                  (return ,result-form))
+                  (return (let ((,var nil))
+                            (declare ,@declares)
+                            ,result-form)))
               (let ((,var (car ,itr)))
                 (declare ,@declares)
                 (tagbody ,@body-forms))
