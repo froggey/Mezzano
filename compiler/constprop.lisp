@@ -107,7 +107,7 @@
 	    form)))))
 
 (defun cp-let (form)
-  (let ((new-constants *known-variables*))
+  (let ((*known-variables* *known-variables*))
     (dolist (b (second form))
       (let ((var (first b))
 	    (val (second b)))
@@ -124,10 +124,9 @@
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
-	  (push (list var val 0 b) new-constants))))
+	  (push (list var val 0 b) *known-variables*))))
     ;; Run on the body, with the new constants.
-    (let ((*known-variables* new-constants))
-      (cp-implicit-progn (cddr form)))
+    (cp-implicit-progn (cddr form))
     form))
 
 ;;;(defun cp-load-time-value (form))
@@ -175,6 +174,8 @@
                       (change-made)
                       (setf (second info) (third form))
                       (setf (second (fourth info)) (third form))
+                      ;; Prevent future SETQ forms from back-propgating values.
+                      (incf (third info))
                       (second form))
                      (t ;; Leave this form alone.
                       form)))
