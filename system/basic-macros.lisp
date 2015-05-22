@@ -349,4 +349,8 @@
 (defmacro multiple-value-setq (vars form)
   (dolist (v vars)
     (check-type v symbol))
-  `(values (setf (values ,@vars) ,form)))
+  ;; Always return the primary value of FORM.
+  ;; (SETF VALUES) will return the variables as values.
+  (if vars
+      `(values (setf (values ,@vars) ,form))
+      `(values ,form)))
