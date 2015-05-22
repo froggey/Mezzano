@@ -305,19 +305,20 @@
 	  (delete-if (lambda (x) (eql (go-tag-use-count x) 0))
 		     (tagbody-information-go-tags (second form))))
     (do* ((i (cddr form) (cdr i))
-	  (result (cdr form))
+	  (result (cons (cadr form) nil))
 	  (tail result))
-	 ((endp i))
+	 ((endp i)
+          (setf (cdr form) result))
       (let ((x (car i)))
-	(if (go-tag-p x)
-	    ;; Drop unused go tags.
-	    (if (eql (go-tag-use-count x) 0)
-		(change-made)
-		(setf (cdr tail) (cons x nil)
-		      tail (cdr tail)))
-            ;; Flatten the body as much as possible.
-	    (setf (cdr tail) (flatten x)
-		  tail (last tail)))))
+	(cond ((go-tag-p x)
+               (cond ((eql (go-tag-use-count x) 0)
+                      ;; Drop unused go tags.
+                      (change-made))
+                     (t (setf (cdr tail) (cons x nil)
+                              tail (cdr tail)))))
+              (t ;; Flatten the body as much as possible.
+               (setf (cdr tail) (flatten x)
+                     tail (last tail))))))
     ;; Kill code after GO statements and try to eliminate no-op GOs.
     (do* ((i (cddr form) (cdr i))
           (prev (cdr form))
