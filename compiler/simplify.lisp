@@ -28,20 +28,50 @@
     (lexical-variable (simp-variable form))
     (lambda-information (simp-lambda form))))
 
-(defun simp-implicit-progn (x &optional flatten)
+(defun simp-form-list (x)
   (do ((i x (cdr i)))
       ((endp i))
-    ;; Merge nested PROGNs.
-    (let ((form (car i)))
-      (if (and flatten
-	       (consp form)
-	       (eq (car form) 'progn)
-	       (cdr form))
-	  (progn
-	    (change-made)
-	    (setf (car i) (simp-form (second form))
-		  (cdr i) (nconc (cddr form) (cdr i))))
-	  (setf (car i) (simp-form form))))))
+    (setf (car i) (simp-form (car i)))))
+
+(defun simp-implicit-progn (x)
+  ;; Merge nested progns, remove unused quote/function/lambda/variable forms
+  ;; and eliminate code after return-from/go.
+  (do ((i x (rest i)))
+      ((endp i)
+       x)
+    (let ((form (first i)))
+      (cond ((and (consp form)
+                  (eql (first form) 'progn)
+                  (rest form))
+             ;; Non-empty PROGN.
+             (change-made)
+             (simp-implicit-progn (cdr form))
+             ;; Rewrite ((progn v1 ... vn) . xn) to (v1 .... vn . xn).
+             (setf (first i) (second form)
+                   (rest i) (nconc (cddr form) (rest i))))
+            ((and (consp form)
+                  (eql (first form) 'progn)
+                  (not (rest form)))
+             ;; Empty progn. Replace with 'NIL.
+             (setf (first i) ''nil)
+             (change-made))
+            ((and (rest i) ; not at end.
+                  (or (and (consp form)
+                           (member (first form) '(quote function)))
+                      (lexical-variable-p form)
+                      (lambda-information-p form)))
+             ;; This is a constantish value not at the end.
+             ;; Remove it.
+             (change-made)
+             (setf (first i) (second i)
+                   (rest i) (rest (rest i))))
+            ((and (rest i) ; not at end
+                  (consp form)
+                  (member (first form) '(go return-from)))
+             ;; Non-local exit. Remove all following forms.
+             (change-made)
+             (setf (rest i) nil))
+            (t (setf (first i) (simp-form form)))))))
 
 (defun simp-block (form)
   (cond
@@ -60,7 +90,7 @@
      (change-made)
      (setf (first (last form)) (third (first (last form))))
      form)
-    (t (simp-implicit-progn (cddr form) t)
+    (t (simp-implicit-progn (cddr form))
        form)))
 
 (defun simp-go (form)
@@ -108,13 +138,17 @@
                   (new-block (make-block-information :name (gensym "if-escape")
                                                      :definition-point *current-lambda*
                                                      :ignore nil
-                                                     :dynamic-extent nil))
+                                                     :dynamic-extent nil
+                                                     :use-count 1))
                   (new-tagbody (make-tagbody-information :definition-point *current-lambda*
-                                                         :go-tags '()))
+                                                         :go-tags '()
+                                                         :use-count 1))
                   (then-tag (make-go-tag :name (gensym "if-then")
-                                         :tagbody new-tagbody))
+                                         :tagbody new-tagbody
+                                         :use-count 1))
                   (else-tag (make-go-tag :name (gensym "if-else")
-                                         :tagbody new-tagbody)))
+                                         :tagbody new-tagbody
+                                         :use-count 1)))
              (push then-tag (tagbody-information-go-tags new-tagbody))
              (push else-tag (tagbody-information-go-tags new-tagbody))
              `(block ,new-block
@@ -179,13 +213,12 @@
   (dolist (b (second form))
     (setf (second b) (simp-form (second b))))
   ;; Remove the LET if there are no values.
-  (if (second form)
-      (progn
-	(simp-implicit-progn (cddr form) t)
-	form)
-      (progn
-	(change-made)
-	(simp-form `(progn ,@(cddr form))))))
+  (cond ((second form)
+         (simp-implicit-progn (cddr form))
+         form)
+        (t
+         (change-made)
+         (simp-form `(progn ,@(cddr form))))))
 
 ;;;(defun simp-load-time-value (form))
 
@@ -224,33 +257,37 @@
                                           (second form))
                 ,(simp-form (third form))
               (let ,bindings
-                ,@(progn (simp-implicit-progn (cdddr form) t)
+                ,@(progn (simp-implicit-progn (cdddr form))
                          (cdddr form))))))
         (t (setf (third form) (simp-form (third form)))
-           (simp-implicit-progn (cdddr form) t)
+           (simp-implicit-progn (cdddr form))
            form)))
 
 (defun simp-multiple-value-call (form)
-  (simp-implicit-progn (cdr form))
+  ;; Don't flatten this.
+  (simp-form-list (cdr form))
   form)
 
 (defun simp-multiple-value-prog1 (form)
   (setf (second form) (simp-form (second form)))
-  (simp-implicit-progn (cddr form) t)
+  (simp-implicit-progn (cddr form))
   (cond ((and (consp (second form))
               (eql (first (second form)) 'progn))
          ;; If the first form is a PROGN, then hoist all but the final value out.
+         (change-made)
          `(progn ,@(butlast (cdr (second form)))
                  (multiple-value-prog1 ,(car (last (second form)))
                    ,@(cddr form))))
         ((and (consp (second form))
               (eql (first (second form)) 'multiple-value-prog1))
          ;; If the first form is a M-V-PROG1, then splice it in.
+         (change-made)
          `(multiple-value-prog1 ,(second (second form))
             ,@(cddr (second form))
             ,@(cddr form)))
         ((null (cddr form))
          ;; If there are no body forms, then kill this completely.
+         (change-made)
          (second form))
         (t form)))
 
@@ -263,7 +300,7 @@
 	 ;; Reduce single form PROGNs.
 	 (change-made)
 	 (simp-form (second form)))
-	(t (simp-implicit-progn (cdr form) t)
+	(t (simp-implicit-progn (cdr form))
 	   form)))
 
 (defun simp-quote (form)
@@ -361,7 +398,7 @@
 
 (defun simp-unwind-protect (form)
   (setf (second form) (simp-form (second form)))
-  (simp-implicit-progn (cddr form) t)
+  (simp-implicit-progn (cddr form))
   form)
 
 (defun simp-function-form (form)
@@ -375,9 +412,9 @@
                   (symbolp (second (second form)))
                   t))
          (change-made)
-         (simp-implicit-progn (cddr form))
+         (simp-form-list (cddr form))
          (list* (second (second form)) (cddr form)))
-        (t (simp-implicit-progn (cdr form))
+        (t (simp-form-list (cdr form))
            form)))
 
 (defun eq-comparable-p (value)
@@ -386,7 +423,7 @@
       (typep value 'single-float)))
 
 (defun simp-eql (form)
-  (simp-implicit-progn (cdr form))
+  (simp-form-list (cdr form))
   (when (eql (list-length form) 3)
     ;; (eql constant non-constant) => (eql non-constant constant)
     (when (and (quoted-constant-p (second form))
@@ -409,5 +446,5 @@
       (setf (second arg) (simp-form (second arg))))
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (simp-form (second arg))))
-    (simp-implicit-progn (lambda-information-body form) t))
+    (simp-implicit-progn (lambda-information-body form)))
   form)
