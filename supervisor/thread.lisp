@@ -274,7 +274,7 @@
     (loop for (symbol value) in initial-bindings do
          (let ((slot (or (sys.int::symbol-tls-slot symbol)
                          (sys.int::%allocate-tls-slot symbol))))
-           (setf (sys.int::%object-ref-t thread (1- slot)) value)))
+           (setf (sys.int::%object-ref-t thread slot) value)))
     ;; Initialize the FXSAVE area.
     ;; All FPU/SSE interrupts masked, round to nearest,
     ;; x87 using 80 bit precision (long-float).
