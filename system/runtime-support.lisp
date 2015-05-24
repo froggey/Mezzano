@@ -419,6 +419,11 @@
 
 ;;; Function references, FUNCTION, et al.
 
+(deftype function-name ()
+  '(or
+    symbol
+    (cons (eql setf) (cons symbol null))))
+
 (defun make-function-reference (name)
   (let ((fref (%allocate-object +object-tag-function-reference+ 4 0 :wired)))
     (setf (%object-ref-t fref +fref-name+) name
@@ -448,7 +453,9 @@
 	     (setf fref (make-function-reference name)
 		   (get (second name) 'setf-fref) fref))
            fref))
-	(t (error "Invalid function name ~S." name))))
+	(t (error 'type-error
+                  :expected-type 'function-name
+                  :datum name))))
 
 (defun function-reference-p (object)
   (and (eql (%tag-field object) +tag-object+)
@@ -722,7 +729,7 @@ VALUE may be nil to make the fref unbound."
                     (lambda (&rest args)
                       (declare (ignore args)
                                (system:lambda-name (special-operator ,op)))
-                      (error "Cannot FUNCALL the special-operator ~A." ',op))))
+                      (error 'undefined-function :name ',op))))
            (all (&rest ops)
              `(progn
                 ,@(loop

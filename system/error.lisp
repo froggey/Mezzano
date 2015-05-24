@@ -138,6 +138,10 @@
 (define-condition storage-condition (serious-condition) ())
 (define-condition simple-storage-condition (simple-condition storage-condition) ())
 
+(define-condition invalid-macro-lambda-list (simple-error)
+  ((lambda-list :initarg :lambda-list
+                :reader invalid-macro-lambda-list-lambda-list)))
+
 (defun error (datum &rest arguments)
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))

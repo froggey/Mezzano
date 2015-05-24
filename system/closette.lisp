@@ -1515,7 +1515,9 @@ has only has class specializer."
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args)
     (when (< (length args) n-required-args)
-      (error "Too few arguments to generic function ~S." gf))
+      (error 'sys.int::simple-program-error
+             :format-control "Too few arguments to generic function ~S."
+             :format-arguments (list gf)))
     (let* ((classes (mapcar #'class-of (subseq args 0 n-required-args)))
            (emfun (gethash classes emf-table nil)))
       (if emfun

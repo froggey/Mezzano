@@ -440,9 +440,9 @@ A list of any declaration-specifiers."
                            ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
                       ''nil)
-                     (t `(error '"Unknown &KEY argument ~S. Expected one of ~S."
-                                ,current-keyword
-                                ',(mapcar 'caar keys)))))
+                     (t `(error 'sys.int::simple-program-error
+                                ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
+                                ':format-arguments (list ,current-keyword ',(mapcar 'caar keys))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
                       `(let ((,(second (first (first key-args))) (if ,(first suppliedp)
@@ -460,7 +460,8 @@ A list of any declaration-specifiers."
              (go ,test-tag ,(go-tag-tagbody test-tag))
              ,head-tag
              (if (null (cdr ,itr))
-                 (error '"Odd number of &KEY arguments.")
+                 (error 'sys.int::simple-program-error
+                        ':format-control '"Odd number of &KEY arguments.")
                  'nil)
              (let ((,current-keyword (car ,itr)))
                ,(create-key-test-list keys values suppliedp))

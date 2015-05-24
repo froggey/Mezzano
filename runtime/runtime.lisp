@@ -262,7 +262,7 @@
 (defun sys.int::%throw (tag values)
   (do ((current *active-catch-handlers* (svref current 0)))
       ((not current)
-       (error 'bad-catch-tag-error :tag tag))
+       (error 'sys.int::bad-catch-tag-error :tag tag))
     (when (eq (svref current 1) tag)
       (funcall (svref current 2) values))))
 
