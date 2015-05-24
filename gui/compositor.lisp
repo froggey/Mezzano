@@ -20,13 +20,17 @@
 (defclass window ()
   ((%x :initarg :x :accessor window-x)
    (%y :initarg :y :accessor window-y)
+   (%thread :initarg :thread :accessor window-thread)
    (%fifo :initarg :fifo :reader fifo)
    (%buffer :initarg :buffer :reader window-buffer)
    (%layer :initarg :layer :reader layer)
    (%subscribed-notifications :initarg :notifications :reader subscribed-notifications)
    (%unresponsive :initarg :unresponsive :accessor window-unresponsive)
    (%kind :initarg :kind :reader kind))
-  (:default-initargs :layer nil :notifications '() :unresponsive nil))
+  (:default-initargs :layer nil
+                     :notifications '()
+                     :unresponsive nil
+                     :thread nil))
 
 (defgeneric width (thing))
 (defgeneric height (thing))
@@ -564,6 +568,14 @@
                     (setf *current-keymap* (if (eql *current-keymap* *engb-keymap*)
                                                *enus-keymap*
                                                *engb-keymap*))))
+                 ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\Esc))
+                  (when (and (key-releasep event)
+                             *active-window*
+                             (window-thread *active-window*))
+                    (mezzano.supervisor:establish-thread-foothold
+                     (window-thread *active-window*)
+                     (lambda () (break)))))
                  ;; Otherwise, dispatch to active window.
                  (*active-window*
                   (send-event *active-window*
@@ -760,6 +772,7 @@ A passive drag sends no drag events to the window.")
                                :width width
                                :height height
                                :fifo fifo
+                               :thread (mezzano.supervisor:current-thread)
                                :buffer (make-array (list height width)
                                                    :element-type '(unsigned-byte 32)
                                                    :initial-element 0)
