@@ -332,6 +332,12 @@
 (defun real-type-p (type) (numeric-subtypep type 'real))
 (defun number-type-p (type) (numeric-subtypep type 'number))
 
+(deftype base-char ()
+  'character)
+
+(deftype extended-char ()
+  'nil)
+
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
   (when (typep type-2 'standard-class)
@@ -367,8 +373,6 @@
            (values t t))
 	  ((eql t2 'character)
 	   (values (or (eql t1 'standard-char)
-		       (eql t1 'base-char)
-		       (eql t1 'extended-char)
 		       (eql t1 'character))
 		   t))
 	  ((eql t2 't)
