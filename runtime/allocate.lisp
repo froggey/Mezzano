@@ -120,16 +120,16 @@
       (incf words))
     (ecase area
       ((nil)
-       (mezzano.supervisor:without-footholds
-         (tagbody
-          OUTER-LOOP
+       (tagbody
+        OUTER-LOOP
+          (mezzano.supervisor:without-footholds
             (mezzano.supervisor:with-mutex (*allocator-lock*)
               (tagbody
                INNER-LOOP
                  (return-from %allocate-object
                    (mezzano.supervisor:with-pseudo-atomic
-                     (when (> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
-                       (go EXPAND-AREA))
+                       (when (> (+ sys.int::*general-area-bump* (* words 8)) sys.int::*general-area-limit*)
+                         (go EXPAND-AREA))
                      ;; Enough size, allocate here.
                      (let ((addr (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
                                          sys.int::*general-area-bump*
@@ -167,11 +167,11 @@
                     expansion
                     sys.int::+block-map-zero-fill+)
                    (incf sys.int::*general-area-limit* expansion))
-                 (go INNER-LOOP)))
-          DO-GC
-            ;; Must occur outside the locks.
-            (sys.int::gc)
-            (go OUTER-LOOP))))
+                 (go INNER-LOOP))))
+        DO-GC
+          ;; Must occur outside the locks.
+          (sys.int::gc)
+          (go OUTER-LOOP)))
       (:pinned
        (mezzano.supervisor:without-footholds
          (mezzano.supervisor:with-mutex (*allocator-lock*)
@@ -282,16 +282,16 @@
 (defun slow-cons (car cdr)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
-  (mezzano.supervisor:without-footholds
-    (tagbody
-     OUTER-LOOP
+  (tagbody
+   OUTER-LOOP
+     (mezzano.supervisor:without-footholds
        (mezzano.supervisor:with-mutex (*allocator-lock*)
          (tagbody
           INNER-LOOP
             (return-from slow-cons
               (mezzano.supervisor:with-pseudo-atomic
-                (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
-                  (go EXPAND-AREA))
+                  (when (> (+ sys.int::*cons-area-bump* 16) sys.int::*cons-area-limit*)
+                    (go EXPAND-AREA))
                 ;; Enough size, allocate here.
                 (let* ((addr (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
                                      sys.int::*cons-area-bump*
@@ -332,11 +332,11 @@
                expansion
                sys.int::+block-map-zero-fill+)
               (incf sys.int::*cons-area-limit* expansion))
-            (go INNER-LOOP)))
-     DO-GC
-       ;; Must occur outside the locks.
-       (sys.int::gc)
-       (go OUTER-LOOP))))
+            (go INNER-LOOP))))
+   DO-GC
+     ;; Must occur outside the locks.
+     (sys.int::gc)
+     (go OUTER-LOOP)))
 
 (defun sys.int::make-simple-vector (size &optional area)
   (%allocate-object sys.int::+object-tag-array-t+ size size area))
