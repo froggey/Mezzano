@@ -406,7 +406,8 @@
   (unless key
     (setf key 'identity))
   (dolist (i alist)
-    (when (funcall test item (funcall key (car i)))
+    (when (and i
+               (funcall test item (funcall key (car i))))
       (return i))))
 
 (declaim (inline member))
