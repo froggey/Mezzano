@@ -132,13 +132,14 @@
 	  (list-sym (gensym)))
       `(let* ((,item-sym ,item)
 	      ,@(mapcar #'list vars vals)
-	      (,list-sym ,getter)
-	      (,(car stores) (cons ,item-sym ,list-sym)))
-	 (unless (member ,item-sym ,list-sym
-                         ,@(when key (list :key key))
-                         ,@(when test (list :test test))
-                         ,@(when test-not (list :test-not test-not)))
-	   ,setter)))))
+	      (,list-sym ,getter))
+	 (if (member ,item-sym ,list-sym
+                     ,@(when key (list :key key))
+                     ,@(when test (list :test test))
+                     ,@(when test-not (list :test-not test-not)))
+             ,list-sym
+             (let ((,(car stores) (cons ,item-sym ,list-sym)))
+               ,setter))))))
 
 (defmacro define-modify-macro (name lambda-list function &optional documentation)
   (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
