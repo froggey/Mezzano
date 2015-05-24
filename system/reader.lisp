@@ -740,6 +740,9 @@
 (defun read-#-array (stream ch n-dimensions)
   (declare (ignore ch))
   (check-type n-dimensions array-axis)
+  (when *read-suppress*
+    (read stream t nil t)
+    (return-from read-#-array))
   (let* ((object (read stream t nil t))
          (current-dim object)
          (dimensions (make-list n-dimensions :initial-element 0)))
