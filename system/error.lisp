@@ -204,6 +204,7 @@
 
 (defun warn (datum &rest arguments)
   (let ((condition (coerce-to-condition 'simple-warning datum arguments)))
+    (check-type condition warning)
     (restart-case (signal condition)
       (muffle-warning ()
 	:report "Ignore this warning."
