@@ -198,23 +198,35 @@
 (defgeneric stream-move-to (stream x y))
 
 (defmacro with-open-stream ((var stream) &body body)
-  (let ((abortp (gensym "ABORTP")))
-    `(let ((,var ,stream)
-           (,abortp t))
-       (unwind-protect
-            (multiple-value-prog1
-                (progn ,@body)
-              (setf ,abortp nil))
-         (when ,var
-           (close ,var :abort ,abortp))))))
+  (multiple-value-bind (body-forms declares)
+      (parse-declares body)
+    (let ((abortp (gensym "ABORTP")))
+      `(let ((,var ,stream)
+             (,abortp t))
+         (declare ,@declares)
+         (unwind-protect
+              (multiple-value-prog1
+                  (progn ,@body-forms)
+                (setf ,abortp nil))
+           (when ,var
+             (close ,var :abort ,abortp)))))))
 
 (defmacro with-open-file ((stream filespec &rest options) &body body)
   `(with-open-stream (,stream (open ,filespec ,@options))
      ,@body))
 
-(defmacro with-input-from-string ((var string &key (start 0) end) &body body)
-  `(with-open-stream (,var (make-string-input-stream ,string ,start ,end))
-     ,@body))
+(defmacro with-input-from-string ((var string &key (start 0) end index) &body body)
+  (cond (index
+         (multiple-value-bind (body-forms declares)
+             (parse-declares body)
+           `(with-open-stream (,var (make-string-input-stream ,string ,start ,end))
+              (declare ,@declares)
+              (multiple-value-prog1
+                  (progn ,@body-forms)
+                (setf ,index (string-input-stream-position ,var))))))
+        (t
+         `(with-open-stream (,var (make-string-input-stream ,string ,start ,end))
+            ,@body))))
 
 (defun frob-stream (stream &optional (default :bad-stream))
   (cond ((synonym-stream-p stream)
@@ -801,6 +813,9 @@ CASE may be one of:
                  :string string
                  :start start
                  :end (or end (length string))))
+
+(defun string-input-stream-position (stream)
+  (slot-value stream 'start))
 
 (defmethod sys.gray:stream-read-char ((stream string-input-stream))
   (if (< (slot-value stream 'start) (slot-value stream 'end))
