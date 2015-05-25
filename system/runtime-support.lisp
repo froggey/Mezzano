@@ -190,6 +190,9 @@
   ;; (raise-type-error arg-list 'proper-list)
   list-type-error
   (:gc :frame)
+  ;; Make sure that the stack is 16-byte aligned.
+  ;; The list unpacking loop has been pushing values one by one.
+  (sys.lap-x86:and64 :rsp #.(lognot 15))
   (sys.lap-x86:mov64 :r8 :r9)
   (sys.lap-x86:mov64 :r9 (:constant proper-list))
   (sys.lap-x86:mov64 :r13 (:function raise-type-error))
