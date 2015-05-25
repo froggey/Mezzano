@@ -37,7 +37,8 @@ A list of two elements, the short & long name." )
                    (if info
                        (format t "~S ~A~%" sym info)
                        (format t "~S~%" sym))))
-               string package))
+               string package)
+  (values))
 
 (defun apropos-list (string &optional package)
   (let ((syms '()))
