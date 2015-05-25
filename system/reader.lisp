@@ -865,12 +865,14 @@
 	       eof-value
 	       recursive-p))
 
-;;; TODO: Needs to return the numbers of characters read.
 (defun read-from-string (string &optional (eof-error-p t) eof-value &key (start 0) end preserve-whitespace)
-  (with-input-from-string (stream string :start start :end end)
-    (if preserve-whitespace
-	(read-preserving-whitespace stream eof-error-p eof-value)
-	(read stream eof-error-p eof-value))))
+  (let (index)
+    (values
+     (with-input-from-string (stream string :start start :end end :index index)
+       (if preserve-whitespace
+           (read-preserving-whitespace stream eof-error-p eof-value)
+           (read stream eof-error-p eof-value)))
+     index)))
 
 (defmacro with-standard-io-syntax (&body body)
   `(%with-standard-io-syntax (lambda () (progn ,@body))))
