@@ -20,6 +20,7 @@ A list of two elements, the short & long name." )
 (defmethod (setf documentation) (new-value x doc-type) new-value)
 
 (defun map-apropos (fn string package)
+  (setf string (string string))
   (cond (package
          (do-symbols (sym package)
            (when (search string (symbol-name sym) :test #'string-equal)
