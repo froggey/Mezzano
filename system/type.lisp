@@ -485,6 +485,7 @@
 
 (defmacro check-type (place typespec &optional string)
   (let ((value (gensym)))
+    ;; FIXME: Place evaluation.
     `(do ((,value ,place ,place))
 	 ((typep ,value ',typespec))
        (setf ,place (check-type-error ',place ,value ',typespec ,string)))))

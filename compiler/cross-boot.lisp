@@ -140,6 +140,15 @@
       (and errorp
            (error "Unknown structure type ~S." name))))
 
+(defun sys.int::structure-type-p (object struct-type)
+  (when (cross-struct-p object)
+    (do ((object-type (sys.int::%struct-slot object 0)
+                      (structure-type-parent object-type)))
+        ((not (structure-type-p object-type))
+         nil)
+      (when (eq object-type struct-type)
+        (return t)))))
+
 (defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 62)))
 (alexandria:define-constant sys.int::lambda-list-keywords

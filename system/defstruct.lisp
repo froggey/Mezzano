@@ -321,6 +321,15 @@
                             (structure-slots included-structure)))
                   slot-descriptions)))
 
+(defmacro check-struct-type (place struct-type)
+  (let ((value (gensym))
+        (struct-type-sym (gensym "struct-type")))
+    ;; FIXME: Place evaluation.
+    `(do ((,value ,place ,place)
+          (,struct-type-sym ,struct-type))
+	 ((structure-type-p ,value ,struct-type-sym))
+       (setf ,place (check-type-error ',place ,value (structure-name ,struct-type-sym) nil)))))
+
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
                                   print-object print-function print-object-specializer)
@@ -353,9 +362,11 @@
 		       (setf n (1+ n))
 		       `(progn
 			  (defun ,(second s) (object)
+                            (check-struct-type object ',struct-type)
 			    (the ,(fourth s) (%struct-slot (the ,name object) ,n)))
 			  ,@(unless (fifth s)
 			      (list `(defun (setf ,(second s)) (new-value object)
+                                       (check-struct-type object ',struct-type)
 				       (setf (%struct-slot (the ,name object) ,n)
                                              (the ,(fourth s) new-value)))))
                           ,@(when (sixth s)
