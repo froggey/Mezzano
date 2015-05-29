@@ -8,28 +8,25 @@
 (deftype double-float () 'float)
 (deftype long-float () 'float)
 (deftype bignum () '(satisfies bignump))
+(deftype ratio () '(satisfies ratiop))
+(deftype complex (&optional typespec) '(satisfies complexp))
 
-(defstruct (ratio
-             (:constructor make-ratio (numerator denominator))
-             (:predicate ratiop))
-  numerator
-  denominator)
+(defun ratiop (object)
+  (%object-of-type-p object +object-tag-ratio+))
 
 (defun numerator (rational)
   (etypecase rational
-    (ratio (ratio-numerator rational))
+    (ratio (%object-ref-t rational +ratio-numerator+))
     (integer rational)))
 
 (defun denominator (rational)
   (etypecase rational
-    (ratio (ratio-denominator rational))
+    (ratio (%object-ref-t rational +ratio-denominator+))
     (integer 1)))
 
-(defstruct (complex
-             (:constructor make-complex (realpart imagpart))
-             (:predicate complexp))
-  realpart
-  imagpart)
+;; TODO: Specialize this.
+(defun complexp (object)
+  (%object-of-type-p object +object-tag-complex-rational+))
 
 (defun complex (realpart &optional imagpart)
   (check-type realpart real)
@@ -41,12 +38,12 @@
 
 (defun realpart (number)
   (if (complexp number)
-      (complex-realpart number)
+      (%object-ref-t number +complex-realpart+)
       number))
 
 (defun imagpart (number)
   (if (complexp number)
-      (complex-imagpart number)
+      (%object-ref-t number +complex-imagpart+)
       0))
 
 (defun expt (base power)

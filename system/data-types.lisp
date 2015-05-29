@@ -199,6 +199,14 @@
 (defconstant +weak-pointer-finalizer+ 3)
 (defconstant +weak-pointer-finalizer-link+ 4)
 
+;;; Layout of ratios.
+(defconstant +ratio-numerator+ 0)
+(defconstant +ratio-denominator+ 1)
+
+;;; Layout of complex numbers.
+(defconstant +complex-realpart+ 0)
+(defconstant +complex-imagpart+ 1)
+
 ;; Some bits are stored in the high(ish) bits of the address.
 ;; These are used to support the GC.
 
