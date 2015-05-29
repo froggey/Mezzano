@@ -1131,7 +1131,7 @@ May be used from an interrupt handler."
       (setf (latch-state latch) t)
       ;; Loop until all the threads have been woken.
       (do ()
-          ((null (condition-variable-head latch)))
+          ((null (wait-queue-head latch)))
         (wake-thread (pop-wait-queue latch))))))
 
 (defstruct (irq-fifo
