@@ -682,9 +682,15 @@
   args)
 
 (defun format (destination control-string &rest arguments)
-  (flet ((do-format (*standard-output*)
-           (interpret-format-control (parse-format-control control-string)
-                                     arguments)))
+  (flet ((do-format (stream)
+           (etypecase control-string
+             (string
+              (let ((*standard-output* stream))
+                (interpret-format-control (parse-format-control control-string)
+                                          arguments)))
+             (function
+              (apply control-string stream arguments)))
+           nil))
     (cond
       ((eql destination 'nil)
        (with-output-to-string (stream)
@@ -704,3 +710,16 @@
                                  stream
                                  (and string (not simple-string)))
                 :datum destination)))))
+
+(defun formatter-1 (stream control-string arguments)
+  (let ((*standard-output* stream))
+    ;; Call I-F-C directly instead of FORMAT so the remaining arguments
+    ;; are returned.
+    (interpret-format-control (parse-format-control control-string)
+                              arguments)))
+
+(defmacro formatter (control-string)
+  (let ((stream (gensym "STREAM"))
+        (arguments (gensym "ARGUMENTS")))
+    `(lambda (,stream &rest ,arguments)
+       (formatter-1 ,stream ',control-string ,arguments))))
