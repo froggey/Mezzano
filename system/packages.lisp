@@ -235,8 +235,8 @@
         (let ((symbol (pop symbols)))
           (values t
                   (car symbol)
-                  current-package
-                  (cdr symbol)))))))
+                  (cdr symbol)
+                  current-package))))))
 
 (defun package-iterator-next (iterator)
   (funcall iterator))
