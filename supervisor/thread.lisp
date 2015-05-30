@@ -253,11 +253,11 @@
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
   (check-type function (or function symbol))
   (check-type priority (member :normal :low))
-  ;; FIXME: need to make the GC aware of partially initialized threads.
+  ;; Allocate-object will leave the thread's state variable initialized to 0.
+  ;; The GC detects this to know when it's scanning a partially-initialized thread.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
          (stack (%allocate-stack stack-size)))
     (setf (sys.int::%object-ref-t thread +thread-name+) name
-          (sys.int::%object-ref-t thread +thread-state+) :runnable
           (sys.int::%object-ref-t thread +thread-lock+) :unlocked
           (sys.int::%object-ref-t thread +thread-stack+) stack
           (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
@@ -315,7 +315,8 @@
             (thread-state-r13 thread) 0
             (thread-state-r14 thread) 0
             (thread-state-r15 thread) 0))
-    (setf (thread-full-save-p thread) t)
+    (setf (thread-full-save-p thread) t
+          (thread-state thread) :runnable)
     (safe-without-interrupts (thread)
       (with-symbol-spinlock (*global-thread-lock*)
         (push-run-queue thread)

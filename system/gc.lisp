@@ -291,6 +291,15 @@ This is required to make the GC interrupt safe."
                 stack-pointer (+ frame-pointer 16)
                 frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))))
 
+(defun scavenge-thread-data-registers (thread)
+  (scavengef (mezzano.supervisor:thread-state-r8-value thread))
+  (scavengef (mezzano.supervisor:thread-state-r9-value thread))
+  (scavengef (mezzano.supervisor:thread-state-r10-value thread))
+  (scavengef (mezzano.supervisor:thread-state-r11-value thread))
+  (scavengef (mezzano.supervisor:thread-state-r12-value thread))
+  (scavengef (mezzano.supervisor:thread-state-r13-value thread))
+  (scavengef (mezzano.supervisor:thread-state-rbx-value thread)))
+
 (defun scavenge-full-save-thread (thread)
   ;; Thread has stopped due to an interrupt.
   ;; Examine it, then perform normal stack scavenging.
@@ -308,13 +317,7 @@ This is required to make the GC interrupt safe."
       (mezzano.supervisor:debug-print-line "FNa: " fn-address)
       (mezzano.supervisor:debug-print-line "FNo: " fn-offset))
     ;; Unconditionally scavenge the saved data registers.
-    (scavengef (mezzano.supervisor:thread-state-r8-value thread))
-    (scavengef (mezzano.supervisor:thread-state-r9-value thread))
-    (scavengef (mezzano.supervisor:thread-state-r10-value thread))
-    (scavengef (mezzano.supervisor:thread-state-r11-value thread))
-    (scavengef (mezzano.supervisor:thread-state-r12-value thread))
-    (scavengef (mezzano.supervisor:thread-state-r13-value thread))
-    (scavengef (mezzano.supervisor:thread-state-rbx-value thread))
+    (scavenge-thread-data-registers thread)
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
@@ -399,6 +402,11 @@ This is required to make the GC interrupt safe."
             (t (when *gc-debug-scavenge-stack*
                  (mezzano.supervisor:debug-print-line "Done scav stack.")))))))
 
+(defun scavenge-thread-tls-area (thread)
+  (let ((address (ash (%pointer-field thread) 4)))
+    (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-tls-slots-start+ 8))
+                   (- mezzano.supervisor::+thread-tls-slots-end+ mezzano.supervisor::+thread-tls-slots-start+))))
+
 (defun scan-thread (object)
   (when *gc-debug-scavenge-stack* (mezzano.supervisor:debug-print-line "Scav thread " object))
   ;; Scavenge various parts of the thread.
@@ -416,26 +424,31 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-global-next object))
   (scavengef (mezzano.supervisor:thread-global-prev object))
   ;; Only scan the thread's stack, MV area & TLS area when it's alive.
-  (when (not (eql (mezzano.supervisor:thread-state object) :dead))
-    (let ((address (ash (%pointer-field object) 4)))
-      ;; Unconditonally scavenge the TLS area.
-      (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-tls-slots-start+ 8))
-                     (- mezzano.supervisor::+thread-tls-slots-end+ mezzano.supervisor::+thread-tls-slots-start+))
-      (when (not (or (eql object (mezzano.supervisor:current-thread))
-                     ;; Don't even think about looking at the stacks of these threads. They may run at
-                     ;; any time, even with the world stopped.
-                     ;; Things aren't so bad though, they (should) only contain pointers to wired objects,
-                     ;; and the objects they do point to should be pointed to by other live objects.
-                     (eql object sys.int::*bsp-idle-thread*)
-                     (eql object sys.int::*pager-thread*)
-                     (eql object sys.int::*disk-io-thread*)
-                     (eql object sys.int::*snapshot-thread*)))
-        (cond ((mezzano.supervisor:thread-full-save-p object)
-               (scavenge-full-save-thread object))
-              (t (let* ((stack-pointer (mezzano.supervisor:thread-stack-pointer object))
-                        (frame-pointer (mezzano.supervisor:thread-frame-pointer object))
-                        (return-address (memref-unsigned-byte-64 stack-pointer 0)))
-                   (scavenge-stack stack-pointer frame-pointer return-address))))))))
+  (case (mezzano.supervisor:thread-state object)
+    (:dead) ; Nothing.
+    (0
+     ;; This is a partially-initialized thread.
+     ;; It has nothing on the stack that needs to be scanned, but it's data registers and
+     ;; TLS area may contain live references.
+     (scavenge-thread-data-registers object)
+     (scavenge-thread-tls-area object))
+    (t
+     (scavenge-thread-tls-area object)
+     (when (not (or (eql object (mezzano.supervisor:current-thread))
+                    ;; Don't even think about looking at the stacks of these threads. They may run at
+                    ;; any time, even with the world stopped.
+                    ;; Things aren't so bad though, they (should) only contain pointers to wired objects,
+                    ;; and the objects they do point to should be pointed to by other live objects.
+                    (eql object sys.int::*bsp-idle-thread*)
+                    (eql object sys.int::*pager-thread*)
+                    (eql object sys.int::*disk-io-thread*)
+                    (eql object sys.int::*snapshot-thread*)))
+       (cond ((mezzano.supervisor:thread-full-save-p object)
+              (scavenge-full-save-thread object))
+             (t (let* ((stack-pointer (mezzano.supervisor:thread-stack-pointer object))
+                       (frame-pointer (mezzano.supervisor:thread-frame-pointer object))
+                       (return-address (memref-unsigned-byte-64 stack-pointer 0)))
+                  (scavenge-stack stack-pointer frame-pointer return-address))))))))
 
 (defun gc-info-for-function-offset (function offset)
   ;; Defaults.
