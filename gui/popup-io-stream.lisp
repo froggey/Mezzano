@@ -48,22 +48,20 @@
                                :damage-function (lambda (&rest args)
                                                   (declare (ignore args))
                                                   (setf (frame-dirty-p instance) t))))
-         ;; It's actually ok to hold onto this font, even though WITH-FONT drops the reference.
-         ;; This just means that the font might not be shared with other programs.
-         ;; Sigh...
-         (term (with-font (font *default-monospace-font* *default-monospace-font-size*)
-                 (make-instance 'mezzano.gui.widgets:text-widget
-                                :font font
-                                :framebuffer framebuffer
-                                :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                :width (- width
-                                          (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                          (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                :height (- height
-                                           (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                           (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
-                                :damage-function (lambda (&rest args) (apply #'damage instance args))))))
+         (term (make-instance 'mezzano.gui.widgets:text-widget
+                              :font (mezzano.gui.font:open-font
+                                     mezzano.gui.font:*default-monospace-font*
+                                     mezzano.gui.font:*default-monospace-font-size*)
+                              :framebuffer framebuffer
+                              :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                              :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                              :width (- width
+                                        (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                        (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                              :height (- height
+                                         (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                         (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
+                              :damage-function (lambda (&rest args) (apply #'damage instance args)))))
     (setf (slot-value instance '%framebuffer) framebuffer
           (slot-value instance '%closed) t
           (slot-value instance '%window) nil

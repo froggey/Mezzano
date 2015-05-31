@@ -277,51 +277,53 @@
 
 (defun peek-main ()
   (catch 'quit
-    (mezzano.gui.font:with-font (font mezzano.gui.font:*default-monospace-font* mezzano.gui.font:*default-monospace-font-size*)
-      (let ((fifo (mezzano.supervisor:make-fifo 50)))
-        (mezzano.gui.compositor:with-window (window fifo 640 700)
-          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzano.gui.widgets:frame
-                                       :framebuffer framebuffer
-                                       :title "Peek"
-                                       :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                 (peek (make-instance 'peek-window
-                                      :window window
-                                      :frame frame))
-                 (text-pane (make-instance 'mezzano.gui.widgets:text-widget
-                                           :font font
-                                           :framebuffer framebuffer
-                                           :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                           :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                           :width (- (mezzano.gui.compositor:width window)
-                                                     (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                                     (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                           :height (- (mezzano.gui.compositor:height window)
-                                                      (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                                      (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
-                                           :damage-function (lambda (&rest args)
-                                                              (loop
-                                                                 (let ((ev (mezzano.supervisor:fifo-pop fifo nil)))
-                                                                   (when (not ev) (return))
-                                                                   (dispatch-event peek ev)))
-                                                              (apply #'mezzano.gui.compositor:damage-window window args)))))
-            (setf (slot-value peek '%text-pane) text-pane)
-            (mezzano.gui.widgets:draw-frame frame)
-            (mezzano.gui.compositor:damage-window window
-                                                  0 0
-                                                  (mezzano.gui.compositor:width window)
-                                                  (mezzano.gui.compositor:height window))
-            (loop
-               (when (redraw peek)
-                 (let ((*standard-output* text-pane))
-                   (setf (redraw peek) nil)
-                   (mezzano.gui.widgets:reset *standard-output*)
-                   (print-header)
-                   (fresh-line)
-                   (ignore-errors
-                     (funcall (mode peek)))))
-               (dispatch-event peek (mezzano.supervisor:fifo-pop fifo)))))))))
+    (let ((font (mezzano.gui.font:open-font
+                 mezzano.gui.font:*default-monospace-font*
+                 mezzano.gui.font:*default-monospace-font-size*))
+          (fifo (mezzano.supervisor:make-fifo 50)))
+      (mezzano.gui.compositor:with-window (window fifo 640 700)
+        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzano.gui.widgets:frame
+                                     :framebuffer framebuffer
+                                     :title "Peek"
+                                     :close-button-p t
+                                     :damage-function (mezzano.gui.widgets:default-damage-function window)))
+               (peek (make-instance 'peek-window
+                                    :window window
+                                    :frame frame))
+               (text-pane (make-instance 'mezzano.gui.widgets:text-widget
+                                         :font font
+                                         :framebuffer framebuffer
+                                         :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                         :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                         :width (- (mezzano.gui.compositor:width window)
+                                                   (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                                   (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                         :height (- (mezzano.gui.compositor:height window)
+                                                    (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                                    (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
+                                         :damage-function (lambda (&rest args)
+                                                            (loop
+                                                               (let ((ev (mezzano.supervisor:fifo-pop fifo nil)))
+                                                                 (when (not ev) (return))
+                                                                 (dispatch-event peek ev)))
+                                                            (apply #'mezzano.gui.compositor:damage-window window args)))))
+          (setf (slot-value peek '%text-pane) text-pane)
+          (mezzano.gui.widgets:draw-frame frame)
+          (mezzano.gui.compositor:damage-window window
+                                                0 0
+                                                (mezzano.gui.compositor:width window)
+                                                (mezzano.gui.compositor:height window))
+          (loop
+             (when (redraw peek)
+               (let ((*standard-output* text-pane))
+                 (setf (redraw peek) nil)
+                 (mezzano.gui.widgets:reset *standard-output*)
+                 (print-header)
+                 (fresh-line)
+                 (ignore-errors
+                   (funcall (mode peek)))))
+             (dispatch-event peek (mezzano.supervisor:fifo-pop fifo))))))))
 
 (defun spawn ()
   (mezzano.supervisor:make-thread 'peek-main

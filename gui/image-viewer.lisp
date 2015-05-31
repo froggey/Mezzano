@@ -38,46 +38,46 @@
             (+ top (max 32 (array-dimension image 0)) bottom))))
 
 (defun main (path)
-  (mezzano.gui.font:with-font (font
-                               mezzano.gui.font:*default-monospace-font*
-                               mezzano.gui.font:*default-monospace-font-size*)
-    (let ((fifo (mezzano.supervisor:make-fifo 50))
-          (image (mezzano.gui.desktop::load-image path)))
-      (multiple-value-bind (width height)
-          (compute-window-size image)
-        (mezzano.gui.compositor:with-window (window fifo width height)
-          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzano.gui.widgets:frame
-                                       :framebuffer framebuffer
-                                       :title (namestring path)
-                                       :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                 (viewer (make-instance 'image-viewer
-                                        :fifo fifo
-                                        :window window
-                                        :thread (mezzano.supervisor:current-thread)
-                                        :font font
-                                        :frame frame)))
-            (multiple-value-bind (left right top bottom)
-                (mezzano.gui.widgets:frame-size frame)
-              (mezzano.gui:bitblt (array-dimension image 0) (array-dimension image 1)
-                                  image 0 0
-                                  framebuffer
-                                  (+ top (- (truncate (- height top bottom) 2) (truncate (array-dimension image 0) 2)))
-                                  (+ left (- (truncate (- width left right) 2) (truncate (array-dimension image 1) 2))))
-              (mezzano.gui.widgets:draw-frame frame)
-              (mezzano.gui.compositor:damage-window window
-                                                    0 0
-                                                    width height))
-            (loop
-               (handler-case
-                   (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
-                 (error (c)
-                   (ignore-errors
-                     (format t "Error: ~A~%" c)))
-                 ;; Exit when the close button is clicked.
-                 (mezzano.gui.widgets:close-button-clicked ()
-                   (return-from main))))))))))
+  (let ((font (mezzano.gui.font:open-font
+               mezzano.gui.font:*default-monospace-font*
+               mezzano.gui.font:*default-monospace-font-size*))
+        (fifo (mezzano.supervisor:make-fifo 50))
+        (image (mezzano.gui.desktop::load-image path)))
+    (multiple-value-bind (width height)
+        (compute-window-size image)
+      (mezzano.gui.compositor:with-window (window fifo width height)
+        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzano.gui.widgets:frame
+                                     :framebuffer framebuffer
+                                     :title (namestring path)
+                                     :close-button-p t
+                                     :damage-function (mezzano.gui.widgets:default-damage-function window)))
+               (viewer (make-instance 'image-viewer
+                                      :fifo fifo
+                                      :window window
+                                      :thread (mezzano.supervisor:current-thread)
+                                      :font font
+                                      :frame frame)))
+          (multiple-value-bind (left right top bottom)
+              (mezzano.gui.widgets:frame-size frame)
+            (mezzano.gui:bitblt (array-dimension image 0) (array-dimension image 1)
+                                image 0 0
+                                framebuffer
+                                (+ top (- (truncate (- height top bottom) 2) (truncate (array-dimension image 0) 2)))
+                                (+ left (- (truncate (- width left right) 2) (truncate (array-dimension image 1) 2))))
+            (mezzano.gui.widgets:draw-frame frame)
+            (mezzano.gui.compositor:damage-window window
+                                                  0 0
+                                                  width height))
+          (loop
+             (handler-case
+                 (dispatch-event viewer (mezzano.supervisor:fifo-pop fifo))
+               (error (c)
+                 (ignore-errors
+                   (format t "Error: ~A~%" c)))
+               ;; Exit when the close button is clicked.
+               (mezzano.gui.widgets:close-button-clicked ()
+                 (return-from main)))))))))
 
 (defun spawn (path)
   (setf path (merge-pathnames path))

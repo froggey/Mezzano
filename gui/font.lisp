@@ -3,9 +3,7 @@
 
 (defpackage :mezzano.gui.font
   (:use :cl)
-  (:export #:with-font
-           #:open-font
-           #:close-font
+  (:export #:open-font
            #:name
            #:size
            #:line-height
@@ -285,11 +283,3 @@
             #+(or)(format t "Creating new font ~S with typeface ~S.~%" font typeface)
             (setf (gethash font-key *font-cache*) (sys.int::make-weak-pointer font))
             font))))))
-
-;; TODO: Remove these at some point. They're not needed any more.
-(defmacro with-font ((font name size) &body body)
-  `(let ((,font (open-font ,name ,size)))
-     ,@body))
-
-(defun close-font (font)
-  (declare (ignore font)))

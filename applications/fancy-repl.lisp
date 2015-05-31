@@ -163,49 +163,51 @@
        (return))))
 
 (defun repl-main (&optional initial-function title width height)
-  (with-font (font *default-monospace-font* *default-monospace-font-size*)
-    (let ((fifo (mezzano.supervisor:make-fifo 50)))
-      (mezzano.gui.compositor:with-window (window fifo (or width 800) (or height 600))
-        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-               (frame (make-instance 'mezzano.gui.widgets:frame
-                                     :framebuffer framebuffer
-                                     :title (string (or title initial-function "REPL"))
-                                     :close-button-p t
-                                     :damage-function (mezzano.gui.widgets:default-damage-function window)))
-               (term (make-instance 'fancy-repl
-                                    :fifo fifo
-                                    :window window
-                                    :thread (mezzano.supervisor:current-thread)
-                                    :font font
-                                    :frame frame
-                                    ;; text-widget stuff.
-                                    :framebuffer framebuffer
-                                    :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                    :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                    :width (- (mezzano.gui.compositor:width window)
-                                              (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                              (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                                    :height (- (mezzano.gui.compositor:height window)
-                                               (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                               (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
-                                    :damage-function (mezzano.gui.widgets:default-damage-function window)))
-               (*terminal-io* term)
-               (*standard-input* (make-synonym-stream '*terminal-io*))
-               (*standard-output* *standard-input*)
-               (*error-output* *standard-input*)
-               (*query-io* *standard-input*)
-               (*trace-output* *standard-input*)
-               (*debug-io* *standard-input*))
-          (mezzano.gui.widgets:draw-frame frame)
-          (mezzano.gui.compositor:damage-window window
-                                                0 0
-                                                (mezzano.gui.compositor:width window)
-                                                (mezzano.gui.compositor:height window))
-          (handler-case
-              (funcall (or initial-function #'sys.int::repl))
-            ;; Exit when the close button is clicked.
-            (mezzano.gui.widgets:close-button-clicked ()
-              (return-from repl-main))))))))
+  (let ((font (mezzano.gui.font:open-font
+               mezzano.gui.font:*default-monospace-font*
+               mezzano.gui.font:*default-monospace-font-size*))
+        (fifo (mezzano.supervisor:make-fifo 50)))
+    (mezzano.gui.compositor:with-window (window fifo (or width 800) (or height 600))
+      (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+             (frame (make-instance 'mezzano.gui.widgets:frame
+                                   :framebuffer framebuffer
+                                   :title (string (or title initial-function "REPL"))
+                                   :close-button-p t
+                                   :damage-function (mezzano.gui.widgets:default-damage-function window)))
+             (term (make-instance 'fancy-repl
+                                  :fifo fifo
+                                  :window window
+                                  :thread (mezzano.supervisor:current-thread)
+                                  :font font
+                                  :frame frame
+                                  ;; text-widget stuff.
+                                  :framebuffer framebuffer
+                                  :x-position (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                  :y-position (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                  :width (- (mezzano.gui.compositor:width window)
+                                            (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                            (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
+                                  :height (- (mezzano.gui.compositor:height window)
+                                             (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                             (nth-value 3 (mezzano.gui.widgets:frame-size frame)))
+                                  :damage-function (mezzano.gui.widgets:default-damage-function window)))
+             (*terminal-io* term)
+             (*standard-input* (make-synonym-stream '*terminal-io*))
+             (*standard-output* *standard-input*)
+             (*error-output* *standard-input*)
+             (*query-io* *standard-input*)
+             (*trace-output* *standard-input*)
+             (*debug-io* *standard-input*))
+        (mezzano.gui.widgets:draw-frame frame)
+        (mezzano.gui.compositor:damage-window window
+                                              0 0
+                                              (mezzano.gui.compositor:width window)
+                                              (mezzano.gui.compositor:height window))
+        (handler-case
+            (funcall (or initial-function #'sys.int::repl))
+          ;; Exit when the close button is clicked.
+          (mezzano.gui.widgets:close-button-clicked ()
+            (return-from repl-main)))))))
 
 (defun spawn (&key initial-function title width height)
   (mezzano.supervisor:make-thread (lambda () (repl-main initial-function title width height))
