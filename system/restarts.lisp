@@ -61,10 +61,9 @@
   (apply (restart-function (find-restart-or-die restart)) arguments))
 
 (defmacro restart-bind (clauses &rest forms)
-  `(let ((*active-restarts* (cons (list ,@(mapcar (lambda (clause)
-						    (let ((name (car clause)))
-						      `(make-restart ',name ,@(cdr clause))))
-						  clauses))
+  `(let ((*active-restarts* (cons (list ,@(loop
+                                             for (name . arguments) in clauses
+                                             collect `(make-restart ',name ,@arguments)))
 				  *active-restarts*)))
      ,@forms))
 
@@ -109,20 +108,22 @@
 )
 
 (defmacro restart-case (restartable-form &rest clauses)
-  (let ((block-name (gensym)) (arguments (gensym))
-	(restart-bindings nil) (restart-bodies nil))
+  (let ((block-name (gensym))
+        (arguments (gensym))
+        (restart-bindings '())
+        (restart-bodies '()))
     (dolist (clause clauses)
       (multiple-value-bind (binding label body)
 	  (handle-restart-case-clause clause block-name arguments)
 	(push binding restart-bindings)
-	(push body restart-bodies)
-	(push label restart-bodies)))
+	(push label restart-bodies)
+	(push body restart-bodies)))
     `(block ,block-name
        (let ((,arguments nil))
 	 (tagbody
-	    (restart-bind ,restart-bindings
+	    (restart-bind ,(reverse restart-bindings)
 	      (return-from ,block-name ,restartable-form))
-	    ,@restart-bodies)))))
+	    ,@(reverse restart-bodies))))))
 
 (defmacro with-simple-restart ((name format-control &rest format-arguments) &body forms)
   `(restart-case (progn ,@forms)
