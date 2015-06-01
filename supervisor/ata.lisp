@@ -102,8 +102,9 @@ Returns true when the bits are equal, false when the timeout expires or if the d
          (return t)))
      (when (<= timeout 0)
        (return nil))
-     (sleep 0.001)
-     (decf timeout 0.001)))
+     ;; FIXME: Depends on the granularity of the timer.
+     (sleep 0.01)
+     (decf timeout 0.01)))
 
 (defun ata-select-device (controller channel)
   ;; select-device should never be called with a command in progress on the controller.
@@ -494,7 +495,7 @@ This is used to implement the INTRQ_Wait state."
     (sleep 0.002) ; Hold SRST low for 2ms before probing for drives.
     ;; Now wait for BSY to clear. It may take up to 31 seconds for the
     ;; reset to finish, which is a bit silly...
-    (when (not (ata-wait-for-controller controller +ata-bsy+ 0 31))
+    (when (not (ata-wait-for-controller controller +ata-bsy+ 0 2))
       ;; BSY did not go low, no devices on this controller.
       (debug-write-line "No devices on ata controller.")
       (return-from init-ata-controller))

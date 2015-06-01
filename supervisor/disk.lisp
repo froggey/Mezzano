@@ -66,6 +66,7 @@
                          :max-transfer max-transfer
                          :read-fn read-fn
                          :write-fn write-fn)))
+    (debug-print-line "Registered new disk " disk " sectors:" n-sectors)
     (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
 
 (defun initialize-disk ()
