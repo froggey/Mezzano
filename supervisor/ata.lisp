@@ -56,9 +56,11 @@
 
 ;; Commands.
 (defconstant +ata-command-read-sectors+ #x20)
+(defconstant +ata-command-read-sectors-ext+ #x24)
 (defconstant +ata-command-read-dma+ #xC8)
 (defconstant +ata-command-read-dma-ext+ #x25)
 (defconstant +ata-command-write-sectors+ #x30)
+(defconstant +ata-command-write-sectors-ext+ #x3A)
 (defconstant +ata-command-write-dma+ #xCA)
 (defconstant +ata-command-write-dma-ext+ #x35)
 (defconstant +ata-command-identify+ #xEC)
@@ -81,7 +83,8 @@
   controller
   channel
   block-size
-  sector-count)
+  sector-count
+  lba48-capable)
 
 (defun ata-alt-status (controller)
   "Read the alternate status register."
@@ -157,22 +160,31 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (dotimes (i 256)
       (setf (svref buf i) (sys.int::io-port/16 (+ (ata-controller-command controller)
                                                   +ata-register-data+))))
-    (let ((device (make-ata-device :controller controller
-                                   :channel channel
-                                   ;; Check for large sector drives.
-                                   :block-size (if (and (logbitp 14 (svref buf 106))
-                                                        (not (logbitp 13 (svref buf 106))))
-                                                   (logior (ash (svref buf 118) 16)
-                                                           (svref buf 117))
-                                                   512)
-                                   ;; TODO: LBA48 support.
-                                   :sector-count (logior (ash (svref buf 61) 16)
-                                                         (svref buf 60)))))
-      (setf *ata-devices*
-            (sys.int::cons-in-area
-             device
-             *ata-devices*
-             :wired))
+    (let* ((supported-command-sets (svref buf 83))
+           (lba48-capable (logbitp 10 supported-command-sets))
+           (sector-size (if (and (logbitp 14 (svref buf 106))
+                                 (not (logbitp 13 (svref buf 106))))
+                            ;; Data in logical sector size field valid.
+                            (logior (svref buf 117)
+                                    (ash (svref buf 118) 16))
+                            ;; Not valid, use 512. (TODO: PACKET devices? when was this field introduced?)
+                            512))
+           (sector-count (if lba48-capable
+                             (logior (svref buf 100)
+                                     (ash (svref buf 101) 16)
+                                     (ash (svref buf 102) 32)
+                                     (ash (svref buf 103) 48))
+                             (logior (svref buf 60)
+                                     (ash (svref buf 61) 16))))
+           (device (make-ata-device :controller controller
+                                    :channel channel
+                                    :block-size sector-size
+                                    :sector-count sector-count
+                                    :lba48-capable lba48-capable)))
+      (debug-print-line "Features (83): " supported-command-sets)
+      (debug-print-line "Sector size: " sector-size)
+      (debug-print-line "Sector count: " sector-count)
+      (push-wired device *ata-devices*)
       (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
@@ -208,6 +220,35 @@ Returns true when the bits are equal, false when the timeout expires or if the d
     (setf (sys.int::io-port/8 (+ (ata-controller-command controller)
                                  +ata-register-command+))
           command))
+  t)
+
+(defun ata-issue-lba48-command (device lba count command)
+  (let* ((controller (ata-device-controller device))
+         (command-base (ata-controller-command controller)))
+    ;; Select the device.
+    (when (not (ata-select-device controller (ata-device-channel device)))
+      (debug-write-line "Could not select ata device.")
+      (return-from ata-issue-lba48-command nil))
+    (latch-reset (ata-controller-irq-latch controller))
+    ;; HI3: Write_parameters
+    (when (eql count 65536)
+      (setf count 0))
+    (flet ((wr (reg val)
+             (setf (sys.int::io-port/8 (+ command-base reg)) val)))
+      (wr +ata-register-count+    (ldb (byte 8 8) count))
+      (wr +ata-register-count+    (ldb (byte 8 0) count))
+      (wr +ata-register-lba-high+ (ldb (byte 8 40) lba))
+      (wr +ata-register-lba-mid+  (ldb (byte 8 32) lba))
+      (wr +ata-register-lba-low+  (ldb (byte 8 24) lba))
+      (wr +ata-register-lba-high+ (ldb (byte 8 16) lba))
+      (wr +ata-register-lba-mid+  (ldb (byte 8 8) lba))
+      (wr +ata-register-lba-low+  (ldb (byte 8 0) lba))
+      (wr +ata-register-device+ (logior (ecase (ata-device-channel device)
+                                          (:master 0)
+                                          (:slave +ata-dev+))
+                                        +ata-lba+))
+      ;; HI4: Write_command
+      (wr +ata-register-command+ command)))
   t)
 
 (defun ata-check-status (device &optional (timeout 30))
@@ -324,9 +365,15 @@ This is used to implement the INTRQ_Wait state."
     (assert (>= lba 0))
     (assert (>= count 0))
     (assert (< (+ lba count) (ata-device-sector-count device)))
-    (when (> count 256)
-      (debug-print-line "Can't do " what " of more than 256 sectors.")
-      (return-from ata-read-write (values nil :too-many-sectors)))
+    (cond
+      ((ata-device-lba48-capable device)
+       (when (> count 65536)
+         (debug-print-line "Can't do " what " of more than 65,536 sectors.")
+         (return-from ata-read-write (values nil :too-many-sectors))))
+      (t
+       (when (> count 256)
+         (debug-print-line "Can't do " what " of more than 256 sectors.")
+         (return-from ata-read-write (values nil :too-many-sectors)))))
     (when (eql count 0)
       (return-from ata-read-write t))
     (cond ((and (<= +physical-map-base+ mem-addr)
@@ -347,15 +394,24 @@ This is used to implement the INTRQ_Wait state."
            (funcall pio-fn controller device lba count mem-addr))))
   t)
 
+(defun ata-issue-lba-command (device lba count command28 command48)
+  (if (ata-device-lba48-capable device)
+      (ata-issue-lba48-command device lba count command48)
+      (ata-issue-lba28-command device lba count command28)))
+
 (defun ata-read-pio (controller device lba count mem-addr)
-  (when (not (ata-issue-lba28-command device lba count +ata-command-read-sectors+))
+  (when (not (ata-issue-lba-command device lba count
+                                    +ata-command-read-sectors+
+                                    +ata-command-read-sectors-ext+))
     (return-from ata-read-pio (values nil :device-error)))
   (when (not (ata-pio-data-in device count mem-addr))
     (return-from ata-read-pio (values nil :device-error))))
 
 (defun ata-read-dma (controller device lba count phys-addr)
   (ata-configure-prdt controller phys-addr (* count 512) :read)
-  (when (not (ata-issue-lba28-command device lba count +ata-command-read-dma+))
+  (when (not (ata-issue-lba-command device lba count
+                                    +ata-command-read-dma+
+                                    +ata-command-read-dma-ext+))
     (return-from ata-read-dma (values nil :device-error)))
   ;; Start DMA.
   ;; FIXME: Bochs has absurd timing requirements here. Needs to be *immediately* (tens of instructions)
@@ -378,14 +434,18 @@ This is used to implement the INTRQ_Wait state."
                   :read #'ata-read-dma #'ata-read-pio))
 
 (defun ata-write-pio (controller device lba count mem-addr)
-  (when (not (ata-issue-lba28-command device lba count +ata-command-write-sectors+))
+  (when (not (ata-issue-lba-command device lba count
+                                    +ata-command-write-sectors+
+                                    +ata-command-write-sectors-ext+))
     (return-from ata-write-pio (values nil :device-error)))
   (when (not (ata-pio-data-out device count mem-addr))
     (return-from ata-write-pio (values nil :device-error))))
 
 (defun ata-write-dma (controller device lba count phys-addr)
   (ata-configure-prdt controller phys-addr (* count 512) :write)
-  (when (not (ata-issue-lba28-command device lba count +ata-command-write-dma+))
+  (when (not (ata-issue-lba-command device lba count
+                                    +ata-command-write-dma+
+                                    +ata-command-write-dma-ext+))
     (return-from ata-write-dma (values nil :device-error)))
   ;; Start DMA.
   ;; FIXME: Bochs has absurd timing requirements here. Needs to be *immediately* (tens of instructions)
