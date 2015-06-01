@@ -286,9 +286,8 @@ If clear, the fault occured in supervisor mode.")
 
 (defun i8259-interrupt-handler (interrupt-frame info)
   (declare (ignore interrupt-frame))
-  (let* ((irq (- info +i8259-base-interrupt+))
-         (handler (svref *i8259-handlers* irq)))
-    (when handler
+  (let ((irq (- info +i8259-base-interrupt+)))
+    (dolist (handler (svref *i8259-handlers* irq))
       (funcall handler interrupt-frame irq))
     ;; Send EOI.
     (with-symbol-spinlock (*i8259-spinlock*)
@@ -320,7 +319,7 @@ If clear, the fault occured in supervisor mode.")
 
 (defun i8259-hook-irq (irq handler)
   (check-type handler (or null function symbol))
-  (setf (svref *i8259-handlers* irq) handler))
+  (push-wired handler (svref *i8259-handlers* irq)))
 
 (defun initialize-i8259 ()
   ;; TODO: do the APIC & IO-APIC as well.
