@@ -47,10 +47,6 @@
                                    sys.int::+block-map-zero-fill+))
     stack))
 
-;; TODO.
-(defun sleep (seconds)
-  nil)
-
 ;;; <<<<<<
 
 (defvar *boot-information-page*)

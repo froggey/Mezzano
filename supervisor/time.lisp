@@ -9,9 +9,12 @@
 
 (defvar *rtc-lock*)
 
+(defvar *pit-tick-rate* 0)
+
 ;; http://wiki.osdev.org/Programmable_Interval_Timer
 (defun configure-pit-tick-rate (hz)
   (let ((divisor (truncate 1193180 hz)))
+    (setf *pit-tick-rate* (/ 1.0 hz))
     ;; Channel 0. lobyte/hibyte. Square wave generator. Not BCD.
     (setf (system:io-port/8 #x43) #x36)
     ;; Write low & high bytes to channel 0.
@@ -45,6 +48,12 @@
     (setf (thread-wait-item self) *heartbeat-wait-queue*
           (thread-state self) :sleeping)
     (%reschedule)))
+
+;; TODO properly.
+(defun sleep (seconds)
+  (dotimes (i (ceiling seconds *pit-tick-rate*))
+    (wait-for-heartbeat))
+  nil)
 
 ;; RTC IO ports.
 (defconstant +rtc-index-io-reg+ #x70)
