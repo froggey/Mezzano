@@ -209,7 +209,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
                  (incf to-base to-pitch)
                  (incf from-base from-pitch))
                (incf *debug-video-x* 8)
-               (when (>= *debug-video-x* col-width)
+               (when (>= *debug-video-x* (- col-width 16))
                  (debug-video-write-char #\Newline))))))))
 
 (defun debug-video-write-string (string)
