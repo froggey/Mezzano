@@ -189,17 +189,21 @@
 (defun pci-scan (bus)
   (dotimes (device 32)
     ;; High bit of the header type specifies if a device is multifunction.
-    (let ((multifunction (eql (logand (pci-config/8 (make-pci-location bus device 0) +pci-config-hdr-type+) #x80) #x80)))
+    (let ((multifunction (logbitp 7 (pci-config/8 (make-pci-location bus device 0) +pci-config-hdr-type+))))
       (dotimes (function (if multifunction 8 1))
 	(let* ((location (make-pci-location bus device function))
                (vendor-id (pci-config/16 location +pci-config-vendorid+))
                (device-id (pci-config/16 location +pci-config-deviceid+))
                (base-class-code (pci-base-class location))
                (sub-class-code (pci-sub-class location))
-               (programming-interface (pci-programming-interface location)))
+               (programming-interface (pci-programming-interface location))
+               (header-type (ldb (byte 7 0) (pci-config/8 location +pci-config-hdr-type+))))
 	  (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-            (debug-print-line "PCI:" bus ":" device ":" function " " vendor-id ":" device-id " " base-class-code ":" sub-class-code ":" programming-interface " "
-                              (pci-config/8 location +pci-config-revid+))
+            (debug-print-line "PCI:" bus ":" device ":" function
+                              " " vendor-id ":" device-id
+                              " " base-class-code ":" sub-class-code ":" programming-interface
+                              " " (pci-config/8 location +pci-config-revid+)
+                              " " header-type)
             (cond ((and (eql vendor-id #x1AF4)
                         (<= #x1000 device-id #x103F))
                    ;; Some kind of virtio-device.
@@ -218,7 +222,7 @@
                          (eql device-id #x2822)))
                    ;; An AHCI controller.
                    (ahci-pci-register location))
-                  ((eql (pci-config/8 location +pci-config-hdr-type+) +pci-bridge-htype+)
+                  ((eql header-type +pci-bridge-htype+)
                    ;; Bridge device, scan the other side.
                    (pci-scan (pci-config/8 location +pci-bridge-secondary-bus+))))))))))
 
