@@ -3,6 +3,8 @@
 
 (in-package :mezzano.supervisor)
 
+(defconstant internal-time-units-per-second 1000000)
+
 (defconstant +pit-irq+ 0)
 
 (defvar *heartbeat-wait-queue*)
@@ -11,10 +13,15 @@
 
 (defvar *pit-tick-rate* 0)
 
+(defvar *run-time-advance*)
+(defvar *run-time*)
+
 ;; http://wiki.osdev.org/Programmable_Interval_Timer
 (defun configure-pit-tick-rate (hz)
   (let ((divisor (truncate 1193180 hz)))
-    (setf *pit-tick-rate* (/ 1.0 hz))
+    (setf *pit-tick-rate* (/ 1.0 hz)
+          *run-time-advance* (truncate (* *pit-tick-rate*
+                                          internal-time-units-per-second)))
     ;; Channel 0. lobyte/hibyte. Square wave generator. Not BCD.
     (setf (system:io-port/8 #x43) #x36)
     ;; Write low & high bytes to channel 0.
@@ -25,12 +32,14 @@
   (when (not (boundp '*heartbeat-wait-queue*))
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
     (setf *rtc-lock* (place-spinlock-initializer)))
+  (setf *run-time* 0)
   (configure-pit-tick-rate 100)
   (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
   (i8259-unmask-irq +pit-irq+))
 
 (defun pit-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
+  (incf *run-time* *run-time-advance*)
   (with-wait-queue-lock (*heartbeat-wait-queue*)
     (do ()
         ((null (wait-queue-head *heartbeat-wait-queue*)))
@@ -54,6 +63,12 @@
   (dotimes (i (ceiling seconds *pit-tick-rate*))
     (wait-for-heartbeat))
   nil)
+
+(defun get-internal-real-time ()
+  (* (get-universal-time) internal-time-units-per-second))
+
+(defun get-internal-run-time ()
+  *run-time*)
 
 ;; RTC IO ports.
 (defconstant +rtc-index-io-reg+ #x70)

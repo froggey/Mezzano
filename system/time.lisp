@@ -58,11 +58,3 @@
             (finish-time (get-universal-time)))
         (format *trace-output* "; Execution took ~:D seconds.~%" (- finish-time start-time))
         (format *trace-output* "; Execution took ~:D cycles.~%" (- finish-cycle start-cycle))))))
-
-(defconstant internal-time-units-per-second 1)
-
-(defun get-internal-real-time ()
-  (get-universal-time))
-
-(defun get-internal-run-time ()
-  (get-universal-time))
