@@ -228,6 +228,10 @@
                          (eql device-id #x2822)))
                    ;; An AHCI controller.
                    (ahci-pci-register location))
+                  ((and (eql vendor-id #x10EC)
+                        (eql device-id #x8168))
+                   ;; The NIC in my test machine.
+                   (rtl8168-pci-register location))
                   ((eql header-type +pci-bridge-htype+)
                    ;; Bridge device, scan the other side.
                    (pci-scan (pci-config/8 location +pci-bridge-secondary-bus+))))))))))
