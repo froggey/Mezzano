@@ -117,7 +117,13 @@
 (defun pci-io-region (location bar size)
   (let ((address (pci-bar location bar)))
     (when (not (logbitp 0 location))
-      (map-physical-memory (logand address (lognot #b1111)) size "PCI MMIO"))
+      (let* ((base (logand address (lognot #b1111)))
+             (end (align-up (+ base size) #x1000))
+             (aligned-base (logand base (lognot #xFFF)))
+             (aligned-size (- end aligned-base)))
+        (map-physical-memory aligned-base
+                             aligned-size
+                             "PCI MMIO")))
     address))
 
 (defun pci-intr-line (location)
