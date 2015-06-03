@@ -269,5 +269,4 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (makunbound '*warm-llf-files*)
   (mezzano.supervisor:snapshot)
   (write-line "Hello, world.")
-  (terpri)
-  (repl))
+  (terpri))
