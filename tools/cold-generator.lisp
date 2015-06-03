@@ -614,8 +614,7 @@
         ;; NIL.
         (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
                                                  sys.int::+tag-object+))
-        (setf (ub64ref/le header 64) (/ image-size #x1000))
-        ;; 72-96 free.
+        ;; 64-96 free.
         ;; Top-level block map.
         (setf (ub64ref/le header 96) (/ bml4-block #x1000))
         ;; Free block list.

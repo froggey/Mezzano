@@ -114,14 +114,13 @@ the data. Free the page with FREE-PAGE when done."
     (setf *bml4* (level-4 bml4-block))
     (debug-print-line "BML4 at " *bml4*)))
 
-(defconstant +image-header-image-size+ 64)
 (defconstant +image-header-block-map+ 96)
 (defconstant +image-header-freelist+ 104)
 
 (defun initialize-paging-system (disk header)
   (setf *paging-disk* disk)
   (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0))
-  (initialize-store-freelist (sys.int::memref-unsigned-byte-64 (+ header +image-header-image-size+) 0)
+  (initialize-store-freelist (truncate (* (disk-n-sectors *paging-disk*) (disk-sector-size *paging-disk*)) #x1000)
                              (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0)))
 
 (defun detect-paging-disk ()
