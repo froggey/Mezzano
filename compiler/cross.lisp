@@ -226,6 +226,7 @@
            #:remove-boot-hook
            #:store-statistics
            #:physical-memory-statistics
+           #:reboot
 
            ;; Temporary drivers.
            #:ps/2-key-read
