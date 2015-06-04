@@ -562,146 +562,150 @@
       (read-sequence data s)
       data)))
 
-(defun write-image (name entry-fref initial-thread image-size header-path)
-  (with-open-file (s (make-pathname :type "image" :defaults name)
-                     :direction :output
-                     :element-type '(unsigned-byte 8)
-                     :if-exists :supersede)
-    (let* ((image-header-data (when header-path
-                                (load-image-header header-path)))
-           (image-offset (if image-header-data
-                             (length image-header-data)
-                             0))
-           (bml4-block *store-bump*)
-           (bml4 (make-array 512 :initial-element nil))
-           (free-block-list (+ *store-bump* #x1000)))
+(defun write-image (s entry-fref initial-thread image-size header-path)
+  (let* ((image-header-data (when header-path
+                              (load-image-header header-path)))
+         (image-offset (if image-header-data
+                           (length image-header-data)
+                           0))
+         (bml4-block *store-bump*)
+         (bml4 (make-array 512 :initial-element nil))
+         (free-block-list (+ *store-bump* #x1000)))
+    (when (and header-path
+               (not image-size))
+      ;; When a header is used, a full disk image is being created, not
+      ;; a stand-alone image.
+      ;; Set a reasonably sensible default image size if none was provided.
+      (setf image-size (* 256 1024 1024)))
+    (when image-size
       (decf image-size image-offset)
-      (format t "Generating ~:D byte image.~%" image-size)
-      (when image-header-data
-        (format t "Using ~S as the image header.~%" header-path))
-      (format t "BML4 at offset ~X~%" bml4-block)
-      (format t "FBL  at offset ~X~%" free-block-list)
-      (when image-header-data
-        (write-sequence image-header-data s)
-        ;; Update the size of the second partition entry, the Mezzano partiton.
-        (file-position s #x1DA)
-        (nibbles:write-ub32/le (truncate image-size 512) s))
-      (incf *store-bump* #x2000)
+      (format t "Generating ~:D byte image.~%" image-size))
+    (when image-header-data
+      (format t "Using ~S as the image header.~%" header-path))
+    (format t "BML4 at offset ~X~%" bml4-block)
+    (format t "FBL  at offset ~X~%" free-block-list)
+    (when image-header-data
+      (write-sequence image-header-data s)
+      ;; Update the size of the second partition entry, the Mezzano partiton.
+      (file-position s #x1DA)
+      (nibbles:write-ub32/le (truncate image-size 512) s))
+    (incf *store-bump* #x2000)
+    (when image-size
       (file-position s (1- (+ image-offset image-size)))
-      (write-byte 0 s)
-      (file-position s image-offset)
-      ;; Image header.
-      (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
-        ;; Magic.
-        (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
-                 :start1 0)
-        ;; UUID.
-        (dotimes (i 16)
-          (setf (aref header (+ 16 i)) (case i
-                                         (9 (logior #x40 (random 16)))
-                                         (7 (logior (random 64) #x80))
-                                         (t (random 256)))))
-        ;; Major version.
-        (setf (ub16ref/le header 32) 0)
-        ;; Minor version.
-        (setf (ub16ref/le header 34) 20)
-        ;; Number of extents.
-        (setf (ub32ref/le header 36) 2)
-        ;; Entry fref.
-        (setf (ub64ref/le header 40) entry-fref)
-        ;; Initial thread.
-        (setf (ub64ref/le header 48) initial-thread)
-        ;; NIL.
-        (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
-                                                 sys.int::+tag-object+))
-        ;; 64-96 free.
-        ;; Top-level block map.
-        (setf (ub64ref/le header 96) (/ bml4-block #x1000))
-        ;; Free block list.
-        (setf (ub64ref/le header 104) (/ free-block-list #x1000))
-        (flet ((extent (id virtual-base size flags &optional (extra 0))
-                 (setf (ub64ref/le header (+ 112 (* id 32) 0)) virtual-base
-                       (ub64ref/le header (+ 112 (* id 32) 8)) size
-                       (ub64ref/le header (+ 112 (* id 32) 16)) flags
-                       (ub64ref/le header (+ 112 (* id 32) 24)) extra)))
-          (extent 0 +wired-area-base+ (- +wired-area-limit+ +wired-area-base+) 0)
-          (extent 1
-                  (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-                  (- +wired-stack-area-limit+ +wired-stack-area-base+)
-                  0))
-        ;; Write it out.
-        (write-sequence header s))
-      ;; Write areas.
-      (file-position s (+ image-offset *wired-area-store*))
-      (format t "Wired area at ~X, ~:D bytes.~%"
-              *wired-area-store* (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
-      (write-sequence *wired-area-data* s :end (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
-      (format t "Pinned area at ~X, ~:D bytes.~%"
-              *pinned-area-store* (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
-      (file-position s (+ image-offset *pinned-area-store*))
-      (write-sequence *pinned-area-data* s :end (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
-      (format t "General area at ~X, ~:D bytes.~%"
-              *general-area-store* (align-up *general-area-bump* #x1000))
-      (file-position s (+ image-offset *general-area-store*))
-      (write-sequence *general-area-data* s :end (align-up *general-area-bump* #x1000))
-      (format t "Cons area at ~X, ~:D bytes.~%"
-              *cons-area-store* (align-up *cons-area-bump* #x1000))
-      (file-position s (+ image-offset *cons-area-store*))
-      (write-sequence *cons-area-data* s :end (align-up *cons-area-bump* #x1000))
-      ;; Generate the block map.
+      (write-byte 0 s))
+    (file-position s image-offset)
+    ;; Image header.
+    (let ((header (make-array 4096 :element-type '(unsigned-byte 8) :initial-element 0)))
+      ;; Magic.
+      (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+               :start1 0)
+      ;; UUID.
+      (dotimes (i 16)
+        (setf (aref header (+ 16 i)) (case i
+                                       (9 (logior #x40 (random 16)))
+                                       (7 (logior (random 64) #x80))
+                                       (t (random 256)))))
+      ;; Major version.
+      (setf (ub16ref/le header 32) 0)
+      ;; Minor version.
+      (setf (ub16ref/le header 34) 20)
+      ;; Number of extents.
+      (setf (ub32ref/le header 36) 2)
+      ;; Entry fref.
+      (setf (ub64ref/le header 40) entry-fref)
+      ;; Initial thread.
+      (setf (ub64ref/le header 48) initial-thread)
+      ;; NIL.
+      (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
+                                               sys.int::+tag-object+))
+      ;; 64-96 free.
+      ;; Top-level block map.
+      (setf (ub64ref/le header 96) (/ bml4-block #x1000))
+      ;; Free block list.
+      (setf (ub64ref/le header 104) (/ free-block-list #x1000))
+      (flet ((extent (id virtual-base size flags &optional (extra 0))
+               (setf (ub64ref/le header (+ 112 (* id 32) 0)) virtual-base
+                     (ub64ref/le header (+ 112 (* id 32) 8)) size
+                     (ub64ref/le header (+ 112 (* id 32) 16)) flags
+                     (ub64ref/le header (+ 112 (* id 32) 24)) extra)))
+        (extent 0 +wired-area-base+ (- +wired-area-limit+ +wired-area-base+) 0)
+        (extent 1
+                (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+                (- +wired-stack-area-limit+ +wired-stack-area-base+)
+                0))
+      ;; Write it out.
+      (write-sequence header s))
+    ;; Write areas.
+    (file-position s (+ image-offset *wired-area-store*))
+    (format t "Wired area at ~X, ~:D bytes.~%"
+            *wired-area-store* (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
+    (write-sequence *wired-area-data* s :end (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
+    (format t "Pinned area at ~X, ~:D bytes.~%"
+            *pinned-area-store* (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+    (file-position s (+ image-offset *pinned-area-store*))
+    (write-sequence *pinned-area-data* s :end (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+    (format t "General area at ~X, ~:D bytes.~%"
+            *general-area-store* (align-up *general-area-bump* #x1000))
+    (file-position s (+ image-offset *general-area-store*))
+    (write-sequence *general-area-data* s :end (align-up *general-area-bump* #x1000))
+    (format t "Cons area at ~X, ~:D bytes.~%"
+            *cons-area-store* (align-up *cons-area-bump* #x1000))
+    (file-position s (+ image-offset *cons-area-store*))
+    (write-sequence *cons-area-data* s :end (align-up *cons-area-bump* #x1000))
+    ;; Generate the block map.
+    (add-region-to-block-map bml4
+                             (/ *wired-area-store* #x1000)
+                             +wired-area-base+
+                             (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
+                             (logior sys.int::+block-map-present+
+                                     sys.int::+block-map-writable+))
+    (add-region-to-block-map bml4
+                             (/ *pinned-area-store* #x1000)
+                             +pinned-area-base+
+                             (/ (- (align-up *pinned-area-bump* #x200000) +pinned-area-base+) #x1000)
+                             (logior sys.int::+block-map-present+
+                                     sys.int::+block-map-writable+))
+    (add-region-to-block-map bml4
+                             (/ *general-area-store* #x1000)
+                             (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                             (/ (align-up *general-area-bump* #x200000) #x1000)
+                             (logior sys.int::+block-map-present+
+                                     sys.int::+block-map-writable+))
+    (add-region-to-block-map bml4
+                             (/ (+ *general-area-store* (align-up *general-area-bump* #x200000)) #x1000)
+                             (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                             (/ (align-up *general-area-bump* #x200000) #x1000)
+                             (logior sys.int::+block-map-zero-fill+))
+    (add-region-to-block-map bml4
+                             (/ *cons-area-store* #x1000)
+                             (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                             (/ (align-up *cons-area-bump* #x200000) #x1000)
+                             (logior sys.int::+block-map-present+
+                                     sys.int::+block-map-writable+))
+    (add-region-to-block-map bml4
+                             (/ (+ *cons-area-store* (align-up *cons-area-bump* #x200000)) #x1000)
+                             (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
+                                     (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                             (/ (align-up *cons-area-bump* #x200000) #x1000)
+                             (logior sys.int::+block-map-zero-fill+))
+    (dolist (stack *stack-list*)
       (add-region-to-block-map bml4
-                               (/ *wired-area-store* #x1000)
-                               +wired-area-base+
-                               (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
+                               (/ (stack-store stack) #x1000)
+                               (stack-base stack)
+                               (/ (stack-size stack) #x1000)
                                (logior sys.int::+block-map-present+
-                                       sys.int::+block-map-writable+))
-      (add-region-to-block-map bml4
-                               (/ *pinned-area-store* #x1000)
-                               +pinned-area-base+
-                               (/ (- (align-up *pinned-area-bump* #x200000) +pinned-area-base+) #x1000)
-                               (logior sys.int::+block-map-present+
-                                       sys.int::+block-map-writable+))
-      (add-region-to-block-map bml4
-                               (/ *general-area-store* #x1000)
-                               (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                               (/ (align-up *general-area-bump* #x200000) #x1000)
-                               (logior sys.int::+block-map-present+
-                                       sys.int::+block-map-writable+))
-      (add-region-to-block-map bml4
-                               (/ (+ *general-area-store* (align-up *general-area-bump* #x200000)) #x1000)
-                               (logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
-                                       (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                               (/ (align-up *general-area-bump* #x200000) #x1000)
-                               (logior sys.int::+block-map-zero-fill+))
-      (add-region-to-block-map bml4
-                               (/ *cons-area-store* #x1000)
-                               (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                               (/ (align-up *cons-area-bump* #x200000) #x1000)
-                               (logior sys.int::+block-map-present+
-                                       sys.int::+block-map-writable+))
-      (add-region-to-block-map bml4
-                               (/ (+ *cons-area-store* (align-up *cons-area-bump* #x200000)) #x1000)
-                               (logior (ash sys.int::+address-tag-cons+ sys.int::+address-tag-shift+)
-                                       (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                               (/ (align-up *cons-area-bump* #x200000) #x1000)
-                               (logior sys.int::+block-map-zero-fill+))
-      (dolist (stack *stack-list*)
-        (add-region-to-block-map bml4
-                                 (/ (stack-store stack) #x1000)
-                                 (stack-base stack)
-                                 (/ (stack-size stack) #x1000)
-                                 (logior sys.int::+block-map-present+
-                                         sys.int::+block-map-writable+
-                                         sys.int::+block-map-zero-fill+)))
-      ;; Now write it out.
-      (write-block-map s image-offset bml4-block bml4)
-      ;; Create the freelist.
-      ;; One entry, allocating our storage area.
-      (let ((freelist-data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
-        (setf (nibbles:ub64ref/le freelist-data 0) 0
-              (nibbles:ub64ref/le freelist-data 8) (ash (/ *store-bump* #x1000) 1))
-        (file-position s (+ image-offset free-block-list))
-        (write-sequence freelist-data s))))
+                                       sys.int::+block-map-writable+
+                                       sys.int::+block-map-zero-fill+)))
+    ;; Now write it out.
+    (write-block-map s image-offset bml4-block bml4)
+    ;; Create the freelist.
+    ;; One entry, allocating our storage area.
+    (let ((freelist-data (make-array #x1000 :element-type '(unsigned-byte 8) :initial-element 0)))
+      (setf (nibbles:ub64ref/le freelist-data 0) 0
+            (nibbles:ub64ref/le freelist-data 8) (ash (/ *store-bump* #x1000) 1))
+      (file-position s (+ image-offset free-block-list))
+      (write-sequence freelist-data s)))
   (values))
 
 (defun array-header (tag length)
@@ -826,8 +830,8 @@
           (setf (word (+ obarray 1 i)) (make-value (store-string object) sys.int::+tag-object+)))
     (setf (cold-symbol-value target-symbol) (make-value obarray sys.int::+tag-object+))))
 
-(defun write-map-file (image-name map)
-  (with-open-file (s (format nil "~A.map" image-name)
+(defun write-map-file (pathname map)
+  (with-open-file (s pathname
                      :direction :output
                      :if-exists :supersede)
     (let ((*print-right-margin* 10000))
@@ -1218,7 +1222,7 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files header-path (image-size (* 256 1024 1024)))
+(defun make-image (image-name &key extra-source-files header-path image-size map-file-name)
   (let* ((*wired-area-bump* +wired-area-base+)
          (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*wired-area-store* nil)
@@ -1380,13 +1384,24 @@
       (set-value 'sys.int::*stack-area-bump* +stack-area-base+))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
-    (write-map-file image-name *function-map*)
-    (write-image image-name
-                 (make-value (function-reference 'sys.int::%%bootloader-entry-point)
-                             sys.int::+tag-object+)
-                 initial-thread
-                 image-size
-                 header-path)))
+    (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
+    (if (streamp image-name)
+        (write-image image-name
+                     (make-value (function-reference 'sys.int::%%bootloader-entry-point)
+                                 sys.int::+tag-object+)
+                     initial-thread
+                     image-size
+                     header-path)
+        (with-open-file (s (make-pathname :type "image" :defaults image-name)
+                           :direction :output
+                           :element-type '(unsigned-byte 8)
+                           :if-exists :supersede)
+          (write-image s
+                       (make-value (function-reference 'sys.int::%%bootloader-entry-point)
+                                   sys.int::+tag-object+)
+                       initial-thread
+                       image-size
+                       header-path)))))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
   (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
