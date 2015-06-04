@@ -565,6 +565,7 @@
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F12))
                   (when (key-releasep event)
+                    ;; Switch keymaps.
                     (setf *current-keymap* (if (eql *current-keymap* *engb-keymap*)
                                                *enus-keymap*
                                                *engb-keymap*))))
@@ -573,9 +574,18 @@
                   (when (and (key-releasep event)
                              *active-window*
                              (window-thread *active-window*))
+                    ;; BREAK into the thread associated with the current window.
                     (mezzano.supervisor:establish-thread-foothold
                      (window-thread *active-window*)
                      (lambda () (break)))))
+                 ((and (member :meta *keyboard-modifier-state*)
+                       (eql translated #\F1))
+                  (when (key-releasep event)
+                    ;; Redraw the whole screen
+                    (setf *clip-rect-width* (mezzano.supervisor:framebuffer-width *main-screen*)
+                          *clip-rect-height* (mezzano.supervisor:framebuffer-height *main-screen*)
+                          *clip-rect-x* 0
+                          *clip-rect-y* 0)))
                  ;; Otherwise, dispatch to active window.
                  (*active-window*
                   (send-event *active-window*
