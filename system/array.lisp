@@ -234,7 +234,7 @@
       (unless (integerp fill-pointer)
         (error "Invalid :FILL-POINTER ~S." fill-pointer))
       (unless (<= 0 fill-pointer (first dimensions))
-        (error "Fill-pointer ~S out of vector bounds. Should non-negative and <=~S." fill-pointer (first dimensions))))
+        (error "Fill-pointer ~S out of vector bounds. Should be non-negative and <=~S." fill-pointer (first dimensions))))
     (dolist (dimension dimensions)
       (check-type dimension (integer 0)))
     (cond ((and (eql rank 1)
