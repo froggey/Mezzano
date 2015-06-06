@@ -12,9 +12,9 @@
 (defvar *illegal-characters* ".<>\\/")
 
 (defclass local-file-host ()
-  ((name :initarg :name :reader host-name)
-   (root :reader local-host-root)
-   (lock :initarg :lock :reader local-host-lock))
+  ((%name :initarg :name :reader host-name)
+   (%root :reader local-host-root)
+   (%lock :initarg :lock :reader local-host-lock))
   (:default-initargs :lock (mezzano.supervisor:make-mutex "Local File Host lock")))
 
 (defmethod initialize-instance :after ((instance local-file-host) &key &allow-other-keys)
@@ -28,7 +28,7 @@
                               :storage (make-array 1 :initial-element (make-hash-table :test 'equalp))
                               :plist (list :creation-time time
                                            :write-time time))))
-    (setf (slot-value instance 'root) file)))
+    (setf (slot-value instance '%root) file)))
 
 (defclass local-file ()
   ((%truename :initarg :truename :accessor file-truename)
@@ -39,10 +39,12 @@
                      :lock (mezzano.supervisor:make-mutex "Local File lock")))
 
 (defclass local-stream (file-stream sys.gray:fundamental-stream sys.gray:unread-char-mixin)
-  ((file :initarg :file :reader local-stream-file)
-   (pathname :initarg :pathname :reader file-stream-pathname)
-   (position :initarg :position :accessor stream-position)
-   (direction :initarg :direction :reader direction)))
+  ((%file :initarg :file :reader local-stream-file)
+   (%pathname :initarg :pathname :reader file-stream-pathname)
+   (%position :initarg :position :accessor stream-position)
+   (%direction :initarg :direction :reader direction)
+   (%superseded-file :initarg :superseded-file :reader superseded-file))
+  (:default-initargs :superseded-file nil))
 
 (defmacro with-host-locked ((host) &body body)
   `(mezzano.supervisor:with-mutex ((local-host-lock ,host))
@@ -280,63 +282,68 @@
            :pathname pathname
            :format-control "Cannot open directories for output."))
   (with-host-locked (host)
-    (let ((dir (do ((element (rest (pathname-directory pathname)) (cdr element))
-                    (dir (local-host-root host)))
-                   ((endp element)
-                    dir)
-                 (let ((next (read-directory-entry dir (car element) "directory")))
-                   (when (not next)
-                     (error 'simple-file-error
-                            :pathname pathname
-                            :format-control "Subdirectory ~S does not exist."
-                            :format-arguments (list element)))
-                   (setf dir next)))))
-      (let ((file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname)))
-            (createdp nil))
-        (when (not file)
-          (ecase if-does-not-exist
-            (:error (error 'simple-file-error
-                           :pathname pathname
-                           :format-control "File ~A does not exist."
-                           :format-arguments (list pathname)))
-            (:create
-             (setf file (make-file dir pathname element-type)
-                   createdp t))
-            ((nil) (return-from open-using-host nil))))
-        (when (and (not createdp)
-                   (member direction '(:output :io)))
-          (ecase if-exists
-            (:error (error 'simple-file-error
-                           :pathname pathname
-                           :format-control "File ~A exists."
-                           :format-arguments (list pathname)))
-            (:new-version
-             (setf file (make-file dir
-                                   (make-pathname :version :newest
-                                                  :defaults pathname)
-                                   element-type)))
-            (:rename
-             ???)
-            (:rename-and-delete
-             ???)
-            (:supersede
-             ???)
-            ((:overwrite :append)
-             ???)
-            ((nil) (return-from open-using-host nil))))
-        (when (and (not (eql direction :probe))
-                   (not (equal (upgraded-array-element-type element-type)
-                               (array-element-type (file-storage file)))))
-          (error "Incompatible ELEMENT-TYPE. File is of type ~S."
-                 (array-element-type (file-storage file))))
-        (make-instance 'local-stream
-                       :file file
-                       :pathname pathname
-                       :position (if (and (member direction '(:output :io))
-                                          (eql if-exists :append))
-                                     (length (file-storage file))
-                                     0)
-                       :direction direction)))))
+    (let* ((dir (do ((element (rest (pathname-directory pathname)) (cdr element))
+                     (dir (local-host-root host)))
+                    ((endp element)
+                     dir)
+                  (let ((next (read-directory-entry dir (car element) "directory")))
+                    (when (not next)
+                      (error 'simple-file-error
+                             :pathname pathname
+                             :format-control "Subdirectory ~S does not exist."
+                             :format-arguments (list element)))
+                    (setf dir next))))
+           (file (read-directory-entry dir (pathname-name pathname) (pathname-type pathname) (pathname-version pathname)))
+           (createdp nil)
+           (superseded-file nil))
+      (when (not file)
+        (ecase if-does-not-exist
+          (:error (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "File ~A does not exist."
+                         :format-arguments (list pathname)))
+          (:create
+           (setf file (make-file dir pathname element-type)
+                 createdp t))
+          ((nil) (return-from open-using-host nil))))
+      (when (and (not createdp)
+                 (member direction '(:output :io)))
+        (ecase if-exists
+          (:error (error 'simple-file-error
+                         :pathname pathname
+                         :format-control "File ~A exists."
+                         :format-arguments (list pathname)))
+          (:new-version
+           (setf file (make-file dir
+                                 (make-pathname :version :newest
+                                                :defaults pathname)
+                                 element-type)))
+          (:rename
+           ???)
+          (:rename-and-delete
+           ???)
+          (:supersede
+           (setf superseded-file file
+                 file (make-instance 'local-file
+                                     :truename (file-truename file)
+                                     :storage (make-array 0 :element-type element-type :adjustable t :fill-pointer 0))))
+          ((:overwrite :append)
+           ???)
+          ((nil) (return-from open-using-host nil))))
+      (when (and (not (eql direction :probe))
+                 (not (equal (upgraded-array-element-type element-type)
+                             (array-element-type (file-storage file)))))
+        (error "Incompatible ELEMENT-TYPE. File is of type ~S."
+               (array-element-type (file-storage file))))
+      (make-instance 'local-stream
+                     :file file
+                     :pathname pathname
+                     :position (if (and (member direction '(:output :io))
+                                        (eql if-exists :append))
+                                   (length (file-storage file))
+                                   0)
+                     :direction direction
+                     :superseded-file superseded-file))))
 
 (defmethod file-write-date-using-host ((host local-file-host) pathname)
   (when (not (typep (pathname-directory pathname) '(cons (eql :absolute))))
@@ -595,3 +602,15 @@
                                             (length (file-storage (local-stream-file stream)))
                                             position-spec)))
         (t (stream-position stream))))
+
+(defmethod close ((stream local-stream) &key abort &allow-other-keys)
+  (when (and (not abort)
+             (superseded-file stream))
+    ;; Replace the superseded file's contents.
+    (let ((file (superseded-file stream))
+          (time (get-universal-time)))
+      (mezzano.supervisor:with-mutex ((file-lock file))
+        (setf (file-storage file) (file-storage (local-stream-file stream)))
+      (setf (getf (file-plist file) :creation-time) time
+            (getf (file-plist file) :write-time) time))))
+  t)
