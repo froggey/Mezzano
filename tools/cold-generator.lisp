@@ -243,12 +243,15 @@
   (let ((address (symbol-value bump-symbol)))
     (incf (symbol-value bump-symbol) size)
     ;; Keep data vector page aligned, but don't expand it too often.
+    ;; Keeping it 2MB aligned is important - WRITE-IMAGE relies on this to
+    ;; provide zeros in unallocated parts of the area.
     (let ((dv-size (align-up (symbol-value bump-symbol) #x200000)))
       (when (not (eql (- dv-size data-offset)
                       (length (symbol-value data-symbol))))
         (setf (symbol-value data-symbol) (adjust-array (symbol-value data-symbol)
                                                        (- dv-size data-offset)
-                                                       :element-type '(unsigned-byte 8)))))
+                                                       :element-type '(unsigned-byte 8)
+                                                       :initial-element 0))))
     (/ (logior address (ash tag sys.int::+address-tag-shift+)) 8)))
 
 (defun allocate (word-count &optional area)
@@ -636,22 +639,24 @@
       ;; Write it out.
       (write-sequence header s))
     ;; Write areas.
+    ;; The *foo-AREA-DATA* vectors are all padded out to 2MB, so writing
+    ;; them out in their entirety is fine.
     (file-position s (+ image-offset *wired-area-store*))
     (format t "Wired area at ~X, ~:D bytes.~%"
-            *wired-area-store* (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
-    (write-sequence *wired-area-data* s :end (- (align-up *wired-area-bump* #x1000) +wired-area-base+))
+            *wired-area-store* (length *wired-area-data*))
+    (write-sequence *wired-area-data* s)
     (format t "Pinned area at ~X, ~:D bytes.~%"
-            *pinned-area-store* (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+            *pinned-area-store* (length *pinned-area-data*))
     (file-position s (+ image-offset *pinned-area-store*))
-    (write-sequence *pinned-area-data* s :end (- (align-up *pinned-area-bump* #x1000) +pinned-area-base+))
+    (write-sequence *pinned-area-data* s)
     (format t "General area at ~X, ~:D bytes.~%"
-            *general-area-store* (align-up *general-area-bump* #x1000))
+            *general-area-store* (length *general-area-data*))
     (file-position s (+ image-offset *general-area-store*))
-    (write-sequence *general-area-data* s :end (align-up *general-area-bump* #x1000))
+    (write-sequence *general-area-data* s)
     (format t "Cons area at ~X, ~:D bytes.~%"
-            *cons-area-store* (align-up *cons-area-bump* #x1000))
+            *cons-area-store* (length *cons-area-data*))
     (file-position s (+ image-offset *cons-area-store*))
-    (write-sequence *cons-area-data* s :end (align-up *cons-area-bump* #x1000))
+    (write-sequence *cons-area-data* s)
     ;; Generate the block map.
     (add-region-to-block-map bml4
                              (/ *wired-area-store* #x1000)
