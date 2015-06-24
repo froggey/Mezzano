@@ -622,7 +622,8 @@
            (emit `(sys.lap-x86:lock)
                  `(sys.lap-x86:xadd64 ,(object-ea :r9 :slot constant-offset) :r8)))
           (t
-           (emit `(sys.lap-x86:xadd64 ,(object-ea :r9 :index '(:rdi 8)) :r8))))
+           (emit `(sys.lap-x86:lock)
+                 `(sys.lap-x86:xadd64 ,(object-ea :r9 :index '(:rdi 8)) :r8))))
     (setf *r8-value* (list (gensym)))))
 
 ;; Set the value in SLOT to NEW, and return the old value.
