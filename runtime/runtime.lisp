@@ -391,6 +391,7 @@
   (sys.lap-x86:leave)
   (:gc :no-frame)
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+))
+  (:gc :frame)
   OBJECTS-UNEQUAL
   ;; Objects are not EQL.
   (sys.lap-x86:mov32 :r8d nil)
