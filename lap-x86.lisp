@@ -37,7 +37,7 @@
 
 (defun reg-class (reg)
   (case reg
-    ((:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15 :csp :cfp) :gpr-64)
+    ((:rax :rcx :rdx :rbx :rsp :rbp :rsi :rdi :r8 :r9 :r10 :r11 :r12 :r13 :r14 :r15) :gpr-64)
     ((:eax :ecx :edx :ebx :esp :ebp :esi :edi :r8d :r9d :r10d :r11d :r12d :r13d :r14d :r15d) :gpr-32)
     ((:ax :cx :dx :bx :sp :bp :si :di :r8w :r9w :r10w :r11w :r12w :r13w :r14w :r15w) :gpr-16)
     ((:al :cl :dl :bl :spl :bpl :sil :dil :r8l :r9l :r10l :r11l :r12l :r13l :r14l :r15l :ah :ch :dh :bh) :gpr-8)
@@ -53,8 +53,8 @@
     ((:rcx :ecx  :cx   :cl   :mm1 :xmm1  :cr1 :dr1 :cs         ) 1)
     ((:rdx :edx  :dx   :dl   :mm2 :xmm2  :cr2 :dr2 :ss         ) 2)
     ((:rbx :ebx  :bx   :bl   :mm3 :xmm3  :cr3 :dr3 :ds         ) 3)
-    ((:rsp :esp  :sp   :spl  :mm4 :xmm4  :cr4 :dr4 :fs :ah :csp) 4)
-    ((:rbp :ebp  :bp   :bpl  :mm5 :xmm5  :cr5 :dr5 :gs :ch :cfp) 5)
+    ((:rsp :esp  :sp   :spl  :mm4 :xmm4  :cr4 :dr4 :fs :ah     ) 4)
+    ((:rbp :ebp  :bp   :bpl  :mm5 :xmm5  :cr5 :dr5 :gs :ch     ) 5)
     ((:rsi :esi  :si   :sil  :mm6 :xmm6  :cr6 :dr6     :dh     ) 6)
     ((:rdi :edi  :di   :dil  :mm7 :xmm7  :cr7 :dr7     :bh     ) 7)
     ((:r8  :r8d  :r8w  :r8l       :xmm8                        ) 8)
@@ -91,8 +91,8 @@
                 (32 (second conv))
                 (64 (first conv)))))))
 
-(defun is-bp (reg) (find reg '(:bpl :bp :ebp :rbp :cfp)))
-(defun is-sp (reg) (find reg '(:spl :sp :esp :rsp :csp)))
+(defun is-bp (reg) (find reg '(:bpl :bp :ebp :rbp)))
+(defun is-sp (reg) (find reg '(:spl :sp :esp :rsp)))
 
 (defun short-form-valid (class value)
   (and (not (eql value :fixup))

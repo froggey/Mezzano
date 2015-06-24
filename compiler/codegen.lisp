@@ -145,7 +145,7 @@ be generated instead.")
           (setf (aref *stack-values* ofs) (cons arg :home))
           (if arg-registers
               (emit `(sys.lap-x86:mov64 (:stack ,ofs) ,(pop arg-registers)))
-              (emit `(sys.lap-x86:mov64 :r8 (:cfp ,(* (+ (- current-arg-index 6) 2) 8)))
+              (emit `(sys.lap-x86:mov64 :r8 (:rbp ,(* (+ (- current-arg-index 6) 2) 8)))
                     `(sys.lap-x86:mov64 (:stack ,ofs) :r8)))))
       (dolist (arg (lambda-information-optional-args lambda))
         (let ((mid-label (gensym))
@@ -163,7 +163,7 @@ be generated instead.")
           ;; Argument supplied, stash wherever.
           (if arg-registers
               (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) ,(pop arg-registers)))
-              (emit `(sys.lap-x86:mov64 :r8 (:cfp ,(* (+ (- current-arg-index 5) 2) 8)))
+              (emit `(sys.lap-x86:mov64 :r8 (:rbp ,(* (+ (- current-arg-index 5) 2) 8)))
                     `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8)))
           (when sup-ofs
             (emit `(sys.lap-x86:mov64 (:stack ,sup-ofs) t)))
@@ -258,9 +258,9 @@ be generated instead.")
      (list entry-label
 	   ;; Create control stack frame.
            `(:gc :no-frame :incoming-arguments :rcx)
-	   `(sys.lap-x86:push :cfp)
+	   `(sys.lap-x86:push :rbp)
            `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-	   `(sys.lap-x86:mov64 :cfp :csp)
+	   `(sys.lap-x86:mov64 :rbp :rsp)
            `(:gc :frame :incoming-arguments :rcx))
      (when *enable-stack-alignment-checking*
        (list `(sys.lap-x86:test64 :rsp 8)
@@ -546,8 +546,8 @@ be generated instead.")
     (if multiple-values-active
         (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
         (emit-gc-info :block-or-tagbody-thunk :rax))
-    (emit `(sys.lap-x86:mov64 :csp (:rax 16))
-          `(sys.lap-x86:mov64 :cfp (:rax 24)))
+    (emit `(sys.lap-x86:mov64 :rsp (:rax 16))
+          `(sys.lap-x86:mov64 :rbp (:rax 24)))
     (dolist (slot (first *active-nl-exits*))
       (emit `(sys.lap-x86:mov64 (:stack ,slot) nil)))
     (emit `(sys.lap-x86:jmp ,target-label))))
@@ -580,8 +580,8 @@ be generated instead.")
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rsp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :rbp)
               ;; Save pointer to info
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax))))
@@ -1201,8 +1201,8 @@ Returns an appropriate tag."
               `(sys.lap-x86:gs)
               `(sys.lap-x86:mov64 :rax (,+binding-stack-gs-offset+))
               `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 2)) :rax)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :csp)
-              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :cfp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 1)) :rsp)
+              `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ control-info 0)) :rbp)
               ;; Save in the environment.
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax))
@@ -1379,7 +1379,7 @@ Returns an appropriate tag."
   (let ((stack-count (max 0 (- (length arg-forms) 5))))
     (when (plusp stack-count)
       (when (oddp stack-count) (incf stack-count))
-      (emit `(sys.lap-x86:add64 :csp ,(* stack-count 8))))))
+      (emit `(sys.lap-x86:add64 :rsp ,(* stack-count 8))))))
 
 (defun prep-arguments-for-call (arg-forms)
   (when arg-forms
@@ -1399,14 +1399,14 @@ Returns an appropriate tag."
 	(when (plusp stack-count)
           (when (oddp stack-count)
             (incf stack-count))
-          (emit `(sys.lap-x86:sub64 :csp ,(* stack-count 8)))
+          (emit `(sys.lap-x86:sub64 :rsp ,(* stack-count 8)))
 	  ;; Load values on the stack.
 	  ;; Use r13 here to preserve whatever is in r8.
           ;; Must load first values first, so the GC can track properly.
           (loop for i from 0
              for j in (nthcdr 5 args) do
                (load-in-reg :r13 j t)
-               (emit `(sys.lap-x86:mov64 (:csp ,(* i 8)) :r13))
+               (emit `(sys.lap-x86:mov64 (:rsp ,(* i 8)) :r13))
                (emit-gc-info :pushed-values (1+ i)))))
       ;; Load other values in registers.
       (when (> arg-count 4)
