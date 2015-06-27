@@ -103,6 +103,8 @@
           structure-class structure-object
           intern-eql-specializer eql-specializer eql-specializer-object
 
+          slot-unbound
+
           with-slots with-accessors
           ))
 
@@ -240,9 +242,9 @@
     (declare (ignore layout))
     (let* ((val (slot-contents slots location)))
       (if (eq secret-unbound-value val)
-          (error "The slot ~S is unbound in the object ~S."
-                 (slot-definition-name (elt (class-slots (class-of instance)) location))
-                 instance)
+          (slot-unbound (class-of instance)
+                        instance
+                        (slot-definition-name (elt (class-slots (class-of instance)) location)))
           val))))
 
 (defun fast-slot-write (new-value instance location)
@@ -281,7 +283,7 @@
       (slot-location-in-instance instance slot-name)
     (let ((val (slot-contents slots location)))
       (if (eq secret-unbound-value val)
-          (error "The slot ~S is unbound in the object ~S." slot-name instance)
+          (slot-unbound (class-of instance) instance slot-name)
           val))))
 (defun slot-value (object slot-name)
   (cond ((or (eq (class-of (class-of object)) the-class-standard-class)
@@ -2450,3 +2452,10 @@ Dispatching on class ~S." gf class))
 (defmethod update-instance-for-redefined-class ((instance standard-object) added-slots discarded-slots property-list &rest initargs &key &allow-other-keys)
   (declare (ignore discarded-slots property-list))
   (apply #'shared-initialize instance added-slots initargs))
+
+(defgeneric slot-unbound (class instance slot-name))
+
+(defmethod slot-unbound ((class t) instance slot-name)
+  (error "The slot ~S is unbound in the object ~S."
+         slot-name
+         instance))
