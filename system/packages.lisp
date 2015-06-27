@@ -99,11 +99,23 @@
 	       (not (eq existing-symbol symbol)))
       (ecase existing-mode
 	(:inherited
-	 ;; TODO: Restarts shadow-symbol and don't import.
-	 (error "Newly imported symbol ~S conflicts with inherited symbol ~S." symbol existing-symbol))
+         (restart-case
+             (error "Newly imported symbol ~S conflicts with inherited symbol ~S." symbol existing-symbol)
+           (shadow-symbol ()
+             :report "Replace the inherited symbol."
+             (shadow (list symbol) package))
+           (dont-import ()
+             :report "Leave the existing inherited symbol."
+             (return-from import-one-symbol))))
 	((:internal :external)
-	 ;; TODO: Restarts unintern-old-symbol and don't import.
-	 (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol))))
+         (restart-case
+             (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol)
+           (unintern-old-symbol ()
+             :report "Unintern and replace the old symbol."
+             (unintern symbol package))
+           (dont-import ()
+             :report "Leave the existing inherited symbol."
+             (return-from import-one-symbol))))))
     (multiple-value-bind (existing-external-symbol external-symbol-presentp)
         (gethash (symbol-name symbol) (package-external-symbols package))
       (unless (and external-symbol-presentp
@@ -130,8 +142,16 @@
 	(find-symbol (symbol-name symbol) q)
       (when (and (not (eq symbol other-symbol))
 		 status)
-	;; TODO: Restart replace-symbol.
-	(error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q))))
+        (restart-case
+            (error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q)
+          (shadow-symbol ()
+            :report "Leave the existing symbol as shadowing symbol."
+            (shadow (list other-symbol) q))
+          (unintern-symbol ()
+            ;; What is this supposed to do in the inherited case?
+            ;; SBCL seems to leave the existing symbol accessible.
+            :report "Unintern the existing symbol, replacing it."
+            (unintern other-symbol q))))))
   (import-one-symbol symbol package)
   ;; Remove from the internal-symbols list.
   (remhash (symbol-name symbol) (package-internal-symbols package))
@@ -362,7 +382,7 @@
     (use-package use-list p)
     (import import-list p)
     (dolist (s intern-list)
-      (intern s p))
+      (intern (string s) p))
     (dolist (s shadow-list)
       (shadow-one-symbol (string s) p))
     (dolist (s export-list)
