@@ -473,10 +473,38 @@
 
 (defun substitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
   (when (and test test-not)
-    (error "Both :test and :test-not specified"))
+    (error "Both :TEST and :TEST-NOT specified"))
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
   (substitute-if newitem
+                 (lambda (x) (funcall test olditem x))
+                 sequence
+                 :key key
+                 :start start
+                 :end end))
+
+(defun nsubstitute-if (newitem predicate sequence &key key (start 0) end) ; from-end
+  (unless key (setf key 'identity))
+  (cond ((and (listp sequence)
+              (zerop start)
+              (null end))
+         (mapcar (lambda (x)
+                   (if (funcall predicate (funcall key x))
+                       newitem
+                       x))
+                 sequence))
+        (t (unless end (setf end (length sequence)))
+           (dotimes (i (- end start))
+             (when (funcall predicate (funcall key (elt sequence (+ start i))))
+               (setf (elt sequence (+ start i)) newitem)))
+           sequence)))
+
+(defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
+  (when (and test test-not)
+    (error "Both :TEST and :TEST-NOT specified"))
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (nsubstitute-if newitem
                  (lambda (x) (funcall test olditem x))
                  sequence
                  :key key
@@ -733,3 +761,12 @@
            (merge-vectors vector-1 length-1 vector-2 length-2
                           result predicate key aref))))
     (t (error "Unknown MERGE result-type ~S." result-type))))
+
+(defun map-into (result-sequence function &rest sequences)
+  (dotimes (i (reduce #'min (mapcar #'length sequences)
+                      :initial-value (length result-sequence)))
+    (setf (elt result-sequence i)
+          (apply function
+                 (mapcar (lambda (s) (elt s i))
+                         sequences))))
+  result-sequence)
