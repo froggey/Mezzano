@@ -20,7 +20,8 @@
            #:delete-file-using-host
            #:expunge-directory-using-host
            #:file-stream-pathname
-           #:simple-file-error))
+           #:simple-file-error
+           #:stream-truename))
 
 (in-package :mezzano.file-system)
 
@@ -198,8 +199,16 @@
          (pathname (file-stream-pathname pathname)))
         (t (parse-namestring pathname))))
 
+(defgeneric stream-truename (stream))
+
 (defun truename (pathname)
-  (pathname pathname))
+  (cond
+    ((typep pathname 'file-stream)
+     (stream-truename pathname))
+    (t (or (probe-file pathname)
+           (error 'simple-file-error
+                  :pathname pathname
+                  :format-control "No such file.")))))
 
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)
@@ -354,7 +363,7 @@ NAMESTRING as the second."
   (let ((stream (open pathspec :direction :probe)))
     (when stream
       (close stream)
-      pathspec)))
+      (stream-truename stream))))
 
 (defgeneric directory-using-host (host path &key))
 

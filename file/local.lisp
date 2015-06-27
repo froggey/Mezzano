@@ -614,3 +614,6 @@
       (setf (getf (file-plist file) :creation-time) time
             (getf (file-plist file) :write-time) time))))
   t)
+
+(defmethod stream-truename ((stream local-stream))
+  (file-truename (local-stream-file stream)))

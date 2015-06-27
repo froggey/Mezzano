@@ -550,3 +550,6 @@
 (defmethod expunge-directory-using-host ((host simple-file-host) path &key)
   (declare (ignore host path))
   t)
+
+(defmethod stream-truename ((stream simple-file-stream))
+  (file-stream-pathname stream))
