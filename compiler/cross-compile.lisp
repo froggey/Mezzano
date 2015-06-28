@@ -636,6 +636,12 @@
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *pending-llf-commands*))
 
+(defun cross-load-time-value (form read-only-p)
+  (declare (ignore read-only-p))
+  (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
+    (x-compile `(setq ,ltv-sym ,form) nil)
+    `(symbol-value ',ltv-sym)))
+
 (defun x-compile (form env)
   ;; Special case (%defun 'name (lambda ...)) forms.
   (cond ((and (consp form)
@@ -648,6 +654,7 @@
               (eql (first (third form)) 'lambda))
          (let* ((name (second (second form)))
                 (lambda (third form))
+                (*load-time-value-hook* 'cross-load-time-value)
                 (fn (compile-lambda lambda (cons env nil))))
            #+nil(add-to-llf sys.int::+llf-defun+ name fn)
            (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
@@ -682,13 +689,14 @@
         ;; Convert other forms to zero-argument functions and
         ;; add it to the fasl as an eval node.
         ;; Progn to avoid problems with DECLARE.
-        (t (let ((fn (compile-lambda `(lambda ()
-                                        (declare (system:lambda-name
-                                                  (sys.int::toplevel ,(when *compile-file-pathname*
-                                                                        (princ-to-string *compile-file-pathname*))
-                                                                     ,sys.int::*top-level-form-number*)))
-                                        (progn ,form))
-                                     (cons env nil))))
+        (t (let* ((*load-time-value-hook* 'cross-load-time-value)
+                  (fn (compile-lambda `(lambda ()
+                                         (declare (system:lambda-name
+                                                   (sys.int::toplevel ,(when *compile-file-pathname*
+                                                                             (princ-to-string *compile-file-pathname*))
+                                                                      ,sys.int::*top-level-form-number*)))
+                                         (progn ,form))
+                                      (cons env nil))))
              (add-to-llf sys.int::+llf-invoke+ fn)))))
 
 (defun cross-compile-file (input-file &key

@@ -457,11 +457,10 @@
 							    env)))
 	(car result)))))
 
-;;; Not really sure how to do this one.
-;;;(defun pass1-load-time-value (form env)
-;;;  (declare (ignore env))
-;;;  (destructuring-bind (form &optional read-only-p) (cdr form)
-;;;    `(load-time-value ,(pass1-form form nil) ,read-only-p)))
+(defun pass1-load-time-value (form env)
+  (declare (ignore env))
+  (destructuring-bind (form &optional read-only-p) (cdr form)
+    (funcall *load-time-value-hook* form read-only-p)))
 
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)

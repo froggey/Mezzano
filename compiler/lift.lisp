@@ -12,7 +12,6 @@
 	    ((go) (ll-go form))
 	    ((if) (ll-if form))
 	    ((let) (ll-let form))
-	    ((load-time-value) (ll-load-time-value form))
 	    ((multiple-value-bind) (ll-multiple-value-bind form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
@@ -59,8 +58,6 @@
     (setf (second binding) (ll-form (second binding))))
   (ll-implicit-progn (cddr form))
   form)
-
-;;;(defun ll-load-time-value (form))
 
 (defun ll-multiple-value-bind (form)
   ;; Patch up definition points after a lambda has been lifted.

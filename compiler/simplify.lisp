@@ -12,7 +12,6 @@
 	    ((go) (simp-go form))
 	    ((if) (simp-if form))
 	    ((let) (simp-let form))
-	    ((load-time-value) (simp-load-time-value form))
 	    ((multiple-value-bind) (simp-multiple-value-bind form))
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
@@ -219,8 +218,6 @@
         (t
          (change-made)
          (simp-form `(progn ,@(cddr form))))))
-
-;;;(defun simp-load-time-value (form))
 
 (defun simp-multiple-value-bind (form)
   ;; If no variables are used, or there are no variables then

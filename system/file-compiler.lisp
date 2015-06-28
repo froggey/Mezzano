@@ -350,6 +350,15 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun add-to-llf (action &rest objects)
   (push (list* action objects) *llf-forms*))
 
+(defun compile-file-load-time-value (form read-only-p omap)
+  (declare (ignore read-only-p))
+  (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
+    (or (fastload-form form omap)
+        (add-to-llf +llf-invoke+
+                    (sys.c::compile-lambda `(lambda () (setq ,ltv-sym ,form))
+                                           nil)))
+    `(symbol-value ',ltv-sym)))
+
 (defun fastload-form (form omap)
   (cond ((and (consp form)
               (eql (first form) 'sys.int::%defun)
@@ -361,7 +370,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (eql (first (third form)) 'lambda))
          ;; Special case (%defun 'name (lambda ...)) forms.
          (add-to-llf +llf-setf-fdefinition+
-                     (compile nil (third form))
+                     (sys.c::compile-lambda (third form) nil)
                      (second (second form)))
          t)
         ((and (listp form)
@@ -410,7 +419,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
            (eof-marker (cons nil nil))
            (*compile-file-pathname* (pathname (merge-pathnames input-file)))
            (*compile-file-truename* (truename *compile-file-pathname*))
-           (*top-level-form-number* 0))
+           (*top-level-form-number* 0)
+           (sys.c::*load-time-value-hook* (lambda (f r-o-p)
+                                            (compile-file-load-time-value f r-o-p omap))))
       (do ((form (read input-stream nil eof-marker)
                  (read input-stream nil eof-marker)))
           ((eql form eof-marker))

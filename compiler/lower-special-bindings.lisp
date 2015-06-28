@@ -60,7 +60,6 @@
               ((if) (map-form 1))
               ((let)
                (lsb-let form))
-              ((load-time-value) (error "TODO LOAD-TIME-VALUE"))
               ((multiple-value-bind) (map-form 2))
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))

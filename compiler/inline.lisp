@@ -12,7 +12,6 @@
 	    ((go) (il-go form))
 	    ((if) (il-if form))
 	    ((let) (il-let form))
-	    ((load-time-value) (il-load-time-value form))
 	    ((multiple-value-bind) (il-multiple-value-bind form))
 	    ((multiple-value-call) (il-multiple-value-call form))
 	    ((multiple-value-prog1) (il-multiple-value-prog1 form))
@@ -49,8 +48,6 @@
     (setf (second b) (il-form (second b))))
   (il-implicit-progn (cddr form))
   form)
-
-;;;(defun il-load-time-value (form))
 
 (defun il-multiple-value-bind (form)
   (il-implicit-progn (cddr form))

@@ -19,7 +19,6 @@
 	    ((go) (kt-go form target-variable replacement-form))
 	    ((if) (kt-if form target-variable replacement-form))
 	    ((let) (kt-let form target-variable replacement-form))
-	    ((load-time-value) (kt-load-time-value form target-variable replacement-form))
 	    ((multiple-value-bind) (kt-multiple-value-bind form target-variable replacement-form))
 	    ((multiple-value-call) (kt-multiple-value-call form target-variable replacement-form))
 	    ((multiple-value-prog1) (kt-multiple-value-prog1 form target-variable replacement-form))

@@ -8,6 +8,8 @@
 (defvar *jump-table-size-min* 4)
 (defvar *jump-table-size-max* 64)
 
+(defvar *load-time-value-hook*)
+
 (defun parse-declares (forms)
   "Extract any leading declare forms.
 Returns 2 values:
@@ -49,6 +51,10 @@ A list of any declaration-specifiers."
                (run-optimizers
                 (pass1-lambda lambda (car env))))))))))))))))
 
+(defun eval-load-time-value (form read-only-p)
+  (declare (ignore read-only-p))
+  `(quote ,(eval form)))
+
 (defun compile (name &optional definition)
   (unless definition
     (setf definition (or (when (symbolp name) (macro-function name))
@@ -65,7 +71,8 @@ A list of any declaration-specifiers."
         (error "TODO: cannot compile functions defined outside the null lexical environment."))
       (setf definition lambda-expression)))
   (multiple-value-bind (fn warnings-p errors-p)
-      (compile-lambda definition)
+      (let ((*load-time-value-hook* 'eval-load-time-value))
+        (compile-lambda definition))
     (cond (name
            (if (and (symbolp name) (macro-function name))
                (setf (macro-function name) fn)
@@ -171,7 +178,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (flush-form (second b)))
 	       (implicit-progn (cddr form)))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
@@ -245,7 +251,6 @@ A list of any declaration-specifiers."
 				      (copy-form (second b) replacements)))
 			      (second form))
 		  ,@(implicit-progn (cddr form))))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind)
                `(multiple-value-bind ,(mapcar #'copy-variable (second form))
                     ,@(implicit-progn (cddr form))))
@@ -352,7 +357,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (detect-uses (second b)))
 	       (implicit-progn (cddr form)))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind)
                (dolist (v (second form))
                  (reset-var v))
@@ -486,7 +490,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (lower-keyword-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
@@ -548,7 +551,6 @@ Must be run after keywords have been lowered."
 	       (dolist (b (second form))
 		 (lower-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
@@ -642,7 +644,6 @@ Must be run after keywords have been lowered."
                                                 (unparse-compiler-form (second b))))
                               (second form))
                   ,@(implicit-progn (cddr form))))
-	      ((load-time-value) (error "TODO: load-time-value"))
 	      ((multiple-value-bind)
                `(multiple-value-bind ,@(implicit-progn (cddr form))))
 	      ((multiple-value-call)
