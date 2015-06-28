@@ -404,6 +404,12 @@
 ;;;; 22.3.3 FORMAT Floating-Point Printers.
 ;;; TODO: F, E, G, $
 
+(define-format-interpreter #\$ (at-sign colon &optional (d 2) (n 1) (w 0) (padchar #\Space))
+  (let ((arg (consume-argument)))
+    (when (realp arg)
+      (setf arg (float 0.0s0)))
+    (format t "~D" arg)))
+
 ;;;; 22.3.4 FORMAT Printer Operations.
 
 (define-format-interpreter #\A (nil colon &optional mincol colinc minpad padchar)

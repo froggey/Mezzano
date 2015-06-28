@@ -180,6 +180,10 @@
 (defun namestring (pathname)
   (unparse-pathname pathname (pathname-host pathname)))
 
+(defun enough-namestring (pathname &optional (defaults *default-pathname-defaults*))
+  (declare (ignore defaults))
+  (namestring pathname))
+
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
          (format stream "#P~S" (concatenate 'string
