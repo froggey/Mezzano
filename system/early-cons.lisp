@@ -522,3 +522,26 @@
       (cons (copy-tree (car tree))
             (copy-tree (cdr tree)))
       tree))
+
+(defun rassoc-if (predicate alist &key key)
+  (unless key
+    (setf key 'identity))
+  (dolist (i alist)
+    (when (and i
+               (funcall predicate (funcall key (cdr i))))
+      (return i))))
+
+(defun rassoc-if-not (predicate alist &key key)
+  (rassoc-if (complement predicate) alist
+             :key key))
+
+(defun rassoc (item alist &key key test test-not)
+  (when (and test test-not)
+    (error "TEST and TEST-NOT specified."))
+  (when test-not
+    (setf test (complement test-not)))
+  (unless test
+    (setf test 'eql))
+  (rassoc-if (lambda (x) (funcall test item x))
+             alist
+             :key key))
