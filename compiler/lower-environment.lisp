@@ -22,7 +22,8 @@
 
 (defun lower-environment (lambda)
   (let ((*environment-layout* (make-hash-table))
-        (*environment-layout-dx* (make-hash-table)))
+        (*environment-layout-dx* (make-hash-table))
+        (*allow-dx-environment* 't))
     (compute-environment-layout lambda)
     (let ((*free-variables* (compute-free-variable-sets lambda))
           (*environment* '()))
