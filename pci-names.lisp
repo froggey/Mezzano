@@ -5,19 +5,6 @@
 
 (declaim (special *pci-ids*))
 
-(defun bsearch (item vector &key (stride 1) (key 'identity))
-  "Locate ITEM using a binary search through VECTOR."
-  ;; IMIN/IMAX are inclusive indicies.
-  (do ((imin 0)
-       (imax (1- (truncate (length vector) stride))))
-      ((< imax imin)
-       nil)
-    (let* ((imid (truncate (+ imin imax) 2))
-           (elt (funcall key (aref vector (* imid stride)))))
-      (cond ((< elt item) (setf imin (1+ imid)))
-            ((> elt item) (setf imax (1- imid)))
-            (t (return (* imid stride)))))))
-
 (defun pci-find-vendor (id &optional (ids *pci-ids*))
   (let ((position (bsearch id ids :stride 3)))
     (when position
