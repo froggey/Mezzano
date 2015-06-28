@@ -6,9 +6,11 @@
 ;;; Attempt to eliminate temporary variables (bound, never assigned, used once).
 ;;; Bound forms are pushed forward through the IR until their one use point
 ;;; is found, then it is replaced and the original binding removed.
-;;; (let ((foo (bar))) (baz foo)) => (baz (bar))
+;;; (let ((foo (bar))) (baz foo)) => (baz (values (bar)))
 ;;; The codegen doesn't deal with explicit temporaries very well, so eliminating
 ;;; them is fairly important.
+;;; VALUES prevents additional values from leaking without any impact on the
+;;; generated code.
 
 (defun kt-form (form &optional target-variable replacement-form)
   (etypecase form
@@ -32,8 +34,8 @@
     (lexical-variable
      (cond ((eql form target-variable)
             (change-made)
-            (values replacement-form t))
-           (t (values form nil t))))
+            (values `(values ,replacement-form) t))
+           (t (values form nil))))
     (lambda-information
      (kt-lambda form))))
 
