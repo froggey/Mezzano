@@ -119,9 +119,9 @@
           ;; Must be inside the block, so the special stack pointer is saved correctly.
           (sys.int::%%push-special-stack ,(block-information-env-var info)
                                          ',(block-information-env-offset info))
-          (multiple-value-prog1
-              (progn ,@(mapcar #'lsb-form (cddr form)))
-            (sys.int::%%disestablish-block-or-tagbody))))
+          ,(list 'multiple-value-prog1
+                 `(progn ,@(mapcar #'lsb-form (cddr form)))
+                 '(sys.int::%%disestablish-block-or-tagbody))))
       (t ;; Local block.
        `(block ,info ,@(mapcar #'lsb-form (cddr form)))))))
 
@@ -135,14 +135,13 @@
           (t ;; Non-local GO, do the full unwind.
            (let ((info (make-lexical-variable :name (gensym "go-info")
                                               :definition-point *current-lambda*)))
-           `(progn
-              (let ((,info ,(lsb-form location)))
+             `(let ((,info ,(lsb-form location)))
                 ;; Ensure it's still valid.
                 (if ,info
                     'nil
                     (sys.int::raise-bad-go-tag ',(go-tag-name tag)))
                 (sys.int::%%unwind-to (sys.int::%%tagbody-info-binding-stack-pointer ,info))
-                (go ,tag ,info))))))))
+                (go ,tag ,info)))))))
 
 (defun lsb-let (form)
   (let ((*special-bindings* *special-bindings*))
@@ -156,10 +155,13 @@
                               (t
                                (push (list :special (first binding))
                                      *special-bindings*)
-                               `(progn (sys.int::%%bind ',(first binding) ,(lsb-form (second binding)))
-                                       (multiple-value-prog1
-                                           ,(frob (rest bindings))
-                                         (sys.int::%%unbind)))))))
+                               (list
+                                'progn
+                                `(sys.int::%%bind ',(first binding) ,(lsb-form (second binding)))
+                                (list
+                                 'multiple-value-prog1
+                                 (frob (rest bindings))
+                                 '(sys.int::%%unbind)))))))
                      (t `(progn ,@(mapcar #'lsb-form (cddr form)))))))
       (frob (second form)))))
 
@@ -174,8 +176,10 @@
                     'nil
                     (sys.int::raise-bad-block ',(block-information-name tag)))
                   (return-from ,tag
-                    (multiple-value-prog1 ,(lsb-form value-form)
-                      (sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
+                    ,(list
+                      'multiple-value-prog1
+                      (lsb-form value-form)
+                      `(sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
                     ,info))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
@@ -204,13 +208,13 @@
       (cond
         ((tagbody-information-env-var info)
          ;; Escaping TAGBODY.
-         `(progn
-            ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
-            (sys.int::%%push-special-stack ,(tagbody-information-env-var info)
-                                           ',(tagbody-information-env-offset info))
-            ,(frob-tagbody)
-            (sys.int::%%disestablish-block-or-tagbody)
-            'nil))
+         (list 'progn
+               ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
+               `(sys.int::%%push-special-stack ,(tagbody-information-env-var info)
+                                               ',(tagbody-information-env-offset info))
+               (frob-tagbody)
+               '(sys.int::%%disestablish-block-or-tagbody)
+               ''nil))
         (t ;; Local TAGBODY.
          (frob-tagbody))))))
 
@@ -227,13 +231,15 @@
       (when (not (lambda-information-p cleanup-function))
         ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
         (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t))
-      `(progn
-         ,(cond
-           ((lambda-information-p cleanup-function)
-            `(sys.int::%%push-special-stack ,(lsb-form cleanup-function) '0))
-           (t
-            (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t)
-            `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))
-                                            ,(lsb-form (third cleanup-function)))))
-         (multiple-value-prog1 ,(lsb-form protected-form)
-           (sys.int::%%disestablish-unwind-protect))))))
+      (list
+       'progn
+       (cond
+         ((lambda-information-p cleanup-function)
+          `(sys.int::%%push-special-stack ,(lsb-form cleanup-function) '0))
+         (t
+          (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t)
+          `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))
+                                          ,(lsb-form (third cleanup-function)))))
+       (list 'multiple-value-prog1
+             (lsb-form protected-form)
+             '(sys.int::%%disestablish-unwind-protect))))))
