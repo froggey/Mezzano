@@ -53,7 +53,7 @@
     (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
 
 (defun allocate-page (&optional mandatory)
-  (let ((frame (allocate-physical-pages 1 mandatory)))
+  (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
     (when frame
       (+ +physical-map-base+ (* frame +4k-page-size+)))))
 
@@ -127,7 +127,7 @@ the data. Free the page with FREE-PAGE when done."
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
            (page (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)
-                                          "DETECT-PAGING-DISK disk buffer"))
+                                          :mandatory-p "DETECT-PAGING-DISK disk buffer"))
            (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
       ;; Read first 4k, figure out what to do with it.
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
@@ -160,7 +160,7 @@ the data. Free the page with FREE-PAGE when done."
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (allocate-physical-pages 1 "page table"))
+        (let* ((frame (allocate-physical-pages 1 :mandatory-p "page table" :type :page-table))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
@@ -240,11 +240,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun release-vm-page (frame)
   (safe-without-interrupts (frame)
-    (let ((flags (physical-page-frame-flags frame)))
-      (setf (ldb (byte 1 +page-frame-flag-cache+) flags) 0
-            (physical-page-frame-flags frame) flags)
-      (when (not (logbitp +page-frame-flag-writeback+ flags))
-        (release-physical-pages frame 1)))))
+    (ecase (physical-page-frame-type frame)
+      (:active
+       (release-physical-pages frame 1)))))
 
 (defun allocate-memory-range (base length flags)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
@@ -318,12 +316,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         #+(or)(debug-print-line "WFP " address " not present")
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
-      (let* ((frame (allocate-physical-pages 1 "data"))
+      (let* ((frame (allocate-physical-pages 1 :mandatory-p "data" :type :active))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
-              (physical-page-frame-flags frame) (logior (logand (physical-page-frame-flags frame) #xFFF)
-                                                        (logand address (lognot #xFFF))
-                                                        (ash 1 +page-frame-flag-cache+)))
+              (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
                (zeroize-page addr)

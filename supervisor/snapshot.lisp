@@ -116,7 +116,7 @@
   (flush-tlb))
 
 (defun snapshot-clone-cow-page-via-page-fault (fault-addr)
-  (let* ((new-frame (allocate-physical-pages 1 "CoW page"))
+  (let* ((new-frame (allocate-physical-pages 1 :mandatory-p "CoW page"))
          (pte (or (get-pte-for-address fault-addr nil)
                   (panic "No PTE for CoW address?")))
          (old-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
@@ -313,7 +313,7 @@
 
 (defun snapshot-thread ()
   (loop
-     (take-snapshot)
+     #+(or)(take-snapshot)
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
      (sys.int::%cli)
@@ -332,7 +332,9 @@
   (loop
      for i from #x200000 below sys.int::*wired-area-bump* by #x1000
      ;; ### Could disable snapshotting if this can't be allocated.
-     do (let* ((frame (allocate-physical-pages 1 "wired backing pages"))
+     do (let* ((frame (allocate-physical-pages 1
+                                               :mandatory-p "wired backing pages"
+                                               :type :wired-backing))
                (pte (or (get-pte-for-address i nil)
                         (panic "No page table entry for " i)))
                (page-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
@@ -340,7 +342,8 @@
           (setf (physical-page-frame-flags frame) i)
           (setf (physical-page-frame-block-id frame) (physical-page-frame-block-id page-frame))))
   ;; ### same here.
-  (setf *snapshot-bounce-buffer-page* (allocate-physical-pages 1 "snapshot bounce page")))
+  (setf *snapshot-bounce-buffer-page* (allocate-physical-pages 1
+                                                               :mandatory-p "snapshot bounce page")))
 
 (defun snapshot ()
   ;; Attempt to wake the snapshot thread, only waking it if

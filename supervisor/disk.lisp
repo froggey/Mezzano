@@ -112,7 +112,7 @@
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
            (page (allocate-physical-pages (ceiling sector-size +4k-page-size+)
-                                          "DETECT-DISK disk buffer"))
+                                          :mandatory-p "DETECT-DISK disk buffer"))
            (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
         (panic "Unable to read first block on disk " disk))

@@ -585,8 +585,9 @@
                   (not (logbitp +ahci-PxCMD-FR+ cmd)))
          (return))))
   ;; Allocate the Command List, Received FIS and one Command Table.
-  (let* ((port-data (allocate-physical-pages 1 "AHCI Port"
-                                             (not (ahci-64-bit-p ahci))))
+  (let* ((port-data (allocate-physical-pages 1
+                                             :mandatory-p "AHCI Port"
+                                             :32-bit-only (not (ahci-64-bit-p ahci))))
          (port-data-phys (* port-data +4k-page-size+))
          (command-list port-data-phys)
          (received-fis (+ command-list (* +ahci-command-header-size+

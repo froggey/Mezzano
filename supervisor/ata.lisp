@@ -479,7 +479,9 @@ This is used to implement the INTRQ_Wait state."
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
   (debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
-  (let* ((dma32-bounce-buffer (allocate-physical-pages 1 "ATA DMA bounce buffer" t))
+  (let* ((dma32-bounce-buffer (allocate-physical-pages 1
+                                                       :mandatory-p "ATA DMA bounce buffer"
+                                                       :32-bit-only t))
          (controller (make-ata-controller :command command-base
                                           :control control-base
                                           :bus-master-register bus-master-register
@@ -513,7 +515,9 @@ This is used to implement the INTRQ_Wait state."
   (setf *ata-devices* '()))
 
 (defun ata-pci-register (location)
-  (let* ((prdt-page (allocate-physical-pages 1 "ATA PRDT page" t)))
+  (let* ((prdt-page (allocate-physical-pages 1
+                                             :mandatory-p "ATA PRDT page"
+                                             :32-bit-only t)))
     ;; Make sure to enable PCI bus mastering for this device.
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
                                                                 (ash 1 +pci-command-bus-master+)))

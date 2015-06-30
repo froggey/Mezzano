@@ -53,7 +53,8 @@
     (with-symbol-spinlock (*store-freelist-metadata-freelist-lock*)
       (when (not *store-freelist-metadata-freelist*)
         ;; Repopulate freelist.
-        (let* ((frame (allocate-physical-pages 1 "store freelist metadata"))
+        (let* ((frame (allocate-physical-pages 1
+                                               :mandatory-p "store freelist metadata"))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (dotimes (i (truncate #x1000 +freelist-metadata-size+))
             (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0

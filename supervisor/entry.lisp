@@ -201,7 +201,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-threads)
     (initialize-disk)
     (initialize-pager)
-    (initialize-snapshot)
+    #+(or)(initialize-snapshot)
     (sys.int::%sti)
     (initialize-debug-serial serial-port-io-base 4 38400)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
