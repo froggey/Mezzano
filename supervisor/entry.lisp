@@ -12,23 +12,12 @@
 (defun stack-size (stack)
   (cdr stack))
 
-(defun %allocate-stack-2 (aligned-size bump-sym)
+(defun %allocate-stack-1 (aligned-size bump-sym)
   (safe-without-interrupts (aligned-size bump-sym)
     (with-symbol-spinlock (mezzano.runtime::*wired-allocator-lock*)
-      (when (<= aligned-size sys.int::*memory-expansion-remaining*)
-        (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
-                       (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-          (decf sys.int::*memory-expansion-remaining* aligned-size)
-          (incf (symbol-value bump-sym) aligned-size))))))
-
-(defun %allocate-stack-1 (aligned-size bump-sym)
-  (loop
-     (debug-print-line "MER is " sys.int::*memory-expansion-remaining* " want " aligned-size)
-     (let ((addr (%allocate-stack-2 aligned-size bump-sym)))
-       (when addr
-         (return addr)))
-     ;; Need more memory.
-     (sys.int::gc)))
+      (prog1 (logior (+ (symbol-value bump-sym) #x200000) ; + 2MB for guard page
+                     (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
+        (incf (symbol-value bump-sym) aligned-size)))))
 
 ;; TODO: Actually allocate virtual memory.
 (defun %allocate-stack (size &optional wired)
@@ -41,10 +30,14 @@
                                       'sys.int::*stack-area-bump*)))
          (stack (sys.int::cons-in-area addr size :wired)))
     ;; Allocate blocks.
-    (allocate-memory-range addr size
-                           (logior sys.int::+block-map-present+
-                                   sys.int::+block-map-writable+
-                                   sys.int::+block-map-zero-fill+))
+    (loop
+       (when (allocate-memory-range addr size
+                                    (logior sys.int::+block-map-present+
+                                            sys.int::+block-map-writable+
+                                            sys.int::+block-map-zero-fill+))
+         (return))
+       (debug-print-line "No memory for stack, calling GC.")
+       (sys.int::gc))
     stack))
 
 (defun reboot ()
@@ -219,9 +212,6 @@ Returns two values, the packet data and the receiving NIC."
     (detect-paging-disk)
     (when (not *paging-disk*)
       (panic "Could not find boot device. Sorry."))
-    (when first-run-p
-      ;; Must be initialized so that stacks can be allocated.
-      (setf sys.int::*memory-expansion-remaining* (* (mezzano.supervisor:store-statistics) +4k-page-size+)))
     (dolist (action *deferred-boot-actions*)
       (funcall action))
     (makunbound '*deferred-boot-actions*)

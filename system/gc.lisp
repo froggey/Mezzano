@@ -35,10 +35,6 @@
 ;; List of finalizers that should be run now.
 (defvar *pending-finalizers* nil)
 
-;; How many bytes the allocators can expand their areas by before a GC must occur.
-;; This is shared between all areas.
-(defvar *memory-expansion-remaining* 0)
-
 (defvar *gc-epoch* 0)
 
 (defun gc ()
@@ -984,12 +980,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                      (ash +address-tag-cons+ +address-tag-shift+))
                                              (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
-  (multiple-value-bind (n-free-blocks total-blocks)
-      (mezzano.supervisor:store-statistics)
-    (declare (ignore total-blocks))
-    ;; Always leave about 1MB worth of blocks free, need to update the block map & freelist.
-    (setf *memory-expansion-remaining* (logand (* (- n-free-blocks 256) #x1000) (lognot #x3FFFFF)))
-    (mezzano.supervisor:debug-print-line "Set *M-E-R* to " *memory-expansion-remaining* " (" n-free-blocks " blocks remain)"))
   (incf *gc-epoch*)
   (mezzano.supervisor:debug-print-line "GC complete")
   (mezzano.supervisor::set-gc-light nil))

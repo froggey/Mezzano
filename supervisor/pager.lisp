@@ -209,14 +209,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun allocate-new-block-for-virtual-address (address flags)
   (let ((new-block (or (store-alloc 1)
-                       (panic "Aiiee, out of store.")))
+                       (return-from allocate-new-block-for-virtual-address nil)))
         (bme (block-info-for-virtual-address-1 address t)))
     ;; Update the block info for this address.
     (when (not (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
       (panic "Block " address " entry not zero!"))
     (setf (sys.int::memref-unsigned-byte-64 bme 0)
           (logior (ash new-block sys.int::+block-map-id-shift+)
-                  flags))))
+                  flags))
+    t))
 
 (defun release-block-at-virtual-address (address)
   ;; Update the block info for this address.
@@ -277,9 +278,21 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (debug-print-line "Allocate range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
-      (allocate-new-block-for-virtual-address
-       (+ base (* i #x1000))
-       flags))))
+      (when (not (allocate-new-block-for-virtual-address
+                  (+ base (* i #x1000))
+                  flags))
+        ;; Failure! Roll back changes and abort.
+        (debug-print-line "Unable to allocate memory.")
+        (dotimes (j i)
+          ;; Update block map.
+          (release-block-at-virtual-address (+ base (* j #x1000)))
+          ;; Update page tables and release pages if possible.
+          (let ((pte (get-pte-for-address (+ base (* j #x1000)) nil)))
+            (when (and pte (page-present-p pte 0))
+              (release-vm-page (ash (page-table-entry pte 0) -12))
+              (setf (page-table-entry pte 0) 0))))
+        (return-from allocate-memory-range-in-pager nil))))
+  t)
 
 (defun release-memory-range (base length)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")

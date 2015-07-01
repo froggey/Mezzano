@@ -140,8 +140,7 @@ Should be kept in sync with data-types.")
       (format t "~:D/~:D physical pages used (~D%).~%"
               (- total-page-frames n-free-page-frames) total-page-frames
               (truncate (* (- total-page-frames n-free-page-frames) 100)
-                        total-page-frames)))
-    (format t "~:D words to next GC.~%" (truncate *memory-expansion-remaining* 8)))
+                        total-page-frames))))
   (values))
 
 (defun %walk-pinned-area (base limit fn)
