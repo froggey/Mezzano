@@ -157,6 +157,7 @@
     (debug-force-output)
     (setf *debug-pseudostream* 'debug-early-serial-stream))
   (set-panic-light)
+  (disable-page-fault-ist)
   (debug-print-line-1 things)
   (when extra
     (funcall extra))

@@ -147,3 +147,14 @@
     (%lidt (1- (* 256 16)) (+ addr +cpu-info-idt-offset+))
     (%ltr 16)
     (%load-cs 8)))
+
+(defun disable-page-fault-ist ()
+  (let ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
+                 sys.int::+tag-object+)))
+    (multiple-value-bind (lo hi)
+        (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
+                                 (svref sys.int::*interrupt-service-routines* 14)
+                                 sys.int::+function-entry-point+)
+                        :ist 0)
+      (setf (sys.int::memref-unsigned-byte-64 (+ addr +cpu-info-idt-offset+) (* 14 2)) lo
+            (sys.int::memref-unsigned-byte-64 (+ addr +cpu-info-idt-offset+) (1+ (* 14 2))) hi))))
