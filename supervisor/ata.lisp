@@ -365,7 +365,7 @@ This is used to implement the INTRQ_Wait state."
   (let ((controller (ata-device-controller device)))
     (assert (>= lba 0))
     (assert (>= count 0))
-    (assert (< (+ lba count) (ata-device-sector-count device)))
+    (assert (<= (+ lba count) (ata-device-sector-count device)))
     (cond
       ((ata-device-lba48-capable device)
        (when (> count 65536)

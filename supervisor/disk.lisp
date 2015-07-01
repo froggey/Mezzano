@@ -260,7 +260,7 @@ Returns true on success; false and an error on failure."
 Returns true on success; false on failure."
   ;; Wonder if these should fail async...
   (check-type direction (member :read :write))
-  (assert (<= 0 lba (+ lba n-sectors) (1- (disk-n-sectors disk))))
+  (assert (<= 0 lba (+ lba n-sectors) (disk-n-sectors disk)))
   ;; This terrible nonsense is because SAFE-WITHOUT-INTERRUPTS
   ;; can't pass more than 3 arguments to the lambda.
   ;; Check if the request has already been submitted.
