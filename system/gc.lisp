@@ -367,8 +367,11 @@ This is required to make the GC interrupt safe."
         ;; Scavenge the MV area.
         (let* ((n-values (+ (mezzano.supervisor:thread-state-rcx-value thread) multiple-values))
                (n-mv-area-values (max 0 (- n-values 5))))
-          (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-mv-slots-start+ 8))
-                         (- mezzano.supervisor::+thread-mv-slots-end+ mezzano.supervisor::+thread-mv-slots-start+))))
+          (scavenge-many (+ (ash (%pointer-field thread) 4)
+                            8
+                            (* mezzano.supervisor::+thread-mv-slots-start+ 8))
+                         (- mezzano.supervisor::+thread-mv-slots-end+
+                            mezzano.supervisor::+thread-mv-slots-start+))))
       (when (eql incoming-arguments :rcx)
         ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
         (setf incoming-arguments nil)
