@@ -426,6 +426,10 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-mutex-stack object))
   (scavengef (mezzano.supervisor:thread-global-next object))
   (scavengef (mezzano.supervisor:thread-global-prev object))
+  (scavengef (mezzano.supervisor:thread-priority object))
+  (scavengef (mezzano.supervisor:thread-pager-argument-1 object))
+  (scavengef (mezzano.supervisor:thread-pager-argument-2 object))
+  (scavengef (mezzano.supervisor:thread-pager-argument-3 object))
   ;; Only scan the thread's stack, MV area & TLS area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.

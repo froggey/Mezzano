@@ -122,7 +122,7 @@
                  (field ,state-name ,offset :accessor sys.int::%object-ref-signed-byte-64)
                  (field ,state-name-value ,offset :accessor sys.int::%object-ref-t)))))
   (field name                     0)
-  (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page))
+  (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request))
   (field lock                     2)
   (field stack                    3)
   ;; 4 - magic field used by bootloader.
@@ -138,6 +138,9 @@
   (field global-next             14)
   (field global-prev             15)
   (field priority                16 :type (member :low :normal))
+  (field pager-argument-1        17)
+  (field pager-argument-2        18)
+  (field pager-argument-3        19)
   (reg-field r15                427)
   (reg-field r14                428)
   (reg-field r13                429)
@@ -265,7 +268,10 @@
           (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
           (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
           (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
-          (sys.int::%object-ref-t thread +thread-priority+) priority)
+          (sys.int::%object-ref-t thread +thread-priority+) priority
+          (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
+          (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
+          (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
     ;; Reset TLS slots.
     (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
       (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))

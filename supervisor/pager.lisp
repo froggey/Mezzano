@@ -244,8 +244,36 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (:active
        (release-physical-pages frame 1)))))
 
+(defun pager-rpc (fn &optional arg1 arg2 arg3)
+  (without-footholds
+    (let ((self (current-thread)))
+      (setf (thread-pager-argument-1 self) arg1
+            (thread-pager-argument-2 self) arg2
+            (thread-pager-argument-3 self) arg3))
+    (%call-on-wired-stack-without-interrupts
+     (lambda (sp fp fn)
+       (let ((self (current-thread)))
+         (with-symbol-spinlock (*pager-lock*)
+           (%lock-thread self)
+           (setf (thread-state self) :pager-request
+                 (thread-wait-item self) fn
+                 (thread-%next self) *pager-waiting-threads*
+                 *pager-waiting-threads* self)
+           (with-thread-lock (sys.int::*pager-thread*)
+             (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                        (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+               (setf (thread-state sys.int::*pager-thread*) :runnable)
+               (with-symbol-spinlock (*global-thread-lock*)
+                 (push-run-queue sys.int::*pager-thread*)))))
+         (%reschedule-via-wired-stack sp fp)))
+     nil fn)
+    (thread-pager-argument-1 (current-thread))))
+
 (defun allocate-memory-range (base length flags)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (pager-rpc 'allocate-memory-range-in-pager base length flags))
+
+(defun allocate-memory-range-in-pager (base length flags)
   (debug-print-line "Allocate range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
@@ -255,6 +283,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun release-memory-range (base length)
   (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (pager-rpc 'release-memory-range-in-pager base length))
+
+(defun release-memory-range-in-pager (base length ignore3)
+  (declare (ignore ignore3))
   (debug-print-line "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
@@ -274,6 +306,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (assert (or (logtest sys.int::+block-map-present+ flags)
               (logtest sys.int::+block-map-zero-fill+ flags))
           () "TODO: Cannot mark block not-present without zero-fill")
+  (pager-rpc 'protect-memory-range-in-pager base length flags))
+
+(defun protect-memory-range-in-pager (base length flags)
   (debug-print-line "Protect range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
@@ -390,11 +425,20 @@ It will put the thread to sleep, while it waits for the page."
   ;; The VM lock is recreated each boot because it is only held by
   ;; the ephemeral pager and snapshot threads.
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
+  ;; Less of a big fat lie now. Only callers of MAP-PHYSICAL-MEMORY are a problem.
   (setf *vm-lock* (make-mutex "Global VM Lock")))
 
 ;;; When true, the system will panic if a thread touches a truely unmapped page.
 ;;; When false, the system will continue on and leave the thread in limbo.
 (defvar *panic-on-unhandled-paging-requests* t)
+
+(defun handle-pager-request ()
+  (setf (thread-pager-argument-1 *pager-current-thread*)
+        (funcall (thread-wait-item *pager-current-thread*)
+                 (thread-pager-argument-1 *pager-current-thread*)
+                 (thread-pager-argument-2 *pager-current-thread*)
+                 (thread-pager-argument-3 *pager-current-thread*)))
+  (wake-thread *pager-current-thread*))
 
 (defun pager-thread ()
   (loop
@@ -416,8 +460,10 @@ It will put the thread to sleep, while it waits for the page."
             (%reschedule)
             (sys.int::%cli)
             (acquire-place-spinlock *pager-lock*))))
-     ;; Page it in
-     (cond ((wait-for-page (thread-wait-item *pager-current-thread*))
+     (cond ((eql (thread-state *pager-current-thread*) :pager-request)
+            (handle-pager-request))
+           ;; Page it in
+           ((wait-for-page (thread-wait-item *pager-current-thread*))
             ;; Release the thread.
             (wake-thread *pager-current-thread*))
            ;; TODO: Shouldn't panic at all, this should be dispatched to a debugger thread.

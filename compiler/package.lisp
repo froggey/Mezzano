@@ -96,6 +96,10 @@
            #:thread-mutex-stack
            #:thread-global-next
            #:thread-global-prev
+           #:thread-priority
+           #:thread-pager-argument-1
+           #:thread-pager-argument-2
+           #:thread-pager-argument-3
            #:thread-state-r15
            #:thread-state-r14
            #:thread-state-r13
