@@ -505,6 +505,6 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
            (when (or (> (get-universal-time) timeout-absolute)
                      (null in-flight-pings))
              (return))
-           (mezzano.supervisor:wait-for-heartbeat)))
+           (sleep 0.01)))
       (when in-flight-pings
         (format t "~S pings still in-flight.~%" (length in-flight-pings))))))

@@ -1047,7 +1047,7 @@ A passive drag sends no drag events to the window.")
 
 (defun compositor-heartbeat-thread ()
   (loop
-     (mezzano.supervisor:wait-for-heartbeat)
+     (sleep 1/60)
      ;; Redisplay only when the system framebuffer changes or when there's
      ;; nonempty clip rect.
      (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))

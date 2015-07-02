@@ -104,7 +104,7 @@
                   (return (pop (udp-connection-packets connection)))))
               (when (> (get-universal-time) timeout-absolute)
                 (return nil))
-              (mezzano.supervisor:wait-for-heartbeat))))))
+              (sleep 0.01))))))
 
 (defun %udp4-receive (packet remote-ip start end)
   (let* ((remote-port (ub16ref/be packet start))

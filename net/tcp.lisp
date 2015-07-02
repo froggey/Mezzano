@@ -374,7 +374,7 @@
          (when (> (get-universal-time) timeout)
            (close-tcp-connection connection)
            (error "Connection timed out."))
-         (mezzano.supervisor:wait-for-heartbeat)))
+         (sleep 0.01)))
     connection))
 
 (defun tcp-send (connection data &optional (start 0) end)

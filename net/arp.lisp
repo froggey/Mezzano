@@ -114,7 +114,7 @@
                                (eql (second e) address)))
                         *arp-table*)
            (return))
-         (mezzano.supervisor:wait-for-heartbeat)))
+         (sleep 0.01)))
     (dolist (e *arp-table*)
       (when (and (eql (first e) ptype)
 		 (eql (second e) address))
