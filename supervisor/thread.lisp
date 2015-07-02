@@ -461,11 +461,13 @@
   (condition-notify *world-stop-resume-cvar*))
 
 (defun thread-yield ()
-  (let ((current (current-thread)))
-    (sys.int::%cli)
-    (%lock-thread current)
-    (setf (thread-state current) :runnable)
-    (%reschedule)))
+  (%call-on-wired-stack-without-interrupts
+   (lambda (sp fp)
+    (let ((current (current-thread)))
+      (%lock-thread current)
+      (setf (thread-state current) :runnable)
+      (%reschedule-via-wired-stack sp fp)))
+   nil))
 
 (defun %update-run-queue ()
   "Possibly return the current thread to the run queue, and

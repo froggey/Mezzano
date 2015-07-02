@@ -47,16 +47,18 @@
   (profile-sample interrupt-frame))
 
 (defun wait-for-heartbeat ()
-  (let ((self (current-thread)))
-    (ensure-interrupts-enabled)
-    (sys.int::%cli)
-    (lock-wait-queue *heartbeat-wait-queue*)
-    (push-wait-queue self *heartbeat-wait-queue*)
-    (%lock-thread self)
-    (unlock-wait-queue *heartbeat-wait-queue*)
-    (setf (thread-wait-item self) *heartbeat-wait-queue*
-          (thread-state self) :sleeping)
-    (%reschedule)))
+  (ensure-interrupts-enabled)
+  (%call-on-wired-stack-without-interrupts
+   (lambda (sp fp)
+     (let ((self (current-thread)))
+       (lock-wait-queue *heartbeat-wait-queue*)
+       (push-wait-queue self *heartbeat-wait-queue*)
+       (%lock-thread self)
+       (unlock-wait-queue *heartbeat-wait-queue*)
+       (setf (thread-wait-item self) *heartbeat-wait-queue*
+             (thread-state self) :sleeping)
+       (%reschedule-via-wired-stack sp fp)))
+   nil))
 
 ;; TODO properly.
 (defun sleep (seconds)
