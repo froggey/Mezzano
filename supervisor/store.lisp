@@ -2,10 +2,15 @@
 ;;;; This code is licensed under the MIT license.
 
 ;;;; Persistent storage management.
+;;;; This is completely protected by *VM-LOCK*. It must be held before calling
+;;;; STORE-ALLOC, STORE-FREE, or REGENERATE-STORE-FREELIST.
+
+;;; External API:
+;;; STORE-ALLOC - Allocate blocks from the store.
+;;; STORE-FREE - Release blocks back to the store.
+;;; STORE-STATISTICS - Return information about the store.
 
 (in-package :mezzano.supervisor)
-
-(defvar *store-freelist-lock*)
 
 ;;; In-memory freelist linked list
 (defvar *store-freelist-head*)
@@ -13,8 +18,8 @@
 
 ;;; Free metadata objects.
 (defvar *store-freelist-metadata-freelist*)
-(defvar *store-freelist-metadata-freelist-lock*)
 
+;;; Block counts.
 (defvar *store-freelist-n-free-blocks*)
 (defvar *store-freelist-total-blocks*)
 
@@ -49,34 +54,32 @@
 (defconstant +freelist-metadata-size+ 32)
 
 (defun freelist-alloc-metadata (start end freep)
-  (without-interrupts
-    (with-symbol-spinlock (*store-freelist-metadata-freelist-lock*)
-      (when (not *store-freelist-metadata-freelist*)
-        ;; Repopulate freelist.
-        (let* ((frame (allocate-physical-pages 1
-                                               :mandatory-p "store freelist metadata"))
-               (addr (+ +physical-map-base+ (ash frame 12))))
-          (dotimes (i (truncate #x1000 +freelist-metadata-size+))
-            (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
-                  (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
-                  (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 2) 0
-                  (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 3) 0)
-            (setf (freelist-metadata-next (+ addr (* i +freelist-metadata-size+))) *store-freelist-metadata-freelist*
-                  *store-freelist-metadata-freelist* (+ addr (* i +freelist-metadata-size+))))))
-      (let ((new *store-freelist-metadata-freelist*))
-        (setf *store-freelist-metadata-freelist* (freelist-metadata-next new))
-        (setf (freelist-metadata-start new) start
-              (freelist-metadata-end new) end
-              (freelist-metadata-free-p new) freep
-              (freelist-metadata-next new) '()
-              (freelist-metadata-prev new) '())
-        new))))
+  (when (not *store-freelist-metadata-freelist*)
+    ;; Repopulate freelist.
+    ;; This allocation could potentially get exciting.
+    ;; PAGER-ALLOCATE-PAGE doesn't call back into the store functions,
+    ;; but if it does then this'll have to change.
+    (let* ((frame (pager-allocate-page :other))
+           (addr (+ +physical-map-base+ (ash frame 12))))
+      (dotimes (i (truncate #x1000 +freelist-metadata-size+))
+        (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
+              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
+              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 2) 0
+              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 3) 0)
+        (setf (freelist-metadata-next (+ addr (* i +freelist-metadata-size+))) *store-freelist-metadata-freelist*
+              *store-freelist-metadata-freelist* (+ addr (* i +freelist-metadata-size+))))))
+  (let ((new *store-freelist-metadata-freelist*))
+    (setf *store-freelist-metadata-freelist* (freelist-metadata-next new))
+    (setf (freelist-metadata-start new) start
+          (freelist-metadata-end new) end
+          (freelist-metadata-free-p new) freep
+          (freelist-metadata-next new) '()
+          (freelist-metadata-prev new) '())
+    new))
 
 (defun freelist-free-metadata (md)
-  (without-interrupts
-    (with-symbol-spinlock (*store-freelist-metadata-freelist-lock*)
-      (setf (freelist-metadata-next md) *store-freelist-metadata-freelist*
-            *store-freelist-metadata-freelist* md))))
+  (setf (freelist-metadata-next md) *store-freelist-metadata-freelist*
+        *store-freelist-metadata-freelist* md))
 
 (defun adjust-freelist-range-start (range new-start)
   (cond ((freelist-metadata-prev range)
@@ -127,8 +130,7 @@
           (freelist-metadata-end range) end)))
 
 (defun store-insert-range (start n-blocks freep)
-  "Internal function. Insert a new range into the in-memory store freelist.
-Should be called with the freelist lock held."
+  "Internal function. Insert a new range into the in-memory store freelist."
   ;; Search for the entry containing this range.
   #+(or)(debug-print-line "Inserting range " start "-" (+ start n-blocks) ":" freep " into freelist")
   #+(or)(do ((range *store-freelist-head*
@@ -198,12 +200,8 @@ Should be called with the freelist lock held."
   (store-insert-range start n-blocks t))
 
 (defun store-free (start n-blocks)
-  ;; HACK: Try to make sure that there's at least one page free.
-  ;; ### - Why does this even need to run with interrupts disabled?
-  (release-physical-pages (pager-allocate-page :other) 1)
-  (safe-without-interrupts (start n-blocks)
-    (with-symbol-spinlock (*store-freelist-lock*)
-      (store-free-1 start n-blocks))))
+  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
+  (store-free-1 start n-blocks))
 
 (defun store-alloc-1 (n-blocks)
   "Allocate from the in-memory freelist only. The freelist lock must be held."
@@ -220,11 +218,8 @@ Should be called with the freelist lock held."
           (return start))))))
 
 (defun store-alloc (n-blocks)
-  ;; Same here.
-  (release-physical-pages (pager-allocate-page :other) 1)
-  (safe-without-interrupts (n-blocks)
-    (with-symbol-spinlock (*store-freelist-lock*)
-      (store-alloc-1 n-blocks))))
+  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when allocating store.")
+  (store-alloc-1 n-blocks))
 
 (defun process-one-freelist-block (block-id)
   (with-disk-block (blk block-id)
@@ -250,10 +245,8 @@ Should be called with the freelist lock held."
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
   (setf *store-freelist-metadata-freelist* '()
-        *store-freelist-metadata-freelist-lock* :unlocked)
-  (setf *store-freelist-head* (freelist-alloc-metadata 0 n-store-blocks t)
+        *store-freelist-head* (freelist-alloc-metadata 0 n-store-blocks t)
         *store-freelist-tail* *store-freelist-head*
-        *store-freelist-lock* :unlocked
         *store-freelist-n-free-blocks* n-store-blocks
         *store-freelist-total-blocks* n-store-blocks)
   (loop
@@ -269,12 +262,14 @@ Should be called with the freelist lock held."
 
 (defun store-statistics ()
   "Return two values: The number of blocks free, and the total number of blocks."
+  ;; Disable interrupts to avoid smearing if a snapshot is taken between the two reads.
   (safe-without-interrupts ()
-    (with-symbol-spinlock (*store-freelist-lock*)
-      (values *store-freelist-n-free-blocks*
-              *store-freelist-total-blocks*))))
+    (values *store-freelist-n-free-blocks*
+            *store-freelist-total-blocks*)))
 
-(defun regenerate-store-freelist-1 ()
+;; FIXME: Need to free the old freelist/block map as well.
+(defun regenerate-store-freelist ()
+  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held in REGENERATE-STORE-FREELIST.")
   (let ((disk-block nil)
         (memory-block nil))
     ;; Resulting freelist needs to fit in one block.
@@ -284,7 +279,7 @@ Should be called with the freelist lock held."
         ((null range)
          (when (>= total-allocated-ranges 250)
            (debug-print-line "FIXME: Freelist too large. Can't rebuild freelist.")
-           (return-from regenerate-store-freelist-1 nil)))
+           (return-from regenerate-store-freelist nil)))
       (when (not (freelist-metadata-free-p range))
         (incf total-allocated-ranges)))
     ;; Allocate disk block & memory page.
@@ -292,12 +287,12 @@ Should be called with the freelist lock held."
     (when (not disk-block)
       ;; Oh, the irony.
       (debug-print-line "Unable to allocate store for freelist.")
-      (return-from regenerate-store-freelist-1 nil))
+      (return-from regenerate-store-freelist nil))
     (setf memory-block (allocate-page))
     (when (not memory-block)
       (store-free-1 disk-block 1)
       (debug-print-line "Unable to allocate memory for freelist.")
-      (return-from regenerate-store-freelist-1 nil))
+      (return-from regenerate-store-freelist nil))
     (zeroize-page memory-block)
     ;; Write every allocated region to the block.
     (do ((range *store-freelist-head* (freelist-metadata-next range))
@@ -314,9 +309,3 @@ Should be called with the freelist lock held."
             (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
             (incf offset)))))
     (values disk-block memory-block)))
-
-;; FIXME: Need to free the old freelist/block map as well.
-(defun regenerate-store-freelist ()
-  (safe-without-interrupts ()
-    (with-symbol-spinlock (*store-freelist-lock*)
-      (regenerate-store-freelist-1))))
