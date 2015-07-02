@@ -225,6 +225,9 @@
 (defconstant +block-map-present+ 1 "Entry is present. This entry may still have a block associated with it, even if it is not present.")
 (defconstant +block-map-writable+ 2 "Entry is writable.")
 (defconstant +block-map-zero-fill+ 4 "Entry should be zero-filled.")
+(defconstant +block-map-committed+ 8
+  "This block is owned by the currently running system, not by a previous snapshot and can be written to safely.
+Internal to the pager, should not be used by other code.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 56)

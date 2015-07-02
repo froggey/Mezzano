@@ -55,6 +55,7 @@
 
 (defvar *boot-information-page*)
 
+(defconstant +virtual-address-bits+ 48)
 (defconstant +log2-4k-page+ 12)
 (defconstant +n-32-bit-physical-buddy-bins+ (- 32 +log2-4k-page+)
   "Number of buddy bins for the below 4GB allocator.")

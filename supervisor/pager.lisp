@@ -13,6 +13,11 @@
 (defvar *paging-disk*)
 (defvar *bml4*)
 
+(defvar *page-replacement-list-head*)
+(defvar *page-replacement-list-tail*)
+
+(defvar *store-fudge-factor*)
+
 (defconstant +page-table-present+        #x001)
 (defconstant +page-table-write+          #x002)
 (defconstant +page-table-user+           #x004)
@@ -121,7 +126,11 @@ the data. Free the page with FREE-PAGE when done."
   (setf *paging-disk* disk)
   (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0))
   (initialize-store-freelist (truncate (* (disk-n-sectors *paging-disk*) (disk-sector-size *paging-disk*)) #x1000)
-                             (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0)))
+                             (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0))
+  (multiple-value-bind (free-blocks total-blocks)
+      (store-statistics)
+    (setf *store-fudge-factor* (+ (- total-blocks free-blocks) 256))
+    (debug-print-line "Set fudge factor to " *store-fudge-factor*)))
 
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
@@ -160,7 +169,7 @@ the data. Free the page with FREE-PAGE when done."
   (if (not (page-present-p page-table index))
       (when allocate
         ;; No PT. Allocate one.
-        (let* ((frame (allocate-physical-pages 1 :mandatory-p "page table" :type :page-table))
+        (let* ((frame (pager-allocate-page :page-table))
                (addr (+ +physical-map-base+ (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
@@ -186,7 +195,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                     info)
                    ((not allocate)
                     (return-from block-info-for-virtual-address-1 nil))
-                   (t (let ((new-level (allocate-page "Block map")))
+                   (t (let* ((frame (pager-allocate-page :other))
+                             (new-level (+ +physical-map-base+ (* frame +4k-page-size+))))
                         (zeroize-page new-level)
                         (setf (sys.int::memref-signed-byte-64 map entry) new-level)
                         new-level))))))
@@ -209,15 +219,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun allocate-new-block-for-virtual-address (address flags)
   (let ((new-block (or (store-alloc 1)
-                       (return-from allocate-new-block-for-virtual-address nil)))
+                       (panic "Aiiee, out of store.")))
         (bme (block-info-for-virtual-address-1 address t)))
     ;; Update the block info for this address.
     (when (not (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
       (panic "Block " address " entry not zero!"))
     (setf (sys.int::memref-unsigned-byte-64 bme 0)
           (logior (ash new-block sys.int::+block-map-id-shift+)
-                  flags))
-    t))
+                  sys.int::+block-map-committed+
+                  flags))))
 
 (defun release-block-at-virtual-address (address)
   ;; Update the block info for this address.
@@ -225,24 +235,31 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (when (or (not bme)
               (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
       (panic "Block " address " entry is zero or not allocated!"))
-    (store-free (ash (sys.int::memref-unsigned-byte-64 bme 0) (- sys.int::+block-map-id-shift+)) 1)
+    (cond ((logtest sys.int::+block-map-committed+ (sys.int::memref-unsigned-byte-64 bme 0))
+           (store-free (ash (sys.int::memref-unsigned-byte-64 bme 0) (- sys.int::+block-map-id-shift+)) 1))
+          ;; FIXME, blah blah
+          (t #+(or)(debug-print-line "Block " (sys.int::memref-unsigned-byte-64 bme 0) " vaddr " address " is uncommitted.")
+             (decf *store-fudge-factor*)))
     (setf (sys.int::memref-unsigned-byte-64 bme 0) 0)))
 
 (defun set-address-flags (address flags)
   ;; Update the block info for this address.
+  ;; Preserve the state of the committed flag.
   (let ((bme (block-info-for-virtual-address-1 address)))
     (when (or (not bme)
               (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
       (panic "Block " address " entry is zero or not allocated!"))
     (setf (sys.int::memref-unsigned-byte-64 bme 0)
           (logior (logand (sys.int::memref-unsigned-byte-64 bme 0)
-                          (lognot sys.int::+block-map-flag-mask+))
+                          (logior (lognot sys.int::+block-map-flag-mask+)
+                                  sys.int::+block-map-committed+))
                   flags))))
 
 (defun release-vm-page (frame)
   (safe-without-interrupts (frame)
     (ecase (physical-page-frame-type frame)
       (:active
+       (remove-from-page-replacement-list frame)
        (release-physical-pages frame 1)))))
 
 (defun pager-rpc (fn &optional arg1 arg2 arg3)
@@ -277,21 +294,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun allocate-memory-range-in-pager (base length flags)
   (debug-print-line "Allocate range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
+    ;; Ensure there's enough fudged memory before allocating.
+    (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
+      (debug-print-line "Not allocating " length " bytes, too few blocks remaining. "
+                        *store-freelist-n-free-blocks* " " *store-fudge-factor*)
+      (return-from allocate-memory-range-in-pager nil))
     (dotimes (i (truncate length #x1000))
-      (when (not (allocate-new-block-for-virtual-address
-                  (+ base (* i #x1000))
-                  flags))
-        ;; Failure! Roll back changes and abort.
-        (debug-print-line "Unable to allocate memory.")
-        (dotimes (j i)
-          ;; Update block map.
-          (release-block-at-virtual-address (+ base (* j #x1000)))
-          ;; Update page tables and release pages if possible.
-          (let ((pte (get-pte-for-address (+ base (* j #x1000)) nil)))
-            (when (and pte (page-present-p pte 0))
-              (release-vm-page (ash (page-table-entry pte 0) -12))
-              (setf (page-table-entry pte 0) 0))))
-        (return-from allocate-memory-range-in-pager nil))))
+      (allocate-new-block-for-virtual-address
+       (+ base (* i #x1000))
+       flags)))
   t)
 
 (defun release-memory-range (base length)
@@ -346,11 +357,89 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                                         (lognot +page-table-write+))))))))
     (flush-tlb)))
 
+(defun pager-allocate-page (&optional (new-type :active))
+  (let ((frame (allocate-physical-pages 1 :type new-type)))
+    (when (not frame)
+      ;; TODO: Purge empty page table levels.
+      #+(or)(debug-print-line "Pager out of memory, preparing to SWAP!")
+      (when (not *page-replacement-list-head*)
+        (panic "No pages available for page-out?"))
+      (let* ((candidate *page-replacement-list-head*)
+             (candidate-virtual (physical-page-virtual-address candidate))
+             (pte-addr (get-pte-for-address candidate-virtual nil))
+             (pte (sys.int::memref-unsigned-byte-64 pte-addr 0))
+             (bme-addr (block-info-for-virtual-address-1 candidate-virtual nil))
+             (bme (sys.int::memref-unsigned-byte-64 bme-addr 0)))
+        (ensure (eql (physical-page-frame-type candidate) :active)
+                "Page-out candidate has type " (physical-page-frame-type candidate) ", wanted :ACTIVE.")
+        #+(or)(debug-print-line "Candidate " candidate ":" candidate-virtual
+                          "  pte " pte
+                          "  type " (physical-page-frame-type candidate)
+                          "  block " (physical-page-frame-block-id candidate)
+                          "  bme " bme)
+        ;; Remove this page from the VM, but do not free it just yet.
+        (remove-from-page-replacement-list candidate)
+        (setf (sys.int::memref-unsigned-byte-64 pte-addr 0) 0)
+        (sys.int::%invlpg candidate-virtual)
+        ;; Maybe write it back to disk.
+        (when (logtest pte +page-table-dirty+)
+          (when (not (logtest bme sys.int::+block-map-committed+))
+            #+(or)(debug-print-line "Candidate is dirty but part of on-disk snapshot, allocating new block.")
+            (let ((new-block (or (store-alloc 1)
+                                 (panic "Aiiee, out of store during swap-out.")))
+                  (old-block (ash bme (- sys.int::+block-map-id-shift+))))
+              (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                                sys.int::+block-map-committed+
+                                (logand bme #xFF))
+                    (sys.int::memref-unsigned-byte-64 bme-addr 0) bme )
+              #+(or)(debug-print-line "Replace old block " old-block " with " new-block " vaddr " candidate-virtual)
+              (decf *store-fudge-factor*)
+              ;; FIXME: need to put this on a do not touch freelist.
+              ;(store-free old-block 1)
+              #+(or)(debug-print-line "Old block: " old-block "  new-block: " new-block)))
+          (let ((block-id (ash bme (- sys.int::+block-map-id-shift+))))
+            #+(or)(debug-print-line "Candidate is dirty, writing back to block " block-id)
+            (disk-submit-request *pager-disk-request*
+                                 *paging-disk*
+                                 :write
+                                 (* block-id
+                                    (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
+                                 (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
+                                 (+ +physical-map-base+ (ash candidate 12)))
+            (unless (disk-await-request *pager-disk-request*)
+              (panic "Unable to swap page to disk."))))
+        ;; Now it can be reused.
+        (setf frame candidate)
+        (setf (physical-page-frame-type frame) new-type)))
+    frame))
+
+(defun append-to-page-replacement-list (frame)
+  (cond (*page-replacement-list-head*
+         (setf (physical-page-frame-next *page-replacement-list-tail*) frame
+               (physical-page-frame-prev frame) *page-replacement-list-tail*
+               (physical-page-frame-next frame) nil
+               *page-replacement-list-tail* frame))
+        (t
+         (setf *page-replacement-list-head* frame
+               *page-replacement-list-tail* frame
+               (physical-page-frame-next frame) nil
+               (physical-page-frame-prev frame) nil))))
+
+(defun remove-from-page-replacement-list (frame)
+  (when (eql *page-replacement-list-head* frame)
+    (setf *page-replacement-list-head* (physical-page-frame-next frame)))
+  (when (physical-page-frame-next frame)
+    (setf (physical-page-frame-prev (physical-page-frame-next frame)) (physical-page-frame-prev frame)))
+  (when (eql *page-replacement-list-tail* frame)
+    (setf *page-replacement-list-tail* (physical-page-frame-prev frame)))
+  (when (physical-page-frame-prev frame)
+    (setf (physical-page-frame-next (physical-page-frame-prev frame)) (physical-page-frame-next frame))))
+
 (defun wait-for-page (address)
-  #+(or)(debug-print-line "WFP " address)
   (with-mutex (*vm-lock*)
     (let ((pte (get-pte-for-address address))
           (block-info (block-info-for-virtual-address address)))
+      #+(or)(debug-print-line "WFP " address " block " block-info)
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (page-present-p pte 0)
@@ -364,10 +453,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         #+(or)(debug-print-line "WFP " address " not present")
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
-      (let* ((frame (allocate-physical-pages 1 :mandatory-p "data" :type :active))
+      (let* ((frame (pager-allocate-page))
              (addr (+ +physical-map-base+ (ash frame 12))))
         (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
               (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
+        (unless *page-replacement-list-head*
+          (debug-print-line "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
+        (append-to-page-replacement-list frame)
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
                (zeroize-page addr)
@@ -383,8 +475,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                        (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
                                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
                                     addr)
-               (or (disk-await-request *pager-disk-request*)
-                   (panic "Unable to read page from disk"))))
+               (unless (disk-await-request *pager-disk-request*)
+                 (panic "Unable to read page from disk"))))
         (setf (page-table-entry pte 0) (logior (ash frame 12)
                                                +page-table-present+
                                                (if (logtest sys.int::+block-map-writable+ block-info)
@@ -398,6 +490,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   "Called by the page fault handler when a non-present page is accessed.
 It will put the thread to sleep, while it waits for the page."
   (let ((self (current-thread)))
+    (when (eql self sys.int::*pager-thread*)
+      (panic "Page fault in pager!"))
     (with-symbol-spinlock (*pager-lock*)
       (%lock-thread self)
       (setf (thread-state self) :waiting-for-page
@@ -429,6 +523,8 @@ It will put the thread to sleep, while it waits for the page."
     (setf *pager-waiting-threads* '()
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)))
+  (setf *page-replacement-list-head* nil
+        *page-replacement-list-tail* nil)
   (when *pager-current-thread*
     ;; Push any current thread back on the waiting threads list.
     (setf (thread-%next *pager-current-thread*) *pager-waiting-threads*

@@ -198,6 +198,9 @@ Should be called with the freelist lock held."
   (store-insert-range start n-blocks t))
 
 (defun store-free (start n-blocks)
+  ;; HACK: Try to make sure that there's at least one page free.
+  ;; ### - Why does this even need to run with interrupts disabled?
+  (release-physical-pages (pager-allocate-page :other) 1)
   (safe-without-interrupts (start n-blocks)
     (with-symbol-spinlock (*store-freelist-lock*)
       (store-free-1 start n-blocks))))
@@ -217,6 +220,8 @@ Should be called with the freelist lock held."
           (return start))))))
 
 (defun store-alloc (n-blocks)
+  ;; Same here.
+  (release-physical-pages (pager-allocate-page :other) 1)
   (safe-without-interrupts (n-blocks)
     (with-symbol-spinlock (*store-freelist-lock*)
       (store-alloc-1 n-blocks))))
