@@ -599,6 +599,11 @@
   (write-byte sys.int::+llf-single-float+ stream)
   (save-integer (%single-float-as-integer object) stream))
 
+(defmethod save-one-object ((object ratio) omap stream)
+  (write-byte sys.int::+llf-ratio+ stream)
+  (save-integer (numerator object) stream)
+  (save-integer (denominator object) stream))
+
 (defmethod save-one-object ((object array) omap stream)
   (dotimes (i (array-total-size object))
     (save-object (row-major-aref object i) omap stream))
