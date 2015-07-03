@@ -18,6 +18,9 @@
 
 ;;; Free metadata objects.
 (defvar *store-freelist-metadata-freelist*)
+(defvar *store-freelist-n-free-metadata*)
+(defvar *store-freelist-recursive-metadata-allocation*)
+(defconstant +store-freelist-metadata-soft-limit+ 16)
 
 ;;; Block counts.
 (defvar *store-freelist-n-free-blocks*)
@@ -53,21 +56,22 @@
 
 (defconstant +freelist-metadata-size+ 32)
 
+(defun store-refill-metadata ()
+  ;; Repopulate freelist.
+  (let* ((frame (let ((*store-freelist-recursive-metadata-allocation* t))
+                  (pager-allocate-page :other)))
+         (addr (+ +physical-map-base+ (ash frame 12))))
+    (dotimes (i (truncate #x1000 +freelist-metadata-size+))
+      (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
+            (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
+            (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 2) 0
+            (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 3) 0)
+      (incf *store-freelist-n-free-metadata*)
+      (setf (freelist-metadata-next (+ addr (* i +freelist-metadata-size+))) *store-freelist-metadata-freelist*
+            *store-freelist-metadata-freelist* (+ addr (* i +freelist-metadata-size+))))))
+
 (defun freelist-alloc-metadata (start end freep)
-  (when (not *store-freelist-metadata-freelist*)
-    ;; Repopulate freelist.
-    ;; This allocation could potentially get exciting.
-    ;; PAGER-ALLOCATE-PAGE doesn't call back into the store functions,
-    ;; but if it does then this'll have to change.
-    (let* ((frame (pager-allocate-page :other))
-           (addr (+ +physical-map-base+ (ash frame 12))))
-      (dotimes (i (truncate #x1000 +freelist-metadata-size+))
-        (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
-              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
-              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 2) 0
-              (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 3) 0)
-        (setf (freelist-metadata-next (+ addr (* i +freelist-metadata-size+))) *store-freelist-metadata-freelist*
-              *store-freelist-metadata-freelist* (+ addr (* i +freelist-metadata-size+))))))
+  (ensure *store-freelist-metadata-freelist* "No available freelist metadata objects!")
   (let ((new *store-freelist-metadata-freelist*))
     (setf *store-freelist-metadata-freelist* (freelist-metadata-next new))
     (setf (freelist-metadata-start new) start
@@ -75,11 +79,19 @@
           (freelist-metadata-free-p new) freep
           (freelist-metadata-next new) '()
           (freelist-metadata-prev new) '())
+    (decf *store-freelist-n-free-metadata*)
     new))
 
 (defun freelist-free-metadata (md)
+  (incf *store-freelist-n-free-metadata*)
   (setf (freelist-metadata-next md) *store-freelist-metadata-freelist*
         *store-freelist-metadata-freelist* md))
+
+(defun store-maybe-refill-metadata ()
+  (when (and (not *store-freelist-recursive-metadata-allocation*)
+             (< *store-freelist-n-free-metadata*
+                +store-freelist-metadata-soft-limit+))
+    (store-refill-metadata)))
 
 (defun adjust-freelist-range-start (range new-start)
   (cond ((freelist-metadata-prev range)
@@ -195,16 +207,21 @@
         (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (return))))
 
-(defun store-free-1 (start n-blocks)
+(defun store-free (start n-blocks)
+  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
+  (store-maybe-refill-metadata)
   (incf *store-freelist-n-free-blocks* n-blocks)
   (store-insert-range start n-blocks t))
 
-(defun store-free (start n-blocks)
+(defun store-deferred-free (start n-blocks)
+  (store-maybe-refill-metadata)
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
-  (store-free-1 start n-blocks))
+  (debug-print-line "Deferred store free " start " " n-blocks))
 
-(defun store-alloc-1 (n-blocks)
+(defun store-alloc (n-blocks)
   "Allocate from the in-memory freelist only. The freelist lock must be held."
+  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when allocating store.")
+  (store-maybe-refill-metadata)
   ;; Find a free range large enough.
   (do ((range *store-freelist-head* (freelist-metadata-next range)))
       ((null range)
@@ -217,14 +234,11 @@
           (decf *store-freelist-n-free-blocks* n-blocks)
           (return start))))))
 
-(defun store-alloc (n-blocks)
-  (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when allocating store.")
-  (store-alloc-1 n-blocks))
-
 (defun process-one-freelist-block (block-id)
   (with-disk-block (blk block-id)
     (let ((next (sys.int::memref-unsigned-byte-64 blk 511)))
       (dotimes (i 255)
+        (store-maybe-refill-metadata)
         (let* ((start (sys.int::memref-unsigned-byte-64 blk (* i 2)))
                (size (sys.int::memref-unsigned-byte-64 blk (1+ (* i 2))))
                (freep (logbitp 0 size)))
@@ -245,7 +259,10 @@
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
   (setf *store-freelist-metadata-freelist* '()
-        *store-freelist-head* (freelist-alloc-metadata 0 n-store-blocks t)
+        *store-freelist-recursive-metadata-allocation* nil
+        *store-freelist-n-free-metadata* 0)
+  (store-refill-metadata)
+  (setf *store-freelist-head* (freelist-alloc-metadata 0 n-store-blocks t)
         *store-freelist-tail* *store-freelist-head*
         *store-freelist-n-free-blocks* n-store-blocks
         *store-freelist-total-blocks* n-store-blocks)
@@ -283,14 +300,14 @@
       (when (not (freelist-metadata-free-p range))
         (incf total-allocated-ranges)))
     ;; Allocate disk block & memory page.
-    (setf disk-block (store-alloc-1 1))
+    (setf disk-block (store-alloc 1))
     (when (not disk-block)
       ;; Oh, the irony.
       (debug-print-line "Unable to allocate store for freelist.")
       (return-from regenerate-store-freelist nil))
     (setf memory-block (allocate-page))
     (when (not memory-block)
-      (store-free-1 disk-block 1)
+      (store-free disk-block 1)
       (debug-print-line "Unable to allocate memory for freelist.")
       (return-from regenerate-store-freelist nil))
     (zeroize-page memory-block)
