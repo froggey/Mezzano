@@ -298,6 +298,7 @@
       ;; Initialize state save area.
       (setf (thread-state-ss thread) 0
             (thread-state-rsp thread) stack-pointer
+            (thread-state-rbp thread) 0
             ;; Start with interrupts enabled.
             (thread-state-rflags thread) #x202
             ;; Kernel code segment (defined in cpu.lisp).
@@ -391,6 +392,7 @@
     ;; Initialize state save area.
     (setf (thread-state-ss thread) 0
           (thread-state-rsp thread) stack-pointer
+          (thread-state-rbp thread) 0
           ;; Start with interrupts enabled.
           (thread-state-rflags thread) #x202
           ;; Kernel code segment (defined in cpu.lisp).
