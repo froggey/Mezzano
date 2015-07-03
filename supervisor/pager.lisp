@@ -454,7 +454,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
       (let* ((frame (pager-allocate-page))
-             (addr (+ +physical-map-base+ (ash frame 12))))
+             (addr (+ +physical-map-base+ (ash frame 12)))
+             (is-zero-page nil))
         (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
               (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
         (unless *page-replacement-list-head*
@@ -462,6 +463,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (append-to-page-replacement-list frame)
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
+               (setf is-zero-page t)
                (zeroize-page addr)
                ;; Clear the zero-fill flag.
                (set-address-flags address (logand block-info
@@ -482,8 +484,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                                (if (logtest sys.int::+block-map-writable+ block-info)
                                                    +page-table-write+
                                                  0)))
-        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0))))
-    (flush-tlb))
+        (sys.int::%invlpg address)
+        (when is-zero-page
+          ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
+          ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
+          ;; This sets the dirty bits in the page tables properly.
+          (setf (sys.int::memref-unsigned-byte-8 address 0) 0))
+        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
