@@ -130,7 +130,9 @@ the data. Free the page with FREE-PAGE when done."
   (multiple-value-bind (free-blocks total-blocks)
       (store-statistics)
     (setf *store-fudge-factor* (+ (- total-blocks free-blocks) 256))
-    (debug-print-line "Set fudge factor to " *store-fudge-factor*)))
+    (debug-print-line "Set fudge factor to " *store-fudge-factor*))
+  (debug-print-line "Waking pager thread.")
+  (setf (thread-state sys.int::*pager-thread*) :runnable))
 
 (defun detect-paging-disk ()
   (dolist (disk (all-disks))
@@ -538,6 +540,9 @@ It will put the thread to sleep, while it waits for the page."
           *pager-waiting-threads* *pager-current-thread*
           *pager-current-thread* nil))
   (setf *pager-disk-request* (make-disk-request))
+  ;; Don't let the pager run until the paging disk has been found.
+  (setf (thread-state sys.int::*pager-thread*) :sleeping
+        (thread-wait-item sys.int::*pager-thread*) "Waiting for paging disk")
   ;; The VM lock is recreated each boot because it is only held by
   ;; the ephemeral pager and snapshot threads.
   ;; Big fat lie!!! Anything that calls PROTECT-MEMORY-RANGE/RELEASE-MEMORY-RANGE/etc holds this :|
