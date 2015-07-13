@@ -36,6 +36,7 @@
 (defvar *pending-finalizers* nil)
 
 (defvar *gc-epoch* 0)
+(defvar *gc-time* 0.0 "Time in seconds taken by the GC so far.")
 
 (defun gc ()
   "Run a garbage-collection cycle."
@@ -44,9 +45,14 @@
   (mezzano.supervisor:with-world-stopped
     ;; Set *GC-IN-PROGRESS* globally, not with a binding.
     (unwind-protect
-         (progn
+         (let ((gc-start (get-internal-run-time)))
            (setf *gc-in-progress* t)
-           (gc-cycle))
+           (gc-cycle)
+           (let* ((gc-end (get-internal-run-time))
+                  (total-time (- gc-end gc-start))
+                  (total-seconds (/ total-time (float internal-time-units-per-second))))
+             (mezzano.supervisor:debug-print-line "GC took " (truncate (* total-seconds 1000)) "ms")
+             (incf *gc-time* total-seconds)))
       (setf *gc-in-progress* nil)))
   ;; TODO: run in a seperate thread & catch errors.
   (run-finalizers))
