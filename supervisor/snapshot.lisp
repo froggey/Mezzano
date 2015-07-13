@@ -253,13 +253,9 @@
   (disk-await-request *snapshot-disk-request*))
 
 (defun snapshot-freelist ()
-  (multiple-value-bind (disk-block memory-block)
-      (regenerate-store-freelist)
-    (snapshot-write-disk disk-block memory-block)
-    (free-page memory-block)
-    (values disk-block
-            (prog1 *store-deferred-freelist-head*
-              (setf *store-deferred-freelist-head* '())))))
+  (values (regenerate-store-freelist)
+          (prog1 *store-deferred-freelist-head*
+            (setf *store-deferred-freelist-head* '()))))
 
 (defun snapshot-bml1 (bml1)
   (let ((bml1-disk (or (store-alloc 1)

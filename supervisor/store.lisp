@@ -279,7 +279,7 @@
   (do ((range *store-freelist-head*
               (freelist-metadata-next range)))
       ((null range))
-    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range))))
+    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (if (freelist-metadata-free-p range) "free" "used"))))
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
   (setf *store-freelist-metadata-freelist* '()
@@ -292,6 +292,7 @@
         *store-freelist-n-free-blocks* n-store-blocks
         *store-freelist-n-deferred-free-blocks* 0
         *store-freelist-total-blocks* n-store-blocks)
+  (debug-print-line "Store freelist block is " freelist-block)
   (loop
      (multiple-value-bind (last-entry-offset next-block)
          (process-one-freelist-block freelist-block)
@@ -309,61 +310,109 @@
             *store-freelist-total-blocks*
             *store-freelist-n-deferred-free-blocks*)))
 
-;; FIXME: Deal with the deferred freelist as well.
 (defun regenerate-store-freelist ()
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held in REGENERATE-STORE-FREELIST.")
-  (let ((disk-block (or (store-alloc 1)
-                        (panic "Unable to allocate store for freelist.")))
-        (memory-block (+ +physical-map-base+ (ash (pager-allocate-page) 12))))
-    ;; Allocate a *whole* bunch of spare metadata entries, need to do this without actually modifing
-    ;; the freelist.
-    (let ((n-deferred-ranges 0))
-      (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
-          ((null range))
-        (incf n-deferred-ranges))
-      (loop
-         while (< *store-freelist-n-free-metadata* (* n-deferred-ranges 2))
-         do (store-refill-metadata)))
-    ;; Temporarily release all deferred pages back to the freelist.
+  (let ((n-deferred-ranges 0)
+        (n-real-ranges 0)
+        (free-block-list nil)
+        (used-block-list nil))
     (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
-      ((null range))
-    (let ((start (freelist-metadata-start range))
-          (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-      (debug-print-line "Free deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
-      (store-insert-range start n-blocks t)))
-    ;; Resulting freelist needs to fit in one block.
-    ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
-    (do ((range *store-freelist-head* (freelist-metadata-next range))
-         (total-allocated-ranges 0))
-        ((null range)
-         (when (>= total-allocated-ranges 250)
-           (dump-store-freelist)
-           (panic "FIXME: Freelist too large. Can't rebuild freelist.")))
-      (when (not (freelist-metadata-free-p range))
-        (incf total-allocated-ranges)))
-    (zeroize-page memory-block)
-    ;; Write every allocated region to the block.
-    (do ((range *store-freelist-head* (freelist-metadata-next range))
-         (offset 0))
         ((null range))
-      (when (not (freelist-metadata-free-p range))
-        (let ((start (freelist-metadata-start range))
-              (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range)))
-              (free nil))
-          (let ((blk memory-block))
-            ;; Address.
-            (setf (sys.int::memref-unsigned-byte-64 memory-block (* offset 2)) start)
-            ;; Size and free bit (clear).
-            (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
-            (incf offset)))))
-    ;; And unfree the deferred pages.
+      (incf n-deferred-ranges))
+    (do ((range *store-freelist-head* (freelist-metadata-next range)))
+        ((null range))
+      (incf n-real-ranges))
+    (let ((estimated-count (1+ (ceiling (+ n-deferred-ranges n-real-ranges) 255))))
+      (debug-print-line n-deferred-ranges " deferred ranges. " n-real-ranges " real ranges. Estimated "
+                        estimated-count " freelist blocks required.")
+      ;; Allocate blocks and pages.
+      (dotimes (i estimated-count)
+        (let ((memory (+ +physical-map-base+ (ash (pager-allocate-page) 12)))
+              (disk-block (or (store-alloc 1)
+                              (panic "Unable to allocate new freelist entries!"))))
+          (setf (sys.int::memref-t memory 0) free-block-list
+                (sys.int::memref-t memory 1) disk-block
+                free-block-list memory))))
+    ;; Preallocate a *whole* bunch of free metadata entries.
+    ;; Do this to avoid having to allocate & potentially swap things out when adding the deferred
+    ;; free pages to the freelist.
+    (loop
+       while (< *store-freelist-n-free-metadata* (* n-deferred-ranges 2))
+       do (store-refill-metadata))
+    ;; Temporarily release all deferred pages back to the freelist.
     (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
         ((null range))
       (let ((start (freelist-metadata-start range))
             (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-        (debug-print-line "Unfree deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
-        (store-insert-range start n-blocks nil)))
-    (values disk-block memory-block)))
+        (debug-print-line "Free deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+        (store-insert-range start n-blocks t)))
+    (dump-store-freelist)
+    ;; Write every allocated region to the block.
+    (do ((range *store-freelist-head* (freelist-metadata-next range))
+         (current-block nil)
+         (current-page nil)
+         (offset 0))
+        ((null range)
+         ;; Finish this block.
+         (setf (sys.int::memref-t current-page 510) used-block-list
+               (sys.int::memref-t current-page 511) current-block
+               used-block-list current-page))
+      (when (eql offset 255)
+        ;; This block is full, attach to used block list and grab a fresh block.
+        (setf (sys.int::memref-t current-page 510) used-block-list
+              (sys.int::memref-t current-page 511) current-block
+              used-block-list current-page)
+        ;; Advance to next block.
+        (setf offset 0)
+        (setf current-block nil))
+      (when (not current-block)
+        (ensure free-block-list)
+        (setf current-page free-block-list
+              current-block (sys.int::memref-t current-page 1)
+              free-block-list (sys.int::memref-t current-page 0))
+        (zeroize-page current-page)
+        (debug-print-line "Next freelist block " current-block))
+      (when (not (freelist-metadata-free-p range))
+        (let ((start (freelist-metadata-start range))
+              (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
+          (debug-print-line "Next is " start " " n-blocks)
+          ;; Address.
+          (setf (sys.int::memref-unsigned-byte-64 current-page (* offset 2)) start)
+          ;; Size and free bit (clear).
+          (setf (sys.int::memref-unsigned-byte-64 current-page (1+ (* offset 2))) (ash n-blocks 1))
+          (incf offset))))
+    ;; FIXME! Allocated blocks that weren't used have been leaked here.
+    ;; USED-BLOCK-LIST now contains a list of freelist blocks in reverse order.
+    ;; Write them to disk.
+    (let ((last-block 0))
+      (loop
+         (when (not used-block-list)
+           (return))
+         (let* ((current-page used-block-list)
+                (current-block (sys.int::memref-t current-page 511)))
+           (setf used-block-list (sys.int::memref-t current-page 510))
+           (setf (sys.int::memref-unsigned-byte-64 current-page 510) 0
+                 (sys.int::memref-unsigned-byte-64 current-page 511) last-block)
+           (snapshot-write-disk current-block current-page)
+           (setf last-block current-block)))
+      ;; And unfree the deferred pages.
+      (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
+          ((null range))
+        (let ((start (freelist-metadata-start range))
+              (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
+          (debug-print-line "Unfree deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+          (store-insert-range start n-blocks nil)))
+      ;; Freelist is back to normal, safe to free the other blocks/pages now.
+      (loop
+         (when (not free-block-list)
+           (return))
+         (let* ((page free-block-list)
+                (block (sys.int::memref-t page 1)))
+           (setf free-block-list (sys.int::memref-t page 0))
+           (free-page page)
+           (store-free block 1)))
+      ;; All done. Return the address of the starting freelist block.
+      last-block)))
 
 (defun store-release-deferred-blocks (block-list)
   (do ((range block-list (freelist-metadata-next range)))
