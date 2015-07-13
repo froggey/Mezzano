@@ -57,6 +57,9 @@
   (dotimes (i 512)
     (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
 
+(defun page-aligned-p (value)
+  (zerop (logand value #xFFF)))
+
 (defun allocate-page (&optional mandatory)
   (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
     (when frame
@@ -290,7 +293,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (thread-pager-argument-1 (current-thread))))
 
 (defun allocate-memory-range (base length flags)
-  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (assert (and (page-aligned-p base)
+               (page-aligned-p length))
+          (base length)
+          "Range not page aligned.")
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
 (defun allocate-memory-range-in-pager (base length flags)
@@ -308,7 +314,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   t)
 
 (defun release-memory-range (base length)
-  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (assert (and (page-aligned-p base)
+               (page-aligned-p length))
+          (base length)
+          "Range not page aligned.")
   (pager-rpc 'release-memory-range-in-pager base length))
 
 (defun release-memory-range-in-pager (base length ignore3)
@@ -326,7 +335,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (flush-tlb)))
 
 (defun protect-memory-range (base length flags)
-  (assert (zerop (logand (logior base length) #xFFF)) () "Range not page aligned.")
+  (assert (and (page-aligned-p base)
+               (page-aligned-p length))
+          (base length)
+          "Range not page aligned.")
   (assert (>= (+ base length) (* 2 1024 1024 1024)) () "Wired area can't be protected.")
   ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
   (assert (or (logtest sys.int::+block-map-present+ flags)
@@ -517,8 +529,8 @@ It will put the thread to sleep, while it waits for the page."
 
 (defun map-physical-memory (base size name)
   ;; Page alignment required.
-  (assert (zerop (logand base #xFFF)))
-  (assert (zerop (logand size #xFFF)))
+  (assert (page-aligned-p base))
+  (assert (page-aligned-p size))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate size #x1000))
       (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))
