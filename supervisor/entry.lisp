@@ -62,7 +62,7 @@
 (defconstant +log2-4k-page+ 12)
 (defconstant +n-32-bit-physical-buddy-bins+ (- 32 +log2-4k-page+)
   "Number of buddy bins for the below 4GB allocator.")
-(defconstant +n-64-bit-physical-buddy-bins+ (- 36 +log2-4k-page+)
+(defconstant +n-64-bit-physical-buddy-bins+ (- 39 +log2-4k-page+)
   "Number of buddy bins for the above 4GB allocator.")
 
 (defconstant +buddy-bin-size+ 16
