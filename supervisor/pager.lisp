@@ -236,16 +236,18 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun release-block-at-virtual-address (address)
   ;; Update the block info for this address.
-  (let ((bme (block-info-for-virtual-address-1 address)))
-    (when (or (not bme)
-              (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
+  (let ((bme-addr (block-info-for-virtual-address-1 address)))
+    (when (or (not bme-addr)
+              (zerop (sys.int::memref-unsigned-byte-64 bme-addr 0)))
       (panic "Block " address " entry is zero or not allocated!"))
-    (cond ((logtest sys.int::+block-map-committed+ (sys.int::memref-unsigned-byte-64 bme 0))
-           (store-free (ash (sys.int::memref-unsigned-byte-64 bme 0) (- sys.int::+block-map-id-shift+)) 1))
-          ;; FIXME, blah blah
-          (t #+(or)(debug-print-line "Block " (sys.int::memref-unsigned-byte-64 bme 0) " vaddr " address " is uncommitted.")
-             (decf *store-fudge-factor*)))
-    (setf (sys.int::memref-unsigned-byte-64 bme 0) 0)))
+    (let* ((bme (sys.int::memref-unsigned-byte-64 bme-addr 0))
+           (block-id (ash bme (- sys.int::+block-map-id-shift+))))
+      (cond ((logtest sys.int::+block-map-committed+ bme)
+             (store-free block-id 1))
+            (t #+(or)(debug-print-line "Block " (sys.int::memref-unsigned-byte-64 bme-addr 0) " vaddr " address " is uncommitted.")
+               (store-deferred-free block-id 1)
+               (decf *store-fudge-factor*)))
+      (setf (sys.int::memref-unsigned-byte-64 bme-addr 0) 0))))
 
 (defun set-address-flags (address flags)
   ;; Update the block info for this address.
@@ -261,11 +263,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                   flags))))
 
 (defun release-vm-page (frame)
-  (safe-without-interrupts (frame)
-    (ecase (physical-page-frame-type frame)
-      (:active
-       (remove-from-page-replacement-list frame)
-       (release-physical-pages frame 1)))))
+  (case (physical-page-frame-type frame)
+    (:active
+     (remove-from-page-replacement-list frame)
+     (release-physical-pages frame 1))
+    (:active-writeback
+     (setf (physical-page-frame-type frame) :inactive-writeback))
+    (t (panic "Releasing page " frame " with bad type " (physical-page-frame-type frame)))))
 
 (defun pager-rpc (fn &optional arg1 arg2 arg3)
   (without-footholds
@@ -341,6 +345,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           "Range not page aligned.")
   (assert (>= (+ base length) (* 2 1024 1024 1024)) () "Wired area can't be protected.")
   ;; Implementing this is a litle complicated. It'll need to keep dirty pages in memory.
+  ;; Actual possible implementation strategy: Commit if uncommitted, then back write to disk.
   (assert (or (logtest sys.int::+block-map-present+ flags)
               (logtest sys.int::+block-map-zero-fill+ flags))
           () "TODO: Cannot mark block not-present without zero-fill")
@@ -405,11 +410,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
                                 sys.int::+block-map-committed+
                                 (logand bme #xFF))
-                    (sys.int::memref-unsigned-byte-64 bme-addr 0) bme )
+                    (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
               #+(or)(debug-print-line "Replace old block " old-block " with " new-block " vaddr " candidate-virtual)
               (decf *store-fudge-factor*)
-              ;; FIXME: need to put this on a do not touch freelist.
-              ;(store-free old-block 1)
+              (store-deferred-free old-block 1)
               #+(or)(debug-print-line "Old block: " old-block "  new-block: " new-block)))
           (let ((block-id (ash bme (- sys.int::+block-map-id-shift+))))
             #+(or)(debug-print-line "Candidate is dirty, writing back to block " block-id)
@@ -427,6 +431,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (setf (physical-page-frame-type frame) new-type)))
     frame))
 
+;;; This list is also modified by the page fault handler.
+;;; No locking is required for this at the moment, as neither the pager nor the snapshotter
+;;; ever cause page faults. Extra locking might be required in the future (SMP, preemption, etc).
 (defun append-to-page-replacement-list (frame)
   (cond (*page-replacement-list-head*
          (setf (physical-page-frame-next *page-replacement-list-tail*) frame
@@ -457,6 +464,9 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (page-present-p pte 0)
+        (when (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
+          (debug-print-line "Copying page " address " in WFP.")
+          (snapshot-clone-cow-page (pager-allocate-page) address))
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
         (return-from wait-for-page t))
       ;; Note that this test is done after the pte test. this is a hack to make

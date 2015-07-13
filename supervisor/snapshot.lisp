@@ -4,6 +4,7 @@
 (in-package :mezzano.supervisor)
 
 (defvar *snapshot-in-progress* nil)
+(defvar *snapshot-inhibit*)
 
 (defvar *snapshot-disk-request*)
 (defvar *snapshot-bounce-buffer-page*)
@@ -21,9 +22,7 @@
   (sys.lap-x86:movs64)
   (sys.lap-x86:ret))
 
-(defun snapshot-add-writeback-frame (frame)
-  ;; Mark frame as pending writeback.
-  (setf (ldb (byte 1 +page-frame-flag-writeback+) (physical-page-frame-flags frame)) 1)
+(defun snapshot-add-to-writeback-list (frame)
   ;; Link frame into writeback list.
   (cond (*snapshot-pending-writeback-pages*
          (setf (physical-page-frame-prev *snapshot-pending-writeback-pages*) frame
@@ -36,62 +35,94 @@
                (physical-page-frame-prev frame) nil)))
   (incf *snapshot-pending-writeback-pages-count*))
 
+(defun snapshot-add-writeback-frame (frame)
+  (ensure (eql (physical-page-frame-type frame) :active)
+          "Tried to writeback non-active frame of type " (physical-page-frame-type frame))
+  (let* ((address (physical-page-virtual-address frame))
+         (bme-addr (or (block-info-for-virtual-address-1 address nil)
+                       (panic "No block map entry for page " address)))
+         (bme (sys.int::memref-unsigned-byte-64 bme-addr 0)))
+    #+(or)(debug-print-line "Add writeback frame " frame ":" address " " bme)
+    ;; Commit if needed.
+    (when (not (logtest bme sys.int::+block-map-committed+))
+      (let ((new-block (or (store-alloc 1)
+                           (panic "Aiiee, out of store during writeback page commit.")))
+            (old-block (ash bme (- sys.int::+block-map-id-shift+))))
+        #+(or)(debug-print-line "  committing " old-block " " new-block)
+        (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                          sys.int::+block-map-committed+
+                          (logand bme #xFF))
+              (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
+        #+(or)(debug-print-line "Replace old block " old-block " with " new-block " vaddr " candidate-virtual)
+        (decf *store-fudge-factor*)
+        (store-deferred-free old-block 1)
+        #+(or)(debug-print-line "Old block: " old-block "  new-block: " new-block)))
+    ;; Set block number.
+    (setf (physical-page-frame-block-id frame) (ash bme (- sys.int::+block-map-id-shift+)))
+    (setf (physical-page-frame-type frame) :active-writeback)
+    (remove-from-page-replacement-list frame)
+    (snapshot-add-to-writeback-list frame)))
+
 (defun snapshot-copy-wired-area ()
   ;; FIXME: Only copy dirty pages.
+  ;; Walk through each wired page and allocate a new block for it.
+  (loop
+     for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
+     for pte = (or (get-pte-for-address wired-page nil)
+                   (panic "No page table entry for wired-page " wired-page))
+     for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
+     for backing-frame = (physical-page-frame-next page-frame)
+     for bme-addr = (or (block-info-for-virtual-address-1 wired-page nil)
+                        (panic "No block map entry for wired-page " wired-page))
+     for bme = (sys.int::memref-unsigned-byte-64 bme-addr 0)
+     for new-block = (or (store-alloc 1)
+                         (panic "Aiiee, out of store when copying wired area!"))
+     for old-block = (ash bme (- sys.int::+block-map-id-shift+))
+     do
+       (setf (physical-page-frame-block-id backing-frame) new-block)
+       (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                         sys.int::+block-map-committed+
+                         (logand bme #xFF))
+             (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
+       (decf *store-fudge-factor*)
+       (store-deferred-free old-block 1))
   ;; I bet this could be partially done with CoW. Evil.
+  ;; Copy without interrupts to avoid smearing.
   (without-interrupts
     (loop
-       for i from #x200000 below sys.int::*wired-area-bump* by #x1000
-       for pte = (or (get-pte-for-address i nil)
-                     (panic "No page table entry for " i))
+       for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
+       for pte = (or (get-pte-for-address wired-page nil)
+                     (panic "No page table entry for " wired-page))
        for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
        for other-frame = (physical-page-frame-next page-frame)
        do
-         (%fast-page-copy (+ +physical-map-base+ (ash other-frame 12)) i)
-         (snapshot-add-writeback-frame other-frame))))
+         (%fast-page-copy (+ +physical-map-base+ (ash other-frame 12)) wired-page)
+         (snapshot-add-to-writeback-list other-frame))))
 
 (defun snapshot-mark-cow-dirty-pages ()
   ;; Mark all non-wired dirty pages as read-only and set their CoW bits.
   (let ((pml4 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF)))))
-    (labels ((mark-pml4e-cow (pml4e)
-               ;(debug-print-line " PML4e " pml4e)
-               (let* ((entry (sys.int::memref-unsigned-byte-64 pml4 pml4e))
-                      (pml3 (+ +physical-map-base+
-                               (logand entry +page-table-address-mask+))))
+    (labels ((mark-level (pml index next-fn)
+               ;;(debug-print-line " PML " pml " index " index)
+               (let* ((entry (sys.int::memref-unsigned-byte-64 pml index))
+                      (next-pml (+ +physical-map-base+
+                                   (logand entry +page-table-address-mask+))))
                  (when (and (logtest entry +page-table-present+)
                             (logtest entry +page-table-accessed+))
                    (dotimes (i 512)
-                     (mark-pml3e-cow pml3 i))
+                     (funcall next-fn next-pml i))
                    ;; Clear accessed bit.
-                   (setf (sys.int::memref-unsigned-byte-64 pml4 pml4e)
+                   (setf (sys.int::memref-unsigned-byte-64 pml index)
                          (logand entry (lognot +page-table-accessed+))))))
+             (mark-pml4e-cow (pml4e)
+               (mark-level pml4 pml4e #'mark-pml3e-cow))
              (mark-pml3e-cow (pml3 pml3e)
-               ;(debug-print-line "  PML3e " pml3e "  " pml3)
-               (let* ((entry (sys.int::memref-unsigned-byte-64 pml3 pml3e))
-                      (pml2 (+ +physical-map-base+
-                               (logand entry +page-table-address-mask+))))
-                 (when (and (logtest entry +page-table-present+)
-                            (logtest entry +page-table-accessed+))
-                   (dotimes (i 512)
-                     (mark-pml2e-cow pml2 i))
-                   ;; Clear accessed bit.
-                   (setf (sys.int::memref-unsigned-byte-64 pml3 pml3e)
-                         (logand entry (lognot +page-table-accessed+))))))
+               (mark-level pml3 pml3e #'mark-pml2e-cow))
              (mark-pml2e-cow (pml2 pml2e)
-               ;(debug-print-line "   PML2e " pml2e "  " pml2)
-               (let* ((entry (sys.int::memref-unsigned-byte-64 pml2 pml2e))
-                      (pml1 (+ +physical-map-base+
-                               (logand entry +page-table-address-mask+))))
-                 (when (and (logtest entry +page-table-present+)
-                            (logtest entry +page-table-accessed+))
-                   (dotimes (i 512)
-                     (mark-pml1e-cow pml1 i))
-                   ;; Clear accessed bit.
-                   (setf (sys.int::memref-unsigned-byte-64 pml2 pml2e)
-                         (logand entry (lognot +page-table-accessed+))))))
+               (mark-level pml2 pml2e #'mark-pml1e-cow))
              (mark-pml1e-cow (pml1 pml1e)
                (let ((entry (sys.int::memref-unsigned-byte-64 pml1 pml1e)))
-                 ;(debug-print-line "    PML1e " pml1e "  " pml1 "  " entry)
+                 ;;(debug-print-line "    PML1e " pml1e "  " pml1 "  " entry)
                  (when (logtest entry +page-table-copy-on-write+)
                    (panic "Page table entry marked CoW when it shouldn't be."))
                  (when (logtest entry +page-table-dirty+)
@@ -102,6 +133,9 @@
                                          +page-table-copy-on-write+)
                                  (lognot +page-table-write+)
                                  (lognot +page-table-dirty+)))))))
+      (declare (dynamic-extent #'mark-level
+                               #'mark-pml4e-cow #'mark-pml3e-cow
+                               #'mark-pml2e-cow #'mark-pml1e-cow))
       ;; Skip wired area, entry 0.
       (loop for i from 1 below 64 ; pinned area to wired stack area.
          do (mark-pml4e-cow i))
@@ -115,53 +149,48 @@
            do (mark-pml3e-cow pml3 i)))))
   (flush-tlb))
 
-(defun snapshot-clone-cow-page-via-page-fault (fault-addr)
-  (let* ((new-frame (allocate-physical-pages 1 :mandatory-p "CoW page"))
-         (pte (or (get-pte-for-address fault-addr nil)
+(defun snapshot-clone-cow-page (new-frame fault-addr)
+  (let* ((pte (or (get-pte-for-address fault-addr nil)
                   (panic "No PTE for CoW address?")))
          (old-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
+    (ensure (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
+            "Copying non-CoW page?")
     (%fast-page-copy (+ +physical-map-base+ (ash new-frame 12))
                      (logand fault-addr (lognot #xFFF)))
-    ;; Replace the writeback-pages list entry with the newly copied page.
-    ;; (Or modify the PTE instead?)
-    (setf (physical-page-frame-next new-frame) (physical-page-frame-next old-frame)
-          (physical-page-frame-prev new-frame) (physical-page-frame-prev old-frame))
-    (when (physical-page-frame-next old-frame)
-      (setf (physical-page-frame-prev (physical-page-frame-next old-frame)) new-frame))
-    (when (physical-page-frame-prev old-frame)
-      (setf (physical-page-frame-next (physical-page-frame-prev old-frame)) new-frame))
-    (when (eql *snapshot-pending-writeback-pages* old-frame)
-      (setf *snapshot-pending-writeback-pages* new-frame))
-    ;; Flags update.
-    (setf (physical-page-frame-flags new-frame) (logior (logand fault-addr (lognot #xFFF))
-                                                        (ash 1 +page-frame-flag-writeback+)))
-    (setf (physical-page-frame-block-id new-frame) (physical-page-frame-block-id old-frame))
-    (setf (ldb (byte 1 +page-frame-flag-writeback+) (physical-page-frame-flags old-frame)) 0)
-    ;; Update PTE bits. Clear CoW bit, make writable.
+    (setf (physical-page-frame-block-id new-frame) (physical-page-frame-block-id old-frame)
+          (physical-page-virtual-address new-frame) (physical-page-virtual-address old-frame))
+    (setf (physical-page-frame-type new-frame) :active
+          (physical-page-frame-type old-frame) :inactive-writeback)
+    (append-to-page-replacement-list new-frame)
+    ;; Point the PTE at the new page, disable copy on write and reenable write access.
     (setf (sys.int::memref-unsigned-byte-64 pte 0)
-          (logior (logand (sys.int::memref-unsigned-byte-64 pte 0)
-                          (lognot +page-table-copy-on-write+))
-                  +page-table-write+))
+          (logior (ash new-frame 12)
+                  +page-table-write+
+                  +page-table-present+))
     (sys.int::%invlpg fault-addr)
     #+(or)(debug-print-line "Copied page " fault-addr)))
+
+(defun snapshot-clone-cow-page-via-page-fault (interrupt-frame fault-addr)
+  (let ((new-frame (allocate-physical-pages 1)))
+    (when (not new-frame)
+      ;; No memory. Punt to the pager, does not return.
+      (wait-for-page-via-interrupt interrupt-frame fault-addr))
+    (snapshot-clone-cow-page new-frame fault-addr)))
 
 (defun pop-pending-snapshot-page ()
   (with-mutex (*vm-lock*)
     (without-interrupts
       (let* ((frame *snapshot-pending-writeback-pages*)
-             (flags (physical-page-frame-flags frame))
-             (address (logand flags (lognot #xFFF))))
+             (address (physical-page-virtual-address frame)))
         ;; Remove frame from list.
         (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
         (when *snapshot-pending-writeback-pages*
           (setf (physical-page-frame-prev *snapshot-pending-writeback-pages*) nil))
         (decf *snapshot-pending-writeback-pages-count*)
-        (when (not (logbitp +page-frame-flag-writeback+ (physical-page-frame-flags frame)))
-          (panic "Page " frame " for address " (logand (physical-page-frame-flags frame) (lognot #xFFF)) " not marked as writeback."))
-        (setf (ldb (byte 1 +page-frame-flag-writeback+) (physical-page-frame-flags frame)) 0)
-        (cond
-          ((logbitp +page-frame-flag-cache+ flags)
-           ;; If the page is in use as a cache page, copy it to the bounce buffer.
+        (case (physical-page-frame-type frame)
+          (:active-writeback
+           ;; Page is mapped in memory.
+           ;; Copy to the bounce buffer.
            (%fast-page-copy (+ +physical-map-base+ (ash *snapshot-bounce-buffer-page* 12))
                             (+ +physical-map-base+ (ash frame 12)))
            ;; Allow access to the page again.
@@ -173,15 +202,28 @@
                                    (lognot +page-table-copy-on-write+))
                            +page-table-write+))
              (sys.int::%invlpg address))
-           ;; Don't free the bounce page.
-           (values *snapshot-bounce-buffer-page* nil (physical-page-frame-block-id frame) address))
-          (t
-           ;; Page is either a wired bounce page or a copied page.
-           (values frame
-                   ;; Don't free wired bounce pages.
-                   (not (< address (* 2 1024 1024 1024)))
+           ;; Return page to normal use.
+           (setf (physical-page-frame-type frame) :active)
+           (append-to-page-replacement-list frame)
+           (values *snapshot-bounce-buffer-page*
+                   ;; Don't free the bounce page.
+                   nil
                    (physical-page-frame-block-id frame)
-                   address)))))))
+                   address))
+          (:inactive-writeback
+           ;; Page was copied.
+           (values frame
+                   t
+                   (physical-page-frame-block-id frame)
+                   address))
+          (:wired-backing
+           ;; Page is a wired backing page.
+           (values frame
+                   nil
+                   (physical-page-frame-block-id frame)
+                   address))
+          (t (panic "Page " frame " for address " address " has non-writeback type "
+                    (physical-page-frame-type frame))))))))
 
 (defun snapshot-write-back-pages ()
   ;; Write dirty/copied pages back.
@@ -196,7 +238,7 @@
            (pop-pending-snapshot-page)
          #+(or)(debug-print-line "Writing back page " frame "/" block-id "/" address)
          (or (snapshot-write-disk block-id (+ +physical-map-base+ (ash frame 12)))
-             (panic "Unable to write page to disk! Everything is fucked, sorry."))
+             (panic "Unable to write page to disk!"))
          (when freep
            (release-physical-pages frame 1))))))
 
@@ -215,67 +257,68 @@
       (regenerate-store-freelist)
     (snapshot-write-disk disk-block memory-block)
     (free-page memory-block)
-    disk-block))
+    (values disk-block
+            (prog1 *store-deferred-freelist-head*
+              (setf *store-deferred-freelist-head* '())))))
+
+(defun snapshot-bml1 (bml1)
+  (let ((bml1-disk (or (store-alloc 1)
+                       (panic "Unable to allocate disk space for new block map.")))
+        ;; Update the bottom level of the block map in-place.
+        (bml1-memory bml1)
+        (bml1-count 0))
+    (dotimes (i 512)
+      (let ((entry (sys.int::memref-unsigned-byte-64 bml1 i)))
+        (when (not (zerop entry))
+          ;; Uncommit any committed pages.
+          (when (logtest entry sys.int::+block-map-committed+)
+            (setf (sys.int::memref-unsigned-byte-64 bml1 i) (logand entry (lognot sys.int::+block-map-committed+)))
+            (incf *store-fudge-factor*))
+          (incf bml1-count))))
+    (cond ((zerop bml1-count)
+           ;; No entries, don't bother with this level.
+           (store-free bml1-disk 1)
+           nil)
+          (t (snapshot-write-disk bml1-disk bml1-memory)
+             (logior (ash bml1-disk sys.int::+block-map-id-shift+)
+                     sys.int::+block-map-present+)))))
+
+(defun snapshot-block-map-outer-level (bml next-fn)
+  (let ((bml-disk (or (store-alloc 1)
+                      (panic "Unable to allocate disk space for new block map.")))
+        (bml-memory (+ +physical-map-base+ (* (pager-allocate-page :other) +4k-page-size+)))
+        (bml-count 0))
+    (dotimes (i 512)
+      (let* ((entry (sys.int::memref-signed-byte-64 bml i))
+             (disk-entry (if (zerop entry)
+                             nil
+                             (funcall next-fn entry))))
+        (cond (disk-entry
+               (setf (sys.int::memref-signed-byte-64 bml-memory i) disk-entry)
+               (incf bml-count))
+              (t
+               (setf (sys.int::memref-signed-byte-64 bml-memory i) 0)))))
+    (prog1
+        (cond ((zerop bml-count)
+               ;; No entries, don't bother with this level.
+               (store-free bml-disk 1)
+               nil)
+              (t (snapshot-write-disk bml-disk bml-memory)
+                 (logior (ash bml-disk sys.int::+block-map-id-shift+)
+                         sys.int::+block-map-present+)))
+      (free-page bml-memory))))
+
+(defun snapshot-bml2 (bml2)
+  (snapshot-block-map-outer-level bml2 #'snapshot-bml1))
+
+(defun snapshot-bml3 (bml3)
+  (snapshot-block-map-outer-level bml3 #'snapshot-bml2))
+
+(defun snapshot-bml4 (bml4)
+  (snapshot-block-map-outer-level bml4 #'snapshot-bml3))
 
 (defun snapshot-block-map ()
-  (let ((bml4-disk (or (store-alloc 1)
-                       (return-from snapshot-block-map nil)))
-        (bml4-memory (or (allocate-page)
-                         (return-from snapshot-block-map nil))))
-    (zeroize-page bml4-memory)
-    (dotimes (i 512)
-      (let ((bml3 (sys.int::memref-signed-byte-64 *bml4* i)))
-        (when (not (zerop bml3))
-          (let ((bml3-disk (or (store-alloc 1)
-                               (return-from snapshot-block-map nil)))
-                (bml3-memory (or (allocate-page)
-                                 (return-from snapshot-block-map nil)))
-                (bml3-count 0))
-            (zeroize-page bml3-memory)
-            (dotimes (j 512)
-              (let ((bml2 (sys.int::memref-signed-byte-64 bml3 j)))
-                (when (not (zerop bml2))
-                  (let ((bml2-disk (or (store-alloc 1)
-                                       (return-from snapshot-block-map nil)))
-                        (bml2-memory (or (allocate-page)
-                                         (return-from snapshot-block-map nil)))
-                        (bml2-count 0))
-                    (zeroize-page bml2-memory)
-                    (dotimes (k 512)
-                      (let ((bml1 (sys.int::memref-signed-byte-64 bml2 k)))
-                        (when (not (zerop bml1))
-                          (let ((bml1-disk (or (store-alloc 1)
-                                               (return-from snapshot-block-map nil)))
-                                (bml1-memory bml1)
-                                (bml1-count 0))
-                            (dotimes (l 512)
-                              (when (not (zerop (sys.int::memref-unsigned-byte-64 bml1 l)))
-                                (incf bml1-count)))
-                            (cond ((zerop bml1-count)
-                                   ;; No entries, don't bother with this level.
-                                   (store-free bml1-disk 1))
-                                  (t (incf bml2-count)
-                                     (setf (sys.int::memref-signed-byte-64 bml2-memory k) (logior (ash bml1-disk sys.int::+block-map-id-shift+)
-                                                                                                  sys.int::+block-map-present+))
-                                     (snapshot-write-disk bml1-disk bml1-memory)))))))
-                    (cond ((zerop bml2-count)
-                           ;; No entries, don't bother with this level.
-                           (store-free bml2-disk 1))
-                          (t (incf bml3-count)
-                             (setf (sys.int::memref-signed-byte-64 bml3-memory j) (logior (ash bml2-disk sys.int::+block-map-id-shift+)
-                                                                                          sys.int::+block-map-present+))
-                             (snapshot-write-disk bml2-disk bml2-memory)))
-                    (free-page bml2-memory)))))
-            (cond ((zerop bml3-count)
-                   ;; No entries, don't bother with this level.
-                   (store-free bml3-disk 1))
-                  (t (setf (sys.int::memref-signed-byte-64 bml4-memory i) (logior (ash bml3-disk sys.int::+block-map-id-shift+)
-                                                                                  sys.int::+block-map-present+))
-                     (snapshot-write-disk bml3-disk bml3-memory)))
-            (free-page bml3-memory)))))
-    (snapshot-write-disk bml4-disk bml4-memory)
-    (free-page bml4-memory)
-    bml4-disk))
+  (ash (snapshot-bml4 *bml4*) (- sys.int::+block-map-id-shift+)))
 
 (defun take-snapshot ()
   (debug-write-line "Begin snapshot.")
@@ -285,17 +328,28 @@
   (setf *snapshot-pending-writeback-pages* nil
         *snapshot-pending-writeback-pages-count* 0)
   (let ((freelist-block nil)
-        (bml4-block nil))
+        (bml4-block nil)
+        (previously-deferred-free-blocks nil))
     (with-mutex (*vm-lock*)
       (with-world-stopped
-        ;; FIXME: Disk writes are slow and should be done outside WITH-WORLD-STOPPED.
-        (setf bml4-block (snapshot-block-map))
-        (setf freelist-block (snapshot-freelist))
+        (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
+        (debug-print-line "Copying wired area.")
         (snapshot-copy-wired-area)
-        (snapshot-mark-cow-dirty-pages)))
+        (debug-print-line "Marking dirty pages copy-on-write.")
+        (snapshot-mark-cow-dirty-pages)
+        ;; FIXME: Disk writes are slow and should be done outside WITH-WORLD-STOPPED.
+        ;; FIXME!! Need to free the old block map & freelist.
+        (debug-print-line "Updating block map.")
+        (setf bml4-block (snapshot-block-map))
+        (debug-print-line "Updating freelist.")
+        (setf (values freelist-block previously-deferred-free-blocks)
+              (snapshot-freelist))))
     (snapshot-write-back-pages)
     ;; Update the block map & freelist entries in the header.
-    (let ((header (allocate-page "Image Header")))
+    (debug-print-line "Updating disk header.")
+    (let ((header (+ +physical-map-base+ (* (with-mutex (*vm-lock*)
+                                              (pager-allocate-page :other))
+                                            +4k-page-size+))))
       (disk-submit-request *snapshot-disk-request*
                            *paging-disk*
                            :read
@@ -307,13 +361,16 @@
       (setf (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0) bml4-block)
       (setf (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0) freelist-block)
       (snapshot-write-disk 0 header)
-      (free-page header)))
+      (free-page header))
+    (with-mutex (*vm-lock*)
+      (store-release-deferred-blocks previously-deferred-free-blocks)))
   (set-snapshot-light nil)
   (debug-write-line "End snapshot."))
 
 (defun snapshot-thread ()
   (loop
-     #+(or)(take-snapshot)
+     (when (zerop *snapshot-inhibit*)
+       (take-snapshot))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
      (sys.int::%cli)
@@ -326,21 +383,21 @@
 (defun initialize-snapshot ()
   (setf *snapshot-disk-request* (make-disk-request))
   (setf *snapshot-in-progress* nil)
+  (setf *snapshot-inhibit* 1)
   ;; Allocate pages to copy the wired area into.
   ;; TODO: Use 2MB pages when possible.
   ;; ### when the wired area expands this will need to be something...
   (loop
-     for i from #x200000 below sys.int::*wired-area-bump* by #x1000
+     for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
      ;; ### Could disable snapshotting if this can't be allocated.
      do (let* ((frame (allocate-physical-pages 1
                                                :mandatory-p "wired backing pages"
                                                :type :wired-backing))
-               (pte (or (get-pte-for-address i nil)
-                        (panic "No page table entry for " i)))
+               (pte (or (get-pte-for-address wired-page nil)
+                        (panic "No page table entry for wired page " wired-page)))
                (page-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
           (setf (physical-page-frame-next page-frame) frame)
-          (setf (physical-page-frame-flags frame) i)
-          (setf (physical-page-frame-block-id frame) (physical-page-frame-block-id page-frame))))
+          (setf (physical-page-virtual-address frame) wired-page)))
   ;; ### same here.
   (setf *snapshot-bounce-buffer-page* (allocate-physical-pages 1
                                                                :mandatory-p "snapshot bounce page")))

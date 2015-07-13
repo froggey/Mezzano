@@ -243,8 +243,8 @@ If clear, the fault occured in supervisor mode.")
            (fatal-page-fault interrupt-frame info "Page fault in wired area" fault-addr))
           ((and (logbitp +page-fault-error-present+ info)
                 (logbitp +page-fault-error-write+ info))
-           ;; Copy on write page.
-           (snapshot-clone-cow-page-via-page-fault fault-addr))
+           ;; Copy on write page, might not return.
+           (snapshot-clone-cow-page-via-page-fault interrupt-frame fault-addr))
           ;; All impossible.
           ((or (logbitp +page-fault-error-present+ info)
                (logbitp +page-fault-error-user+ info)

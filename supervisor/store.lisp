@@ -16,6 +16,8 @@
 (defvar *store-freelist-head*)
 (defvar *store-freelist-tail*)
 
+(defvar *store-deferred-freelist-head*)
+
 ;;; Free metadata objects.
 (defvar *store-freelist-metadata-freelist*)
 (defvar *store-freelist-n-free-metadata*)
@@ -24,6 +26,7 @@
 
 ;;; Block counts.
 (defvar *store-freelist-n-free-blocks*)
+(defvar *store-freelist-n-deferred-free-blocks*)
 (defvar *store-freelist-total-blocks*)
 
 (macrolet ((field (name offset)
@@ -213,10 +216,25 @@
   (incf *store-freelist-n-free-blocks* n-blocks)
   (store-insert-range start n-blocks t))
 
+;; TODO: Be smarter here, check for overlaps in the deferred list and the main freelist.
 (defun store-deferred-free (start n-blocks)
-  (store-maybe-refill-metadata)
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
-  (debug-print-line "Deferred store free " start " " n-blocks))
+  (store-maybe-refill-metadata)
+  ;;(debug-print-line "Deferred store free " start " " n-blocks)
+  (let ((end (+ start n-blocks)))
+    ;; FIXME: This should be a sorted list, like the normal freelist!
+    (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
+        ((null range)
+         (let ((e (freelist-alloc-metadata start (+ start n-blocks) t)))
+           (incf *store-freelist-n-deferred-free-blocks* n-blocks)
+           (setf (freelist-metadata-next e) *store-deferred-freelist-head*
+                 *store-deferred-freelist-head* e)))
+      (when (eql (freelist-metadata-start range) end)
+        (setf (freelist-metadata-start range) start)
+        (return))
+      (when (eql (freelist-metadata-end range) start)
+        (setf (freelist-metadata-end range) end)
+        (return)))))
 
 (defun store-alloc (n-blocks)
   "Allocate from the in-memory freelist only. The freelist lock must be held."
@@ -257,6 +275,12 @@
       (debug-print-line " next freelist block " next)
       (values nil next))))
 
+(defun dump-store-freelist ()
+  (do ((range *store-freelist-head*
+              (freelist-metadata-next range)))
+      ((null range))
+    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range))))
+
 (defun initialize-store-freelist (n-store-blocks freelist-block)
   (setf *store-freelist-metadata-freelist* '()
         *store-freelist-recursive-metadata-allocation* nil
@@ -264,7 +288,9 @@
   (store-refill-metadata)
   (setf *store-freelist-head* (freelist-alloc-metadata 0 n-store-blocks t)
         *store-freelist-tail* *store-freelist-head*
+        *store-deferred-freelist-head* nil
         *store-freelist-n-free-blocks* n-store-blocks
+        *store-freelist-n-deferred-free-blocks* 0
         *store-freelist-total-blocks* n-store-blocks)
   (loop
      (multiple-value-bind (last-entry-offset next-block)
@@ -272,44 +298,49 @@
        (when (not next-block)
          (return))
        (setf freelist-block next-block)))
-  (do ((range *store-freelist-head*
-              (freelist-metadata-next range)))
-      ((null range))
-    (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range))))
+  (dump-store-freelist)
+  (debug-print-line *store-freelist-n-free-blocks* "/" *store-freelist-total-blocks* " store blocks free at boot"))
 
 (defun store-statistics ()
-  "Return two values: The number of blocks free, and the total number of blocks."
+  "Return three values: The number of blocks free, the total number of blocks, and the number of deferred free blocks."
   ;; Disable interrupts to avoid smearing if a snapshot is taken between the two reads.
   (safe-without-interrupts ()
     (values *store-freelist-n-free-blocks*
-            *store-freelist-total-blocks*)))
+            *store-freelist-total-blocks*
+            *store-freelist-n-deferred-free-blocks*)))
 
-;; FIXME: Need to free the old freelist/block map as well.
+;; FIXME: Deal with the deferred freelist as well.
 (defun regenerate-store-freelist ()
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held in REGENERATE-STORE-FREELIST.")
-  (let ((disk-block nil)
-        (memory-block nil))
+  (let ((disk-block (or (store-alloc 1)
+                        (panic "Unable to allocate store for freelist.")))
+        (memory-block (+ +physical-map-base+ (ash (pager-allocate-page) 12))))
+    ;; Allocate a *whole* bunch of spare metadata entries, need to do this without actually modifing
+    ;; the freelist.
+    (let ((n-deferred-ranges 0))
+      (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
+          ((null range))
+        (incf n-deferred-ranges))
+      (loop
+         while (< *store-freelist-n-free-metadata* (* n-deferred-ranges 2))
+         do (store-refill-metadata)))
+    ;; Temporarily release all deferred pages back to the freelist.
+    (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
+      ((null range))
+    (let ((start (freelist-metadata-start range))
+          (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
+      (debug-print-line "Free deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+      (store-insert-range start n-blocks t)))
     ;; Resulting freelist needs to fit in one block.
     ;; TODO: fix this. Figure out how long it is and preallocate all blocks.
     (do ((range *store-freelist-head* (freelist-metadata-next range))
          (total-allocated-ranges 0))
         ((null range)
          (when (>= total-allocated-ranges 250)
-           (debug-print-line "FIXME: Freelist too large. Can't rebuild freelist.")
-           (return-from regenerate-store-freelist nil)))
+           (dump-store-freelist)
+           (panic "FIXME: Freelist too large. Can't rebuild freelist.")))
       (when (not (freelist-metadata-free-p range))
         (incf total-allocated-ranges)))
-    ;; Allocate disk block & memory page.
-    (setf disk-block (store-alloc 1))
-    (when (not disk-block)
-      ;; Oh, the irony.
-      (debug-print-line "Unable to allocate store for freelist.")
-      (return-from regenerate-store-freelist nil))
-    (setf memory-block (allocate-page))
-    (when (not memory-block)
-      (store-free disk-block 1)
-      (debug-print-line "Unable to allocate memory for freelist.")
-      (return-from regenerate-store-freelist nil))
     (zeroize-page memory-block)
     ;; Write every allocated region to the block.
     (do ((range *store-freelist-head* (freelist-metadata-next range))
@@ -325,4 +356,19 @@
             ;; Size and free bit (clear).
             (setf (sys.int::memref-unsigned-byte-64 memory-block (1+ (* offset 2))) (ash n-blocks 1))
             (incf offset)))))
+    ;; And unfree the deferred pages.
+    (do ((range *store-deferred-freelist-head* (freelist-metadata-next range)))
+        ((null range))
+      (let ((start (freelist-metadata-start range))
+            (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
+        (debug-print-line "Unfree deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+        (store-insert-range start n-blocks nil)))
     (values disk-block memory-block)))
+
+(defun store-release-deferred-blocks (block-list)
+  (do ((range block-list (freelist-metadata-next range)))
+      ((null range))
+    (let ((start (freelist-metadata-start range))
+          (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
+      (debug-print-line "Release deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+      (store-free start n-blocks))))
