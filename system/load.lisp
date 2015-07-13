@@ -345,8 +345,3 @@
           (when (funcall hook module-name)
             (return)))))
   (values))
-
-(defun pprint-indent (relative-to n &optional stream)
-  (check-type relative-to (member :block :current))
-  (check-type n real)
-  nil)

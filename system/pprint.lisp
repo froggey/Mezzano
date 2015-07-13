@@ -71,6 +71,11 @@
   (when suffix (write-string suffix base-stream))
   nil)
 
+(defun pprint-indent (relative-to n &optional stream)
+  (check-type relative-to (member :block :current))
+  (check-type n real)
+  nil)
+
 (defun circlep (object)
   (declare (ignore object))
   nil)
