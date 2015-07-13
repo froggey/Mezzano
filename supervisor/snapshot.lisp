@@ -326,8 +326,9 @@
   (let ((freelist-block nil)
         (bml4-block nil)
         (previously-deferred-free-blocks nil))
-    (with-mutex (*vm-lock*)
-      (with-world-stopped
+    ;; Stop the world before taking the *VM-LOCK*. There may be PA threads waiting for pages.
+    (with-world-stopped
+      (with-mutex (*vm-lock*)
         (debug-print-line "deferred blocks: " *store-freelist-n-deferred-free-blocks*)
         (debug-print-line "Copying wired area.")
         (snapshot-copy-wired-area)
