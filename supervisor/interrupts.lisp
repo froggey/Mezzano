@@ -251,7 +251,7 @@ If clear, the fault occured in supervisor mode.")
                (logbitp +page-fault-error-reserved-violation+ info))
            (fatal-page-fault interrupt-frame info "Page fault" fault-addr))
           (t ;; Non-present page. Try to load it from the store.
-           ;; Will not return.
+           ;; Might not return.
            (wait-for-page-via-interrupt interrupt-frame fault-addr)))))
 
 (defun sys.int::%math-fault-handler (interrupt-frame info)
