@@ -900,9 +900,10 @@ Interrupts must be off, the current thread must be locked."
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (let ((self (current-thread)))
-    (ensure-interrupts-enabled)
-    (unless (not *pseudo-atomic*)
-      (panic "Trying to acquire mutex " mutex " while pseudo-atomic."))
+    (when wait-p
+      (ensure-interrupts-enabled)
+      (unless (not *pseudo-atomic*)
+        (panic "Trying to acquire mutex " mutex " while pseudo-atomic.")))
     ;; Fast path - try to lock.
     (when (sys.int::%cas-struct-slot mutex 5 nil self)
       ;; We got it.
