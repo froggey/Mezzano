@@ -96,8 +96,8 @@
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
-(defvar *boot-hook-lock* (make-mutex "Boot Hook Lock"))
-(defvar *boot-hooks* '())
+(defvar *boot-hook-lock*)
+(defvar *boot-hooks*)
 
 (defun add-boot-hook (fn)
   (with-mutex (*boot-hook-lock*)
@@ -167,6 +167,24 @@ Returns two values, the packet data and the receiving NIC."
 (defun add-deferred-boot-action (action)
   (push-wired action *deferred-boot-actions*))
 
+(defun post-boot-worker ()
+  (loop
+     ;; Run deferred boot actions first.
+     (dolist (action *deferred-boot-actions*)
+       (funcall action))
+     (makunbound '*deferred-boot-actions*)
+     ;; Now normal boot hooks.
+     (run-boot-hooks)
+     ;; Sleep til next boot.
+     (%call-on-wired-stack-without-interrupts
+      (lambda (sp fp)
+        (let ((self (current-thread)))
+          (decf *snapshot-inhibit*)
+          (setf (thread-wait-item self) "Next boot"
+                (thread-state self) :sleeping)
+          (%reschedule-via-wired-stack sp fp)))
+      nil)))
+
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (let ((first-run-p nil)
         ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
@@ -216,10 +234,10 @@ Returns two values, the packet data and the receiving NIC."
     (detect-paging-disk)
     (when (not *paging-disk*)
       (panic "Could not find boot device. Sorry."))
-    (dolist (action *deferred-boot-actions*)
-      (funcall action))
-    (makunbound '*deferred-boot-actions*)
     (cond (first-run-p
+           (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
+                 *boot-hook-lock* (make-mutex "Boot Hook Lock")
+                 *boot-hooks* '())
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
-          (t (make-thread #'run-boot-hooks :name "Boot hook thread")))
+          (t (wake-thread *post-boot-worker-thread*)))
     (finish-initial-thread)))
