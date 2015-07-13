@@ -58,6 +58,18 @@
   (dotimes (i (%n-bignum-fragments object))
     (format stream "  ~D: ~16,'0X~%" i (%bignum-fragment object i))))
 
+(defun describe-complex (object stream)
+  (format stream "~S is a complex with an element-type of ~A, with address ~X~%"
+          object (second (type-of object)) (lisp-object-address object))
+  (format stream "  The real part is ~A~%" (realpart object))
+  (format stream "  The imaginary part is ~A~%" (imagpart object)))
+
+(defun describe-ratio (object stream)
+  (format stream "~S is a ratio, with address ~X~%"
+          object (lisp-object-address object))
+  (format stream "  The numerator is ~A~%" (numerator object))
+  (format stream "  The denominator is ~A~%" (denominator object)))
+
 (defun describe-structure (object stream)
   (format stream "~S is a structure of type ~:(~S~), with address ~X~%"
           object (type-of object) (lisp-object-address object))
@@ -109,6 +121,14 @@
                  (t (case otag
                       (#.+object-tag-bignum+
                        (describe-bignum object stream))
+                      ((#.+object-tag-complex-rational+
+                        #.+object-tag-complex-single-float+
+                        #.+object-tag-complex-double-float+
+                        #.+object-tag-complex-short-float+
+                        #.+object-tag-complex-long-float+)
+                       (describe-complex object stream))
+                      (#.+object-tag-ratio+
+                       (describe-ratio object stream))
                       (#.+object-tag-symbol+
                        (describe-symbol object stream))
                       (#.+object-tag-structure-object+
