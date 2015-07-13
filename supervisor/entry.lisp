@@ -31,13 +31,16 @@
          (stack (sys.int::cons-in-area addr size :wired)))
     ;; Allocate blocks.
     (loop
-       (when (allocate-memory-range addr size
-                                    (logior sys.int::+block-map-present+
-                                            sys.int::+block-map-writable+
-                                            sys.int::+block-map-zero-fill+))
-         (return))
-       (debug-print-line "No memory for stack, calling GC.")
-       (sys.int::gc))
+       for i from 0 do
+         (when (allocate-memory-range addr size
+                                      (logior sys.int::+block-map-present+
+                                              sys.int::+block-map-writable+
+                                              sys.int::+block-map-zero-fill+))
+           (return))
+         (when (> i mezzano.runtime::*maximum-allocation-attempts*)
+           (error 'storage-condition))
+         (debug-print-line "No memory for stack, calling GC.")
+         (sys.int::gc))
     stack))
 
 (defun reboot ()
