@@ -91,6 +91,24 @@ and then some alignment.")
 
 (defun virtio-net-update-nic (nic))
 
+(defun check-boot (nic)
+  (when (not (eql (virtio-net-boot-id nic) *boot-id*))
+    (throw 'nic-detached nil)))
+
+(defun virtio-net-receive-processing (nic)
+  ;; Refill receive buffers.
+  (dotimes (i (- +virtio-net-n-rx-buffers+ (virtio-net-rx-buffer-count nic)))
+    (incf (virtio-net-rx-buffer-count nic))
+    (push (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))
+          (virtio-net-rx-buffers nic)))
+  (with-pseudo-atomic
+    (check-boot nic)
+    (virtio-net-do-receive-processing nic))
+  ;; Dispatch received packets.
+  (dolist (pkt (nreverse (virtio-net-received-packets nic)))
+    (nic-received-packet nic pkt))
+  (setf (virtio-net-received-packets nic) '()))
+
 (defun virtio-net-do-receive-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
          (rx-queue (virtio-virtqueue dev +virtio-net-receiveq+)))
@@ -178,41 +196,33 @@ and then some alignment.")
     (virtio-ring-add-to-avail-ring tx-queue hdr-desc)
     (virtio-kick dev +virtio-net-transmitq+)))
 
+(defun virtio-net-transmit-processing (nic)
+  (with-mutex ((virtio-net-lock nic))
+    (when (virtio-net-tx-pending nic)
+      ;; Add pending packets to the real transmit queue, in proper order.
+      (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
+                                                     (nreverse (virtio-net-tx-pending nic)))
+            (virtio-net-tx-pending nic) '())))
+  (with-pseudo-atomic
+    (check-boot nic)
+    (virtio-net-do-transmit-processing nic)
+    ;; Send any pending packets.
+    (loop
+       #+(or)(debug-print-line "Real TX " (virtio-net-free-tx-buffers nic) " " (virtio-net-real-tx-pending nic))
+       (when (not (and (virtio-net-free-tx-buffers nic)
+                       (virtio-net-real-tx-pending nic)))
+         (return))
+       (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
+
 (defun virtio-net-worker (nic)
-  (loop
-     ;; Wait for something to happen.
-     (latch-wait (virtio-net-irq-latch nic))
-     (latch-reset (virtio-net-irq-latch nic))
-     (when (not (eql (virtio-net-boot-id nic) *boot-id*))
-       ;; Reboot occurred, card no longer exists.
-       (return-from virtio-net-worker))
-     (with-mutex ((virtio-net-lock nic))
-       (when (virtio-net-tx-pending nic)
-         ;; Add pending packets to the real transmit queue, in proper order.
-         (setf (virtio-net-real-tx-pending nic) (append (virtio-net-real-tx-pending nic)
-                                                        (nreverse (virtio-net-tx-pending nic)))
-               (virtio-net-tx-pending nic) '())))
-     ;; Refill receive buffers.
-     (dotimes (i (- +virtio-net-n-rx-buffers+ (virtio-net-rx-buffer-count nic)))
-       (incf (virtio-net-rx-buffer-count nic))
-       (push (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))
-             (virtio-net-rx-buffers nic)))
-     ;; Do all access pseudo atomically, preventing mid-access snapshotting.
-     ;; This is the only thread directly accessing the card, so no more sync is required.
-     (with-pseudo-atomic
-       (virtio-net-do-receive-processing nic)
-       (virtio-net-do-transmit-processing nic)
-       ;; Send any pending packets.
-       (loop
-          #+(or)(debug-print-line "Real TX " (virtio-net-free-tx-buffers nic) " " (virtio-net-real-tx-pending nic))
-          (when (not (and (virtio-net-free-tx-buffers nic)
-                          (virtio-net-real-tx-pending nic)))
-            (return))
-          (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic)))))
-     ;; Dispatch received packets.
-     (dolist (pkt (nreverse (virtio-net-received-packets nic)))
-       (nic-received-packet nic pkt))
-     (setf (virtio-net-received-packets nic) '())))
+  (catch 'nic-detached
+    (loop
+       ;; Wait for something to happen.
+       (latch-wait (virtio-net-irq-latch nic))
+       (latch-reset (virtio-net-irq-latch nic))
+       (check-boot nic)
+       (virtio-net-receive-processing nic)
+       (virtio-net-transmit-processing nic))))
 
 (defun virtio-net-irq-handler (nic)
   (when (logbitp 0 (virtio-isr-status (virtio-net-virtio-device nic)))
