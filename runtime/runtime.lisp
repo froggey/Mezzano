@@ -260,6 +260,8 @@
       (funcall fn))))
 
 (defun sys.int::%throw (tag values)
+  ;; Note! The VALUES list has dynamic extent!
+  ;; This is fine, as the exit function calls VALUES-LIST on it before unwinding.
   (do ((current *active-catch-handlers* (svref current 0)))
       ((not current)
        (error 'sys.int::bad-catch-tag-error :tag tag))

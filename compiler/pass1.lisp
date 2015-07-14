@@ -607,7 +607,18 @@
 
 (defun pass1-throw (form env)
   (destructuring-bind (tag result) (cdr form)
-    (pass1-form `(sys.int::%throw ,tag (multiple-value-list ,result)) env)))
+    (let ((tag-sym (gensym "TAG"))
+          (result-sym (gensym "RESULT")))
+      ;; Do some ridiculous gymanstics to put the result values into a list with dynamic extent.
+      (pass1-form
+       `(let ((,tag-sym ,tag))
+          (flet ((%%throw-trampoline (&rest ,result-sym)
+                   (declare (dynamic-extent ,result-sym))
+                   ;; And do more to prevent this from being turned into a tail call.
+                   (values (sys.int::%throw ,tag-sym ,result-sym))))
+            (declare (dynamic-extent #'%%throw-trampoline))
+            (multiple-value-call #'%%throw-trampoline ,result)))
+       env))))
 
 ;;; Translate (unwind-protect form . cleanup-forms) to
 ;;; (unwind-protect form (lambda () . cleanup-forms)).
