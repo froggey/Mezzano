@@ -293,24 +293,28 @@
             (eval form)))
     t))
 
-(defun load-from-stream (stream)
+(defun load-from-stream (stream wired)
   (when *load-verbose*
     (format t ";;; Loading from ~S~%" stream))
-  (if (subtypep (stream-element-type stream) 'character)
-      (load-lisp-source stream)
-      (load-llf stream)))
+  (cond ((subtypep (stream-element-type stream) 'character)
+         (when wired
+           (error "Only compiled filed can be loaded wired."))
+         (load-lisp-source stream))
+        (t
+         (load-llf stream wired))))
 
 (defun load (filespec &key
              (verbose *load-verbose*)
              (print *load-print*)
              (if-does-not-exist t)
-             (external-format :default))
+             (external-format :default)
+             wired)
   (let ((*load-verbose* verbose)
         (*load-print* print))
     (cond ((streamp filespec)
            (let* ((*load-pathname* (pathname filespec))
                   (*load-truename* (pathname filespec)))
-             (load-from-stream filespec)))
+             (load-from-stream filespec wired)))
           (t (let* ((path (merge-pathnames filespec))
                     (*load-pathname* (pathname path))
                     (*load-truename* (pathname path)))
@@ -325,7 +329,7 @@
                                                             :default
                                                             external-format))
                  (when stream
-                   (load-from-stream stream))))))))
+                   (load-from-stream stream wired))))))))
 
 (defun provide (module-name)
   (pushnew (string module-name) *modules*
