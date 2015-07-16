@@ -189,7 +189,23 @@
            #:disk-await-request
            #:disk-request-complete-p
            #:start-profiling
-           #:stop-profiling))
+           #:stop-profiling
+
+           #:pci-device-location
+           #:pci-config/8
+           #:pci-config/16
+           #:pci-config/32
+           #:pci-base-class
+           #:pci-sub-class
+           #:pci-programming-interface
+           #:pci-bar
+           #:pci-io-region
+           #:pci-io-region/8
+           #:pci-io-region/16
+           #:pci-io-region/32
+           #:pci-intr-line
+           #:map-pci-devices
+           #:pci-probe))
 
 ;;; Runtime contains a bunch of low-level and common functions required to
 ;;; run the supervisor and the rest of the CL system.

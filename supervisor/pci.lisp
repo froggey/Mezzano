@@ -45,7 +45,14 @@
 
 (defvar *pci-config-lock*)
 
-(defun make-pci-location (bus device function)
+(defvar *pci-devices*)
+
+(defstruct (pci-device
+             (:area :wired))
+  address
+  boot-id)
+
+(defun make-pci-address (bus device function)
   (declare (type (integer 0 255) bus register)
 	   (type (integer 0 31) device)
 	   (type (integer 0 7) function))
@@ -54,69 +61,83 @@
 	  (ash device 11)
 	  (ash function 8)))
 
-(defun pci-set-config-address (location register)
-  (setf (system:io-port/32 +pci-config-address+) (logior location
+(defun pci-set-config-address (address register)
+  (setf (system:io-port/32 +pci-config-address+) (logior address
                                                   (logand register #b11111100))))
 
-(defun pci-config/8 (location register)
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (system:io-port/8 (+ +pci-config-data+ (logand register #b11))))))
+(defun pci-device-location (device)
+  (let ((address (pci-device-address device)))
+    (values (ldb (byte 8 16) address) ; bus
+            (ldb (byte 5 11) address) ; device
+            (ldb (byte 3 8) address)))) ; function
 
-(defun pci-config/16 (location register)
+(defun pci-config/8 (device register)
+  (safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (system:io-port/8 (+ +pci-config-data+ (logand register #b11)))))))
+
+(defun pci-config/16 (device register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (system:io-port/16 (+ +pci-config-data+ (logand register #b10))))))
+  (safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (system:io-port/16 (+ +pci-config-data+ (logand register #b10)))))))
 
-(defun pci-config/32 (location register)
+(defun pci-config/32 (device register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (system:io-port/32 +pci-config-data+))))
+  (safe-without-interrupts (device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (system:io-port/32 +pci-config-data+)))))
 
-(defun (setf pci-config/8) (value location register)
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value))))
+(defun (setf pci-config/8) (value device register)
+  (safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (setf (system:io-port/8 (+ +pci-config-data+ (logand register #b11))) value)))))
 
-(defun (setf pci-config/16) (value location register)
+(defun (setf pci-config/16) (value device register)
   (when (logtest register #b01)
     (error "Misaligned PCI register ~S." register))
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value))))
+  (safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (setf (system:io-port/16 (+ +pci-config-data+ (logand register #b10))) value)))))
 
-(defun (setf pci-config/32) (value location register)
+(defun (setf pci-config/32) (value device register)
   (when (logtest register #b11)
     (error "Misaligned PCI register ~S." register))
-  (without-interrupts
-    (with-symbol-spinlock (*pci-config-lock*)
-      (pci-set-config-address location register)
-      (setf (system:io-port/32 +pci-config-data+) value))))
+  (safe-without-interrupts (value device register)
+    (when (eql (pci-device-boot-id device) *boot-id*)
+      (with-symbol-spinlock (*pci-config-lock*)
+        (pci-set-config-address (pci-device-address device) register)
+        (setf (system:io-port/32 +pci-config-data+) value)))))
 
-(defun pci-base-class (location)
-  (ldb (byte 8 24) (pci-config/32 location +pci-config-revid+)))
+(defun pci-base-class (device)
+  (ldb (byte 8 24) (pci-config/32 device +pci-config-revid+)))
 
-(defun pci-sub-class (location)
-  (ldb (byte 8 16) (pci-config/32 location +pci-config-revid+)))
+(defun pci-sub-class (device)
+  (ldb (byte 8 16) (pci-config/32 device +pci-config-revid+)))
 
-(defun pci-programming-interface (location)
-  (ldb (byte 8 8) (pci-config/32 location +pci-config-revid+)))
+(defun pci-programming-interface (device)
+  (ldb (byte 8 8) (pci-config/32 device +pci-config-revid+)))
 
-(defun pci-bar (location bar)
-  (pci-config/32 location (+ +pci-config-bar-start+ (* bar 4))))
+(defun pci-bar (device bar)
+  (pci-config/32 device (+ +pci-config-bar-start+ (* bar 4))))
 
-(defun pci-io-region (location bar size)
-  (let ((address (pci-bar location bar)))
-    (when (not (logbitp 0 location))
+(defun pci-io-region (device bar size)
+  ;; TODO: I think the size can be determined from the BAR?
+  ;; Would be better to do that in the future...
+  (let ((address (pci-bar device bar)))
+    (when (not (logbitp 0 address))
       (let* ((base (logand address (lognot #b1111)))
              (end (align-up (+ base size) #x1000))
              (aligned-base (logand base (lognot #xFFF)))
@@ -126,8 +147,8 @@
                              "PCI MMIO")))
     address))
 
-(defun pci-intr-line (location)
-  (pci-config/8 location +pci-config-intr-line+))
+(defun pci-intr-line (device)
+  (pci-config/8 device +pci-config-intr-line+))
 
 (defun pci-io-region/8 (location offset)
   (if (logbitp 0 location)
@@ -192,53 +213,80 @@
                                               0)
             value)))
 
-(defun pci-scan (bus)
-  (dotimes (device 32)
-    ;; High bit of the header type specifies if a device is multifunction.
-    (let ((multifunction (logbitp 7 (pci-config/8 (make-pci-location bus device 0) +pci-config-hdr-type+))))
-      (dotimes (function (if multifunction 8 1))
-	(let* ((location (make-pci-location bus device function))
-               (vendor-id (pci-config/16 location +pci-config-vendorid+))
-               (device-id (pci-config/16 location +pci-config-deviceid+))
-               (base-class-code (pci-base-class location))
-               (sub-class-code (pci-sub-class location))
-               (programming-interface (pci-programming-interface location))
-               (header-type (ldb (byte 7 0) (pci-config/8 location +pci-config-hdr-type+))))
-	  (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-            (debug-print-line "PCI:" bus ":" device ":" function
-                              " " vendor-id ":" device-id
-                              " " base-class-code ":" sub-class-code ":" programming-interface
-                              " " (pci-config/8 location +pci-config-revid+)
-                              " " header-type)
-            (cond ((and (eql vendor-id #x1AF4)
-                        (<= #x1000 device-id #x103F))
-                   ;; Some kind of virtio-device.
-                   (virtio-pci-register location))
-                  ((and (eql base-class-code #x01)
-                        (eql sub-class-code #x01))
-                   ;; A PATA controller.
-                   (ata-pci-register location))
-                  ((or
-                    ;; SATA controller implementing AHCI 1.0.
-                    (and (eql base-class-code #x01)
-                         (eql sub-class-code #x06)
-                         (eql programming-interface #x01))
-                    ;; The RAID controller in my test machine.
-                    (and (eql vendor-id #x8086)
-                         (eql device-id #x2822)))
-                   ;; An AHCI controller.
-                   (ahci-pci-register location))
-                  ((and (eql vendor-id #x10EC)
-                        (eql device-id #x8168))
-                   ;; The NIC in my test machine.
-                   (rtl8168-pci-register location))
-                  ((eql header-type +pci-bridge-htype+)
-                   ;; Bridge device, scan the other side.
-                   (pci-scan (pci-config/8 location +pci-bridge-secondary-bus+))))))))))
+(defun map-pci-devices (fn)
+  (dolist (device *pci-devices*)
+    (funcall fn device)))
+
+(defun pci-probe (callback vid-did-pairs)
+  (map-pci-devices (dx-lambda (device)
+                     (let ((vendor-id (pci-config/16 device +pci-config-vendorid+))
+                           (device-id (pci-config/16 device +pci-config-deviceid+)))
+                       (loop
+                          for (vid did) in vid-did-pairs
+                          when (and (eql vid vendor-id)
+                                    (eql did device-id))
+                          do (funcall callback device))))))
 
 (defun initialize-pci ()
   (setf *pci-config-lock* :unlocked)
   (setf (system:io-port/32 +pci-config-address+) #x80000000)
+  (setf *pci-devices* '())
   (when (eql (system:io-port/32 +pci-config-address+) #x80000000)
     (debug-print-line "Begin PCI scan.")
-    (pci-scan 0)))
+    (labels ((scan-bus (bus)
+               (dotimes (device-nr 32)
+                 ;; High bit of the header type specifies if a device is multifunction.
+                 (let ((multifunction (logbitp 7 (pci-config/8
+                                                  (make-pci-device :address (make-pci-address bus device-nr 0)
+                                                                   :boot-id *boot-id*)
+                                                  +pci-config-hdr-type+))))
+                   (dotimes (function (if multifunction 8 1))
+                     (let* ((address (make-pci-address bus device-nr function))
+                            (device (make-pci-device :address address :boot-id *boot-id*))
+                            (vendor-id (pci-config/16 device +pci-config-vendorid+))
+                            (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
+                       (debug-print-line bus ":" device-nr ":" function " " vendor-id)
+                       (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
+                         (push-wired device *pci-devices*)
+                         (when (eql header-type +pci-bridge-htype+)
+                           ;; Bridge device, scan the other side.
+                           (scan-bus (pci-config/8 device +pci-bridge-secondary-bus+))))))))))
+      (declare (dynamic-extent #'scan-bus))
+      (scan-bus 0))
+    (map-pci-devices
+     (dx-lambda (device)
+       (let* ((vendor-id (pci-config/16 device +pci-config-vendorid+))
+              (device-id (pci-config/16 device +pci-config-deviceid+))
+              (base-class-code (pci-base-class device))
+              (sub-class-code (pci-sub-class device))
+              (programming-interface (pci-programming-interface device))
+              (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
+         (multiple-value-bind (bus device-nr function)
+             (pci-device-location device)
+           (debug-print-line "PCI:" bus ":" device-nr ":" function
+                             " " vendor-id ":" device-id
+                             " " base-class-code ":" sub-class-code ":" programming-interface
+                             " " (pci-config/8 device +pci-config-revid+)
+                             " " header-type))
+         (cond ((and (eql vendor-id #x1AF4)
+                     (<= #x1000 device-id #x103F))
+                ;; Some kind of virtio-device.
+                (virtio-pci-register device))
+               ((and (eql base-class-code #x01)
+                     (eql sub-class-code #x01))
+                ;; A PATA controller.
+                (ata-pci-register device))
+               ((or
+                 ;; SATA controller implementing AHCI 1.0.
+                 (and (eql base-class-code #x01)
+                      (eql sub-class-code #x06)
+                      (eql programming-interface #x01))
+                 ;; The RAID controller in my test machine.
+                 (and (eql vendor-id #x8086)
+                      (eql device-id #x2822)))
+                ;; An AHCI controller.
+                (ahci-pci-register device))
+               ((and (eql vendor-id #x10EC)
+                     (eql device-id #x8168))
+                ;; The NIC in my test machine.
+                (rtl8168-pci-register device))))))))

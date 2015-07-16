@@ -84,3 +84,13 @@
       (if livep
           (format stream "pointing to ~S" value)
           (format stream "dead")))))
+
+(defmethod print-object ((object mezzano.supervisor::pci-device) stream)
+  (print-unreadable-object (object stream :type t)
+    (multiple-value-bind (bus device function)
+        (mezzano.supervisor:pci-device-location object)
+      (format stream "~2,'0X:~2,'0X:~X~A"
+              bus device function
+              (if (eql (mezzano.supervisor::pci-device-boot-id object) mezzano.supervisor::*boot-id*)
+                  ""
+                  " (stale)")))))
