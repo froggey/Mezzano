@@ -82,10 +82,21 @@ The disk image can be run directly in qemu:
 or it can be converted to a .vmdk for use in VirtualBox:
   VBoxManage convertfromraw --format vmdk mezzano.image mezzano.vmdk
 
-The VM's RAM must be at least twice as large as the size of the disk image.
-512MB for a 256MB image (the default), 1GB for a 512MB image, etc.
-The size of the image can be specified by using MAKE-IMAGE's :IMAGE-SIZE argument,
- specified in bytes.
+The disk image should be the same size or smaller as the amount of RAM in the VM.
+Larger disk images are supported, but are more likely to encounter swap related bugs.
 
 Initially loading the whole system takes approximately 25 minutes in
-VirtualBox running on a 2.4GHz Core 2 Quad with a 512MB disk image.
+VirtualBox running on a 2.4GHz Core 2 Quad with a 512MB disk image with 512MB of RAM.
+
+A note on unusual network configurations
+------------------
+
+If you are not using qemu's default user-mode network, or VirtualBox's NAT then
+you may have to modify the hard-coded network layout in NET-SETUP in net/network-setup.lisp.
+The default network layout assumes:
+Local ip:   10.0.2.15
+Network:    10.0.0.0/8
+Gateway:    10.0.2.2
+DNS server: 8.8.8.8 (Google DNS)
+
+TCP retransmit is not implemented, so the network stack will not work reliably on real networks.
