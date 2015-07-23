@@ -16,6 +16,8 @@
 (defvar *run-time-advance*)
 (defvar *run-time*)
 
+(defvar *cpu-speed*)
+
 ;; http://wiki.osdev.org/Programmable_Interval_Timer
 (defun configure-pit-tick-rate (hz)
   (let ((divisor (truncate 1193180 hz)))
@@ -28,6 +30,35 @@
     (setf (system:io-port/8 #x40) (ldb (byte 8 0) divisor)
           (system:io-port/8 #x40) (ldb (byte 8 8) divisor))))
 
+(defun calibrate-tsc-1 ()
+  "Return the number of cycles per second, approximately."
+  (let ((initial-time *run-time*)
+        (start-time nil)
+        (end-time nil)
+        (start-cycle nil)
+        (end-cycle nil))
+    ;; Wait for the start of this tick.
+    (loop
+       (setf start-time *run-time*)
+       (when (not (eq start-time initial-time))
+         (return)))
+    (setf start-cycle (sys.int::tsc))
+    (loop
+       (setf end-time *run-time*)
+       (when (not (eq end-time start-time))
+         (return)))
+    (setf end-cycle (sys.int::tsc))
+    (let* ((cycles (- end-cycle start-cycle))
+           (time (/ (float (- end-time start-time)) internal-time-units-per-second))
+           (cycles-per-second (/ cycles time)))
+      cycles-per-second)))
+
+(defun calibrate-tsc ()
+  (let ((n (calibrate-tsc-1)))
+    (dotimes (i 5)
+      (setf n (/ (+ n (calibrate-tsc-1)) 2)))
+    (setf *cpu-speed* n)))
+
 (defun initialize-time ()
   (when (not (boundp '*heartbeat-wait-queue*))
     (setf *heartbeat-wait-queue* (make-wait-queue :name "Heartbeat wait queue"))
@@ -35,7 +66,8 @@
   (setf *run-time* 0)
   (configure-pit-tick-rate 100)
   (i8259-hook-irq +pit-irq+ 'pit-irq-handler)
-  (i8259-unmask-irq +pit-irq+))
+  (i8259-unmask-irq +pit-irq+)
+  (calibrate-tsc))
 
 (defun pit-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
