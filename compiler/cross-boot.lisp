@@ -202,6 +202,7 @@
    (x nibbles:ub32ref/le sys.int::ub32ref/le)
    (x nibbles:ub64ref/le sys.int::ub64ref/le))
 
+(defun sys.int::binary-= (x y) (= x y))
 (defun sys.int::binary-+ (x y) (+ x y))
 (defun sys.int::binary-- (x y) (- x y))
 (defun sys.int::binary-* (x y) (* x y))

@@ -298,6 +298,7 @@
 	     (logior :commutative-arithmetic)
 	     (logxor :commutative-arithmetic)
              (lognot (integer))
+             (sys.int::binary-= :commutative-arithmetic)
              (sys.int::binary-+ :commutative-arithmetic)
              (sys.int::binary-- (number number))
 	     (sys.int::binary-* :commutative-arithmetic)
