@@ -175,6 +175,21 @@
            ;; Rewrite (if x (go A-TAG) (go A-TAG)) => (go A-TAG)
            (change-made)
            (simp-form (third form)))
+          ((and (listp (second form))
+                (eql (first (second form)) 'values)
+                (eql (length (second form)) 2))
+           ;; (if (values X) ...) => (if X ...)
+           (setf (second form) (second (second form)))
+           (change-made)
+           form)
+          ((and (listp (second form))
+                (quoted-form-p (second form)))
+           ;; (if 'not-nil then else) => then
+           ;; (if 'nil then else) => else
+           (change-made)
+           (simp-form (if (not (eql (second (second form)) 'nil))
+                          (third form)
+                          (fourth form))))
           (t
            (setf (second form) (simp-form (second form))
                  (third form) (simp-form (third form))
