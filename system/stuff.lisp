@@ -221,11 +221,11 @@
           (char vendor 11) (code-char (ldb (byte 8 24) vendor-3)))
     vendor))
 
-(defun bsearch (item vector &key (stride 1) (key 'identity))
+(defun bsearch (item vector &key (start 0) end (stride 1) (key 'identity))
   "Locate ITEM using a binary search through VECTOR."
   ;; IMIN/IMAX are inclusive indicies.
-  (do ((imin 0)
-       (imax (1- (truncate (length vector) stride))))
+  (do ((imin start)
+       (imax (1- (truncate (or end (length vector)) stride))))
       ((< imax imin)
        nil)
     (let* ((imid (truncate (+ imin imax) 2))
