@@ -374,13 +374,13 @@ ARRAY must not be a displaced array."
 ;;; NCOLS FROM FROM-OFFSET TO TO-OFFSET
 (sys.int::define-lap-function %bitblt-argb-xrgb-line ()
   (sys.lap-x86:mov64 :rsi :r9) ; rsi = FROM.
-  (sys.lap-x86:shr64 :rsi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rcx :r10) ; rcx = FROM-OFFSET (fixnum).
   (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+) ; FROM-OFFSET (raw)
   (sys.lap-x86:shl64 :rcx 2) ; FROM-OFFSET * 4(raw)
   (sys.lap-x86:add64 :rsi :rcx) ; rsi = FROM + FROM-OFFSET.
   (sys.lap-x86:mov64 :rdi :r11) ; rdi = TO.
-  (sys.lap-x86:shr64 :rdi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rdx :r12) ; rcx = TO-OFFSET (fixnum).
   (sys.lap-x86:sar64 :rdx #.sys.int::+n-fixnum-bits+) ; TO-OFFSET (raw)
   (sys.lap-x86:shl64 :rdx 2) ; TO-OFFSET * 4(raw)

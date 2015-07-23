@@ -32,7 +32,7 @@
   (load-in-reg :r8 address t)
   (smash-r8)
   (emit `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
-        `(sys.lap-x86:shr64 :r8 ,sys.int::+n-fixnum-bits+)
+        `(sys.lap-x86:sar64 :r8 ,sys.int::+n-fixnum-bits+)
         `(sys.lap-x86:or64 :r8 :rax))
   (setf *r8-value* (list (gensym))))
 
@@ -40,7 +40,7 @@
   (load-in-reg :r8 value t)
   (smash-r8)
   (emit `(sys.lap-x86:and64 :r8 -16)
-        `(sys.lap-x86:shr64 :r8 ,(- 4 sys.int::+n-fixnum-bits+)))
+        `(sys.lap-x86:sar64 :r8 ,(- 4 sys.int::+n-fixnum-bits+)))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%tag-field (value) ()
