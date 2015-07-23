@@ -17,10 +17,15 @@
 (defvar *gc-debug-metadata* t)
 
 ;;; GC Meters.
+(defvar *old-objects-copied* 0)
 (defvar *objects-copied* 0)
 (defvar *words-copied* 0)
 (defvar *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
+(defvar *gc-transport-old-counts* (make-array 64 :area :pinned :initial-element 0))
 (defvar *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
+
+(defvar *gc-last-general-address* 0)
+(defvar *gc-last-cons-address* 0)
 
 (defvar *gc-in-progress* nil)
 
@@ -42,20 +47,25 @@
 
 (defun gc-reset-stats ()
   (setf *words-copied* 0
-        *objects-copied* 0)
+        *objects-copied* 0
+        *old-objects-copied* 0)
   (fill *gc-transport-counts* 0)
-  (fill *gc-transport-cycles* 0))
+  (fill *gc-transport-old-counts* 0)
+  (fill *gc-transport-cycles* 0)
+  (values))
 
 (defun gc-stats ()
   (format t "Spent ~:D seconds in the GC.~%" *gc-time*)
-  (format t "  Copied ~:D objects, ~:D words.~%" *objects-copied* *words-copied*)
+  (format t "  Copied ~:D objects, ~:D new, ~:D words.~%" *objects-copied* (- *objects-copied* *old-objects-copied*) *words-copied*)
   (format t "Transport stats:~%")
   (dotimes (i (min (length *gc-transport-cycles*)
-                   (length *gc-transport-counts*)))
+                   (length *gc-transport-counts*)
+                   (length *gc-transport-old-counts*)))
     (when (not (zerop (aref *gc-transport-counts* i)))
-      (format t "  ~:D: ~:D objects, ~:D cycles.~%"
+      (format t "  ~:D: ~:D objects, ~:D new, ~:D cycles.~%"
               (expt 2 i)
               (aref *gc-transport-counts* i)
+              (- (aref *gc-transport-counts* i) (aref *gc-transport-old-counts* i))
               (aref *gc-transport-cycles* i)))))
 
 (defun gc ()
@@ -643,7 +653,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (setf new-address (logior (ash +address-tag-cons+ +address-tag-shift+)
                                      *cons-area-bump*
                                      *dynamic-mark-bit*))
-           (incf *cons-area-bump* (* length 8)))
+           (incf *cons-area-bump* (* length 8))
+           (when (< address *gc-last-cons-address*)
+             (incf *old-objects-copied*)))
           (t
            (setf new-address (logior (ash +address-tag-general+ +address-tag-shift+)
                                      *general-area-bump*
@@ -651,7 +663,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (incf *general-area-bump* (* length 8))
            (when (oddp length)
              (setf (memref-t new-address length) 0)
-             (incf *general-area-bump* 8))))
+             (incf *general-area-bump* 8))
+           (when (< address *gc-last-general-address*)
+             (incf *old-objects-copied*))))
     ;; Energize!
     (%fast-copy new-address address (* length 8))
     ;; Leave a forwarding pointer.
@@ -660,7 +674,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (let ((cycles (- (tsc) start-time))
           (bin (integer-length (1- (* length 8)))))
       (incf (svref *gc-transport-counts* bin))
-      (incf (svref *gc-transport-cycles* bin) cycles))
+      (incf (svref *gc-transport-cycles* bin) cycles)
+      (when (< address (if (consp object) *gc-last-cons-address* *gc-last-general-address*))
+        (incf (svref *gc-transport-old-counts* bin))))
     ;; Complete! Return the new object
     (%%assemble-value new-address (%tag-field object))))
 
@@ -941,9 +957,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun gc-cycle ()
   (mezzano.supervisor::set-gc-light t)
   (mezzano.supervisor:debug-print-line "GC in progress...")
-  ;; Clear per-cycle meters
-  (setf *objects-copied* 0
-        *words-copied* 0)
   ;; Reset the weak pointer worklist.
   (setf *weak-pointer-worklist* '())
   ;; Flip.
@@ -1012,6 +1025,12 @@ a pointer to the new object. Leaves a forwarding pointer in place."
                                                      (ash +address-tag-cons+ +address-tag-shift+))
                                              (- *cons-area-limit* new-limit))
     (setf *cons-area-limit* new-limit))
+  (setf *gc-last-general-address* (logior (ash +address-tag-general+ +address-tag-shift+)
+                                          *general-area-bump*
+                                          *dynamic-mark-bit*)
+        *gc-last-cons-address* (logior (ash +address-tag-cons+ +address-tag-shift+)
+                                       *cons-area-bump*
+                                       *dynamic-mark-bit*))
   (incf *gc-epoch*)
   (mezzano.supervisor:debug-print-line "GC complete")
   (mezzano.supervisor::set-gc-light nil))

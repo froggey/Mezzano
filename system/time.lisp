@@ -52,9 +52,10 @@
 
 (defun %time (fn)
   (let ((start-time (get-universal-time))
-        (start-cycle (tsc)))
+        (start-cycle (tsc))
+        (start-gc-time *gc-time*))
     (multiple-value-prog1 (funcall fn)
       (let ((finish-cycle (tsc))
             (finish-time (get-universal-time)))
-        (format *trace-output* "; Execution took ~:D seconds.~%" (- finish-time start-time))
+        (format *trace-output* "; Execution took ~:D seconds (~:D seconds of GC time).~%" (- finish-time start-time) (- *gc-time* start-gc-time))
         (format *trace-output* "; Execution took ~:D cycles.~%" (- finish-cycle start-cycle))))))
