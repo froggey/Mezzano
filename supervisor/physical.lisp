@@ -95,11 +95,13 @@
        +log2-4k-page+))
 
 (defun (setf physical-page-virtual-address) (value page-number)
-  ;; TODO: negative addresses, but that can wait for now.
-  (ensure (eql (logand value (logand (1- (ash 1 +virtual-address-bits+))
-                                     (lognot (1- +4k-page-size+))))
-               value)
-          "Virtual address " value " not page aligned or outside limits.")
+  (let ((abs-value (if (minusp value)
+                       (- value)
+                       value)))
+    (ensure (eql (logand abs-value (logand (1- (ash 1 +virtual-address-bits+))
+                                           (lognot (1- +4k-page-size+))))
+                 abs-value)
+            "Virtual address " value " not page aligned or outside limits."))
   (setf (ldb (byte (- +virtual-address-bits+ +log2-4k-page+) 8)
              (physical-page-frame-flags page-number))
         (ash value (- +log2-4k-page+)))
