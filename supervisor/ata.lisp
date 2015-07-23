@@ -54,6 +54,9 @@
 (defconstant +ata-srst+ #x04 "Initiate a software reset.")
 (defconstant +ata-hob+  #x80 "Read LBA48 high-order bytes.")
 
+;; Error bits.
+(defconstant +ata-abrt+ #x04 "Command aborted by device.")
+
 ;; Commands.
 (defconstant +ata-command-read-sectors+ #x20)
 (defconstant +ata-command-read-sectors-ext+ #x24)
@@ -149,7 +152,19 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       ;; Check ERR before checking for timeout.
       ;; ATAPI devices will abort, and wait-for-controller will time out.
       (when (logtest (ata-alt-status controller) +ata-err+)
-        (debug-write-line "IDENTIFY aborted by device.")
+        (if (and (logtest (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                                   +ata-register-error+))
+                            +ata-abrt+)
+                   ;; The LBA low and interrupt reason registers should both be set to #x01,
+                   ;; but some hardware is broken and doesn't do this.
+                   (eql (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                               +ata-register-lba-mid+))
+                        #x14)
+                   (eql (sys.int::io-port/8 (+ (ata-controller-command controller)
+                                               +ata-register-lba-high+))
+                        #xEB))
+            (debug-write-line "PACKET device detected, ignoring.")
+            (debug-write-line "IDENTIFY aborted by device."))
         (return-from ata-detect-drive))
       (when (not success)
         (debug-write-line "Timeout while waiting for DRQ during IDENTIFY.")
