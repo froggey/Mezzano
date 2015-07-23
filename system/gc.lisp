@@ -19,6 +19,8 @@
 ;;; GC Meters.
 (defvar *objects-copied* 0)
 (defvar *words-copied* 0)
+(defvar *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
+(defvar *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
 
 (defvar *gc-in-progress* nil)
 
@@ -37,6 +39,24 @@
 
 (defvar *gc-epoch* 0)
 (defvar *gc-time* 0.0 "Time in seconds taken by the GC so far.")
+
+(defun gc-reset-stats ()
+  (setf *words-copied* 0
+        *objects-copied* 0)
+  (fill *gc-transport-counts* 0)
+  (fill *gc-transport-cycles* 0))
+
+(defun gc-stats ()
+  (format t "Spent ~:D seconds in the GC.~%" *gc-time*)
+  (format t "  Copied ~:D objects, ~:D words.~%" *objects-copied* *words-copied*)
+  (format t "Transport stats:~%")
+  (dotimes (i (min (length *gc-transport-cycles*)
+                   (length *gc-transport-counts*)))
+    (when (not (zerop (aref *gc-transport-counts* i)))
+      (format t "  ~:D: ~:D objects, ~:D cycles.~%"
+              (expt 2 i)
+              (aref *gc-transport-counts* i)
+              (aref *gc-transport-cycles* i)))))
 
 (defun gc ()
   "Run a garbage-collection cycle."
@@ -601,7 +621,8 @@ This is required to make the GC interrupt safe."
 (defun transport-object (object)
   "Transport LENGTH words from oldspace to newspace, returning
 a pointer to the new object. Leaves a forwarding pointer in place."
-  (let* ((length nil)
+  (let* ((start-time (tsc))
+         (length nil)
          (address (ash (%pointer-field object) 4))
          (first-word (memref-t address 0))
          (new-address nil))
@@ -635,6 +656,11 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (%fast-copy new-address address (* length 8))
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
+    ;; Update meter.
+    (let ((cycles (- (tsc) start-time))
+          (bin (integer-length (1- (* length 8)))))
+      (incf (svref *gc-transport-counts* bin))
+      (incf (svref *gc-transport-cycles* bin) cycles))
     ;; Complete! Return the new object
     (%%assemble-value new-address (%tag-field object))))
 
