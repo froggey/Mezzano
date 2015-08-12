@@ -40,6 +40,7 @@
     (symbol (values binding nil))
     (cons (destructuring-bind (name &optional init-form)
 	      binding
+            (check-type name symbol)
 	    (values name init-form)))))
 
 (defun pick-variables (type declares)
