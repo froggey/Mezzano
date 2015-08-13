@@ -38,7 +38,7 @@
 (defun form-value (form &key (reduce-use-count t))
   "Return the value of form wrapped in quote if its known, otherwise return nil."
   (cond ((or (and (consp form)
-		  (eql (first form) 'quote))
+		  (member (first form) '(quote function)))
 	     (lambda-information-p form))
 	 form)
 	((lexical-variable-p form)
@@ -119,7 +119,8 @@
 		   (or (and (lambda-information-p val)
                             (<= (getf (lambda-information-plist val) 'copy-count 0)
                                 *constprop-lambda-copy-limit*))
-		       (and (consp val) (eq (first val) 'quote))
+		       (and (consp val)
+                            (member (first val) '(quote function)))
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
@@ -161,7 +162,7 @@
                         (<= (getf (lambda-information-plist (third form)) 'copy-count 0)
                             *constprop-lambda-copy-limit*))
                    (and (consp (third form))
-                        (eq (first (third form)) 'quote)))
+                        (member (first (third form)) '(function quote))))
                ;; Always propagate the new value forward.
                (setf (second info) (third form))
                ;; The value is constant. Attempt to push it back to the
