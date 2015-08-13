@@ -259,7 +259,8 @@
          (let* ((specials (remove-if-not #'symbolp (second form)))
                 (replacements (loop for s in specials
                                  collect (make-lexical-variable :name s
-                                                                :definition-point *current-lambda*)))
+                                                                :definition-point *current-lambda*
+                                                                :use-count 1)))
                 ;; Also doubles up as an alist mapping specials to replacements.
                 (bindings (mapcar #'list specials replacements)))
            `(multiple-value-bind ,(mapcar (lambda (var)
