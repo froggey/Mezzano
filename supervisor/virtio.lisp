@@ -341,6 +341,7 @@
   (pci-config/8 (virtio-device-pci-device device) +pci-config-intr-line+))
 
 (defun (setf virtio-irq-mask) (value device)
-  (if value
-      (i8259-mask-irq (virtio-device-irq device))
-      (i8259-unmask-irq (virtio-device-irq device))))
+  (safe-without-interrupts (value device)
+    (if value
+        (i8259-mask-irq (virtio-device-irq device))
+        (i8259-unmask-irq (virtio-device-irq device)))))

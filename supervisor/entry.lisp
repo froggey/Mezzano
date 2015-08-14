@@ -226,7 +226,6 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-ata)
     (initialize-ahci)
     (initialize-virtio)
-    (initialize-virtio-net)
     (initialize-ps/2)
     (initialize-video)
     (initialize-pci)

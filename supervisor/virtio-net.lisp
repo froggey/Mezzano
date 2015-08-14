@@ -68,6 +68,7 @@ and then some alignment.")
   boot-id
   (lock (make-mutex "Virtio-Net NIC lock"))
   (irq-latch (make-latch "Virtio-Net NIC IRQ latch"))
+  irq-handler-function
   worker
   tx-virt
   tx-phys
@@ -79,74 +80,50 @@ and then some alignment.")
   (real-tx-pending '())
   rx-virt
   rx-phys
-  (rx-buffer-count 0)
-  (rx-buffers '())
-  (received-packets '())
   (total-rx-bytes 0)
   (total-tx-bytes 0)
   (total-rx-packets 0)
   (total-tx-packets 0))
 
-(defvar *virtio-net-cards*)
-
-(defun virtio-net-update-nic (nic))
-
-(defun check-boot (nic)
+(defun check-virtio-net-boot (nic)
   (when (not (eql (virtio-net-boot-id nic) *boot-id*))
     (throw 'nic-detached nil)))
 
 (defun virtio-net-receive-processing (nic)
-  ;; Refill receive buffers.
-  (dotimes (i (- +virtio-net-n-rx-buffers+ (virtio-net-rx-buffer-count nic)))
-    (incf (virtio-net-rx-buffer-count nic))
-    (push (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))
-          (virtio-net-rx-buffers nic)))
-  (with-pseudo-atomic
-    (check-boot nic)
-    (virtio-net-do-receive-processing nic))
-  ;; Dispatch received packets.
-  (dolist (pkt (nreverse (virtio-net-received-packets nic)))
-    (nic-received-packet nic pkt))
-  (setf (virtio-net-received-packets nic) '()))
-
-(defun virtio-net-do-receive-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
          (rx-queue (virtio-virtqueue dev +virtio-net-receiveq+)))
     (loop
-       #+(or)(debug-print-line "Process RX... " (virtio-ring-used-idx rx-queue) " " (virtqueue-last-seen-used rx-queue))
-       ;; FIXME: The card will be consuming RX buffers while we're pushing buffers.
-       (when (eql (virtio-ring-used-idx rx-queue)
-                  (virtqueue-last-seen-used rx-queue))
-         ;; All packets have been processed, notify the device that buffers are available.
-         (virtio-kick dev +virtio-net-receiveq+)
-         (return))
-       (let* ((ring-entry (rem (virtqueue-last-seen-used rx-queue)
-                               (virtqueue-size rx-queue)))
-              (id (virtio-ring-used-elem-id rx-queue ring-entry))
-              ;; Cheat slightly, RX descriptor IDs can be converted directly
-              ;; to offsets in the RX buffer.
-              (rx-offset (+ (* (truncate id 2) +virtio-net-rx-buffer-size+) +virtio-net-hdr-size+))
-              (packet-cons (or (virtio-net-rx-buffers nic)
-                               (panic "Where are my RX buffers? "
-                                      (virtio-ring-used-idx rx-queue) " "
-                                      (virtqueue-last-seen-used rx-queue))))
-              (packet (car packet-cons)))
-         (setf (virtio-net-rx-buffers nic) (cdr packet-cons))
-         (decf (virtio-net-rx-buffer-count nic))
-         #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
-         ;; Extract the packet!
-         ;; FIXME: Just how long are the packets supposed to be?
-         (dotimes (i +virtio-net-mtu+)
-           (setf (aref packet i) (sys.int::memref-unsigned-byte-8 (virtio-net-rx-virt nic) (+ rx-offset i))))
-         (incf (virtio-net-total-rx-bytes nic) +virtio-net-mtu+)
-         (incf (virtio-net-total-rx-packets nic))
-         ;; Re-add the descriptor to the avail ring.
-         (virtio-ring-add-to-avail-ring rx-queue id)
-         ;; Dispatch!
-         (setf (cdr packet-cons) (virtio-net-received-packets nic)
-               (virtio-net-received-packets nic) packet-cons))
-       (setf (virtqueue-last-seen-used rx-queue)
-             (ldb (byte 16 0) (1+ (virtqueue-last-seen-used rx-queue)))))))
+       ;; Receive outstanding packets one by one.
+       (with-pseudo-atomic
+         (check-virtio-net-boot nic)
+         (when (eql (virtio-ring-used-idx rx-queue)
+                    (virtqueue-last-seen-used rx-queue))
+           ;; All packets have been processed, notify the device that buffers are available.
+           (virtio-kick dev +virtio-net-receiveq+)
+           (return)))
+       ;; Allocate a buffer. Can't be done while pseudo-atomic, hence the dropping in & out.
+       (let ((packet (make-array +virtio-net-mtu+ :element-type '(unsigned-byte 8))))
+         (with-pseudo-atomic
+           (check-virtio-net-boot nic)
+           (let* ((ring-entry (rem (virtqueue-last-seen-used rx-queue)
+                                   (virtqueue-size rx-queue)))
+                  (id (virtio-ring-used-elem-id rx-queue ring-entry))
+                  ;; Cheat slightly, RX descriptor IDs can be converted directly
+                  ;; to offsets in the RX buffer.
+                  (rx-offset (+ (* (truncate id 2) +virtio-net-rx-buffer-size+) +virtio-net-hdr-size+)))
+             #+nil(format t "RX ring entry: ~D  buffer: ~D  len ~D~%" ring-entry id len)
+             ;; Extract the packet!
+             ;; FIXME: Just how long are the packets supposed to be?
+             (dotimes (i +virtio-net-mtu+)
+               (setf (aref packet i) (sys.int::memref-unsigned-byte-8 (virtio-net-rx-virt nic)
+                                                                      (+ rx-offset i))))
+             (incf (virtio-net-total-rx-bytes nic) +virtio-net-mtu+)
+             (incf (virtio-net-total-rx-packets nic))
+             ;; Re-add the descriptor to the avail ring.
+             (virtio-ring-add-to-avail-ring rx-queue id)
+             (setf (virtqueue-last-seen-used rx-queue)
+                   (ldb (byte 16 0) (1+ (virtqueue-last-seen-used rx-queue))))))
+         (nic-received-packet nic packet)))))
 
 (defun virtio-net-do-transmit-processing (nic)
   (let* ((dev (virtio-net-virtio-device nic))
@@ -204,7 +181,7 @@ and then some alignment.")
                                                      (nreverse (virtio-net-tx-pending nic)))
             (virtio-net-tx-pending nic) '())))
   (with-pseudo-atomic
-    (check-boot nic)
+    (check-virtio-net-boot nic)
     (virtio-net-do-transmit-processing nic)
     ;; Send any pending packets.
     (loop
@@ -214,28 +191,9 @@ and then some alignment.")
          (return))
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
-(defun virtio-net-worker (nic)
-  (catch 'nic-detached
-    (loop
-       ;; Wait for something to happen.
-       (latch-wait (virtio-net-irq-latch nic))
-       (latch-reset (virtio-net-irq-latch nic))
-       (check-boot nic)
-       (virtio-net-receive-processing nic)
-       (virtio-net-transmit-processing nic))))
-
 (defun virtio-net-irq-handler (nic)
   (when (logbitp 0 (virtio-isr-status (virtio-net-virtio-device nic)))
     (latch-trigger (virtio-net-irq-latch nic))))
-
-(defun initialize-virtio-net ()
-  (when (not (boundp '*virtio-net-cards*))
-    (setf *virtio-net-cards* '()))
-  ;; Flush worker threads and cards.
-  (dolist (nic *virtio-net-cards*)
-    ;; Wake each worker thread, so they can notice (boot-id nic) != current-boot-id.
-    (latch-trigger (virtio-net-irq-latch nic)))
-  (setf *virtio-net-cards* '()))
 
 (defun virtio-net-transmit (nic packet)
   (let* ((len (loop for elt in packet
@@ -265,56 +223,6 @@ and then some alignment.")
           (virtio-net-total-tx-packets nic)
           0
           0))
-
-(defun virtio-net-register (device)
-  ;; Wired allocation required for the IRQ handler closure.
-  (declare (sys.c::closure-allocation :wired))
-  ;; Set the driver bit in the status field.
-  (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                              +virtio-status-driver+))
-  ;; Feature negotiation, we only have eyes for the MAC feature.
-  (when (not (logbitp +virtio-net-f-mac+ (virtio-device-features device)))
-    (setf (virtio-device-status device) +virtio-status-failed+)
-    (return-from virtio-net-register))
-  ;; Enable MAC feature.
-  (setf (ldb (byte 1 +virtio-net-f-mac+) (virtio-guest-features device)) 1)
-  ;; Allocate virtqueues.
-  (when (not (virtio-configure-virtqueues device 2))
-    (setf (virtio-device-status device) +virtio-status-failed+)
-    (return-from virtio-net-register))
-  ;; Read the MAC address.
-  (let ((mac 0))
-    (dotimes (i 6)
-      (setf (ldb (byte 8 (* i 8)) mac) (virtio-device-specific-header/8 device (+ +virtio-net-mac+ i))))
-    ;; Create card.
-    (let* ((nic (make-virtio-net :mac mac
-                                 :virtio-device device
-                                 :boot-id *boot-id*)))
-      (when (not (virtio-net-allocate-tx-descriptors nic))
-        (debug-print-line "Unable to allocate TX buffers")
-        (setf (virtio-device-status device) +virtio-status-failed+)
-        (return-from virtio-net-register))
-      (when (not (virtio-net-allocate-rx-descriptors nic))
-        (debug-print-line "Unable to allocate RX buffers")
-        (setf (virtio-device-status device) +virtio-status-failed+)
-        (return-from virtio-net-register))
-      (push-wired nic *virtio-net-cards*)
-      (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
-      ;; Attach IRQ handler.
-      (virtio-attach-irq device (lambda (interrupt-frame irq)
-                                  (declare (ignore interrupt-frame irq))
-                                  (virtio-net-irq-handler nic)))
-      (setf (virtio-irq-mask device) nil)
-      ;; Cook up a worker thread.
-      (add-deferred-boot-action
-       (lambda ()
-         (setf (virtio-net-worker nic) (make-thread (lambda () (virtio-net-worker nic))
-                                                    :name "Virtio-Net NIC worker"))))
-      ;; Configuration complete, go to OK mode.
-      (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
-                                                  +virtio-status-driver+
-                                                  +virtio-status-ok+))
-      (virtio-kick device +virtio-net-receiveq+))))
 
 (defun virtio-net-allocate-tx-descriptors (nic)
   ;; Allocate a bunch of bounce-buffers for TX.
@@ -369,4 +277,71 @@ and then some alignment.")
               (virtio-ring-desc-length rx-queue pkt-desc) (- +virtio-net-rx-buffer-size+ +virtio-net-hdr-size+)
               (virtio-ring-desc-flags rx-queue pkt-desc) (ash 1 +virtio-ring-desc-f-write+))
         (virtio-ring-add-to-avail-ring rx-queue hdr-desc))))
+  t)
+
+(defun virtio-net-register (device)
+  ;; Wired allocation required for the IRQ handler closure.
+  (declare (sys.c::closure-allocation :wired))
+  (let ((nic (make-virtio-net :virtio-device device
+                              :boot-id *boot-id*)))
+    (setf (virtio-net-irq-handler-function nic) (lambda (interrupt-frame irq)
+                                                  (declare (ignore interrupt-frame irq))
+                                                  (virtio-net-irq-handler nic)))
+    (virtio-attach-irq device (lambda (interrupt-frame irq)
+                                (declare (ignore interrupt-frame irq))
+                                (virtio-net-irq-handler nic)))
+    (add-deferred-boot-action
+     (lambda ()
+       (setf (virtio-net-worker nic) (make-thread (lambda () (virtio-net-worker nic))
+                                                  :name "Virtio-Net NIC worker"))))))
+
+(defun virtio-net-worker (nic)
+  (catch 'nic-detached
+    (when (not (virtio-net-initialize nic))
+      (return-from virtio-net-worker))
+    (loop
+       ;; Wait for something to happen.
+       (latch-wait (virtio-net-irq-latch nic))
+       (latch-reset (virtio-net-irq-latch nic))
+       (virtio-net-receive-processing nic)
+       (virtio-net-transmit-processing nic))))
+
+(defun virtio-net-initialize (nic)
+  (with-pseudo-atomic
+    (check-virtio-net-boot nic)
+    (let ((device (virtio-net-virtio-device nic)))
+      ;; Set the driver bit in the status field.
+      (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
+                                                  +virtio-status-driver+))
+      ;; Feature negotiation, we only have eyes for the MAC feature.
+      (when (not (logbitp +virtio-net-f-mac+ (virtio-device-features device)))
+        (setf (virtio-device-status device) +virtio-status-failed+)
+        (return-from virtio-net-initialize nil))
+      ;; Enable MAC feature.
+      (setf (ldb (byte 1 +virtio-net-f-mac+) (virtio-guest-features device)) 1)
+      ;; Allocate virtqueues.
+      (when (not (virtio-configure-virtqueues device 2))
+        (setf (virtio-device-status device) +virtio-status-failed+)
+        (return-from virtio-net-initialize nil))
+      ;; Read the MAC address.
+      (let ((mac 0))
+        (dotimes (i 6)
+          (setf (ldb (byte 8 (* i 8)) mac) (virtio-device-specific-header/8 device (+ +virtio-net-mac+ i))))
+        (setf (virtio-net-mac nic) mac)
+        (when (not (virtio-net-allocate-tx-descriptors nic))
+          (debug-print-line "Unable to allocate TX buffers")
+          (setf (virtio-device-status device) +virtio-status-failed+)
+          (return-from virtio-net-initialize nil))
+        (when (not (virtio-net-allocate-rx-descriptors nic))
+          (debug-print-line "Unable to allocate RX buffers")
+          (setf (virtio-device-status device) +virtio-status-failed+)
+          (return-from virtio-net-initialize nil))
+        (register-nic nic mac 'virtio-net-transmit 'virtio-net-stats +virtio-net-mtu+)
+        ;; Enable IRQ handler.
+        (setf (virtio-irq-mask device) nil)
+        ;; Configuration complete, go to OK mode.
+        (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
+                                                    +virtio-status-driver+
+                                                    +virtio-status-ok+))
+        (virtio-kick device +virtio-net-receiveq+))))
   t)
