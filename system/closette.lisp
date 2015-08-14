@@ -1744,7 +1744,7 @@ Dispatching on class ~S." gf class))
   (let ((primaries (remove-if-not #'primary-method-p methods))
         (around (find-if #'around-method-p methods)))
     (when (null primaries)
-      (error "No primary methods for the generic function ~S. Called with " gf))
+      (error "No primary methods for the generic function ~S." gf))
     (if around
         (let ((next-emfun
                 (funcall
