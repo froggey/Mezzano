@@ -113,9 +113,9 @@
   form)
 
 (defun ll-tagbody (form)
-  (unless (eq (tagbody-information-definition-point (second form)) *current-lambda*)
+  (unless (eq (lexical-variable-definition-point (second form)) *current-lambda*)
     (change-made)
-    (setf (tagbody-information-definition-point (second form)) *current-lambda*))
+    (setf (lexical-variable-definition-point (second form)) *current-lambda*))
   (do ((i (cddr form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
@@ -192,9 +192,10 @@
 	(setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
     (let* ((argument-vars (mapcar (lambda (x)
                                     (declare (ignore x))
-                                    (make-lexical-variable :name (gensym)
-                                                           :definition-point *current-lambda*
-                                                           :ignore :maybe))
+                                    (make-instance 'lexical-variable
+                                                   :name (gensym)
+                                                   :definition-point *current-lambda*
+                                                   :ignore :maybe))
                                   arg-list))
            (key-pairs (nthcdr (length required-args) argument-vars)))
       (labels ((build-required-bindings (req-args arg-vars)

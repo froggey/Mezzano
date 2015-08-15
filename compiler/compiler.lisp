@@ -90,58 +90,103 @@ A list of any declaration-specifiers."
              *change-count*)
     (incf *change-count*)))
 
-(defstruct lambda-information
-  name
-  docstring
-  lambda-list
-  body
-  required-args
-  optional-args
-  rest-arg
-  enable-keys
-  key-args
-  allow-other-keys
-  environment-arg
-  environment-layout
-  (plist '()))
+(defclass lambda-information ()
+  ((%name :initarg :name :accessor lambda-information-name)
+   (%docstring :initarg :docstring :accessor lambda-information-docstring)
+   (%lambda-list :initarg :lambda-list :accessor lambda-information-lambda-list)
+   (%body :initarg :body :accessor lambda-information-body)
+   (%required-args :initarg :required-args :accessor lambda-information-required-args)
+   (%optional-args :initarg :optional-args :accessor lambda-information-optional-args)
+   (%rest-arg :initarg :rest-arg :accessor lambda-information-rest-arg)
+   (%enable-keys :initarg :enable-keys :accessor lambda-information-enable-keys)
+   (%key-args :initarg :key-args :accessor lambda-information-key-args)
+   (%allow-other-keys :initarg :allow-other-keys :accessor lambda-information-allow-other-keys)
+   (%environment-arg :initarg :environment-arg :accessor lambda-information-environment-arg)
+   (%environment-layout :initarg :environment-layout :accessor lambda-information-environment-layout)
+   (%plist :initarg :plist :accessor lambda-information-plist))
+  (:default-initargs :name nil
+                     :docstring nil
+                     :lambda-list '()
+                     :body nil
+                     :required-args '()
+                     :optional-args '()
+                     :rest-arg nil
+                     :enable-keys nil
+                     :key-args '()
+                     :allow-other-keys '()
+                     :environment-arg nil
+                     :environment-layout nil
+                     :plist '()))
+
+(defun lambda-information-p (object)
+  (typep object 'lambda-information))
 
 ;;; A lexical-variable represents a "renamed" variable, and stores definition information.
-(defstruct lexical-variable
-  name
-  definition-point
-  ignore
-  dynamic-extent
-  (use-count 0)
-  (write-count 0)
-  used-in
-  (plist '()))
+(defclass lexical-variable ()
+  ((%name :initarg :name :accessor lexical-variable-name)
+   (%definition-point :initarg :definition-point :accessor lexical-variable-definition-point)
+   (%ignore :initarg :ignore :accessor lexical-variable-ignore)
+   (%dynamic-extent :initarg :dynamic-extent :accessor lexical-variable-dynamic-extent)
+   (%use-count :initarg :use-count :accessor lexical-variable-use-count)
+   (%write-count :initarg :write-count :accessor lexical-variable-write-count)
+   (%used-in :initarg :used-in :accessor lexical-variable-used-in)
+   (%plist :initarg :plist :accessor lexical-variable-plist))
+  (:default-initargs :name nil
+                     :definition-point nil
+                     :ignore nil
+                     :dynamic-extent nil
+                     :use-count 0
+                     :write-count 0
+                     :used-in '()
+                     :plist '()))
 
-(defstruct (block-information
-             (:include lexical-variable))
-  return-mode
-  count
-  env-var
-  env-offset)
-
-(defstruct (tagbody-information
-             (:include lexical-variable))
-  go-tags
-  env-var
-  env-offset)
-
-(defstruct go-tag
-  name
-  tagbody
-  (use-count 0)
-  used-in)
-
-(defmethod print-object ((object go-tag) stream)
-  (print-unreadable-object (object stream :type t)
-    (format stream "~S" (go-tag-name object))))
+(defun lexical-variable-p (object)
+  (typep object 'lexical-variable))
 
 (defmethod print-object ((object lexical-variable) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~S" (lexical-variable-name object))))
+
+(defclass block-information (lexical-variable)
+  ((%return-mode :initarg :return-mode :accessor block-information-return-mode)
+   (%count :initarg :count :accessor block-information-count)
+   (%env-var :initarg :env-var :accessor block-information-env-var)
+   (%env-offset :initarg :env-offset :accessor block-information-env-offset))
+  (:default-initargs :return-mode nil
+                     :count nil
+                     :env-var nil
+                     :env-offset nil))
+
+(defun block-information-p (object)
+  (typep object 'block-information))
+
+(defclass tagbody-information (lexical-variable)
+  ((%go-tags :initarg :go-tags :accessor tagbody-information-go-tags)
+   (%env-var :initarg :env-var :accessor tagbody-information-env-var)
+   (%env-offset :initarg :env-offset :accessor tagbody-information-env-offset))
+  (:default-initargs :go-tags '()
+                     :env-var nil
+                     :env-offset nil))
+
+(defun tagbody-information-p (object)
+  (typep object 'tagbody-information))
+
+(defclass go-tag ()
+  ((%name :initarg :name :accessor go-tag-name)
+   (%tagbody :initarg :tagbody :accessor go-tag-tagbody)
+   (%use-count :initarg :use-count :accessor go-tag-use-count)
+   (%used-in :initarg :used-in :accessor go-tag-used-in))
+  (:default-initargs :name nil
+                     :tagbody nil
+                     :use-count 0
+                     :used-in '()))
+
+(defun go-tag-p (object)
+  (typep object 'go-tag))
+
+(defmethod print-object ((object go-tag) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~S" (go-tag-name object))))
 
 (defun run-optimizers (form)
   (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
@@ -216,9 +261,9 @@ A list of any declaration-specifiers."
 	     (mapcar (lambda (x) (copy-form x replacements)) forms))
 	   (copy-variable (var)
 	     (if (lexical-variable-p var)
-		 (let ((new (funcall (if (block-information-p var)
-                                         'make-block-information
-                                         'make-lexical-variable)
+		 (let ((new (make-instance (if (block-information-p var)
+                                               'block-information
+                                               'lexical-variable)
                                      :name (lexical-variable-name var)
                                      :ignore (lexical-variable-ignore var)
                                      :dynamic-extent (lexical-variable-dynamic-extent var))))
@@ -270,11 +315,13 @@ A list of any declaration-specifiers."
 		 (pushnew *current-lambda* (lexical-variable-used-in var))
 		 `(setq ,var ,(copy-form (third form) replacements))))
 	      ((tagbody)
-	       (let ((info (make-tagbody-information :definition-point (fix (tagbody-information-definition-point (second form))))))
+	       (let ((info (make-instance 'tagbody-information
+                                          :definition-point (fix (lexical-variable-definition-point (second form))))))
 		 (push (cons (second form) info) replacements)
 		 (dolist (tag (tagbody-information-go-tags (second form)))
-		   (let ((new-tag (make-go-tag :name (go-tag-name tag)
-                                               :tagbody info)))
+		   (let ((new-tag (make-instance 'go-tag
+                                                 :name (go-tag-name tag)
+                                                 :tagbody info)))
 		     (push new-tag (tagbody-information-go-tags info))
 		     (push (cons tag new-tag) replacements)))
 		 `(tagbody ,info
@@ -292,12 +339,13 @@ A list of any declaration-specifiers."
 	 (pushnew *current-lambda* (lexical-variable-used-in var))
 	 var))
       (lambda-information
-       (let* ((info (make-lambda-information :name (lambda-information-name form)
-					     :docstring (lambda-information-docstring form)
-					     :lambda-list (lambda-information-lambda-list form)
-                                             :enable-keys (lambda-information-enable-keys form)
-                                             :allow-other-keys (lambda-information-allow-other-keys form)
-                                             :plist (copy-list (lambda-information-plist form))))
+       (let* ((info (make-instance 'lambda-information
+                                   :name (lambda-information-name form)
+                                   :docstring (lambda-information-docstring form)
+                                   :lambda-list (lambda-information-lambda-list form)
+                                   :enable-keys (lambda-information-enable-keys form)
+                                   :allow-other-keys (lambda-information-allow-other-keys form)
+                                   :plist (copy-list (lambda-information-plist form))))
 	      (*current-lambda* info))
          (incf (getf (lambda-information-plist info) 'copy-count 0))
 	 (push (cons form info) replacements)
@@ -416,22 +464,30 @@ A list of any declaration-specifiers."
 
 (defun lower-key-arguments* (body rest keys allow-other-keys)
   (let* ((values (mapcar (lambda (x)
-                           (make-lexical-variable :name (gensym (string (variable-name (cadar x))))
-                                                  :definition-point *current-lambda*))
+                           (make-instance 'lexical-variable
+                                          :name (gensym (string (variable-name (cadar x))))
+                                          :definition-point *current-lambda*))
                          keys))
          (suppliedp (mapcar (lambda (x)
-                              (make-lexical-variable :name (if (third x)
-                                                               (gensym (string (variable-name (third x))))
-                                                               (gensym))
-                                                     :definition-point *current-lambda*))
+                              (make-instance 'lexical-variable
+                                             :name (if (third x)
+                                                       (gensym (string (variable-name (third x))))
+                                                       (gensym))
+                                             :definition-point *current-lambda*))
                             keys))
-         (itr (make-lexical-variable :name (gensym)
-                                     :definition-point *current-lambda*))
-         (current-keyword (make-lexical-variable :name (gensym)
-                                                 :definition-point *current-lambda*))
-         (tb (make-tagbody-information :definition-point *current-lambda*))
-         (head-tag (make-go-tag :name (gensym "HEAD") :tagbody tb))
-         (test-tag (make-go-tag :name (gensym "TEST") :tagbody tb)))
+         (itr (make-instance 'lexical-variable
+                             :name (gensym)
+                             :definition-point *current-lambda*))
+         (current-keyword (make-instance 'lexical-variable
+                                         :name (gensym)
+                                         :definition-point *current-lambda*))
+         (tb (make-instance 'tagbody-information :definition-point *current-lambda*))
+         (head-tag (make-instance 'go-tag
+                                  :name (gensym "HEAD")
+                                  :tagbody tb))
+         (test-tag (make-instance 'go-tag
+                                  :name (gensym "TEST")
+                                  :tagbody tb)))
     (push head-tag (tagbody-information-go-tags tb))
     (push test-tag (tagbody-information-go-tags tb))
     (labels ((create-key-test-list (key-args values suppliedp)
@@ -513,10 +569,11 @@ A list of any declaration-specifiers."
          (unless (lambda-information-rest-arg form)
            ;; Add in a &REST arg and make it dynamic-extent.
            (setf (lambda-information-rest-arg form)
-                 (make-lexical-variable :name (gensym "REST")
-                                        :definition-point *current-lambda*
-                                        :ignore :maybe
-                                        :dynamic-extent t)))
+                 (make-instance 'lexical-variable
+                                :name (gensym "REST")
+                                :definition-point *current-lambda*
+                                :ignore :maybe
+                                :dynamic-extent t)))
          (setf (lambda-information-body form)
                (lower-key-arguments* (lambda-information-body form)
                                      (lambda-information-rest-arg form)
@@ -540,8 +597,9 @@ Must be run after keywords have been lowered."
 	   (dolist (i forms)
 	     (lower-arguments i)))
          (new-var (name)
-           (make-lexical-variable :name (gensym name)
-                                  :definition-point *current-lambda*)))
+           (make-instance 'lexical-variable
+                          :name (gensym name)
+                          :definition-point *current-lambda*)))
     (etypecase form
       (cons (case (first form)
 	      ((block) (implicit-progn (cddr form)))

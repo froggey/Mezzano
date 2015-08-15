@@ -134,20 +134,24 @@
                 (eql (first (second form)) 'if))
            ;; Rewrite (if (if ...) ...).
            (let* ((test-form (second form))
-                  (new-block (make-block-information :name (gensym "if-escape")
-                                                     :definition-point *current-lambda*
-                                                     :ignore nil
-                                                     :dynamic-extent nil
-                                                     :use-count 1))
-                  (new-tagbody (make-tagbody-information :definition-point *current-lambda*
-                                                         :go-tags '()
-                                                         :use-count 1))
-                  (then-tag (make-go-tag :name (gensym "if-then")
-                                         :tagbody new-tagbody
-                                         :use-count 1))
-                  (else-tag (make-go-tag :name (gensym "if-else")
-                                         :tagbody new-tagbody
-                                         :use-count 1)))
+                  (new-block (make-instance 'block-information
+                                            :name (gensym "if-escape")
+                                            :definition-point *current-lambda*
+                                            :ignore nil
+                                            :dynamic-extent nil
+                                            :use-count 1))
+                  (new-tagbody (make-instance 'tagbody-information
+                                              :definition-point *current-lambda*
+                                              :go-tags '()
+                                              :use-count 1))
+                  (then-tag (make-instance 'go-tag
+                                           :name (gensym "if-then")
+                                           :tagbody new-tagbody
+                                           :use-count 1))
+                  (else-tag (make-instance 'go-tag
+                                           :name (gensym "if-else")
+                                           :tagbody new-tagbody
+                                           :use-count 1)))
              (push then-tag (tagbody-information-go-tags new-tagbody))
              (push else-tag (tagbody-information-go-tags new-tagbody))
              `(block ,new-block
@@ -258,9 +262,10 @@
          (change-made)
          (let* ((specials (remove-if-not #'symbolp (second form)))
                 (replacements (loop for s in specials
-                                 collect (make-lexical-variable :name s
-                                                                :definition-point *current-lambda*
-                                                                :use-count 1)))
+                                 collect (make-instance 'lexical-variable
+                                                        :name s
+                                                        :definition-point *current-lambda*
+                                                        :use-count 1)))
                 ;; Also doubles up as an alist mapping specials to replacements.
                 (bindings (mapcar #'list specials replacements)))
            `(multiple-value-bind ,(mapcar (lambda (var)

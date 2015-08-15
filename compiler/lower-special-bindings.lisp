@@ -36,8 +36,9 @@
                (not (find 'sys.int::suppress-ssp-checking
                           (getf (lambda-information-plist lambda) :declares)
                           :key #'first)))
-      (let ((ssp (make-lexical-variable :name (gensym "ssp")
-                                        :definition-point lambda)))
+      (let ((ssp (make-instance 'lexical-variable
+                                :name (gensym "ssp")
+                                :definition-point lambda)))
         (setf (lambda-information-body lambda)
               `(let ((,ssp (sys.int::%%special-stack-pointer)))
                  (multiple-value-prog1
@@ -132,8 +133,9 @@
               ,@(lsb-unwind-to (lsb-find-b-or-t-binding location))
               (go ,tag ,location)))
           (t ;; Non-local GO, do the full unwind.
-           (let ((info (make-lexical-variable :name (gensym "go-info")
-                                              :definition-point *current-lambda*)))
+           (let ((info (make-instance 'lexical-variable
+                                      :name (gensym "go-info")
+                                      :definition-point *current-lambda*)))
              `(let ((,info ,(lsb-form location)))
                 ;; Ensure it's still valid.
                 (if ,info
@@ -168,12 +170,13 @@
   (destructuring-bind (tag value-form location) (cdr form)
     (cond ((not (eql tag location))
            ;; Non-local RETURN-FROM, do the full unwind.
-           (let ((info (make-lexical-variable :name (gensym "return-from-info")
-                                              :definition-point *current-lambda*)))
+           (let ((info (make-instance 'lexical-variable
+                                      :name (gensym "return-from-info")
+                                      :definition-point *current-lambda*)))
              `(let ((,info ,(lsb-form location)))
                   (if ,info
                     'nil
-                    (sys.int::raise-bad-block ',(block-information-name tag)))
+                    (sys.int::raise-bad-block ',(lexical-variable-name tag)))
                   (return-from ,tag
                     ,(list
                       'multiple-value-prog1

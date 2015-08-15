@@ -1170,7 +1170,7 @@ Returns an appropriate tag."
   (dolist (tag (tagbody-information-go-tags info) t)
     (unless (or (null (go-tag-used-in tag))
 		(and (null (cdr (go-tag-used-in tag)))
-		     (eq (car (go-tag-used-in tag)) (tagbody-information-definition-point info))))
+		     (eq (car (go-tag-used-in tag)) (lexical-variable-definition-point info))))
       (return nil))))
 
 ;;; FIXME: Everything must return a valid tag if control flow follows.

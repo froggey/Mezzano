@@ -307,14 +307,16 @@ of statements opens a new contour."
                                              *environment-allocation-mode*))))
     (when *environment*
       ;; The entry environment vector.
-      (let ((env (make-lexical-variable :name (gensym "Environment")
-                                        :definition-point lambda)))
+      (let ((env (make-instance 'lexical-variable
+                                :name (gensym "Environment")
+                                :definition-point lambda)))
         (setf (lambda-information-environment-arg lambda) env)
         (push (list (first *environment*) env) *environment-chain*)))
     (cond ((not (endp local-env))
            ;; Environment is present, rewrite body with a new vector.
-           (let ((new-env (make-lexical-variable :name (gensym "Environment")
-                                                 :definition-point lambda)))
+           (let ((new-env (make-instance 'lexical-variable
+                                         :name (gensym "Environment")
+                                         :definition-point lambda)))
              (push (list lambda new-env) *environment-chain*)
              (push lambda *environment*)
              (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
@@ -473,8 +475,9 @@ of statements opens a new contour."
                                       possible-env-vector-heads))
          (new-envs (loop for i in env-vector-heads
                       collect (list i
-                                    (make-lexical-variable :name (gensym "Environment")
-                                                           :definition-point *current-lambda*)
+                                    (make-instance 'lexical-variable
+                                                   :name (gensym "Environment")
+                                                   :definition-point *current-lambda*)
                                     (gethash i *environment-layout*)))))
     (labels ((frob-outer ()
              `(tagbody ,(second form)

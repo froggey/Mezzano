@@ -86,11 +86,12 @@
   (if (or (sys.int::variable-information name)
 	  (declared-as-p 'special name declares))
       name
-      (make-lexical-variable :name name
-			     :definition-point *current-lambda*
-			     :ignore (cond ((declared-as-p 'ignore name declares) t)
-					   ((declared-as-p 'ignorable name declares) :maybe))
-			     :dynamic-extent (declared-as-p 'dynamic-extent name declares))))
+      (make-instance 'lexical-variable
+                     :name name
+                     :definition-point *current-lambda*
+                     :ignore (cond ((declared-as-p 'ignore name declares) t)
+                                   ((declared-as-p 'ignorable name declares) :maybe))
+                     :dynamic-extent (declared-as-p 'dynamic-extent name declares))))
 
 (defun pass1-lambda (lambda env)
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
@@ -98,12 +99,13 @@
       (parse-lambda lambda)
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
 	(sys.int::parse-ordinary-lambda-list lambda-list)
-      (let* ((info (make-lambda-information :name name
-					    :docstring docstring
-					    :lambda-list lambda-list
-                                            :enable-keys enable-keys
-                                            :allow-other-keys allow-other-keys
-                                            :plist (list :declares declares)))
+      (let* ((info (make-instance 'lambda-information
+                                  :name name
+                                  :docstring docstring
+                                  :lambda-list lambda-list
+                                  :enable-keys enable-keys
+                                  :allow-other-keys allow-other-keys
+                                  :plist (list :declares declares)))
 	     (*current-lambda* info)
 	     (bindings (list :bindings))
 	     (env (list* bindings env)))
@@ -300,8 +302,9 @@
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
-    (let ((var (make-block-information :name name
-				       :definition-point *current-lambda*)))
+    (let ((var (make-instance 'block-information
+                              :name name
+                              :definition-point *current-lambda*)))
       `(block ,var ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
 
 (defun pass1-catch (form env)
@@ -327,8 +330,9 @@
       (parse-declares (cddr fn))
     ;; FIXME: docstring permitted here.
     (let* ((name (first fn))
-	   (var (make-lexical-variable :name name
-				       :definition-point *current-lambda*)))
+	   (var (make-instance 'lexical-variable
+                               :name name
+                               :definition-point *current-lambda*)))
       (values name var `(lambda ,(second fn)
                           (declare (system:lambda-name ,name)
                                    ,@declares)
@@ -587,10 +591,14 @@
       (pass1-locally-body body env))))
 
 (defun pass1-tagbody (form env)
-  (let* ((tb (make-tagbody-information :name (gensym "TAGBODY") :definition-point *current-lambda*))
+  (let* ((tb (make-instance 'tagbody-information
+                            :name (gensym "TAGBODY")
+                            :definition-point *current-lambda*))
 	 (env (cons (list* :tagbody tb (mapcan (lambda (stmt)
 						 (when (or (symbolp stmt) (integerp stmt))
-						   (let ((tag (make-go-tag :name stmt :tagbody tb)))
+						   (let ((tag (make-instance 'go-tag
+                                                                             :name stmt
+                                                                             :tagbody tb)))
 						     (push tag (tagbody-information-go-tags tb))
 						     (list (cons stmt tag)))))
 					       (rest form)))
