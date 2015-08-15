@@ -15,22 +15,22 @@
 (defun kt-form (form &optional target-variable replacement-form)
   (etypecase form
     (cons (case (first form)
+            ((if quote) (error "old style ast"))
 	    ((block) (kt-block form target-variable replacement-form))
 	    ((go) (kt-go form target-variable replacement-form))
-	    ((if) (kt-if form target-variable replacement-form))
 	    ((let) (kt-let form target-variable replacement-form))
 	    ((multiple-value-bind) (kt-multiple-value-bind form target-variable replacement-form))
 	    ((multiple-value-call) (kt-multiple-value-call form target-variable replacement-form))
 	    ((multiple-value-prog1) (kt-multiple-value-prog1 form target-variable replacement-form))
 	    ((progn) (kt-progn form target-variable replacement-form))
 	    ((function) (kt-quote form target-variable replacement-form))
-            ((quote) (error "old style ast"))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((setq) (kt-setq form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))
 	    ((the) (kt-the form target-variable replacement-form))
 	    ((unwind-protect) (kt-unwind-protect form target-variable replacement-form))
 	    (t (kt-function-form form target-variable replacement-form))))
+    (ast-if (kt-if form target-variable replacement-form))
     (ast-quote (kt-quote form target-variable replacement-form))
     (lexical-variable
      (cond ((eql form target-variable)
@@ -84,10 +84,10 @@
 
 (defun kt-if (form target-variable replacement-form)
   (multiple-value-bind (new-test did-replace)
-      (kt-form (second form) target-variable replacement-form)
-    (setf (second form) new-test
-          (third form) (kt-form (third form))
-          (fourth form) (kt-form (fourth form)))
+      (kt-form (test form) target-variable replacement-form)
+    (setf (test form) new-test
+          (if-then form) (kt-form (if-then form))
+          (if-else form) (kt-form (if-else form)))
     (values form did-replace)))
 
 (defun kt-let (form target-variable replacement-form)

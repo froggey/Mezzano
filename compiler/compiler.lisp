@@ -90,6 +90,25 @@ A list of any declaration-specifiers."
              *change-count*)
     (incf *change-count*)))
 
+(defun run-optimizers (form)
+  (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
+			      :format-control "Possible optimizer infinite loop."
+			      :format-arguments '())
+			form))
+    (let ((*change-count* 0))
+      ;; Must be run before lift.
+      (setf form (il-form (detect-uses form)))
+      (setf form (ll-form (detect-uses form)))
+      ;; Key arg conversion must be performed after lambda-lifting, so as not to
+      ;; complicate the lift code.
+      (setf form (lower-keyword-arguments form))
+      (setf form (constprop (detect-uses form)))
+      (setf form (simp-form (detect-uses form)))
+      (setf form (kt-form (detect-uses form)))
+      (detect-uses form)
+      (when (eql *change-count* 0)
+	(return form)))))
+
 (defclass lambda-information ()
   ((%name :initarg :name :accessor lambda-information-name)
    (%docstring :initarg :docstring :accessor lambda-information-docstring)
@@ -184,31 +203,17 @@ A list of any declaration-specifiers."
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
+(defclass ast-if ()
+  ((%test :initarg :test :accessor test)
+   (%then :initarg :then :accessor if-then)
+   (%else :initarg :else :accessor if-else)))
+
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
 
 (defmethod print-object ((object go-tag) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~S" (go-tag-name object))))
-
-(defun run-optimizers (form)
-  (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
-			      :format-control "Possible optimizer infinite loop."
-			      :format-arguments '())
-			form))
-    (let ((*change-count* 0))
-      ;; Must be run before lift.
-      (setf form (il-form (detect-uses form)))
-      (setf form (ll-form (detect-uses form)))
-      ;; Key arg conversion must be performed after lambda-lifting, so as not to
-      ;; complicate the lift code.
-      (setf form (lower-keyword-arguments form))
-      (setf form (constprop (detect-uses form)))
-      (setf form (simp-form (detect-uses form)))
-      (setf form (kt-form (detect-uses form)))
-      (detect-uses form)
-      (when (eql *change-count* 0)
-	(return form)))))
 
 (defun flush-form (form)
   "Kill off a form and reduce any use-counts it was holding."
@@ -217,11 +222,11 @@ A list of any declaration-specifiers."
 	     (flush-form i))))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
 	      ((block) (implicit-progn (cddr form)))
 	      ((go)
                (decf (go-tag-use-count (second form)))
                (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
 		 (flush-form (second b)))
@@ -231,7 +236,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
-              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
@@ -247,6 +251,10 @@ A list of any declaration-specifiers."
 	      ((the) (flush-form (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	    (t (implicit-progn (cdr form)))))
+      (ast-if
+       (flush-form (test form))
+       (flush-form (if-then form))
+       (flush-form (if-else form)))
       (ast-quote)
       (lexical-variable
        (decf (lexical-variable-use-count form)))
@@ -281,6 +289,7 @@ A list of any declaration-specifiers."
 		 var)))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
 	      ((block)
 	       `(block ,(copy-variable (second form)) ,@(implicit-progn (cddr form))))
 	      ((go)
@@ -290,7 +299,6 @@ A list of any declaration-specifiers."
 		 (incf (lexical-variable-use-count (go-tag-tagbody tag)))
 		 (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
 		 `(go ,tag ,(go-tag-tagbody tag))))
-	      ((if) `(if ,@(implicit-progn (cdr form))))
 	      ((let)
 	       ;; So that labels works correctly, this must create the variables and then
 	       ;; copy init-forms.
@@ -308,7 +316,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-prog1) `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
 	      ((progn) `(progn ,@(implicit-progn (cdr form))))
 	      ((function) form)
-              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -339,6 +346,11 @@ A list of any declaration-specifiers."
 	      ((the) `(the ,(second form) ,(copy-form (third form) replacements)))
 	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
 	      (t (list* (first form) (implicit-progn (cdr form))))))
+      (ast-if
+       (make-instance 'ast-if
+                      :test (copy-form (test form) replacements)
+                      :then (copy-form (if-then form) replacements)
+                      :else (copy-form (if-else form) replacements)))
       (ast-quote form)
       (lexical-variable
        (let ((var (fix form)))
@@ -395,6 +407,7 @@ A list of any declaration-specifiers."
 		   (lexical-variable-write-count var) 0))))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
 	      ((block)
 	       (reset-var (second form))
 	       (implicit-progn (cddr form)))
@@ -405,7 +418,6 @@ A list of any declaration-specifiers."
 	       (incf (go-tag-use-count (second form)))
 	       (pushnew *current-lambda* (go-tag-used-in (second form)))
                (incf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
 		 (reset-var (first b)))
@@ -420,7 +432,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
-              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
@@ -441,6 +452,10 @@ A list of any declaration-specifiers."
 	      ((the) (detect-uses (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	    (t (implicit-progn (cdr form)))))
+      (ast-if
+       (detect-uses (test form))
+       (detect-uses (if-then form))
+       (detect-uses (if-else form)))
       (ast-quote)
       (lexical-variable
        (pushnew *current-lambda* (lexical-variable-used-in form))
@@ -501,12 +516,14 @@ A list of any declaration-specifiers."
     (push test-tag (tagbody-information-go-tags tb))
     (labels ((create-key-test-list (key-args values suppliedp)
                (cond (key-args
-                      `(if (eql ,current-keyword ,(make-instance 'ast-quote :value (caar (first key-args))))
-                           (if ,(first suppliedp)
-                               ,(make-instance 'ast-quote :value nil)
-                               (progn (setq ,(first suppliedp) ,(make-instance 'ast-quote :value 't))
-                                      (setq ,(first values) (cadr ,itr))))
-                           ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
+                      (make-instance 'ast-if
+                                     :test `(eql ,current-keyword ,(make-instance 'ast-quote :value (caar (first key-args))))
+                                     :then (make-instance 'ast-if
+                                                          :test (first suppliedp)
+                                                          :then (make-instance 'ast-quote :value nil)
+                                                          :else `(progn (setq ,(first suppliedp) ,(make-instance 'ast-quote :value 't))
+                                                                        (setq ,(first values) (cadr ,itr))))
+                                     :else (create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
                       (make-instance 'ast-quote :value nil))
                      (t `(error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
@@ -517,9 +534,11 @@ A list of any declaration-specifiers."
                                       ,(make-instance 'ast-quote :value (mapcar 'caar keys)))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
-                      `(let ((,(second (first (first key-args))) (if ,(first suppliedp)
-                                                                     ,(first values)
-                                                                     ,(second (first key-args)))))
+                      `(let ((,(second (first (first key-args)))
+                              ,(make-instance 'ast-if
+                                              :test (first suppliedp)
+                                              :then (first values)
+                                              :else (second (first key-args)))))
                          ,(if (third (first key-args))
                               `(let ((,(third (first key-args)) ,(first suppliedp)))
                                  ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
@@ -531,18 +550,20 @@ A list of any declaration-specifiers."
          (tagbody ,tb
             (go ,test-tag ,(go-tag-tagbody test-tag))
             ,head-tag
-            (if (null (cdr ,itr))
-                (error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                       ,(make-instance 'ast-quote :value ':format-control)
-                       ,(make-instance 'ast-quote :value '"Odd number of &KEY arguments."))
-                ,(make-instance 'ast-quote :value nil))
+            ,(make-instance 'ast-if
+                            :test `(null (cdr ,itr))
+                            :then `(error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                          ,(make-instance 'ast-quote :value ':format-control)
+                                          ,(make-instance 'ast-quote :value '"Odd number of &KEY arguments."))
+                            :else (make-instance 'ast-quote :value nil))
             (let ((,current-keyword (car ,itr)))
               ,(create-key-test-list keys values suppliedp))
             (setq ,itr (cddr ,itr))
             ,test-tag
-            (if ,itr
-                (go ,head-tag ,(go-tag-tagbody head-tag))
-                ,(make-instance 'ast-quote :value nil)))
+            ,(make-instance 'ast-if
+                            :test itr
+                            :then `(go ,head-tag ,(go-tag-tagbody head-tag))
+                            :else (make-instance 'ast-quote :value nil)))
          ,(create-key-let-body keys values suppliedp)))))
 
 (defun lower-keyword-arguments (form)
@@ -552,9 +573,9 @@ A list of any declaration-specifiers."
 	     (lower-keyword-arguments i))))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
-	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
 		 (lower-keyword-arguments (second b)))
@@ -564,7 +585,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
-              ((quote) (error "old style ast"))
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
@@ -576,6 +596,10 @@ A list of any declaration-specifiers."
 	      ((the) (lower-keyword-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               (t (implicit-progn (cdr form)))))
+      (ast-if
+       (lower-keyword-arguments (test form))
+       (lower-keyword-arguments (if-then form))
+       (lower-keyword-arguments (if-else form)))
       (ast-quote)
       (lexical-variable)
       (lambda-information
@@ -617,9 +641,9 @@ Must be run after keywords have been lowered."
                           :definition-point *current-lambda*)))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
-	      ((if) (implicit-progn (cdr form)))
 	      ((let)
 	       (dolist (b (second form))
 		 (lower-arguments (second b)))
@@ -629,7 +653,6 @@ Must be run after keywords have been lowered."
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
-              ((quote) (error "old style ast"))
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
@@ -641,6 +664,10 @@ Must be run after keywords have been lowered."
 	      ((the) (lower-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               (t (implicit-progn (cdr form)))))
+      (ast-if
+       (lower-arguments (test form))
+       (lower-arguments (if-then form))
+       (lower-arguments (if-else form)))
       (ast-quote)
       (lexical-variable)
       (lambda-information
@@ -675,9 +702,10 @@ Must be run after keywords have been lowered."
                                                     (make-instance 'ast-quote :value 'nil))))
                             (when (or (not trivial-init-form)
                                       (symbolp arg))
-                              (push (list arg `(if ,new-suppliedp
-                                                   ,new-arg
-                                                   ,init-form))
+                              (push (list arg (make-instance 'ast-if
+                                                             :test new-suppliedp
+                                                             :then new-arg
+                                                             :else init-form))
                                     extra-bindings))
                             (when (and (not (null suppliedp))
                                        (symbolp suppliedp))
@@ -703,13 +731,12 @@ Must be run after keywords have been lowered."
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
       (cons (case (first form)
+              ((if quote) `(:invalid ,form))
 	      ((block)
                `(block ,(lexical-variable-name (second form))
                   ,@(implicit-progn (cddr form))))
 	      ((go)
                `(go ,(go-tag-name (second form))))
-	      ((if)
-               `(if ,@(implicit-progn (rest form))))
 	      ((let)
                `(let ,(mapcar (lambda (b) (list (if (lexical-variable-p (first b))
                                                     (lexical-variable-name (first b))
@@ -726,7 +753,6 @@ Must be run after keywords have been lowered."
 	      ((progn)
                `(progn ,@(implicit-progn (cdr form))))
 	      ((function) form)
-              (quote `(:invalid ,form))
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
@@ -746,6 +772,10 @@ Must be run after keywords have been lowered."
 	      ((unwind-protect)
                `(unwind-protect ,@(implicit-progn (cdr form))))
               (t (list* (first form) (implicit-progn (cdr form))))))
+      (ast-if
+       `(if ,(unparse-compiler-form (test form))
+            ,(unparse-compiler-form (if-then form))
+            ,(unparse-compiler-form (if-else form))))
       (ast-quote `',(value form))
       (lexical-variable (lexical-variable-name form))
       (lambda-information

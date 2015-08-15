@@ -43,9 +43,10 @@
               `(let ((,ssp (sys.int::%%special-stack-pointer)))
                  (multiple-value-prog1
                      (lambda-information-body lambda)
-                   (if (eq ,ssp (sys.int::%%special-stack-pointer))
-                       ,(make-instance 'ast-quote :value 'nil)
-                       (error '"SSP mismatch")))))))
+                   ,(make-instance 'ast-if
+                                   :test `(eq ,ssp (sys.int::%%special-stack-pointer))
+                                   :then (make-instance 'ast-quote :value 'nil)
+                                   :else `(error ,(make-instance 'ast-quote :value "SSP mismatch"))))))))
     lambda))
 
 (defun lsb-form (form)
@@ -54,11 +55,11 @@
                    (mapcar #'lsb-form (nthcdr preserve-n-leading-forms form)))))
     (etypecase form
       (cons (case (first form)
+              ((if quote) (error "old style ast"))
               ((block)
                (lsb-block form))
               ((go)
                (lsb-go form))
-              ((if) (map-form 1))
               ((let)
                (lsb-let form))
               ((multiple-value-bind) (map-form 2))
@@ -66,7 +67,6 @@
               ((multiple-value-prog1) (map-form 1))
               ((progn) (map-form 1))
               ((function) form)
-              ((quote) (error "old style ast"))
               ((return-from)
                (lsb-return-from form))
               ((setq) (map-form 2))
@@ -76,6 +76,11 @@
               ((unwind-protect)
                (lsb-unwind-protect form))
               (t (map-form 1))))
+      (ast-if
+       (make-instance 'ast-if
+                      :test (lsb-form (test form))
+                      :then (lsb-form (if-then form))
+                      :else (lsb-form (if-else form))))
       (ast-quote form)
       (lexical-variable form)
       (lambda-information
@@ -141,9 +146,10 @@
                                       :definition-point *current-lambda*)))
              `(let ((,info ,(lsb-form location)))
                 ;; Ensure it's still valid.
-                (if ,info
-                    ,(make-instance 'ast-quote :value 'nil)
-                    (sys.int::raise-bad-go-tag ,(make-instance 'ast-quote :value (go-tag-name tag))))
+                ,(make-instance 'ast-if
+                                :test info
+                                :then (make-instance 'ast-quote :value 'nil)
+                                :else `(sys.int::raise-bad-go-tag ,(make-instance 'ast-quote :value (go-tag-name tag))))
                 (sys.int::%%unwind-to (sys.int::%%tagbody-info-binding-stack-pointer ,info))
                 (go ,tag ,info)))))))
 
@@ -179,16 +185,18 @@
                                       :name (gensym "return-from-info")
                                       :definition-point *current-lambda*)))
              `(let ((,info ,(lsb-form location)))
-                  (if ,info
-                    ,(make-instance 'ast-quote :value 'nil)
-                    (sys.int::raise-bad-block ,(make-instance 'ast-quote
-                                                              :value (lexical-variable-name tag))))
-                  (return-from ,tag
-                    ,(list
-                      'multiple-value-prog1
-                      (lsb-form value-form)
-                      `(sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
-                    ,info))))
+                ,(make-instance 'ast-if
+                                :test info
+                                :then (make-instance 'ast-quote :value 'nil)
+                                :else `(sys.int::raise-bad-block
+                                        ,(make-instance 'ast-quote
+                                                        :value (lexical-variable-name tag))))
+                (return-from ,tag
+                  ,(list
+                    'multiple-value-prog1
+                    (lsb-form value-form)
+                    `(sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
+                  ,info))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
            ;; Note: Unwinding one-past the location so as to pop the block as well.

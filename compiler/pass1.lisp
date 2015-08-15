@@ -394,9 +394,10 @@
 
 (defun pass1-if (form env)
   (destructuring-bind (test then &optional else) (cdr form)
-    `(if ,(pass1-form test env)
-	 ,(pass1-form then env)
-	 ,(pass1-form else env))))
+    (make-instance 'ast-if
+                   :test (pass1-form test env)
+                   :then (pass1-form then env)
+                   :else (pass1-form else env))))
 
 (defun pass1-labels (form env)
   (destructuring-bind (functions &body forms) (cdr form)
