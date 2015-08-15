@@ -44,7 +44,7 @@
                  (multiple-value-prog1
                      (lambda-information-body lambda)
                    (if (eq ,ssp (sys.int::%%special-stack-pointer))
-                       'nil
+                       ,(make-instance 'ast-quote :value 'nil)
                        (error '"SSP mismatch")))))))
     lambda))
 
@@ -65,7 +65,8 @@
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))
               ((progn) (map-form 1))
-              ((quote function) form)
+              ((function) form)
+              ((quote) (error "old style ast"))
               ((return-from)
                (lsb-return-from form))
               ((setq) (map-form 2))
@@ -75,6 +76,7 @@
               ((unwind-protect)
                (lsb-unwind-protect form))
               (t (map-form 1))))
+      (ast-quote form)
       (lexical-variable form)
       (lambda-information
        (lsb-lambda form)))))
@@ -118,7 +120,8 @@
        `(block ,info
           ;; Must be inside the block, so the special stack pointer is saved correctly.
           (sys.int::%%push-special-stack ,(block-information-env-var info)
-                                         ',(block-information-env-offset info))
+                                         ,(make-instance 'ast-quote
+                                                         :value (block-information-env-offset info)))
           ,(list 'multiple-value-prog1
                  `(progn ,@(mapcar #'lsb-form (cddr form)))
                  '(sys.int::%%disestablish-block-or-tagbody))))
@@ -139,8 +142,8 @@
              `(let ((,info ,(lsb-form location)))
                 ;; Ensure it's still valid.
                 (if ,info
-                    'nil
-                    (sys.int::raise-bad-go-tag ',(go-tag-name tag)))
+                    ,(make-instance 'ast-quote :value 'nil)
+                    (sys.int::raise-bad-go-tag ,(make-instance 'ast-quote :value (go-tag-name tag))))
                 (sys.int::%%unwind-to (sys.int::%%tagbody-info-binding-stack-pointer ,info))
                 (go ,tag ,info)))))))
 
@@ -158,7 +161,9 @@
                                      *special-bindings*)
                                (list
                                 'progn
-                                `(sys.int::%%bind ',(first binding) ,(lsb-form (second binding)))
+                                `(sys.int::%%bind ,(make-instance 'ast-quote
+                                                                  :value (first binding))
+                                                  ,(lsb-form (second binding)))
                                 (list
                                  'multiple-value-prog1
                                  (frob (rest bindings))
@@ -175,8 +180,9 @@
                                       :definition-point *current-lambda*)))
              `(let ((,info ,(lsb-form location)))
                   (if ,info
-                    'nil
-                    (sys.int::raise-bad-block ',(lexical-variable-name tag)))
+                    ,(make-instance 'ast-quote :value 'nil)
+                    (sys.int::raise-bad-block ,(make-instance 'ast-quote
+                                                              :value (lexical-variable-name tag))))
                   (return-from ,tag
                     ,(list
                       'multiple-value-prog1
@@ -213,10 +219,11 @@
          (list 'progn
                ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
                `(sys.int::%%push-special-stack ,(tagbody-information-env-var info)
-                                               ',(tagbody-information-env-offset info))
+                                               ,(make-instance 'ast-quote
+                                                               :value (tagbody-information-env-offset info)))
                (frob-tagbody)
                '(sys.int::%%disestablish-block-or-tagbody)
-               ''nil))
+               (make-instance 'ast-quote :value 'nil)))
         (t ;; Local TAGBODY.
          (frob-tagbody))))))
 
@@ -237,7 +244,8 @@
        'progn
        (cond
          ((lambda-information-p cleanup-function)
-          `(sys.int::%%push-special-stack ,(lsb-form cleanup-function) '0))
+          `(sys.int::%%push-special-stack ,(lsb-form cleanup-function)
+                                          ,(make-instance 'ast-quote :value 0)))
          (t
           (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t)
           `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))

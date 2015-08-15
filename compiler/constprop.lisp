@@ -25,20 +25,23 @@
 	    ((multiple-value-call) (cp-multiple-value-call form))
 	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
 	    ((progn) (cp-progn form))
-	    ((function quote) (cp-quote form))
+	    ((function) (cp-quote form))
+            ((quote) (error "old style ast"))
 	    ((return-from) (cp-return-from form))
 	    ((setq) (cp-setq form))
 	    ((tagbody) (cp-tagbody form))
 	    ((the) (cp-the form))
 	    ((unwind-protect) (cp-unwind-protect form))
 	    (t (cp-function-form form))))
+    (ast-quote (cp-quote form))
     (lexical-variable (cp-variable form))
     (lambda-information (cp-lambda form))))
 
 (defun form-value (form &key (reduce-use-count t))
   "Return the value of form wrapped in quote if its known, otherwise return nil."
-  (cond ((or (and (consp form)
-		  (member (first form) '(quote function)))
+  (cond ((or (typep form 'ast-quote)
+             (and (consp form)
+		  (member (first form) '(function)))
 	     (lambda-information-p form))
 	 form)
 	((lexical-variable-p form)
@@ -81,8 +84,7 @@
 (defun cp-if (form)
   (flet ((pick-branch (use-this-one kill-this-one)
 	   ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
-	   #+nil(unless (and (consp kill-this-one)
-			(eq (first kill-this-one) 'quote))
+	   #+nil(unless (typep kill-this-one 'ast-quote)
 	     (warn 'sys.int::simple-style-warning
 		   :format-control "Deleting unreacable code: ~S."
 		   :format-arguments (list kill-this-one)))
@@ -90,20 +92,20 @@
 	   (cp-form use-this-one)))
     (setf (second form) (cp-form (second form)))
     (let ((value (form-value (second form))))
-      (if (and value
-               (not (lexical-variable-p value)))
-	  (progn
-	    (change-made)
-	    (if (eql (or (not (consp value)) (second value)) 'nil)
-		;; Use the else branch.
-		(pick-branch (fourth form) (third form))
-		;; Use the true branch.
-		(pick-branch (third form) (fourth form))))
-	  (progn
-            (flush-mutable-variables)
-	    (setf (third form) (cp-form (third form)))
-	    (setf (fourth form) (cp-form (fourth form)))
-	    form)))))
+      (cond ((and value
+                  (not (lexical-variable-p value)))
+             (change-made)
+             (if (and (typep value 'ast-quote)
+                      (eql (value value) 'nil))
+                 ;; Use the else branch.
+                 (pick-branch (fourth form) (third form))
+                 ;; Use the true branch.
+                 (pick-branch (third form) (fourth form))))
+            (t
+             (flush-mutable-variables)
+             (setf (third form) (cp-form (third form)))
+             (setf (fourth form) (cp-form (fourth form)))
+             form)))))
 
 (defun cp-let (form)
   (let ((*known-variables* *known-variables*))
@@ -119,8 +121,9 @@
 		   (or (and (lambda-information-p val)
                             (<= (getf (lambda-information-plist val) 'copy-count 0)
                                 *constprop-lambda-copy-limit*))
+                       (typep val 'ast-quote)
 		       (and (consp val)
-                            (member (first val) '(quote function)))
+                            (member (first val) '(function)))
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
@@ -161,8 +164,9 @@
         (cond ((or (and (lambda-information-p (third form))
                         (<= (getf (lambda-information-plist (third form)) 'copy-count 0)
                             *constprop-lambda-copy-limit*))
+                   (typep (third form) 'ast-quote)
                    (and (consp (third form))
-                        (member (first (third form)) '(function quote))))
+                        (member (first (third form)) '(function))))
                ;; Always propagate the new value forward.
                (setf (second info) (third form))
                ;; The value is constant. Attempt to push it back to the
@@ -203,15 +207,15 @@
   (ignore-errors
     (let ((mode (get function 'constant-fold-mode)))
       (if (consp mode)
-	  (list 'quote (apply function (mapcar (lambda (thing type)
-						 ;; Bail out if thing is non-constant or does not match the type.
-						 (unless (and (consp thing)
-							      (eql (first thing) 'quote)
-							      (= (length thing) 2)
-							      (typep (second thing) type))
-						   (return-from constant-fold nil))
-						 (second thing))
-					       arg-list mode)))
+	  (make-instance 'ast-quote
+                         :value (apply function
+                                       (mapcar (lambda (thing type)
+                                                 ;; Bail out if thing is non-constant or does not match the type.
+                                                 (unless (and (typep thing 'ast-quote)
+                                                              (typep (value thing) type))
+                                                   (return-from constant-fold nil))
+                                                 (value thing))
+                                               arg-list mode)))
 	  (ecase mode
 	    (:commutative-arithmetic
 	     ;; Arguments can be freely re-ordered, assumed to be associative.
@@ -221,36 +225,40 @@
 		   (nonconst-args '())
 		   (value nil))
 	       (dolist (i arg-list)
-		 (if (and (consp i) (eq (first i) 'quote))
-		     (push (second i) const-args)
+		 (if (typep i 'ast-quote)
+		     (push (value i) const-args)
 		     (push i nonconst-args)))
 	       (setf const-args (nreverse const-args)
 		     nonconst-args (nreverse nonconst-args))
 	       (when (or const-args (not nonconst-args))
 		 (setf value (apply function const-args))
 		 (if nonconst-args
-		     (list* function (list 'quote value) nonconst-args)
-		     (list 'quote value)))))
+		     (list* function (make-instance 'ast-quote :value value) nonconst-args)
+		     (make-instance 'ast-quote :value value)))))
 	    (:arithmetic
 	     ;; Arguments cannot be re-ordered, assumed to be non-associative.
 	     (if arg-list
 		 (let ((constant-accu '())
 		       (arg-accu '()))
 		   (dolist (i arg-list)
-		     (if (and (consp i) (eq (first i) 'quote))
-			 (push (second i) constant-accu)
+		     (if (typep i 'ast-quote)
+			 (push (value i) constant-accu)
 			 (progn
 			   (when constant-accu
-			     (push (list 'quote (apply function (nreverse constant-accu))) arg-accu)
+			     (push (make-instance 'ast-quote
+                                                  :value (apply function (nreverse constant-accu)))
+                                   arg-accu)
 			     (setf constant-accu nil))
 			   (push i arg-accu))))
 		   (if arg-accu
 		       (nconc (list function)
 			      (nreverse arg-accu)
 			      (when constant-accu
-				(list (list 'quote (apply function (nreverse constant-accu))))))
-		       (list 'quote (apply function (nreverse constant-accu)))))
-		 (list 'quote (funcall function))))
+				(list (make-instance 'ast-quote
+                                                     :value (apply function (nreverse constant-accu))))))
+		       (make-instance 'ast-quote
+                                      :value (apply function (nreverse constant-accu)))))
+		 (make-instance 'ast-quote :value (funcall function))))
 	    ((nil) nil))))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.

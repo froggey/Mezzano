@@ -16,13 +16,15 @@
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((progn) (ll-progn form))
-	    ((function quote) (ll-quote form))
+	    ((function) (ll-quote form))
+            ((quote) (error "old style ast"))
 	    ((return-from) (ll-return-from form))
 	    ((setq) (ll-setq form))
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
 	    ((unwind-protect) (ll-unwind-protect form))
 	    (t (ll-function-form form))))
+    (ast-quote (ll-quote form))
     (lexical-variable (ll-variable form))
     (lambda-information (ll-lambda form))))
 
@@ -78,7 +80,8 @@
               (not (lambda-information-enable-keys (second form)))
               (not (lambda-information-environment-arg (second form)))
               (every (lambda (x)
-                       (and (equal ''nil (second x)) ; An init-form of NIL.
+                       (and (typep (second x) 'ast-quote)
+                            (eql (value (second x)) 'nil) ; An init-form of NIL.
                             (eql (third x) nil)))    ; No suppliedp arg.
                      (lambda-information-optional-args (second form)))
               (lexical-variable-p (lambda-information-rest-arg (second form)))
@@ -146,10 +149,8 @@
                (do ((i (nthcdr (+ req-count opt-count) arg-list) (cddr i)))
                    ((null i)
                     t)
-                 (unless (and (listp (car i))
-                              (= (length (car i)) 2)
-                              (eql (first (car i)) 'quote)
-                              (member (second (car i)) keywords))
+                 (unless (and (typep (car i) 'ast-quote)
+                              (member (value (car i)) keywords))
                    (return nil))))))
           ((lambda-information-rest-arg lambda)
            (<= req-count arg-count))
@@ -210,7 +211,7 @@
                           (declare (ignore init-form))
                           `(let ,(if suppliedp
                                      `((,var ,(first arg-vars))
-                                       (,suppliedp 't))
+                                       (,suppliedp ,(make-instance 'ast-quote :value 't)))
                                      `((,var ,(first arg-vars))))
                              ,(build-optional-bindings (rest opt-args) (rest arg-vars)))))
                        (opt-args
@@ -218,7 +219,7 @@
                             (first opt-args)
                           `(let ,(if suppliedp
                                      `((,var ,init-form)
-                                       (,suppliedp 'nil))
+                                       (,suppliedp ,(make-instance 'ast-quote :value 'nil)))
                                      `((,var ,init-form)))
                              ,(build-optional-bindings (rest opt-args) '()))))
                        (t (build-rest-binding arg-vars))))
@@ -240,14 +241,14 @@
                                ;; Not provided, use the initform.
                                `(let ,(if suppliedp
                                           `((,var ,init-form)
-                                            (,suppliedp 'nil))
+                                            (,suppliedp ,(make-instance 'ast-quote :value 'nil)))
                                           `((,var ,init-form)))
                                   ,(build-key-bindings (rest keys))))
-                            (when (eql (second (car i)) keyword)
+                            (when (eql (value (car i)) keyword)
                               ;; Keywords match, use this argument.
                               (return `(let ,(if suppliedp
                                                  `((,var ,(nth (1+ p) key-pairs))
-                                                   (,suppliedp 't))
+                                                   (,suppliedp ,(make-instance 'ast-quote :value 't)))
                                                  `((,var ,(nth (1+ p) key-pairs))))
                                          ,(build-key-bindings (rest keys))))))))
                        (t (ll-form (lambda-information-body lambda))))))

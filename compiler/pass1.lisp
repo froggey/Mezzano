@@ -200,7 +200,7 @@
 (defun expand-constant-variable (symbol)
   "Expand a constant variable, returning the quoted value or returning NIL if the variable is not a constant."
   (when (eql (sys.int::variable-information symbol) :constant)
-    (ignore-errors `(quote ,(symbol-value symbol)))))
+    (ignore-errors (make-instance 'ast-quote :value (symbol-value symbol)))))
 
 (defun compiler-macroexpand-1 (form env)
   "Expand one level of macros and compiler macros."
@@ -248,7 +248,7 @@
                    var))))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
-     `(quote ,form))
+     (make-instance 'ast-quote :value form))
     ;; ((lambda ...) ...) is converted to (funcall #'(lambda ...) ...)
     ((and (consp (first form))
 	  (eq (first (first form)) 'lambda))
@@ -322,7 +322,7 @@
       (declare (ignore compile load))
       (if eval
 	  (pass1-form `(progn ,@forms) env)
-	  ''nil))))
+	  (pass1-form ''nil env)))))
 
 (defun frob-flet-function (fn)
   "Turn an FLET/LABELS function definition into a symbolic name, a lexical variable and a lambda expression."
@@ -445,7 +445,7 @@
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
 	(parse-declares forms)
-      (let* ((result (cons ''nil nil))
+      (let* ((result (cons (make-instance 'ast-quote :value 'nil) nil))
 	     (inner result)
 	     (var-names '()))
 	(dolist (b bindings)
@@ -453,19 +453,21 @@
 	      (parse-let-binding b)
 	    (push name var-names)
 	    (let ((var (make-variable name declares)))
-	      (setf (car inner) (list 'let `((,var ,(pass1-form init-form env))) ''nil)
+	      (setf (car inner) `(let ((,var ,(pass1-form init-form env)))
+                                   ,(make-instance 'ast-quote :value 'nil))
 		    inner (cddar inner)
 		    env (cons (list :bindings (cons name var)) env)))))
-	(setf (car inner) (pass1-form `(progn ,@body) (cons (list* :bindings (mapcar (lambda (x) (cons x x))
-										     (remove-if (lambda (x) (find x var-names))
-												(pick-variables 'special declares))))
-							    env)))
+	(setf (car inner) (pass1-form `(progn ,@body)
+                                      (cons (list* :bindings (mapcar (lambda (x) (cons x x))
+                                                                     (remove-if (lambda (x) (find x var-names))
+                                                                                (pick-variables 'special declares))))
+                                            env)))
 	(car result)))))
 
 (defun pass1-load-time-value (form env)
   (declare (ignore env))
   (destructuring-bind (form &optional read-only-p) (cdr form)
-    (funcall *load-time-value-hook* form read-only-p)))
+    (pass1-form (funcall *load-time-value-hook* form read-only-p) '())))
 
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
@@ -523,7 +525,7 @@
 ;;; Never generate empty PROGNs and avoid generating PROGNs with just one form.
 (defun pass1-progn (form env)
   (cond ((null (cdr form))
-	 ''nil)
+	 (pass1-form ''nil env))
 	((null (cddr form))
 	 (pass1-form (cadr form) env))
 	(t `(progn ,@(pass1-implicit-progn (rest form) env)))))
@@ -538,8 +540,7 @@
 (defun pass1-quote (form env)
   (declare (ignore env))
   (destructuring-bind (thing) (cdr form)
-    (declare (ignore thing))
-    form))
+    (make-instance 'ast-quote :value thing)))
 
 (defun pass1-return-from (form env)
   (destructuring-bind (name &optional result) (cdr form)
@@ -555,7 +556,7 @@
        (forms '()))
       ((endp i)
        (cond ((null forms)
-	      ''nil)
+	      (pass1-form ''nil env))
 	     ((null (rest forms))
 	      (first forms))
 	     (t `(progn ,@(nreverse forms)))))

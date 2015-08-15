@@ -16,7 +16,8 @@
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
 	    ((progn) (simp-progn form))
-	    ((function quote) (simp-quote form))
+	    ((function) (simp-quote form))
+            ((quote) (error "old style ast"))
 	    ((return-from) (simp-return-from form))
 	    ((setq) (simp-setq form))
 	    ((tagbody) (simp-tagbody form))
@@ -24,6 +25,7 @@
 	    ((unwind-protect) (simp-unwind-protect form))
             ((eql) (simp-eql form))
 	    (t (simp-function-form form))))
+    (ast-quote (simp-quote form))
     (lexical-variable (simp-variable form))
     (lambda-information (simp-lambda form))))
 
@@ -52,11 +54,12 @@
                   (eql (first form) 'progn)
                   (not (rest form)))
              ;; Empty progn. Replace with 'NIL.
-             (setf (first i) ''nil)
+             (setf (first i) (make-instance 'ast-quote :value 'nil))
              (change-made))
             ((and (rest i) ; not at end.
-                  (or (and (consp form)
-                           (member (first form) '(quote function)))
+                  (or (typep form 'ast-quote)
+                      (and (consp form)
+                           (member (first form) '(function)))
                       (lexical-variable-p form)
                       (lambda-information-p form)))
              ;; This is a constantish value not at the end.
@@ -81,7 +84,7 @@
     ;; (block foo) => 'nil
     ((eql (length form) 2)
      (change-made)
-     'nil)
+     (make-instance 'ast-quote :value nil))
     ;; (block foo ... (return-from foo form)) => (block foo ... form)
     ((and (listp (first (last form)))
           (eql (first (first (last form))) 'return-from)
@@ -186,12 +189,11 @@
            (setf (second form) (second (second form)))
            (change-made)
            form)
-          ((and (listp (second form))
-                (quoted-form-p (second form)))
+          ((quoted-form-p (second form))
            ;; (if 'not-nil then else) => then
            ;; (if 'nil then else) => else
            (change-made)
-           (simp-form (if (not (eql (second (second form)) 'nil))
+           (simp-form (if (not (eql (value (second form)) 'nil))
                           (third form)
                           (fourth form))))
           (t
@@ -219,7 +221,8 @@
 					 (val (second b)))
 				     (and (lexical-variable-p var)
 					  (or (lambda-information-p val)
-					      (and (consp val) (member (first val) '(quote function)))
+                                              (typep val 'ast-quote)
+					      (and (consp val) (member (first val) '(function)))
 					      (and (lexical-variable-p val)
 						   (localp val)
 						   (eql (lexical-variable-write-count val) 0)))
@@ -313,7 +316,7 @@
   (cond ((null (cdr form))
 	 ;; Flush empty PROGNs.
 	 (change-made)
-	 ''nil)
+	 (make-instance 'ast-quote :value 'nil))
 	((null (cddr form))
 	 ;; Reduce single form PROGNs.
 	 (change-made)
@@ -401,11 +404,11 @@
 	  ((null (cddr form))
            ;; Empty tagbody.
 	   (change-made)
-	   ''nil)
+	   (make-instance 'ast-quote :value 'nil))
           (t
            ;; Non-empty tagbody with no go tags.
            (change-made)
-           `(progn ,@(cddr form) 'nil)))))
+           `(progn ,@(cddr form) ,(make-instance 'ast-quote :value 'nil))))))
 
 (defun simp-the (form)
   (cond ((eql (second form) 't)
@@ -423,15 +426,17 @@
   ;; (funcall 'symbol ...) -> (symbol ...)
   ;; (funcall #'name ...) -> (name ...)
   (cond ((and (eql (first form) 'funcall)
-              (listp (second form))
-              (= (list-length (second form)) 2)
-              (member (first (second form)) '(quote function))
-              (if (eql (first (second form)) 'quote)
-                  (symbolp (second (second form)))
-                  t))
+              (or (and (listp (second form))
+                       (= (list-length (second form)) 2)
+                       (member (first (second form)) '(function)))
+                  (and (typep (second form) 'ast-quote)
+                       (symbolp (value (second form))))))
          (change-made)
          (simp-form-list (cddr form))
-         (list* (second (second form)) (cddr form)))
+         (let ((name (if (typep (second form) 'ast-quote)
+                         (value (second form))
+                         (second (second form)))))
+           (list* name (cddr form))))
         (t (simp-form-list (cdr form))
            form)))
 

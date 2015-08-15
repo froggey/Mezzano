@@ -184,6 +184,9 @@ A list of any declaration-specifiers."
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
+(defclass ast-quote ()
+  ((%value :initarg :value :accessor value)))
+
 (defmethod print-object ((object go-tag) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~S" (go-tag-name object))))
@@ -227,7 +230,8 @@ A list of any declaration-specifiers."
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
-	      ((function quote))
+	      ((function))
+              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
@@ -243,14 +247,15 @@ A list of any declaration-specifiers."
 	      ((the) (flush-form (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	    (t (implicit-progn (cdr form)))))
-    (lexical-variable
-     (decf (lexical-variable-use-count form)))
-    (lambda-information
-     (dolist (arg (lambda-information-optional-args form))
-       (flush-form (second arg)))
-     (dolist (arg (lambda-information-key-args form))
-       (flush-form (second arg)))
-     (flush-form (lambda-information-body form))))))
+      (ast-quote)
+      (lexical-variable
+       (decf (lexical-variable-use-count form)))
+      (lambda-information
+       (dolist (arg (lambda-information-optional-args form))
+         (flush-form (second arg)))
+       (dolist (arg (lambda-information-key-args form))
+         (flush-form (second arg)))
+       (flush-form (lambda-information-body form))))))
 
 (defun copy-form (form &optional replacements)
   "Completely copy a form, incrementing use-counts."
@@ -302,7 +307,8 @@ A list of any declaration-specifiers."
 	      ((multiple-value-call) `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1) `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
 	      ((progn) `(progn ,@(implicit-progn (cdr form))))
-	      ((function quote) form)
+	      ((function) form)
+              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -333,6 +339,7 @@ A list of any declaration-specifiers."
 	      ((the) `(the ,(second form) ,(copy-form (third form) replacements)))
 	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
 	      (t (list* (first form) (implicit-progn (cdr form))))))
+      (ast-quote form)
       (lexical-variable
        (let ((var (fix form)))
 	 (incf (lexical-variable-use-count var))
@@ -412,7 +419,8 @@ A list of any declaration-specifiers."
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
-	      ((function quote))
+	      ((function))
+              ((quote) (error "old style ast"))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
@@ -433,28 +441,29 @@ A list of any declaration-specifiers."
 	      ((the) (detect-uses (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	    (t (implicit-progn (cdr form)))))
-    (lexical-variable
-     (pushnew *current-lambda* (lexical-variable-used-in form))
-     (incf (lexical-variable-use-count form)))
-    (lambda-information
-     (let ((*current-lambda* form))
-       (dolist (arg (lambda-information-required-args form))
-	 (reset-var arg))
-       (dolist (arg (lambda-information-optional-args form))
-	 (reset-var (first arg))
-	 (detect-uses (second arg))
-	 (when (third arg)
-	   (reset-var (third arg))))
-       (when (lambda-information-rest-arg form)
-	 (reset-var (lambda-information-rest-arg form)))
-       (dolist (arg (lambda-information-key-args form))
-	 (reset-var (second (first arg)))
-	 (detect-uses (second arg))
-	 (when (third arg)
-	   (reset-var (third arg))))
-       (when (lambda-information-environment-arg form)
-	 (reset-var (lambda-information-environment-arg form)))
-       (detect-uses (lambda-information-body form))))))
+      (ast-quote)
+      (lexical-variable
+       (pushnew *current-lambda* (lexical-variable-used-in form))
+       (incf (lexical-variable-use-count form)))
+      (lambda-information
+       (let ((*current-lambda* form))
+         (dolist (arg (lambda-information-required-args form))
+           (reset-var arg))
+         (dolist (arg (lambda-information-optional-args form))
+           (reset-var (first arg))
+           (detect-uses (second arg))
+           (when (third arg)
+             (reset-var (third arg))))
+         (when (lambda-information-rest-arg form)
+           (reset-var (lambda-information-rest-arg form)))
+         (dolist (arg (lambda-information-key-args form))
+           (reset-var (second (first arg)))
+           (detect-uses (second arg))
+           (when (third arg)
+             (reset-var (third arg))))
+         (when (lambda-information-environment-arg form)
+           (reset-var (lambda-information-environment-arg form)))
+         (detect-uses (lambda-information-body form))))))
   form)
 
 (defun variable-name (var)
@@ -492,17 +501,20 @@ A list of any declaration-specifiers."
     (push test-tag (tagbody-information-go-tags tb))
     (labels ((create-key-test-list (key-args values suppliedp)
                (cond (key-args
-                      `(if (eql ,current-keyword ',(caar (first key-args)))
+                      `(if (eql ,current-keyword ,(make-instance 'ast-quote :value (caar (first key-args))))
                            (if ,(first suppliedp)
-                               'nil
-                               (progn (setq ,(first suppliedp) 't)
+                               ,(make-instance 'ast-quote :value nil)
+                               (progn (setq ,(first suppliedp) ,(make-instance 'ast-quote :value 't))
                                       (setq ,(first values) (cadr ,itr))))
                            ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
-                      ''nil)
-                     (t `(error 'sys.int::simple-program-error
-                                ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
-                                ':format-arguments (list ,current-keyword ',(mapcar 'caar keys))))))
+                      (make-instance 'ast-quote :value nil))
+                     (t `(error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                ,(make-instance 'ast-quote :value ':format-control)
+                                ,(make-instance 'ast-quote :value '"Unknown &KEY argument ~S. Expected one of ~S.")
+                                ,(make-instance 'ast-quote :value ':format-arguments)
+                                (list ,current-keyword
+                                      ,(make-instance 'ast-quote :value (mapcar 'caar keys)))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
                       `(let ((,(second (first (first key-args))) (if ,(first suppliedp)
@@ -513,23 +525,24 @@ A list of any declaration-specifiers."
                                  ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
                               (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
                      (t body))))
-      `(let ,(append (mapcar (lambda (x) (list x ''nil)) values)
-                     (mapcar (lambda (x) (list x ''nil)) suppliedp)
+      `(let ,(append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
+                     (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
                      (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
          (tagbody ,tb
             (go ,test-tag ,(go-tag-tagbody test-tag))
             ,head-tag
             (if (null (cdr ,itr))
-                (error 'sys.int::simple-program-error
-                       ':format-control '"Odd number of &KEY arguments.")
-                'nil)
+                (error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                       ,(make-instance 'ast-quote :value ':format-control)
+                       ,(make-instance 'ast-quote :value '"Odd number of &KEY arguments."))
+                ,(make-instance 'ast-quote :value nil))
             (let ((,current-keyword (car ,itr)))
               ,(create-key-test-list keys values suppliedp))
             (setq ,itr (cddr ,itr))
             ,test-tag
             (if ,itr
                 (go ,head-tag ,(go-tag-tagbody head-tag))
-                'nil))
+                ,(make-instance 'ast-quote :value nil)))
          ,(create-key-let-body keys values suppliedp)))))
 
 (defun lower-keyword-arguments (form)
@@ -550,7 +563,8 @@ A list of any declaration-specifiers."
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
-	      ((function quote))
+	      ((function))
+              ((quote) (error "old style ast"))
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
@@ -562,31 +576,32 @@ A list of any declaration-specifiers."
 	      ((the) (lower-keyword-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               (t (implicit-progn (cdr form)))))
-    (lexical-variable)
-    (lambda-information
-     (let ((*current-lambda* form))
-       (when (lambda-information-enable-keys form)
-         (unless (lambda-information-rest-arg form)
-           ;; Add in a &REST arg and make it dynamic-extent.
-           (setf (lambda-information-rest-arg form)
-                 (make-instance 'lexical-variable
-                                :name (gensym "REST")
-                                :definition-point *current-lambda*
-                                :ignore :maybe
-                                :dynamic-extent t)))
-         (setf (lambda-information-body form)
-               (lower-key-arguments* (lambda-information-body form)
-                                     (lambda-information-rest-arg form)
-                                     (lambda-information-key-args form)
-                                     (lambda-information-allow-other-keys form)))
-         ;; Remove the old keyword arguments.
-         (setf (lambda-information-enable-keys form) nil
-               (lambda-information-key-args form) '()
-               (lambda-information-allow-other-keys form) nil)
-         (incf *change-count*))
-       (dolist (arg (lambda-information-optional-args form))
-	 (lower-keyword-arguments (second arg)))
-       (lower-keyword-arguments (lambda-information-body form))))))
+      (ast-quote)
+      (lexical-variable)
+      (lambda-information
+       (let ((*current-lambda* form))
+         (when (lambda-information-enable-keys form)
+           (unless (lambda-information-rest-arg form)
+             ;; Add in a &REST arg and make it dynamic-extent.
+             (setf (lambda-information-rest-arg form)
+                   (make-instance 'lexical-variable
+                                  :name (gensym "REST")
+                                  :definition-point *current-lambda*
+                                  :ignore :maybe
+                                  :dynamic-extent t)))
+           (setf (lambda-information-body form)
+                 (lower-key-arguments* (lambda-information-body form)
+                                       (lambda-information-rest-arg form)
+                                       (lambda-information-key-args form)
+                                       (lambda-information-allow-other-keys form)))
+           ;; Remove the old keyword arguments.
+           (setf (lambda-information-enable-keys form) nil
+                 (lambda-information-key-args form) '()
+                 (lambda-information-allow-other-keys form) nil)
+           (incf *change-count*))
+         (dolist (arg (lambda-information-optional-args form))
+           (lower-keyword-arguments (second arg)))
+         (lower-keyword-arguments (lambda-information-body form))))))
   form)
 
 (defun lower-arguments (form)
@@ -613,7 +628,8 @@ Must be run after keywords have been lowered."
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((progn) (implicit-progn (cdr form)))
-	      ((function quote))
+	      ((function))
+              ((quote) (error "old style ast"))
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
@@ -625,63 +641,62 @@ Must be run after keywords have been lowered."
 	      ((the) (lower-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               (t (implicit-progn (cdr form)))))
-    (lexical-variable)
-    (lambda-information
-     (let* ((*current-lambda* form)
-            (extra-bindings '()))
-       (when (lambda-information-enable-keys form)
-         (error "Keyword arguments not lowered!"))
-       ;; Eliminate special required arguments.
-       (setf (lambda-information-required-args form)
-             (loop for arg in (lambda-information-required-args form)
-                collect (if (symbolp arg)
-                            (let ((temp (new-var (string arg))))
-                              (push (list arg temp) extra-bindings)
-                              temp)
-                            arg)))
-       ;; Eliminate special optional arguments & non-constant init-forms.
-       (setf (lambda-information-optional-args form)
-             (loop for (arg init-form suppliedp) in (lambda-information-optional-args form)
-                collect (let* ((new-suppliedp (cond ((null suppliedp)
-                                                     (new-var (format nil "~S-suppliedp" arg)))
-                                                    ((symbolp suppliedp)
-                                                     (new-var (string suppliedp)))
-                                                    (t suppliedp)))
-                               (trivial-init-form (and (listp init-form)
-                                                       (= (length init-form) 2)
-                                                       (eql (first init-form) 'quote)))
-                               (new-arg (cond ((symbolp arg)
-                                               (new-var (string arg)))
-                                              ((not trivial-init-form)
-                                               (new-var (string (lexical-variable-name arg))))
-                                              (t arg)))
-                               (new-init-form (if trivial-init-form
-                                                  init-form
-                                                  ''nil)))
-                          (when (or (not trivial-init-form)
-                                    (symbolp arg))
-                            (push (list arg `(if ,new-suppliedp
-                                                 ,new-arg
-                                                 ,init-form))
-                                  extra-bindings))
-                          (when (and (not (null suppliedp))
-                                     (symbolp suppliedp))
-                            (push (list suppliedp new-suppliedp)
-                                  extra-bindings))
-                          (list new-arg new-init-form new-suppliedp))))
-       ;; And eliminate special rest args.
-       (when (and (lambda-information-rest-arg form)
-                  (symbolp (lambda-information-rest-arg form)))
-         (let ((new-rest (new-var (string (lambda-information-rest-arg form)))))
-           (push (list (lambda-information-rest-arg form) new-rest)
-                 extra-bindings)
-           (setf (lambda-information-rest-arg form) new-rest)))
-       (when extra-bindings
-         ;; Bindings were added.
-         (setf (lambda-information-body form)
-               `(let ,(reverse extra-bindings)
-                  ,(lambda-information-body form))))
-       (lower-arguments (lambda-information-body form))))))
+      (ast-quote)
+      (lexical-variable)
+      (lambda-information
+       (let* ((*current-lambda* form)
+              (extra-bindings '()))
+         (when (lambda-information-enable-keys form)
+           (error "Keyword arguments not lowered!"))
+         ;; Eliminate special required arguments.
+         (setf (lambda-information-required-args form)
+               (loop for arg in (lambda-information-required-args form)
+                  collect (if (symbolp arg)
+                              (let ((temp (new-var (string arg))))
+                                (push (list arg temp) extra-bindings)
+                                temp)
+                              arg)))
+         ;; Eliminate special optional arguments & non-constant init-forms.
+         (setf (lambda-information-optional-args form)
+               (loop for (arg init-form suppliedp) in (lambda-information-optional-args form)
+                  collect (let* ((new-suppliedp (cond ((null suppliedp)
+                                                       (new-var (format nil "~S-suppliedp" arg)))
+                                                      ((symbolp suppliedp)
+                                                       (new-var (string suppliedp)))
+                                                      (t suppliedp)))
+                                 (trivial-init-form (typep init-form 'ast-quote))
+                                 (new-arg (cond ((symbolp arg)
+                                                 (new-var (string arg)))
+                                                ((not trivial-init-form)
+                                                 (new-var (string (lexical-variable-name arg))))
+                                                (t arg)))
+                                 (new-init-form (if trivial-init-form
+                                                    init-form
+                                                    (make-instance 'ast-quote :value 'nil))))
+                            (when (or (not trivial-init-form)
+                                      (symbolp arg))
+                              (push (list arg `(if ,new-suppliedp
+                                                   ,new-arg
+                                                   ,init-form))
+                                    extra-bindings))
+                            (when (and (not (null suppliedp))
+                                       (symbolp suppliedp))
+                              (push (list suppliedp new-suppliedp)
+                                    extra-bindings))
+                            (list new-arg new-init-form new-suppliedp))))
+         ;; And eliminate special rest args.
+         (when (and (lambda-information-rest-arg form)
+                    (symbolp (lambda-information-rest-arg form)))
+           (let ((new-rest (new-var (string (lambda-information-rest-arg form)))))
+             (push (list (lambda-information-rest-arg form) new-rest)
+                   extra-bindings)
+             (setf (lambda-information-rest-arg form) new-rest)))
+         (when extra-bindings
+           ;; Bindings were added.
+           (setf (lambda-information-body form)
+                 `(let ,(reverse extra-bindings)
+                    ,(lambda-information-body form))))
+         (lower-arguments (lambda-information-body form))))))
   form)
 
 (defun unparse-compiler-form (form)
@@ -710,7 +725,8 @@ Must be run after keywords have been lowered."
                `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
 	      ((progn)
                `(progn ,@(implicit-progn (cdr form))))
-	      ((function quote) form)
+	      ((function) form)
+              (quote `(:invalid ,form))
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
@@ -730,7 +746,8 @@ Must be run after keywords have been lowered."
 	      ((unwind-protect)
                `(unwind-protect ,@(implicit-progn (cdr form))))
               (t (list* (first form) (implicit-progn (cdr form))))))
+      (ast-quote `',(value form))
       (lexical-variable (lexical-variable-name form))
       (lambda-information
        `(lambda ????
-          ,(lambda-information-body form))))))
+          ,(unparse-compiler-form (lambda-information-body form)))))))
