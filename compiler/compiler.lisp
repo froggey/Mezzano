@@ -205,7 +205,7 @@ A list of any declaration-specifiers."
        (flush-form (second arg)))
      (dolist (arg (lambda-information-key-args form))
        (flush-form (second arg)))
-     (implicit-progn (lambda-information-body form))))))
+     (flush-form (lambda-information-body form))))))
 
 (defun copy-form (form &optional replacements)
   "Completely copy a form, incrementing use-counts."
@@ -325,7 +325,7 @@ A list of any declaration-specifiers."
 	   (setf (lambda-information-environment-arg info)
 		 (copy-variable (lambda-information-environment-arg form))))
 	 (setf (lambda-information-body info)
-	       (implicit-progn (lambda-information-body form)))
+	       (copy-form (lambda-information-body form) replacements))
 	 info)))))
 
 (defun detect-uses (form)
@@ -406,7 +406,7 @@ A list of any declaration-specifiers."
 	   (reset-var (third arg))))
        (when (lambda-information-environment-arg form)
 	 (reset-var (lambda-information-environment-arg form)))
-       (implicit-progn (lambda-information-body form))))))
+       (detect-uses (lambda-information-body form))))))
   form)
 
 (defun variable-name (var)
@@ -456,25 +456,25 @@ A list of any declaration-specifiers."
                               `(let ((,(third (first key-args)) ,(first suppliedp)))
                                  ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
                               (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
-                     (t `(progn ,@body)))))
-      `((let ,(append (mapcar (lambda (x) (list x ''nil)) values)
-                      (mapcar (lambda (x) (list x ''nil)) suppliedp)
-                      (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
-          (tagbody ,tb
-             (go ,test-tag ,(go-tag-tagbody test-tag))
-             ,head-tag
-             (if (null (cdr ,itr))
-                 (error 'sys.int::simple-program-error
-                        ':format-control '"Odd number of &KEY arguments.")
-                 'nil)
-             (let ((,current-keyword (car ,itr)))
-               ,(create-key-test-list keys values suppliedp))
-             (setq ,itr (cddr ,itr))
-             ,test-tag
-             (if ,itr
-                 (go ,head-tag ,(go-tag-tagbody head-tag))
-                 'nil))
-          ,(create-key-let-body keys values suppliedp))))))
+                     (t body))))
+      `(let ,(append (mapcar (lambda (x) (list x ''nil)) values)
+                     (mapcar (lambda (x) (list x ''nil)) suppliedp)
+                     (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
+         (tagbody ,tb
+            (go ,test-tag ,(go-tag-tagbody test-tag))
+            ,head-tag
+            (if (null (cdr ,itr))
+                (error 'sys.int::simple-program-error
+                       ':format-control '"Odd number of &KEY arguments.")
+                'nil)
+            (let ((,current-keyword (car ,itr)))
+              ,(create-key-test-list keys values suppliedp))
+            (setq ,itr (cddr ,itr))
+            ,test-tag
+            (if ,itr
+                (go ,head-tag ,(go-tag-tagbody head-tag))
+                'nil))
+         ,(create-key-let-body keys values suppliedp)))))
 
 (defun lower-keyword-arguments (form)
   "Walk form, lowering keyword arguments to simple lisp code."
@@ -529,7 +529,7 @@ A list of any declaration-specifiers."
          (incf *change-count*))
        (dolist (arg (lambda-information-optional-args form))
 	 (lower-keyword-arguments (second arg)))
-       (implicit-progn (lambda-information-body form))))))
+       (lower-keyword-arguments (lambda-information-body form))))))
   form)
 
 (defun lower-arguments (form)
@@ -621,9 +621,9 @@ Must be run after keywords have been lowered."
        (when extra-bindings
          ;; Bindings were added.
          (setf (lambda-information-body form)
-               `((let ,(reverse extra-bindings)
-                   ,@(lambda-information-body form)))))
-       (implicit-progn (lambda-information-body form))))))
+               `(let ,(reverse extra-bindings)
+                  ,(lambda-information-body form))))
+       (lower-arguments (lambda-information-body form))))))
   form)
 
 (defun unparse-compiler-form (form)
@@ -675,4 +675,4 @@ Must be run after keywords have been lowered."
       (lexical-variable (lexical-variable-name form))
       (lambda-information
        `(lambda ????
-          ,@(implicit-progn (lambda-information-body form)))))))
+          ,(lambda-information-body form))))))

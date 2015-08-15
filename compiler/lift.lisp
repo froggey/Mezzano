@@ -88,7 +88,7 @@
          ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
          (ll-form `(multiple-value-bind ,(mapcar 'first (lambda-information-optional-args (second form)))
                        ,(third form)
-                     ,@(lambda-information-body (second form)))))
+                     ,(lambda-information-body (second form)))))
         (t (ll-implicit-progn (cdr form))
            form)))
 
@@ -249,7 +249,7 @@
                                                    (,suppliedp 't))
                                                  `((,var ,(nth (1+ p) key-pairs))))
                                          ,(build-key-bindings (rest keys))))))))
-                       (t `(progn ,@(mapcar #'ll-form (lambda-information-body lambda)))))))
+                       (t (ll-form (lambda-information-body lambda))))))
         ;; Evaluate arguments.
         `(let ,(mapcar #'list argument-vars arg-list)
            ,(build-required-bindings required-args argument-vars))))))
@@ -273,5 +273,5 @@
       (setf (second arg) (ll-form (second arg))))
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (ll-form (second arg))))
-    (ll-implicit-progn (lambda-information-body form)))
+    (setf (lambda-information-body form) (ll-form (lambda-information-body form))))
   form)

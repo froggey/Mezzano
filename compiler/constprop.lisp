@@ -278,7 +278,7 @@
       (setf (second arg) (cp-form (second arg))))
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (cp-form (second arg))))
-    (cp-implicit-progn (lambda-information-body form)))
+    (setf (lambda-information-body form) (cp-form (lambda-information-body form))))
   form)
 
 ;;; Initialize constant folders.

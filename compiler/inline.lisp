@@ -122,5 +122,5 @@
       (setf (second arg) (il-form (second arg))))
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (il-form (second arg))))
-    (il-implicit-progn (lambda-information-body form)))
+    (setf (lambda-information-body form) (il-form (lambda-information-body form))))
   form)

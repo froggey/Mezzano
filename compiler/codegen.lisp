@@ -187,7 +187,7 @@ be generated instead.")
     ;; No longer in argument setup mode, switch over to normal GC info.
     (emit-gc-info)
     (let ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
-                      (cg-form `(progn ,@(lambda-information-body lambda))))))
+                      (cg-form (lambda-information-body lambda)))))
       (when code-tag
         (load-multiple-values code-tag)
         (emit `(sys.lap-x86:leave)

@@ -54,7 +54,7 @@
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (kt-form (second arg))))
     (setf (lambda-information-body form)
-          (kt-implicit-progn (lambda-information-body form) nil nil)))
+          (kt-form (lambda-information-body form))))
   form)
 
 (defun kt-function-form (form target-variable replacement-form)

@@ -459,5 +459,5 @@
       (setf (second arg) (simp-form (second arg))))
     (dolist (arg (lambda-information-key-args form))
       (setf (second arg) (simp-form (second arg))))
-    (simp-implicit-progn (lambda-information-body form)))
+    (setf (lambda-information-body form) (simp-form (lambda-information-body form))))
   form)

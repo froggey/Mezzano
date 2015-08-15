@@ -150,7 +150,7 @@
 	       (specials (remove-if (lambda (x) (find x lambda-variables))
 				    (pick-variables 'special declares)))
 	       (env (cons (list* :bindings (mapcar (lambda (x) (cons x x)) specials)) env)))
-	  (setf (lambda-information-body info) (pass1-implicit-progn body env)))
+	  (setf (lambda-information-body info) (pass1-form `(progn ,@body) env)))
 	;; Perform (un)used-variable warnings.
 	(dolist (var (lambda-information-required-args info))
 	  (when (lexical-variable-p var)
