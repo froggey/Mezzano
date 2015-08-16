@@ -50,9 +50,7 @@
                     (unless (getf (lambda-information-plist (third form)) 'extent)
                         (setf (getf (lambda-information-plist (third form)) 'extent) :dynamic))
                     (compute-lambda-environment-layout (third form)))
-                   (t (compute-environment-layout (third form)))))
-	    ((sys.int::%jump-table)
-             (mapc #'compute-environment-layout (rest form)))))
+                   (t (compute-environment-layout (third form)))))))
     (ast-function nil)
     (ast-if
      (compute-environment-layout (test form))
@@ -80,6 +78,9 @@
                      (compute-lambda-environment-layout (first (arguments form)))
                      (mapc #'compute-environment-layout (rest (arguments form))))
                     (t (mapc #'compute-environment-layout (arguments form)))))
+    (ast-jump-table
+     (compute-environment-layout (value form))
+     (mapc #'compute-environment-layout (targets form)))
     (lexical-variable nil)
     (lambda-information
      (setf (getf (lambda-information-plist form) 'dynamic-extent) :indefinite)
@@ -196,8 +197,6 @@ of statements opens a new contour."
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))
               ((unwind-protect)
-               (process-progn (cdr form)))
-              ((sys.int::%jump-table)
                (process-progn (cdr form)))))
       (ast-function '())
       (ast-if
@@ -225,6 +224,9 @@ of statements opens a new contour."
        (compute-free-variable-sets-1 (value form)))
       (ast-call
        (process-progn (arguments form)))
+      (ast-jump-table
+       (union (compute-free-variable-sets-1 (value form))
+              (process-progn (targets form))))
       (lexical-variable (list form))
       (lambda-information
        (let* ((initforms (append (mapcar #'second (lambda-information-optional-args form))
@@ -252,8 +254,7 @@ of statements opens a new contour."
 	    ((let) (le-let form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))
-	    ((unwind-protect) (le-form*-cdr form))
-	    ((sys.int::%jump-table) (le-form*-cdr form))))
+	    ((unwind-protect) (le-form*-cdr form))))
     (ast-function form)
     (ast-if
      (le-if form))
@@ -277,6 +278,10 @@ of statements opens a new contour."
      (make-instance 'ast-call
                     :name (name form)
                     :arguments (mapcar #'lower-env-form (arguments form))))
+    (ast-jump-table
+     (make-instance 'ast-jump-table
+                    :value (lower-env-form (value form))
+                    :targets (mapcar #'lower-env-form (targets form))))
     (lexical-variable (le-variable form))
     (lambda-information
      (cond ((or (not *environment-chain*)

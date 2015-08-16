@@ -20,8 +20,7 @@
 	    ((let) (kt-let form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))
-	    ((unwind-protect) (kt-unwind-protect form target-variable replacement-form))
-	    ((sys.int::%jump-table) (kt-jump-table form target-variable replacement-form))))
+	    ((unwind-protect) (kt-unwind-protect form target-variable replacement-form))))
     (ast-function (kt-function form target-variable replacement-form))
     (ast-if (kt-if form target-variable replacement-form))
     (ast-multiple-value-bind (kt-multiple-value-bind form target-variable replacement-form))
@@ -32,6 +31,7 @@
     (ast-setq (kt-setq form target-variable replacement-form))
     (ast-the (kt-the form target-variable replacement-form))
     (ast-call (kt-function-form form target-variable replacement-form))
+    (ast-jump-table (kt-jump-table form target-variable replacement-form))
     (lexical-variable
      (cond ((eql form target-variable)
             (change-made)
@@ -212,7 +212,7 @@
 
 (defun kt-jump-table (form target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
-      (kt-form (second form) target-variable replacement-form)
-    (setf (second form) new-form)
-    (setf (cddr form) (kt-implicit-progn (cddr form)))
+      (kt-form (value form) target-variable replacement-form)
+    (setf (value form) new-form)
+    (setf (targets form) (kt-implicit-progn (targets form)))
     (values form did-replace)))

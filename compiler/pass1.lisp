@@ -660,5 +660,6 @@
 
 (defun pass1-jump-table (form env)
   (destructuring-bind (test-form &body forms) (cdr form)
-    `(sys.int::%jump-table ,(pass1-form test-form env)
-                           ,@(pass1-implicit-progn forms env))))
+    (make-instance 'ast-jump-table
+                   :value (pass1-form test-form env)
+                   :targets (pass1-implicit-progn forms env))))

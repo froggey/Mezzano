@@ -13,8 +13,7 @@
 	    ((let) (il-let form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))
-	    ((unwind-protect) (il-unwind-protect form))
-	    ((sys.int::%jump-table) (il-jump-table form))))
+	    ((unwind-protect) (il-unwind-protect form))))
     (ast-function (il-function form))
     (ast-if (il-if form))
     (ast-multiple-value-bind (il-multiple-value-bind form))
@@ -25,6 +24,7 @@
     (ast-setq (il-setq form))
     (ast-the (il-the form))
     (ast-call (il-function-form form))
+    (ast-jump-table (il-jump-table form))
     (lexical-variable (il-variable form))
     (lambda-information (il-lambda form))))
 
@@ -104,7 +104,8 @@
   form)
 
 (defun il-jump-table (form)
-  (il-implicit-progn (cdr form))
+  (setf (value form) (il-form (value form)))
+  (il-implicit-progn (targets form))
   form)
 
 (defun expand-inline-function (name arg-list)

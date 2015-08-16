@@ -59,62 +59,62 @@
     lambda))
 
 (defun lsb-form (form)
-  (flet ((map-form (preserve-n-leading-forms)
-           (append (subseq form 0 preserve-n-leading-forms)
-                   (mapcar #'lsb-form (nthcdr preserve-n-leading-forms form)))))
-    (etypecase form
-      (cons (ecase (first form)
-              ((block)
-               (lsb-block form))
-              ((go)
-               (lsb-go form))
-              ((let)
-               (lsb-let form))
-              ((return-from)
-               (lsb-return-from form))
-              ((tagbody)
-               (lsb-tagbody form))
-              ((unwind-protect)
-               (lsb-unwind-protect form))
-              ((sys.int::%jump-table) (map-form 1))))
-      (ast-function form)
-      (ast-if
-       (make-instance 'ast-if
-                      :test (lsb-form (test form))
-                      :then (lsb-form (if-then form))
-                      :else (lsb-form (if-else form))))
-      (ast-multiple-value-bind
-       (make-instance 'ast-multiple-value-bind
-                      :bindings (bindings form)
-                      :value-form (lsb-form (value-form form))
-                      :body (lsb-form (body form))))
-      (ast-multiple-value-call
-       (make-instance 'ast-multiple-value-call
-                      :function-form (lsb-form (function-form form))
-                      :value-form (lsb-form (value-form form))))
-      (ast-multiple-value-prog1
-       (make-instance 'ast-multiple-value-prog1
-                      :value-form (lsb-form (value-form form))
-                      :body (lsb-form (body form))))
-      (ast-progn
-       (make-instance 'ast-progn
-                      :forms (mapcar #'lsb-form (forms form))))
-      (ast-quote form)
-      (ast-setq
-       (make-instance 'ast-setq
-                      :variable (setq-variable form)
-                      :value (lsb-form (value form))))
-      (ast-the
-       (make-instance 'ast-the
-                      :type (the-type form)
-                      :value (lsb-form (value form))))
-      (ast-call
-       (make-instance 'ast-call
-                      :name (name form)
-                      :arguments (mapcar #'lsb-form (arguments form))))
-      (lexical-variable form)
-      (lambda-information
-       (lsb-lambda form)))))
+  (etypecase form
+    (cons (ecase (first form)
+            ((block)
+             (lsb-block form))
+            ((go)
+             (lsb-go form))
+            ((let)
+             (lsb-let form))
+            ((return-from)
+             (lsb-return-from form))
+            ((tagbody)
+             (lsb-tagbody form))
+            ((unwind-protect)
+             (lsb-unwind-protect form))))
+    (ast-function form)
+    (ast-if
+     (make-instance 'ast-if
+                    :test (lsb-form (test form))
+                    :then (lsb-form (if-then form))
+                    :else (lsb-form (if-else form))))
+    (ast-multiple-value-bind
+     (make-instance 'ast-multiple-value-bind
+                    :bindings (bindings form)
+                    :value-form (lsb-form (value-form form))
+                    :body (lsb-form (body form))))
+    (ast-multiple-value-call
+     (make-instance 'ast-multiple-value-call
+                    :function-form (lsb-form (function-form form))
+                    :value-form (lsb-form (value-form form))))
+    (ast-multiple-value-prog1
+     (make-instance 'ast-multiple-value-prog1
+                    :value-form (lsb-form (value-form form))
+                    :body (lsb-form (body form))))
+    (ast-progn
+     (make-instance 'ast-progn
+                    :forms (mapcar #'lsb-form (forms form))))
+    (ast-quote form)
+    (ast-setq
+     (make-instance 'ast-setq
+                    :variable (setq-variable form)
+                    :value (lsb-form (value form))))
+    (ast-the
+     (make-instance 'ast-the
+                    :type (the-type form)
+                    :value (lsb-form (value form))))
+    (ast-call
+     (make-instance 'ast-call
+                    :name (name form)
+                    :arguments (mapcar #'lsb-form (arguments form))))
+    (ast-jump-table
+     (make-instance 'ast-jump-table
+                    :value (lsb-form (value form))
+                    :targets (mapcar #'lsb-form (targets form))))
+    (lexical-variable form)
+    (lambda-information
+     (lsb-lambda form))))
 
 (defun lsb-find-b-or-t-binding (info)
   "Locate the BLOCK or TAGBODY binding info on the *SPECIAL-BINDINGS* stack."

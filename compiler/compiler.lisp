@@ -242,6 +242,10 @@ A list of any declaration-specifiers."
   ((%name :initarg :name :accessor name)
    (%arguments :initarg :arguments :accessor arguments)))
 
+(defclass ast-jump-table ()
+  ((%value :initarg :value :accessor value)
+   (%targets :initarg :targets :accessor targets)))
+
 (defmethod print-object ((object go-tag) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~S" (go-tag-name object))))
@@ -269,8 +273,7 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (flush-form i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))
-              ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+	      ((unwind-protect) (implicit-progn (cdr form)))))
       (ast-function)
       (ast-if
        (flush-form (test form))
@@ -295,6 +298,9 @@ A list of any declaration-specifiers."
        (flush-form (value form)))
       (ast-call
        (mapc #'flush-form (arguments form)))
+      (ast-jump-table
+       (flush-form (value form))
+       (mapc #'flush-form (targets form)))
       (lexical-variable
        (decf (lexical-variable-use-count form)))
       (lambda-information
@@ -368,8 +374,7 @@ A list of any declaration-specifiers."
 				     (fix x)
 				     (copy-form x replacements)))
 			       (cddr form)))))
-	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
-              ((sys.int::%jump-table) `(sys.int::%jump-table ,@(implicit-progn (cdr form))))))
+	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))))
       (ast-function form)
       (ast-if
        (make-instance 'ast-if
@@ -411,6 +416,12 @@ A list of any declaration-specifiers."
                       :arguments (loop
                                     for arg in (arguments form)
                                     collect (copy-form arg replacements))))
+      (ast-jump-table
+       (make-instance 'ast-jump-table
+                      :value (copy-form (value form) replacements)
+                      :targets (loop
+                                  for targ in (targets form)
+                                  collect (copy-form targ replacements))))
       (lexical-variable
        (let ((var (fix form)))
 	 (incf (lexical-variable-use-count var))
@@ -494,8 +505,7 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (detect-uses i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))
-              ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+	      ((unwind-protect) (implicit-progn (cdr form)))))
       (ast-function)
       (ast-if
        (detect-uses (test form))
@@ -523,8 +533,10 @@ A list of any declaration-specifiers."
       (ast-the
        (detect-uses (value form)))
       (ast-call
-       (dolist (arg (arguments form))
-         (detect-uses arg)))
+       (mapc #'detect-uses (arguments form)))
+      (ast-jump-table
+       (detect-uses (value form))
+       (mapc #'detect-uses (targets form)))
       (lexical-variable
        (pushnew *current-lambda* (lexical-variable-used-in form))
        (incf (lexical-variable-use-count form)))
@@ -685,8 +697,7 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-keyword-arguments i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))
-	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+	      ((unwind-protect) (implicit-progn (cdr form)))))
       (ast-function)
       (ast-if
        (lower-keyword-arguments (test form))
@@ -707,8 +718,10 @@ A list of any declaration-specifiers."
       (ast-setq (lower-keyword-arguments (value form)))
       (ast-the (lower-keyword-arguments (value form)))
       (ast-call
-       (dolist (arg (arguments form))
-         (lower-keyword-arguments arg)))
+       (mapc #'lower-keyword-arguments (arguments form)))
+      (ast-jump-table
+       (lower-keyword-arguments (value form))
+       (mapc #'lower-keyword-arguments (targets form)))
       (lexical-variable)
       (lambda-information
        (let ((*current-lambda* form))
@@ -762,8 +775,7 @@ Must be run after keywords have been lowered."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-arguments i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))
-	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+	      ((unwind-protect) (implicit-progn (cdr form)))))
       (ast-function)
       (ast-if
        (lower-arguments (test form))
@@ -784,8 +796,10 @@ Must be run after keywords have been lowered."
       (ast-setq (lower-arguments (value form)))
       (ast-the (lower-arguments (value form)))
       (ast-call
-       (dolist (arg (arguments form))
-         (lower-arguments arg)))
+       (mapc #'lower-arguments (arguments form)))
+      (ast-jump-table
+       (lower-arguments (value form))
+       (mapc #'lower-arguments (targets form)))
       (lexical-variable)
       (lambda-information
        (let* ((*current-lambda* form)
@@ -871,8 +885,6 @@ Must be run after keywords have been lowered."
                                    (cddr form))))
 	      ((unwind-protect)
                `(unwind-protect ,@(implicit-progn (cdr form))))
-              ((sys.int::%jump-table)
-               `(sys.int::%jump-table ,@(implicit-progn (cdr form))))
               (t `(:invalid ,form))))
       (ast-function
        `(function ,(name form)))
@@ -904,6 +916,9 @@ Must be run after keywords have been lowered."
        `(the ,(the-type form) ,(unparse-compiler-form (value form))))
       (ast-call
        (list* (name form) (mapcar #'unparse-compiler-form (arguments form))))
+      (ast-jump-table
+       `(sys.int::%jump-table ,(unparse-compiler-form (value form))
+                              ,@(mapcar #'unparse-compiler-form (targets form))))
       (lexical-variable (lexical-variable-name form))
       (lambda-information
        `(lambda ????

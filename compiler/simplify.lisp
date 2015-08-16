@@ -13,8 +13,7 @@
 	    ((let) (simp-let form))
 	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))
-	    ((unwind-protect) (simp-unwind-protect form))
-	    ((sys.int::%jump-table) (simp-jump-table form))))
+	    ((unwind-protect) (simp-unwind-protect form))))
     (ast-function (simp-function form))
     (ast-if (simp-if form))
     (ast-multiple-value-bind (simp-multiple-value-bind form))
@@ -25,6 +24,7 @@
     (ast-setq (simp-setq form))
     (ast-the (simp-the form))
     (ast-call (simp-function-form form))
+    (ast-jump-table (simp-jump-table form))
     (lexical-variable (simp-variable form))
     (lambda-information (simp-lambda form))))
 
@@ -443,7 +443,8 @@
   form)
 
 (defun simp-jump-table (form)
-  (simp-form-list (cdr form))
+  (setf (value form) (simp-form (value form)))
+  (setf (targets form) (mapcar #'simp-form (targets form)))
   form)
 
 (defun simp-function-form (form)

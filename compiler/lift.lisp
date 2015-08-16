@@ -13,8 +13,7 @@
 	    ((let) (ll-let form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))
-	    ((unwind-protect) (ll-unwind-protect form))
-	    ((sys.int::%jump-table) (ll-jump-table form))))
+	    ((unwind-protect) (ll-unwind-protect form))))
     (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-multiple-value-bind (ll-multiple-value-bind form))
@@ -25,6 +24,7 @@
     (ast-setq (ll-setq form))
     (ast-the (ll-the form))
     (ast-call (ll-function-form form))
+    (ast-jump-table (ll-jump-table form))
     (lexical-variable (ll-variable form))
     (lambda-information (ll-lambda form))))
 
@@ -141,7 +141,8 @@
   form)
 
 (defun ll-jump-table (form)
-  (ll-implicit-progn (cdr form))
+  (setf (value form) (ll-form (value form)))
+  (ll-implicit-progn (targets form))
   form)
 
 ;; Doesn't support fuzzy allow-other-keys matching.
