@@ -124,6 +124,9 @@
                        (push (car b) new-bindings)))
                    ;; Not a temp, preserve.
                    (push (car b) new-bindings)))
+             ;; Descend into binding init-forms.
+             (dolist (b bindings)
+               (setf (second b) (kt-form (second b))))
              ;; Now push the last binding into the body.
              (multiple-value-bind (new-form replaced-last-binding)
                  (if (temporary-p (first (car (last bindings))))
