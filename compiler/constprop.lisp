@@ -16,8 +16,6 @@
 
 (defun cp-form (form)
   (etypecase form
-    (cons (ecase (first form)
-	    ((tagbody) (cp-tagbody form))))
     (ast-block (cp-block form))
     (ast-function (cp-function form))
     (ast-go (cp-go form))
@@ -30,6 +28,7 @@
     (ast-quote (cp-quote form))
     (ast-return-from (cp-return-from form))
     (ast-setq (cp-setq form))
+    (ast-tagbody (cp-tagbody form))
     (ast-the (cp-the form))
     (ast-unwind-protect (cp-unwind-protect form))
     (ast-call (cp-function-form form))
@@ -193,7 +192,7 @@
 
 (defun cp-tagbody (form)
   (flush-mutable-variables)
-  (do ((i (cddr form) (cdr i)))
+  (do ((i (statements form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
       (setf (car i) (cp-form (car i)))))

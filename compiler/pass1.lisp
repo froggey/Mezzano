@@ -630,12 +630,13 @@
 						     (list (cons stmt tag)))))
 					       (rest form)))
 		    env)))
-    `(tagbody ,tb
-	,@(mapcar (lambda (stmt)
-		    (if (or (symbolp stmt) (integerp stmt))
-			(cdr (assoc stmt (cddr (first env))))
-			(pass1-form stmt env)))
-		  (rest form)))))
+    (make-instance 'ast-tagbody
+                   :info tb
+                   :statements (mapcar (lambda (stmt)
+                                         (if (or (symbolp stmt) (integerp stmt))
+                                             (cdr (assoc stmt (cddr (first env))))
+                                             (pass1-form stmt env)))
+                                       (rest form)))))
 
 (defun pass1-the (form env)
   (destructuring-bind (value-type form) (cdr form)

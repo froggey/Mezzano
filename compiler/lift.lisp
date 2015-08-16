@@ -7,8 +7,6 @@
 
 (defun ll-form (form)
   (etypecase form
-    (cons (ecase (first form)
-	    ((tagbody) (ll-tagbody form))))
     (ast-block (ll-block form))
     (ast-function (ll-function form))
     (ast-go (ll-go form))
@@ -21,6 +19,7 @@
     (ast-quote (ll-quote form))
     (ast-return-from (ll-return-from form))
     (ast-setq (ll-setq form))
+    (ast-tagbody (ll-tagbody form))
     (ast-the (ll-the form))
     (ast-unwind-protect (ll-unwind-protect form))
     (ast-call (ll-function-form form))
@@ -124,10 +123,10 @@
   form)
 
 (defun ll-tagbody (form)
-  (unless (eq (lexical-variable-definition-point (second form)) *current-lambda*)
+  (unless (eq (lexical-variable-definition-point (info form)) *current-lambda*)
     (change-made)
-    (setf (lexical-variable-definition-point (second form)) *current-lambda*))
-  (do ((i (cddr form) (cdr i)))
+    (setf (lexical-variable-definition-point (info form)) *current-lambda*))
+  (do ((i (statements form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
       (setf (car i) (ll-form (car i)))))

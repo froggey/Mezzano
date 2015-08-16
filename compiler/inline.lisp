@@ -7,8 +7,6 @@
 
 (defun il-form (form)
   (etypecase form
-    (cons (ecase (first form)
-	    ((tagbody) (il-tagbody form))))
     (ast-block (il-block form))
     (ast-function (il-function form))
     (ast-go (il-go form))
@@ -21,6 +19,7 @@
     (ast-quote (il-quote form))
     (ast-return-from (il-return-from form))
     (ast-setq (il-setq form))
+    (ast-tagbody (il-tagbody form))
     (ast-the (il-the form))
     (ast-unwind-protect (il-unwind-protect form))
     (ast-call (il-function-form form))
@@ -90,7 +89,7 @@
   form)
 
 (defun il-tagbody (form)
-  (do ((i (cddr form) (cdr i)))
+  (do ((i (statements form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
       (setf (car i) (il-form (car i)))))

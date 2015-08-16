@@ -251,6 +251,10 @@ A list of any declaration-specifiers."
   ((%variable :initarg :variable :accessor setq-variable)
    (%value :initarg :value :accessor value)))
 
+(defclass ast-tagbody ()
+  ((%info :initarg :info :accessor info)
+   (%statements :initarg :statements :accessor statements)))
+
 (defclass ast-the ()
   ((%the-type :initarg :type :accessor the-type)
    (%value :initarg :value :accessor value)))
@@ -277,11 +281,6 @@ A list of any declaration-specifiers."
 	   (dolist (i forms)
 	     (flush-form i))))
     (etypecase form
-      (cons (ecase (first form)
-	      ((tagbody)
-	       (dolist (i (cddr form))
-		 (unless (go-tag-p i)
-		   (flush-form i))))))
       (ast-block
        (flush-form (body form)))
       (ast-function)
@@ -316,6 +315,10 @@ A list of any declaration-specifiers."
        (decf (lexical-variable-use-count (setq-variable form)))
        (decf (lexical-variable-write-count (setq-variable form)))
        (flush-form (value form)))
+      (ast-tagbody
+       (dolist (i (statements form))
+         (unless (go-tag-p i)
+           (flush-form i))))
       (ast-the
        (flush-form (value form)))
       (ast-unwind-protect
@@ -358,23 +361,6 @@ A list of any declaration-specifiers."
 		   new)
 		 var)))
     (etypecase form
-      (cons (ecase (first form)
-	      ((tagbody)
-	       (let ((info (make-instance 'tagbody-information
-                                          :definition-point (fix (lexical-variable-definition-point (second form))))))
-		 (push (cons (second form) info) replacements)
-		 (dolist (tag (tagbody-information-go-tags (second form)))
-		   (let ((new-tag (make-instance 'go-tag
-                                                 :name (go-tag-name tag)
-                                                 :tagbody info)))
-		     (push new-tag (tagbody-information-go-tags info))
-		     (push (cons tag new-tag) replacements)))
-		 `(tagbody ,info
-		     ,@(mapcar (lambda (x)
-				 (if (go-tag-p x)
-				     (fix x)
-				     (copy-form x replacements)))
-			       (cddr form)))))))
       (ast-block
        (make-instance 'ast-block
                       :info (copy-variable (info form))
@@ -439,6 +425,23 @@ A list of any declaration-specifiers."
          (make-instance 'ast-setq
                         :variable var
                         :value (copy-form (value form) replacements))))
+      (ast-tagbody
+       (let ((info (make-instance 'tagbody-information
+                                  :definition-point (fix (lexical-variable-definition-point (info form))))))
+         (push (cons (info form) info) replacements)
+         (dolist (tag (tagbody-information-go-tags (info form)))
+           (let ((new-tag (make-instance 'go-tag
+                                         :name (go-tag-name tag)
+                                         :tagbody info)))
+             (push new-tag (tagbody-information-go-tags info))
+             (push (cons tag new-tag) replacements)))
+         (make-instance 'ast-tagbody
+                        :info info
+                        :statements (mapcar (lambda (x)
+                                              (if (go-tag-p x)
+                                                  (fix x)
+                                                  (copy-form x replacements)))
+                                            (statements form)))))
       (ast-the
        (make-instance 'ast-the
                       :type (the-type form)
@@ -513,15 +516,6 @@ A list of any declaration-specifiers."
 		   (lexical-variable-use-count var) 0
 		   (lexical-variable-write-count var) 0))))
     (etypecase form
-      (cons (ecase (first form)
-	      ((tagbody)
-               (reset-var (second form))
-	       (dolist (tag (tagbody-information-go-tags (second form)))
-		 (setf (go-tag-use-count tag) 0
-		       (go-tag-used-in tag) '()))
-	       (dolist (i (cddr form))
-		 (unless (go-tag-p i)
-		   (detect-uses i))))))
       (ast-block
        (reset-var (info form))
        (detect-uses (body form)))
@@ -568,6 +562,14 @@ A list of any declaration-specifiers."
          (incf (lexical-variable-use-count var))
          (incf (lexical-variable-write-count var))
          (detect-uses (value form))))
+      (ast-tagbody
+       (reset-var (info form))
+       (dolist (tag (tagbody-information-go-tags (info form)))
+         (setf (go-tag-use-count tag) 0
+               (go-tag-used-in tag) '()))
+       (dolist (i (statements form))
+         (unless (go-tag-p i)
+           (detect-uses i))))
       (ast-the
        (detect-uses (value form)))
       (ast-unwind-protect
@@ -691,40 +693,42 @@ A list of any declaration-specifiers."
                                                                                                           :value rest)))
                                                            rest))))
                      :body (make-instance 'ast-progn
-                                          :forms (list `(tagbody ,tb
-                                                           ,(make-instance 'ast-go
-                                                                           :target test-tag
-                                                                           :info (go-tag-tagbody test-tag))
-                                                           ,head-tag
-                                                           ,(make-instance 'ast-if
-                                                                           :test (make-instance 'ast-call
-                                                                                                :name 'null
-                                                                                                :arguments (list (make-instance 'ast-call
-                                                                                                                                :name 'cdr
-                                                                                                                                :arguments (list itr))))
-                                                                           :then (make-instance 'ast-call
-                                                                                                :name 'error
-                                                                                                :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                                                                                                 (make-instance 'ast-quote :value ':format-control)
-                                                                                                                 (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
-                                                                           :else (make-instance 'ast-quote :value nil))
-                                                           ,(make-instance 'ast-let
-                                                                           :bindings (list (list current-keyword (make-instance 'ast-call
-                                                                                                                                :name 'car
-                                                                                                                                :arguments (list itr))))
-                                                                           :body (create-key-test-list keys values suppliedp))
-                                                           ,(make-instance 'ast-setq
-                                                                           :variable itr
-                                                                           :value (make-instance 'ast-call
-                                                                                                 :name 'cddr
-                                                                                                 :arguments (list itr)))
-                                                           ,test-tag
-                                                           ,(make-instance 'ast-if
-                                                                           :test itr
-                                                                           :then (make-instance 'ast-go
-                                                                                                :target head-tag
-                                                                                                :info (go-tag-tagbody head-tag))
-                                                                           :else (make-instance 'ast-quote :value nil)))
+                                          :forms (list (make-instance 'ast-tagbody
+                                                                      :info tb
+                                                                      :statements (list
+                                                                                   (make-instance 'ast-go
+                                                                                                  :target test-tag
+                                                                                                  :info (go-tag-tagbody test-tag))
+                                                                                   head-tag
+                                                                                   (make-instance 'ast-if
+                                                                                                  :test (make-instance 'ast-call
+                                                                                                                       :name 'null
+                                                                                                                       :arguments (list (make-instance 'ast-call
+                                                                                                                                                       :name 'cdr
+                                                                                                                                                       :arguments (list itr))))
+                                                                                                  :then (make-instance 'ast-call
+                                                                                                                       :name 'error
+                                                                                                                       :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                                                                                                                        (make-instance 'ast-quote :value ':format-control)
+                                                                                                                                        (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
+                                                                                                  :else (make-instance 'ast-quote :value nil))
+                                                                                   (make-instance 'ast-let
+                                                                                                  :bindings (list (list current-keyword (make-instance 'ast-call
+                                                                                                                                                       :name 'car
+                                                                                                                                                       :arguments (list itr))))
+                                                                                                  :body (create-key-test-list keys values suppliedp))
+                                                                                   (make-instance 'ast-setq
+                                                                                                  :variable itr
+                                                                                                  :value (make-instance 'ast-call
+                                                                                                                        :name 'cddr
+                                                                                                                        :arguments (list itr)))
+                                                                                   test-tag
+                                                                                   (make-instance 'ast-if
+                                                                                                  :test itr
+                                                                                                  :then (make-instance 'ast-go
+                                                                                                                       :target head-tag
+                                                                                                                       :info (go-tag-tagbody head-tag))
+                                                                                                  :else (make-instance 'ast-quote :value nil))))
                                                        (create-key-let-body keys values suppliedp)))))))
 
 (defun lower-keyword-arguments (form)
@@ -733,11 +737,6 @@ A list of any declaration-specifiers."
 	   (dolist (i forms)
 	     (lower-keyword-arguments i))))
     (etypecase form
-      (cons (ecase (first form)
-	      ((tagbody)
-	       (dolist (i (cddr form))
-		 (unless (go-tag-p i)
-		   (lower-keyword-arguments i))))))
       (ast-block
        (lower-keyword-arguments (body form)))
       (ast-function)
@@ -769,6 +768,10 @@ A list of any declaration-specifiers."
        (lower-keyword-arguments (info form)))
       (ast-setq
        (lower-keyword-arguments (value form)))
+      (ast-tagbody
+       (dolist (i (statements form))
+         (unless (go-tag-p i)
+           (lower-keyword-arguments i))))
       (ast-the
        (lower-keyword-arguments (value form)))
       (ast-unwind-protect
@@ -818,11 +821,6 @@ Must be run after keywords have been lowered."
                           :name (gensym name)
                           :definition-point *current-lambda*)))
     (etypecase form
-      (cons (ecase (first form)
-	      ((tagbody)
-	       (dolist (i (cddr form))
-		 (unless (go-tag-p i)
-		   (lower-arguments i))))))
       (ast-block
        (lower-arguments (body form)))
       (ast-function)
@@ -854,6 +852,10 @@ Must be run after keywords have been lowered."
        (lower-arguments (info form)))
       (ast-setq
        (lower-arguments (value form)))
+      (ast-tagbody
+       (dolist (i (statements form))
+         (unless (go-tag-p i)
+           (lower-arguments i))))
       (ast-the
        (lower-arguments (value form)))
       (ast-unwind-protect
@@ -926,14 +928,6 @@ Must be run after keywords have been lowered."
 (defun unparse-compiler-form (form)
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
-      (cons (case (first form)
-	      ((tagbody)
-               `(tagbody ,@(mapcar (lambda (x)
-                                     (if (go-tag-p x)
-                                         (go-tag-name x)
-                                         (unparse-compiler-form x)))
-                                   (cddr form))))
-              (t `(:invalid ,form))))
       (ast-block
        `(block ,(lexical-variable-name (info form))
           ,(unparse-compiler-form (body form))))
@@ -977,6 +971,13 @@ Must be run after keywords have been lowered."
                      (lexical-variable-name var)
                      var)
                 ,(unparse-compiler-form (value form)))))
+      (ast-tagbody
+       `(tagbody
+           ,@(mapcar (lambda (x)
+                       (if (go-tag-p x)
+                           (go-tag-name x)
+                           (unparse-compiler-form x)))
+                     (statements form))))
       (ast-the
        `(the ,(the-type form) ,(unparse-compiler-form (value form))))
       (ast-unwind-protect

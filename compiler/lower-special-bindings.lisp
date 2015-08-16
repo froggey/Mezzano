@@ -61,9 +61,6 @@
 
 (defun lsb-form (form)
   (etypecase form
-    (cons (ecase (first form)
-            ((tagbody)
-             (lsb-tagbody form))))
     (ast-block
      (lsb-block form))
     (ast-function form)
@@ -99,6 +96,8 @@
      (make-instance 'ast-setq
                     :variable (setq-variable form)
                     :value (lsb-form (value form))))
+    (ast-tagbody
+     (lsb-tagbody form))
     (ast-the
      (make-instance 'ast-the
                     :type (the-type form)
@@ -285,14 +284,15 @@
 
 (defun lsb-tagbody (form)
   (let ((*special-bindings* *special-bindings*)
-        (info (second form)))
+        (info (info form)))
     (flet ((frob-tagbody ()
-             `(tagbody ,(second form)
-                 ,@(mapcar (lambda (x)
-                             (if (go-tag-p x)
-                                 x
-                                 (lsb-form x)))
-                           (cddr form)))))
+             (make-instance 'ast-tagbody
+                            :info (info form)
+                            :statements (mapcar (lambda (x)
+                                                  (if (go-tag-p x)
+                                                      x
+                                                      (lsb-form x)))
+                                                (statements form)))))
       (push (list :block-or-tagbody
                   info
                   (tagbody-information-env-var info)

@@ -34,9 +34,6 @@
 
 (defun compute-environment-layout (form)
   (etypecase form
-    (cons (ecase (first form)
-	    ((tagbody)
-             (compute-tagbody-environment-layout form))))
     (ast-block
      (compute-block-environment-layout form))
     (ast-function nil)
@@ -64,6 +61,8 @@
      (compute-environment-layout (info form)))
     (ast-setq
      (compute-environment-layout (value form)))
+    (ast-tagbody
+     (compute-tagbody-environment-layout form))
     (ast-the
      (compute-environment-layout (value form)))
     (ast-unwind-protect
@@ -140,11 +139,11 @@
 (defun compute-tagbody-environment-layout (form)
   "TAGBODY defines a single variable in the enclosing environment and each group
 of statements opens a new contour."
-  (maybe-add-environment-variable (second form))
+  (maybe-add-environment-variable (info form))
   (let ((env-is-dx t))
-    (let ((*active-environment-vector* (second form))
+    (let ((*active-environment-vector* (info form))
           (*allow-dx-environment* t))
-      (dolist (stmt (cddr form))
+      (dolist (stmt (statements form))
         (cond ((go-tag-p stmt)
                (unless (finalize-environment-layout *active-environment-vector*)
                  (setf env-is-dx nil))
@@ -182,9 +181,6 @@ of statements opens a new contour."
   (flet ((process-progn (forms)
            (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '())))
     (etypecase form
-      (cons (ecase (first form)
-              ((tagbody)
-               (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))))
       (ast-block
        (remove (info form) (compute-free-variable-sets-1 (body form))))
       (ast-function '())
@@ -219,6 +215,9 @@ of statements opens a new contour."
       (ast-setq
        (union (list (setq-variable form))
               (compute-free-variable-sets-1 (value form))))
+      (ast-tagbody
+       (remove (info form)
+               (process-progn (remove-if #'go-tag-p (statements form)))))
       (ast-the
        (compute-free-variable-sets-1 (value form)))
       (ast-unwind-protect
@@ -250,8 +249,6 @@ of statements opens a new contour."
 
 (defun lower-env-form (form)
   (etypecase form
-    (cons (ecase (first form)
-	    ((tagbody) (le-tagbody form))))
     (ast-block
      (le-block form))
     (ast-function form)
@@ -278,6 +275,8 @@ of statements opens a new contour."
     (ast-return-from
      (le-return-from form))
     (ast-setq (le-setq form))
+    (ast-tagbody
+     (le-tagbody form))
     (ast-the (le-the form))
     (ast-unwind-protect
      (make-instance 'ast-unwind-protect
@@ -560,8 +559,8 @@ of statements opens a new contour."
   form)
 
 (defun le-tagbody (form)
-  (let* ((possible-env-vector-heads (list* (second form)
-                                           (remove-if-not #'go-tag-p (cddr form))))
+  (let* ((possible-env-vector-heads (list* (info form)
+                                           (remove-if-not #'go-tag-p (statements form))))
          (env-vector-heads (remove-if (lambda (x) (endp (gethash x *environment-layout*)))
                                       possible-env-vector-heads))
          (new-envs (loop for i in env-vector-heads
@@ -571,35 +570,37 @@ of statements opens a new contour."
                                                    :definition-point *current-lambda*)
                                     (gethash i *environment-layout*)))))
     (labels ((frob-outer ()
-             `(tagbody ,(second form)
-                 ;; Save the tagbody info.
-                 ,@(when (not (localp (second form)))
-                     (let ((env-var (second (first *environment-chain*)))
-                           (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
-                       (setf (tagbody-information-env-var (second form)) env-var
-                             (tagbody-information-env-offset (second form)) env-offset)
-                       (list (make-instance 'ast-call
-                                            :name '(setf sys.int::%object-ref-t)
-                                            :arguments (list (second form)
-                                                             env-var
-                                                             (make-instance 'ast-quote :value env-offset))))))
-                 ,@(let ((info (assoc (second form) new-envs)))
-                     (when info
-                       (if *environment*
-                           (list (make-instance 'ast-setq
-                                                :variable (second info)
-                                                :value (generate-make-environment (second form) (1+ (length (third info)))))
-                                 (make-instance 'ast-call
-                                                :name '(setf sys.int::%object-ref-t)
-                                                :arguments (list (second (first *environment-chain*))
-                                                                 (second info)
-                                                                 (make-instance 'ast-quote :value '0))))
-                           (list (make-instance 'ast-setq
-                                                :variable (second info)
-                                                :value (generate-make-environment (second form) (1+ (length (third info)))))))))
-                 ,@(frob-inner (second form))))
+               (make-instance 'ast-tagbody
+                              :info (info form)
+                              :statements (append
+                                           ;; Save the tagbody info.
+                                           (when (not (localp (info form)))
+                                             (let ((env-var (second (first *environment-chain*)))
+                                                   (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                               (setf (tagbody-information-env-var (info form)) env-var
+                                                     (tagbody-information-env-offset (info form)) env-offset)
+                                               (list (make-instance 'ast-call
+                                                                    :name '(setf sys.int::%object-ref-t)
+                                                                    :arguments (list (info form)
+                                                                                     env-var
+                                                                                     (make-instance 'ast-quote :value env-offset))))))
+                                           (let ((info (assoc (info form) new-envs)))
+                                             (when info
+                                               (if *environment*
+                                                   (list (make-instance 'ast-setq
+                                                                        :variable (second info)
+                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))
+                                                         (make-instance 'ast-call
+                                                                        :name '(setf sys.int::%object-ref-t)
+                                                                        :arguments (list (second (first *environment-chain*))
+                                                                                         (second info)
+                                                                                         (make-instance 'ast-quote :value '0))))
+                                                   (list (make-instance 'ast-setq
+                                                                        :variable (second info)
+                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))))))
+                                           (frob-inner (info form)))))
              (frob-inner (current-env)
-               (loop for stmt in (cddr form)
+               (loop for stmt in (statements form)
                   append (cond ((go-tag-p stmt)
                                 (setf current-env stmt)
                                 (let ((info (assoc current-env new-envs)))
