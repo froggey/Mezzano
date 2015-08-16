@@ -14,12 +14,12 @@
 	    ((multiple-value-bind) (ll-multiple-value-bind form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
-	    ((function) (ll-quote form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
 	    ((unwind-protect) (ll-unwind-protect form))
 	    ((sys.int::%jump-table) (ll-jump-table form))))
+    (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
@@ -39,6 +39,9 @@
     ;; Update the definition point.
     (setf (lexical-variable-definition-point (second form)) *current-lambda*))
   (ll-implicit-progn (cddr form))
+  form)
+
+(defun ll-function (form)
   form)
 
 (defun ll-go (form)

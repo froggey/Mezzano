@@ -73,7 +73,6 @@
               ((multiple-value-bind) (map-form 2))
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))
-              ((function) form)
               ((return-from)
                (lsb-return-from form))
               ((tagbody)
@@ -82,6 +81,7 @@
               ((unwind-protect)
                (lsb-unwind-protect form))
               ((sys.int::%jump-table) (map-form 1))))
+      (ast-function form)
       (ast-if
        (make-instance 'ast-if
                       :test (lsb-form (test form))

@@ -14,12 +14,12 @@
 	    ((multiple-value-bind) (il-multiple-value-bind form))
 	    ((multiple-value-call) (il-multiple-value-call form))
 	    ((multiple-value-prog1) (il-multiple-value-prog1 form))
-	    ((function) (il-quote form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))
 	    ((the) (il-the form))
 	    ((unwind-protect) (il-unwind-protect form))
 	    ((sys.int::%jump-table) (il-jump-table form))))
+    (ast-function (il-function form))
     (ast-if (il-if form))
     (ast-progn (il-progn form))
     (ast-quote (il-quote form))
@@ -35,6 +35,9 @@
 
 (defun il-block (form)
   (il-implicit-progn (cddr form))
+  form)
+
+(defun il-function (form)
   form)
 
 (defun il-go (form)

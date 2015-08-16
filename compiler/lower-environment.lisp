@@ -46,7 +46,6 @@
              (mapc #'compute-environment-layout (rest form)))
 	    ((multiple-value-prog1)
              (mapc #'compute-environment-layout (rest form)))
-	    ((function) nil)
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
@@ -62,6 +61,7 @@
                    (t (compute-environment-layout (third form)))))
 	    ((sys.int::%jump-table)
              (mapc #'compute-environment-layout (rest form)))))
+    (ast-function nil)
     (ast-if
      (compute-environment-layout (test form))
      (compute-environment-layout (if-then form))
@@ -180,8 +180,6 @@ of statements opens a new contour."
       (cons (ecase (first form)
               ((block)
                (remove (second form) (process-progn (cddr form))))
-              ((function)
-               '())
               ((go)
                (compute-free-variable-sets-1 (third form)))
               ((let)
@@ -208,6 +206,7 @@ of statements opens a new contour."
                (process-progn (cdr form)))
               ((sys.int::%jump-table)
                (process-progn (cdr form)))))
+      (ast-function '())
       (ast-if
        (union (compute-free-variable-sets-1 (test form))
               (union (compute-free-variable-sets-1 (if-then form))
@@ -243,7 +242,6 @@ of statements opens a new contour."
   (etypecase form
     (cons (ecase (first form)
 	    ((block) (le-block form))
-            ((function) form)
 	    ((go) (le-go form))
 	    ((let) (le-let form))
 	    ((multiple-value-bind) (le-multiple-value-bind form))
@@ -254,6 +252,7 @@ of statements opens a new contour."
 	    ((the) (le-the form))
 	    ((unwind-protect) (le-form*-cdr form))
 	    ((sys.int::%jump-table) (le-form*-cdr form))))
+    (ast-function form)
     (ast-if
      (le-if form))
     (ast-progn

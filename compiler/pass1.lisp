@@ -386,7 +386,7 @@
                  (pushnew *current-lambda* (lexical-variable-used-in var))
                  var)
                 (t ;; Top-level function.
-                 `(function ,name)))))))
+                 (make-instance 'ast-function :name name)))))))
 
 (defun pass1-go (form env)
   (destructuring-bind (tag) (cdr form)

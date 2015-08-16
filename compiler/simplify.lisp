@@ -14,12 +14,12 @@
 	    ((multiple-value-bind) (simp-multiple-value-bind form))
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
-	    ((function) (simp-quote form))
 	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))
 	    ((the) (simp-the form))
 	    ((unwind-protect) (simp-unwind-protect form))
 	    ((sys.int::%jump-table) (simp-jump-table form))))
+    (ast-function (simp-function form))
     (ast-if (simp-if form))
     (ast-progn (simp-progn form))
     (ast-quote (simp-quote form))
@@ -55,8 +55,7 @@
              (change-made))
             ((and (rest i) ; not at end.
                   (or (typep form 'ast-quote)
-                      (and (consp form)
-                           (eql (first form) 'function))
+                      (typep form 'ast-function)
                       (lexical-variable-p form)
                       (lambda-information-p form)))
              ;; This is a constantish value not at the end.
@@ -91,6 +90,9 @@
      form)
     (t (simp-implicit-progn (cddr form))
        form)))
+
+(defun simp-function (form)
+  form)
 
 (defun simp-go (form)
   ;; HACK: Update the tagbody location part after tagbodies have merged.
@@ -234,8 +236,7 @@
 				     (and (lexical-variable-p var)
 					  (or (lambda-information-p val)
                                               (typep val 'ast-quote)
-					      (and (consp val)
-                                                   (eql (first val) 'function))
+                                              (typep val 'ast-function)
 					      (and (lexical-variable-p val)
 						   (localp val)
 						   (eql (lexical-variable-write-count val) 0)))
@@ -446,16 +447,16 @@
   ;; (funcall 'symbol ...) -> (symbol ...)
   ;; (funcall #'name ...) -> (name ...)
   (cond ((and (eql (name form) 'funcall)
-              (or (and (listp (first (arguments form)))
-                       (= (list-length (first (arguments form))) 2)
-                       (eql (first (first (arguments form))) 'function))
+              (or (typep (first (arguments form)) 'ast-function)
                   (and (typep (first (arguments form)) 'ast-quote)
                        (symbolp (value (first (arguments form)))))))
          (change-made)
          (simp-form-list (rest (arguments form)))
-         (let ((name (if (typep (first (arguments form)) 'ast-quote)
-                         (value (first (arguments form)))
-                         (second (first (arguments form))))))
+         (let ((name (etypecase (first (arguments form))
+                       (ast-quote
+                        (value (first (arguments form))))
+                       (ast-function
+                        (name (first (arguments form)))))))
            (make-instance 'ast-call
                           :name name
                           :arguments (rest (arguments form)))))

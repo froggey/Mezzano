@@ -203,6 +203,9 @@ A list of any declaration-specifiers."
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
+(defclass ast-function ()
+  ((%name :initarg :name :accessor name)))
+
 (defclass ast-if ()
   ((%test :initarg :test :accessor test)
    (%then :initarg :then :accessor if-then)
@@ -244,7 +247,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((function))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
@@ -256,6 +258,7 @@ A list of any declaration-specifiers."
 	      ((the) (flush-form (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+      (ast-function)
       (ast-if
        (flush-form (test form))
        (flush-form (if-then form))
@@ -325,7 +328,6 @@ A list of any declaration-specifiers."
                     ,@(implicit-progn (cddr form))))
 	      ((multiple-value-call) `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1) `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
-	      ((function) form)
 	      ((return-from)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -350,6 +352,7 @@ A list of any declaration-specifiers."
 	      ((the) `(the ,(second form) ,(copy-form (third form) replacements)))
 	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
               ((sys.int::%jump-table) `(sys.int::%jump-table ,@(implicit-progn (cdr form))))))
+      (ast-function form)
       (ast-if
        (make-instance 'ast-if
                       :test (copy-form (test form) replacements)
@@ -450,7 +453,6 @@ A list of any declaration-specifiers."
                (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((function))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
@@ -466,6 +468,7 @@ A list of any declaration-specifiers."
 	      ((the) (detect-uses (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+      (ast-function)
       (ast-if
        (detect-uses (test form))
        (detect-uses (if-then form))
@@ -638,7 +641,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((function))
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
@@ -649,6 +651,7 @@ A list of any declaration-specifiers."
 	      ((the) (lower-keyword-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+      (ast-function)
       (ast-if
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
@@ -709,7 +712,6 @@ Must be run after keywords have been lowered."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((function))
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
@@ -720,6 +722,7 @@ Must be run after keywords have been lowered."
 	      ((the) (lower-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
+      (ast-function)
       (ast-if
        (lower-arguments (test form))
        (lower-arguments (if-then form))
@@ -811,7 +814,6 @@ Must be run after keywords have been lowered."
                `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1)
                `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
-	      ((function) form)
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
@@ -828,6 +830,8 @@ Must be run after keywords have been lowered."
               ((sys.int::%jump-table)
                `(sys.int::%jump-table ,@(implicit-progn (cdr form))))
               (t `(:invalid ,form))))
+      (ast-function
+       `(function ,(name form)))
       (ast-if
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))

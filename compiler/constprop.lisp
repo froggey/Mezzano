@@ -23,12 +23,12 @@
 	    ((multiple-value-bind) (cp-multiple-value-bind form))
 	    ((multiple-value-call) (cp-multiple-value-call form))
 	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
-	    ((function) (cp-quote form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))
 	    ((the) (cp-the form))
 	    ((unwind-protect) (cp-unwind-protect form))
 	    ((sys.int::%jump-table) (cp-jump-table form))))
+    (ast-function (cp-function form))
     (ast-if (cp-if form))
     (ast-progn (cp-progn form))
     (ast-quote (cp-quote form))
@@ -40,8 +40,7 @@
 (defun form-value (form &key (reduce-use-count t))
   "Return the value of form wrapped in quote if its known, otherwise return nil."
   (cond ((or (typep form 'ast-quote)
-             (and (consp form)
-		  (member (first form) '(function)))
+             (typep form 'ast-function)
 	     (lambda-information-p form))
 	 form)
 	((lexical-variable-p form)
@@ -76,6 +75,9 @@
 (defun cp-block (form)
   (flush-mutable-variables)
   (cp-implicit-progn (cddr form))
+  form)
+
+(defun cp-function (form)
   form)
 
 (defun cp-go (form)
@@ -122,8 +124,7 @@
                             (<= (getf (lambda-information-plist val) 'copy-count 0)
                                 *constprop-lambda-copy-limit*))
                        (typep val 'ast-quote)
-		       (and (consp val)
-                            (eql (first val) 'function))
+                       (typep val 'ast-function)
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
@@ -166,8 +167,7 @@
                         (<= (getf (lambda-information-plist value) 'copy-count 0)
                             *constprop-lambda-copy-limit*))
                    (typep value 'ast-quote)
-                   (and (consp value)
-                        (eql (first value) 'function)))
+                   (typep value 'ast-function))
                ;; Always propagate the new value forward.
                (setf (second info) value)
                ;; The value is constant. Attempt to push it back to the
@@ -238,7 +238,9 @@
 	       (when (or const-args (not nonconst-args))
 		 (setf value (apply function const-args))
 		 (if nonconst-args
-		     (list* function (make-instance 'ast-quote :value value) nonconst-args)
+		     (make-instance 'ast-call
+                                    :name function
+                                    :arguments (list* (make-instance 'ast-quote :value value) nonconst-args))
 		     (make-instance 'ast-quote :value value)))))
 	    (:arithmetic
 	     ;; Arguments cannot be re-ordered, assumed to be non-associative.
@@ -256,11 +258,12 @@
                               (setf constant-accu nil))
                             (push i arg-accu))))
 		   (if arg-accu
-		       (nconc (list function)
-			      (nreverse arg-accu)
-			      (when constant-accu
-				(list (make-instance 'ast-quote
-                                                     :value (apply function (nreverse constant-accu))))))
+                       (make-instance 'ast-call
+                                      :name function
+                                      :arguments (append (nreverse arg-accu)
+                                                         (when constant-accu
+                                                           (list (make-instance 'ast-quote
+                                                                                :value (apply function (nreverse constant-accu)))))))
 		       (make-instance 'ast-quote
                                       :value (apply function (nreverse constant-accu)))))
 		 (make-instance 'ast-quote :value (funcall function))))
