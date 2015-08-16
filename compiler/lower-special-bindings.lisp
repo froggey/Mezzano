@@ -77,7 +77,6 @@
               ((function) form)
               ((return-from)
                (lsb-return-from form))
-              ((setq) (map-form 2))
               ((tagbody)
                (lsb-tagbody form))
               ((the) (map-form 2))
@@ -90,6 +89,10 @@
                       :then (lsb-form (if-then form))
                       :else (lsb-form (if-else form))))
       (ast-quote form)
+      (ast-setq
+       (make-instance 'ast-setq
+                      :variable (setq-variable form)
+                      :value (lsb-form (value form))))
       (ast-call
        (make-instance 'ast-call
                       :name (name form)

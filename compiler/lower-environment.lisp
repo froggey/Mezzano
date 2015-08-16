@@ -51,8 +51,6 @@
 	    ((function) nil)
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
-	    ((setq)
-             (compute-environment-layout (third form)))
 	    ((tagbody)
              (compute-tagbody-environment-layout form))
 	    ((the)
@@ -71,6 +69,8 @@
      (compute-environment-layout (if-then form))
      (compute-environment-layout (if-else form)))
     (ast-quote nil)
+    (ast-setq
+     (compute-environment-layout (value form)))
     (ast-call (cond ((and (eql (name form) 'funcall)
                           (lambda-information-p (first (arguments form))))
                      (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
@@ -202,8 +202,6 @@ of statements opens a new contour."
               ((return-from)
                (union (compute-free-variable-sets-1 (third form))
                       (compute-free-variable-sets-1 (fourth form))))
-              ((setq)
-               (process-progn (cdr form)))
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))
               ((the)
@@ -217,6 +215,9 @@ of statements opens a new contour."
               (union (compute-free-variable-sets-1 (if-then form))
                      (compute-free-variable-sets-1 (if-else form)))))
       (ast-quote '())
+      (ast-setq
+       (union (list (setq-variable form))
+              (compute-free-variable-sets-1 (value form))))
       (ast-call
        (process-progn (arguments form)))
       (lexical-variable (list form))
@@ -250,7 +251,6 @@ of statements opens a new contour."
 	    ((multiple-value-prog1) (le-form*-cdr form))
 	    ((progn) (le-form*-cdr form))
 	    ((return-from) (le-return-from form))
-	    ((setq) (le-setq form))
 	    ((tagbody) (le-tagbody form))
 	    ((the) (le-the form))
 	    ((unwind-protect) (le-form*-cdr form))
@@ -258,6 +258,7 @@ of statements opens a new contour."
     (ast-if
      (le-if form))
     (ast-quote form)
+    (ast-setq (le-setq form))
     (ast-call
      (make-instance 'ast-call
                     :name (name form)
@@ -473,17 +474,17 @@ of statements opens a new contour."
           (mapcar #'lower-env-form (cddr form))))
 
 (defun le-setq (form)
-  (cond ((localp (second form))
-         (setf (third form) (lower-env-form (third form)))
+  (cond ((localp (setq-variable form))
+         (setf (value form) (lower-env-form (value form)))
          form)
         (t (dolist (e *environment*
-                    (error "Can't find variable ~S in environment." (second form)))
+                    (error "Can't find variable ~S in environment." (setq-variable form)))
              (let* ((layout (gethash e *environment-layout*))
-                    (offset (position (second form) layout)))
+                    (offset (position (setq-variable form) layout)))
                (when offset
                  (return (make-instance 'ast-call
                                         :name '(setf sys.int::%object-ref-t)
-                                        :arguments (list (lower-env-form (third form))
+                                        :arguments (list (lower-env-form (value form))
                                                          (get-env-vector e)
                                                          (make-instance 'ast-quote :value (1+ offset)))))))))))
 
@@ -537,13 +538,17 @@ of statements opens a new contour."
                  ,@(let ((info (assoc (second form) new-envs)))
                      (when info
                        (if *environment*
-                           (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))
+                           (list (make-instance 'ast-setq
+                                                :variable (second info)
+                                                :value (generate-make-environment (second form) (1+ (length (third info)))))
                                  (make-instance 'ast-call
                                                 :name '(setf sys.int::%object-ref-t)
                                                 :arguments (list (second (first *environment-chain*))
                                                                  (second info)
                                                                  (make-instance 'ast-quote :value '0))))
-                           (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))))))
+                           (list (make-instance 'ast-setq
+                                                :variable (second info)
+                                                :value (generate-make-environment (second form) (1+ (length (third info)))))))))
                  ,@(frob-inner (second form))))
              (frob-inner (current-env)
                (loop for stmt in (cddr form)
@@ -552,7 +557,9 @@ of statements opens a new contour."
                                 (let ((info (assoc current-env new-envs)))
                                   (append (list stmt)
                                           (when info
-                                            (list `(setq ,(second info) ,(generate-make-environment current-env (1+ (length (third info)))))))
+                                            (list (make-instance 'ast-setq
+                                                                 :variable (second info)
+                                                                 :value (generate-make-environment current-env (1+ (length (third info)))))))
                                           (when (and info *environment*)
                                             (list (make-instance 'ast-call
                                                                  :name '(setf sys.int::%object-ref-t)

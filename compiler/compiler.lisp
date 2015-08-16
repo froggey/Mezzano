@@ -211,6 +211,10 @@ A list of any declaration-specifiers."
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
 
+(defclass ast-setq ()
+  ((%variable :initarg :variable :accessor setq-variable)
+   (%value :initarg :value :accessor value)))
+
 (defclass ast-call ()
   ((%name :initarg :name :accessor name)
    (%arguments :initarg :arguments :accessor arguments)))
@@ -243,10 +247,6 @@ A list of any declaration-specifiers."
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
 	       (flush-form (fourth form)))
-	      ((setq)
-	       (decf (lexical-variable-use-count (second form)))
-	       (decf (lexical-variable-write-count (second form)))
-	       (flush-form (third form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -259,6 +259,10 @@ A list of any declaration-specifiers."
        (flush-form (if-then form))
        (flush-form (if-else form)))
       (ast-quote)
+      (ast-setq
+       (decf (lexical-variable-use-count (setq-variable form)))
+       (decf (lexical-variable-write-count (setq-variable form)))
+       (flush-form (value form)))
       (ast-call
        (mapc #'flush-form (arguments form)))
       (lexical-variable
@@ -325,12 +329,6 @@ A list of any declaration-specifiers."
 		 (incf (lexical-variable-use-count var))
 		 (pushnew *current-lambda* (lexical-variable-used-in var))
 		 `(return-from ,var ,(copy-form (third form) replacements) ,(copy-form (fourth form) replacements))))
-	      ((setq)
-	       (let ((var (fix (second form))))
-		 (incf (lexical-variable-use-count var))
-		 (incf (lexical-variable-write-count var))
-		 (pushnew *current-lambda* (lexical-variable-used-in var))
-		 `(setq ,var ,(copy-form (third form) replacements))))
 	      ((tagbody)
 	       (let ((info (make-instance 'tagbody-information
                                           :definition-point (fix (lexical-variable-definition-point (second form))))))
@@ -356,6 +354,14 @@ A list of any declaration-specifiers."
                       :then (copy-form (if-then form) replacements)
                       :else (copy-form (if-else form) replacements)))
       (ast-quote form)
+      (ast-setq
+       (let ((var (fix (setq-variable form))))
+         (incf (lexical-variable-use-count var))
+         (incf (lexical-variable-write-count var))
+         (pushnew *current-lambda* (lexical-variable-used-in var))
+         (make-instance 'ast-setq
+                        :variable var
+                        :value (copy-form (value form) replacements))))
       (ast-call
        (make-instance 'ast-call
                       :name (name form)
@@ -445,11 +451,6 @@ A list of any declaration-specifiers."
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
 	       (detect-uses (fourth form)))
-	      ((setq)
-	       (pushnew *current-lambda* (lexical-variable-used-in (second form)))
-	       (incf (lexical-variable-use-count (second form)))
-	       (incf (lexical-variable-write-count (second form)))
-	       (detect-uses (third form)))
 	      ((tagbody)
                (reset-var (second form))
 	       (dolist (tag (tagbody-information-go-tags (second form)))
@@ -466,6 +467,12 @@ A list of any declaration-specifiers."
        (detect-uses (if-then form))
        (detect-uses (if-else form)))
       (ast-quote)
+      (ast-setq
+       (let ((var (setq-variable form)))
+         (pushnew *current-lambda* (lexical-variable-used-in var))
+         (incf (lexical-variable-use-count var))
+         (incf (lexical-variable-write-count var))
+         (detect-uses (value form))))
       (ast-call
        (dolist (arg (arguments form))
          (detect-uses arg)))
@@ -536,8 +543,12 @@ A list of any declaration-specifiers."
                                      :then (make-instance 'ast-if
                                                           :test (first suppliedp)
                                                           :then (make-instance 'ast-quote :value nil)
-                                                          :else `(progn (setq ,(first suppliedp) ,(make-instance 'ast-quote :value 't))
-                                                                        (setq ,(first values) ,(make-instance 'ast-call
+                                                          :else `(progn ,(make-instance 'ast-setq
+                                                                                        :variable (first suppliedp)
+                                                                                        :value (make-instance 'ast-quote :value 't))
+                                                                        ,(make-instance 'ast-setq
+                                                                                        :variable (first values)
+                                                                                        :value (make-instance 'ast-call
                                                                                                               :name 'cadr
                                                                                                               :arguments (list itr)))))
                                      :else (create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
@@ -592,9 +603,11 @@ A list of any declaration-specifiers."
                                                     :name 'car
                                                     :arguments (list itr))))
               ,(create-key-test-list keys values suppliedp))
-            (setq ,itr ,(make-instance 'ast-call
-                                       :name 'cddr
-                                       :arguments (list itr)))
+            ,(make-instance 'ast-setq
+                            :variable itr
+                            :value (make-instance 'ast-call
+                                                  :name 'cddr
+                                                  :arguments (list itr)))
             ,test-tag
             ,(make-instance 'ast-if
                             :test itr
@@ -623,7 +636,6 @@ A list of any declaration-specifiers."
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
-	      ((setq) (lower-keyword-arguments (third form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -636,6 +648,7 @@ A list of any declaration-specifiers."
        (lower-keyword-arguments (if-then form))
        (lower-keyword-arguments (if-else form)))
       (ast-quote)
+      (ast-setq (lower-keyword-arguments (value form)))
       (ast-call
        (dolist (arg (arguments form))
          (lower-keyword-arguments arg)))
@@ -693,7 +706,6 @@ Must be run after keywords have been lowered."
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
-	      ((setq) (lower-arguments (third form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -706,6 +718,7 @@ Must be run after keywords have been lowered."
        (lower-arguments (if-then form))
        (lower-arguments (if-else form)))
       (ast-quote)
+      (ast-setq (lower-arguments (value form)))
       (ast-call
        (dolist (arg (arguments form))
          (lower-arguments arg)))
@@ -795,11 +808,6 @@ Must be run after keywords have been lowered."
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
-	      ((setq)
-               `(setq ,(if (lexical-variable-p (second form))
-                           (lexical-variable-name (second form))
-                           (second form))
-                      ,(unparse-compiler-form (third form))))
 	      ((tagbody)
                `(tagbody ,@(mapcar (lambda (x)
                                      (if (go-tag-p x)
@@ -818,6 +826,12 @@ Must be run after keywords have been lowered."
             ,(unparse-compiler-form (if-then form))
             ,(unparse-compiler-form (if-else form))))
       (ast-quote `',(value form))
+      (ast-setq
+       (let ((var (setq-variable form)))
+         `(setq ,(if (lexical-variable-p var)
+                     (lexical-variable-name var)
+                     var)
+                ,(unparse-compiler-form (value form)))))
       (ast-call
        (list* (name form) (mapcar #'unparse-compiler-form (arguments form))))
       (lexical-variable (lexical-variable-name form))

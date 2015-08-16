@@ -17,13 +17,13 @@
 	    ((progn) (simp-progn form))
 	    ((function) (simp-quote form))
 	    ((return-from) (simp-return-from form))
-	    ((setq) (simp-setq form))
 	    ((tagbody) (simp-tagbody form))
 	    ((the) (simp-the form))
 	    ((unwind-protect) (simp-unwind-protect form))
 	    ((sys.int::%jump-table) (simp-jump-table form))))
     (ast-if (simp-if form))
     (ast-quote (simp-quote form))
+    (ast-setq (simp-setq form))
     (ast-call (simp-function-form form))
     (lexical-variable (simp-variable form))
     (lambda-information (simp-lambda form))))
@@ -336,7 +336,7 @@
   form)
 
 (defun simp-setq (form)
-  (setf (third form) (simp-form (third form)))
+  (setf (value form) (simp-form (value form)))
   form)
 
 (defun simp-tagbody (form)

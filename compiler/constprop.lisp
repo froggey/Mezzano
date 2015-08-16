@@ -26,13 +26,13 @@
 	    ((progn) (cp-progn form))
 	    ((function) (cp-quote form))
 	    ((return-from) (cp-return-from form))
-	    ((setq) (cp-setq form))
 	    ((tagbody) (cp-tagbody form))
 	    ((the) (cp-the form))
 	    ((unwind-protect) (cp-unwind-protect form))
 	    ((sys.int::%jump-table) (cp-jump-table form))))
     (ast-if (cp-if form))
     (ast-quote (cp-quote form))
+    (ast-setq (cp-setq form))
     (ast-call (cp-function-form form))
     (lexical-variable (cp-variable form))
     (lambda-information (cp-lambda form))))
@@ -158,31 +158,32 @@
 
 (defun cp-setq (form)
   ;; Walk the value form.
-  (setf (third form) (cp-form (third form)))
-  (let ((info (assoc (second form) *known-variables*)))
+  (setf (value form) (cp-form (value form)))
+  (let* ((info (assoc (setq-variable form) *known-variables*))
+         (value (value form)))
     (if info
-        (cond ((or (and (lambda-information-p (third form))
-                        (<= (getf (lambda-information-plist (third form)) 'copy-count 0)
+        (cond ((or (and (lambda-information-p value)
+                        (<= (getf (lambda-information-plist value) 'copy-count 0)
                             *constprop-lambda-copy-limit*))
-                   (typep (third form) 'ast-quote)
-                   (and (consp (third form))
-                        (eql (first (third form)) 'function)))
+                   (typep value 'ast-quote)
+                   (and (consp value)
+                        (eql (first value) 'function)))
                ;; Always propagate the new value forward.
-               (setf (second info) (third form))
+               (setf (second info) value)
                ;; The value is constant. Attempt to push it back to the
                ;; original binding.
                (cond ((zerop (third info))
                       ;; Send it back, and replace this form with the variable.
                       (change-made)
-                      (setf (second info) (third form))
-                      (setf (second (fourth info)) (third form))
+                      (setf (second info) value)
+                      (setf (second (fourth info)) value)
                       ;; Prevent future SETQ forms from back-propgating values.
                       (incf (third info))
-                      (second form))
+                      (setq-variable form))
                      (t ;; Leave this form alone.
                       form)))
               (t ;; Non-constant, flush.
-               (flush-mutable-variable (second form))
+               (flush-mutable-variable (setq-variable form))
                form))
         form)))
 

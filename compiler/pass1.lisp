@@ -582,7 +582,10 @@
          (incf (lexical-variable-use-count var))
          (incf (lexical-variable-write-count var))
          (pushnew *current-lambda* (lexical-variable-used-in var))
-         (push `(setq ,var ,(pass1-form val env)) forms))
+         (push (make-instance 'ast-setq
+                              :variable var
+                              :value (pass1-form val env))
+               forms))
         (cons
          ;; Symbol macro.
          (push (pass1-form `(setf ,(second var) ,val) env) forms))))))

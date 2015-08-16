@@ -17,13 +17,13 @@
 	    ((progn) (ll-progn form))
 	    ((function) (ll-quote form))
 	    ((return-from) (ll-return-from form))
-	    ((setq) (ll-setq form))
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
 	    ((unwind-protect) (ll-unwind-protect form))
 	    ((sys.int::%jump-table) (ll-jump-table form))))
     (ast-if (ll-if form))
     (ast-quote (ll-quote form))
+    (ast-setq (ll-setq form))
     (ast-call (ll-function-form form))
     (lexical-variable (ll-variable form))
     (lambda-information (ll-lambda form))))
@@ -112,7 +112,7 @@
   form)
 
 (defun ll-setq (form)
-  (setf (third form) (ll-form (third form)))
+  (setf (value form) (ll-form (value form)))
   form)
 
 (defun ll-tagbody (form)
