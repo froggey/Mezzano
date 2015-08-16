@@ -493,10 +493,10 @@ be generated instead.")
 	   tag))
     (etypecase form
       (cons (ecase (first form)
-	      ((go) (cg-go form))
 	      ((tagbody) (cg-tagbody form))))
       (ast-block (save-tag (cg-block form)))
       (ast-function (save-tag (cg-function form)))
+      (ast-go (cg-go form))
       (ast-if (save-tag (cg-if form)))
       (ast-let (cg-let form))
       (ast-multiple-value-bind (save-tag (cg-multiple-value-bind form)))
@@ -648,13 +648,13 @@ be generated instead.")
     (setf *r8-value* (list (gensym)))))
 
 (defun cg-go (form)
-  (let ((tag (assoc (second form) *rename-list*)))
+  (let ((tag (assoc (target form) *rename-list*)))
     (smash-r8)
     (cond (tag ;; Local jump.
            (emit `(sys.lap-x86:jmp ,(second tag))))
           (t ;; Non-local exit.
            (let ((tagbody-tag (let ((*for-value* t))
-                                (cg-form (third form)))))
+                                (cg-form (info form)))))
              (load-in-reg :rax tagbody-tag t)
              ;; RAX holds the tagbody info.
              (emit
@@ -662,9 +662,9 @@ be generated instead.")
               `(sys.lap-x86:xor32 :r8d :r8d)
               ;; GO GO GO!
               `(sys.lap-x86:mov64 :rdx (:rax 0))
-              `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (second form)
+              `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (target form)
                                                            (tagbody-information-go-tags
-                                                            (go-tag-tagbody (second form))))
+                                                            (go-tag-tagbody (target form))))
                                                  8)))
               `(sys.lap-x86:jmp :rdx)))))
     'nil))
@@ -1618,8 +1618,8 @@ Returns an appropriate tag."
     ;; Every jump entry must be a local GO with no special bindings.
     (emit-trailer (jump-table nil)
       (dolist (j jumps)
-        (assert (and (listp j) (eql (first j) 'go)))
-        (let ((go-tag (assoc (second j) *rename-list*)))
+        (assert (typep j 'ast-go))
+        (let ((go-tag (assoc (target j) *rename-list*)))
           (assert go-tag () "GO tag not local")
           (emit `(:d64/le (- ,(second go-tag) ,jump-table))))))
     ;; Jump.

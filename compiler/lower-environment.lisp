@@ -35,12 +35,13 @@
 (defun compute-environment-layout (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) nil)
 	    ((tagbody)
              (compute-tagbody-environment-layout form))))
     (ast-block
      (compute-block-environment-layout form))
     (ast-function nil)
+    (ast-go
+     (compute-environment-layout (info form)))
     (ast-if
      (compute-environment-layout (test form))
      (compute-environment-layout (if-then form))
@@ -182,13 +183,13 @@ of statements opens a new contour."
            (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '())))
     (etypecase form
       (cons (ecase (first form)
-              ((go)
-               (compute-free-variable-sets-1 (third form)))
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))))
       (ast-block
        (remove (info form) (compute-free-variable-sets-1 (body form))))
       (ast-function '())
+      (ast-go
+       (compute-free-variable-sets-1 (info form)))
       (ast-if
        (union (compute-free-variable-sets-1 (test form))
               (union (compute-free-variable-sets-1 (if-then form))
@@ -250,11 +251,12 @@ of statements opens a new contour."
 (defun lower-env-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) (le-go form))
 	    ((tagbody) (le-tagbody form))))
     (ast-block
      (le-block form))
     (ast-function form)
+    (ast-go
+     (le-go form))
     (ast-if
      (le-if form))
     (ast-let
@@ -554,7 +556,7 @@ of statements opens a new contour."
   form)
 
 (defun le-go (form)
-  (setf (third form) (lower-env-form (third form)))
+  (setf (info form) (lower-env-form (info form)))
   form)
 
 (defun le-tagbody (form)

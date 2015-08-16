@@ -210,6 +210,10 @@ A list of any declaration-specifiers."
 (defclass ast-function ()
   ((%name :initarg :name :accessor name)))
 
+(defclass ast-go ()
+  ((%target :initarg :target :accessor target)
+   (%info :initarg :info :accessor info)))
+
 (defclass ast-if ()
   ((%test :initarg :test :accessor test)
    (%then :initarg :then :accessor if-then)
@@ -274,9 +278,6 @@ A list of any declaration-specifiers."
 	     (flush-form i))))
     (etypecase form
       (cons (ecase (first form)
-	      ((go)
-               (decf (go-tag-use-count (second form)))
-               (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -284,6 +285,9 @@ A list of any declaration-specifiers."
       (ast-block
        (flush-form (body form)))
       (ast-function)
+      (ast-go
+       (decf (go-tag-use-count (target form)))
+       (decf (lexical-variable-use-count (go-tag-tagbody (target form)))))
       (ast-if
        (flush-form (test form))
        (flush-form (if-then form))
@@ -355,13 +359,6 @@ A list of any declaration-specifiers."
 		 var)))
     (etypecase form
       (cons (ecase (first form)
-	      ((go)
-	       (let ((tag (fix (second form))))
-		 (incf (go-tag-use-count tag))
-		 (pushnew *current-lambda* (go-tag-used-in tag))
-		 (incf (lexical-variable-use-count (go-tag-tagbody tag)))
-		 (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
-		 `(go ,tag ,(go-tag-tagbody tag))))
 	      ((tagbody)
 	       (let ((info (make-instance 'tagbody-information
                                           :definition-point (fix (lexical-variable-definition-point (second form))))))
@@ -382,6 +379,15 @@ A list of any declaration-specifiers."
        (make-instance 'ast-block
                       :info (copy-variable (info form))
                       :body (copy-form (body form) replacements)))
+      (ast-go
+       (let ((tag (fix (target form))))
+         (incf (go-tag-use-count tag))
+         (pushnew *current-lambda* (go-tag-used-in tag))
+         (incf (lexical-variable-use-count (go-tag-tagbody tag)))
+         (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
+         (make-instance 'ast-go
+                        :target tag
+                        :info (copy-form (info form) replacements))))
       (ast-function form)
       (ast-if
        (make-instance 'ast-if
@@ -508,13 +514,6 @@ A list of any declaration-specifiers."
 		   (lexical-variable-write-count var) 0))))
     (etypecase form
       (cons (ecase (first form)
-	      ((go)
-               (assert (or (not (tagbody-information-p (third form)))
-                           (eql (go-tag-tagbody (second form)) (third form))))
-               (detect-uses (third form))
-	       (incf (go-tag-use-count (second form)))
-	       (pushnew *current-lambda* (go-tag-used-in (second form)))
-               (incf (lexical-variable-use-count (go-tag-tagbody (second form)))))
 	      ((tagbody)
                (reset-var (second form))
 	       (dolist (tag (tagbody-information-go-tags (second form)))
@@ -527,6 +526,13 @@ A list of any declaration-specifiers."
        (reset-var (info form))
        (detect-uses (body form)))
       (ast-function)
+      (ast-go
+       (assert (or (not (tagbody-information-p (info form)))
+                   (eql (go-tag-tagbody (target form)) (info form))))
+       (detect-uses (info form))
+       (incf (go-tag-use-count (target form)))
+       (pushnew *current-lambda* (go-tag-used-in (target form)))
+       (incf (lexical-variable-use-count (go-tag-tagbody (target form)))))
       (ast-if
        (detect-uses (test form))
        (detect-uses (if-then form))
@@ -686,7 +692,9 @@ A list of any declaration-specifiers."
                                                            rest))))
                      :body (make-instance 'ast-progn
                                           :forms (list `(tagbody ,tb
-                                                           (go ,test-tag ,(go-tag-tagbody test-tag))
+                                                           ,(make-instance 'ast-go
+                                                                           :target test-tag
+                                                                           :info (go-tag-tagbody test-tag))
                                                            ,head-tag
                                                            ,(make-instance 'ast-if
                                                                            :test (make-instance 'ast-call
@@ -713,7 +721,9 @@ A list of any declaration-specifiers."
                                                            ,test-tag
                                                            ,(make-instance 'ast-if
                                                                            :test itr
-                                                                           :then `(go ,head-tag ,(go-tag-tagbody head-tag))
+                                                                           :then (make-instance 'ast-go
+                                                                                                :target head-tag
+                                                                                                :info (go-tag-tagbody head-tag))
                                                                            :else (make-instance 'ast-quote :value nil)))
                                                        (create-key-let-body keys values suppliedp)))))))
 
@@ -724,7 +734,6 @@ A list of any declaration-specifiers."
 	     (lower-keyword-arguments i))))
     (etypecase form
       (cons (ecase (first form)
-	      ((go))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -732,6 +741,8 @@ A list of any declaration-specifiers."
       (ast-block
        (lower-keyword-arguments (body form)))
       (ast-function)
+      (ast-go
+       (lower-keyword-arguments (info form)))
       (ast-if
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
@@ -808,7 +819,6 @@ Must be run after keywords have been lowered."
                           :definition-point *current-lambda*)))
     (etypecase form
       (cons (ecase (first form)
-	      ((go))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -816,6 +826,8 @@ Must be run after keywords have been lowered."
       (ast-block
        (lower-arguments (body form)))
       (ast-function)
+      (ast-go
+       (lower-arguments (info form)))
       (ast-if
        (lower-arguments (test form))
        (lower-arguments (if-then form))
@@ -915,8 +927,6 @@ Must be run after keywords have been lowered."
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
       (cons (case (first form)
-	      ((go)
-               `(go ,(go-tag-name (second form))))
 	      ((tagbody)
                `(tagbody ,@(mapcar (lambda (x)
                                      (if (go-tag-p x)
@@ -929,6 +939,8 @@ Must be run after keywords have been lowered."
           ,(unparse-compiler-form (body form))))
       (ast-function
        `(function ,(name form)))
+      (ast-go
+       `(go ,(go-tag-name (target form)) ,(unparse-compiler-form (info form))))
       (ast-if
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))

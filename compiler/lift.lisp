@@ -8,10 +8,10 @@
 (defun ll-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) (ll-go form))
 	    ((tagbody) (ll-tagbody form))))
     (ast-block (ll-block form))
     (ast-function (ll-function form))
+    (ast-go (ll-go form))
     (ast-if (ll-if form))
     (ast-let (ll-let form))
     (ast-multiple-value-bind (ll-multiple-value-bind form))
@@ -45,6 +45,7 @@
   form)
 
 (defun ll-go (form)
+  (setf (info form) (ll-form (info form)))
   form)
 
 (defun ll-if (form)

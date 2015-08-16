@@ -399,7 +399,9 @@
 	  (when x
 	    (incf (go-tag-use-count (cdr x)))
 	    (pushnew *current-lambda* (go-tag-used-in (cdr x)))
-	    (return `(go ,(cdr x) ,(go-tag-tagbody (cdr x))))))))))
+	    (return (make-instance 'ast-go
+                                   :target (cdr x)
+                                   :info (go-tag-tagbody (cdr x))))))))))
 
 (defun pass1-if (form env)
   (destructuring-bind (test then &optional else) (cdr form)

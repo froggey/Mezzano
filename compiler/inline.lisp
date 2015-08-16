@@ -8,10 +8,10 @@
 (defun il-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) (il-go form))
 	    ((tagbody) (il-tagbody form))))
     (ast-block (il-block form))
     (ast-function (il-function form))
+    (ast-go (il-go form))
     (ast-if (il-if form))
     (ast-let (il-let form))
     (ast-multiple-value-bind (il-multiple-value-bind form))
@@ -41,6 +41,7 @@
   form)
 
 (defun il-go (form)
+  (setf (info form) (il-form (info form)))
   form)
 
 (defun il-if (form)

@@ -62,13 +62,13 @@
 (defun lsb-form (form)
   (etypecase form
     (cons (ecase (first form)
-            ((go)
-             (lsb-go form))
             ((tagbody)
              (lsb-tagbody form))))
     (ast-block
      (lsb-block form))
     (ast-function form)
+    (ast-go
+     (lsb-go form))
     (ast-if
      (make-instance 'ast-if
                     :test (lsb-form (test form))
@@ -183,12 +183,15 @@
                       :body (lsb-form (body form)))))))
 
 (defun lsb-go (form)
-  (destructuring-bind (tag location) (cdr form)
+  (let ((tag (target form))
+        (location (info form)))
     (cond ((eql (go-tag-tagbody tag) location)
            ;; Local GO, locate the matching TAGBODY and emit any unwind forms required.
            (make-instance 'ast-progn
                           :forms (append (lsb-unwind-to (lsb-find-b-or-t-binding location))
-                                         (list `(go ,tag ,location)))))
+                                         (list (make-instance 'ast-go
+                                                              :target tag
+                                                              :info location)))))
           (t ;; Non-local GO, do the full unwind.
            (let ((info (make-instance 'lexical-variable
                                       :name (gensym "go-info")
@@ -209,7 +212,9 @@
                                                                         :arguments (list (make-instance 'ast-call
                                                                                                         :name 'sys.int::%%tagbody-info-binding-stack-pointer
                                                                                                         :arguments (list info))))
-                                                         `(go ,tag ,info)))))))))
+                                                         (make-instance 'ast-go
+                                                                        :target tag
+                                                                        :info info)))))))))
 
 (defun lsb-let (form)
   (let ((*special-bindings* *special-bindings*))

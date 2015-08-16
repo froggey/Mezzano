@@ -15,10 +15,10 @@
 (defun kt-form (form &optional target-variable replacement-form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) (kt-go form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))))
     (ast-block (kt-block form target-variable replacement-form))
     (ast-function (kt-function form target-variable replacement-form))
+    (ast-go (kt-go form target-variable replacement-form))
     (ast-if (kt-if form target-variable replacement-form))
     (ast-let (kt-let form target-variable replacement-form))
     (ast-multiple-value-bind (kt-multiple-value-bind form target-variable replacement-form))
@@ -87,8 +87,10 @@
   form)
 
 (defun kt-go (form target-variable replacement-form)
-  (declare (ignore target-variable replacement-form))
-  form)
+  (multiple-value-bind (new-info did-replace)
+      (kt-form (info form) target-variable replacement-form)
+    (setf (info form) new-info)
+    (values form did-replace)))
 
 (defun kt-if (form target-variable replacement-form)
   (multiple-value-bind (new-test did-replace)

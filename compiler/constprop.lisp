@@ -17,10 +17,10 @@
 (defun cp-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((go) (cp-go form))
 	    ((tagbody) (cp-tagbody form))))
     (ast-block (cp-block form))
     (ast-function (cp-function form))
+    (ast-go (cp-go form))
     (ast-if (cp-if form))
     (ast-let (cp-let form))
     (ast-multiple-value-bind (cp-multiple-value-bind form))
@@ -81,6 +81,7 @@
   form)
 
 (defun cp-go (form)
+  (setf (info form) (cp-form (info form)))
   form)
 
 (defun cp-if (form)
