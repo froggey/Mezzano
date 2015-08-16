@@ -16,8 +16,7 @@
 
 (defun cp-form (form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block) (cp-block form))
 	    ((go) (cp-go form))
 	    ((let) (cp-let form))
@@ -31,9 +30,10 @@
 	    ((tagbody) (cp-tagbody form))
 	    ((the) (cp-the form))
 	    ((unwind-protect) (cp-unwind-protect form))
-	    (t (cp-function-form form))))
+	    ((sys.int::%jump-table) (cp-jump-table form))))
     (ast-if (cp-if form))
     (ast-quote (cp-quote form))
+    (ast-call (cp-function-form form))
     (lexical-variable (cp-variable form))
     (lambda-information (cp-lambda form))))
 
@@ -123,7 +123,7 @@
                                 *constprop-lambda-copy-limit*))
                        (typep val 'ast-quote)
 		       (and (consp val)
-                            (member (first val) '(function)))
+                            (eql (first val) 'function))
 		       (and (lexical-variable-p val)
 			    (localp val)
 			    (eql (lexical-variable-write-count val) 0))))
@@ -166,7 +166,7 @@
                             *constprop-lambda-copy-limit*))
                    (typep (third form) 'ast-quote)
                    (and (consp (third form))
-                        (member (first (third form)) '(function))))
+                        (eql (first (third form)) 'function)))
                ;; Always propagate the new value forward.
                (setf (second info) (third form))
                ;; The value is constant. Attempt to push it back to the
@@ -199,6 +199,10 @@
   form)
 
 (defun cp-unwind-protect (form)
+  (cp-implicit-progn (cdr form))
+  form)
+
+(defun cp-jump-table (form)
   (cp-implicit-progn (cdr form))
   form)
 
@@ -263,8 +267,8 @@
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
 (defun cp-function-form (form)
-  (cp-implicit-progn (cdr form))
-  (or (constant-fold (car form) (cdr form))
+  (cp-implicit-progn (arguments form))
+  (or (constant-fold (name form) (arguments form))
       form))
 
 (defun cp-variable (form)

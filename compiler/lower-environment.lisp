@@ -34,8 +34,7 @@
 
 (defun compute-environment-layout (form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block)
              (compute-block-environment-layout form))
 	    ((go) nil)
@@ -51,7 +50,7 @@
              (mapc #'compute-environment-layout (rest form)))
 	    ((function) nil)
 	    ((return-from)
-             (compute-environment-layout (rest form)))
+             (mapc #'compute-environment-layout (rest form)))
 	    ((setq)
              (compute-environment-layout (third form)))
 	    ((tagbody)
@@ -65,18 +64,20 @@
                         (setf (getf (lambda-information-plist (third form)) 'extent) :dynamic))
                     (compute-lambda-environment-layout (third form)))
                    (t (compute-environment-layout (third form)))))
-	    (t (cond ((and (eql (first form) 'funcall)
-                           (lambda-information-p (second form)))
-                      (unless (getf (lambda-information-plist (second form)) 'extent)
-                        (setf (getf (lambda-information-plist (second form)) 'extent) :dynamic))
-                      (compute-lambda-environment-layout (second form))
-                      (mapc #'compute-environment-layout (cddr form)))
-                     (t (mapc #'compute-environment-layout (rest form)))))))
+	    ((sys.int::%jump-table)
+             (mapc #'compute-environment-layout (rest form)))))
     (ast-if
      (compute-environment-layout (test form))
      (compute-environment-layout (if-then form))
      (compute-environment-layout (if-else form)))
     (ast-quote nil)
+    (ast-call (cond ((and (eql (name form) 'funcall)
+                          (lambda-information-p (first (arguments form))))
+                     (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
+                       (setf (getf (lambda-information-plist (first (arguments form))) 'extent) :dynamic))
+                     (compute-lambda-environment-layout (first (arguments form)))
+                     (mapc #'compute-environment-layout (rest (arguments form))))
+                    (t (mapc #'compute-environment-layout (arguments form)))))
     (lexical-variable nil)
     (lambda-information
      (setf (getf (lambda-information-plist form) 'dynamic-extent) :indefinite)
@@ -176,8 +177,7 @@ of statements opens a new contour."
   (flet ((process-progn (forms)
            (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '())))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
               ((block)
                (remove (second form) (process-progn (cddr form))))
               ((function)
@@ -210,12 +210,15 @@ of statements opens a new contour."
                (compute-free-variable-sets-1 (third form)))
               ((unwind-protect)
                (process-progn (cdr form)))
-              (t (process-progn (cdr form)))))
+              ((sys.int::%jump-table)
+               (process-progn (cdr form)))))
       (ast-if
        (union (compute-free-variable-sets-1 (test form))
               (union (compute-free-variable-sets-1 (if-then form))
                      (compute-free-variable-sets-1 (if-else form)))))
       (ast-quote '())
+      (ast-call
+       (process-progn (arguments form)))
       (lexical-variable (list form))
       (lambda-information
        (let* ((initforms (append (mapcar #'second (lambda-information-optional-args form))
@@ -237,8 +240,7 @@ of statements opens a new contour."
 
 (defun lower-env-form (form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block) (le-block form))
             ((function) form)
 	    ((go) (le-go form))
@@ -252,10 +254,14 @@ of statements opens a new contour."
 	    ((tagbody) (le-tagbody form))
 	    ((the) (le-the form))
 	    ((unwind-protect) (le-form*-cdr form))
-	    (t (le-form*-cdr form))))
+	    ((sys.int::%jump-table) (le-form*-cdr form))))
     (ast-if
      (le-if form))
     (ast-quote form)
+    (ast-call
+     (make-instance 'ast-call
+                    :name (name form)
+                    :arguments (mapcar #'lower-env-form (arguments form))))
     (lexical-variable (le-variable form))
     (lambda-information
      (cond ((or (not *environment-chain*)
@@ -263,17 +269,20 @@ of statements opens a new contour."
             (let ((*environment* '()))
               (le-lambda form)))
            ((getf (lambda-information-plist form) 'declared-dynamic-extent)
-            `(sys.c::make-dx-closure
-              ,(le-lambda form)
-              ,(second (first *environment-chain*))))
+            (make-instance 'ast-call
+                           :name 'sys.c::make-dx-closure
+                           :arguments (list (le-lambda form)
+                                            (second (first *environment-chain*)))))
            (*environment-allocation-mode*
-            `(sys.int::make-closure
-              ,(le-lambda form)
-              ,(second (first *environment-chain*))
-              ,(make-instance 'ast-quote :value *environment-allocation-mode*)))
-           (t `(sys.int::make-closure
-                ,(le-lambda form)
-                ,(second (first *environment-chain*))))))))
+            (make-instance 'ast-call
+                           :name 'sys.int::make-closure
+                           :arguments (list (le-lambda form)
+                                            (second (first *environment-chain*))
+                                            (make-instance 'ast-quote :value *environment-allocation-mode*))))
+           (t (make-instance 'ast-call
+                             :name 'sys.int::make-closure
+                             :arguments (list (le-lambda form)
+                                              (second (first *environment-chain*)))))))))
 
 (defvar *environment-chain* nil
   "The directly accessible environment vectors in this function.")
@@ -293,13 +302,19 @@ of statements opens a new contour."
 (defun generate-make-environment (lambda size)
   (cond ((gethash lambda *environment-layout-dx*)
          ;; DX allocation.
-         `(sys.c::make-dx-simple-vector ,(make-instance 'ast-quote :value size)))
+         (make-instance 'ast-call
+                        :name 'sys.c::make-dx-simple-vector
+                        :arguments (list (make-instance 'ast-quote :value size))))
         (*environment-allocation-mode*
          ;; Allocation in an explicit area.
-         `(sys.int::make-simple-vector ,(make-instance 'ast-quote :value size)
-                                       ,(make-instance 'ast-quote :value *environment-allocation-mode*)))
+         (make-instance 'ast-call
+                        :name 'sys.int::make-simple-vector
+                        :arguments (list (make-instance 'ast-quote :value size)
+                                         (make-instance 'ast-quote :value *environment-allocation-mode*))))
         ;; General allocation.
-        (t `(sys.int::make-simple-vector ,(make-instance 'ast-quote :value size)))))
+        (t (make-instance 'ast-call
+                          :name 'sys.int::make-simple-vector
+                          :arguments (list (make-instance 'ast-quote :value size))))))
 
 (defun le-lambda (lambda)
   (let ((*environment-chain* '())
@@ -329,41 +344,46 @@ of statements opens a new contour."
              (setf (lambda-information-body lambda)
                    `(let ((,new-env ,(generate-make-environment lambda (1+ (length local-env)))))
                       ,@(when (rest *environment-chain*)
-                              (list (list '(setf sys.int::%object-ref-t)
-                                          (second (second *environment-chain*))
-                                          new-env
-                                          (make-instance 'ast-quote :value '0))))
+                          (list (make-instance 'ast-call
+                                               :name '(setf sys.int::%object-ref-t)
+                                               :arguments (list (second (second *environment-chain*))
+                                                                new-env
+                                                                (make-instance 'ast-quote :value '0)))))
                       ,@(mapcar (lambda (arg)
-                                  (list '(setf sys.int::%object-ref-t)
-                                        arg
-                                        new-env
-                                        (make-instance 'ast-quote
-                                                       :value (1+ (position arg local-env)))))
+                                  (make-instance 'ast-call
+                                                 :name '(setf sys.int::%object-ref-t)
+                                                 :arguments (list arg
+                                                                  new-env
+                                                                  (make-instance 'ast-quote
+                                                                                 :value (1+ (position arg local-env))))))
                                 (remove-if #'localp (lambda-information-required-args lambda)))
                       ,@(mapcar (lambda (arg)
-                                  (list '(setf sys.int::%object-ref-t)
-                                        (first arg)
-                                        new-env
-                                        (make-instance 'ast-quote
-                                                       :value (1+ (position (first arg) local-env)))))
+                                  (make-instance 'ast-call
+                                                 :name '(setf sys.int::%object-ref-t)
+                                                 :arguments (list (first arg)
+                                                                  new-env
+                                                                  (make-instance 'ast-quote
+                                                                                 :value (1+ (position (first arg) local-env))))))
                                 (remove-if #'localp (lambda-information-optional-args lambda)
                                            :key #'first))
                       ,@(mapcar (lambda (arg)
-                                  (list '(setf sys.int::%object-ref-t)
-                                        (third arg)
-                                        new-env
-                                        (make-instance 'ast-quote
-                                                       :value (1+ (position (third arg) local-env)))))
+                                  (make-instance 'ast-call
+                                                 :name '(setf sys.int::%object-ref-t)
+                                                 :arguments (list (third arg)
+                                                                  new-env
+                                                                  (make-instance 'ast-quote
+                                                                                 :value (1+ (position (third arg) local-env))))))
                                 (remove-if #'(lambda (x) (or (null x) (localp x)))
                                            (lambda-information-optional-args lambda)
                                            :key #'third))
                       ,@(when (and (lambda-information-rest-arg lambda)
                                    (not (localp (lambda-information-rest-arg lambda))))
-                          (list (list '(setf sys.int::%object-ref-t)
-                                      (lambda-information-rest-arg lambda)
-                                      new-env
-                                      (make-instance 'ast-quote
-                                                     :value (1+ (position (lambda-information-rest-arg lambda) local-env))))))
+                          (list (make-instance 'ast-call
+                                               :name '(setf sys.int::%object-ref-t)
+                                               :arguments (list (lambda-information-rest-arg lambda)
+                                                                new-env
+                                                                (make-instance 'ast-quote
+                                                                               :value (1+ (position (lambda-information-rest-arg lambda) local-env)))))))
                       ,(lower-env-form (lambda-information-body lambda))))))
           (t (setf (lambda-information-environment-layout lambda) (compute-environment-layout-debug-info))
              (setf (lambda-information-body lambda) (lower-env-form (lambda-information-body lambda)))))
@@ -375,11 +395,12 @@ of statements opens a new contour."
            collect (list variable (if (or (symbolp variable)
                                           (localp variable))
                                       (lower-env-form init-form)
-                                      (list '(setf sys.int::%object-ref-t)
-                                            (lower-env-form init-form)
-                                            (second (first *environment-chain*))
-                                            (make-instance 'ast-quote
-                                                           :value (1+ (position variable (gethash (first *environment*) *environment-layout*)))))))))
+                                      (make-instance 'ast-call
+                                                     :name '(setf sys.int::%object-ref-t)
+                                                     :arguments (list (lower-env-form init-form)
+                                                                      (second (first *environment-chain*))
+                                                                      (make-instance 'ast-quote
+                                                                                     :value (1+ (position variable (gethash (first *environment*) *environment-layout*))))))))))
   (setf (cddr form) (mapcar #'lower-env-form (cddr form)))
   form)
 
@@ -395,7 +416,9 @@ of statements opens a new contour."
        (let ((result (second (car c))))
          (dolist (env (cdr e)
                   (error "Can't find environment for ~S?" vector-id))
-           (setf result `(sys.int::%object-ref-t ,result ,(make-instance 'ast-quote :value '0)))
+           (setf result (make-instance 'ast-call
+                                       :name 'sys.int::%object-ref-t
+                                       :arguments (list result (make-instance 'ast-quote :value '0))))
            (when (eql env vector-id)
              (return result)))))))
 
@@ -424,8 +447,10 @@ of statements opens a new contour."
         (let* ((layout (gethash e *environment-layout*))
                (offset (position form layout)))
           (when offset
-            (return `(sys.int::%object-ref-t ,(get-env-vector e)
-                                             ,(make-instance 'ast-quote :value (1+ offset)))))))))
+            (return (make-instance 'ast-call
+                                   :name 'sys.int::%object-ref-t
+                                   :arguments (list (get-env-vector e)
+                                                    (make-instance 'ast-quote :value (1+ offset))))))))))
 
 (defun le-form*-cdr (form)
   (list* (first form)
@@ -439,11 +464,12 @@ of statements opens a new contour."
                   (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
               (setf (block-information-env-var (second form)) env-var
                     (block-information-env-offset (second form)) env-offset)
-              (list (list '(setf sys.int::%object-ref-t)
-                          (second form)
-                          env-var
-                          (make-instance 'ast-quote
-                                         :value env-offset)))))
+              (list (make-instance 'ast-call
+                                   :name '(setf sys.int::%object-ref-t)
+                                   :arguments (list (second form)
+                                                    env-var
+                                                    (make-instance 'ast-quote
+                                                                   :value env-offset))))))
           (mapcar #'lower-env-form (cddr form))))
 
 (defun le-setq (form)
@@ -455,10 +481,11 @@ of statements opens a new contour."
              (let* ((layout (gethash e *environment-layout*))
                     (offset (position (second form) layout)))
                (when offset
-                 (return (list '(setf sys.int::%object-ref-t)
-                               (lower-env-form (third form))
-                               (get-env-vector e)
-                               (make-instance 'ast-quote :value (1+ offset))))))))))
+                 (return (make-instance 'ast-call
+                                        :name '(setf sys.int::%object-ref-t)
+                                        :arguments (list (lower-env-form (third form))
+                                                         (get-env-vector e)
+                                                         (make-instance 'ast-quote :value (1+ offset)))))))))))
 
 (defun le-multiple-value-bind (form)
   `(multiple-value-bind ,(second form)
@@ -466,11 +493,12 @@ of statements opens a new contour."
      ,@(mapcan (lambda (var)
                  (when (and (not (symbolp var))
                             (not (localp var)))
-                   (list (list '(setf sys.int::%object-ref-t)
-                               var
-                               (second (first *environment-chain*))
-                               (make-instance 'ast-quote
-                                              :value (1+ (position var (gethash (first *environment*) *environment-layout*))))))))
+                   (list (make-instance 'ast-call
+                                        :name '(setf sys.int::%object-ref-t)
+                                        :arguments (list var
+                                                         (second (first *environment-chain*))
+                                                         (make-instance 'ast-quote
+                                                                        :value (1+ (position var (gethash (first *environment*) *environment-layout*)))))))))
                (second form))
      ,@(mapcar #'lower-env-form (cdddr form))))
 
@@ -501,18 +529,20 @@ of statements opens a new contour."
                            (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
                        (setf (tagbody-information-env-var (second form)) env-var
                              (tagbody-information-env-offset (second form)) env-offset)
-                       (list (list '(setf sys.int::%object-ref-t)
-                                   (second form)
-                                   env-var
-                                   (make-instance 'ast-quote :value env-offset)))))
+                       (list (make-instance 'ast-call
+                                            :name '(setf sys.int::%object-ref-t)
+                                            :arguments (list (second form)
+                                                             env-var
+                                                             (make-instance 'ast-quote :value env-offset))))))
                  ,@(let ((info (assoc (second form) new-envs)))
                      (when info
                        (if *environment*
                            (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))
-                                 (list '(setf sys.int::%object-ref-t)
-                                       (second (first *environment-chain*))
-                                       (second info)
-                                       (make-instance 'ast-quote :value '0)))
+                                 (make-instance 'ast-call
+                                                :name '(setf sys.int::%object-ref-t)
+                                                :arguments (list (second (first *environment-chain*))
+                                                                 (second info)
+                                                                 (make-instance 'ast-quote :value '0))))
                            (list `(setq ,(second info) ,(generate-make-environment (second form) (1+ (length (third info)))))))))
                  ,@(frob-inner (second form))))
              (frob-inner (current-env)
@@ -524,10 +554,11 @@ of statements opens a new contour."
                                           (when info
                                             (list `(setq ,(second info) ,(generate-make-environment current-env (1+ (length (third info)))))))
                                           (when (and info *environment*)
-                                            (list (list '(setf sys.int::%object-ref-t)
-                                                        (second (first *environment-chain*))
-                                                        (second info)
-                                                        (make-instance 'ast-quote :value '0)))))))
+                                            (list (make-instance 'ast-call
+                                                                 :name '(setf sys.int::%object-ref-t)
+                                                                 :arguments (list (second (first *environment-chain*))
+                                                                                  (second info)
+                                                                                  (make-instance 'ast-quote :value '0))))))))
                                 (t (let ((info (assoc current-env new-envs)))
                                      (if info
                                          (let ((*environment-chain* (list* (list current-env (second info))

@@ -7,8 +7,7 @@
 
 (defun ll-form (form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block) (ll-block form))
 	    ((go) (ll-go form))
 	    ((let) (ll-let form))
@@ -22,9 +21,10 @@
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
 	    ((unwind-protect) (ll-unwind-protect form))
-	    (t (ll-function-form form))))
+	    ((sys.int::%jump-table) (ll-jump-table form))))
     (ast-if (ll-if form))
     (ast-quote (ll-quote form))
+    (ast-call (ll-function-form form))
     (lexical-variable (ll-variable form))
     (lambda-information (ll-lambda form))))
 
@@ -133,6 +133,10 @@
   (ll-implicit-progn (cdr form))
   form)
 
+(defun ll-jump-table (form)
+  (ll-implicit-progn (cdr form))
+  form)
+
 ;; Doesn't support fuzzy allow-other-keys matching.
 (defun arguments-match-lambda-list (lambda arg-list)
   (let ((arg-count (length arg-list))
@@ -225,7 +229,9 @@
                        (t (build-rest-binding arg-vars))))
                (build-rest-binding (arg-vars)
                  (if rest-arg
-                     `(let ((,rest-arg (list ,@arg-vars)))
+                     `(let ((,rest-arg ,(make-instance 'ast-call
+                                                       :name 'list
+                                                       :arguments arg-vars)))
                         ,(build-key-bindings key-args))
                      (build-key-bindings key-args)))
                (build-key-bindings (keys)
@@ -257,11 +263,11 @@
            ,(build-required-bindings required-args argument-vars))))))
 
 (defun ll-function-form (form)
-  (ll-implicit-progn (cdr form))
+  (ll-implicit-progn (arguments form))
   (if *should-inline-functions*
-      (or (and (eq (first form) 'funcall)
-               (lambda-information-p (second form))
-               (lift-lambda (second form) (cddr form)))
+      (or (and (eql (name form) 'funcall)
+               (lambda-information-p (first (arguments form)))
+               (lift-lambda (first (arguments form)) (rest (arguments form))))
           ;; Couldn't lift.
           form)
       form))

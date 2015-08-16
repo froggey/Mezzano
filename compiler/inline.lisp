@@ -7,8 +7,7 @@
 
 (defun il-form (form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block) (il-block form))
 	    ((go) (il-go form))
 	    ((let) (il-let form))
@@ -22,9 +21,10 @@
 	    ((tagbody) (il-tagbody form))
 	    ((the) (il-the form))
 	    ((unwind-protect) (il-unwind-protect form))
-	    (t (il-function-form form))))
+	    ((sys.int::%jump-table) (il-jump-table form))))
     (ast-if (il-if form))
     (ast-quote (il-quote form))
+    (ast-call (il-function-form form))
     (lexical-variable (il-variable form))
     (lambda-information (il-lambda form))))
 
@@ -97,21 +97,29 @@
   (il-implicit-progn (cdr form))
   form)
 
+(defun il-jump-table (form)
+  (il-implicit-progn (cdr form))
+  form)
+
 (defun expand-inline-function (name arg-list)
   (multiple-value-bind (inlinep expansion)
       (function-inline-info name)
     (when inlinep
       (cond (expansion
-             `(funcall ,(pass1-lambda expansion nil) ,@arg-list))
+             (make-instance 'ast-call
+                            :name 'funcall
+                            :arguments (list* (pass1-lambda expansion nil) arg-list)))
             ((fboundp name)
              (multiple-value-bind (expansion closurep)
                  (function-lambda-expression (fdefinition name))
                (when (and expansion (not closurep))
-                 `(funcall ,(pass1-lambda expansion nil) ,@arg-list))))))))
+                 (make-instance 'ast-call
+                                :name 'funcall
+                                :arguments (list* (pass1-lambda expansion nil) arg-list)))))))))
 
 (defun il-function-form (form)
-  (il-implicit-progn (cdr form))
-  (let ((inlined-form (expand-inline-function (first form) (rest form))))
+  (il-implicit-progn (arguments form))
+  (let ((inlined-form (expand-inline-function (name form) (arguments form))))
     (cond (inlined-form
            (change-made)
            inlined-form)

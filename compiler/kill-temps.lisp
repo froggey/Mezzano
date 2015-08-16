@@ -14,8 +14,7 @@
 
 (defun kt-form (form &optional target-variable replacement-form)
   (etypecase form
-    (cons (case (first form)
-            ((if quote) (error "old style ast"))
+    (cons (ecase (first form)
 	    ((block) (kt-block form target-variable replacement-form))
 	    ((go) (kt-go form target-variable replacement-form))
 	    ((let) (kt-let form target-variable replacement-form))
@@ -29,13 +28,16 @@
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))
 	    ((the) (kt-the form target-variable replacement-form))
 	    ((unwind-protect) (kt-unwind-protect form target-variable replacement-form))
-	    (t (kt-function-form form target-variable replacement-form))))
+	    ((sys.int::%jump-table) (kt-jump-table form target-variable replacement-form))))
     (ast-if (kt-if form target-variable replacement-form))
     (ast-quote (kt-quote form target-variable replacement-form))
+    (ast-call (kt-function-form form target-variable replacement-form))
     (lexical-variable
      (cond ((eql form target-variable)
             (change-made)
-            (values `(values ,replacement-form) t))
+            (values (make-instance 'ast-call
+                                   :name 'values
+                                   :arguments (list replacement-form)) t))
            (t (values form nil))))
     (lambda-information
      (kt-lambda form))))
@@ -61,10 +63,12 @@
 
 (defun kt-function-form (form target-variable replacement-form)
   (multiple-value-bind (new-list did-replace)
-      (kt-implicit-progn (rest form)
+      (kt-implicit-progn (arguments form)
                          target-variable
                          replacement-form)
-    (values (list* (first form) new-list)
+    (values (make-instance 'ast-call
+                           :name (name form)
+                           :arguments new-list)
             did-replace)))
 
 (defun temporary-p (varlike)
@@ -199,4 +203,11 @@
       (kt-form (second form) target-variable replacement-form)
     (setf (second form) new-form)
     (setf (third form) (kt-form (third form)))
+    (values form did-replace)))
+
+(defun kt-jump-table (form target-variable replacement-form)
+  (multiple-value-bind (new-form did-replace)
+      (kt-form (second form) target-variable replacement-form)
+    (setf (second form) new-form)
+    (setf (cddr form) (kt-implicit-progn (cddr form)))
     (values form did-replace)))

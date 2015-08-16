@@ -40,13 +40,22 @@
                                 :name (gensym "ssp")
                                 :definition-point lambda)))
         (setf (lambda-information-body lambda)
-              `(let ((,ssp (sys.int::%%special-stack-pointer)))
+              `(let ((,ssp ,(make-instance 'ast-call
+                                           :name 'sys.int::%%special-stack-pointer
+                                           :arguments '())))
                  (multiple-value-prog1
                      (lambda-information-body lambda)
                    ,(make-instance 'ast-if
-                                   :test `(eq ,ssp (sys.int::%%special-stack-pointer))
+                                   :test (make-instance 'ast-call
+                                                        :name 'eq
+                                                        :arguments (list ssp
+                                                                         (make-instance 'ast-call
+                                                                                        :name 'sys.int::%%special-stack-pointer
+                                                                                        :arguments '())))
                                    :then (make-instance 'ast-quote :value 'nil)
-                                   :else `(error ,(make-instance 'ast-quote :value "SSP mismatch"))))))))
+                                   :else (make-instance 'ast-call
+                                                        :name 'error
+                                                        :arguments (list (make-instance 'ast-quote :value "SSP mismatch")))))))))
     lambda))
 
 (defun lsb-form (form)
@@ -54,8 +63,7 @@
            (append (subseq form 0 preserve-n-leading-forms)
                    (mapcar #'lsb-form (nthcdr preserve-n-leading-forms form)))))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
               ((block)
                (lsb-block form))
               ((go)
@@ -75,13 +83,17 @@
               ((the) (map-form 2))
               ((unwind-protect)
                (lsb-unwind-protect form))
-              (t (map-form 1))))
+              ((sys.int::%jump-table) (map-form 1))))
       (ast-if
        (make-instance 'ast-if
                       :test (lsb-form (test form))
                       :then (lsb-form (if-then form))
                       :else (lsb-form (if-else form))))
       (ast-quote form)
+      (ast-call
+       (make-instance 'ast-call
+                      :name (name form)
+                      :arguments (mapcar #'lsb-form (arguments form))))
       (lexical-variable form)
       (lambda-information
        (lsb-lambda form)))))
@@ -105,11 +117,20 @@
       (ecase (first binding)
         (:block-or-tagbody
          (when (third binding)
-           (push '(sys.int::%%disestablish-block-or-tagbody) forms)))
+           (push (make-instance 'ast-call
+                                :name 'sys.int::%%disestablish-block-or-tagbody
+                                :arguments '())
+                 forms)))
         (:special
-         (push '(sys.int::%%unbind) forms))
+         (push (make-instance 'ast-call
+                                :name 'sys.int::%%unbind
+                                :arguments '())
+               forms))
         (:unwind-protect
-         (push '(sys.int::%%disestablish-unwind-protect) forms))))))
+         (push (make-instance 'ast-call
+                                :name 'sys.int::%%disestablish-unwind-protect
+                                :arguments '())
+               forms))))))
 
 (defun lsb-block (form)
   (let ((*special-bindings* *special-bindings*)
@@ -124,12 +145,16 @@
        ;; Escaping block.
        `(block ,info
           ;; Must be inside the block, so the special stack pointer is saved correctly.
-          (sys.int::%%push-special-stack ,(block-information-env-var info)
-                                         ,(make-instance 'ast-quote
-                                                         :value (block-information-env-offset info)))
-          ,(list 'multiple-value-prog1
-                 `(progn ,@(mapcar #'lsb-form (cddr form)))
-                 '(sys.int::%%disestablish-block-or-tagbody))))
+          ,(make-instance 'ast-call
+                          :name 'sys.int::%%push-special-stack
+                          :arguments (list (block-information-env-var info)
+                                           (make-instance 'ast-quote
+                                                          :value (block-information-env-offset info))))
+          (multiple-value-prog1
+              (progn ,@(mapcar #'lsb-form (cddr form)))
+            ,(make-instance 'ast-call
+                            :name 'sys.int::%%disestablish-block-or-tagbody
+                            :arguments '()))))
       (t ;; Local block.
        `(block ,info ,@(mapcar #'lsb-form (cddr form)))))))
 
@@ -149,8 +174,14 @@
                 ,(make-instance 'ast-if
                                 :test info
                                 :then (make-instance 'ast-quote :value 'nil)
-                                :else `(sys.int::raise-bad-go-tag ,(make-instance 'ast-quote :value (go-tag-name tag))))
-                (sys.int::%%unwind-to (sys.int::%%tagbody-info-binding-stack-pointer ,info))
+                                :else (make-instance 'ast-call
+                                                     :name 'sys.int::raise-bad-go-tag
+                                                     :arguments (list (make-instance 'ast-quote :value (go-tag-name tag)))))
+                ,(make-instance 'ast-call
+                                :name 'sys.int::%%unwind-to
+                                :arguments (list (make-instance 'ast-call
+                                                                :name 'sys.int::%%tagbody-info-binding-stack-pointer
+                                                                :arguments (list info))))
                 (go ,tag ,info)))))))
 
 (defun lsb-let (form)
@@ -165,15 +196,17 @@
                               (t
                                (push (list :special (first binding))
                                      *special-bindings*)
-                               (list
-                                'progn
-                                `(sys.int::%%bind ,(make-instance 'ast-quote
-                                                                  :value (first binding))
-                                                  ,(lsb-form (second binding)))
-                                (list
-                                 'multiple-value-prog1
-                                 (frob (rest bindings))
-                                 '(sys.int::%%unbind)))))))
+                               `(progn
+                                  ,(make-instance 'ast-call
+                                                  :name 'sys.int::%%bind
+                                                  :arguments (list (make-instance 'ast-quote
+                                                                                  :value (first binding))
+                                                                   (lsb-form (second binding))))
+                                  (multiple-value-prog1
+                                      ,(frob (rest bindings))
+                                    ,(make-instance 'ast-call
+                                                    :name 'sys.int::%%unbind
+                                                    :arguments '())))))))
                      (t `(progn ,@(mapcar #'lsb-form (cddr form)))))))
       (frob (second form)))))
 
@@ -188,14 +221,18 @@
                 ,(make-instance 'ast-if
                                 :test info
                                 :then (make-instance 'ast-quote :value 'nil)
-                                :else `(sys.int::raise-bad-block
-                                        ,(make-instance 'ast-quote
-                                                        :value (lexical-variable-name tag))))
+                                :else (make-instance 'ast-call
+                                                     :name 'sys.int::raise-bad-block
+                                                     :arguments (list (make-instance 'ast-quote
+                                                                                     :value (lexical-variable-name tag)))))
                 (return-from ,tag
-                  ,(list
-                    'multiple-value-prog1
-                    (lsb-form value-form)
-                    `(sys.int::%%unwind-to (sys.int::%%block-info-binding-stack-pointer ,info)))
+                  (multiple-value-prog1
+                      ,(lsb-form value-form)
+                    ,(make-instance 'ast-call
+                                    :name 'sys.int::%%unwind-to
+                                    :arguments (list (make-instance 'ast-call
+                                                                    :name 'sys.int::%%block-info-binding-stack-pointer
+                                                                    :arguments (list info)))))
                   ,info))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
@@ -224,14 +261,18 @@
       (cond
         ((tagbody-information-env-var info)
          ;; Escaping TAGBODY.
-         (list 'progn
-               ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
-               `(sys.int::%%push-special-stack ,(tagbody-information-env-var info)
-                                               ,(make-instance 'ast-quote
-                                                               :value (tagbody-information-env-offset info)))
-               (frob-tagbody)
-               '(sys.int::%%disestablish-block-or-tagbody)
-               (make-instance 'ast-quote :value 'nil)))
+         `(progn
+            ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
+            ,(make-instance 'ast-call
+                            :name 'sys.int::%%push-special-stack
+                            :arguments (list (tagbody-information-env-var info)
+                                             (make-instance 'ast-quote
+                                                            :value (tagbody-information-env-offset info))))
+            ,(frob-tagbody)
+            ,(make-instance 'ast-call
+                            :name 'sys.int::%%disestablish-block-or-tagbody
+                            :arguments '())
+            ,(make-instance 'ast-quote :value 'nil)))
         (t ;; Local TAGBODY.
          (frob-tagbody))))))
 
@@ -241,23 +282,26 @@
       ;; The cleanup function must either be a naked lambda or a
       ;; call to make-closure with a known lambda.
       (assert (or (lambda-information-p cleanup-function)
-                  (and (listp cleanup-function)
-                       (eql (first cleanup-function) 'sys.int::make-closure)
-                       (= (list-length cleanup-function) 3)
-                       (lambda-information-p (second cleanup-function)))))
+                  (and (typep cleanup-function 'ast-call)
+                       (eql (name cleanup-function) 'sys.int::make-closure)
+                       (= (list-length (arguments cleanup-function)) 2)
+                       (lambda-information-p (first (arguments cleanup-function))))))
       (when (not (lambda-information-p cleanup-function))
         ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
-        (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t))
-      (list
-       'progn
-       (cond
-         ((lambda-information-p cleanup-function)
-          `(sys.int::%%push-special-stack ,(lsb-form cleanup-function)
-                                          ,(make-instance 'ast-quote :value 0)))
-         (t
-          (setf (getf (lambda-information-plist (second cleanup-function)) 'unwind-protect-cleanup) t)
-          `(sys.int::%%push-special-stack ,(lsb-form (second cleanup-function))
-                                          ,(lsb-form (third cleanup-function)))))
-       (list 'multiple-value-prog1
-             (lsb-form protected-form)
-             '(sys.int::%%disestablish-unwind-protect))))))
+        (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t))
+      `(progn
+         ,(make-instance 'ast-call
+                         :name 'sys.int::%%push-special-stack
+                         :arguments (cond
+                                      ((lambda-information-p cleanup-function)
+                                       (list (lsb-form cleanup-function)
+                                             (make-instance 'ast-quote :value 0)))
+                                      (t
+                                       (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t)
+                                       (list (lsb-form (first (arguments cleanup-function)))
+                                             (lsb-form (second (arguments cleanup-function)))))))
+         (multiple-value-prog1
+             ,(lsb-form protected-form)
+           ,(make-instance 'ast-call
+                           :name 'sys.int::%%disestablish-unwind-protect
+                           :arguments '()))))))

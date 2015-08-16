@@ -211,6 +211,10 @@ A list of any declaration-specifiers."
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
 
+(defclass ast-call ()
+  ((%name :initarg :name :accessor name)
+   (%arguments :initarg :arguments :accessor arguments)))
+
 (defmethod print-object ((object go-tag) stream)
   (print-unreadable-object (object stream :type t)
     (format stream "~S" (go-tag-name object))))
@@ -221,8 +225,7 @@ A list of any declaration-specifiers."
 	   (dolist (i forms)
 	     (flush-form i))))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
 	      ((block) (implicit-progn (cddr form)))
 	      ((go)
                (decf (go-tag-use-count (second form)))
@@ -250,12 +253,14 @@ A list of any declaration-specifiers."
 		   (flush-form i))))
 	      ((the) (flush-form (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
-	    (t (implicit-progn (cdr form)))))
+              ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-if
        (flush-form (test form))
        (flush-form (if-then form))
        (flush-form (if-else form)))
       (ast-quote)
+      (ast-call
+       (mapc #'flush-form (arguments form)))
       (lexical-variable
        (decf (lexical-variable-use-count form)))
       (lambda-information
@@ -288,8 +293,7 @@ A list of any declaration-specifiers."
 		   new)
 		 var)))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
 	      ((block)
 	       `(block ,(copy-variable (second form)) ,@(implicit-progn (cddr form))))
 	      ((go)
@@ -345,13 +349,19 @@ A list of any declaration-specifiers."
 			       (cddr form)))))
 	      ((the) `(the ,(second form) ,(copy-form (third form) replacements)))
 	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
-	      (t (list* (first form) (implicit-progn (cdr form))))))
+              ((sys.int::%jump-table) `(sys.int::%jump-table ,@(implicit-progn (cdr form))))))
       (ast-if
        (make-instance 'ast-if
                       :test (copy-form (test form) replacements)
                       :then (copy-form (if-then form) replacements)
                       :else (copy-form (if-else form) replacements)))
       (ast-quote form)
+      (ast-call
+       (make-instance 'ast-call
+                      :name (name form)
+                      :arguments (loop
+                                    for arg in (arguments form)
+                                    collect (copy-form arg replacements))))
       (lexical-variable
        (let ((var (fix form)))
 	 (incf (lexical-variable-use-count var))
@@ -406,8 +416,7 @@ A list of any declaration-specifiers."
 		   (lexical-variable-use-count var) 0
 		   (lexical-variable-write-count var) 0))))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
 	      ((block)
 	       (reset-var (second form))
 	       (implicit-progn (cddr form)))
@@ -451,12 +460,15 @@ A list of any declaration-specifiers."
 		   (detect-uses i))))
 	      ((the) (detect-uses (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
-	    (t (implicit-progn (cdr form)))))
+              ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-if
        (detect-uses (test form))
        (detect-uses (if-then form))
        (detect-uses (if-else form)))
       (ast-quote)
+      (ast-call
+       (dolist (arg (arguments form))
+         (detect-uses arg)))
       (lexical-variable
        (pushnew *current-lambda* (lexical-variable-used-in form))
        (incf (lexical-variable-use-count form)))
@@ -517,21 +529,30 @@ A list of any declaration-specifiers."
     (labels ((create-key-test-list (key-args values suppliedp)
                (cond (key-args
                       (make-instance 'ast-if
-                                     :test `(eql ,current-keyword ,(make-instance 'ast-quote :value (caar (first key-args))))
+                                     :test (make-instance 'ast-call
+                                                          :name 'eql
+                                                          :arguments (list current-keyword
+                                                                           (make-instance 'ast-quote :value (caar (first key-args)))))
                                      :then (make-instance 'ast-if
                                                           :test (first suppliedp)
                                                           :then (make-instance 'ast-quote :value nil)
                                                           :else `(progn (setq ,(first suppliedp) ,(make-instance 'ast-quote :value 't))
-                                                                        (setq ,(first values) (cadr ,itr))))
+                                                                        (setq ,(first values) ,(make-instance 'ast-call
+                                                                                                              :name 'cadr
+                                                                                                              :arguments (list itr)))))
                                      :else (create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
                       (make-instance 'ast-quote :value nil))
-                     (t `(error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                ,(make-instance 'ast-quote :value ':format-control)
-                                ,(make-instance 'ast-quote :value '"Unknown &KEY argument ~S. Expected one of ~S.")
-                                ,(make-instance 'ast-quote :value ':format-arguments)
-                                (list ,current-keyword
-                                      ,(make-instance 'ast-quote :value (mapcar 'caar keys)))))))
+                     (t (make-instance 'ast-call
+                                       :name 'error
+                                       :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                                        (make-instance 'ast-quote :value ':format-control)
+                                                        (make-instance 'ast-quote :value '"Unknown &KEY argument ~S. Expected one of ~S.")
+                                                        (make-instance 'ast-quote :value ':format-arguments)
+                                                        (make-instance 'ast-call
+                                                                       :name 'list
+                                                                       :arguments (list current-keyword
+                                                                                        (make-instance 'ast-quote :value (mapcar 'caar keys)))))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
                       `(let ((,(second (first (first key-args)))
@@ -546,19 +567,34 @@ A list of any declaration-specifiers."
                      (t body))))
       `(let ,(append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
                      (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
-                     (list (list itr (if (symbolp rest) `(symbol-value ,rest) rest))))
+                     (list (list itr (if (symbolp rest)
+                                         (make-instance 'ast-call
+                                                        :name 'symbol-value
+                                                        :arguments (list (make-instance 'ast-quote
+                                                                                        :value rest)))
+                                         rest))))
          (tagbody ,tb
             (go ,test-tag ,(go-tag-tagbody test-tag))
             ,head-tag
             ,(make-instance 'ast-if
-                            :test `(null (cdr ,itr))
-                            :then `(error ,(make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                          ,(make-instance 'ast-quote :value ':format-control)
-                                          ,(make-instance 'ast-quote :value '"Odd number of &KEY arguments."))
+                            :test (make-instance 'ast-call
+                                                 :name 'null
+                                                 :arguments (list (make-instance 'ast-call
+                                                                                 :name 'cdr
+                                                                                 :arguments (list itr))))
+                            :then (make-instance 'ast-call
+                                                 :name 'error
+                                                 :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                                                  (make-instance 'ast-quote :value ':format-control)
+                                                                  (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
                             :else (make-instance 'ast-quote :value nil))
-            (let ((,current-keyword (car ,itr)))
+            (let ((,current-keyword ,(make-instance 'ast-call
+                                                    :name 'car
+                                                    :arguments (list itr))))
               ,(create-key-test-list keys values suppliedp))
-            (setq ,itr (cddr ,itr))
+            (setq ,itr ,(make-instance 'ast-call
+                                       :name 'cddr
+                                       :arguments (list itr)))
             ,test-tag
             ,(make-instance 'ast-if
                             :test itr
@@ -572,8 +608,7 @@ A list of any declaration-specifiers."
 	   (dolist (i forms)
 	     (lower-keyword-arguments i))))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
 	      ((let)
@@ -595,12 +630,15 @@ A list of any declaration-specifiers."
 		   (lower-keyword-arguments i))))
 	      ((the) (lower-keyword-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
-              (t (implicit-progn (cdr form)))))
+	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-if
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
        (lower-keyword-arguments (if-else form)))
       (ast-quote)
+      (ast-call
+       (dolist (arg (arguments form))
+         (lower-keyword-arguments arg)))
       (lexical-variable)
       (lambda-information
        (let ((*current-lambda* form))
@@ -640,8 +678,7 @@ Must be run after keywords have been lowered."
                           :name (gensym name)
                           :definition-point *current-lambda*)))
     (etypecase form
-      (cons (case (first form)
-              ((if quote) (error "old style ast"))
+      (cons (ecase (first form)
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
 	      ((let)
@@ -663,12 +700,15 @@ Must be run after keywords have been lowered."
 		   (lower-arguments i))))
 	      ((the) (lower-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
-              (t (implicit-progn (cdr form)))))
+	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-if
        (lower-arguments (test form))
        (lower-arguments (if-then form))
        (lower-arguments (if-else form)))
       (ast-quote)
+      (ast-call
+       (dolist (arg (arguments form))
+         (lower-arguments arg)))
       (lexical-variable)
       (lambda-information
        (let* ((*current-lambda* form)
@@ -731,7 +771,6 @@ Must be run after keywords have been lowered."
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
       (cons (case (first form)
-              ((if quote) `(:invalid ,form))
 	      ((block)
                `(block ,(lexical-variable-name (second form))
                   ,@(implicit-progn (cddr form))))
@@ -771,12 +810,16 @@ Must be run after keywords have been lowered."
                `(the ,(second form) ,(unparse-compiler-form (third form))))
 	      ((unwind-protect)
                `(unwind-protect ,@(implicit-progn (cdr form))))
-              (t (list* (first form) (implicit-progn (cdr form))))))
+              ((sys.int::%jump-table)
+               `(sys.int::%jump-table ,@(implicit-progn (cdr form))))
+              (t `(:invalid ,form))))
       (ast-if
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))
             ,(unparse-compiler-form (if-else form))))
       (ast-quote `',(value form))
+      (ast-call
+       (list* (name form) (mapcar #'unparse-compiler-form (arguments form))))
       (lexical-variable (lexical-variable-name form))
       (lambda-information
        `(lambda ????

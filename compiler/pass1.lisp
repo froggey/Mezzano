@@ -280,6 +280,7 @@
 	 ((the) (pass1-the form env))
 	 ((throw) (pass1-throw form env))
 	 ((unwind-protect) (pass1-unwind-protect form env))
+         ((sys.int::%jump-table) (pass1-jump-table form env))
 	 (t (multiple-value-bind (expansion expanded-p)
 		(compiler-macroexpand-1 form env)
 	      (if expanded-p
@@ -296,16 +297,21 @@
 	(args (pass1-implicit-progn (rest form) env)))
     (cond ((lexical-variable-p fn)
            ;; Lexical function.
-	   (list* 'funcall fn args))
+           (make-instance 'ast-call
+                          :name 'funcall
+                          :arguments (list* fn args)))
 	  (t ;; Top-level function.
-           (list* fn args)))))
+           (make-instance 'ast-call
+                          :name fn
+                          :arguments args)))))
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
     (let ((var (make-instance 'block-information
                               :name name
                               :definition-point *current-lambda*)))
-      `(block ,var ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
+      `(block ,var
+         ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
 
 (defun pass1-catch (form env)
   (destructuring-bind (tag &body body) (cdr form)
@@ -506,7 +512,7 @@
     ;; Simplify M-V-CALL based on the number of forms.
     (case (length forms)
       (0 ; No forms, convert to funcall.
-       `(funcall ,(pass1-form function-form env)))
+       (pass1-form `(funcall ,function-form) env))
       (1 ; One form, transform as-is.
        `(multiple-value-call ,(pass1-form function-form env)
           ,(pass1-form (first forms) env)))
@@ -642,3 +648,8 @@
                                (progn ,@cleanup-forms))
                             env))
 	(pass1-form protected-form env))))
+
+(defun pass1-jump-table (form env)
+  (destructuring-bind (test-form &body forms) (cdr form)
+    `(sys.int::%jump-table ,(pass1-form test-form env)
+                           ,@(pass1-implicit-progn forms env))))
