@@ -21,7 +21,6 @@
 	    ((go) (cp-go form))
 	    ((let) (cp-let form))
 	    ((multiple-value-call) (cp-multiple-value-call form))
-	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))
 	    ((the) (cp-the form))
@@ -30,6 +29,7 @@
     (ast-function (cp-function form))
     (ast-if (cp-if form))
     (ast-multiple-value-bind (cp-multiple-value-bind form))
+    (ast-multiple-value-prog1 (cp-multiple-value-prog1 form))
     (ast-progn (cp-progn form))
     (ast-quote (cp-quote form))
     (ast-setq (cp-setq form))
@@ -143,7 +143,8 @@
   form)
 
 (defun cp-multiple-value-prog1 (form)
-  (cp-implicit-progn (cdr form))
+  (setf (value-form form) (cp-form (value-form form))
+        (body form) (cp-form (body form)))
   form)
 
 (defun cp-progn (form)

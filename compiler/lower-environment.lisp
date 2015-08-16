@@ -42,8 +42,6 @@
              (compute-let-environment-layout form))
 	    ((multiple-value-call)
              (mapc #'compute-environment-layout (rest form)))
-	    ((multiple-value-prog1)
-             (mapc #'compute-environment-layout (rest form)))
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
@@ -66,6 +64,9 @@
      (compute-environment-layout (if-else form)))
     (ast-multiple-value-bind
      (compute-mvb-environment-layout form))
+    (ast-multiple-value-prog1
+     (compute-environment-layout (value-form form))
+     (compute-environment-layout (body form)))
     (ast-progn
      (mapc #'compute-environment-layout (forms form)))
     (ast-quote nil)
@@ -190,8 +191,6 @@ of statements opens a new contour."
                  (set-difference vars defs)))
               ((multiple-value-call)
                (process-progn (cdr form)))
-              ((multiple-value-prog1)
-               (process-progn (cdr form)))
               ((return-from)
                (union (compute-free-variable-sets-1 (third form))
                       (compute-free-variable-sets-1 (fourth form))))
@@ -213,6 +212,9 @@ of statements opens a new contour."
                           (compute-free-variable-sets-1 (body form))))
              (defs (bindings form)))
          (set-difference vars defs)))
+      (ast-multiple-value-prog1
+       (union (compute-free-variable-sets-1 (value-form form))
+                          (compute-free-variable-sets-1 (body form))))
       (ast-progn
        (process-progn (forms form)))
       (ast-quote '())
@@ -247,7 +249,6 @@ of statements opens a new contour."
 	    ((go) (le-go form))
 	    ((let) (le-let form))
 	    ((multiple-value-call) (le-form*-cdr form))
-	    ((multiple-value-prog1) (le-form*-cdr form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))
 	    ((the) (le-the form))
@@ -256,7 +257,12 @@ of statements opens a new contour."
     (ast-function form)
     (ast-if
      (le-if form))
-    (ast-multiple-value-bind (le-multiple-value-bind form))
+    (ast-multiple-value-bind
+     (le-multiple-value-bind form))
+    (ast-multiple-value-prog1
+     (make-instance 'ast-multiple-value-prog1
+                    :value-form (lower-env-form (value-form form))
+                    :body (lower-env-form (body form))))
     (ast-progn
      (make-instance 'ast-progn
                     :forms (mapcar #'lower-env-form (forms form))))

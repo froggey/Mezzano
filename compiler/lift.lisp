@@ -12,7 +12,6 @@
 	    ((go) (ll-go form))
 	    ((let) (ll-let form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
-	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
@@ -21,6 +20,7 @@
     (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-multiple-value-bind (ll-multiple-value-bind form))
+    (ast-multiple-value-prog1 (ll-multiple-value-prog1 form))
     (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
     (ast-setq (ll-setq form))
@@ -101,7 +101,8 @@
            form)))
 
 (defun ll-multiple-value-prog1 (form)
-  (ll-implicit-progn (cdr form))
+  (setf (value-form form) (ll-form (value-form form))
+        (body form) (ll-form (body form)))
   form)
 
 (defun ll-progn (form)

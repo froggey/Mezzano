@@ -525,8 +525,9 @@
 (defun pass1-multiple-value-prog1 (form env)
   (destructuring-bind (first-form &body forms) (cdr form)
     (if forms
-	`(multiple-value-prog1 ,(pass1-form first-form env)
-	   ,@(pass1-implicit-progn forms env))
+        (make-instance 'ast-multiple-value-prog1
+                       :value-form (pass1-form first-form env)
+                       :body (pass1-form `(progn ,@forms) env))
 	(pass1-form first-form env))))
 
 ;;; Never generate empty PROGNs and avoid generating PROGNs with just one form.

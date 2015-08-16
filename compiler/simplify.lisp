@@ -12,7 +12,6 @@
 	    ((go) (simp-go form))
 	    ((let) (simp-let form))
 	    ((multiple-value-call) (simp-multiple-value-call form))
-	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
 	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))
 	    ((the) (simp-the form))
@@ -21,6 +20,7 @@
     (ast-function (simp-function form))
     (ast-if (simp-if form))
     (ast-multiple-value-bind (simp-multiple-value-bind form))
+    (ast-multiple-value-prog1 (simp-multiple-value-prog1 form))
     (ast-progn (simp-progn form))
     (ast-quote (simp-quote form))
     (ast-setq (simp-setq form))
@@ -307,26 +307,28 @@
   form)
 
 (defun simp-multiple-value-prog1 (form)
-  (setf (second form) (simp-form (second form)))
-  (simp-implicit-progn (cddr form))
-  (cond ((typep (second form) 'ast-progn)
+  (setf (value-form form) (simp-form (value-form form))
+        (body form) (simp-form (body form)))
+  (cond ((typep (value-form form) 'ast-progn)
          ;; If the first form is a PROGN, then hoist all but the final value out.
          (change-made)
          (make-instance 'ast-progn
-                        :forms (append (butlast (forms (second form)))
-                                       `((multiple-value-prog1 ,(car (last (forms (second form))))
-                                           ,@(cddr form))))))
-        ((and (consp (second form))
-              (eql (first (second form)) 'multiple-value-prog1))
+                        :forms (append (butlast (forms (value-form form)))
+                                       (list (make-instance 'ast-multiple-value-prog1
+                                                            :value-form (car (last (forms (value-form form))))
+                                                            :body (body form))))))
+        ((typep (value-form form) 'ast-multiple-value-prog1)
          ;; If the first form is a M-V-PROG1, then splice it in.
          (change-made)
-         `(multiple-value-prog1 ,(second (second form))
-            ,@(cddr (second form))
-            ,@(cddr form)))
-        ((null (cddr form))
-         ;; If there are no body forms, then kill this completely.
+         (make-instance 'ast-multiple-value-prog1
+                        :value-form (value-form (value-form form))
+                        :body (make-instance 'ast-progn
+                                             :forms (list (body (value-form form))
+                                                          (body form)))))
+        ((typep (body form) '(or ast-quote ast-function lexical-variable lambda-information))
+         ;; If the body form is mostly constant, then kill this completely.
          (change-made)
-         (second form))
+         (value-form form))
         (t form)))
 
 (defun simp-progn (form)
