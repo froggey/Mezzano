@@ -8,10 +8,10 @@
 (defun il-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block) (il-block form))
 	    ((go) (il-go form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))))
+    (ast-block (il-block form))
     (ast-function (il-function form))
     (ast-if (il-if form))
     (ast-let (il-let form))
@@ -34,7 +34,7 @@
     (setf (car i) (il-form (car i)))))
 
 (defun il-block (form)
-  (il-implicit-progn (cddr form))
+  (setf (body form) (il-form (body form)))
   form)
 
 (defun il-function (form)

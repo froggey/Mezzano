@@ -15,10 +15,10 @@
 (defun kt-form (form &optional target-variable replacement-form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block) (kt-block form target-variable replacement-form))
 	    ((go) (kt-go form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))))
+    (ast-block (kt-block form target-variable replacement-form))
     (ast-function (kt-function form target-variable replacement-form))
     (ast-if (kt-if form target-variable replacement-form))
     (ast-let (kt-let form target-variable replacement-form))
@@ -77,9 +77,9 @@
        (zerop (lexical-variable-write-count varlike))))
 
 (defun kt-block (form target-variable replacement-form)
-  (multiple-value-bind (new-list did-replace)
-      (kt-implicit-progn (cddr form) target-variable replacement-form)
-    (setf (cddr form) new-list)
+  (multiple-value-bind (new-body did-replace)
+      (kt-form (body form) target-variable replacement-form)
+    (setf (body form) new-body)
     (values form did-replace)))
 
 (defun kt-function (form target-variable replacement-form)

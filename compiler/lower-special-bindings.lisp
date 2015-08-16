@@ -62,14 +62,14 @@
 (defun lsb-form (form)
   (etypecase form
     (cons (ecase (first form)
-            ((block)
-             (lsb-block form))
             ((go)
              (lsb-go form))
             ((return-from)
              (lsb-return-from form))
             ((tagbody)
              (lsb-tagbody form))))
+    (ast-block
+     (lsb-block form))
     (ast-function form)
     (ast-if
      (make-instance 'ast-if
@@ -153,7 +153,7 @@
 
 (defun lsb-block (form)
   (let ((*special-bindings* *special-bindings*)
-        (info (second form)))
+        (info (info form)))
     (push (list :block-or-tagbody
                 info
                 (block-information-env-var info)
@@ -162,21 +162,25 @@
     (cond
       ((block-information-env-var info)
        ;; Escaping block.
-       `(block ,info
-          ;; Must be inside the block, so the special stack pointer is saved correctly.
-          ,(make-instance 'ast-call
-                          :name 'sys.int::%%push-special-stack
-                          :arguments (list (block-information-env-var info)
-                                           (make-instance 'ast-quote
-                                                          :value (block-information-env-offset info))))
-          ,(make-instance 'ast-multiple-value-prog1
-                          :value-form (make-instance 'ast-progn
-                                                     :forms (mapcar #'lsb-form (cddr form)))
-                          :body (make-instance 'ast-call
-                                               :name 'sys.int::%%disestablish-block-or-tagbody
-                                               :arguments '()))))
+       (make-instance 'ast-block
+                      :info info
+                      :body (make-instance 'ast-progn
+                                           :forms (list
+                                                   ;; Must be inside the block, so the special stack pointer is saved correctly.
+                                                   (make-instance 'ast-call
+                                                                  :name 'sys.int::%%push-special-stack
+                                                                  :arguments (list (block-information-env-var info)
+                                                                                   (make-instance 'ast-quote
+                                                                                                  :value (block-information-env-offset info))))
+                                                   (make-instance 'ast-multiple-value-prog1
+                                                                  :value-form (lsb-form (body form))
+                                                                  :body (make-instance 'ast-call
+                                                                                       :name 'sys.int::%%disestablish-block-or-tagbody
+                                                                                       :arguments '()))))))
       (t ;; Local block.
-       `(block ,info ,@(mapcar #'lsb-form (cddr form)))))))
+       (make-instance 'ast-block
+                      :info info
+                      :body (lsb-form (body form)))))))
 
 (defun lsb-go (form)
   (destructuring-bind (tag location) (cdr form)

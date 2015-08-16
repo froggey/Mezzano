@@ -17,10 +17,10 @@
 (defun cp-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block) (cp-block form))
 	    ((go) (cp-go form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))))
+    (ast-block (cp-block form))
     (ast-function (cp-function form))
     (ast-if (cp-if form))
     (ast-let (cp-let form))
@@ -74,7 +74,7 @@
 
 (defun cp-block (form)
   (flush-mutable-variables)
-  (cp-implicit-progn (cddr form))
+  (setf (body form) (cp-form (body form)))
   form)
 
 (defun cp-function (form)

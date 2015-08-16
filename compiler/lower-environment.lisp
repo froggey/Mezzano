@@ -35,13 +35,13 @@
 (defun compute-environment-layout (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block)
-             (compute-block-environment-layout form))
 	    ((go) nil)
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
              (compute-tagbody-environment-layout form))))
+    (ast-block
+     (compute-block-environment-layout form))
     (ast-function nil)
     (ast-if
      (compute-environment-layout (test form))
@@ -156,8 +156,8 @@ of statements opens a new contour."
 
 (defun compute-block-environment-layout (form)
   "BLOCK defines one variable."
-  (maybe-add-environment-variable (second form))
-  (mapc #'compute-environment-layout (cddr form)))
+  (maybe-add-environment-variable (info form))
+  (compute-environment-layout (body form)))
 
 (defun compute-let-environment-layout (form)
   (dolist (binding (bindings form))
@@ -181,8 +181,6 @@ of statements opens a new contour."
            (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '())))
     (etypecase form
       (cons (ecase (first form)
-              ((block)
-               (remove (second form) (process-progn (cddr form))))
               ((go)
                (compute-free-variable-sets-1 (third form)))
               ((return-from)
@@ -190,6 +188,8 @@ of statements opens a new contour."
                       (compute-free-variable-sets-1 (fourth form))))
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))))
+      (ast-block
+       (remove (info form) (compute-free-variable-sets-1 (body form))))
       (ast-function '())
       (ast-if
        (union (compute-free-variable-sets-1 (test form))
@@ -249,10 +249,11 @@ of statements opens a new contour."
 (defun lower-env-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block) (le-block form))
 	    ((go) (le-go form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))))
+    (ast-block
+     (le-block form))
     (ast-function form)
     (ast-if
      (le-if form))
@@ -484,20 +485,21 @@ of statements opens a new contour."
          (mapcar #'lower-env-form (rest form))))
 
 (defun le-block (form)
-  (append (list (first form)
-                (second form))
-          (when (not (localp (second form)))
-            (let ((env-var (second (first *environment-chain*)))
-                  (env-offset (1+ (position (second form) (gethash (first *environment*) *environment-layout*)))))
-              (setf (block-information-env-var (second form)) env-var
-                    (block-information-env-offset (second form)) env-offset)
-              (list (make-instance 'ast-call
-                                   :name '(setf sys.int::%object-ref-t)
-                                   :arguments (list (second form)
-                                                    env-var
-                                                    (make-instance 'ast-quote
-                                                                   :value env-offset))))))
-          (mapcar #'lower-env-form (cddr form))))
+  (make-instance 'ast-block
+                 :info (info form)
+                 :body (make-instance 'ast-progn
+                                      :forms (append (when (not (localp (info form)))
+                                                       (let ((env-var (second (first *environment-chain*)))
+                                                             (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                                         (setf (block-information-env-var (info form)) env-var
+                                                               (block-information-env-offset (info form)) env-offset)
+                                                         (list (make-instance 'ast-call
+                                                                              :name '(setf sys.int::%object-ref-t)
+                                                                              :arguments (list (info form)
+                                                                                               env-var
+                                                                                               (make-instance 'ast-quote
+                                                                                                              :value env-offset))))))
+                                                     (list (lower-env-form (body form)))))))
 
 (defun le-setq (form)
   (cond ((localp (setq-variable form))

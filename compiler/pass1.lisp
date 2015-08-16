@@ -310,8 +310,10 @@
     (let ((var (make-instance 'block-information
                               :name name
                               :definition-point *current-lambda*)))
-      `(block ,var
-         ,@(pass1-implicit-progn forms (cons (list :block name var) env))))))
+      (make-instance 'ast-block
+                     :info var
+                     :body (pass1-form `(progn ,@forms)
+                                       (cons (list :block name var) env))))))
 
 (defun pass1-catch (form env)
   (destructuring-bind (tag &body body) (cdr form)

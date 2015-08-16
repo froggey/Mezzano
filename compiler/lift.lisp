@@ -8,10 +8,10 @@
 (defun ll-form (form)
   (etypecase form
     (cons (ecase (first form)
-	    ((block) (ll-block form))
 	    ((go) (ll-go form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))))
+    (ast-block (ll-block form))
     (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-let (ll-let form))
@@ -34,11 +34,11 @@
     (setf (car i) (ll-form (car i)))))
 
 (defun ll-block (form)
-  (unless (eql (lexical-variable-definition-point (second form)) *current-lambda*)
+  (unless (eql (lexical-variable-definition-point (info form)) *current-lambda*)
     (change-made)
     ;; Update the definition point.
-    (setf (lexical-variable-definition-point (second form)) *current-lambda*))
-  (ll-implicit-progn (cddr form))
+    (setf (lexical-variable-definition-point (info form)) *current-lambda*))
+  (setf (body form) (ll-form (body form)))
   form)
 
 (defun ll-function (form)

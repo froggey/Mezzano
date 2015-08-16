@@ -203,6 +203,10 @@ A list of any declaration-specifiers."
 (defun go-tag-p (object)
   (typep object 'go-tag))
 
+(defclass ast-block ()
+  ((%info :initarg :info :accessor info)
+   (%body :initarg :body :accessor body)))
+
 (defclass ast-function ()
   ((%name :initarg :name :accessor name)))
 
@@ -265,7 +269,6 @@ A list of any declaration-specifiers."
 	     (flush-form i))))
     (etypecase form
       (cons (ecase (first form)
-	      ((block) (implicit-progn (cddr form)))
 	      ((go)
                (decf (go-tag-use-count (second form)))
                (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
@@ -277,6 +280,8 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (flush-form i))))))
+      (ast-block
+       (flush-form (body form)))
       (ast-function)
       (ast-if
        (flush-form (test form))
@@ -345,8 +350,6 @@ A list of any declaration-specifiers."
 		 var)))
     (etypecase form
       (cons (ecase (first form)
-	      ((block)
-	       `(block ,(copy-variable (second form)) ,@(implicit-progn (cddr form))))
 	      ((go)
 	       (let ((tag (fix (second form))))
 		 (incf (go-tag-use-count tag))
@@ -375,6 +378,10 @@ A list of any declaration-specifiers."
 				     (fix x)
 				     (copy-form x replacements)))
 			       (cddr form)))))))
+      (ast-block
+       (make-instance 'ast-block
+                      :info (copy-variable (info form))
+                      :body (copy-form (body form) replacements)))
       (ast-function form)
       (ast-if
        (make-instance 'ast-if
@@ -493,9 +500,6 @@ A list of any declaration-specifiers."
 		   (lexical-variable-write-count var) 0))))
     (etypecase form
       (cons (ecase (first form)
-	      ((block)
-	       (reset-var (second form))
-	       (implicit-progn (cddr form)))
 	      ((go)
                (assert (or (not (tagbody-information-p (third form)))
                            (eql (go-tag-tagbody (second form)) (third form))))
@@ -515,6 +519,9 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (detect-uses i))))))
+      (ast-block
+       (reset-var (info form))
+       (detect-uses (body form)))
       (ast-function)
       (ast-if
        (detect-uses (test form))
@@ -709,7 +716,6 @@ A list of any declaration-specifiers."
 	     (lower-keyword-arguments i))))
     (etypecase form
       (cons (ecase (first form)
-	      ((block) (implicit-progn (cddr form)))
 	      ((go))
 	      ((return-from)
                (lower-keyword-arguments (third form))
@@ -718,6 +724,8 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-keyword-arguments i))))))
+      (ast-block
+       (lower-keyword-arguments (body form)))
       (ast-function)
       (ast-if
        (lower-keyword-arguments (test form))
@@ -792,7 +800,6 @@ Must be run after keywords have been lowered."
                           :definition-point *current-lambda*)))
     (etypecase form
       (cons (ecase (first form)
-	      ((block) (implicit-progn (cddr form)))
 	      ((go))
 	      ((return-from)
                (lower-arguments (third form))
@@ -801,6 +808,8 @@ Must be run after keywords have been lowered."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-arguments i))))))
+      (ast-block
+       (lower-arguments (body form)))
       (ast-function)
       (ast-if
        (lower-arguments (test form))
@@ -898,9 +907,6 @@ Must be run after keywords have been lowered."
   (flet ((implicit-progn (forms) (mapcar 'unparse-compiler-form forms)))
     (etypecase form
       (cons (case (first form)
-	      ((block)
-               `(block ,(lexical-variable-name (second form))
-                  ,@(implicit-progn (cddr form))))
 	      ((go)
                `(go ,(go-tag-name (second form))))
 	      ((return-from)
@@ -913,6 +919,9 @@ Must be run after keywords have been lowered."
                                          (unparse-compiler-form x)))
                                    (cddr form))))
               (t `(:invalid ,form))))
+      (ast-block
+       `(block ,(lexical-variable-name (info form))
+          ,(unparse-compiler-form (body form))))
       (ast-function
        `(function ,(name form)))
       (ast-if
