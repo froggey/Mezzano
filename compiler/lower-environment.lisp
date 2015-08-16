@@ -40,8 +40,6 @@
 	    ((go) nil)
 	    ((let)
              (compute-let-environment-layout form))
-	    ((multiple-value-call)
-             (mapc #'compute-environment-layout (rest form)))
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
@@ -64,6 +62,9 @@
      (compute-environment-layout (if-else form)))
     (ast-multiple-value-bind
      (compute-mvb-environment-layout form))
+    (ast-multiple-value-call
+     (compute-environment-layout (function-form form))
+     (compute-environment-layout (value-form form)))
     (ast-multiple-value-prog1
      (compute-environment-layout (value-form form))
      (compute-environment-layout (body form)))
@@ -189,8 +190,6 @@ of statements opens a new contour."
                                   (process-progn (cddr form))))
                      (defs (mapcar #'first (second form))))
                  (set-difference vars defs)))
-              ((multiple-value-call)
-               (process-progn (cdr form)))
               ((return-from)
                (union (compute-free-variable-sets-1 (third form))
                       (compute-free-variable-sets-1 (fourth form))))
@@ -212,9 +211,12 @@ of statements opens a new contour."
                           (compute-free-variable-sets-1 (body form))))
              (defs (bindings form)))
          (set-difference vars defs)))
+      (ast-multiple-value-call
+       (union (compute-free-variable-sets-1 (function-form form))
+              (compute-free-variable-sets-1 (value-form form))))
       (ast-multiple-value-prog1
        (union (compute-free-variable-sets-1 (value-form form))
-                          (compute-free-variable-sets-1 (body form))))
+              (compute-free-variable-sets-1 (body form))))
       (ast-progn
        (process-progn (forms form)))
       (ast-quote '())
@@ -248,7 +250,6 @@ of statements opens a new contour."
 	    ((block) (le-block form))
 	    ((go) (le-go form))
 	    ((let) (le-let form))
-	    ((multiple-value-call) (le-form*-cdr form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))
 	    ((the) (le-the form))
@@ -259,6 +260,10 @@ of statements opens a new contour."
      (le-if form))
     (ast-multiple-value-bind
      (le-multiple-value-bind form))
+    (ast-multiple-value-call
+     (make-instance 'ast-multiple-value-call
+                    :function-form (lower-env-form (function-form form))
+                    :value-form (lower-env-form (value-form form))))
     (ast-multiple-value-prog1
      (make-instance 'ast-multiple-value-prog1
                     :value-form (lower-env-form (value-form form))

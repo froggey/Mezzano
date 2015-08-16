@@ -70,7 +70,6 @@
                (lsb-go form))
               ((let)
                (lsb-let form))
-              ((multiple-value-call) (map-form 1))
               ((return-from)
                (lsb-return-from form))
               ((tagbody)
@@ -90,6 +89,10 @@
                       :bindings (bindings form)
                       :value-form (lsb-form (value-form form))
                       :body (lsb-form (body form))))
+      (ast-multiple-value-call
+       (make-instance 'ast-multiple-value-call
+                      :function-form (lsb-form (function-form form))
+                      :value-form (lsb-form (value-form form))))
       (ast-multiple-value-prog1
        (make-instance 'ast-multiple-value-prog1
                       :value-form (lsb-form (value-form form))

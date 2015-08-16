@@ -11,7 +11,6 @@
 	    ((block) (il-block form))
 	    ((go) (il-go form))
 	    ((let) (il-let form))
-	    ((multiple-value-call) (il-multiple-value-call form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))
 	    ((the) (il-the form))
@@ -20,6 +19,7 @@
     (ast-function (il-function form))
     (ast-if (il-if form))
     (ast-multiple-value-bind (il-multiple-value-bind form))
+    (ast-multiple-value-call (il-multiple-value-call form))
     (ast-multiple-value-prog1 (il-multiple-value-prog1 form))
     (ast-progn (il-progn form))
     (ast-quote (il-quote form))
@@ -62,7 +62,8 @@
   form)
 
 (defun il-multiple-value-call (form)
-  (il-implicit-progn (cdr form))
+  (setf (function-form form) (il-form (function-form form))
+        (value-form form) (il-form (value-form form)))
   form)
 
 (defun il-multiple-value-prog1 (form)

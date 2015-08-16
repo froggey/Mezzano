@@ -496,7 +496,6 @@ be generated instead.")
 	      ((block) (save-tag (cg-block form)))
 	      ((go) (cg-go form))
 	      ((let) (cg-let form))
-	      ((multiple-value-call) (save-tag (cg-multiple-value-call form)))
 	      ((return-from) (cg-return-from form))
 	      ((tagbody) (cg-tagbody form))
 	      ((the) (cg-the form))
@@ -505,6 +504,7 @@ be generated instead.")
       (ast-function (save-tag (cg-function form)))
       (ast-if (save-tag (cg-if form)))
       (ast-multiple-value-bind (save-tag (cg-multiple-value-bind form)))
+      (ast-multiple-value-call (save-tag (cg-multiple-value-call form)))
       (ast-multiple-value-prog1 (save-tag (cg-multiple-value-prog1 form)))
       (ast-progn (cg-progn form))
       (ast-quote (cg-quote form))
@@ -937,69 +937,62 @@ Returns an appropriate tag."
            (setf *r8-value* (list (gensym))))))
 
 (defun cg-multiple-value-call (form)
-  (let ((function (second form))
-        (value-forms (cddr form)))
-    (cond ((null value-forms)
-           ;; Just like a regular call.
-           (cg-function-form `(funcall ,function)))
-          ((null (cdr value-forms))
-           ;; Single value form.
-           (let ((fn-tag (let ((*for-value* t)) (cg-form (make-instance 'ast-call
-                                                                        :name 'sys.int::%coerce-to-callable
-                                                                        :arguments (list function))))))
-             (when (not fn-tag)
-               (return-from cg-multiple-value-call nil))
-             (let ((value-tag (let ((*for-value* :multiple))
-                                (cg-form (first value-forms)))))
-               (case value-tag
-                 ((nil) (return-from cg-multiple-value-call nil))
-                 ((:multiple)
-                  (let ((stack-pointer-save-area (allocate-control-stack-slots 1)))
-                    (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rsp))
-                    ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
-                    (let ((loop-head (gensym))
-                          (loop-exit (gensym))
-                          (clear-loop-head (gensym)))
-                      ;; RAX = n values to copy (count * 8).
-                      (emit `(sys.lap-x86:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
-                            `(sys.lap-x86:cmp64 :rax 0)
-                            `(sys.lap-x86:jle ,loop-exit)
-                            `(sys.lap-x86:sub64 :rsp :rax)
-                            `(sys.lap-x86:and64 :rsp ,(lognot 8))
-                            ;; Clear stack slots.
-                            `(sys.lap-x86:mov64 :rdx :rax)
-                            clear-loop-head
-                            `(sys.lap-x86:mov64 (:rsp :rdx -8) 0)
-                            `(sys.lap-x86:sub64 :rdx 8)
-                            `(sys.lap-x86:jnz ,clear-loop-head)
-                            ;; Copy values.
-                            `(sys.lap-x86:mov64 :rdi :rsp)
-                            `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
-                                                         ;; fixme. should be +thread-mv-slots-start+
-                                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
-                      ;; Switch to the right GC mode.
-                      (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
-                      (emit loop-head
-                            `(sys.lap-x86:gs)
-                            `(sys.lap-x86:mov64 :rbx (:rsi))
-                            `(sys.lap-x86:mov64 (:rdi) :rbx)
-                            `(sys.lap-x86:add64 :rdi 8)
-                            `(sys.lap-x86:add64 :rsi 8)
-                            `(sys.lap-x86:sub64 :rax 8)
-                            `(sys.lap-x86:jae ,loop-head)
-                            loop-exit)
-                      ;; All done with the MV area.
-                      (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
-                    (smash-r8)
-                    (load-in-reg :rbx fn-tag t)
-                    (prog1 (emit-funcall-common)
-                      (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area))))))
-                 (t ;; Single value.
-                  (load-in-reg :rbx fn-tag t)
-                  (load-constant :rcx 1)
-                  (load-in-reg :r8 value-tag t)
-                  (emit-funcall-common))))))
-          (t (error "M-V-CALL with >1 form not lowered")))))
+  (let ((value-form (value-form form))
+        (fn-tag (let ((*for-value* t)) (cg-form (make-instance 'ast-call
+                                                               :name 'sys.int::%coerce-to-callable
+                                                               :arguments (list (function-form form)))))))
+    (when (not fn-tag)
+      (return-from cg-multiple-value-call nil))
+    (let ((value-tag (let ((*for-value* :multiple))
+                       (cg-form value-form))))
+      (case value-tag
+        ((nil) (return-from cg-multiple-value-call nil))
+        ((:multiple)
+         (let ((stack-pointer-save-area (allocate-control-stack-slots 1)))
+           (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea stack-pointer-save-area) :rsp))
+           ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
+           (let ((loop-head (gensym))
+                 (loop-exit (gensym))
+                 (clear-loop-head (gensym)))
+             ;; RAX = n values to copy (count * 8).
+             (emit `(sys.lap-x86:lea64 :rax ((:rcx ,(/ 8 (ash 1 sys.int::+n-fixnum-bits+))) ,(- (* 5 8))))
+                   `(sys.lap-x86:cmp64 :rax 0)
+                   `(sys.lap-x86:jle ,loop-exit)
+                   `(sys.lap-x86:sub64 :rsp :rax)
+                   `(sys.lap-x86:and64 :rsp ,(lognot 8))
+                   ;; Clear stack slots.
+                   `(sys.lap-x86:mov64 :rdx :rax)
+                   clear-loop-head
+                   `(sys.lap-x86:mov64 (:rsp :rdx -8) 0)
+                   `(sys.lap-x86:sub64 :rdx 8)
+                   `(sys.lap-x86:jnz ,clear-loop-head)
+                   ;; Copy values.
+                   `(sys.lap-x86:mov64 :rdi :rsp)
+                   `(sys.lap-x86:mov32 :esi ,(+ (- 8 sys.int::+tag-object+)
+                                                ;; fixme. should be +thread-mv-slots-start+
+                                                (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+             ;; Switch to the right GC mode.
+             (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
+             (emit loop-head
+                   `(sys.lap-x86:gs)
+                   `(sys.lap-x86:mov64 :rbx (:rsi))
+                   `(sys.lap-x86:mov64 (:rdi) :rbx)
+                   `(sys.lap-x86:add64 :rdi 8)
+                   `(sys.lap-x86:add64 :rsi 8)
+                   `(sys.lap-x86:sub64 :rax 8)
+                   `(sys.lap-x86:jae ,loop-head)
+                   loop-exit)
+             ;; All done with the MV area.
+             (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
+           (smash-r8)
+           (load-in-reg :rbx fn-tag t)
+           (prog1 (emit-funcall-common)
+             (emit `(sys.lap-x86:mov64 :rsp ,(control-stack-slot-ea stack-pointer-save-area))))))
+        (t ;; Single value.
+         (load-in-reg :rbx fn-tag t)
+         (load-constant :rcx 1)
+         (load-in-reg :r8 value-tag t)
+         (emit-funcall-common))))))
 
 (defun cg-multiple-value-prog1 (form)
   (cond

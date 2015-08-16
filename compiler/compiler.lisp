@@ -216,7 +216,9 @@ A list of any declaration-specifiers."
    (%value-form :initarg :value-form :accessor value-form)
    (%body :initarg :body :accessor body)))
 
-; ((multiple-value-call)
+(defclass ast-multiple-value-call ()
+  ((%function-form :initarg :function-form :accessor function-form)
+   (%value-form :initarg :value-form :accessor value-form)))
 
 (defclass ast-multiple-value-prog1 ()
   ((%value-form :initarg :value-form :accessor value-form)
@@ -255,7 +257,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (flush-form (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
@@ -275,6 +276,9 @@ A list of any declaration-specifiers."
       (ast-multiple-value-bind
        (flush-form (value-form form))
        (flush-form (body form)))
+      (ast-multiple-value-call
+       (flush-form (function-form form))
+       (flush-form (value-form form)))
       (ast-multiple-value-prog1
        (flush-form (value-form form))
        (flush-form (body form)))
@@ -338,7 +342,6 @@ A list of any declaration-specifiers."
 				      (copy-form (second b) replacements)))
 			      (second form))
 		  ,@(implicit-progn (cddr form))))
-	      ((multiple-value-call) `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((return-from)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -374,6 +377,10 @@ A list of any declaration-specifiers."
                       :bindings (mapcar #'copy-variable (bindings form))
                       :value-form (copy-form (value-form form) replacements)
                       :body (copy-form (body form) replacements)))
+      (ast-multiple-value-call
+       (make-instance 'ast-multiple-value-call
+                      :function-form (copy-form (function-form form) replacements)
+                      :value-form (copy-form (value-form form) replacements)))
       (ast-multiple-value-prog1
        (make-instance 'ast-multiple-value-prog1
                       :value-form (copy-form (value-form form) replacements)
@@ -467,7 +474,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (detect-uses (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
@@ -492,6 +498,9 @@ A list of any declaration-specifiers."
        (mapc #'reset-var (bindings form))
        (detect-uses (value-form form))
        (detect-uses (body form)))
+      (ast-multiple-value-call
+       (detect-uses (function-form form))
+       (detect-uses (value-form form)))
       (ast-multiple-value-prog1
        (detect-uses (value-form form))
        (detect-uses (body form)))
@@ -660,7 +669,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (lower-keyword-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
@@ -679,6 +687,9 @@ A list of any declaration-specifiers."
       (ast-multiple-value-bind
        (lower-keyword-arguments (value-form form))
        (lower-keyword-arguments (body form)))
+      (ast-multiple-value-call
+       (lower-keyword-arguments (function-form form))
+       (lower-keyword-arguments (value-form form)))
       (ast-multiple-value-prog1
        (lower-keyword-arguments (value-form form))
        (lower-keyword-arguments (body form)))
@@ -735,7 +746,6 @@ Must be run after keywords have been lowered."
 	       (dolist (b (second form))
 		 (lower-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
@@ -754,6 +764,9 @@ Must be run after keywords have been lowered."
       (ast-multiple-value-bind
        (lower-arguments (value-form form))
        (lower-arguments (body form)))
+      (ast-multiple-value-call
+       (lower-arguments (function-form form))
+       (lower-arguments (value-form form)))
       (ast-multiple-value-prog1
        (lower-arguments (value-form form))
        (lower-arguments (body form)))
@@ -838,8 +851,6 @@ Must be run after keywords have been lowered."
                                                 (unparse-compiler-form (second b))))
                               (second form))
                   ,@(implicit-progn (cddr form))))
-	      ((multiple-value-call)
-               `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
@@ -866,6 +877,9 @@ Must be run after keywords have been lowered."
        `(multiple-value-bind ,(mapcar #'unparse-compiler-form (bindings form))
             ,(unparse-compiler-form (value-form form))
           ,(unparse-compiler-form (body form))))
+      (ast-multiple-value-call
+       `(multiple-value-call ,(function-form form)
+          ,(value-form form)))
       (ast-multiple-value-prog1
        `(multiple-value-prog1
             ,(unparse-compiler-form (value-form form))

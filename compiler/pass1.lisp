@@ -514,8 +514,9 @@
       (0 ; No forms, convert to funcall.
        (pass1-form `(funcall ,function-form) env))
       (1 ; One form, transform as-is.
-       `(multiple-value-call ,(pass1-form function-form env)
-          ,(pass1-form (first forms) env)))
+       (make-instance 'ast-multiple-value-call
+                      :function-form (pass1-form function-form env)
+                      :value-form (pass1-form (first forms) env)))
       (t ; Many forms, simplify.
        (pass1-form `(apply ,function-form
                            (append ,@(loop for f in forms

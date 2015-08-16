@@ -11,7 +11,6 @@
 	    ((block) (simp-block form))
 	    ((go) (simp-go form))
 	    ((let) (simp-let form))
-	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))
 	    ((the) (simp-the form))
@@ -20,6 +19,7 @@
     (ast-function (simp-function form))
     (ast-if (simp-if form))
     (ast-multiple-value-bind (simp-multiple-value-bind form))
+    (ast-multiple-value-call (simp-multiple-value-call form))
     (ast-multiple-value-prog1 (simp-multiple-value-prog1 form))
     (ast-progn (simp-progn form))
     (ast-quote (simp-quote form))
@@ -302,8 +302,8 @@
            form)))
 
 (defun simp-multiple-value-call (form)
-  ;; Don't flatten this.
-  (simp-form-list (cdr form))
+  (setf (function-form form) (simp-form (function-form form))
+        (value-form form) (simp-form (value-form form)))
   form)
 
 (defun simp-multiple-value-prog1 (form)

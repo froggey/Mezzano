@@ -11,7 +11,6 @@
 	    ((block) (ll-block form))
 	    ((go) (ll-go form))
 	    ((let) (ll-let form))
-	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))
 	    ((the) (ll-the form))
@@ -20,6 +19,7 @@
     (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-multiple-value-bind (ll-multiple-value-bind form))
+    (ast-multiple-value-call (ll-multiple-value-call form))
     (ast-multiple-value-prog1 (ll-multiple-value-prog1 form))
     (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
@@ -78,27 +78,28 @@
 ;; Reduce (multiple-value-call #'(lambda (&optional ... &rest unused) ...) value-form)
 ;; back down to (multiple-value-bind (vars...) value-form body...).
 (defun ll-multiple-value-call (form)
-  (cond ((and (lambda-information-p (second form))
-              (null (lambda-information-required-args (second form)))
-              (lambda-information-rest-arg (second form))
-              (not (lambda-information-enable-keys (second form)))
-              (not (lambda-information-environment-arg (second form)))
-              (every (lambda (x)
-                       (and (typep (second x) 'ast-quote)
-                            (eql (value (second x)) 'nil) ; An init-form of NIL.
-                            (eql (third x) nil)))    ; No suppliedp arg.
-                     (lambda-information-optional-args (second form)))
-              (lexical-variable-p (lambda-information-rest-arg (second form)))
-              (zerop (lexical-variable-use-count (lambda-information-rest-arg (second form))))
-              (= (length form) 3))
-         (change-made)
-         ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
-         (ll-form (make-instance 'ast-multiple-value-bind
-                                 :bindings (mapcar 'first (lambda-information-optional-args (second form)))
-                                 :value-form (third form)
-                                 :body (lambda-information-body (second form)))))
-        (t (ll-implicit-progn (cdr form))
-           form)))
+  (let ((fn (function-form form)))
+    (cond ((and (lambda-information-p fn)
+                (null (lambda-information-required-args fn))
+                (lambda-information-rest-arg fn)
+                (not (lambda-information-enable-keys fn))
+                (not (lambda-information-environment-arg fn))
+                (every (lambda (x)
+                         (and (typep (second x) 'ast-quote)
+                              (eql (value (second x)) 'nil) ; An init-form of NIL.
+                              (eql (third x) nil)))    ; No suppliedp arg.
+                       (lambda-information-optional-args (function-form form)))
+                (lexical-variable-p (lambda-information-rest-arg fn))
+                (zerop (lexical-variable-use-count (lambda-information-rest-arg fn))))
+           (change-made)
+           ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
+           (ll-form (make-instance 'ast-multiple-value-bind
+                                   :bindings (mapcar 'first (lambda-information-optional-args fn))
+                                   :value-form (value-form form)
+                                   :body (lambda-information-body fn))))
+          (t (setf (function-form form) (ll-form (function-form form))
+                   (value-form form) (ll-form (value-form form)))
+             form))))
 
 (defun ll-multiple-value-prog1 (form)
   (setf (value-form form) (ll-form (value-form form))
