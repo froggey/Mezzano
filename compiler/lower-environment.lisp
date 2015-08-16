@@ -40,8 +40,6 @@
 	    ((go) nil)
 	    ((let)
              (compute-let-environment-layout form))
-	    ((multiple-value-bind)
-             (compute-mvb-environment-layout form))
 	    ((multiple-value-call)
              (mapc #'compute-environment-layout (rest form)))
 	    ((multiple-value-prog1)
@@ -66,6 +64,8 @@
      (compute-environment-layout (test form))
      (compute-environment-layout (if-then form))
      (compute-environment-layout (if-else form)))
+    (ast-multiple-value-bind
+     (compute-mvb-environment-layout form))
     (ast-progn
      (mapc #'compute-environment-layout (forms form)))
     (ast-quote nil)
@@ -164,9 +164,10 @@ of statements opens a new contour."
   (mapc #'compute-environment-layout (cddr form)))
 
 (defun compute-mvb-environment-layout (form)
-  (dolist (binding (second form))
+  (dolist (binding (bindings form))
     (maybe-add-environment-variable binding))
-  (mapc #'compute-environment-layout (cddr form)))
+  (compute-environment-layout (value-form form))
+  (compute-environment-layout (body form)))
 
 (defun compute-free-variable-sets (lambda)
   (let ((*free-variables* (make-hash-table)))
@@ -186,10 +187,6 @@ of statements opens a new contour."
                (let ((vars (union (process-progn (mapcar #'second (second form)))
                                   (process-progn (cddr form))))
                      (defs (mapcar #'first (second form))))
-                 (set-difference vars defs)))
-              ((multiple-value-bind)
-               (let ((vars (process-progn (cddr form)))
-                     (defs (second form)))
                  (set-difference vars defs)))
               ((multiple-value-call)
                (process-progn (cdr form)))
@@ -211,6 +208,11 @@ of statements opens a new contour."
        (union (compute-free-variable-sets-1 (test form))
               (union (compute-free-variable-sets-1 (if-then form))
                      (compute-free-variable-sets-1 (if-else form)))))
+      (ast-multiple-value-bind
+       (let ((vars (union (compute-free-variable-sets-1 (value-form form))
+                          (compute-free-variable-sets-1 (body form))))
+             (defs (bindings form)))
+         (set-difference vars defs)))
       (ast-progn
        (process-progn (forms form)))
       (ast-quote '())
@@ -244,7 +246,6 @@ of statements opens a new contour."
 	    ((block) (le-block form))
 	    ((go) (le-go form))
 	    ((let) (le-let form))
-	    ((multiple-value-bind) (le-multiple-value-bind form))
 	    ((multiple-value-call) (le-form*-cdr form))
 	    ((multiple-value-prog1) (le-form*-cdr form))
 	    ((return-from) (le-return-from form))
@@ -255,6 +256,7 @@ of statements opens a new contour."
     (ast-function form)
     (ast-if
      (le-if form))
+    (ast-multiple-value-bind (le-multiple-value-bind form))
     (ast-progn
      (make-instance 'ast-progn
                     :forms (mapcar #'lower-env-form (forms form))))
@@ -489,20 +491,36 @@ of statements opens a new contour."
                                                          (get-env-vector e)
                                                          (make-instance 'ast-quote :value (1+ offset)))))))))))
 
+
+(defun le-variable (form)
+  (if (localp form)
+      form
+      (dolist (e *environment*
+               (error "Can't find variable ~S in environment." form))
+        (let* ((layout (gethash e *environment-layout*))
+               (offset (position form layout)))
+          (when offset
+            (return (make-instance 'ast-call
+                                   :name 'sys.int::%object-ref-t
+                                   :arguments (list (get-env-vector e)
+                                                    (make-instance 'ast-quote :value (1+ offset))))))))))
+
 (defun le-multiple-value-bind (form)
-  `(multiple-value-bind ,(second form)
-       ,(lower-env-form (third form))
-     ,@(mapcan (lambda (var)
-                 (when (and (not (symbolp var))
-                            (not (localp var)))
-                   (list (make-instance 'ast-call
-                                        :name '(setf sys.int::%object-ref-t)
-                                        :arguments (list var
-                                                         (second (first *environment-chain*))
-                                                         (make-instance 'ast-quote
-                                                                        :value (1+ (position var (gethash (first *environment*) *environment-layout*)))))))))
-               (second form))
-     ,@(mapcar #'lower-env-form (cdddr form))))
+  (make-instance 'ast-multiple-value-bind
+                 :bindings (bindings form)
+                 :value-form (lower-env-form (value-form form))
+                 :body (make-instance 'ast-progn
+                                      :forms (append (mapcan (lambda (var)
+                                                               (when (and (not (symbolp var))
+                                                                          (not (localp var)))
+                                                                 (list (make-instance 'ast-call
+                                                                                      :name '(setf sys.int::%object-ref-t)
+                                                                                      :arguments (list var
+                                                                                                       (second (first *environment-chain*))
+                                                                                                       (make-instance 'ast-quote
+                                                                                                                      :value (1+ (position var (gethash (first *environment*) *environment-layout*)))))))))
+                                                             (bindings form))
+                                                     (list (lower-env-form (body form)))))))
 
 (defun le-the (form)
   (setf (third form) (lower-env-form (third form)))

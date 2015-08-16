@@ -11,7 +11,6 @@
 	    ((block) (ll-block form))
 	    ((go) (ll-go form))
 	    ((let) (ll-let form))
-	    ((multiple-value-bind) (ll-multiple-value-bind form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
 	    ((return-from) (ll-return-from form))
@@ -21,6 +20,7 @@
 	    ((sys.int::%jump-table) (ll-jump-table form))))
     (ast-function (ll-function form))
     (ast-if (ll-if form))
+    (ast-multiple-value-bind (ll-multiple-value-bind form))
     (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
     (ast-setq (ll-setq form))
@@ -66,12 +66,13 @@
 
 (defun ll-multiple-value-bind (form)
   ;; Patch up definition points after a lambda has been lifted.
-  (dolist (var (second form))
+  (dolist (var (bindings form))
     (when (and (lexical-variable-p var)
 	       (not (eql (lexical-variable-definition-point var) *current-lambda*)))
       (change-made)
       (setf (lexical-variable-definition-point var) *current-lambda*)))
-  (ll-implicit-progn (cddr form))
+  (setf (value-form form) (ll-form (value-form form))
+        (body form) (ll-form (body form)))
   form)
 
 ;; Reduce (multiple-value-call #'(lambda (&optional ... &rest unused) ...) value-form)
@@ -92,9 +93,10 @@
               (= (length form) 3))
          (change-made)
          ;; Variable definition points will be fixed up by LL-MULTIPLE-VALUE-BIND.
-         (ll-form `(multiple-value-bind ,(mapcar 'first (lambda-information-optional-args (second form)))
-                       ,(third form)
-                     ,(lambda-information-body (second form)))))
+         (ll-form (make-instance 'ast-multiple-value-bind
+                                 :bindings (mapcar 'first (lambda-information-optional-args (second form)))
+                                 :value-form (third form)
+                                 :body (lambda-information-body (second form)))))
         (t (ll-implicit-progn (cdr form))
            form)))
 

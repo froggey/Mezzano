@@ -211,6 +211,14 @@ A list of any declaration-specifiers."
    (%then :initarg :then :accessor if-then)
    (%else :initarg :else :accessor if-else)))
 
+(defclass ast-multiple-value-bind ()
+  ((%bindings :initarg :bindings :accessor bindings)
+   (%value-form :initarg :value-form :accessor value-form)
+   (%body :initarg :body :accessor body)))
+
+; ((multiple-value-call)
+; ((multiple-value-prog1)
+
 (defclass ast-progn ()
   ((%forms :initarg :forms :accessor forms)))
 
@@ -244,7 +252,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (flush-form (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((return-from)
@@ -263,6 +270,9 @@ A list of any declaration-specifiers."
        (flush-form (test form))
        (flush-form (if-then form))
        (flush-form (if-else form)))
+      (ast-multiple-value-bind
+       (flush-form (value-form form))
+       (flush-form (body form)))
       (ast-progn (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq
@@ -323,9 +333,6 @@ A list of any declaration-specifiers."
 				      (copy-form (second b) replacements)))
 			      (second form))
 		  ,@(implicit-progn (cddr form))))
-	      ((multiple-value-bind)
-               `(multiple-value-bind ,(mapcar #'copy-variable (second form))
-                    ,@(implicit-progn (cddr form))))
 	      ((multiple-value-call) `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1) `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
 	      ((return-from)
@@ -358,6 +365,11 @@ A list of any declaration-specifiers."
                       :test (copy-form (test form) replacements)
                       :then (copy-form (if-then form) replacements)
                       :else (copy-form (if-else form) replacements)))
+      (ast-multiple-value-bind
+       (make-instance 'ast-multiple-value-bind
+                      :bindings (mapcar #'copy-variable (bindings form))
+                      :value-form (copy-form (value-form form) replacements)
+                      :body (copy-form (body form) replacements)))
       (ast-progn
        (make-instance 'ast-progn
                       :forms (implicit-progn (forms form))))
@@ -447,10 +459,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (detect-uses (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-bind)
-               (dolist (v (second form))
-                 (reset-var v))
-               (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((return-from)
@@ -473,6 +481,10 @@ A list of any declaration-specifiers."
        (detect-uses (test form))
        (detect-uses (if-then form))
        (detect-uses (if-else form)))
+      (ast-multiple-value-bind
+       (mapc #'reset-var (bindings form))
+       (detect-uses (value-form form))
+       (detect-uses (body form)))
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
@@ -638,7 +650,6 @@ A list of any declaration-specifiers."
 	       (dolist (b (second form))
 		 (lower-keyword-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((return-from)
@@ -656,6 +667,9 @@ A list of any declaration-specifiers."
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
        (lower-keyword-arguments (if-else form)))
+      (ast-multiple-value-bind
+       (lower-keyword-arguments (value-form form))
+       (lower-keyword-arguments (body form)))
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
@@ -709,7 +723,6 @@ Must be run after keywords have been lowered."
 	       (dolist (b (second form))
 		 (lower-arguments (second b)))
 	       (implicit-progn (cddr form)))
-	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
 	      ((return-from)
@@ -727,6 +740,9 @@ Must be run after keywords have been lowered."
        (lower-arguments (test form))
        (lower-arguments (if-then form))
        (lower-arguments (if-else form)))
+      (ast-multiple-value-bind
+       (lower-arguments (value-form form))
+       (lower-arguments (body form)))
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
@@ -808,8 +824,6 @@ Must be run after keywords have been lowered."
                                                 (unparse-compiler-form (second b))))
                               (second form))
                   ,@(implicit-progn (cddr form))))
-	      ((multiple-value-bind)
-               `(multiple-value-bind ,@(implicit-progn (cddr form))))
 	      ((multiple-value-call)
                `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1)
@@ -836,6 +850,10 @@ Must be run after keywords have been lowered."
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))
             ,(unparse-compiler-form (if-else form))))
+      (ast-multiple-value-bind
+       `(multiple-value-bind ,(mapcar #'unparse-compiler-form (bindings form))
+            ,(unparse-compiler-form (value-form form))
+          ,(unparse-compiler-form (body form))))
       (ast-progn
        `(progn ,@(implicit-progn (forms form))))
       (ast-quote `',(value form))

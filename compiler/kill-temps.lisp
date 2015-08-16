@@ -18,7 +18,6 @@
 	    ((block) (kt-block form target-variable replacement-form))
 	    ((go) (kt-go form target-variable replacement-form))
 	    ((let) (kt-let form target-variable replacement-form))
-	    ((multiple-value-bind) (kt-multiple-value-bind form target-variable replacement-form))
 	    ((multiple-value-call) (kt-multiple-value-call form target-variable replacement-form))
 	    ((multiple-value-prog1) (kt-multiple-value-prog1 form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
@@ -28,6 +27,7 @@
 	    ((sys.int::%jump-table) (kt-jump-table form target-variable replacement-form))))
     (ast-function (kt-function form target-variable replacement-form))
     (ast-if (kt-if form target-variable replacement-form))
+    (ast-multiple-value-bind (kt-multiple-value-bind form target-variable replacement-form))
     (ast-progn (kt-progn form target-variable replacement-form))
     (ast-quote (kt-quote form target-variable replacement-form))
     (ast-setq (kt-setq form target-variable replacement-form))
@@ -139,9 +139,9 @@
 
 (defun kt-multiple-value-bind (form target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
-      (kt-form (third form) target-variable replacement-form)
-    (setf (third form) new-form)
-    (setf (cdddr form) (kt-implicit-progn (cdddr form)))
+      (kt-form (value-form form) target-variable replacement-form)
+    (setf (value-form form) new-form
+          (body form) (kt-form (body form)))
     (values form did-replace)))
 
 (defun kt-multiple-value-call (form target-variable replacement-form)

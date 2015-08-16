@@ -70,7 +70,6 @@
                (lsb-go form))
               ((let)
                (lsb-let form))
-              ((multiple-value-bind) (map-form 2))
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))
               ((return-from)
@@ -87,6 +86,11 @@
                       :test (lsb-form (test form))
                       :then (lsb-form (if-then form))
                       :else (lsb-form (if-else form))))
+      (ast-multiple-value-bind
+       (make-instance 'ast-multiple-value-bind
+                      :bindings (bindings form)
+                      :value-form (lsb-form (value-form form))
+                      :body (lsb-form (body form))))
       (ast-progn
        (make-instance 'ast-progn
                       :forms (mapcar #'lsb-form (forms form))))
