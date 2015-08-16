@@ -22,7 +22,6 @@
 	    ((let) (cp-let form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))
-	    ((the) (cp-the form))
 	    ((unwind-protect) (cp-unwind-protect form))
 	    ((sys.int::%jump-table) (cp-jump-table form))))
     (ast-function (cp-function form))
@@ -33,6 +32,7 @@
     (ast-progn (cp-progn form))
     (ast-quote (cp-quote form))
     (ast-setq (cp-setq form))
+    (ast-the (cp-the form))
     (ast-call (cp-function-form form))
     (lexical-variable (cp-variable form))
     (lambda-information (cp-lambda form))))
@@ -199,7 +199,7 @@
   form)
 
 (defun cp-the (form)
-  (setf (third form) (cp-form (third form)))
+  (setf (value form) (cp-form (value form)))
   form)
 
 (defun cp-unwind-protect (form)

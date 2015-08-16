@@ -74,7 +74,6 @@
                (lsb-return-from form))
               ((tagbody)
                (lsb-tagbody form))
-              ((the) (map-form 2))
               ((unwind-protect)
                (lsb-unwind-protect form))
               ((sys.int::%jump-table) (map-form 1))))
@@ -104,6 +103,10 @@
       (ast-setq
        (make-instance 'ast-setq
                       :variable (setq-variable form)
+                      :value (lsb-form (value form))))
+      (ast-the
+       (make-instance 'ast-the
+                      :type (the-type form)
                       :value (lsb-form (value form))))
       (ast-call
        (make-instance 'ast-call

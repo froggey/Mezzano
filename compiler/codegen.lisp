@@ -498,7 +498,6 @@ be generated instead.")
 	      ((let) (cg-let form))
 	      ((return-from) (cg-return-from form))
 	      ((tagbody) (cg-tagbody form))
-	      ((the) (cg-the form))
 	      ((unwind-protect) (error "UWIND-PROTECT not lowered."))
               ((sys.int::%jump-table) (cg-jump-table form))))
       (ast-function (save-tag (cg-function form)))
@@ -509,6 +508,7 @@ be generated instead.")
       (ast-progn (cg-progn form))
       (ast-quote (cg-quote form))
       (ast-setq (cg-setq form))
+      (ast-the (cg-the form))
       (ast-call (save-tag (cg-function-form form)))
       (lexical-variable
        (save-tag (cg-variable form)))
@@ -1229,7 +1229,7 @@ Returns an appropriate tag."
 	'nil)))
 
 (defun cg-the (form)
-  (cg-form (third form)))
+  (cg-form (value form)))
 
 (defun value-location (tag &optional kill)
   (when kill

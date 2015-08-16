@@ -13,7 +13,6 @@
 	    ((let) (il-let form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))
-	    ((the) (il-the form))
 	    ((unwind-protect) (il-unwind-protect form))
 	    ((sys.int::%jump-table) (il-jump-table form))))
     (ast-function (il-function form))
@@ -24,6 +23,7 @@
     (ast-progn (il-progn form))
     (ast-quote (il-quote form))
     (ast-setq (il-setq form))
+    (ast-the (il-the form))
     (ast-call (il-function-form form))
     (lexical-variable (il-variable form))
     (lambda-information (il-lambda form))))
@@ -96,7 +96,7 @@
   form)
 
 (defun il-the (form)
-  (setf (third form) (il-form (third form)))
+  (setf (value form) (il-form (value form)))
   form)
 
 (defun il-unwind-protect (form)

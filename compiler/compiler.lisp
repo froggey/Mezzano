@@ -234,6 +234,10 @@ A list of any declaration-specifiers."
   ((%variable :initarg :variable :accessor setq-variable)
    (%value :initarg :value :accessor value)))
 
+(defclass ast-the ()
+  ((%the-type :initarg :type :accessor the-type)
+   (%value :initarg :value :accessor value)))
+
 (defclass ast-call ()
   ((%name :initarg :name :accessor name)
    (%arguments :initarg :arguments :accessor arguments)))
@@ -265,7 +269,6 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (flush-form i))))
-	      ((the) (flush-form (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-function)
@@ -287,6 +290,8 @@ A list of any declaration-specifiers."
       (ast-setq
        (decf (lexical-variable-use-count (setq-variable form)))
        (decf (lexical-variable-write-count (setq-variable form)))
+       (flush-form (value form)))
+      (ast-the
        (flush-form (value form)))
       (ast-call
        (mapc #'flush-form (arguments form)))
@@ -363,7 +368,6 @@ A list of any declaration-specifiers."
 				     (fix x)
 				     (copy-form x replacements)))
 			       (cddr form)))))
-	      ((the) `(the ,(second form) ,(copy-form (third form) replacements)))
 	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))
               ((sys.int::%jump-table) `(sys.int::%jump-table ,@(implicit-progn (cdr form))))))
       (ast-function form)
@@ -397,6 +401,10 @@ A list of any declaration-specifiers."
          (make-instance 'ast-setq
                         :variable var
                         :value (copy-form (value form) replacements))))
+      (ast-the
+       (make-instance 'ast-the
+                      :type (the-type form)
+                      :value (copy-form (value form) replacements)))
       (ast-call
        (make-instance 'ast-call
                       :name (name form)
@@ -486,7 +494,6 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (detect-uses i))))
-	      ((the) (detect-uses (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
               ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-function)
@@ -513,6 +520,8 @@ A list of any declaration-specifiers."
          (incf (lexical-variable-use-count var))
          (incf (lexical-variable-write-count var))
          (detect-uses (value form))))
+      (ast-the
+       (detect-uses (value form)))
       (ast-call
        (dolist (arg (arguments form))
          (detect-uses arg)))
@@ -676,7 +685,6 @@ A list of any declaration-specifiers."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-keyword-arguments i))))
-	      ((the) (lower-keyword-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-function)
@@ -697,6 +705,7 @@ A list of any declaration-specifiers."
        (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq (lower-keyword-arguments (value form)))
+      (ast-the (lower-keyword-arguments (value form)))
       (ast-call
        (dolist (arg (arguments form))
          (lower-keyword-arguments arg)))
@@ -753,7 +762,6 @@ Must be run after keywords have been lowered."
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
 		   (lower-arguments i))))
-	      ((the) (lower-arguments (third form)))
 	      ((unwind-protect) (implicit-progn (cdr form)))
 	      ((sys.int::%jump-table) (implicit-progn (cdr form)))))
       (ast-function)
@@ -774,6 +782,7 @@ Must be run after keywords have been lowered."
        (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq (lower-arguments (value form)))
+      (ast-the (lower-arguments (value form)))
       (ast-call
        (dolist (arg (arguments form))
          (lower-arguments arg)))
@@ -860,8 +869,6 @@ Must be run after keywords have been lowered."
                                          (go-tag-name x)
                                          (unparse-compiler-form x)))
                                    (cddr form))))
-	      ((the)
-               `(the ,(second form) ,(unparse-compiler-form (third form))))
 	      ((unwind-protect)
                `(unwind-protect ,@(implicit-progn (cdr form))))
               ((sys.int::%jump-table)
@@ -893,6 +900,8 @@ Must be run after keywords have been lowered."
                      (lexical-variable-name var)
                      var)
                 ,(unparse-compiler-form (value form)))))
+      (ast-the
+       `(the ,(the-type form) ,(unparse-compiler-form (value form))))
       (ast-call
        (list* (name form) (mapcar #'unparse-compiler-form (arguments form))))
       (lexical-variable (lexical-variable-name form))

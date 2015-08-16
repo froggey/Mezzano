@@ -627,7 +627,9 @@
 
 (defun pass1-the (form env)
   (destructuring-bind (value-type form) (cdr form)
-    `(the ,value-type ,(pass1-form form env))))
+    (make-instance 'ast-the
+                   :type value-type
+                   :value (pass1-form form env))))
 
 (defun pass1-throw (form env)
   (destructuring-bind (tag result) (cdr form)

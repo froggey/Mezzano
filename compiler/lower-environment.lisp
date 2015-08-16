@@ -44,8 +44,6 @@
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
              (compute-tagbody-environment-layout form))
-	    ((the)
-             (compute-environment-layout (third form)))
 	    ((unwind-protect)
              (compute-environment-layout (second form))
              (cond ((lambda-information-p (third form))
@@ -72,6 +70,8 @@
      (mapc #'compute-environment-layout (forms form)))
     (ast-quote nil)
     (ast-setq
+     (compute-environment-layout (value form)))
+    (ast-the
      (compute-environment-layout (value form)))
     (ast-call (cond ((and (eql (name form) 'funcall)
                           (lambda-information-p (first (arguments form))))
@@ -195,8 +195,6 @@ of statements opens a new contour."
                       (compute-free-variable-sets-1 (fourth form))))
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))
-              ((the)
-               (compute-free-variable-sets-1 (third form)))
               ((unwind-protect)
                (process-progn (cdr form)))
               ((sys.int::%jump-table)
@@ -223,6 +221,8 @@ of statements opens a new contour."
       (ast-setq
        (union (list (setq-variable form))
               (compute-free-variable-sets-1 (value form))))
+      (ast-the
+       (compute-free-variable-sets-1 (value form)))
       (ast-call
        (process-progn (arguments form)))
       (lexical-variable (list form))
@@ -252,7 +252,6 @@ of statements opens a new contour."
 	    ((let) (le-let form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))
-	    ((the) (le-the form))
 	    ((unwind-protect) (le-form*-cdr form))
 	    ((sys.int::%jump-table) (le-form*-cdr form))))
     (ast-function form)
@@ -273,6 +272,7 @@ of statements opens a new contour."
                     :forms (mapcar #'lower-env-form (forms form))))
     (ast-quote form)
     (ast-setq (le-setq form))
+    (ast-the (le-the form))
     (ast-call
      (make-instance 'ast-call
                     :name (name form)
@@ -534,7 +534,7 @@ of statements opens a new contour."
                                                      (list (lower-env-form (body form)))))))
 
 (defun le-the (form)
-  (setf (third form) (lower-env-form (third form)))
+  (setf (value form) (lower-env-form (value form)))
   form)
 
 (defun le-go (form)
