@@ -233,19 +233,19 @@
        (if expandedp
            (pass1-form expansion env)
            (let ((var (find-variable form env)))
-             (if (symbolp var)
-                 ;; Replace constants with their quoted values.
-                 (or (expand-constant-variable form)
-                     ;; And replace special variable with calls to symbol-value.
-                     (pass1-form `(symbol-value ',var) env))
-                 (progn
-                   (when (eq (lexical-variable-ignore var) 't)
-                     (warn 'sys.int::simple-style-warning
-                           :format-control "Reading ignored variable ~S."
-                           :format-arguments (list (lexical-variable-name var))))
-                   (incf (lexical-variable-use-count var))
-                   (pushnew *current-lambda* (lexical-variable-used-in var))
-                   var))))))
+             (cond ((symbolp var)
+                    ;; Replace constants with their quoted values.
+                    (or (expand-constant-variable form)
+                        ;; And replace special variable with calls to symbol-value.
+                        (pass1-form `(symbol-value ',var) env)))
+                    (t
+                     (when (eq (lexical-variable-ignore var) 't)
+                       (warn 'sys.int::simple-style-warning
+                             :format-control "Reading ignored variable ~S."
+                             :format-arguments (list (lexical-variable-name var))))
+                     (incf (lexical-variable-use-count var))
+                     (pushnew *current-lambda* (lexical-variable-used-in var))
+                     var))))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
      (make-instance 'ast-quote :value form))
@@ -535,7 +535,8 @@
 	 (pass1-form ''nil env))
 	((null (cddr form))
 	 (pass1-form (cadr form) env))
-	(t `(progn ,@(pass1-implicit-progn (rest form) env)))))
+	(t (make-instance 'ast-progn
+                          :forms (pass1-implicit-progn (rest form) env)))))
 
 ;; Turn PROGV into a call to %PROGV.
 (defun pass1-progv (form env)
@@ -566,7 +567,8 @@
 	      (pass1-form ''nil env))
 	     ((null (rest forms))
 	      (first forms))
-	     (t `(progn ,@(nreverse forms)))))
+	     (t (make-instance 'ast-progn
+                               :forms (nreverse forms)))))
     (when (null (cdr i))
       (error "Odd number of arguments to SETQ."))
     (let ((var (find-variable (first i) env t))

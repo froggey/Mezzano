@@ -46,8 +46,6 @@
              (mapc #'compute-environment-layout (rest form)))
 	    ((multiple-value-prog1)
              (mapc #'compute-environment-layout (rest form)))
-	    ((progn)
-             (mapc #'compute-environment-layout (rest form)))
 	    ((function) nil)
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
@@ -68,6 +66,8 @@
      (compute-environment-layout (test form))
      (compute-environment-layout (if-then form))
      (compute-environment-layout (if-else form)))
+    (ast-progn
+     (mapc #'compute-environment-layout (forms form)))
     (ast-quote nil)
     (ast-setq
      (compute-environment-layout (value form)))
@@ -197,8 +197,6 @@ of statements opens a new contour."
                (process-progn (cdr form)))
               ((multiple-value-prog1)
                (process-progn (cdr form)))
-              ((progn)
-               (process-progn (cdr form)))
               ((return-from)
                (union (compute-free-variable-sets-1 (third form))
                       (compute-free-variable-sets-1 (fourth form))))
@@ -214,6 +212,8 @@ of statements opens a new contour."
        (union (compute-free-variable-sets-1 (test form))
               (union (compute-free-variable-sets-1 (if-then form))
                      (compute-free-variable-sets-1 (if-else form)))))
+      (ast-progn
+       (process-progn (forms form)))
       (ast-quote '())
       (ast-setq
        (union (list (setq-variable form))
@@ -249,7 +249,6 @@ of statements opens a new contour."
 	    ((multiple-value-bind) (le-multiple-value-bind form))
 	    ((multiple-value-call) (le-form*-cdr form))
 	    ((multiple-value-prog1) (le-form*-cdr form))
-	    ((progn) (le-form*-cdr form))
 	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))
 	    ((the) (le-the form))
@@ -257,6 +256,9 @@ of statements opens a new contour."
 	    ((sys.int::%jump-table) (le-form*-cdr form))))
     (ast-if
      (le-if form))
+    (ast-progn
+     (make-instance 'ast-progn
+                    :forms (mapcar #'lower-env-form (forms form))))
     (ast-quote form)
     (ast-setq (le-setq form))
     (ast-call

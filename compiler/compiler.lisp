@@ -208,6 +208,9 @@ A list of any declaration-specifiers."
    (%then :initarg :then :accessor if-then)
    (%else :initarg :else :accessor if-else)))
 
+(defclass ast-progn ()
+  ((%forms :initarg :forms :accessor forms)))
+
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
 
@@ -241,7 +244,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
@@ -258,6 +260,7 @@ A list of any declaration-specifiers."
        (flush-form (test form))
        (flush-form (if-then form))
        (flush-form (if-else form)))
+      (ast-progn (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq
        (decf (lexical-variable-use-count (setq-variable form)))
@@ -322,7 +325,6 @@ A list of any declaration-specifiers."
                     ,@(implicit-progn (cddr form))))
 	      ((multiple-value-call) `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1) `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
-	      ((progn) `(progn ,@(implicit-progn (cdr form))))
 	      ((function) form)
 	      ((return-from)
 	       (let ((var (fix (second form))))
@@ -353,6 +355,9 @@ A list of any declaration-specifiers."
                       :test (copy-form (test form) replacements)
                       :then (copy-form (if-then form) replacements)
                       :else (copy-form (if-else form) replacements)))
+      (ast-progn
+       (make-instance 'ast-progn
+                      :forms (implicit-progn (forms form))))
       (ast-quote form)
       (ast-setq
        (let ((var (fix (setq-variable form))))
@@ -445,7 +450,6 @@ A list of any declaration-specifiers."
                (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
@@ -466,6 +470,8 @@ A list of any declaration-specifiers."
        (detect-uses (test form))
        (detect-uses (if-then form))
        (detect-uses (if-else form)))
+      (ast-progn
+       (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq
        (let ((var (setq-variable form)))
@@ -543,14 +549,15 @@ A list of any declaration-specifiers."
                                      :then (make-instance 'ast-if
                                                           :test (first suppliedp)
                                                           :then (make-instance 'ast-quote :value nil)
-                                                          :else `(progn ,(make-instance 'ast-setq
-                                                                                        :variable (first suppliedp)
-                                                                                        :value (make-instance 'ast-quote :value 't))
-                                                                        ,(make-instance 'ast-setq
-                                                                                        :variable (first values)
-                                                                                        :value (make-instance 'ast-call
-                                                                                                              :name 'cadr
-                                                                                                              :arguments (list itr)))))
+                                                          :else (make-instance 'ast-progn
+                                                                               :forms (list (make-instance 'ast-setq
+                                                                                                           :variable (first suppliedp)
+                                                                                                           :value (make-instance 'ast-quote :value 't))
+                                                                                            (make-instance 'ast-setq
+                                                                                                           :variable (first values)
+                                                                                                           :value (make-instance 'ast-call
+                                                                                                                                 :name 'cadr
+                                                                                                                                 :arguments (list itr))))))
                                      :else (create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
                       (make-instance 'ast-quote :value nil))
@@ -631,7 +638,6 @@ A list of any declaration-specifiers."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
 	      ((return-from)
                (lower-keyword-arguments (third form))
@@ -647,6 +653,8 @@ A list of any declaration-specifiers."
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
        (lower-keyword-arguments (if-else form)))
+      (ast-progn
+       (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq (lower-keyword-arguments (value form)))
       (ast-call
@@ -701,7 +709,6 @@ Must be run after keywords have been lowered."
 	      ((multiple-value-bind) (implicit-progn (cddr form)))
 	      ((multiple-value-call) (implicit-progn (cdr form)))
 	      ((multiple-value-prog1) (implicit-progn (cdr form)))
-	      ((progn) (implicit-progn (cdr form)))
 	      ((function))
 	      ((return-from)
                (lower-arguments (third form))
@@ -717,6 +724,8 @@ Must be run after keywords have been lowered."
        (lower-arguments (test form))
        (lower-arguments (if-then form))
        (lower-arguments (if-else form)))
+      (ast-progn
+       (implicit-progn (forms form)))
       (ast-quote)
       (ast-setq (lower-arguments (value form)))
       (ast-call
@@ -802,8 +811,6 @@ Must be run after keywords have been lowered."
                `(multiple-value-call ,@(implicit-progn (cdr form))))
 	      ((multiple-value-prog1)
                `(multiple-value-prog1 ,@(implicit-progn (cdr form))))
-	      ((progn)
-               `(progn ,@(implicit-progn (cdr form))))
 	      ((function) form)
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
@@ -825,6 +832,8 @@ Must be run after keywords have been lowered."
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))
             ,(unparse-compiler-form (if-else form))))
+      (ast-progn
+       `(progn ,@(implicit-progn (forms form))))
       (ast-quote `',(value form))
       (ast-setq
        (let ((var (setq-variable form)))

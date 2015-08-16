@@ -14,7 +14,6 @@
 	    ((multiple-value-bind) (simp-multiple-value-bind form))
 	    ((multiple-value-call) (simp-multiple-value-call form))
 	    ((multiple-value-prog1) (simp-multiple-value-prog1 form))
-	    ((progn) (simp-progn form))
 	    ((function) (simp-quote form))
 	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))
@@ -22,6 +21,7 @@
 	    ((unwind-protect) (simp-unwind-protect form))
 	    ((sys.int::%jump-table) (simp-jump-table form))))
     (ast-if (simp-if form))
+    (ast-progn (simp-progn form))
     (ast-quote (simp-quote form))
     (ast-setq (simp-setq form))
     (ast-call (simp-function-form form))
@@ -40,18 +40,16 @@
       ((endp i)
        x)
     (let ((form (first i)))
-      (cond ((and (consp form)
-                  (eql (first form) 'progn)
-                  (rest form))
+      (cond ((and (typep form 'ast-progn)
+                  (forms form))
              ;; Non-empty PROGN.
              (change-made)
-             (simp-implicit-progn (cdr form))
+             (simp-implicit-progn (forms form))
              ;; Rewrite ((progn v1 ... vn) . xn) to (v1 .... vn . xn).
-             (setf (first i) (second form)
-                   (rest i) (nconc (cddr form) (rest i))))
-            ((and (consp form)
-                  (eql (first form) 'progn)
-                  (not (rest form)))
+             (setf (first i) (first (forms form))
+                   (rest i) (nconc (rest (forms form)) (rest i))))
+            ((and (typep form 'ast-progn)
+                  (not (forms form)))
              ;; Empty progn. Replace with 'NIL.
              (setf (first i) (make-instance 'ast-quote :value 'nil))
              (change-made))
@@ -79,7 +77,7 @@
     ;; Unused blocks get reduced to progn.
     ((eql (lexical-variable-use-count (second form)) 0)
      (change-made)
-     (simp-form `(progn ,@(cddr form))))
+     (simp-form (make-instance 'ast-progn :forms (cddr form))))
     ;; (block foo) => 'nil
     ((eql (length form) 2)
      (change-made)
@@ -106,27 +104,39 @@
 ;;;  (let bindings form1 ... (if formn then else))
 ;;; Beware when hoisting LET/M-V-B, must not hoist special bindings.
 (defun hoist-form-out-of-if (form)
-  (when (and (typep form 'ast-if)
-             (listp (test form))
-             (member (first (test form)) '(let multiple-value-bind progn)))
-    (let* ((test-form (test form))
-           (len (length test-form)))
-      (multiple-value-bind (leading-forms bound-variables)
-          (ecase (first test-form)
-            ((progn) (values 1 '()))
-            ((let) (values 2 (mapcar #'first (second test-form))))
-            ((multiple-value-bind) (values 3 (second test-form))))
-        (when (find-if #'symbolp bound-variables)
-          (return-from hoist-form-out-of-if nil))
-        (append (subseq test-form 0 (max leading-forms (1- len)))
-                (if (<= len leading-forms)
-                    ;; No body forms, must evaluate to NIL!
-                    ;; Fold away the IF.
-                    (list (if-else form))
-                    (list (make-instance 'ast-if
-                                         :test (first (last test-form))
-                                         :then (if-then form)
-                                         :else (if-else form)))))))))
+  (cond ((and (typep form 'ast-if)
+              (listp (test form))
+              (member (first (test form)) '(let multiple-value-bind)))
+         (let* ((test-form (test form))
+                (len (length test-form)))
+           (multiple-value-bind (leading-forms bound-variables)
+               (ecase (first test-form)
+                 ((let) (values 2 (mapcar #'first (second test-form))))
+                 ((multiple-value-bind) (values 3 (second test-form))))
+             (when (find-if #'symbolp bound-variables)
+               (return-from hoist-form-out-of-if nil))
+             (append (subseq test-form 0 (max leading-forms (1- len)))
+                     (if (<= len leading-forms)
+                         ;; No body forms, must evaluate to NIL!
+                         ;; Fold away the IF.
+                         (list (if-else form))
+                         (list (make-instance 'ast-if
+                                              :test (first (last test-form))
+                                              :then (if-then form)
+                                              :else (if-else form))))))))
+        ((and (typep form 'ast-if)
+              (typep (test form) 'ast-progn))
+         (let* ((test-form (test form)))
+           (if (forms test-form)
+               (make-instance 'ast-progn
+                              :forms (append (butlast (forms test-form))
+                                             (list (make-instance 'ast-if
+                                                                  :test (first (last (forms test-form)))
+                                                                  :then (if-then form)
+                                                                  :else (if-else form)))))
+               ;; No body forms, must evaluate to NIL!
+               ;; Fold away the IF.
+               (if-else form))))))
 
 (defun simp-if (form)
   (let ((new-form (hoist-form-out-of-if form)))
@@ -242,7 +252,8 @@
          form)
         (t
          (change-made)
-         (simp-form `(progn ,@(cddr form))))))
+         (simp-form (make-instance 'ast-progn
+                                   :forms (cddr form))))))
 
 (defun simp-multiple-value-bind (form)
   ;; If no variables are used, or there are no variables then
@@ -252,7 +263,8 @@
                        (zerop (lexical-variable-use-count var))))
                 (second form))
          (change-made)
-         (simp-form `(progn ,@(cddr form))))
+         (simp-form (make-instance 'ast-progn
+                                   :forms (cddr form))))
         ;; M-V-B forms with only one variable can be lowered to LET.
         ((and (second form)
               (every (lambda (var)
@@ -295,13 +307,13 @@
 (defun simp-multiple-value-prog1 (form)
   (setf (second form) (simp-form (second form)))
   (simp-implicit-progn (cddr form))
-  (cond ((and (consp (second form))
-              (eql (first (second form)) 'progn))
+  (cond ((typep (second form) 'ast-progn)
          ;; If the first form is a PROGN, then hoist all but the final value out.
          (change-made)
-         `(progn ,@(butlast (cdr (second form)))
-                 (multiple-value-prog1 ,(car (last (second form)))
-                   ,@(cddr form))))
+         (make-instance 'ast-progn
+                        :forms (append (butlast (forms (second form)))
+                                       `((multiple-value-prog1 ,(car (last (forms (second form))))
+                                           ,@(cddr form))))))
         ((and (consp (second form))
               (eql (first (second form)) 'multiple-value-prog1))
          ;; If the first form is a M-V-PROG1, then splice it in.
@@ -316,15 +328,15 @@
         (t form)))
 
 (defun simp-progn (form)
-  (cond ((null (cdr form))
+  (cond ((null (forms form))
 	 ;; Flush empty PROGNs.
 	 (change-made)
 	 (make-instance 'ast-quote :value 'nil))
-	((null (cddr form))
+	((null (rest (forms form)))
 	 ;; Reduce single form PROGNs.
 	 (change-made)
-	 (simp-form (second form)))
-	(t (simp-implicit-progn (cdr form))
+	 (simp-form (first (forms form))))
+	(t (simp-implicit-progn (forms form))
 	   form)))
 
 (defun simp-quote (form)
@@ -341,10 +353,9 @@
 
 (defun simp-tagbody (form)
   (labels ((flatten (x)
-	     (cond ((and (consp x)
-			 (eq (car x) 'progn))
+	     (cond ((typep x 'ast-progn)
 		    (change-made)
-		    (apply #'nconc (mapcar #'flatten (cdr x))))
+		    (apply #'nconc (mapcar #'flatten (forms x))))
 		   ((and (consp x)
 			 (eq (car x) 'tagbody))
 		    ;; Merge directly nested TAGBODY forms, dropping unused go tags.
@@ -411,7 +422,9 @@
           (t
            ;; Non-empty tagbody with no go tags.
            (change-made)
-           `(progn ,@(cddr form) ,(make-instance 'ast-quote :value 'nil))))))
+           (make-instance 'ast-progn
+                          :forms (append (cddr form)
+                                         (list (make-instance 'ast-quote :value 'nil))))))))
 
 (defun simp-the (form)
   (cond ((eql (second form) 't)

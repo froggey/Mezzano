@@ -21,7 +21,6 @@
 	    ((multiple-value-bind) (kt-multiple-value-bind form target-variable replacement-form))
 	    ((multiple-value-call) (kt-multiple-value-call form target-variable replacement-form))
 	    ((multiple-value-prog1) (kt-multiple-value-prog1 form target-variable replacement-form))
-	    ((progn) (kt-progn form target-variable replacement-form))
 	    ((function) (kt-quote form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))
@@ -29,6 +28,7 @@
 	    ((unwind-protect) (kt-unwind-protect form target-variable replacement-form))
 	    ((sys.int::%jump-table) (kt-jump-table form target-variable replacement-form))))
     (ast-if (kt-if form target-variable replacement-form))
+    (ast-progn (kt-progn form target-variable replacement-form))
     (ast-quote (kt-quote form target-variable replacement-form))
     (ast-setq (kt-setq form target-variable replacement-form))
     (ast-call (kt-function-form form target-variable replacement-form))
@@ -101,7 +101,8 @@
     (cond ((null bindings)
            (multiple-value-bind (new-list did-replace)
                (kt-implicit-progn body target-variable replacement-form)
-             (values `(progn ,@new-list)
+             (values (make-instance 'ast-progn
+                                    :forms new-list)
                      did-replace)))
           (t ;; Try to push the active replacement into the first binding.
            (multiple-value-bind (new-form did-replace)
@@ -155,8 +156,8 @@
 
 (defun kt-progn (form target-variable replacement-form)
   (multiple-value-bind (new-list did-replace)
-      (kt-implicit-progn (cdr form) target-variable replacement-form)
-    (setf (cdr form) new-list)
+      (kt-implicit-progn (forms form) target-variable replacement-form)
+    (setf (forms form) new-list)
     (values form did-replace)))
 
 (defun kt-quote (form target-variable replacement-form)

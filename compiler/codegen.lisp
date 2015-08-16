@@ -500,13 +500,13 @@ be generated instead.")
 	      ((multiple-value-bind) (save-tag (cg-multiple-value-bind form)))
 	      ((multiple-value-call) (save-tag (cg-multiple-value-call form)))
 	      ((multiple-value-prog1) (save-tag (cg-multiple-value-prog1 form)))
-	      ((progn) (cg-progn form))
 	      ((return-from) (cg-return-from form))
 	      ((tagbody) (cg-tagbody form))
 	      ((the) (cg-the form))
 	      ((unwind-protect) (error "UWIND-PROTECT not lowered."))
               ((sys.int::%jump-table) (cg-jump-table form))))
       (ast-if (save-tag (cg-if form)))
+      (ast-progn (cg-progn form))
       (ast-quote (cg-quote form))
       (ast-setq (cg-setq form))
       (ast-call (save-tag (cg-function-form form)))
@@ -586,7 +586,7 @@ be generated instead.")
     (prog1
         (let* ((*rename-list* (cons (list (second form) exit-label) *rename-list*))
                (stack-slots (set-up-for-branch))
-               (tag (cg-form `(progn ,@(cddr form)))))
+               (tag (cg-form (make-instance 'ast-progn :forms (cddr form)))))
           (cond ((and *for-value* tag (/= (block-information-count info) 0))
                  ;; Returning a value, exit is reached normally and there were return-from forms reached.
                  ;; Unify the results, so :MULTIPLE is always returned.
@@ -868,7 +868,7 @@ be generated instead.")
                    (load-in-r8 tag t)
                    (setf *r8-value* (cons var :dup))
                    (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))))))))
-    (cg-form `(progn ,@body))))
+    (cg-form (make-instance 'ast-progn :forms body))))
 
 (defun gensym-many (things)
   (loop for x in things collect (gensym)))
@@ -923,7 +923,7 @@ be generated instead.")
                                                 ,register))))))
       (emit no-vals-label))
     (emit-gc-info)
-    (cg-form `(progn ,@body))))
+    (cg-form (make-instance 'ast-progn :forms body))))
 
 (defun emit-funcall-common ()
   "Emit the common code for funcall, argument registers must
@@ -1005,7 +1005,7 @@ Returns an appropriate tag."
   (cond
     ((null *for-value*)
      ;; Not for value
-     (cg-progn form))
+     (cg-form (make-instance 'ast-progn :forms (rest form))))
     (t (let ((tag (let ((*for-value* (case *for-value*
                                        (:predicate t)
                                        (:tail :multiple)
@@ -1080,7 +1080,7 @@ Returns an appropriate tag."
            (emit-gc-info)
            (add-dx-root sv-save-area))
          (let ((*for-value* nil))
-           (when (not (cg-progn `(progn ,@(cddr form))))
+           (when (not (cg-progn (make-instance 'ast-progn :forms (cddr form))))
              ;; No return.
              (setf *load-list* (delete tag *load-list*))
              (return-from cg-multiple-value-prog1 'nil)))
@@ -1103,8 +1103,8 @@ Returns an appropriate tag."
          tag))))
 
 (defun cg-progn (form)
-  (if (rest form)
-      (do ((i (rest form) (rest i)))
+  (if (forms form)
+      (do ((i (forms form) (rest i)))
 	  ((endp (rest i))
 	   (cg-form (first i)))
 	(let* ((*for-value* nil)

@@ -14,7 +14,6 @@
 	    ((multiple-value-bind) (ll-multiple-value-bind form))
 	    ((multiple-value-call) (ll-multiple-value-call form))
 	    ((multiple-value-prog1) (ll-multiple-value-prog1 form))
-	    ((progn) (ll-progn form))
 	    ((function) (ll-quote form))
 	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))
@@ -22,6 +21,7 @@
 	    ((unwind-protect) (ll-unwind-protect form))
 	    ((sys.int::%jump-table) (ll-jump-table form))))
     (ast-if (ll-if form))
+    (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
     (ast-setq (ll-setq form))
     (ast-call (ll-function-form form))
@@ -100,7 +100,7 @@
   form)
 
 (defun ll-progn (form)
-  (ll-implicit-progn (cdr form))
+  (ll-implicit-progn (forms form))
   form)
 
 (defun ll-quote (form)

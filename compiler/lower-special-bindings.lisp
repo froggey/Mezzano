@@ -73,7 +73,6 @@
               ((multiple-value-bind) (map-form 2))
               ((multiple-value-call) (map-form 1))
               ((multiple-value-prog1) (map-form 1))
-              ((progn) (map-form 1))
               ((function) form)
               ((return-from)
                (lsb-return-from form))
@@ -88,6 +87,9 @@
                       :test (lsb-form (test form))
                       :then (lsb-form (if-then form))
                       :else (lsb-form (if-else form))))
+      (ast-progn
+       (make-instance 'ast-progn
+                      :forms (mapcar #'lsb-form (forms form))))
       (ast-quote form)
       (ast-setq
        (make-instance 'ast-setq
@@ -154,7 +156,8 @@
                                            (make-instance 'ast-quote
                                                           :value (block-information-env-offset info))))
           (multiple-value-prog1
-              (progn ,@(mapcar #'lsb-form (cddr form)))
+              ,(make-instance 'ast-progn
+                              :forms (mapcar #'lsb-form (cddr form)))
             ,(make-instance 'ast-call
                             :name 'sys.int::%%disestablish-block-or-tagbody
                             :arguments '()))))
@@ -165,9 +168,9 @@
   (destructuring-bind (tag location) (cdr form)
     (cond ((eql (go-tag-tagbody tag) location)
            ;; Local GO, locate the matching TAGBODY and emit any unwind forms required.
-           `(progn
-              ,@(lsb-unwind-to (lsb-find-b-or-t-binding location))
-              (go ,tag ,location)))
+           (make-instance 'ast-progn
+                          :forms (append (lsb-unwind-to (lsb-find-b-or-t-binding location))
+                                         (list `(go ,tag ,location)))))
           (t ;; Non-local GO, do the full unwind.
            (let ((info (make-instance 'lexical-variable
                                       :name (gensym "go-info")
@@ -199,18 +202,19 @@
                               (t
                                (push (list :special (first binding))
                                      *special-bindings*)
-                               `(progn
-                                  ,(make-instance 'ast-call
-                                                  :name 'sys.int::%%bind
-                                                  :arguments (list (make-instance 'ast-quote
-                                                                                  :value (first binding))
-                                                                   (lsb-form (second binding))))
-                                  (multiple-value-prog1
-                                      ,(frob (rest bindings))
-                                    ,(make-instance 'ast-call
-                                                    :name 'sys.int::%%unbind
-                                                    :arguments '())))))))
-                     (t `(progn ,@(mapcar #'lsb-form (cddr form)))))))
+                               (make-instance 'ast-progn
+                                              :forms (list (make-instance 'ast-call
+                                                                          :name 'sys.int::%%bind
+                                                                          :arguments (list (make-instance 'ast-quote
+                                                                                                          :value (first binding))
+                                                                                           (lsb-form (second binding))))
+                                                           `(multiple-value-prog1
+                                                                ,(frob (rest bindings))
+                                                              ,(make-instance 'ast-call
+                                                                              :name 'sys.int::%%unbind
+                                                                              :arguments '()))))))))
+                     (t (make-instance 'ast-progn
+                                       :forms (mapcar #'lsb-form (cddr form)))))))
       (frob (second form)))))
 
 (defun lsb-return-from (form)
@@ -264,18 +268,19 @@
       (cond
         ((tagbody-information-env-var info)
          ;; Escaping TAGBODY.
-         `(progn
-            ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
-            ,(make-instance 'ast-call
-                            :name 'sys.int::%%push-special-stack
-                            :arguments (list (tagbody-information-env-var info)
-                                             (make-instance 'ast-quote
-                                                            :value (tagbody-information-env-offset info))))
-            ,(frob-tagbody)
-            ,(make-instance 'ast-call
-                            :name 'sys.int::%%disestablish-block-or-tagbody
-                            :arguments '())
-            ,(make-instance 'ast-quote :value 'nil)))
+         (make-instance 'ast-progn
+                        :forms (list
+                                ;; Must be outside the tagbody, so the special stack pointer is saved correctly.
+                                (make-instance 'ast-call
+                                               :name 'sys.int::%%push-special-stack
+                                               :arguments (list (tagbody-information-env-var info)
+                                                                (make-instance 'ast-quote
+                                                                               :value (tagbody-information-env-offset info))))
+                                (frob-tagbody)
+                                (make-instance 'ast-call
+                                               :name 'sys.int::%%disestablish-block-or-tagbody
+                                               :arguments '())
+                                (make-instance 'ast-quote :value 'nil))))
         (t ;; Local TAGBODY.
          (frob-tagbody))))))
 
@@ -292,19 +297,20 @@
       (when (not (lambda-information-p cleanup-function))
         ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
         (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t))
-      `(progn
-         ,(make-instance 'ast-call
-                         :name 'sys.int::%%push-special-stack
-                         :arguments (cond
-                                      ((lambda-information-p cleanup-function)
-                                       (list (lsb-form cleanup-function)
-                                             (make-instance 'ast-quote :value 0)))
-                                      (t
-                                       (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t)
-                                       (list (lsb-form (first (arguments cleanup-function)))
-                                             (lsb-form (second (arguments cleanup-function)))))))
-         (multiple-value-prog1
-             ,(lsb-form protected-form)
-           ,(make-instance 'ast-call
-                           :name 'sys.int::%%disestablish-unwind-protect
-                           :arguments '()))))))
+      (make-instance 'ast-progn
+                     :forms (list
+                             (make-instance 'ast-call
+                                            :name 'sys.int::%%push-special-stack
+                                            :arguments (cond
+                                                         ((lambda-information-p cleanup-function)
+                                                          (list (lsb-form cleanup-function)
+                                                                (make-instance 'ast-quote :value 0)))
+                                                         (t
+                                                          (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t)
+                                                          (list (lsb-form (first (arguments cleanup-function)))
+                                                                (lsb-form (second (arguments cleanup-function)))))))
+                             `(multiple-value-prog1
+                                  ,(lsb-form protected-form)
+                                ,(make-instance 'ast-call
+                                                :name 'sys.int::%%disestablish-unwind-protect
+                                                :arguments '())))))))

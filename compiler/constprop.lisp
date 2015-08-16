@@ -23,7 +23,6 @@
 	    ((multiple-value-bind) (cp-multiple-value-bind form))
 	    ((multiple-value-call) (cp-multiple-value-call form))
 	    ((multiple-value-prog1) (cp-multiple-value-prog1 form))
-	    ((progn) (cp-progn form))
 	    ((function) (cp-quote form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))
@@ -31,6 +30,7 @@
 	    ((unwind-protect) (cp-unwind-protect form))
 	    ((sys.int::%jump-table) (cp-jump-table form))))
     (ast-if (cp-if form))
+    (ast-progn (cp-progn form))
     (ast-quote (cp-quote form))
     (ast-setq (cp-setq form))
     (ast-call (cp-function-form form))
@@ -145,7 +145,7 @@
   form)
 
 (defun cp-progn (form)
-  (cp-implicit-progn (cdr form))
+  (cp-implicit-progn (forms form))
   form)
 
 (defun cp-quote (form)
@@ -246,15 +246,15 @@
 		 (let ((constant-accu '())
 		       (arg-accu '()))
 		   (dolist (i arg-list)
-		     (if (typep i 'ast-quote)
-			 (push (value i) constant-accu)
-			 (progn
-			   (when constant-accu
-			     (push (make-instance 'ast-quote
-                                                  :value (apply function (nreverse constant-accu)))
-                                   arg-accu)
-			     (setf constant-accu nil))
-			   (push i arg-accu))))
+		     (cond ((typep i 'ast-quote)
+                            (push (value i) constant-accu))
+                           (t
+                            (when constant-accu
+                              (push (make-instance 'ast-quote
+                                                   :value (apply function (nreverse constant-accu)))
+                                    arg-accu)
+                              (setf constant-accu nil))
+                            (push i arg-accu))))
 		   (if arg-accu
 		       (nconc (list function)
 			      (nreverse arg-accu)
@@ -274,15 +274,14 @@
 
 (defun cp-variable (form)
   (let ((val (assoc form *known-variables*)))
-    (if val
-	(progn
-	  (change-made)
-          (when (lambda-information-p (second val))
-            (incf (getf (lambda-information-plist (second val)) 'copy-count 0)))
-	  (decf (lexical-variable-use-count form))
-          (incf (third val))
-	  (copy-form (second val)))
-	form)))
+    (cond (val
+           (change-made)
+           (when (lambda-information-p (second val))
+             (incf (getf (lambda-information-plist (second val)) 'copy-count 0)))
+           (decf (lexical-variable-use-count form))
+           (incf (third val))
+           (copy-form (second val)))
+          (t form))))
 
 (defun cp-lambda (form)
   (flush-mutable-variables)
