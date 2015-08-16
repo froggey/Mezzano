@@ -21,8 +21,7 @@
 	    ((go) (cp-go form))
 	    ((let) (cp-let form))
 	    ((return-from) (cp-return-from form))
-	    ((tagbody) (cp-tagbody form))
-	    ((unwind-protect) (cp-unwind-protect form))))
+	    ((tagbody) (cp-tagbody form))))
     (ast-function (cp-function form))
     (ast-if (cp-if form))
     (ast-multiple-value-bind (cp-multiple-value-bind form))
@@ -32,6 +31,7 @@
     (ast-quote (cp-quote form))
     (ast-setq (cp-setq form))
     (ast-the (cp-the form))
+    (ast-unwind-protect (cp-unwind-protect form))
     (ast-call (cp-function-form form))
     (ast-jump-table (cp-jump-table form))
     (lexical-variable (cp-variable form))
@@ -203,7 +203,8 @@
   form)
 
 (defun cp-unwind-protect (form)
-  (cp-implicit-progn (cdr form))
+  (setf (protected-form form) (cp-form (protected-form form))
+        (cleanup-function form) (cp-form (cleanup-function form)))
   form)
 
 (defun cp-jump-table (form)

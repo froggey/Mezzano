@@ -12,8 +12,7 @@
 	    ((go) (ll-go form))
 	    ((let) (ll-let form))
 	    ((return-from) (ll-return-from form))
-	    ((tagbody) (ll-tagbody form))
-	    ((unwind-protect) (ll-unwind-protect form))))
+	    ((tagbody) (ll-tagbody form))))
     (ast-function (ll-function form))
     (ast-if (ll-if form))
     (ast-multiple-value-bind (ll-multiple-value-bind form))
@@ -23,6 +22,7 @@
     (ast-quote (ll-quote form))
     (ast-setq (ll-setq form))
     (ast-the (ll-the form))
+    (ast-unwind-protect (ll-unwind-protect form))
     (ast-call (ll-function-form form))
     (ast-jump-table (ll-jump-table form))
     (lexical-variable (ll-variable form))
@@ -137,7 +137,8 @@
   form)
 
 (defun ll-unwind-protect (form)
-  (ll-implicit-progn (cdr form))
+  (setf (protected-form form) (ll-form (protected-form form))
+        (cleanup-function form) (ll-form (cleanup-function form)))
   form)
 
 (defun ll-jump-table (form)

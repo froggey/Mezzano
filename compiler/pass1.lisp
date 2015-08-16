@@ -651,11 +651,11 @@
 (defun pass1-unwind-protect (form env)
   (destructuring-bind (protected-form &body cleanup-forms) (cdr form)
     (if cleanup-forms
-        (list 'unwind-protect
-              (pass1-form protected-form env)
-              (pass1-lambda `(lambda ()
-                               (progn ,@cleanup-forms))
-                            env))
+        (make-instance 'ast-unwind-protect
+                       :protected-form (pass1-form protected-form env)
+                       :cleanup-function (pass1-lambda `(lambda ()
+                                                          (progn ,@cleanup-forms))
+                                                       env))
 	(pass1-form protected-form env))))
 
 (defun pass1-jump-table (form env)

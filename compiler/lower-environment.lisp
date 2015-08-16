@@ -43,14 +43,7 @@
 	    ((return-from)
              (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
-             (compute-tagbody-environment-layout form))
-	    ((unwind-protect)
-             (compute-environment-layout (second form))
-             (cond ((lambda-information-p (third form))
-                    (unless (getf (lambda-information-plist (third form)) 'extent)
-                        (setf (getf (lambda-information-plist (third form)) 'extent) :dynamic))
-                    (compute-lambda-environment-layout (third form)))
-                   (t (compute-environment-layout (third form)))))))
+             (compute-tagbody-environment-layout form))))
     (ast-function nil)
     (ast-if
      (compute-environment-layout (test form))
@@ -71,6 +64,12 @@
      (compute-environment-layout (value form)))
     (ast-the
      (compute-environment-layout (value form)))
+    (ast-unwind-protect
+     (compute-environment-layout (protected-form form))
+     (when (and (lambda-information-p (cleanup-function form))
+                (not (getf (lambda-information-plist (cleanup-function form)) 'extent)))
+       (setf (getf (lambda-information-plist (cleanup-function form)) 'extent) :dynamic))
+     (compute-environment-layout (cleanup-function form)))
     (ast-call (cond ((and (eql (name form) 'funcall)
                           (lambda-information-p (first (arguments form))))
                      (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
@@ -195,9 +194,7 @@ of statements opens a new contour."
                (union (compute-free-variable-sets-1 (third form))
                       (compute-free-variable-sets-1 (fourth form))))
               ((tagbody)
-               (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))
-              ((unwind-protect)
-               (process-progn (cdr form)))))
+               (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))))
       (ast-function '())
       (ast-if
        (union (compute-free-variable-sets-1 (test form))
@@ -222,6 +219,9 @@ of statements opens a new contour."
               (compute-free-variable-sets-1 (value form))))
       (ast-the
        (compute-free-variable-sets-1 (value form)))
+      (ast-unwind-protect
+       (union (compute-free-variable-sets-1 (protected-form form))
+              (compute-free-variable-sets-1 (cleanup-function form))))
       (ast-call
        (process-progn (arguments form)))
       (ast-jump-table
@@ -253,8 +253,7 @@ of statements opens a new contour."
 	    ((go) (le-go form))
 	    ((let) (le-let form))
 	    ((return-from) (le-return-from form))
-	    ((tagbody) (le-tagbody form))
-	    ((unwind-protect) (le-form*-cdr form))))
+	    ((tagbody) (le-tagbody form))))
     (ast-function form)
     (ast-if
      (le-if form))
@@ -274,6 +273,10 @@ of statements opens a new contour."
     (ast-quote form)
     (ast-setq (le-setq form))
     (ast-the (le-the form))
+    (ast-unwind-protect
+     (make-instance 'ast-unwind-protect
+                    :protected-form (lower-env-form (protected-form form))
+                    :cleanup-function (lower-env-form (cleanup-function form))))
     (ast-call
      (make-instance 'ast-call
                     :name (name form)

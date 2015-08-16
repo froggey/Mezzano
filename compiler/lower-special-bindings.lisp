@@ -70,9 +70,7 @@
             ((return-from)
              (lsb-return-from form))
             ((tagbody)
-             (lsb-tagbody form))
-            ((unwind-protect)
-             (lsb-unwind-protect form))))
+             (lsb-tagbody form))))
     (ast-function form)
     (ast-if
      (make-instance 'ast-if
@@ -104,6 +102,8 @@
      (make-instance 'ast-the
                     :type (the-type form)
                     :value (lsb-form (value form))))
+    (ast-unwind-protect
+     (lsb-unwind-protect form))
     (ast-call
      (make-instance 'ast-call
                     :name (name form)
@@ -299,32 +299,33 @@
          (frob-tagbody))))))
 
 (defun lsb-unwind-protect (form)
-  (let ((*special-bindings* (cons (list :unwind-protect) *special-bindings*)))
-    (destructuring-bind (protected-form cleanup-function) (cdr form)
-      ;; The cleanup function must either be a naked lambda or a
-      ;; call to make-closure with a known lambda.
-      (assert (or (lambda-information-p cleanup-function)
-                  (and (typep cleanup-function 'ast-call)
-                       (eql (name cleanup-function) 'sys.int::make-closure)
-                       (= (list-length (arguments cleanup-function)) 2)
-                       (lambda-information-p (first (arguments cleanup-function))))))
-      (when (not (lambda-information-p cleanup-function))
-        ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
-        (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t))
-      (make-instance 'ast-progn
-                     :forms (list
-                             (make-instance 'ast-call
-                                            :name 'sys.int::%%push-special-stack
-                                            :arguments (cond
-                                                         ((lambda-information-p cleanup-function)
-                                                          (list (lsb-form cleanup-function)
-                                                                (make-instance 'ast-quote :value 0)))
-                                                         (t
-                                                          (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t)
-                                                          (list (lsb-form (first (arguments cleanup-function)))
-                                                                (lsb-form (second (arguments cleanup-function)))))))
-                             (make-instance 'ast-multiple-value-prog1
-                                            :value-form (lsb-form protected-form)
-                                            :body (make-instance 'ast-call
-                                                                 :name 'sys.int::%%disestablish-unwind-protect
-                                                                 :arguments '())))))))
+  (let ((*special-bindings* (cons (list :unwind-protect) *special-bindings*))
+        (protected-form (protected-form form))
+        (cleanup-function (cleanup-function form)))
+    ;; The cleanup function must either be a naked lambda or a
+    ;; call to make-closure with a known lambda.
+    (assert (or (lambda-information-p cleanup-function)
+                (and (typep cleanup-function 'ast-call)
+                     (eql (name cleanup-function) 'sys.int::make-closure)
+                     (= (list-length (arguments cleanup-function)) 2)
+                     (lambda-information-p (first (arguments cleanup-function))))))
+    (when (not (lambda-information-p cleanup-function))
+      ;; cleanup closures use the unwind-protect call protocol (code in r13, env in rbx, no closure indirection).
+      (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t))
+    (make-instance 'ast-progn
+                   :forms (list
+                           (make-instance 'ast-call
+                                          :name 'sys.int::%%push-special-stack
+                                          :arguments (cond
+                                                       ((lambda-information-p cleanup-function)
+                                                        (list (lsb-form cleanup-function)
+                                                              (make-instance 'ast-quote :value 0)))
+                                                       (t
+                                                        (setf (getf (lambda-information-plist (first (arguments cleanup-function))) 'unwind-protect-cleanup) t)
+                                                        (list (lsb-form (first (arguments cleanup-function)))
+                                                              (lsb-form (second (arguments cleanup-function)))))))
+                           (make-instance 'ast-multiple-value-prog1
+                                          :value-form (lsb-form protected-form)
+                                          :body (make-instance 'ast-call
+                                                               :name 'sys.int::%%disestablish-unwind-protect
+                                                               :arguments '()))))))

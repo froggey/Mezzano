@@ -12,8 +12,7 @@
 	    ((go) (simp-go form))
 	    ((let) (simp-let form))
 	    ((return-from) (simp-return-from form))
-	    ((tagbody) (simp-tagbody form))
-	    ((unwind-protect) (simp-unwind-protect form))))
+	    ((tagbody) (simp-tagbody form))))
     (ast-function (simp-function form))
     (ast-if (simp-if form))
     (ast-multiple-value-bind (simp-multiple-value-bind form))
@@ -23,6 +22,7 @@
     (ast-quote (simp-quote form))
     (ast-setq (simp-setq form))
     (ast-the (simp-the form))
+    (ast-unwind-protect (simp-unwind-protect form))
     (ast-call (simp-function-form form))
     (ast-jump-table (simp-jump-table form))
     (lexical-variable (simp-variable form))
@@ -438,8 +438,8 @@
            form)))
 
 (defun simp-unwind-protect (form)
-  (setf (second form) (simp-form (second form)))
-  (simp-implicit-progn (cddr form))
+  (setf (protected-form form) (simp-form (protected-form form))
+        (cleanup-function form) (simp-form (cleanup-function form)))
   form)
 
 (defun simp-jump-table (form)

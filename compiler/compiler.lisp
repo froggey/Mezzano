@@ -238,6 +238,10 @@ A list of any declaration-specifiers."
   ((%the-type :initarg :type :accessor the-type)
    (%value :initarg :value :accessor value)))
 
+(defclass ast-unwind-protect ()
+  ((%protected-form :initarg :protected-form :accessor protected-form)
+   (%cleanup-function :initarg :cleanup-function :accessor cleanup-function)))
+
 (defclass ast-call ()
   ((%name :initarg :name :accessor name)
    (%arguments :initarg :arguments :accessor arguments)))
@@ -272,8 +276,7 @@ A list of any declaration-specifiers."
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
-		   (flush-form i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))))
+		   (flush-form i))))))
       (ast-function)
       (ast-if
        (flush-form (test form))
@@ -296,6 +299,9 @@ A list of any declaration-specifiers."
        (flush-form (value form)))
       (ast-the
        (flush-form (value form)))
+      (ast-unwind-protect
+       (flush-form (protected-form form))
+       (flush-form (cleanup-function form)))
       (ast-call
        (mapc #'flush-form (arguments form)))
       (ast-jump-table
@@ -373,8 +379,7 @@ A list of any declaration-specifiers."
 				 (if (go-tag-p x)
 				     (fix x)
 				     (copy-form x replacements)))
-			       (cddr form)))))
-	      ((unwind-protect) `(unwind-protect ,@(implicit-progn (cdr form))))))
+			       (cddr form)))))))
       (ast-function form)
       (ast-if
        (make-instance 'ast-if
@@ -410,6 +415,10 @@ A list of any declaration-specifiers."
        (make-instance 'ast-the
                       :type (the-type form)
                       :value (copy-form (value form) replacements)))
+      (ast-unwind-protect
+       (make-instance 'ast-unwind-protect
+                      :protected-form (copy-form (protected-form form) replacements)
+                      :cleanup-function (copy-form (cleanup-function form) replacements)))
       (ast-call
        (make-instance 'ast-call
                       :name (name form)
@@ -504,8 +513,7 @@ A list of any declaration-specifiers."
 		       (go-tag-used-in tag) '()))
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
-		   (detect-uses i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))))
+		   (detect-uses i))))))
       (ast-function)
       (ast-if
        (detect-uses (test form))
@@ -532,6 +540,9 @@ A list of any declaration-specifiers."
          (detect-uses (value form))))
       (ast-the
        (detect-uses (value form)))
+      (ast-unwind-protect
+       (detect-uses (protected-form form))
+       (detect-uses (cleanup-function form)))
       (ast-call
        (mapc #'detect-uses (arguments form)))
       (ast-jump-table
@@ -696,8 +707,7 @@ A list of any declaration-specifiers."
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
-		   (lower-keyword-arguments i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))))
+		   (lower-keyword-arguments i))))))
       (ast-function)
       (ast-if
        (lower-keyword-arguments (test form))
@@ -715,8 +725,13 @@ A list of any declaration-specifiers."
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
-      (ast-setq (lower-keyword-arguments (value form)))
-      (ast-the (lower-keyword-arguments (value form)))
+      (ast-setq
+       (lower-keyword-arguments (value form)))
+      (ast-the
+       (lower-keyword-arguments (value form)))
+      (ast-unwind-protect
+       (lower-keyword-arguments (protected-form form))
+       (lower-keyword-arguments (cleanup-function form)))
       (ast-call
        (mapc #'lower-keyword-arguments (arguments form)))
       (ast-jump-table
@@ -774,8 +789,7 @@ Must be run after keywords have been lowered."
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
-		   (lower-arguments i))))
-	      ((unwind-protect) (implicit-progn (cdr form)))))
+		   (lower-arguments i))))))
       (ast-function)
       (ast-if
        (lower-arguments (test form))
@@ -793,8 +807,13 @@ Must be run after keywords have been lowered."
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
-      (ast-setq (lower-arguments (value form)))
-      (ast-the (lower-arguments (value form)))
+      (ast-setq
+       (lower-arguments (value form)))
+      (ast-the
+       (lower-arguments (value form)))
+      (ast-unwind-protect
+       (lower-arguments (protected-form form))
+       (lower-arguments (cleanup-function form)))
       (ast-call
        (mapc #'lower-arguments (arguments form)))
       (ast-jump-table
@@ -883,8 +902,6 @@ Must be run after keywords have been lowered."
                                          (go-tag-name x)
                                          (unparse-compiler-form x)))
                                    (cddr form))))
-	      ((unwind-protect)
-               `(unwind-protect ,@(implicit-progn (cdr form))))
               (t `(:invalid ,form))))
       (ast-function
        `(function ,(name form)))
@@ -914,6 +931,10 @@ Must be run after keywords have been lowered."
                 ,(unparse-compiler-form (value form)))))
       (ast-the
        `(the ,(the-type form) ,(unparse-compiler-form (value form))))
+      (ast-unwind-protect
+       `(unwind-protect
+             ,(unparse-compiler-form (protected-form form))
+          (funcall ,(unparse-compiler-form (cleanup-function form)))))
       (ast-call
        (list* (name form) (mapcar #'unparse-compiler-form (arguments form))))
       (ast-jump-table

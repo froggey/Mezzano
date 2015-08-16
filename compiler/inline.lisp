@@ -12,8 +12,7 @@
 	    ((go) (il-go form))
 	    ((let) (il-let form))
 	    ((return-from) (il-return-from form))
-	    ((tagbody) (il-tagbody form))
-	    ((unwind-protect) (il-unwind-protect form))))
+	    ((tagbody) (il-tagbody form))))
     (ast-function (il-function form))
     (ast-if (il-if form))
     (ast-multiple-value-bind (il-multiple-value-bind form))
@@ -23,6 +22,7 @@
     (ast-quote (il-quote form))
     (ast-setq (il-setq form))
     (ast-the (il-the form))
+    (ast-unwind-protect (il-unwind-protect form))
     (ast-call (il-function-form form))
     (ast-jump-table (il-jump-table form))
     (lexical-variable (il-variable form))
@@ -100,7 +100,8 @@
   form)
 
 (defun il-unwind-protect (form)
-  (il-implicit-progn (cdr form))
+  (setf (protected-form form) (il-form (protected-form form))
+        (cleanup-function form) (il-form (cleanup-function form)))
   form)
 
 (defun il-jump-table (form)
