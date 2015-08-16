@@ -17,11 +17,11 @@
     (cons (ecase (first form)
 	    ((block) (kt-block form target-variable replacement-form))
 	    ((go) (kt-go form target-variable replacement-form))
-	    ((let) (kt-let form target-variable replacement-form))
 	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))))
     (ast-function (kt-function form target-variable replacement-form))
     (ast-if (kt-if form target-variable replacement-form))
+    (ast-let (kt-let form target-variable replacement-form))
     (ast-multiple-value-bind (kt-multiple-value-bind form target-variable replacement-form))
     (ast-multiple-value-call (kt-multiple-value-call form target-variable replacement-form))
     (ast-multiple-value-prog1 (kt-multiple-value-prog1 form target-variable replacement-form))
@@ -99,14 +99,13 @@
     (values form did-replace)))
 
 (defun kt-let (form target-variable replacement-form)
-  (let ((bindings (second form))
+  (let ((bindings (bindings form))
         (new-bindings '())
-        (body (cddr form)))
+        (body (body form)))
     (cond ((null bindings)
-           (multiple-value-bind (new-list did-replace)
-               (kt-implicit-progn body target-variable replacement-form)
-             (values (make-instance 'ast-progn
-                                    :forms new-list)
+           (multiple-value-bind (new-body did-replace)
+               (kt-form body target-variable replacement-form)
+             (values new-body
                      did-replace)))
           (t ;; Try to push the active replacement into the first binding.
            (multiple-value-bind (new-form did-replace)
@@ -127,14 +126,15 @@
              ;; Now push the last binding into the body.
              (multiple-value-bind (new-form replaced-last-binding)
                  (if (temporary-p (first (car (last bindings))))
-                     (kt-implicit-progn body
-                                        (first (car (last bindings)))
-                                        (second (car (last bindings))))
-                     (kt-implicit-progn body))
+                     (kt-form body
+                              (first (car (last bindings)))
+                              (second (car (last bindings))))
+                     (kt-form body))
                (unless replaced-last-binding
                  (push (car (last bindings)) new-bindings))
-               (values `(let ,(reverse new-bindings)
-                          ,@new-form)
+               (values (make-instance 'ast-let
+                                      :bindings (reverse new-bindings)
+                                      :body new-form)
                        did-replace)))))))
 
 (defun kt-multiple-value-bind (form target-variable replacement-form)

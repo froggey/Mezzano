@@ -19,11 +19,11 @@
     (cons (ecase (first form)
 	    ((block) (cp-block form))
 	    ((go) (cp-go form))
-	    ((let) (cp-let form))
 	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))))
     (ast-function (cp-function form))
     (ast-if (cp-if form))
+    (ast-let (cp-let form))
     (ast-multiple-value-bind (cp-multiple-value-bind form))
     (ast-multiple-value-call (cp-multiple-value-call form))
     (ast-multiple-value-prog1 (cp-multiple-value-prog1 form))
@@ -111,7 +111,7 @@
 
 (defun cp-let (form)
   (let ((*known-variables* *known-variables*))
-    (dolist (b (second form))
+    (dolist (b (bindings form))
       (let ((var (first b))
 	    (val (second b)))
 	;; Run on the init-form.
@@ -130,7 +130,7 @@
 			    (eql (lexical-variable-write-count val) 0))))
 	  (push (list var val 0 b) *known-variables*))))
     ;; Run on the body, with the new constants.
-    (cp-implicit-progn (cddr form))
+    (setf (body form) (cp-form (body form)))
     form))
 
 (defun cp-multiple-value-bind (form)

@@ -40,22 +40,23 @@
                                 :name (gensym "ssp")
                                 :definition-point lambda)))
         (setf (lambda-information-body lambda)
-              `(let ((,ssp ,(make-instance 'ast-call
-                                           :name 'sys.int::%%special-stack-pointer
-                                           :arguments '())))
-                 ,(make-instance 'ast-multiple-value-prog1
-                                 :value-form (lambda-information-body lambda)
-                                 :body (make-instance 'ast-if
-                                                      :test (make-instance 'ast-call
-                                                                           :name 'eq
-                                                                           :arguments (list ssp
-                                                                                            (make-instance 'ast-call
-                                                                                                           :name 'sys.int::%%special-stack-pointer
-                                                                                                           :arguments '())))
-                                                      :then (make-instance 'ast-quote :value 'nil)
-                                                      :else (make-instance 'ast-call
-                                                                           :name 'error
-                                                                           :arguments (list (make-instance 'ast-quote :value "SSP mismatch")))))))))
+              (make-instance 'ast-let
+                             :bindings (list (list ssp (make-instance 'ast-call
+                                                                      :name 'sys.int::%%special-stack-pointer
+                                                                      :arguments '())))
+                             :body (make-instance 'ast-multiple-value-prog1
+                                                  :value-form (lambda-information-body lambda)
+                                                  :body (make-instance 'ast-if
+                                                                       :test (make-instance 'ast-call
+                                                                                            :name 'eq
+                                                                                            :arguments (list ssp
+                                                                                                             (make-instance 'ast-call
+                                                                                                                            :name 'sys.int::%%special-stack-pointer
+                                                                                                                            :arguments '())))
+                                                                       :then (make-instance 'ast-quote :value 'nil)
+                                                                       :else (make-instance 'ast-call
+                                                                                            :name 'error
+                                                                                            :arguments (list (make-instance 'ast-quote :value "SSP mismatch")))))))))
     lambda))
 
 (defun lsb-form (form)
@@ -65,8 +66,6 @@
              (lsb-block form))
             ((go)
              (lsb-go form))
-            ((let)
-             (lsb-let form))
             ((return-from)
              (lsb-return-from form))
             ((tagbody)
@@ -77,6 +76,8 @@
                     :test (lsb-form (test form))
                     :then (lsb-form (if-then form))
                     :else (lsb-form (if-else form))))
+    (ast-let
+     (lsb-let form))
     (ast-multiple-value-bind
      (make-instance 'ast-multiple-value-bind
                     :bindings (bindings form)
@@ -188,20 +189,23 @@
            (let ((info (make-instance 'lexical-variable
                                       :name (gensym "go-info")
                                       :definition-point *current-lambda*)))
-             `(let ((,info ,(lsb-form location)))
-                ;; Ensure it's still valid.
-                ,(make-instance 'ast-if
-                                :test info
-                                :then (make-instance 'ast-quote :value 'nil)
-                                :else (make-instance 'ast-call
-                                                     :name 'sys.int::raise-bad-go-tag
-                                                     :arguments (list (make-instance 'ast-quote :value (go-tag-name tag)))))
-                ,(make-instance 'ast-call
-                                :name 'sys.int::%%unwind-to
-                                :arguments (list (make-instance 'ast-call
-                                                                :name 'sys.int::%%tagbody-info-binding-stack-pointer
-                                                                :arguments (list info))))
-                (go ,tag ,info)))))))
+             (make-instance 'ast-let
+                            :bindings (list (list info (lsb-form location)))
+                            :body (make-instance 'ast-progn
+                                                 :forms (list
+                                                         ;; Ensure it's still valid.
+                                                         (make-instance 'ast-if
+                                                                        :test info
+                                                                        :then (make-instance 'ast-quote :value 'nil)
+                                                                        :else (make-instance 'ast-call
+                                                                                             :name 'sys.int::raise-bad-go-tag
+                                                                                             :arguments (list (make-instance 'ast-quote :value (go-tag-name tag)))))
+                                                         (make-instance 'ast-call
+                                                                        :name 'sys.int::%%unwind-to
+                                                                        :arguments (list (make-instance 'ast-call
+                                                                                                        :name 'sys.int::%%tagbody-info-binding-stack-pointer
+                                                                                                        :arguments (list info))))
+                                                         `(go ,tag ,info)))))))))
 
 (defun lsb-let (form)
   (let ((*special-bindings* *special-bindings*))
@@ -209,9 +213,9 @@
                (cond (bindings
                       (let ((binding (first bindings)))
                         (cond ((lexical-variable-p (first binding))
-                               `(let ((,(first binding)
-                                       ,(lsb-form (second binding))))
-                                  ,(frob (rest bindings))))
+                               (make-instance 'ast-let
+                                              :bindings (list (list (first binding) (lsb-form (second binding))))
+                                              :body (frob (rest bindings))))
                               (t
                                (push (list :special (first binding))
                                      *special-bindings*)
@@ -226,9 +230,8 @@
                                                                           :body (make-instance 'ast-call
                                                                                                :name 'sys.int::%%unbind
                                                                                                :arguments '()))))))))
-                     (t (make-instance 'ast-progn
-                                       :forms (mapcar #'lsb-form (cddr form)))))))
-      (frob (second form)))))
+                     (t (lsb-form (body form))))))
+      (frob (bindings form)))))
 
 (defun lsb-return-from (form)
   (destructuring-bind (tag value-form location) (cdr form)
@@ -237,23 +240,26 @@
            (let ((info (make-instance 'lexical-variable
                                       :name (gensym "return-from-info")
                                       :definition-point *current-lambda*)))
-             `(let ((,info ,(lsb-form location)))
-                ,(make-instance 'ast-if
-                                :test info
-                                :then (make-instance 'ast-quote :value 'nil)
-                                :else (make-instance 'ast-call
-                                                     :name 'sys.int::raise-bad-block
-                                                     :arguments (list (make-instance 'ast-quote
-                                                                                     :value (lexical-variable-name tag)))))
-                (return-from ,tag
-                  ,(make-instance 'ast-multiple-value-prog1
-                                  :value-form (lsb-form value-form)
-                                  :body (make-instance 'ast-call
-                                                       :name 'sys.int::%%unwind-to
-                                                       :arguments (list (make-instance 'ast-call
-                                                                                       :name 'sys.int::%%block-info-binding-stack-pointer
-                                                                                       :arguments (list info)))))
-                  ,info))))
+             (make-instance 'ast-let
+                            :bindings (list (list info (lsb-form location)))
+                            :body (make-instance 'ast-progn
+                                                 :forms (list
+                                                         (make-instance 'ast-if
+                                                                        :test info
+                                                                        :then (make-instance 'ast-quote :value 'nil)
+                                                                        :else (make-instance 'ast-call
+                                                                                             :name 'sys.int::raise-bad-block
+                                                                                             :arguments (list (make-instance 'ast-quote
+                                                                                                                             :value (lexical-variable-name tag)))))
+                                                         `(return-from ,tag
+                                                            ,(make-instance 'ast-multiple-value-prog1
+                                                                            :value-form (lsb-form value-form)
+                                                                            :body (make-instance 'ast-call
+                                                                                                 :name 'sys.int::%%unwind-to
+                                                                                                 :arguments (list (make-instance 'ast-call
+                                                                                                                                 :name 'sys.int::%%block-info-binding-stack-pointer
+                                                                                                                                 :arguments (list info)))))
+                                                            ,info))))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
            ;; Note: Unwinding one-past the location so as to pop the block as well.

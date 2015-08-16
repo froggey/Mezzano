@@ -211,6 +211,10 @@ A list of any declaration-specifiers."
    (%then :initarg :then :accessor if-then)
    (%else :initarg :else :accessor if-else)))
 
+(defclass ast-let ()
+  ((%bindings :initarg :bindings :accessor bindings)
+   (%body :initarg :body :accessor body)))
+
 (defclass ast-multiple-value-bind ()
   ((%bindings :initarg :bindings :accessor bindings)
    (%value-form :initarg :value-form :accessor value-form)
@@ -265,10 +269,6 @@ A list of any declaration-specifiers."
 	      ((go)
                (decf (go-tag-use-count (second form)))
                (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((let)
-	       (dolist (b (second form))
-		 (flush-form (second b)))
-	       (implicit-progn (cddr form)))
 	      ((return-from)
 	       (decf (lexical-variable-use-count (second form)))
 	       (flush-form (third form))
@@ -282,6 +282,11 @@ A list of any declaration-specifiers."
        (flush-form (test form))
        (flush-form (if-then form))
        (flush-form (if-else form)))
+      (ast-let
+       (loop
+          for (variable init-form) in (bindings form)
+          do (flush-form init-form))
+       (flush-form (body form)))
       (ast-multiple-value-bind
        (flush-form (value-form form))
        (flush-form (body form)))
@@ -349,16 +354,6 @@ A list of any declaration-specifiers."
 		 (incf (lexical-variable-use-count (go-tag-tagbody tag)))
 		 (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
 		 `(go ,tag ,(go-tag-tagbody tag))))
-	      ((let)
-	       ;; So that labels works correctly, this must create the variables and then
-	       ;; copy init-forms.
-	       (dolist (b (second form))
-		 (copy-variable (first b)))
-	       `(let ,(mapcar (lambda (b)
-				(list (fix (first b))
-				      (copy-form (second b) replacements)))
-			      (second form))
-		  ,@(implicit-progn (cddr form))))
 	      ((return-from)
 	       (let ((var (fix (second form))))
 		 (incf (lexical-variable-use-count var))
@@ -386,6 +381,18 @@ A list of any declaration-specifiers."
                       :test (copy-form (test form) replacements)
                       :then (copy-form (if-then form) replacements)
                       :else (copy-form (if-else form) replacements)))
+      (ast-let
+       ;; So that labels works correctly, this must create the variables and then
+       ;; copy init-forms.
+       (loop
+          for (variable init-form) in (bindings form)
+          do (copy-variable variable))
+       (make-instance 'ast-let
+                      :bindings (loop
+                                   for (variable init-form) in (bindings form)
+                                   collect (list (fix variable)
+                                                 (copy-form init-form replacements)))
+                      :body (copy-form (body form) replacements)))
       (ast-multiple-value-bind
        (make-instance 'ast-multiple-value-bind
                       :bindings (mapcar #'copy-variable (bindings form))
@@ -496,12 +503,6 @@ A list of any declaration-specifiers."
 	       (incf (go-tag-use-count (second form)))
 	       (pushnew *current-lambda* (go-tag-used-in (second form)))
                (incf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((let)
-	       (dolist (b (second form))
-		 (reset-var (first b)))
-	       (dolist (b (second form))
-		 (detect-uses (second b)))
-	       (implicit-progn (cddr form)))
 	      ((return-from)
 	       (incf (lexical-variable-use-count (second form)))
 	       (detect-uses (third form))
@@ -519,6 +520,14 @@ A list of any declaration-specifiers."
        (detect-uses (test form))
        (detect-uses (if-then form))
        (detect-uses (if-else form)))
+      (ast-let
+       (loop
+          for (variable init-form) in (bindings form)
+          do (reset-var variable))
+       (loop
+          for (variable init-form) in (bindings form)
+          do (detect-uses init-form))
+       (detect-uses (body form)))
       (ast-multiple-value-bind
        (mapc #'reset-var (bindings form))
        (detect-uses (value-form form))
@@ -639,54 +648,59 @@ A list of any declaration-specifiers."
                                                                                         (make-instance 'ast-quote :value (mapcar 'caar keys)))))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
-                      `(let ((,(second (first (first key-args)))
-                              ,(make-instance 'ast-if
-                                              :test (first suppliedp)
-                                              :then (first values)
-                                              :else (second (first key-args)))))
-                         ,(if (third (first key-args))
-                              `(let ((,(third (first key-args)) ,(first suppliedp)))
-                                 ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
-                              (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
+                      (make-instance 'ast-let
+                                     :bindings (list (list (second (first (first key-args)))
+                                                           (make-instance 'ast-if
+                                                                          :test (first suppliedp)
+                                                                          :then (first values)
+                                                                          :else (second (first key-args)))))
+                                     :body (if (third (first key-args))
+                                               (make-instance 'ast-let
+                                                              :bindings (list (list (third (first key-args)) (first suppliedp)))
+                                                              :body (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
+                                               (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
                      (t body))))
-      `(let ,(append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
-                     (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
-                     (list (list itr (if (symbolp rest)
-                                         (make-instance 'ast-call
-                                                        :name 'symbol-value
-                                                        :arguments (list (make-instance 'ast-quote
-                                                                                        :value rest)))
-                                         rest))))
-         (tagbody ,tb
-            (go ,test-tag ,(go-tag-tagbody test-tag))
-            ,head-tag
-            ,(make-instance 'ast-if
-                            :test (make-instance 'ast-call
-                                                 :name 'null
-                                                 :arguments (list (make-instance 'ast-call
-                                                                                 :name 'cdr
-                                                                                 :arguments (list itr))))
-                            :then (make-instance 'ast-call
-                                                 :name 'error
-                                                 :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                                                  (make-instance 'ast-quote :value ':format-control)
-                                                                  (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
-                            :else (make-instance 'ast-quote :value nil))
-            (let ((,current-keyword ,(make-instance 'ast-call
-                                                    :name 'car
-                                                    :arguments (list itr))))
-              ,(create-key-test-list keys values suppliedp))
-            ,(make-instance 'ast-setq
-                            :variable itr
-                            :value (make-instance 'ast-call
-                                                  :name 'cddr
-                                                  :arguments (list itr)))
-            ,test-tag
-            ,(make-instance 'ast-if
-                            :test itr
-                            :then `(go ,head-tag ,(go-tag-tagbody head-tag))
-                            :else (make-instance 'ast-quote :value nil)))
-         ,(create-key-let-body keys values suppliedp)))))
+      (make-instance 'ast-let
+                     :bindings (append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
+                                       (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
+                                       (list (list itr (if (symbolp rest)
+                                                           (make-instance 'ast-call
+                                                                          :name 'symbol-value
+                                                                          :arguments (list (make-instance 'ast-quote
+                                                                                                          :value rest)))
+                                                           rest))))
+                     :body (make-instance 'ast-progn
+                                          :forms (list `(tagbody ,tb
+                                                           (go ,test-tag ,(go-tag-tagbody test-tag))
+                                                           ,head-tag
+                                                           ,(make-instance 'ast-if
+                                                                           :test (make-instance 'ast-call
+                                                                                                :name 'null
+                                                                                                :arguments (list (make-instance 'ast-call
+                                                                                                                                :name 'cdr
+                                                                                                                                :arguments (list itr))))
+                                                                           :then (make-instance 'ast-call
+                                                                                                :name 'error
+                                                                                                :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
+                                                                                                                 (make-instance 'ast-quote :value ':format-control)
+                                                                                                                 (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
+                                                                           :else (make-instance 'ast-quote :value nil))
+                                                           ,(make-instance 'ast-let
+                                                                           :bindings (list (list current-keyword (make-instance 'ast-call
+                                                                                                                                :name 'car
+                                                                                                                                :arguments (list itr))))
+                                                                           :body (create-key-test-list keys values suppliedp))
+                                                           ,(make-instance 'ast-setq
+                                                                           :variable itr
+                                                                           :value (make-instance 'ast-call
+                                                                                                 :name 'cddr
+                                                                                                 :arguments (list itr)))
+                                                           ,test-tag
+                                                           ,(make-instance 'ast-if
+                                                                           :test itr
+                                                                           :then `(go ,head-tag ,(go-tag-tagbody head-tag))
+                                                                           :else (make-instance 'ast-quote :value nil)))
+                                                       (create-key-let-body keys values suppliedp)))))))
 
 (defun lower-keyword-arguments (form)
   "Walk form, lowering keyword arguments to simple lisp code."
@@ -697,10 +711,6 @@ A list of any declaration-specifiers."
       (cons (ecase (first form)
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
-	      ((let)
-	       (dolist (b (second form))
-		 (lower-keyword-arguments (second b)))
-	       (implicit-progn (cddr form)))
 	      ((return-from)
                (lower-keyword-arguments (third form))
                (lower-keyword-arguments (fourth form)))
@@ -713,6 +723,11 @@ A list of any declaration-specifiers."
        (lower-keyword-arguments (test form))
        (lower-keyword-arguments (if-then form))
        (lower-keyword-arguments (if-else form)))
+      (ast-let
+       (loop
+          for (variable init-form) in (bindings form)
+          do (lower-keyword-arguments init-form))
+       (lower-keyword-arguments (body form)))
       (ast-multiple-value-bind
        (lower-keyword-arguments (value-form form))
        (lower-keyword-arguments (body form)))
@@ -779,10 +794,6 @@ Must be run after keywords have been lowered."
       (cons (ecase (first form)
 	      ((block) (implicit-progn (cddr form)))
 	      ((go))
-	      ((let)
-	       (dolist (b (second form))
-		 (lower-arguments (second b)))
-	       (implicit-progn (cddr form)))
 	      ((return-from)
                (lower-arguments (third form))
                (lower-arguments (fourth form)))
@@ -795,6 +806,11 @@ Must be run after keywords have been lowered."
        (lower-arguments (test form))
        (lower-arguments (if-then form))
        (lower-arguments (if-else form)))
+      (ast-let
+       (loop
+          for (variable init-form) in (bindings form)
+          do (lower-arguments init-form))
+       (lower-arguments (body form)))
       (ast-multiple-value-bind
        (lower-arguments (value-form form))
        (lower-arguments (body form)))
@@ -872,8 +888,9 @@ Must be run after keywords have been lowered."
          (when extra-bindings
            ;; Bindings were added.
            (setf (lambda-information-body form)
-                 `(let ,(reverse extra-bindings)
-                    ,(lambda-information-body form))))
+                 (make-instance 'ast-let
+                                :bindings (reverse extra-bindings)
+                                :body (lambda-information-body form))))
          (lower-arguments (lambda-information-body form))))))
   form)
 
@@ -886,13 +903,6 @@ Must be run after keywords have been lowered."
                   ,@(implicit-progn (cddr form))))
 	      ((go)
                `(go ,(go-tag-name (second form))))
-	      ((let)
-               `(let ,(mapcar (lambda (b) (list (if (lexical-variable-p (first b))
-                                                    (lexical-variable-name (first b))
-                                                    (first b))
-                                                (unparse-compiler-form (second b))))
-                              (second form))
-                  ,@(implicit-progn (cddr form))))
 	      ((return-from)
                `(return-from ,(unparse-compiler-form (second form))
                   ,(unparse-compiler-form (third form))))
@@ -909,6 +919,14 @@ Must be run after keywords have been lowered."
        `(if ,(unparse-compiler-form (test form))
             ,(unparse-compiler-form (if-then form))
             ,(unparse-compiler-form (if-else form))))
+      (ast-let
+       `(let ,(loop
+                 for (variable init-form) in (bindings form)
+                 collect (list (if (lexical-variable-p variable)
+                                   (lexical-variable-name variable)
+                                   variable)
+                               (unparse-compiler-form init-form)))
+          ,(unparse-compiler-form (body form))))
       (ast-multiple-value-bind
        `(multiple-value-bind ,(mapcar #'unparse-compiler-form (bindings form))
             ,(unparse-compiler-form (value-form form))

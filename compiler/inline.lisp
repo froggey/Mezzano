@@ -10,11 +10,11 @@
     (cons (ecase (first form)
 	    ((block) (il-block form))
 	    ((go) (il-go form))
-	    ((let) (il-let form))
 	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))))
     (ast-function (il-function form))
     (ast-if (il-if form))
+    (ast-let (il-let form))
     (ast-multiple-value-bind (il-multiple-value-bind form))
     (ast-multiple-value-call (il-multiple-value-call form))
     (ast-multiple-value-prog1 (il-multiple-value-prog1 form))
@@ -50,10 +50,10 @@
   form)
 
 (defun il-let (form)
-  (dolist (b (second form))
+  (dolist (b (bindings form))
     ;; Run on the init-form.
     (setf (second b) (il-form (second b))))
-  (il-implicit-progn (cddr form))
+  (setf (body form) (il-form (body form)))
   form)
 
 (defun il-multiple-value-bind (form)
