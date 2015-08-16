@@ -9,7 +9,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (ll-go form))
-	    ((return-from) (ll-return-from form))
 	    ((tagbody) (ll-tagbody form))))
     (ast-block (ll-block form))
     (ast-function (ll-function form))
@@ -20,6 +19,7 @@
     (ast-multiple-value-prog1 (ll-multiple-value-prog1 form))
     (ast-progn (ll-progn form))
     (ast-quote (ll-quote form))
+    (ast-return-from (ll-return-from form))
     (ast-setq (ll-setq form))
     (ast-the (ll-the form))
     (ast-unwind-protect (ll-unwind-protect form))
@@ -114,8 +114,8 @@
   form)
 
 (defun ll-return-from (form)
-  (setf (third form) (ll-form (third form)))
-  (setf (fourth form) (ll-form (fourth form)))
+  (setf (value form) (ll-form (value form))
+        (info form) (ll-form (info form)))
   form)
 
 (defun ll-setq (form)

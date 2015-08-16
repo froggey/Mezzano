@@ -9,7 +9,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (il-go form))
-	    ((return-from) (il-return-from form))
 	    ((tagbody) (il-tagbody form))))
     (ast-block (il-block form))
     (ast-function (il-function form))
@@ -20,6 +19,7 @@
     (ast-multiple-value-prog1 (il-multiple-value-prog1 form))
     (ast-progn (il-progn form))
     (ast-quote (il-quote form))
+    (ast-return-from (il-return-from form))
     (ast-setq (il-setq form))
     (ast-the (il-the form))
     (ast-unwind-protect (il-unwind-protect form))
@@ -79,8 +79,8 @@
   form)
 
 (defun il-return-from (form)
-  (setf (third form) (il-form (third form)))
-  (setf (fourth form) (il-form (fourth form)))
+  (setf (value form) (il-form (value form))
+        (info form) (il-form (info form)))
   form)
 
 (defun il-setq (form)

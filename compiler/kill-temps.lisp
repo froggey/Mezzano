@@ -16,7 +16,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (kt-go form target-variable replacement-form))
-	    ((return-from) (kt-return-from form target-variable replacement-form))
 	    ((tagbody) (kt-tagbody form target-variable replacement-form))))
     (ast-block (kt-block form target-variable replacement-form))
     (ast-function (kt-function form target-variable replacement-form))
@@ -27,6 +26,7 @@
     (ast-multiple-value-prog1 (kt-multiple-value-prog1 form target-variable replacement-form))
     (ast-progn (kt-progn form target-variable replacement-form))
     (ast-quote (kt-quote form target-variable replacement-form))
+    (ast-return-from (kt-return-from form target-variable replacement-form))
     (ast-setq (kt-setq form target-variable replacement-form))
     (ast-the (kt-the form target-variable replacement-form))
     (ast-unwind-protect (kt-unwind-protect form target-variable replacement-form))
@@ -170,8 +170,9 @@
 
 (defun kt-return-from (form target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
-      (kt-implicit-progn (cddr form) target-variable replacement-form)
-    (setf (cddr form) new-form)
+      (kt-form (value form) target-variable replacement-form)
+    (setf (value form) new-form
+          (info form) (kt-form (info form)))
     (values form did-replace)))
 
 (defun kt-setq (form target-variable replacement-form)

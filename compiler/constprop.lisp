@@ -18,7 +18,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (cp-go form))
-	    ((return-from) (cp-return-from form))
 	    ((tagbody) (cp-tagbody form))))
     (ast-block (cp-block form))
     (ast-function (cp-function form))
@@ -29,6 +28,7 @@
     (ast-multiple-value-prog1 (cp-multiple-value-prog1 form))
     (ast-progn (cp-progn form))
     (ast-quote (cp-quote form))
+    (ast-return-from (cp-return-from form))
     (ast-setq (cp-setq form))
     (ast-the (cp-the form))
     (ast-unwind-protect (cp-unwind-protect form))
@@ -156,8 +156,8 @@
   form)
 
 (defun cp-return-from (form)
-  (setf (third form) (cp-form (third form)))
-  (setf (fourth form) (cp-form (fourth form)))
+  (setf (value form) (cp-form (value form))
+        (info form) (cp-form (info form)))
   form)
 
 (defun cp-setq (form)

@@ -566,7 +566,10 @@
 		 (eq (second e) name))
 	(incf (lexical-variable-use-count (third e)))
 	(pushnew *current-lambda* (lexical-variable-used-in (third e)))
-	(return `(return-from ,(third e) ,(pass1-form result env) ,(third e)))))))
+	(return (make-instance 'ast-return-from
+                               :target (third e)
+                               :value (pass1-form result env)
+                               :info (third e)))))))
 
 (defun pass1-setq (form env)
   (do ((i (cdr form) (cddr i))

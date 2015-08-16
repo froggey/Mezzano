@@ -64,8 +64,6 @@
     (cons (ecase (first form)
             ((go)
              (lsb-go form))
-            ((return-from)
-             (lsb-return-from form))
             ((tagbody)
              (lsb-tagbody form))))
     (ast-block
@@ -95,6 +93,8 @@
      (make-instance 'ast-progn
                     :forms (mapcar #'lsb-form (forms form))))
     (ast-quote form)
+    (ast-return-from
+     (lsb-return-from form))
     (ast-setq
      (make-instance 'ast-setq
                     :variable (setq-variable form)
@@ -238,7 +238,9 @@
       (frob (bindings form)))))
 
 (defun lsb-return-from (form)
-  (destructuring-bind (tag value-form location) (cdr form)
+  (let ((tag (target form))
+        (value-form (value form))
+        (location (info form)))
     (cond ((not (eql tag location))
            ;; Non-local RETURN-FROM, do the full unwind.
            (let ((info (make-instance 'lexical-variable
@@ -255,24 +257,26 @@
                                                                                              :name 'sys.int::raise-bad-block
                                                                                              :arguments (list (make-instance 'ast-quote
                                                                                                                              :value (lexical-variable-name tag)))))
-                                                         `(return-from ,tag
-                                                            ,(make-instance 'ast-multiple-value-prog1
-                                                                            :value-form (lsb-form value-form)
-                                                                            :body (make-instance 'ast-call
-                                                                                                 :name 'sys.int::%%unwind-to
-                                                                                                 :arguments (list (make-instance 'ast-call
-                                                                                                                                 :name 'sys.int::%%block-info-binding-stack-pointer
-                                                                                                                                 :arguments (list info)))))
-                                                            ,info))))))
+                                                         (make-instance 'ast-return-from
+                                                                        :target tag
+                                                                        :value (make-instance 'ast-multiple-value-prog1
+                                                                                              :value-form (lsb-form value-form)
+                                                                                              :body (make-instance 'ast-call
+                                                                                                                   :name 'sys.int::%%unwind-to
+                                                                                                                   :arguments (list (make-instance 'ast-call
+                                                                                                                                                   :name 'sys.int::%%block-info-binding-stack-pointer
+                                                                                                                                                   :arguments (list info)))))
+                                                                        :info info))))))
           (t
            ;; Local RETURN-FROM, locate the matching BLOCK and emit any unwind forms required.
            ;; Note: Unwinding one-past the location so as to pop the block as well.
-           `(return-from ,tag
-              ,(make-instance 'ast-multiple-value-prog1
-                              :value-form (lsb-form value-form)
-                              :body (make-instance 'ast-progn
-                                                   :forms (lsb-unwind-to (cdr (lsb-find-b-or-t-binding tag)))))
-              ,location)))))
+           (make-instance 'ast-return-from
+                          :target tag
+                          :value (make-instance 'ast-multiple-value-prog1
+                                                :value-form (lsb-form value-form)
+                                                :body (make-instance 'ast-progn
+                                                                     :forms (lsb-unwind-to (cdr (lsb-find-b-or-t-binding tag)))))
+                          :info location)))))
 
 (defun lsb-tagbody (form)
   (let ((*special-bindings* *special-bindings*)

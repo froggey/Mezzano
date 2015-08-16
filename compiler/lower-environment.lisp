@@ -36,8 +36,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) nil)
-	    ((return-from)
-             (mapc #'compute-environment-layout (rest form)))
 	    ((tagbody)
              (compute-tagbody-environment-layout form))))
     (ast-block
@@ -60,6 +58,9 @@
     (ast-progn
      (mapc #'compute-environment-layout (forms form)))
     (ast-quote nil)
+    (ast-return-from
+     (compute-environment-layout (value form))
+     (compute-environment-layout (info form)))
     (ast-setq
      (compute-environment-layout (value form)))
     (ast-the
@@ -183,9 +184,6 @@ of statements opens a new contour."
       (cons (ecase (first form)
               ((go)
                (compute-free-variable-sets-1 (third form)))
-              ((return-from)
-               (union (compute-free-variable-sets-1 (third form))
-                      (compute-free-variable-sets-1 (fourth form))))
               ((tagbody)
                (remove (second form) (process-progn (remove-if #'go-tag-p (cddr form)))))))
       (ast-block
@@ -214,6 +212,9 @@ of statements opens a new contour."
       (ast-progn
        (process-progn (forms form)))
       (ast-quote '())
+      (ast-return-from
+       (union (compute-free-variable-sets-1 (value form))
+              (compute-free-variable-sets-1 (info form))))
       (ast-setq
        (union (list (setq-variable form))
               (compute-free-variable-sets-1 (value form))))
@@ -250,7 +251,6 @@ of statements opens a new contour."
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (le-go form))
-	    ((return-from) (le-return-from form))
 	    ((tagbody) (le-tagbody form))))
     (ast-block
      (le-block form))
@@ -273,6 +273,8 @@ of statements opens a new contour."
      (make-instance 'ast-progn
                     :forms (mapcar #'lower-env-form (forms form))))
     (ast-quote form)
+    (ast-return-from
+     (le-return-from form))
     (ast-setq (le-setq form))
     (ast-the (le-the form))
     (ast-unwind-protect
@@ -632,6 +634,6 @@ of statements opens a new contour."
   form)
 
 (defun le-return-from (form)
-  (setf (third form) (lower-env-form (third form)))
-  (setf (fourth form) (lower-env-form (fourth form)))
+  (setf (value form) (lower-env-form (value form))
+        (info form) (lower-env-form (info form)))
   form)

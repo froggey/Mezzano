@@ -9,7 +9,6 @@
   (etypecase form
     (cons (ecase (first form)
 	    ((go) (simp-go form))
-	    ((return-from) (simp-return-from form))
 	    ((tagbody) (simp-tagbody form))))
     (ast-block (simp-block form))
     (ast-function (simp-function form))
@@ -20,6 +19,7 @@
     (ast-multiple-value-prog1 (simp-multiple-value-prog1 form))
     (ast-progn (simp-progn form))
     (ast-quote (simp-quote form))
+    (ast-return-from (simp-return-from form))
     (ast-setq (simp-setq form))
     (ast-the (simp-the form))
     (ast-unwind-protect (simp-unwind-protect form))
@@ -64,8 +64,9 @@
              (setf (first i) (second i)
                    (rest i) (rest (rest i))))
             ((and (rest i) ; not at end
-                  (consp form)
-                  (member (first form) '(go return-from)))
+                  (or (and (consp form)
+                           (member (first form) '(go)))
+                      (typep form 'ast-return-from)))
              ;; Non-local exit. Remove all following forms.
              (change-made)
              (setf (rest i) nil))
@@ -82,11 +83,10 @@
      (change-made)
      (make-instance 'ast-quote :value nil))
     ;; (block foo (return-from foo form)) => (block foo form)
-    ((and (listp (body form))
-          (eql (first (body form)) 'return-from)
-          (eql (info form) (second (body form))))
+    ((and (typep (body form) 'ast-return-from)
+          (eql (info form) (info (body form))))
      (change-made)
-     (setf (body form) (third (body form)))
+     (setf (body form) (value (body form)))
      form)
     (t (setf (body form) (simp-form (body form)))
        form)))
@@ -186,9 +186,15 @@
                                                                                 :then `(go ,then-tag ,(go-tag-tagbody then-tag))
                                                                                 :else `(go ,else-tag ,(go-tag-tagbody else-tag)))))
                                 ,then-tag
-                                (return-from ,new-block ,(simp-form (if-then form)) ,new-block)
+                                ,(make-instance 'ast-return-from
+                                                :target new-block
+                                                :value (simp-form (if-then form))
+                                                :info new-block)
                                 ,else-tag
-                                (return-from ,new-block ,(simp-form (if-else form)) ,new-block)))))
+                                ,(make-instance 'ast-return-from
+                                                :target new-block
+                                                :value (simp-form (if-else form))
+                                                :info new-block)))))
           ((and (listp (if-then form))
                 (eql (first (if-then form)) 'go)
                 (listp (if-else form))
@@ -348,8 +354,8 @@
   form)
 
 (defun simp-return-from (form)
-  (setf (third form) (simp-form (third form)))
-  (setf (fourth form) (simp-form (fourth form)))
+  (setf (value form) (simp-form (value form))
+        (info form) (simp-form (info form)))
   form)
 
 (defun simp-setq (form)

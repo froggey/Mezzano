@@ -238,6 +238,11 @@ A list of any declaration-specifiers."
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
 
+(defclass ast-return-from ()
+  ((%target :initarg :target :accessor target)
+   (%value :initarg :value :accessor value)
+   (%info :initarg :info :accessor info)))
+
 (defclass ast-setq ()
   ((%variable :initarg :variable :accessor setq-variable)
    (%value :initarg :value :accessor value)))
@@ -272,10 +277,6 @@ A list of any declaration-specifiers."
 	      ((go)
                (decf (go-tag-use-count (second form)))
                (decf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((return-from)
-	       (decf (lexical-variable-use-count (second form)))
-	       (flush-form (third form))
-	       (flush-form (fourth form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -303,6 +304,10 @@ A list of any declaration-specifiers."
        (flush-form (body form)))
       (ast-progn (implicit-progn (forms form)))
       (ast-quote)
+      (ast-return-from
+       (decf (lexical-variable-use-count (target form)))
+       (flush-form (value form))
+       (flush-form (info form)))
       (ast-setq
        (decf (lexical-variable-use-count (setq-variable form)))
        (decf (lexical-variable-write-count (setq-variable form)))
@@ -357,11 +362,6 @@ A list of any declaration-specifiers."
 		 (incf (lexical-variable-use-count (go-tag-tagbody tag)))
 		 (pushnew *current-lambda* (lexical-variable-used-in (go-tag-tagbody tag)))
 		 `(go ,tag ,(go-tag-tagbody tag))))
-	      ((return-from)
-	       (let ((var (fix (second form))))
-		 (incf (lexical-variable-use-count var))
-		 (pushnew *current-lambda* (lexical-variable-used-in var))
-		 `(return-from ,var ,(copy-form (third form) replacements) ,(copy-form (fourth form) replacements))))
 	      ((tagbody)
 	       (let ((info (make-instance 'tagbody-information
                                           :definition-point (fix (lexical-variable-definition-point (second form))))))
@@ -417,6 +417,14 @@ A list of any declaration-specifiers."
        (make-instance 'ast-progn
                       :forms (implicit-progn (forms form))))
       (ast-quote form)
+      (ast-return-from
+       (let ((var (fix (target form))))
+         (incf (lexical-variable-use-count var))
+         (pushnew *current-lambda* (lexical-variable-used-in var))
+         (make-instance 'ast-return-from
+                        :target var
+                        :value (copy-form (value form) replacements)
+                        :info (copy-form (info form) replacements))))
       (ast-setq
        (let ((var (fix (setq-variable form))))
          (incf (lexical-variable-use-count var))
@@ -507,10 +515,6 @@ A list of any declaration-specifiers."
 	       (incf (go-tag-use-count (second form)))
 	       (pushnew *current-lambda* (go-tag-used-in (second form)))
                (incf (lexical-variable-use-count (go-tag-tagbody (second form)))))
-	      ((return-from)
-	       (incf (lexical-variable-use-count (second form)))
-	       (detect-uses (third form))
-	       (detect-uses (fourth form)))
 	      ((tagbody)
                (reset-var (second form))
 	       (dolist (tag (tagbody-information-go-tags (second form)))
@@ -548,6 +552,10 @@ A list of any declaration-specifiers."
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
+      (ast-return-from
+       (incf (lexical-variable-use-count (target form)))
+       (detect-uses (value form))
+       (detect-uses (info form)))
       (ast-setq
        (let ((var (setq-variable form)))
          (pushnew *current-lambda* (lexical-variable-used-in var))
@@ -717,9 +725,6 @@ A list of any declaration-specifiers."
     (etypecase form
       (cons (ecase (first form)
 	      ((go))
-	      ((return-from)
-               (lower-keyword-arguments (third form))
-               (lower-keyword-arguments (fourth form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -748,6 +753,9 @@ A list of any declaration-specifiers."
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
+      (ast-return-from
+       (lower-keyword-arguments (value form))
+       (lower-keyword-arguments (info form)))
       (ast-setq
        (lower-keyword-arguments (value form)))
       (ast-the
@@ -801,9 +809,6 @@ Must be run after keywords have been lowered."
     (etypecase form
       (cons (ecase (first form)
 	      ((go))
-	      ((return-from)
-               (lower-arguments (third form))
-               (lower-arguments (fourth form)))
 	      ((tagbody)
 	       (dolist (i (cddr form))
 		 (unless (go-tag-p i)
@@ -832,6 +837,9 @@ Must be run after keywords have been lowered."
       (ast-progn
        (implicit-progn (forms form)))
       (ast-quote)
+      (ast-return-from
+       (lower-arguments (value form))
+       (lower-arguments (info form)))
       (ast-setq
        (lower-arguments (value form)))
       (ast-the
@@ -909,9 +917,6 @@ Must be run after keywords have been lowered."
       (cons (case (first form)
 	      ((go)
                `(go ,(go-tag-name (second form))))
-	      ((return-from)
-               `(return-from ,(unparse-compiler-form (second form))
-                  ,(unparse-compiler-form (third form))))
 	      ((tagbody)
                `(tagbody ,@(mapcar (lambda (x)
                                      (if (go-tag-p x)
@@ -950,6 +955,10 @@ Must be run after keywords have been lowered."
       (ast-progn
        `(progn ,@(implicit-progn (forms form))))
       (ast-quote `',(value form))
+      (ast-return-from
+       `(return-from ,(lexical-variable-name (target form))
+          ,(unparse-compiler-form (value form))
+          ,(unparse-compiler-form (info form))))
       (ast-setq
        (let ((var (setq-variable form)))
          `(setq ,(if (lexical-variable-p var)
