@@ -12,34 +12,18 @@
 ;;; VALUES prevents additional values from leaking without any impact on the
 ;;; generated code.
 
-(defun kt-form (form &optional target-variable replacement-form)
-  (etypecase form
-    (ast-block (kt-block form target-variable replacement-form))
-    (ast-function (kt-function form target-variable replacement-form))
-    (ast-go (kt-go form target-variable replacement-form))
-    (ast-if (kt-if form target-variable replacement-form))
-    (ast-let (kt-let form target-variable replacement-form))
-    (ast-multiple-value-bind (kt-multiple-value-bind form target-variable replacement-form))
-    (ast-multiple-value-call (kt-multiple-value-call form target-variable replacement-form))
-    (ast-multiple-value-prog1 (kt-multiple-value-prog1 form target-variable replacement-form))
-    (ast-progn (kt-progn form target-variable replacement-form))
-    (ast-quote (kt-quote form target-variable replacement-form))
-    (ast-return-from (kt-return-from form target-variable replacement-form))
-    (ast-tagbody (kt-tagbody form target-variable replacement-form))
-    (ast-setq (kt-setq form target-variable replacement-form))
-    (ast-the (kt-the form target-variable replacement-form))
-    (ast-unwind-protect (kt-unwind-protect form target-variable replacement-form))
-    (ast-call (kt-function-form form target-variable replacement-form))
-    (ast-jump-table (kt-jump-table form target-variable replacement-form))
-    (lexical-variable
-     (cond ((eql form target-variable)
-            (change-made)
-            (values (make-instance 'ast-call
-                                   :name 'values
-                                   :arguments (list replacement-form)) t))
-           (t (values form nil))))
-    (lambda-information
-     (kt-lambda form))))
+(defun kill-temporaries (lambda)
+  (kt-form lambda))
+
+(defgeneric kt-form (form &optional target-variable replacement-form))
+
+(defmethod kt-form ((form lexical-variable) &optional target-variable replacement-form)
+  (cond ((eql form target-variable)
+         (change-made)
+         (values (make-instance 'ast-call
+                                :name 'values
+                                :arguments (list replacement-form)) t))
+        (t (values form nil))))
 
 (defun kt-implicit-progn (x &optional target-variable replacement-form)
   (when x
@@ -50,7 +34,8 @@
                      (mapcar #'kt-form (rest x)))
               did-replace))))
 
-(defun kt-lambda (form)
+(defmethod kt-form ((form lambda-information) &optional target-variable replacement-form)
+  (declare (ignore target-variable replacement-form))
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (kt-form (second arg))))
@@ -60,7 +45,7 @@
           (kt-form (lambda-information-body form))))
   form)
 
-(defun kt-function-form (form target-variable replacement-form)
+(defmethod kt-form ((form ast-call) &optional target-variable replacement-form)
   (multiple-value-bind (new-list did-replace)
       (kt-implicit-progn (arguments form)
                          target-variable
@@ -75,23 +60,23 @@
        (eql (lexical-variable-use-count varlike) 1)
        (zerop (lexical-variable-write-count varlike))))
 
-(defun kt-block (form target-variable replacement-form)
+(defmethod kt-form ((form ast-block) &optional target-variable replacement-form)
   (multiple-value-bind (new-body did-replace)
       (kt-form (body form) target-variable replacement-form)
     (setf (body form) new-body)
     (values form did-replace)))
 
-(defun kt-function (form target-variable replacement-form)
+(defmethod kt-form ((form ast-function) &optional target-variable replacement-form)
   (declare (ignore target-variable replacement-form))
   form)
 
-(defun kt-go (form target-variable replacement-form)
+(defmethod kt-form ((form ast-go) &optional target-variable replacement-form)
   (multiple-value-bind (new-info did-replace)
       (kt-form (info form) target-variable replacement-form)
     (setf (info form) new-info)
     (values form did-replace)))
 
-(defun kt-if (form target-variable replacement-form)
+(defmethod kt-form ((form ast-if) &optional target-variable replacement-form)
   (multiple-value-bind (new-test did-replace)
       (kt-form (test form) target-variable replacement-form)
     (setf (test form) new-test
@@ -99,7 +84,7 @@
           (if-else form) (kt-form (if-else form)))
     (values form did-replace)))
 
-(defun kt-let (form target-variable replacement-form)
+(defmethod kt-form ((form ast-let) &optional target-variable replacement-form)
   (let ((bindings (bindings form))
         (new-bindings '())
         (body (body form)))
@@ -141,51 +126,51 @@
                                       :body new-form)
                        did-replace)))))))
 
-(defun kt-multiple-value-bind (form target-variable replacement-form)
+(defmethod kt-form ((form ast-multiple-value-bind) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value-form form) target-variable replacement-form)
     (setf (value-form form) new-form
           (body form) (kt-form (body form)))
     (values form did-replace)))
 
-(defun kt-multiple-value-call (form target-variable replacement-form)
+(defmethod kt-form ((form ast-multiple-value-call) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (function-form form) target-variable replacement-form)
     (setf (function-form form) new-form
           (value-form form) (kt-form (value-form form)))
     (values form did-replace)))
 
-(defun kt-multiple-value-prog1 (form target-variable replacement-form)
+(defmethod kt-form ((form ast-multiple-value-prog1) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value-form form) target-variable replacement-form)
     (setf (value-form form) new-form
           (body form) (kt-form (body form)))
     (values form did-replace)))
 
-(defun kt-progn (form target-variable replacement-form)
+(defmethod kt-form ((form ast-progn) &optional target-variable replacement-form)
   (multiple-value-bind (new-list did-replace)
       (kt-implicit-progn (forms form) target-variable replacement-form)
     (setf (forms form) new-list)
     (values form did-replace)))
 
-(defun kt-quote (form target-variable replacement-form)
+(defmethod kt-form ((form ast-quote) &optional target-variable replacement-form)
   (declare (ignore target-variable replacement-form))
   form)
 
-(defun kt-return-from (form target-variable replacement-form)
+(defmethod kt-form ((form ast-return-from) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value form) target-variable replacement-form)
     (setf (value form) new-form
           (info form) (kt-form (info form)))
     (values form did-replace)))
 
-(defun kt-setq (form target-variable replacement-form)
+(defmethod kt-form ((form ast-setq) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value form) target-variable replacement-form)
     (setf (value form) new-form)
     (values form did-replace)))
 
-(defun kt-tagbody (form target-variable replacement-form)
+(defmethod kt-form ((form ast-tagbody) &optional target-variable replacement-form)
   (cond ((and (first (statements form))
               (not (go-tag-p (first (statements form)))))
          (multiple-value-bind (new-form did-replace)
@@ -202,20 +187,20 @@
                (setf (car i) (kt-form (car i)))))
            form)))
 
-(defun kt-the (form target-variable replacement-form)
+(defmethod kt-form ((form ast-the) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value form) target-variable replacement-form)
     (setf (value form) new-form)
     (values form did-replace)))
 
-(defun kt-unwind-protect (form target-variable replacement-form)
+(defmethod kt-form ((form ast-unwind-protect) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (protected-form form) target-variable replacement-form)
     (setf (protected-form form) new-form)
     (setf (cleanup-function form) (kt-form (cleanup-function form)))
     (values form did-replace)))
 
-(defun kt-jump-table (form target-variable replacement-form)
+(defmethod kt-form ((form ast-jump-table) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)
       (kt-form (value form) target-variable replacement-form)
     (setf (value form) new-form)

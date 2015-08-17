@@ -5,34 +5,17 @@
 
 (in-package :sys.c)
 
-(defun ll-form (form)
-  (etypecase form
-    (ast-block (ll-block form))
-    (ast-function (ll-function form))
-    (ast-go (ll-go form))
-    (ast-if (ll-if form))
-    (ast-let (ll-let form))
-    (ast-multiple-value-bind (ll-multiple-value-bind form))
-    (ast-multiple-value-call (ll-multiple-value-call form))
-    (ast-multiple-value-prog1 (ll-multiple-value-prog1 form))
-    (ast-progn (ll-progn form))
-    (ast-quote (ll-quote form))
-    (ast-return-from (ll-return-from form))
-    (ast-setq (ll-setq form))
-    (ast-tagbody (ll-tagbody form))
-    (ast-the (ll-the form))
-    (ast-unwind-protect (ll-unwind-protect form))
-    (ast-call (ll-function-form form))
-    (ast-jump-table (ll-jump-table form))
-    (lexical-variable (ll-variable form))
-    (lambda-information (ll-lambda form))))
+(defun lambda-lift (lambda)
+  (ll-form lambda))
+
+(defgeneric ll-form (form))
 
 (defun ll-implicit-progn (x)
   (do ((i x (cdr i)))
       ((endp i))
     (setf (car i) (ll-form (car i)))))
 
-(defun ll-block (form)
+(defmethod ll-form ((form ast-block))
   (unless (eql (lexical-variable-definition-point (info form)) *current-lambda*)
     (change-made)
     ;; Update the definition point.
@@ -40,20 +23,20 @@
   (setf (body form) (ll-form (body form)))
   form)
 
-(defun ll-function (form)
+(defmethod ll-form ((form ast-function))
   form)
 
-(defun ll-go (form)
+(defmethod ll-form ((form ast-go))
   (setf (info form) (ll-form (info form)))
   form)
 
-(defun ll-if (form)
+(defmethod ll-form ((form ast-if))
   (setf (test form) (ll-form (test form))
 	(if-then form) (ll-form (if-then form))
 	(if-else form) (ll-form (if-else form)))
   form)
 
-(defun ll-let (form)
+(defmethod ll-form ((form ast-let))
   ;; Patch up definition points after a lambda has been lifted.
   (dolist (binding (bindings form))
     (when (and (lexical-variable-p (first binding))
@@ -64,7 +47,7 @@
   (setf (body form) (ll-form (body form)))
   form)
 
-(defun ll-multiple-value-bind (form)
+(defmethod ll-form ((form ast-multiple-value-bind))
   ;; Patch up definition points after a lambda has been lifted.
   (dolist (var (bindings form))
     (when (and (lexical-variable-p var)
@@ -77,7 +60,7 @@
 
 ;; Reduce (multiple-value-call #'(lambda (&optional ... &rest unused) ...) value-form)
 ;; back down to (multiple-value-bind (vars...) value-form body...).
-(defun ll-multiple-value-call (form)
+(defmethod ll-form ((form ast-multiple-value-call))
   (let ((fn (function-form form)))
     (cond ((and (lambda-information-p fn)
                 (null (lambda-information-required-args fn))
@@ -101,28 +84,28 @@
                    (value-form form) (ll-form (value-form form)))
              form))))
 
-(defun ll-multiple-value-prog1 (form)
+(defmethod ll-form ((form ast-multiple-value-prog1))
   (setf (value-form form) (ll-form (value-form form))
         (body form) (ll-form (body form)))
   form)
 
-(defun ll-progn (form)
+(defmethod ll-form ((form ast-progn))
   (ll-implicit-progn (forms form))
   form)
 
-(defun ll-quote (form)
+(defmethod ll-form ((form ast-quote))
   form)
 
-(defun ll-return-from (form)
+(defmethod ll-form ((form ast-return-from))
   (setf (value form) (ll-form (value form))
         (info form) (ll-form (info form)))
   form)
 
-(defun ll-setq (form)
+(defmethod ll-form ((form ast-setq))
   (setf (value form) (ll-form (value form)))
   form)
 
-(defun ll-tagbody (form)
+(defmethod ll-form ((form ast-tagbody))
   (unless (eq (lexical-variable-definition-point (info form)) *current-lambda*)
     (change-made)
     (setf (lexical-variable-definition-point (info form)) *current-lambda*))
@@ -132,16 +115,16 @@
       (setf (car i) (ll-form (car i)))))
   form)
 
-(defun ll-the (form)
+(defmethod ll-form ((form ast-the))
   (setf (value form) (ll-form (value form)))
   form)
 
-(defun ll-unwind-protect (form)
+(defmethod ll-form ((form ast-unwind-protect))
   (setf (protected-form form) (ll-form (protected-form form))
         (cleanup-function form) (ll-form (cleanup-function form)))
   form)
 
-(defun ll-jump-table (form)
+(defmethod ll-form ((form ast-jump-table))
   (setf (value form) (ll-form (value form)))
   (ll-implicit-progn (targets form))
   form)
@@ -278,7 +261,7 @@
                        :bindings (mapcar #'list argument-vars arg-list)
                        :body (build-required-bindings required-args argument-vars))))))
 
-(defun ll-function-form (form)
+(defmethod ll-form ((form ast-call))
   (ll-implicit-progn (arguments form))
   (if *should-inline-functions*
       (or (and (eql (name form) 'funcall)
@@ -288,10 +271,10 @@
           form)
       form))
 
-(defun ll-variable (form)
+(defmethod ll-form ((form lexical-variable))
   form)
 
-(defun ll-lambda (form)
+(defmethod ll-form ((form lambda-information))
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (ll-form (second arg))))

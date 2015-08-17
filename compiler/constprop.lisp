@@ -14,27 +14,7 @@
   (let ((*known-variables* '()))
     (cp-form form)))
 
-(defun cp-form (form)
-  (etypecase form
-    (ast-block (cp-block form))
-    (ast-function (cp-function form))
-    (ast-go (cp-go form))
-    (ast-if (cp-if form))
-    (ast-let (cp-let form))
-    (ast-multiple-value-bind (cp-multiple-value-bind form))
-    (ast-multiple-value-call (cp-multiple-value-call form))
-    (ast-multiple-value-prog1 (cp-multiple-value-prog1 form))
-    (ast-progn (cp-progn form))
-    (ast-quote (cp-quote form))
-    (ast-return-from (cp-return-from form))
-    (ast-setq (cp-setq form))
-    (ast-tagbody (cp-tagbody form))
-    (ast-the (cp-the form))
-    (ast-unwind-protect (cp-unwind-protect form))
-    (ast-call (cp-function-form form))
-    (ast-jump-table (cp-jump-table form))
-    (lexical-variable (cp-variable form))
-    (lambda-information (cp-lambda form))))
+(defgeneric cp-form (form))
 
 (defun form-value (form &key (reduce-use-count t))
   "Return the value of form wrapped in quote if its known, otherwise return nil."
@@ -71,19 +51,19 @@
       ((endp i))
     (setf (car i) (cp-form (car i)))))
 
-(defun cp-block (form)
+(defmethod cp-form ((form ast-block))
   (flush-mutable-variables)
   (setf (body form) (cp-form (body form)))
   form)
 
-(defun cp-function (form)
+(defmethod cp-form ((form ast-function))
   form)
 
-(defun cp-go (form)
+(defmethod cp-form ((form ast-go))
   (setf (info form) (cp-form (info form)))
   form)
 
-(defun cp-if (form)
+(defmethod cp-form ((form ast-if))
   (flet ((pick-branch (use-this-one kill-this-one)
 	   ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
 	   #+nil(unless (typep kill-this-one 'ast-quote)
@@ -109,7 +89,7 @@
              (setf (if-else form) (cp-form (if-else form)))
              form)))))
 
-(defun cp-let (form)
+(defmethod cp-form ((form ast-let))
   (let ((*known-variables* *known-variables*))
     (dolist (b (bindings form))
       (let ((var (first b))
@@ -133,34 +113,34 @@
     (setf (body form) (cp-form (body form)))
     form))
 
-(defun cp-multiple-value-bind (form)
+(defmethod cp-form ((form ast-multiple-value-bind))
   (setf (value-form form) (cp-form (value-form form))
         (body form) (cp-form (body form)))
   form)
 
-(defun cp-multiple-value-call (form)
+(defmethod cp-form ((form ast-multiple-value-call))
   (setf (function-form form) (cp-form (function-form form))
         (value-form form) (cp-form (value-form form)))
   form)
 
-(defun cp-multiple-value-prog1 (form)
+(defmethod cp-form ((form ast-multiple-value-prog1))
   (setf (value-form form) (cp-form (value-form form))
         (body form) (cp-form (body form)))
   form)
 
-(defun cp-progn (form)
+(defmethod cp-form ((form ast-progn))
   (cp-implicit-progn (forms form))
   form)
 
-(defun cp-quote (form)
+(defmethod cp-form ((form ast-quote))
   form)
 
-(defun cp-return-from (form)
+(defmethod cp-form ((form ast-return-from))
   (setf (value form) (cp-form (value form))
         (info form) (cp-form (info form)))
   form)
 
-(defun cp-setq (form)
+(defmethod cp-form ((form ast-setq))
   ;; Walk the value form.
   (setf (value form) (cp-form (value form)))
   (let* ((info (assoc (setq-variable form) *known-variables*))
@@ -190,7 +170,7 @@
                form))
         form)))
 
-(defun cp-tagbody (form)
+(defmethod cp-form ((form ast-tagbody))
   (flush-mutable-variables)
   (do ((i (statements form) (cdr i)))
       ((endp i))
@@ -198,16 +178,16 @@
       (setf (car i) (cp-form (car i)))))
   form)
 
-(defun cp-the (form)
+(defmethod cp-form ((form ast-the))
   (setf (value form) (cp-form (value form)))
   form)
 
-(defun cp-unwind-protect (form)
+(defmethod cp-form ((form ast-unwind-protect))
   (setf (protected-form form) (cp-form (protected-form form))
         (cleanup-function form) (cp-form (cleanup-function form)))
   form)
 
-(defun cp-jump-table (form)
+(defmethod cp-form ((form ast-jump-table))
   (setf (value form) (cp-form (value form)))
   (cp-implicit-progn (targets form))
   form)
@@ -275,12 +255,12 @@
 	    ((nil) nil))))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
-(defun cp-function-form (form)
+(defmethod cp-form ((form ast-call))
   (cp-implicit-progn (arguments form))
   (or (constant-fold (name form) (arguments form))
       form))
 
-(defun cp-variable (form)
+(defmethod cp-form ((form lexical-variable))
   (let ((val (assoc form *known-variables*)))
     (cond (val
            (change-made)
@@ -291,7 +271,7 @@
            (copy-form (second val)))
           (t form))))
 
-(defun cp-lambda (form)
+(defmethod cp-form ((form lambda-information))
   (flush-mutable-variables)
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))

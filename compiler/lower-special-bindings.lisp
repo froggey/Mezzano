@@ -8,7 +8,12 @@
 (defvar *special-bindings*)
 (defvar *verify-special-stack* nil)
 
-(defun lsb-lambda (lambda)
+(defun lower-special-bindings (lambda)
+  (lsb-form lambda))
+
+(defgeneric lsb-form (form))
+
+(defmethod lsb-form ((lambda lambda-information))
   (let ((*current-lambda* lambda)
         (*special-bindings* '()))
     ;; Check some assertions.
@@ -59,98 +64,7 @@
                                                                                             :arguments (list (make-instance 'ast-quote :value "SSP mismatch")))))))))
     lambda))
 
-(defun lsb-form (form)
-  (etypecase form
-    (ast-block
-     (lsb-block form))
-    (ast-function form)
-    (ast-go
-     (lsb-go form))
-    (ast-if
-     (make-instance 'ast-if
-                    :test (lsb-form (test form))
-                    :then (lsb-form (if-then form))
-                    :else (lsb-form (if-else form))))
-    (ast-let
-     (lsb-let form))
-    (ast-multiple-value-bind
-     (make-instance 'ast-multiple-value-bind
-                    :bindings (bindings form)
-                    :value-form (lsb-form (value-form form))
-                    :body (lsb-form (body form))))
-    (ast-multiple-value-call
-     (make-instance 'ast-multiple-value-call
-                    :function-form (lsb-form (function-form form))
-                    :value-form (lsb-form (value-form form))))
-    (ast-multiple-value-prog1
-     (make-instance 'ast-multiple-value-prog1
-                    :value-form (lsb-form (value-form form))
-                    :body (lsb-form (body form))))
-    (ast-progn
-     (make-instance 'ast-progn
-                    :forms (mapcar #'lsb-form (forms form))))
-    (ast-quote form)
-    (ast-return-from
-     (lsb-return-from form))
-    (ast-setq
-     (make-instance 'ast-setq
-                    :variable (setq-variable form)
-                    :value (lsb-form (value form))))
-    (ast-tagbody
-     (lsb-tagbody form))
-    (ast-the
-     (make-instance 'ast-the
-                    :type (the-type form)
-                    :value (lsb-form (value form))))
-    (ast-unwind-protect
-     (lsb-unwind-protect form))
-    (ast-call
-     (make-instance 'ast-call
-                    :name (name form)
-                    :arguments (mapcar #'lsb-form (arguments form))))
-    (ast-jump-table
-     (make-instance 'ast-jump-table
-                    :value (lsb-form (value form))
-                    :targets (mapcar #'lsb-form (targets form))))
-    (lexical-variable form)
-    (lambda-information
-     (lsb-lambda form))))
-
-(defun lsb-find-b-or-t-binding (info)
-  "Locate the BLOCK or TAGBODY binding info on the *SPECIAL-BINDINGS* stack."
-  (do ((i *special-bindings* (cdr i)))
-      ((and (eql (first (first i)) :block-or-tagbody)
-            (eql (second (first i)) info))
-       i)
-    (assert i () "Could not find block/tagbody information?")))
-
-(defun lsb-unwind-to (location)
-  "Generate code to unwind to a given location on the binding stack."
-  (do ((current *special-bindings* (cdr current))
-       (forms '()))
-      ((eql current location)
-       (nreverse forms))
-    (assert current () "Ran off the end of the binding stack?")
-    (let ((binding (first current)))
-      (ecase (first binding)
-        (:block-or-tagbody
-         (when (third binding)
-           (push (make-instance 'ast-call
-                                :name 'sys.int::%%disestablish-block-or-tagbody
-                                :arguments '())
-                 forms)))
-        (:special
-         (push (make-instance 'ast-call
-                                :name 'sys.int::%%unbind
-                                :arguments '())
-               forms))
-        (:unwind-protect
-         (push (make-instance 'ast-call
-                                :name 'sys.int::%%disestablish-unwind-protect
-                                :arguments '())
-               forms))))))
-
-(defun lsb-block (form)
+(defmethod lsb-form ((form ast-block))
   (let ((*special-bindings* *special-bindings*)
         (info (info form)))
     (push (list :block-or-tagbody
@@ -181,7 +95,10 @@
                       :info info
                       :body (lsb-form (body form)))))))
 
-(defun lsb-go (form)
+(defmethod lsb-form ((form ast-function))
+  form)
+
+(defmethod lsb-form ((form ast-go))
   (let ((tag (target form))
         (location (info form)))
     (cond ((eql (go-tag-tagbody tag) location)
@@ -215,7 +132,13 @@
                                                                         :target tag
                                                                         :info info)))))))))
 
-(defun lsb-let (form)
+(defmethod lsb-form ((form ast-if))
+  (make-instance 'ast-if
+                 :test (lsb-form (test form))
+                 :then (lsb-form (if-then form))
+                 :else (lsb-form (if-else form))))
+
+(defmethod lsb-form ((form ast-let))
   (let ((*special-bindings* *special-bindings*))
     (labels ((frob (bindings)
                (cond (bindings
@@ -241,7 +164,30 @@
                      (t (lsb-form (body form))))))
       (frob (bindings form)))))
 
-(defun lsb-return-from (form)
+(defmethod lsb-form ((form ast-multiple-value-bind))
+  (make-instance 'ast-multiple-value-bind
+                 :bindings (bindings form)
+                 :value-form (lsb-form (value-form form))
+                 :body (lsb-form (body form))))
+
+(defmethod lsb-form ((form ast-multiple-value-call))
+  (make-instance 'ast-multiple-value-call
+                 :function-form (lsb-form (function-form form))
+                 :value-form (lsb-form (value-form form))))
+
+(defmethod lsb-form ((form ast-multiple-value-prog1))
+  (make-instance 'ast-multiple-value-prog1
+                 :value-form (lsb-form (value-form form))
+                 :body (lsb-form (body form))))
+
+(defmethod lsb-form ((form ast-progn))
+  (make-instance 'ast-progn
+                 :forms (mapcar #'lsb-form (forms form))))
+
+(defmethod lsb-form ((form ast-quote))
+  form)
+
+(defmethod lsb-form ((form ast-return-from))
   (let ((tag (target form))
         (value-form (value form))
         (location (info form)))
@@ -282,7 +228,12 @@
                                                                      :forms (lsb-unwind-to (cdr (lsb-find-b-or-t-binding tag)))))
                           :info location)))))
 
-(defun lsb-tagbody (form)
+(defmethod lsb-form ((form ast-setq))
+  (make-instance 'ast-setq
+                 :variable (setq-variable form)
+                 :value (lsb-form (value form))))
+
+(defmethod lsb-form ((form ast-tagbody))
   (let ((*special-bindings* *special-bindings*)
         (info (info form)))
     (flet ((frob-tagbody ()
@@ -317,7 +268,12 @@
         (t ;; Local TAGBODY.
          (frob-tagbody))))))
 
-(defun lsb-unwind-protect (form)
+(defmethod lsb-form ((form ast-the))
+  (make-instance 'ast-the
+                 :type (the-type form)
+                 :value (lsb-form (value form))))
+
+(defmethod lsb-form ((form ast-unwind-protect))
   (let ((*special-bindings* (cons (list :unwind-protect) *special-bindings*))
         (protected-form (protected-form form))
         (cleanup-function (cleanup-function form)))
@@ -348,3 +304,50 @@
                                           :body (make-instance 'ast-call
                                                                :name 'sys.int::%%disestablish-unwind-protect
                                                                :arguments '()))))))
+
+(defmethod lsb-form ((form ast-call))
+  (make-instance 'ast-call
+                 :name (name form)
+                 :arguments (mapcar #'lsb-form (arguments form))))
+
+(defmethod lsb-form ((form ast-jump-table))
+  (make-instance 'ast-jump-table
+                 :value (lsb-form (value form))
+                 :targets (mapcar #'lsb-form (targets form))))
+
+(defmethod lsb-form ((form lexical-variable))
+  form)
+
+(defun lsb-find-b-or-t-binding (info)
+  "Locate the BLOCK or TAGBODY binding info on the *SPECIAL-BINDINGS* stack."
+  (do ((i *special-bindings* (cdr i)))
+      ((and (eql (first (first i)) :block-or-tagbody)
+            (eql (second (first i)) info))
+       i)
+    (assert i () "Could not find block/tagbody information?")))
+
+(defun lsb-unwind-to (location)
+  "Generate code to unwind to a given location on the binding stack."
+  (do ((current *special-bindings* (cdr current))
+       (forms '()))
+      ((eql current location)
+       (nreverse forms))
+    (assert current () "Ran off the end of the binding stack?")
+    (let ((binding (first current)))
+      (ecase (first binding)
+        (:block-or-tagbody
+         (when (third binding)
+           (push (make-instance 'ast-call
+                                :name 'sys.int::%%disestablish-block-or-tagbody
+                                :arguments '())
+                 forms)))
+        (:special
+         (push (make-instance 'ast-call
+                                :name 'sys.int::%%unbind
+                                :arguments '())
+               forms))
+        (:unwind-protect
+         (push (make-instance 'ast-call
+                                :name 'sys.int::%%disestablish-unwind-protect
+                                :arguments '())
+               forms))))))

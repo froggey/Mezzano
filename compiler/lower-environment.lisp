@@ -32,59 +32,106 @@
 (defun quoted-form-p (form)
   (typep form 'ast-quote))
 
-(defun compute-environment-layout (form)
-  (etypecase form
-    (ast-block
-     (compute-block-environment-layout form))
-    (ast-function nil)
-    (ast-go
-     (compute-environment-layout (info form)))
-    (ast-if
-     (compute-environment-layout (test form))
-     (compute-environment-layout (if-then form))
-     (compute-environment-layout (if-else form)))
-    (ast-let
-     (compute-let-environment-layout form))
-    (ast-multiple-value-bind
-     (compute-mvb-environment-layout form))
-    (ast-multiple-value-call
-     (compute-environment-layout (function-form form))
-     (compute-environment-layout (value-form form)))
-    (ast-multiple-value-prog1
-     (compute-environment-layout (value-form form))
-     (compute-environment-layout (body form)))
-    (ast-progn
-     (mapc #'compute-environment-layout (forms form)))
-    (ast-quote nil)
-    (ast-return-from
-     (compute-environment-layout (value form))
-     (compute-environment-layout (info form)))
-    (ast-setq
-     (compute-environment-layout (value form)))
-    (ast-tagbody
-     (compute-tagbody-environment-layout form))
-    (ast-the
-     (compute-environment-layout (value form)))
-    (ast-unwind-protect
-     (compute-environment-layout (protected-form form))
-     (when (and (lambda-information-p (cleanup-function form))
-                (not (getf (lambda-information-plist (cleanup-function form)) 'extent)))
-       (setf (getf (lambda-information-plist (cleanup-function form)) 'extent) :dynamic))
-     (compute-environment-layout (cleanup-function form)))
-    (ast-call (cond ((and (eql (name form) 'funcall)
-                          (lambda-information-p (first (arguments form))))
-                     (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
-                       (setf (getf (lambda-information-plist (first (arguments form))) 'extent) :dynamic))
-                     (compute-lambda-environment-layout (first (arguments form)))
-                     (mapc #'compute-environment-layout (rest (arguments form))))
-                    (t (mapc #'compute-environment-layout (arguments form)))))
-    (ast-jump-table
-     (compute-environment-layout (value form))
-     (mapc #'compute-environment-layout (targets form)))
-    (lexical-variable nil)
-    (lambda-information
-     (setf (getf (lambda-information-plist form) 'dynamic-extent) :indefinite)
-     (compute-lambda-environment-layout form))))
+
+(defgeneric compute-environment-layout (form))
+
+(defmethod compute-environment-layout ((form ast-block))
+  "BLOCK defines one variable."
+  (maybe-add-environment-variable (info form))
+  (compute-environment-layout (body form)))
+
+(defmethod compute-environment-layout ((form ast-function))
+  nil)
+
+(defmethod compute-environment-layout ((form ast-go))
+  (compute-environment-layout (info form)))
+
+(defmethod compute-environment-layout ((form ast-if))
+  (compute-environment-layout (test form))
+  (compute-environment-layout (if-then form))
+  (compute-environment-layout (if-else form)))
+
+(defmethod compute-environment-layout ((form ast-let))
+  (dolist (binding (bindings form))
+    (maybe-add-environment-variable (first binding))
+    (compute-environment-layout (second binding)))
+  (compute-environment-layout (body form)))
+
+(defmethod compute-environment-layout ((form ast-multiple-value-bind))
+  (dolist (binding (bindings form))
+    (maybe-add-environment-variable binding))
+  (compute-environment-layout (value-form form))
+  (compute-environment-layout (body form)))
+
+(defmethod compute-environment-layout ((form ast-multiple-value-call))
+  (compute-environment-layout (function-form form))
+  (compute-environment-layout (value-form form)))
+
+(defmethod compute-environment-layout ((form ast-multiple-value-prog1))
+  (compute-environment-layout (value-form form))
+  (compute-environment-layout (body form)))
+
+(defmethod compute-environment-layout ((form ast-progn))
+  (mapc #'compute-environment-layout (forms form)))
+
+(defmethod compute-environment-layout ((form ast-quote))
+  nil)
+
+(defmethod compute-environment-layout ((form ast-return-from))
+  (compute-environment-layout (value form))
+  (compute-environment-layout (info form)))
+
+(defmethod compute-environment-layout ((form ast-setq))
+  (compute-environment-layout (value form)))
+
+(defmethod compute-environment-layout ((form ast-tagbody))
+  "TAGBODY defines a single variable in the enclosing environment and each group
+of statements opens a new contour."
+  (maybe-add-environment-variable (info form))
+  (let ((env-is-dx t))
+    (let ((*active-environment-vector* (info form))
+          (*allow-dx-environment* t))
+      (dolist (stmt (statements form))
+        (cond ((go-tag-p stmt)
+               (unless (finalize-environment-layout *active-environment-vector*)
+                 (setf env-is-dx nil))
+               (setf *active-environment-vector* stmt
+                     *allow-dx-environment* t))
+              (t (compute-environment-layout stmt))))
+      (unless (finalize-environment-layout *active-environment-vector*)
+        (setf env-is-dx nil)))
+    (unless env-is-dx
+      (setf *allow-dx-environment* nil))))
+
+(defmethod compute-environment-layout ((form ast-the))
+  (compute-environment-layout (value form)))
+
+(defmethod compute-environment-layout ((form ast-unwind-protect))
+  (compute-environment-layout (protected-form form))
+  (when (and (lambda-information-p (cleanup-function form))
+             (not (getf (lambda-information-plist (cleanup-function form)) 'extent)))
+    (setf (getf (lambda-information-plist (cleanup-function form)) 'extent) :dynamic))
+  (compute-environment-layout (cleanup-function form)))
+
+(defmethod compute-environment-layout ((form ast-call))
+  (cond ((and (eql (name form) 'funcall)
+              (lambda-information-p (first (arguments form))))
+         (unless (getf (lambda-information-plist (first (arguments form))) 'extent)
+           (setf (getf (lambda-information-plist (first (arguments form))) 'extent) :dynamic))
+         (compute-lambda-environment-layout (first (arguments form)))
+         (mapc #'compute-environment-layout (rest (arguments form))))
+        (t (mapc #'compute-environment-layout (arguments form)))))
+
+(defmethod compute-environment-layout ((form ast-jump-table))
+  (compute-environment-layout (value form))
+  (mapc #'compute-environment-layout (targets form)))
+
+(defmethod compute-environment-layout ((form lexical-variable))
+  nil)
+
+(defmethod compute-environment-layout ((form lambda-information))
+  (setf (getf (lambda-information-plist form) 'dynamic-extent) :indefinite)
+  (compute-lambda-environment-layout form))
 
 (defun maybe-add-environment-variable (variable)
   (when (and (not (symbolp variable))
@@ -136,215 +183,310 @@
     (unless env-is-dx
       (setf *allow-dx-environment* nil))))
 
-(defun compute-tagbody-environment-layout (form)
-  "TAGBODY defines a single variable in the enclosing environment and each group
-of statements opens a new contour."
-  (maybe-add-environment-variable (info form))
-  (let ((env-is-dx t))
-    (let ((*active-environment-vector* (info form))
-          (*allow-dx-environment* t))
-      (dolist (stmt (statements form))
-        (cond ((go-tag-p stmt)
-               (unless (finalize-environment-layout *active-environment-vector*)
-                 (setf env-is-dx nil))
-               (setf *active-environment-vector* stmt
-                     *allow-dx-environment* t))
-              (t (compute-environment-layout stmt))))
-      (unless (finalize-environment-layout *active-environment-vector*)
-        (setf env-is-dx nil)))
-    (unless env-is-dx
-      (setf *allow-dx-environment* nil))))
-
-(defun compute-block-environment-layout (form)
-  "BLOCK defines one variable."
-  (maybe-add-environment-variable (info form))
-  (compute-environment-layout (body form)))
-
-(defun compute-let-environment-layout (form)
-  (dolist (binding (bindings form))
-    (maybe-add-environment-variable (first binding))
-    (compute-environment-layout (second binding)))
-  (compute-environment-layout (body form)))
-
-(defun compute-mvb-environment-layout (form)
-  (dolist (binding (bindings form))
-    (maybe-add-environment-variable binding))
-  (compute-environment-layout (value-form form))
-  (compute-environment-layout (body form)))
-
 (defun compute-free-variable-sets (lambda)
   (let ((*free-variables* (make-hash-table)))
     (compute-free-variable-sets-1 lambda)
     *free-variables*))
 
-(defun compute-free-variable-sets-1 (form)
-  (flet ((process-progn (forms)
-           (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '())))
-    (etypecase form
-      (ast-block
-       (remove (info form) (compute-free-variable-sets-1 (body form))))
-      (ast-function '())
-      (ast-go
-       (compute-free-variable-sets-1 (info form)))
-      (ast-if
-       (union (compute-free-variable-sets-1 (test form))
-              (union (compute-free-variable-sets-1 (if-then form))
-                     (compute-free-variable-sets-1 (if-else form)))))
-      (ast-let
-       (let ((vars (union (process-progn (mapcar #'second (bindings form)))
-                          (compute-free-variable-sets-1 (body form))))
-             (defs (mapcar #'first (bindings form))))
-         (set-difference vars defs)))
-      (ast-multiple-value-bind
-       (let ((vars (union (compute-free-variable-sets-1 (value-form form))
-                          (compute-free-variable-sets-1 (body form))))
-             (defs (bindings form)))
-         (set-difference vars defs)))
-      (ast-multiple-value-call
-       (union (compute-free-variable-sets-1 (function-form form))
-              (compute-free-variable-sets-1 (value-form form))))
-      (ast-multiple-value-prog1
-       (union (compute-free-variable-sets-1 (value-form form))
-              (compute-free-variable-sets-1 (body form))))
-      (ast-progn
-       (process-progn (forms form)))
-      (ast-quote '())
-      (ast-return-from
-       (union (compute-free-variable-sets-1 (value form))
-              (compute-free-variable-sets-1 (info form))))
-      (ast-setq
-       (union (list (setq-variable form))
-              (compute-free-variable-sets-1 (value form))))
-      (ast-tagbody
-       (remove (info form)
-               (process-progn (remove-if #'go-tag-p (statements form)))))
-      (ast-the
-       (compute-free-variable-sets-1 (value form)))
-      (ast-unwind-protect
-       (union (compute-free-variable-sets-1 (protected-form form))
-              (compute-free-variable-sets-1 (cleanup-function form))))
-      (ast-call
-       (process-progn (arguments form)))
-      (ast-jump-table
-       (union (compute-free-variable-sets-1 (value form))
-              (process-progn (targets form))))
-      (lexical-variable (list form))
-      (lambda-information
-       (let* ((initforms (append (mapcar #'second (lambda-information-optional-args form))
-                                 (mapcar #'second (lambda-information-key-args form))))
-              (defs (append (lambda-information-required-args form)
-                            (mapcar #'first (lambda-information-optional-args form))
-                            (mapcar #'third (lambda-information-optional-args form))
-                            (mapcar #'second (mapcar #'first (lambda-information-key-args form)))
-                            (mapcar #'third (lambda-information-key-args form))
-                            (when (lambda-information-rest-arg form)
-                              (list (lambda-information-rest-arg form)))
-                            (when (lambda-information-environment-arg form)
-                              (list (lambda-information-environment-arg form)))))
-              (vars (set-difference (union (process-progn initforms)
-                                           (compute-free-variable-sets-1 (lambda-information-body form)))
-                                    defs)))
-         (setf (gethash form *free-variables*) vars)
-         vars)))))
+(defgeneric compute-free-variable-sets-1 (form))
 
-(defun lower-env-form (form)
-  (etypecase form
-    (ast-block
-     (le-block form))
-    (ast-function form)
-    (ast-go
-     (le-go form))
-    (ast-if
-     (le-if form))
-    (ast-let
-     (le-let form))
-    (ast-multiple-value-bind
-     (le-multiple-value-bind form))
-    (ast-multiple-value-call
-     (make-instance 'ast-multiple-value-call
-                    :function-form (lower-env-form (function-form form))
-                    :value-form (lower-env-form (value-form form))))
-    (ast-multiple-value-prog1
-     (make-instance 'ast-multiple-value-prog1
-                    :value-form (lower-env-form (value-form form))
-                    :body (lower-env-form (body form))))
-    (ast-progn
-     (make-instance 'ast-progn
-                    :forms (mapcar #'lower-env-form (forms form))))
-    (ast-quote form)
-    (ast-return-from
-     (le-return-from form))
-    (ast-setq (le-setq form))
-    (ast-tagbody
-     (le-tagbody form))
-    (ast-the (le-the form))
-    (ast-unwind-protect
-     (make-instance 'ast-unwind-protect
-                    :protected-form (lower-env-form (protected-form form))
-                    :cleanup-function (lower-env-form (cleanup-function form))))
-    (ast-call
-     (make-instance 'ast-call
-                    :name (name form)
-                    :arguments (mapcar #'lower-env-form (arguments form))))
-    (ast-jump-table
-     (make-instance 'ast-jump-table
-                    :value (lower-env-form (value form))
-                    :targets (mapcar #'lower-env-form (targets form))))
-    (lexical-variable (le-variable form))
-    (lambda-information
-     (cond ((or (not *environment-chain*)
-                (endp (gethash form *free-variables*)))
-            (let ((*environment* '()))
-              (le-lambda form)))
-           ((getf (lambda-information-plist form) 'declared-dynamic-extent)
-            (make-instance 'ast-call
-                           :name 'sys.c::make-dx-closure
-                           :arguments (list (le-lambda form)
-                                            (second (first *environment-chain*)))))
-           (*environment-allocation-mode*
-            (make-instance 'ast-call
-                           :name 'sys.int::make-closure
-                           :arguments (list (le-lambda form)
-                                            (second (first *environment-chain*))
-                                            (make-instance 'ast-quote :value *environment-allocation-mode*))))
-           (t (make-instance 'ast-call
-                             :name 'sys.int::make-closure
-                             :arguments (list (le-lambda form)
-                                              (second (first *environment-chain*)))))))))
+(defun compute-free-variable-sets-form-list (forms)
+  (reduce 'union (mapcar #'compute-free-variable-sets-1 forms) :initial-value '()))
 
-(defvar *environment-chain* nil
-  "The directly accessible environment vectors in this function.")
+(defmethod compute-free-variable-sets-1 ((form ast-block))
+  (remove (info form) (compute-free-variable-sets-1 (body form))))
 
-(defun compute-environment-layout-debug-info ()
-  (when *environment*
-    (list (second (first *environment-chain*))
-          (mapcar (lambda (env)
-                    (mapcar (lambda (x)
-                              (if (or (tagbody-information-p x)
-                                      (block-information-p x))
-                                  nil
-                                  (lexical-variable-name x)))
-                            (gethash env *environment-layout*)))
-                  *environment*))))
+(defmethod compute-free-variable-sets-1 ((form ast-function))
+  '())
 
-(defun generate-make-environment (lambda size)
-  (cond ((gethash lambda *environment-layout-dx*)
-         ;; DX allocation.
-         (make-instance 'ast-call
-                        :name 'sys.c::make-dx-simple-vector
-                        :arguments (list (make-instance 'ast-quote :value size))))
-        (*environment-allocation-mode*
-         ;; Allocation in an explicit area.
-         (make-instance 'ast-call
-                        :name 'sys.int::make-simple-vector
-                        :arguments (list (make-instance 'ast-quote :value size)
-                                         (make-instance 'ast-quote :value *environment-allocation-mode*))))
-        ;; General allocation.
-        (t (make-instance 'ast-call
-                          :name 'sys.int::make-simple-vector
-                          :arguments (list (make-instance 'ast-quote :value size))))))
+(defmethod compute-free-variable-sets-1 ((form ast-go))
+  (compute-free-variable-sets-1 (info form)))
 
-(defun le-lambda (lambda)
+(defmethod compute-free-variable-sets-1 ((form ast-if))
+  (union (compute-free-variable-sets-1 (test form))
+         (union (compute-free-variable-sets-1 (if-then form))
+                (compute-free-variable-sets-1 (if-else form)))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-let))
+  (let ((vars (union (compute-free-variable-sets-form-list (mapcar #'second (bindings form)))
+                     (compute-free-variable-sets-1 (body form))))
+        (defs (mapcar #'first (bindings form))))
+    (set-difference vars defs)))
+
+(defmethod compute-free-variable-sets-1 ((form ast-multiple-value-bind))
+  (let ((vars (union (compute-free-variable-sets-1 (value-form form))
+                     (compute-free-variable-sets-1 (body form))))
+        (defs (bindings form)))
+    (set-difference vars defs)))
+
+(defmethod compute-free-variable-sets-1 ((form ast-multiple-value-call))
+  (union (compute-free-variable-sets-1 (function-form form))
+         (compute-free-variable-sets-1 (value-form form))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-multiple-value-prog1))
+  (union (compute-free-variable-sets-1 (value-form form))
+         (compute-free-variable-sets-1 (body form))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-progn))
+  (compute-free-variable-sets-form-list (forms form)))
+
+(defmethod compute-free-variable-sets-1 ((form ast-quote))
+  '())
+
+(defmethod compute-free-variable-sets-1 ((form ast-return-from))
+  (union (compute-free-variable-sets-1 (value form))
+         (compute-free-variable-sets-1 (info form))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-setq))
+  (union (list (setq-variable form))
+         (compute-free-variable-sets-1 (value form))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-tagbody))
+  (remove (info form)
+          (compute-free-variable-sets-form-list (remove-if #'go-tag-p (statements form)))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-the))
+  (compute-free-variable-sets-1 (value form)))
+
+(defmethod compute-free-variable-sets-1 ((form ast-unwind-protect))
+  (union (compute-free-variable-sets-1 (protected-form form))
+         (compute-free-variable-sets-1 (cleanup-function form))))
+
+(defmethod compute-free-variable-sets-1 ((form ast-call))
+  (compute-free-variable-sets-form-list (arguments form)))
+
+(defmethod compute-free-variable-sets-1 ((form ast-jump-table))
+  (union (compute-free-variable-sets-1 (value form))
+         (compute-free-variable-sets-form-list (targets form))))
+
+(defmethod compute-free-variable-sets-1 ((form lexical-variable))
+  (list form))
+
+(defmethod compute-free-variable-sets-1 ((form lambda-information))
+  (let* ((initforms (append (mapcar #'second (lambda-information-optional-args form))
+                            (mapcar #'second (lambda-information-key-args form))))
+         (defs (append (lambda-information-required-args form)
+                       (mapcar #'first (lambda-information-optional-args form))
+                       (mapcar #'third (lambda-information-optional-args form))
+                       (mapcar #'second (mapcar #'first (lambda-information-key-args form)))
+                       (mapcar #'third (lambda-information-key-args form))
+                       (when (lambda-information-rest-arg form)
+                         (list (lambda-information-rest-arg form)))
+                       (when (lambda-information-environment-arg form)
+                         (list (lambda-information-environment-arg form)))))
+         (vars (set-difference (union (compute-free-variable-sets-form-list initforms)
+                                      (compute-free-variable-sets-1 (lambda-information-body form)))
+                               defs)))
+    (setf (gethash form *free-variables*) vars)
+    vars))
+
+(defgeneric lower-env-form (form))
+
+(defmethod lower-env-form ((form ast-block))
+  (make-instance 'ast-block
+                 :info (info form)
+                 :body (make-instance 'ast-progn
+                                      :forms (append (when (not (localp (info form)))
+                                                       (let ((env-var (second (first *environment-chain*)))
+                                                             (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                                         (setf (block-information-env-var (info form)) env-var
+                                                               (block-information-env-offset (info form)) env-offset)
+                                                         (list (make-instance 'ast-call
+                                                                              :name '(setf sys.int::%object-ref-t)
+                                                                              :arguments (list (info form)
+                                                                                               env-var
+                                                                                               (make-instance 'ast-quote
+                                                                                                              :value env-offset))))))
+                                                     (list (lower-env-form (body form)))))))
+
+(defmethod lower-env-form ((form ast-function))
+  form)
+
+(defmethod lower-env-form ((form ast-go))
+  (setf (info form) (lower-env-form (info form)))
+  form)
+
+(defmethod lower-env-form ((form ast-if))
+  (setf (test form) (lower-env-form (test form))
+        (if-then form) (lower-env-form (if-then form))
+        (if-else form) (lower-env-form (if-else form)))
+  form)
+
+(defmethod lower-env-form ((form ast-let))
+  (setf (bindings form)
+        (loop
+           for (variable init-form) in (bindings form)
+           collect (list variable (if (or (symbolp variable)
+                                          (localp variable))
+                                      (lower-env-form init-form)
+                                      (make-instance 'ast-call
+                                                     :name '(setf sys.int::%object-ref-t)
+                                                     :arguments (list (lower-env-form init-form)
+                                                                      (second (first *environment-chain*))
+                                                                      (make-instance 'ast-quote
+                                                                                     :value (1+ (position variable (gethash (first *environment*) *environment-layout*))))))))))
+  (setf (body form) (lower-env-form (body form)))
+  form)
+
+(defmethod lower-env-form ((form ast-multiple-value-bind))
+  (make-instance 'ast-multiple-value-bind
+                 :bindings (bindings form)
+                 :value-form (lower-env-form (value-form form))
+                 :body (make-instance 'ast-progn
+                                      :forms (append (mapcan (lambda (var)
+                                                               (when (and (not (symbolp var))
+                                                                          (not (localp var)))
+                                                                 (list (make-instance 'ast-call
+                                                                                      :name '(setf sys.int::%object-ref-t)
+                                                                                      :arguments (list var
+                                                                                                       (second (first *environment-chain*))
+                                                                                                       (make-instance 'ast-quote
+                                                                                                                      :value (1+ (position var (gethash (first *environment*) *environment-layout*)))))))))
+                                                             (bindings form))
+                                                     (list (lower-env-form (body form)))))))
+
+(defmethod lower-env-form ((form ast-multiple-value-call))
+  (make-instance 'ast-multiple-value-call
+                 :function-form (lower-env-form (function-form form))
+                 :value-form (lower-env-form (value-form form))))
+
+(defmethod lower-env-form ((form ast-multiple-value-prog1))
+  (make-instance 'ast-multiple-value-prog1
+                 :value-form (lower-env-form (value-form form))
+                 :body (lower-env-form (body form))))
+
+(defmethod lower-env-form ((form ast-progn))
+  (make-instance 'ast-progn
+                 :forms (mapcar #'lower-env-form (forms form))))
+
+(defmethod lower-env-form ((form ast-quote))
+  form)
+
+(defmethod lower-env-form ((form ast-return-from))
+  (setf (value form) (lower-env-form (value form))
+        (info form) (lower-env-form (info form)))
+  form)
+
+(defmethod lower-env-form ((form ast-setq))
+  (cond ((localp (setq-variable form))
+         (setf (value form) (lower-env-form (value form)))
+         form)
+        (t (dolist (e *environment*
+                    (error "Can't find variable ~S in environment." (setq-variable form)))
+             (let* ((layout (gethash e *environment-layout*))
+                    (offset (position (setq-variable form) layout)))
+               (when offset
+                 (return (make-instance 'ast-call
+                                        :name '(setf sys.int::%object-ref-t)
+                                        :arguments (list (lower-env-form (value form))
+                                                         (get-env-vector e)
+                                                         (make-instance 'ast-quote :value (1+ offset)))))))))))
+
+(defmethod lower-env-form ((form ast-tagbody))
+  (let* ((possible-env-vector-heads (list* (info form)
+                                           (remove-if-not #'go-tag-p (statements form))))
+         (env-vector-heads (remove-if (lambda (x) (endp (gethash x *environment-layout*)))
+                                      possible-env-vector-heads))
+         (new-envs (loop for i in env-vector-heads
+                      collect (list i
+                                    (make-instance 'lexical-variable
+                                                   :name (gensym "Environment")
+                                                   :definition-point *current-lambda*)
+                                    (gethash i *environment-layout*)))))
+    (labels ((frob-outer ()
+               (make-instance 'ast-tagbody
+                              :info (info form)
+                              :statements (append
+                                           ;; Save the tagbody info.
+                                           (when (not (localp (info form)))
+                                             (let ((env-var (second (first *environment-chain*)))
+                                                   (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                               (setf (tagbody-information-env-var (info form)) env-var
+                                                     (tagbody-information-env-offset (info form)) env-offset)
+                                               (list (make-instance 'ast-call
+                                                                    :name '(setf sys.int::%object-ref-t)
+                                                                    :arguments (list (info form)
+                                                                                     env-var
+                                                                                     (make-instance 'ast-quote :value env-offset))))))
+                                           (let ((info (assoc (info form) new-envs)))
+                                             (when info
+                                               (if *environment*
+                                                   (list (make-instance 'ast-setq
+                                                                        :variable (second info)
+                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))
+                                                         (make-instance 'ast-call
+                                                                        :name '(setf sys.int::%object-ref-t)
+                                                                        :arguments (list (second (first *environment-chain*))
+                                                                                         (second info)
+                                                                                         (make-instance 'ast-quote :value '0))))
+                                                   (list (make-instance 'ast-setq
+                                                                        :variable (second info)
+                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))))))
+                                           (frob-inner (info form)))))
+             (frob-inner (current-env)
+               (loop for stmt in (statements form)
+                  append (cond ((go-tag-p stmt)
+                                (setf current-env stmt)
+                                (let ((info (assoc current-env new-envs)))
+                                  (append (list stmt)
+                                          (when info
+                                            (list (make-instance 'ast-setq
+                                                                 :variable (second info)
+                                                                 :value (generate-make-environment current-env (1+ (length (third info)))))))
+                                          (when (and info *environment*)
+                                            (list (make-instance 'ast-call
+                                                                 :name '(setf sys.int::%object-ref-t)
+                                                                 :arguments (list (second (first *environment-chain*))
+                                                                                  (second info)
+                                                                                  (make-instance 'ast-quote :value '0))))))))
+                                (t (let ((info (assoc current-env new-envs)))
+                                     (if info
+                                         (let ((*environment-chain* (list* (list current-env (second info))
+                                                                           *environment-chain*))
+                                               (*environment* (list* current-env *environment*)))
+                                           (list (lower-env-form stmt)))
+                                         (list (lower-env-form stmt)))))))))
+      (if (endp new-envs)
+          (frob-outer)
+          (make-instance 'ast-let
+                         :bindings (loop
+                                      for (stmt env layout) in new-envs
+                                      collect (list env (make-instance 'ast-quote :value 'nil)))
+                         :body (frob-outer))))))
+
+(defmethod lower-env-form ((form ast-the))
+  (setf (value form) (lower-env-form (value form)))
+  form)
+
+(defmethod lower-env-form ((form ast-unwind-protect))
+  (make-instance 'ast-unwind-protect
+                 :protected-form (lower-env-form (protected-form form))
+                 :cleanup-function (lower-env-form (cleanup-function form))))
+
+(defmethod lower-env-form ((form ast-call))
+  (make-instance 'ast-call
+                 :name (name form)
+                 :arguments (mapcar #'lower-env-form (arguments form))))
+
+(defmethod lower-env-form ((form ast-jump-table))
+  (make-instance 'ast-jump-table
+                 :value (lower-env-form (value form))
+                 :targets (mapcar #'lower-env-form (targets form))))
+
+(defmethod lower-env-form ((form lexical-variable))
+  (if (localp form)
+      form
+      (dolist (e *environment*
+               (error "Can't find variable ~S in environment." form))
+        (let* ((layout (gethash e *environment-layout*))
+               (offset (position form layout)))
+          (when offset
+            (return (make-instance 'ast-call
+                                   :name 'sys.int::%object-ref-t
+                                   :arguments (list (get-env-vector e)
+                                                    (make-instance 'ast-quote :value (1+ offset))))))))))
+
+(defun lower-env-lambda (lambda)
   (let ((*environment-chain* '())
         (*environment* *environment*)
         (local-env (gethash lambda *environment-layout*))
@@ -419,21 +561,58 @@ of statements opens a new contour."
              (setf (lambda-information-body lambda) (lower-env-form (lambda-information-body lambda)))))
     lambda))
 
-(defun le-let (form)
-  (setf (bindings form)
-        (loop
-           for (variable init-form) in (bindings form)
-           collect (list variable (if (or (symbolp variable)
-                                          (localp variable))
-                                      (lower-env-form init-form)
-                                      (make-instance 'ast-call
-                                                     :name '(setf sys.int::%object-ref-t)
-                                                     :arguments (list (lower-env-form init-form)
-                                                                      (second (first *environment-chain*))
-                                                                      (make-instance 'ast-quote
-                                                                                     :value (1+ (position variable (gethash (first *environment*) *environment-layout*))))))))))
-  (setf (body form) (lower-env-form (body form)))
-  form)
+(defmethod lower-env-form ((form lambda-information))
+  (cond ((or (not *environment-chain*)
+             (endp (gethash form *free-variables*)))
+         (let ((*environment* '()))
+           (lower-env-lambda form)))
+        ((getf (lambda-information-plist form) 'declared-dynamic-extent)
+         (make-instance 'ast-call
+                        :name 'sys.c::make-dx-closure
+                        :arguments (list (lower-env-lambda form)
+                                         (second (first *environment-chain*)))))
+        (*environment-allocation-mode*
+         (make-instance 'ast-call
+                        :name 'sys.int::make-closure
+                        :arguments (list (lower-env-lambda form)
+                                         (second (first *environment-chain*))
+                                         (make-instance 'ast-quote :value *environment-allocation-mode*))))
+        (t (make-instance 'ast-call
+                          :name 'sys.int::make-closure
+                          :arguments (list (lower-env-lambda form)
+                                           (second (first *environment-chain*)))))))
+
+(defvar *environment-chain* nil
+  "The directly accessible environment vectors in this function.")
+
+(defun compute-environment-layout-debug-info ()
+  (when *environment*
+    (list (second (first *environment-chain*))
+          (mapcar (lambda (env)
+                    (mapcar (lambda (x)
+                              (if (or (tagbody-information-p x)
+                                      (block-information-p x))
+                                  nil
+                                  (lexical-variable-name x)))
+                            (gethash env *environment-layout*)))
+                  *environment*))))
+
+(defun generate-make-environment (lambda size)
+  (cond ((gethash lambda *environment-layout-dx*)
+         ;; DX allocation.
+         (make-instance 'ast-call
+                        :name 'sys.c::make-dx-simple-vector
+                        :arguments (list (make-instance 'ast-quote :value size))))
+        (*environment-allocation-mode*
+         ;; Allocation in an explicit area.
+         (make-instance 'ast-call
+                        :name 'sys.int::make-simple-vector
+                        :arguments (list (make-instance 'ast-quote :value size)
+                                         (make-instance 'ast-quote :value *environment-allocation-mode*))))
+        ;; General allocation.
+        (t (make-instance 'ast-call
+                          :name 'sys.int::make-simple-vector
+                          :arguments (list (make-instance 'ast-quote :value size))))))
 
 (defun get-env-vector (vector-id)
   (let ((chain (assoc vector-id *environment-chain*)))
@@ -469,174 +648,3 @@ of statements opens a new contour."
              (when (member var e)
                (return (values (first chain) depth
                                (position var e)))))))))
-
-(defun le-variable (form)
-  (if (localp form)
-      form
-      (dolist (e *environment*
-               (error "Can't find variable ~S in environment." form))
-        (let* ((layout (gethash e *environment-layout*))
-               (offset (position form layout)))
-          (when offset
-            (return (make-instance 'ast-call
-                                   :name 'sys.int::%object-ref-t
-                                   :arguments (list (get-env-vector e)
-                                                    (make-instance 'ast-quote :value (1+ offset))))))))))
-
-(defun le-form*-cdr (form)
-  (list* (first form)
-         (mapcar #'lower-env-form (rest form))))
-
-(defun le-block (form)
-  (make-instance 'ast-block
-                 :info (info form)
-                 :body (make-instance 'ast-progn
-                                      :forms (append (when (not (localp (info form)))
-                                                       (let ((env-var (second (first *environment-chain*)))
-                                                             (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
-                                                         (setf (block-information-env-var (info form)) env-var
-                                                               (block-information-env-offset (info form)) env-offset)
-                                                         (list (make-instance 'ast-call
-                                                                              :name '(setf sys.int::%object-ref-t)
-                                                                              :arguments (list (info form)
-                                                                                               env-var
-                                                                                               (make-instance 'ast-quote
-                                                                                                              :value env-offset))))))
-                                                     (list (lower-env-form (body form)))))))
-
-(defun le-setq (form)
-  (cond ((localp (setq-variable form))
-         (setf (value form) (lower-env-form (value form)))
-         form)
-        (t (dolist (e *environment*
-                    (error "Can't find variable ~S in environment." (setq-variable form)))
-             (let* ((layout (gethash e *environment-layout*))
-                    (offset (position (setq-variable form) layout)))
-               (when offset
-                 (return (make-instance 'ast-call
-                                        :name '(setf sys.int::%object-ref-t)
-                                        :arguments (list (lower-env-form (value form))
-                                                         (get-env-vector e)
-                                                         (make-instance 'ast-quote :value (1+ offset)))))))))))
-
-
-(defun le-variable (form)
-  (if (localp form)
-      form
-      (dolist (e *environment*
-               (error "Can't find variable ~S in environment." form))
-        (let* ((layout (gethash e *environment-layout*))
-               (offset (position form layout)))
-          (when offset
-            (return (make-instance 'ast-call
-                                   :name 'sys.int::%object-ref-t
-                                   :arguments (list (get-env-vector e)
-                                                    (make-instance 'ast-quote :value (1+ offset))))))))))
-
-(defun le-multiple-value-bind (form)
-  (make-instance 'ast-multiple-value-bind
-                 :bindings (bindings form)
-                 :value-form (lower-env-form (value-form form))
-                 :body (make-instance 'ast-progn
-                                      :forms (append (mapcan (lambda (var)
-                                                               (when (and (not (symbolp var))
-                                                                          (not (localp var)))
-                                                                 (list (make-instance 'ast-call
-                                                                                      :name '(setf sys.int::%object-ref-t)
-                                                                                      :arguments (list var
-                                                                                                       (second (first *environment-chain*))
-                                                                                                       (make-instance 'ast-quote
-                                                                                                                      :value (1+ (position var (gethash (first *environment*) *environment-layout*)))))))))
-                                                             (bindings form))
-                                                     (list (lower-env-form (body form)))))))
-
-(defun le-the (form)
-  (setf (value form) (lower-env-form (value form)))
-  form)
-
-(defun le-go (form)
-  (setf (info form) (lower-env-form (info form)))
-  form)
-
-(defun le-tagbody (form)
-  (let* ((possible-env-vector-heads (list* (info form)
-                                           (remove-if-not #'go-tag-p (statements form))))
-         (env-vector-heads (remove-if (lambda (x) (endp (gethash x *environment-layout*)))
-                                      possible-env-vector-heads))
-         (new-envs (loop for i in env-vector-heads
-                      collect (list i
-                                    (make-instance 'lexical-variable
-                                                   :name (gensym "Environment")
-                                                   :definition-point *current-lambda*)
-                                    (gethash i *environment-layout*)))))
-    (labels ((frob-outer ()
-               (make-instance 'ast-tagbody
-                              :info (info form)
-                              :statements (append
-                                           ;; Save the tagbody info.
-                                           (when (not (localp (info form)))
-                                             (let ((env-var (second (first *environment-chain*)))
-                                                   (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
-                                               (setf (tagbody-information-env-var (info form)) env-var
-                                                     (tagbody-information-env-offset (info form)) env-offset)
-                                               (list (make-instance 'ast-call
-                                                                    :name '(setf sys.int::%object-ref-t)
-                                                                    :arguments (list (info form)
-                                                                                     env-var
-                                                                                     (make-instance 'ast-quote :value env-offset))))))
-                                           (let ((info (assoc (info form) new-envs)))
-                                             (when info
-                                               (if *environment*
-                                                   (list (make-instance 'ast-setq
-                                                                        :variable (second info)
-                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))
-                                                         (make-instance 'ast-call
-                                                                        :name '(setf sys.int::%object-ref-t)
-                                                                        :arguments (list (second (first *environment-chain*))
-                                                                                         (second info)
-                                                                                         (make-instance 'ast-quote :value '0))))
-                                                   (list (make-instance 'ast-setq
-                                                                        :variable (second info)
-                                                                        :value (generate-make-environment (info form) (1+ (length (third info)))))))))
-                                           (frob-inner (info form)))))
-             (frob-inner (current-env)
-               (loop for stmt in (statements form)
-                  append (cond ((go-tag-p stmt)
-                                (setf current-env stmt)
-                                (let ((info (assoc current-env new-envs)))
-                                  (append (list stmt)
-                                          (when info
-                                            (list (make-instance 'ast-setq
-                                                                 :variable (second info)
-                                                                 :value (generate-make-environment current-env (1+ (length (third info)))))))
-                                          (when (and info *environment*)
-                                            (list (make-instance 'ast-call
-                                                                 :name '(setf sys.int::%object-ref-t)
-                                                                 :arguments (list (second (first *environment-chain*))
-                                                                                  (second info)
-                                                                                  (make-instance 'ast-quote :value '0))))))))
-                                (t (let ((info (assoc current-env new-envs)))
-                                     (if info
-                                         (let ((*environment-chain* (list* (list current-env (second info))
-                                                                           *environment-chain*))
-                                               (*environment* (list* current-env *environment*)))
-                                           (list (lower-env-form stmt)))
-                                         (list (lower-env-form stmt)))))))))
-      (if (endp new-envs)
-          (frob-outer)
-          (make-instance 'ast-let
-                         :bindings (loop
-                                      for (stmt env layout) in new-envs
-                                      collect (list env (make-instance 'ast-quote :value 'nil)))
-                         :body (frob-outer))))))
-
-(defun le-if (form)
-  (setf (test form) (lower-env-form (test form))
-        (if-then form) (lower-env-form (if-then form))
-        (if-else form) (lower-env-form (if-else form)))
-  form)
-
-(defun le-return-from (form)
-  (setf (value form) (lower-env-form (value form))
-        (info form) (lower-env-form (info form)))
-  form)

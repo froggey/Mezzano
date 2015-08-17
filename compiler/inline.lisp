@@ -5,106 +5,89 @@
 
 (in-package :sys.c)
 
-(defun il-form (form)
-  (etypecase form
-    (ast-block (il-block form))
-    (ast-function (il-function form))
-    (ast-go (il-go form))
-    (ast-if (il-if form))
-    (ast-let (il-let form))
-    (ast-multiple-value-bind (il-multiple-value-bind form))
-    (ast-multiple-value-call (il-multiple-value-call form))
-    (ast-multiple-value-prog1 (il-multiple-value-prog1 form))
-    (ast-progn (il-progn form))
-    (ast-quote (il-quote form))
-    (ast-return-from (il-return-from form))
-    (ast-setq (il-setq form))
-    (ast-tagbody (il-tagbody form))
-    (ast-the (il-the form))
-    (ast-unwind-protect (il-unwind-protect form))
-    (ast-call (il-function-form form))
-    (ast-jump-table (il-jump-table form))
-    (lexical-variable (il-variable form))
-    (lambda-information (il-lambda form))))
+(defun inline-functions (lambda)
+  (il-form lambda))
+
+(defgeneric il-form (form))
 
 (defun il-implicit-progn (x)
   (do ((i x (cdr i)))
       ((endp i))
     (setf (car i) (il-form (car i)))))
 
-(defun il-block (form)
+(defmethod il-form ((form ast-block))
   (setf (body form) (il-form (body form)))
   form)
 
-(defun il-function (form)
+(defmethod il-form ((form ast-function))
   form)
 
-(defun il-go (form)
+(defmethod il-form ((form ast-go))
   (setf (info form) (il-form (info form)))
   form)
 
-(defun il-if (form)
+(defmethod il-form ((form ast-if))
   (setf (test form) (il-form (test form))
         (if-then form) (il-form (if-then form))
         (if-else form) (il-form (if-else form)))
   form)
 
-(defun il-let (form)
+(defmethod il-form ((form ast-let))
   (dolist (b (bindings form))
     ;; Run on the init-form.
     (setf (second b) (il-form (second b))))
   (setf (body form) (il-form (body form)))
   form)
 
-(defun il-multiple-value-bind (form)
+(defmethod il-form ((form ast-multiple-value-bind))
   (setf (value-form form) (il-form (value-form form))
         (body form) (il-form (body form)))
   form)
 
-(defun il-multiple-value-call (form)
+(defmethod il-form ((form ast-multiple-value-call))
   (setf (function-form form) (il-form (function-form form))
         (value-form form) (il-form (value-form form)))
   form)
 
-(defun il-multiple-value-prog1 (form)
+(defmethod il-form ((form ast-multiple-value-prog1))
   (setf (value-form form) (il-form (value-form form))
         (body form) (il-form (body form)))
   form)
 
-(defun il-progn (form)
+(defmethod il-form ((form ast-progn))
   (il-implicit-progn (forms form))
   form)
 
-(defun il-quote (form)
+(defmethod il-form ((form ast-quote))
   form)
 
-(defun il-return-from (form)
+(defmethod il-form ((form ast-return-from))
   (setf (value form) (il-form (value form))
         (info form) (il-form (info form)))
   form)
 
-(defun il-setq (form)
+(defmethod il-form ((form ast-setq))
   ;; Walk the value form.
   (setf (value form) (il-form (value form)))
   form)
 
-(defun il-tagbody (form)
+(defmethod il-form ((form ast-tagbody))
   (do ((i (statements form) (cdr i)))
       ((endp i))
     (unless (go-tag-p (car i))
       (setf (car i) (il-form (car i)))))
   form)
 
-(defun il-the (form)
+(defmethod il-form ((form ast-the))
   (setf (value form) (il-form (value form)))
   form)
 
-(defun il-unwind-protect (form)
+(defmethod il-form ((form ast-unwind-protect))
   (setf (protected-form form) (il-form (protected-form form))
         (cleanup-function form) (il-form (cleanup-function form)))
   form)
 
-(defun il-jump-table (form)
+(defmethod il-form ((form ast-jump-table))
   (setf (value form) (il-form (value form)))
   (il-implicit-progn (targets form))
   form)
@@ -125,7 +108,7 @@
                                 :name 'funcall
                                 :arguments (list* (pass1-lambda expansion nil) arg-list)))))))))
 
-(defun il-function-form (form)
+(defmethod il-form ((form ast-call))
   (il-implicit-progn (arguments form))
   (let ((inlined-form (expand-inline-function (name form) (arguments form))))
     (cond (inlined-form
@@ -133,10 +116,10 @@
            inlined-form)
           (t form))))
 
-(defun il-variable (form)
+(defmethod il-form ((form lexical-variable))
   form)
 
-(defun il-lambda (form)
+(defmethod il-form ((form lambda-information))
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (il-form (second arg))))

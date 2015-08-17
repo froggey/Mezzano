@@ -5,71 +5,17 @@
 
 (in-package :sys.c)
 
-(defun simp-form (form)
-  (etypecase form
-    (ast-block (simp-block form))
-    (ast-function (simp-function form))
-    (ast-go (simp-go form))
-    (ast-if (simp-if form))
-    (ast-let (simp-let form))
-    (ast-multiple-value-bind (simp-multiple-value-bind form))
-    (ast-multiple-value-call (simp-multiple-value-call form))
-    (ast-multiple-value-prog1 (simp-multiple-value-prog1 form))
-    (ast-progn (simp-progn form))
-    (ast-quote (simp-quote form))
-    (ast-return-from (simp-return-from form))
-    (ast-setq (simp-setq form))
-    (ast-tagbody (simp-tagbody form))
-    (ast-the (simp-the form))
-    (ast-unwind-protect (simp-unwind-protect form))
-    (ast-call (simp-function-form form))
-    (ast-jump-table (simp-jump-table form))
-    (lexical-variable (simp-variable form))
-    (lambda-information (simp-lambda form))))
+(defun simplify (lambda)
+  (simp-form lambda))
+
+(defgeneric simp-form (form))
 
 (defun simp-form-list (x)
   (do ((i x (cdr i)))
       ((endp i))
     (setf (car i) (simp-form (car i)))))
 
-(defun simp-implicit-progn (x)
-  ;; Merge nested progns, remove unused quote/function/lambda/variable forms
-  ;; and eliminate code after return-from/go.
-  (do ((i x (rest i)))
-      ((endp i)
-       x)
-    (let ((form (first i)))
-      (cond ((and (typep form 'ast-progn)
-                  (forms form))
-             ;; Non-empty PROGN.
-             (change-made)
-             (simp-implicit-progn (forms form))
-             ;; Rewrite ((progn v1 ... vn) . xn) to (v1 .... vn . xn).
-             (setf (first i) (first (forms form))
-                   (rest i) (nconc (rest (forms form)) (rest i))))
-            ((and (typep form 'ast-progn)
-                  (not (forms form)))
-             ;; Empty progn. Replace with 'NIL.
-             (setf (first i) (make-instance 'ast-quote :value 'nil))
-             (change-made))
-            ((and (rest i) ; not at end.
-                  (or (typep form 'ast-quote)
-                      (typep form 'ast-function)
-                      (lexical-variable-p form)
-                      (lambda-information-p form)))
-             ;; This is a constantish value not at the end.
-             ;; Remove it.
-             (change-made)
-             (setf (first i) (second i)
-                   (rest i) (rest (rest i))))
-            ((and (rest i) ; not at end
-                  (typep form '(or ast-go ast-return-from)))
-             ;; Non-local exit. Remove all following forms.
-             (change-made)
-             (setf (rest i) nil))
-            (t (setf (first i) (simp-form form)))))))
-
-(defun simp-block (form)
+(defmethod simp-form ((form ast-block))
   (cond
     ;; Unused blocks get reduced to progn.
     ((eql (lexical-variable-use-count (info form)) 0)
@@ -88,10 +34,10 @@
     (t (setf (body form) (simp-form (body form)))
        form)))
 
-(defun simp-function (form)
+(defmethod simp-form ((form ast-function))
   form)
 
-(defun simp-go (form)
+(defmethod simp-form ((form ast-go))
   ;; HACK: Update the tagbody location part after tagbodies have merged.
   (when (tagbody-information-p (info form))
     (setf (info form) (go-tag-tagbody (target form))))
@@ -137,7 +83,7 @@
                ;; Fold away the IF.
                (if-else form))))))
 
-(defun simp-if (form)
+(defmethod simp-form ((form ast-if))
   (let ((new-form (hoist-form-out-of-if form)))
     (cond (new-form
            (change-made)
@@ -231,7 +177,7 @@
                  (if-else form) (simp-form (if-else form)))
            form))))
 
-(defun simp-let (form)
+(defmethod simp-form ((form ast-let))
   ;; Merge nested LETs when possible, do not merge special bindings!
   (do ((nested-form (body form) (body form)))
       ((or (not (typep nested-form 'ast-let))
@@ -269,7 +215,7 @@
          (change-made)
          (simp-form (body form)))))
 
-(defun simp-multiple-value-bind (form)
+(defmethod simp-form ((form ast-multiple-value-bind))
   ;; If no variables are used, or there are no variables then
   ;; remove the form.
   (cond ((every (lambda (var)
@@ -315,12 +261,12 @@
                  (body form) (simp-form (body form)))
            form)))
 
-(defun simp-multiple-value-call (form)
+(defmethod simp-form ((form ast-multiple-value-call))
   (setf (function-form form) (simp-form (function-form form))
         (value-form form) (simp-form (value-form form)))
   form)
 
-(defun simp-multiple-value-prog1 (form)
+(defmethod simp-form ((form ast-multiple-value-prog1))
   (setf (value-form form) (simp-form (value-form form))
         (body form) (simp-form (body form)))
   (cond ((typep (value-form form) 'ast-progn)
@@ -345,7 +291,44 @@
          (value-form form))
         (t form)))
 
-(defun simp-progn (form)
+(defun simp-progn-body (x)
+  ;; Merge nested progns, remove unused quote/function/lambda/variable forms
+  ;; and eliminate code after return-from/go.
+  (do ((i x (rest i)))
+      ((endp i)
+       x)
+    (let ((form (first i)))
+      (cond ((and (typep form 'ast-progn)
+                  (forms form))
+             ;; Non-empty PROGN.
+             (change-made)
+             (simp-progn-body (forms form))
+             ;; Rewrite ((progn v1 ... vn) . xn) to (v1 .... vn . xn).
+             (setf (first i) (first (forms form))
+                   (rest i) (nconc (rest (forms form)) (rest i))))
+            ((and (typep form 'ast-progn)
+                  (not (forms form)))
+             ;; Empty progn. Replace with 'NIL.
+             (setf (first i) (make-instance 'ast-quote :value 'nil))
+             (change-made))
+            ((and (rest i) ; not at end.
+                  (or (typep form 'ast-quote)
+                      (typep form 'ast-function)
+                      (lexical-variable-p form)
+                      (lambda-information-p form)))
+             ;; This is a constantish value not at the end.
+             ;; Remove it.
+             (change-made)
+             (setf (first i) (second i)
+                   (rest i) (rest (rest i))))
+            ((and (rest i) ; not at end
+                  (typep form '(or ast-go ast-return-from)))
+             ;; Non-local exit. Remove all following forms.
+             (change-made)
+             (setf (rest i) nil))
+            (t (setf (first i) (simp-form form)))))))
+
+(defmethod simp-form ((form ast-progn))
   (cond ((null (forms form))
 	 ;; Flush empty PROGNs.
 	 (change-made)
@@ -354,22 +337,22 @@
 	 ;; Reduce single form PROGNs.
 	 (change-made)
 	 (simp-form (first (forms form))))
-	(t (simp-implicit-progn (forms form))
+	(t (simp-progn-body (forms form))
 	   form)))
 
-(defun simp-quote (form)
+(defmethod simp-form ((form ast-quote))
   form)
 
-(defun simp-return-from (form)
+(defmethod simp-form ((form ast-return-from))
   (setf (value form) (simp-form (value form))
         (info form) (simp-form (info form)))
   form)
 
-(defun simp-setq (form)
+(defmethod simp-form ((form ast-setq))
   (setf (value form) (simp-form (value form)))
   form)
 
-(defun simp-tagbody (form)
+(defmethod simp-form ((form ast-tagbody))
   (labels ((flatten (x)
 	     (cond ((typep x 'ast-progn)
 		    (change-made)
@@ -447,44 +430,17 @@
                           :forms (append (statements form)
                                          (list (make-instance 'ast-quote :value 'nil))))))))
 
-(defun simp-the (form)
+(defmethod simp-form ((form ast-the))
   (cond ((eql (the-type form) 't)
          (change-made)
          (simp-form (value form)))
         (t (setf (value form) (simp-form (value form)))
            form)))
 
-(defun simp-unwind-protect (form)
+(defmethod simp-form ((form ast-unwind-protect))
   (setf (protected-form form) (simp-form (protected-form form))
         (cleanup-function form) (simp-form (cleanup-function form)))
   form)
-
-(defun simp-jump-table (form)
-  (setf (value form) (simp-form (value form)))
-  (setf (targets form) (mapcar #'simp-form (targets form)))
-  form)
-
-(defun simp-function-form (form)
-  ;; (funcall 'symbol ...) -> (symbol ...)
-  ;; (funcall #'name ...) -> (name ...)
-  (cond ((and (eql (name form) 'funcall)
-              (or (typep (first (arguments form)) 'ast-function)
-                  (and (typep (first (arguments form)) 'ast-quote)
-                       (symbolp (value (first (arguments form)))))))
-         (change-made)
-         (simp-form-list (rest (arguments form)))
-         (let ((name (etypecase (first (arguments form))
-                       (ast-quote
-                        (value (first (arguments form))))
-                       (ast-function
-                        (name (first (arguments form)))))))
-           (make-instance 'ast-call
-                          :name name
-                          :arguments (rest (arguments form)))))
-        ((eql (name form) 'eql)
-         (simp-eql form))
-        (t (simp-form-list (arguments form))
-           form)))
 
 (defun eq-comparable-p (value)
   (or (not (numberp value))
@@ -506,10 +462,37 @@
       (setf (name form) 'eq)))
   form)
 
-(defun simp-variable (form)
+(defmethod simp-form ((form ast-call))
+  ;; (funcall 'symbol ...) -> (symbol ...)
+  ;; (funcall #'name ...) -> (name ...)
+  (cond ((and (eql (name form) 'funcall)
+              (or (typep (first (arguments form)) 'ast-function)
+                  (and (typep (first (arguments form)) 'ast-quote)
+                       (symbolp (value (first (arguments form)))))))
+         (change-made)
+         (simp-form-list (rest (arguments form)))
+         (let ((name (etypecase (first (arguments form))
+                       (ast-quote
+                        (value (first (arguments form))))
+                       (ast-function
+                        (name (first (arguments form)))))))
+           (make-instance 'ast-call
+                          :name name
+                          :arguments (rest (arguments form)))))
+        ((eql (name form) 'eql)
+         (simp-eql form))
+        (t (simp-form-list (arguments form))
+           form)))
+
+(defmethod simp-form ((form ast-jump-table))
+  (setf (value form) (simp-form (value form)))
+  (setf (targets form) (mapcar #'simp-form (targets form)))
   form)
 
-(defun simp-lambda (form)
+(defmethod simp-form ((form lexical-variable))
+  form)
+
+(defmethod simp-form ((form lambda-information))
   (let ((*current-lambda* form))
     (dolist (arg (lambda-information-optional-args form))
       (setf (second arg) (simp-form (second arg))))
