@@ -62,7 +62,7 @@
 
 ;;; Simple vectors.
 
-(declaim (inline svref (setf svref) sys.int::%svref (setf sys.int::%svref)))
+(declaim (inline svref (setf svref) sys.int::simple-vector-length))
 
 (defun svref (simple-vector index)
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
@@ -73,3 +73,7 @@
   (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
   (sys.int::%bounds-check simple-vector index)
   (setf (sys.int::%object-ref-t simple-vector index) value))
+
+(defun sys.int::simple-vector-length (simple-vector)
+  (sys.int::%type-check simple-vector sys.int::+object-tag-array-t+ 'simple-vector)
+  (sys.int::%object-header-data simple-vector))

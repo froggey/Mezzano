@@ -797,6 +797,7 @@
     "system/printer.lisp"
     "system/numbers.lisp"
     "system/character.lisp"
+    "system/clos-package.lisp"
     "system/closette.lisp"
     "system/data-types.lisp"
     "system/gc.lisp"

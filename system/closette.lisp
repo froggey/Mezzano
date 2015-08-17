@@ -32,85 +32,7 @@
 
 ;;; This is the file closette.lisp
 
-(defpackage :system.closette
-  (:nicknames :sys.clos :clos)
-  (:use :cl)
-  (:import-from :sys.int
-		:allocate-std-instance
-		:std-instance-p
-		:std-instance-class
-		:std-instance-slots
-		:std-instance-layout
-                :allocate-funcallable-std-instance
-                :funcallable-std-instance-p
-                :funcallable-std-instance-function
-                :funcallable-std-instance-class
-                :funcallable-std-instance-slots
-                :funcallable-std-instance-layout))
-
 (in-package #:system.closette)
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(defvar exports
-        '(defclass defgeneric defmethod
-          find-class class-of
-          call-next-method next-method-p
-          slot-value slot-boundp slot-exists-p slot-makunbound
-          make-instance change-class
-          initialize-instance reinitialize-instance shared-initialize
-          update-instance-for-different-class
-          update-instance-for-redefined-class
-          print-object
-          set-funcallable-instance-function
-
-          standard-object funcallable-standard-object
-          standard-class funcallable-standard-class
-          standard-generic-function standard-method
-          standard-slot-definition
-          class-name
-
-          class-direct-superclasses class-direct-slots
-          class-precedence-list class-slots class-direct-subclasses
-          class-direct-methods
-          generic-function-name generic-function-lambda-list
-          generic-function-methods generic-function-discriminating-function
-          generic-function-method-class
-          method-lambda-list method-qualifiers method-specializers
-          method-generic-function method-function
-          slot-definition-name slot-definition-initfunction
-          slot-definition-initform slot-definition-initargs
-          slot-definition-readers slot-definition-writers
-          slot-definition-allocation
-          ;;
-          ;; Class-related metaobject protocol
-          ;;
-          compute-class-precedence-list compute-slots
-          compute-effective-slot-definition
-          finalize-inheritance allocate-instance
-          slot-value-using-class slot-boundp-using-class
-          slot-exists-p-using-class slot-makunbound-using-class
-          ;;
-          ;; Generic function related metaobject protocol
-          ;;
-          compute-discriminating-function
-          compute-applicable-methods-using-classes method-more-specific-p
-          compute-applicable-methods
-          compute-effective-method-function compute-method-function
-          apply-methods apply-method
-
-          metaobject specializer class
-          structure-class structure-object
-          intern-eql-specializer eql-specializer eql-specializer-object
-
-          slot-unbound
-
-          with-slots with-accessors
-          ))
-
-(export exports)
-
-)
 
 ;;;
 ;;; Utilities
@@ -205,6 +127,7 @@
 (defvar the-class-funcallable-standard-class)
 (defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (defvar *standard-class-slot-storage-layout-position*)
+(defvar *standard-class-hash-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -460,7 +383,8 @@
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
        (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
-       (dependents :initform '()))
+       (dependents :initform '())
+       (hash :initform nil))
    (:default-initargs
     :name nil
     :direct-superclasses (list (find-class 'standard-object)))))
@@ -477,7 +401,8 @@
        (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
        (direct-methods :initform ())      ; :accessor class-direct-methods
        (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
-       (dependents :initform '()))
+       (dependents :initform '())
+       (hash :initform nil))
     (:default-initargs
      :name nil
      :direct-superclasses (list (find-class 'funcallable-standard-object)))))
@@ -534,6 +459,15 @@
   (std-slot-value class 'dependents))
 (defun (setf class-dependents) (new-value class)
   (setf (slot-value class 'dependents) new-value))
+
+(defun class-hash (class)
+  (let ((class-of-class (class-of class)))
+    (cond ((or (eq class-of-class the-class-standard-class)
+               (eq class-of-class the-class-funcallable-standard-class))
+           (svref (std-instance-slots class) *standard-class-hash-position*))
+          (t (std-slot-value class 'hash)))))
+(defun (setf class-hash) (new-value class)
+  (setf (slot-value class 'hash) new-value))
 
 ;;; defclass
 
@@ -638,6 +572,13 @@
   (clrhash *class-table*)
   (values))
 
+(defvar *next-class-hash-value* 1)
+
+(defun next-class-hash-value ()
+  (sys.int::%atomic-fixnum-add-object '*next-class-hash-value*
+                                      sys.int::+symbol-value+
+                                      1))
+
 ;;; Ensure class
 
 (defun ensure-class (name &rest all-keys
@@ -672,6 +613,7 @@
     (setf (class-direct-subclasses class) ())
     (setf (class-direct-methods class) ())
     (setf (class-dependents class) ())
+    (setf (class-hash class) (next-class-hash-value))
     (std-after-initialization-for-classes class
        :direct-slots direct-slots
        :direct-superclasses (or direct-superclasses
@@ -689,6 +631,7 @@
     (setf (class-direct-subclasses class) ())
     (setf (class-direct-methods class) ())
     (setf (class-dependents class) ())
+    (setf (class-hash class) (next-class-hash-value))
     (std-after-initialization-for-classes class
        :direct-slots direct-slots
        :direct-superclasses (or direct-superclasses
@@ -1151,14 +1094,19 @@ has only has class specializer."
 ;;; function table.
 
 (defun reset-gf-emf-table (gf)
-  (loop
-     for classes being the hash-keys in (classes-to-emf-table gf)
-     do (if (listp classes)
-            (loop
-               for class in classes
-               do (setf (class-dependents class) (remove gf (class-dependents class))))
-            (setf (class-dependents classes) (remove gf (class-dependents classes)))))
-  (clrhash (classes-to-emf-table gf)))
+  (cond ((single-dispatch-emf-table-p (classes-to-emf-table gf))
+         (map-single-dispatch-emf-table
+          (lambda (class fn)
+            (declare (ignore fn))
+            (setf (class-dependents class) (remove gf (class-dependents class))))
+          (classes-to-emf-table gf))
+         (clear-single-dispatch-emf-table (classes-to-emf-table gf)))
+        (t (loop
+              for classes being the hash-keys in (classes-to-emf-table gf)
+              do (loop
+                    for class in classes
+                    do (setf (class-dependents class) (remove gf (class-dependents class)))))
+           (clrhash (classes-to-emf-table gf)))))
 
 (defun finalize-generic-function (gf)
   ;; Examine all methods and compute the relevant argument bit-vector.
@@ -1178,9 +1126,9 @@ has only has class specializer."
           (setf (bit relevant-args i) 1))))
     (setf (generic-function-relevant-arguments gf) relevant-args))
   (reset-gf-emf-table gf)
-  (setf (classes-to-emf-table gf) (make-hash-table :test (if (generic-function-single-dispatch-p gf)
-                                                             #'eq
-                                                             #'equal)))
+  (setf (classes-to-emf-table gf) (if (generic-function-single-dispatch-p gf)
+                                      (make-single-dispatch-emf-table)
+                                      (make-hash-table :test #'equal)))
   (setf (generic-function-discriminating-function gf)
         (funcall (if (eq (class-of gf) the-class-standard-gf)
                      #'std-compute-discriminating-function
@@ -1495,7 +1443,7 @@ has only has class specializer."
 (defun compute-reader-discriminator (gf emf-table argument-offset)
   (lambda (object) ;ehhh...
     (let* ((class (class-of object))
-           (location (gethash class emf-table nil)))
+           (location (single-dispatch-emf-entry emf-table class)))
       (if location
           (fast-slot-read object location)
           (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
@@ -1503,7 +1451,7 @@ has only has class specializer."
 (defun compute-writer-discriminator (gf emf-table argument-offset)
   (lambda (new-value object) ;ehhh...
     (let* ((class (class-of object))
-           (location (gethash class emf-table nil)))
+           (location (single-dispatch-emf-entry emf-table class)))
       (if location
           (fast-slot-write new-value object location)
           (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
@@ -1511,7 +1459,7 @@ has only has class specializer."
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
   (lambda (&rest args)
     (let* ((class (class-of (nth argument-offset args)))
-           (emfun (gethash class emf-table nil)))
+           (emfun (single-dispatch-emf-entry emf-table class)))
       (if emfun
           (funcall emfun args)
           (slow-single-dispatch-method-lookup gf args class)))))
@@ -1544,7 +1492,7 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (setf (gethash class emf-table) location)
+                  (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
                   (fast-slot-read (first args) location)))
                (t ;; Give up and use the full path.
@@ -1562,7 +1510,7 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
-                  (setf (gethash class emf-table) location)
+                  (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
                   (fast-slot-write (first args) (second args) location)))
                (t ;; Give up and use the full path.
@@ -1640,7 +1588,7 @@ Dispatching on classes ~S." gf classes))
       (error "No applicable methods to generic function ~S.
 Dispatching on class ~S." gf class))
     (let ((emfun (std-compute-effective-method-function gf applicable-methods)))
-      (setf (gethash class (classes-to-emf-table gf)) emfun)
+      (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
       (pushnew gf (class-dependents class))
       (funcall emfun args))))
 
@@ -1846,6 +1794,9 @@ Dispatching on class ~S." gf class))
 (setf *standard-class-slot-storage-layout-position*
       (position 'slot-storage-layout the-slots-of-standard-class
                 :key #'slot-definition-name))
+(setf *standard-class-hash-position*
+      (position 'hash the-slots-of-standard-class
+                :key #'slot-definition-name))
 ;; 2. Create the standard-class metaobject by hand.
 (let ((layout (make-array (length the-slots-of-standard-class)))
       (slots (make-array (length the-slots-of-standard-class)
@@ -1880,6 +1831,7 @@ Dispatching on class ~S." gf class))
     (setf (class-slot-storage-layout class) (make-array 0))
     (setf (class-slots class) ())
     (setf (class-dependents class) ())
+    (setf (class-hash class) (next-class-hash-value))
     class))
 ;; (It's now okay to define subclasses of t.)
 ;; 6. Create the other superclass of standard-class (i.e., standard-object).
@@ -2258,6 +2210,7 @@ Dispatching on class ~S." gf class))
    (direct-methods :initform ())      ; :accessor class-direct-methods
    (direct-default-initargs :initform ())
    (dependents :initform ())
+   (hash :initform (next-class-hash-value))
    (structure-definition :initarg :definition)))
 
 (defmethod initialize-instance :after ((class structure-class) &rest args)
