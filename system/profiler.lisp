@@ -7,7 +7,8 @@
 (defpackage :mezzano.profiler
   (:use :cl)
   (:export #:decode-profile-buffer
-           #:save-profile))
+           #:save-profile
+           #:with-profiling))
 
 (in-package :mezzano.profiler)
 
@@ -16,6 +17,22 @@
   state
   wait-item
   call-stack)
+
+(defmacro with-profiling ((&whole options &key buffer-size path) &body body)
+  `(call-with-profiling (lambda () ,@body) ,@options))
+
+(defun call-with-profiling (function &key buffer-size path)
+  (let* ((profile-buffer nil)
+         (results (unwind-protect
+                       (progn
+                         (mezzano.supervisor:start-profiling buffer-size)
+                         (multiple-value-list (funcall function)))
+                    (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
+    (setf profile-buffer (decode-profile-buffer profile-buffer))
+    (cond (path
+           (save-profile path profile-buffer)
+           (values-list results))
+          (t profile-buffer))))
 
 (defun decode-profile-buffer (buffer)
   "Convert the buffer returned by STOP-PROFILING into a more useful format.

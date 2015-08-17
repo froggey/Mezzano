@@ -16,6 +16,8 @@
 (defvar *profile-buffer-head*)
 (defvar *profile-buffer-tail*)
 
+(defvar *default-profile-buffer-size* (* 1024 1024))
+
 (defun profile-append-entry (thing)
   "Append one THING to the profile buffer, wrapping around as required."
   (let ((buffer-len (sys.int::%object-header-data *profile-buffer*))
@@ -84,10 +86,11 @@
              (profile-append-return-address (thread-state-rip thread)))
            (profile-append-call-stack (thread-frame-pointer thread))))))
 
-(defun start-profiling (&optional (buffer-size (* 1024 1024)))
+(defun start-profiling (&optional buffer-size)
   "Set up a profile sample buffer and enable sampling."
   (assert (not *enable-profiling*) ()
           "Profiling already started.")
+  (setf buffer-size (or buffer-size *default-profile-buffer-size*))
   (when (or (not (boundp '*profile-buffer*))
             (not *profile-buffer*)
             (not (eql (length *profile-buffer*) buffer-size)))
