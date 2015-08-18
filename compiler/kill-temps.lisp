@@ -20,9 +20,8 @@
 (defmethod kt-form ((form lexical-variable) &optional target-variable replacement-form)
   (cond ((eql form target-variable)
          (change-made)
-         (values (make-instance 'ast-call
-                                :name 'values
-                                :arguments (list replacement-form)) t))
+         (values (ast `(call values ,replacement-form))
+                 t))
         (t (values form nil))))
 
 (defun kt-implicit-progn (x &optional target-variable replacement-form)
@@ -50,9 +49,7 @@
       (kt-implicit-progn (arguments form)
                          target-variable
                          replacement-form)
-    (values (make-instance 'ast-call
-                           :name (name form)
-                           :arguments new-list)
+    (values (ast `(call ,(name form) ,@new-list))
             did-replace)))
 
 (defun temporary-p (varlike)
@@ -121,9 +118,8 @@
                      (kt-form body))
                (unless replaced-last-binding
                  (push (car (last bindings)) new-bindings))
-               (values (make-instance 'ast-let
-                                      :bindings (reverse new-bindings)
-                                      :body new-form)
+               (values (ast `(let ,(reverse new-bindings)
+                               ,new-form))
                        did-replace)))))))
 
 (defmethod kt-form ((form ast-multiple-value-bind) &optional target-variable replacement-form)

@@ -97,16 +97,12 @@
       (function-inline-info name)
     (when inlinep
       (cond (expansion
-             (make-instance 'ast-call
-                            :name 'funcall
-                            :arguments (list* (pass1-lambda expansion nil) arg-list)))
+             (ast `(call funcall ,(pass1-lambda expansion nil) ,@arg-list)))
             ((fboundp name)
              (multiple-value-bind (expansion closurep)
                  (function-lambda-expression (fdefinition name))
                (when (and expansion (not closurep))
-                 (make-instance 'ast-call
-                                :name 'funcall
-                                :arguments (list* (pass1-lambda expansion nil) arg-list)))))))))
+                 (ast `(call funcall ,(pass1-lambda expansion nil) ,@arg-list)))))))))
 
 (defmethod il-form ((form ast-call))
   (il-implicit-progn (arguments form))

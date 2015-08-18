@@ -197,15 +197,14 @@
   (ignore-errors
     (let ((mode (get function 'constant-fold-mode)))
       (if (consp mode)
-	  (make-instance 'ast-quote
-                         :value (apply function
-                                       (mapcar (lambda (thing type)
-                                                 ;; Bail out if thing is non-constant or does not match the type.
-                                                 (unless (and (typep thing 'ast-quote)
-                                                              (typep (value thing) type))
-                                                   (return-from constant-fold nil))
-                                                 (value thing))
-                                               arg-list mode)))
+          (ast `(quote ,(apply function
+                               (mapcar (lambda (thing type)
+                                         ;; Bail out if thing is non-constant or does not match the type.
+                                         (unless (and (typep thing 'ast-quote)
+                                                      (typep (value thing) type))
+                                           (return-from constant-fold nil))
+                                         (value thing))
+                                       arg-list mode))))
 	  (ecase mode
 	    (:commutative-arithmetic
 	     ;; Arguments can be freely re-ordered, assumed to be associative.
@@ -223,10 +222,10 @@
 	       (when (or const-args (not nonconst-args))
 		 (setf value (apply function const-args))
 		 (if nonconst-args
-		     (make-instance 'ast-call
-                                    :name function
-                                    :arguments (list* (make-instance 'ast-quote :value value) nonconst-args))
-		     (make-instance 'ast-quote :value value)))))
+                     (ast `(call ,function
+                                 (quote ,value)
+                                 ,@nonconst-args))
+                     (ast `(quote ,value))))))
 	    (:arithmetic
 	     ;; Arguments cannot be re-ordered, assumed to be non-associative.
 	     (if arg-list
@@ -237,21 +236,17 @@
                             (push (value i) constant-accu))
                            (t
                             (when constant-accu
-                              (push (make-instance 'ast-quote
-                                                   :value (apply function (nreverse constant-accu)))
+                              (push (ast `(quote ,(apply function (nreverse constant-accu))))
                                     arg-accu)
                               (setf constant-accu nil))
                             (push i arg-accu))))
 		   (if arg-accu
-                       (make-instance 'ast-call
-                                      :name function
-                                      :arguments (append (nreverse arg-accu)
-                                                         (when constant-accu
-                                                           (list (make-instance 'ast-quote
-                                                                                :value (apply function (nreverse constant-accu)))))))
-		       (make-instance 'ast-quote
-                                      :value (apply function (nreverse constant-accu)))))
-		 (make-instance 'ast-quote :value (funcall function))))
+                       (ast `(call ,function
+                                   ,@(nreverse arg-accu)
+                                   ,@(when constant-accu
+                                       (list `(quote ,(apply function (nreverse constant-accu)))))))
+                       (ast `(quote ,(apply function (nreverse constant-accu))))))
+                 (ast `(quote ,(funcall function)))))
 	    ((nil) nil))))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.

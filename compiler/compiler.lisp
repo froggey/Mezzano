@@ -703,111 +703,58 @@ A list of any declaration-specifiers."
                              :definition-point *current-lambda*))
          (current-keyword (make-instance 'lexical-variable
                                          :name (gensym)
-                                         :definition-point *current-lambda*))
-         (tb (make-instance 'tagbody-information :definition-point *current-lambda*))
-         (head-tag (make-instance 'go-tag
-                                  :name (gensym "HEAD")
-                                  :tagbody tb))
-         (test-tag (make-instance 'go-tag
-                                  :name (gensym "TEST")
-                                  :tagbody tb)))
-    (push head-tag (tagbody-information-go-tags tb))
-    (push test-tag (tagbody-information-go-tags tb))
+                                         :definition-point *current-lambda*)))
     (labels ((create-key-test-list (key-args values suppliedp)
                (cond (key-args
-                      (make-instance 'ast-if
-                                     :test (make-instance 'ast-call
-                                                          :name 'eql
-                                                          :arguments (list current-keyword
-                                                                           (make-instance 'ast-quote :value (caar (first key-args)))))
-                                     :then (make-instance 'ast-if
-                                                          :test (first suppliedp)
-                                                          :then (make-instance 'ast-quote :value nil)
-                                                          :else (make-instance 'ast-progn
-                                                                               :forms (list (make-instance 'ast-setq
-                                                                                                           :variable (first suppliedp)
-                                                                                                           :value (make-instance 'ast-quote :value 't))
-                                                                                            (make-instance 'ast-setq
-                                                                                                           :variable (first values)
-                                                                                                           :value (make-instance 'ast-call
-                                                                                                                                 :name 'cadr
-                                                                                                                                 :arguments (list itr))))))
-                                     :else (create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
+                      `(if (call eql ,current-keyword (quote ,(caar (first key-args))))
+                           (if ,(first suppliedp)
+                               (quote nil)
+                               (progn
+                                 (setq ,(first suppliedp) 't)
+                                 (setq ,(first values) (call cadr ,itr))))
+                           ,(create-key-test-list (rest key-args) (rest values) (rest suppliedp))))
                      (allow-other-keys
-                      (make-instance 'ast-quote :value nil))
-                     (t (make-instance 'ast-call
-                                       :name 'error
-                                       :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                                        (make-instance 'ast-quote :value ':format-control)
-                                                        (make-instance 'ast-quote :value '"Unknown &KEY argument ~S. Expected one of ~S.")
-                                                        (make-instance 'ast-quote :value ':format-arguments)
-                                                        (make-instance 'ast-call
-                                                                       :name 'list
-                                                                       :arguments (list current-keyword
-                                                                                        (make-instance 'ast-quote :value (mapcar 'caar keys)))))))))
+                      '(quote nil))
+                     (t
+                      `(call error
+                             'sys.int::simple-program-error
+                             ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
+                             ':format-arguments (call list ,current-keyword (quote ,(mapcar 'caar keys)))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
-                      (make-instance 'ast-let
-                                     :bindings (list (list (second (first (first key-args)))
-                                                           (make-instance 'ast-if
-                                                                          :test (first suppliedp)
-                                                                          :then (first values)
-                                                                          :else (second (first key-args)))))
-                                     :body (if (third (first key-args))
-                                               (make-instance 'ast-let
-                                                              :bindings (list (list (third (first key-args)) (first suppliedp)))
-                                                              :body (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
-                                               (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
+                      `(let ((,(second (first (first key-args)))
+                              (if ,(first suppliedp)
+                                  ,(first values)
+                                  ,(second (first key-args)))))
+                         ,(if (third (first key-args))
+                              `(let ((,(third (first key-args)) ,(first suppliedp)))
+                                 ,(create-key-let-body (rest key-args) (rest values) (rest suppliedp)))
+                              (create-key-let-body (rest key-args) (rest values) (rest suppliedp)))))
                      (t body))))
-      (make-instance 'ast-let
-                     :bindings (append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
-                                       (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
-                                       (list (list itr (etypecase rest
-                                                         (special-variable
-                                                          (make-instance 'ast-call
-                                                                         :name 'symbol-value
-                                                                         :arguments (list (make-instance 'ast-quote
-                                                                                                         :value rest))))
-                                                          (lexical-variable
-                                                           rest)))))
-                     :body (make-instance 'ast-progn
-                                          :forms (list (make-instance 'ast-tagbody
-                                                                      :info tb
-                                                                      :statements (list
-                                                                                   (make-instance 'ast-go
-                                                                                                  :target test-tag
-                                                                                                  :info (go-tag-tagbody test-tag))
-                                                                                   head-tag
-                                                                                   (make-instance 'ast-if
-                                                                                                  :test (make-instance 'ast-call
-                                                                                                                       :name 'null
-                                                                                                                       :arguments (list (make-instance 'ast-call
-                                                                                                                                                       :name 'cdr
-                                                                                                                                                       :arguments (list itr))))
-                                                                                                  :then (make-instance 'ast-call
-                                                                                                                       :name 'error
-                                                                                                                       :arguments (list (make-instance 'ast-quote :value 'sys.int::simple-program-error)
-                                                                                                                                        (make-instance 'ast-quote :value ':format-control)
-                                                                                                                                        (make-instance 'ast-quote :value '"Odd number of &KEY arguments.")))
-                                                                                                  :else (make-instance 'ast-quote :value nil))
-                                                                                   (make-instance 'ast-let
-                                                                                                  :bindings (list (list current-keyword (make-instance 'ast-call
-                                                                                                                                                       :name 'car
-                                                                                                                                                       :arguments (list itr))))
-                                                                                                  :body (create-key-test-list keys values suppliedp))
-                                                                                   (make-instance 'ast-setq
-                                                                                                  :variable itr
-                                                                                                  :value (make-instance 'ast-call
-                                                                                                                        :name 'cddr
-                                                                                                                        :arguments (list itr)))
-                                                                                   test-tag
-                                                                                   (make-instance 'ast-if
-                                                                                                  :test itr
-                                                                                                  :then (make-instance 'ast-go
-                                                                                                                       :target head-tag
-                                                                                                                       :info (go-tag-tagbody head-tag))
-                                                                                                  :else (make-instance 'ast-quote :value nil))))
-                                                       (create-key-let-body keys values suppliedp)))))))
+      (ast `(let (,@(mapcar (lambda (x) (list x '(quote nil))) values)
+                  ,@(mapcar (lambda (x) (list x '(quote nil))) suppliedp)
+                    (,itr ,(etypecase rest
+                             (special-variable
+                              `(call symbol-value (quote ,rest)))
+                             (lexical-variable
+                              rest))))
+              (progn
+                (tagbody tb
+                   (go test-tag tb)
+                 head-tag
+                   (if (call null (call cdr ,itr))
+                       (call error
+                             'sys.int::simple-program-error
+                             ':format-control '"Odd number of &KEY arguments.")
+                       (quote nil))
+                   (let ((,current-keyword (call car ,itr)))
+                     ,(create-key-test-list keys values suppliedp))
+                   (setq ,itr (call cddr ,itr))
+                 test-tag
+                   (if ,itr
+                       (go head-tag tb)
+                       (quote nil)))
+                ,(create-key-let-body keys values suppliedp)))))))
 
 (defun lower-keyword-arguments (form)
   (lower-keyword-arguments-1 form)
@@ -1018,13 +965,12 @@ Must be run after keywords have been lowered."
                                               arg))))
                               (new-init-form (if trivial-init-form
                                                  init-form
-                                                 (make-instance 'ast-quote :value 'nil))))
+                                                 (ast '(quote nil)))))
                          (when (or (not trivial-init-form)
                                    (typep arg 'special-variable))
-                           (push (list arg (make-instance 'ast-if
-                                                          :test new-suppliedp
-                                                          :then new-arg
-                                                          :else init-form))
+                           (push (list arg (ast `(if ,new-suppliedp
+                                                     ,new-arg
+                                                     ,init-form)))
                                  extra-bindings))
                          (when (and (not (null suppliedp))
                                     (typep suppliedp 'special-variable))
@@ -1041,9 +987,8 @@ Must be run after keywords have been lowered."
       (when extra-bindings
         ;; Bindings were added.
         (setf (lambda-information-body form)
-              (make-instance 'ast-let
-                             :bindings (reverse extra-bindings)
-                             :body (lambda-information-body form))))
+              (ast `(let ,(reverse extra-bindings)
+                      ,(lambda-information-body form)))))
       (lower-arguments-1 (lambda-information-body form)))))
 
 (defun unparse-compiler-form (form)

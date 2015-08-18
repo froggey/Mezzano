@@ -21,6 +21,8 @@
                       :depends-on ("compiler/cross"))
                (:file "compiler/cross-boot"
                       :depends-on ("compiler/cross" "compiler/cross-compile"))
+               (:file "compiler/ast-generator"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/pass1"
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/inline"

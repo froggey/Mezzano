@@ -94,6 +94,7 @@
     "lap.lisp"
     "lap-x86.lisp"
     "compiler/compiler.lisp"
+    "compiler/ast-generator.lisp"
     "compiler/pass1.lisp"
     "compiler/constprop.lisp"
     "compiler/simplify.lisp"

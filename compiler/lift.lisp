@@ -195,40 +195,35 @@
                                                    :ignore :maybe))
                                   arg-list))
            (key-pairs (nthcdr (length required-args) argument-vars)))
-      (labels ((build-required-bindings (req-args arg-vars)
+      (labels ((var-and-suppliedp-bindings (var value suppliedp suppliedp-value)
+                 (if suppliedp
+                     `((,var ,value)
+                       (,suppliedp ,suppliedp-value))
+                     `((,var ,value))))
+               (build-required-bindings (req-args arg-vars)
                  (cond (req-args
-                        (make-instance 'ast-let
-                                       :bindings (list (list (first req-args) (first arg-vars)))
-                                       :body (build-required-bindings (rest req-args) (rest arg-vars))))
+                        (ast `(let ((,(first req-args) ,(first arg-vars)))
+                                ,(build-required-bindings (rest req-args) (rest arg-vars)))))
                        (t (build-optional-bindings optional-args arg-vars))))
                (build-optional-bindings (opt-args arg-vars)
                  (cond ((and opt-args arg-vars)
                         (destructuring-bind (var init-form suppliedp)
                             (first opt-args)
                           (declare (ignore init-form))
-                          (make-instance 'ast-let
-                                         :bindings (if suppliedp
-                                                       `((,var ,(first arg-vars))
-                                                         (,suppliedp ,(make-instance 'ast-quote :value 't)))
-                                                       `((,var ,(first arg-vars))))
-                                         :body (build-optional-bindings (rest opt-args) (rest arg-vars)))))
+                          (ast `(let ,(var-and-suppliedp-bindings var (first arg-vars)
+                                                                  suppliedp '(quote t))
+                                  ,(build-optional-bindings (rest opt-args) (rest arg-vars))))))
                        (opt-args
                         (destructuring-bind (var init-form suppliedp)
                             (first opt-args)
-                          (make-instance 'ast-let
-                                         :bindings (if suppliedp
-                                                       `((,var ,init-form)
-                                                         (,suppliedp ,(make-instance 'ast-quote :value 'nil)))
-                                                       `((,var ,init-form)))
-                                         :body (build-optional-bindings (rest opt-args) '()))))
+                          (ast `(let ,(var-and-suppliedp-bindings var init-form
+                                                                  suppliedp '(quote nil))
+                                  ,(build-optional-bindings (rest opt-args) '())))))
                        (t (build-rest-binding arg-vars))))
                (build-rest-binding (arg-vars)
                  (if rest-arg
-                     (make-instance 'ast-let
-                                    :bindings (list (list rest-arg (make-instance 'ast-call
-                                                                                  :name 'list
-                                                                                  :arguments arg-vars)))
-                                    :body (build-key-bindings key-args))
+                     (ast `(let ((,rest-arg (call list ,@arg-vars)))
+                             ,(build-key-bindings key-args)))
                      (build-key-bindings key-args)))
                (build-key-bindings (keys)
                  (cond (keys
@@ -241,25 +236,18 @@
                                   (cddr i)))
                               ((null i)
                                ;; Not provided, use the initform.
-                               (make-instance 'ast-let
-                                              :bindings (if suppliedp
-                                                            `((,var ,init-form)
-                                                              (,suppliedp ,(make-instance 'ast-quote :value 'nil)))
-                                                            `((,var ,init-form)))
-                                              :body (build-key-bindings (rest keys))))
+                               (ast `(let ,(var-and-suppliedp-bindings var init-form
+                                                                       suppliedp '(quote nil))
+                                       ,(build-key-bindings (rest keys)))))
                             (when (eql (value (car i)) keyword)
                               ;; Keywords match, use this argument.
-                              (return (make-instance 'ast-let
-                                                     :bindings (if suppliedp
-                                                                   `((,var ,(nth (1+ p) key-pairs))
-                                                                     (,suppliedp ,(make-instance 'ast-quote :value 't)))
-                                                                   `((,var ,(nth (1+ p) key-pairs))))
-                                                     :body (build-key-bindings (rest keys))))))))
+                              (return (ast `(let ,(var-and-suppliedp-bindings var (nth (1+ p) key-pairs)
+                                                                              suppliedp '(quote nil))
+                                              ,(build-key-bindings (rest keys)))))))))
                        (t (ll-form (lambda-information-body lambda))))))
         ;; Evaluate arguments.
-        (make-instance 'ast-let
-                       :bindings (mapcar #'list argument-vars arg-list)
-                       :body (build-required-bindings required-args argument-vars))))))
+        (ast `(let ,(mapcar #'list argument-vars arg-list)
+                ,(build-required-bindings required-args argument-vars)))))))
 
 (defmethod ll-form ((form ast-call))
   (ll-implicit-progn (arguments form))
