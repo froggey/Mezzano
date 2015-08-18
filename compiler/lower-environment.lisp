@@ -134,7 +134,7 @@ of statements opens a new contour."
   (compute-lambda-environment-layout form))
 
 (defun maybe-add-environment-variable (variable)
-  (when (and (not (symbolp variable))
+  (when (and (not (typep variable 'special-variable))
              (not (localp variable)))
     (push variable (gethash *active-environment-vector* *environment-layout*))))
 
@@ -316,7 +316,7 @@ of statements opens a new contour."
   (setf (bindings form)
         (loop
            for (variable init-form) in (bindings form)
-           collect (list variable (if (or (symbolp variable)
+           collect (list variable (if (or (typep variable 'special-variable)
                                           (localp variable))
                                       (lower-env-form init-form)
                                       (make-instance 'ast-call
@@ -334,7 +334,7 @@ of statements opens a new contour."
                  :value-form (lower-env-form (value-form form))
                  :body (make-instance 'ast-progn
                                       :forms (append (mapcan (lambda (var)
-                                                               (when (and (not (symbolp var))
+                                                               (when (and (not (typep var 'special-variable))
                                                                           (not (localp var)))
                                                                  (list (make-instance 'ast-call
                                                                                       :name '(setf sys.int::%object-ref-t)

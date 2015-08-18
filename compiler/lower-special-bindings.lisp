@@ -154,7 +154,7 @@
                                               :forms (list (make-instance 'ast-call
                                                                           :name 'sys.int::%%bind
                                                                           :arguments (list (make-instance 'ast-quote
-                                                                                                          :value (first binding))
+                                                                                                          :value (name (first binding)))
                                                                                            (lsb-form (second binding))))
                                                            (make-instance 'ast-multiple-value-prog1
                                                                           :value-form (frob (rest bindings))

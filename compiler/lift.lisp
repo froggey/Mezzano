@@ -135,7 +135,7 @@
         (req-count (length (lambda-information-required-args lambda)))
         (opt-count (length (lambda-information-optional-args lambda))))
     (when (and (lambda-information-rest-arg lambda)
-               (not (symbolp (lambda-information-rest-arg lambda)))
+               (typep (lambda-information-rest-arg lambda) 'lexical-variable)
                (lexical-variable-dynamic-extent (lambda-information-rest-arg lambda)))
       (return-from arguments-match-lambda-list nil))
     (cond ((lambda-information-enable-keys lambda)

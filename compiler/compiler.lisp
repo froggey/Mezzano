@@ -162,6 +162,10 @@ A list of any declaration-specifiers."
 (defun lexical-variable-p (object)
   (typep object 'lexical-variable))
 
+;;; A special variable, only used in bindings.
+(defclass special-variable ()
+  ((%name :initarg :name :accessor name)))
+
 (defmethod print-object ((object lexical-variable) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (lexical-variable-name object))))
@@ -675,9 +679,11 @@ A list of any declaration-specifiers."
     (detect-uses-1 (lambda-information-body form))))
 
 (defun variable-name (var)
-  (if (symbolp var)
-      var
-      (lexical-variable-name var)))
+  (etypecase var
+    (special-variable
+     (name var))
+    (lexical-variable
+     (lexical-variable-name var))))
 
 (defun lower-key-arguments* (body rest keys allow-other-keys)
   (let* ((values (mapcar (lambda (x)
@@ -756,12 +762,14 @@ A list of any declaration-specifiers."
       (make-instance 'ast-let
                      :bindings (append (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) values)
                                        (mapcar (lambda (x) (list x (make-instance 'ast-quote :value nil))) suppliedp)
-                                       (list (list itr (if (symbolp rest)
-                                                           (make-instance 'ast-call
-                                                                          :name 'symbol-value
-                                                                          :arguments (list (make-instance 'ast-quote
-                                                                                                          :value rest)))
-                                                           rest))))
+                                       (list (list itr (etypecase rest
+                                                         (special-variable
+                                                          (make-instance 'ast-call
+                                                                         :name 'symbol-value
+                                                                         :arguments (list (make-instance 'ast-quote
+                                                                                                         :value rest))))
+                                                          (lexical-variable
+                                                           rest)))))
                      :body (make-instance 'ast-progn
                                           :forms (list (make-instance 'ast-tagbody
                                                                       :info tb
@@ -980,45 +988,53 @@ Must be run after keywords have been lowered."
         (error "Keyword arguments not lowered!"))
       ;; Eliminate special required arguments.
       (setf (lambda-information-required-args form)
-            (loop for arg in (lambda-information-required-args form)
-               collect (if (symbolp arg)
-                           (let ((temp (new-var (string arg))))
-                             (push (list arg temp) extra-bindings)
-                             temp)
-                           arg)))
+            (loop
+               for arg in (lambda-information-required-args form)
+               collect (etypecase arg
+                         (special-variable
+                          (let ((temp (new-var (string (name arg)))))
+                            (push (list arg temp) extra-bindings)
+                            temp))
+                         (lexical-variable
+                          arg))))
       ;; Eliminate special optional arguments & non-constant init-forms.
       (setf (lambda-information-optional-args form)
-            (loop for (arg init-form suppliedp) in (lambda-information-optional-args form)
-               collect (let* ((new-suppliedp (cond ((null suppliedp)
-                                                    (new-var (format nil "~S-suppliedp" arg)))
-                                                   ((symbolp suppliedp)
-                                                    (new-var (string suppliedp)))
-                                                   (t suppliedp)))
+            (loop
+               for (arg init-form suppliedp) in (lambda-information-optional-args form)
+               collect (let* ((new-suppliedp (etypecase suppliedp
+                                               (null
+                                                (new-var (format nil "~S-suppliedp" arg)))
+                                               (special-variable
+                                                (new-var (string (name suppliedp))))
+                                               (lexical-variable
+                                                suppliedp)))
                               (trivial-init-form (typep init-form 'ast-quote))
-                              (new-arg (cond ((symbolp arg)
-                                              (new-var (string arg)))
-                                             ((not trivial-init-form)
-                                              (new-var (string (lexical-variable-name arg))))
-                                             (t arg)))
+                              (new-arg (etypecase arg
+                                         (special-variable
+                                          (new-var (string (name arg))))
+                                         (lexical-variable
+                                          (if (not trivial-init-form)
+                                              (new-var (string (lexical-variable-name arg)))
+                                              arg))))
                               (new-init-form (if trivial-init-form
                                                  init-form
                                                  (make-instance 'ast-quote :value 'nil))))
                          (when (or (not trivial-init-form)
-                                   (symbolp arg))
+                                   (typep arg 'special-variable))
                            (push (list arg (make-instance 'ast-if
                                                           :test new-suppliedp
                                                           :then new-arg
                                                           :else init-form))
                                  extra-bindings))
                          (when (and (not (null suppliedp))
-                                    (symbolp suppliedp))
+                                    (typep suppliedp 'special-variable))
                            (push (list suppliedp new-suppliedp)
                                  extra-bindings))
                          (list new-arg new-init-form new-suppliedp))))
       ;; And eliminate special rest args.
       (when (and (lambda-information-rest-arg form)
-                 (symbolp (lambda-information-rest-arg form)))
-        (let ((new-rest (new-var (string (lambda-information-rest-arg form)))))
+                 (typep (lambda-information-rest-arg form) 'special-variable))
+        (let ((new-rest (new-var (string (name (lambda-information-rest-arg form))))))
           (push (list (lambda-information-rest-arg form) new-rest)
                 extra-bindings)
           (setf (lambda-information-rest-arg form) new-rest)))
@@ -1095,5 +1111,22 @@ Must be run after keywords have been lowered."
                             ,@(mapcar #'unparse-compiler-form (targets form))))
     (lexical-variable form #+nil(lexical-variable-name form))
     (lambda-information
-     `(lambda ????
+     `(lambda ,(append (when (lambda-information-environment-arg form)
+                         `(&env (unparse-compiler-form (lambda-information-environment-arg form))))
+                       (loop
+                          for arg in (lambda-information-required-args form)
+                          collect (unparse-compiler-form arg))
+                       (list '&optional)
+                       (loop
+                          for (arg init-form suppliedp) in (lambda-information-optional-args form)
+                          collect (list (unparse-compiler-form arg) (unparse-compiler-form init-form) (unparse-compiler-form suppliedp)))
+                       (when (lambda-information-rest-arg form)
+                         `(&rest ,(unparse-compiler-form (lambda-information-rest-arg form))))
+                       (when (lambda-information-enable-keys form)
+                         `(&key
+                           ,@(loop
+                                for ((keyword arg) init-form suppliedp) in (lambda-information-key-args form)
+                                collect (list (list keyword (unparse-compiler-form arg)) (unparse-compiler-form init-form) (unparse-compiler-form suppliedp)))
+                           ,@(when (lambda-information-allow-other-keys form)
+                                   '(&allow-other-keys)))))
         ,(unparse-compiler-form (lambda-information-body form))))))

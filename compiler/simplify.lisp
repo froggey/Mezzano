@@ -58,7 +58,7 @@
                (ecase (first test-form)
                  ((let) (values 2 (mapcar #'first (second test-form))))
                  ((multiple-value-bind) (values 3 (second test-form))))
-             (when (find-if #'symbolp bound-variables)
+             (when (find-if (lambda (x) (typep x 'special-variable)) bound-variables)
                (return-from hoist-form-out-of-if nil))
              (append (subseq test-form 0 (max leading-forms (1- len)))
                      (if (<= len leading-forms)
@@ -181,9 +181,9 @@
   ;; Merge nested LETs when possible, do not merge special bindings!
   (do ((nested-form (body form) (body form)))
       ((or (not (typep nested-form 'ast-let))
-           (some 'symbolp (mapcar 'first (bindings form)))
+           (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form)))
 	   (and (bindings nested-form)
-                (symbolp (first (first (bindings nested-form)))))))
+                (typep (first (first (bindings nested-form))) 'special-variable))))
     (change-made)
     (if (null (bindings nested-form))
 	(setf (body form) (body nested-form))
@@ -237,9 +237,9 @@
                                    :bindings (list (list (first (bindings form)) (value-form form)))
                                    :body (body form))))
         ;; Use an inner LET form to bind any special variables.
-        ((some #'symbolp (bindings form))
+        ((some (lambda (x) (typep x 'special-variable)) (bindings form))
          (change-made)
-         (let* ((specials (remove-if-not #'symbolp (bindings form)))
+         (let* ((specials (remove-if-not (lambda (x) (typep x 'special-variable)) (bindings form)))
                 (replacements (loop for s in specials
                                  collect (make-instance 'lexical-variable
                                                         :name s
@@ -249,7 +249,7 @@
                 (bindings (mapcar #'list specials replacements)))
            (make-instance 'ast-multiple-value-bind
                           :bindings (mapcar (lambda (var)
-                                              (if (symbolp var)
+                                              (if (typep var 'special-variable)
                                                   (second (assoc var bindings))
                                                   var))
                                             (second form))

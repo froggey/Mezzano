@@ -85,7 +85,7 @@
 (defun make-variable (name declares)
   (if (or (sys.int::variable-information name)
 	  (declared-as-p 'special name declares))
-      name
+      (make-instance 'special-variable :name name)
       (make-instance 'lexical-variable
                      :name name
                      :definition-point *current-lambda*
@@ -151,7 +151,7 @@
 					 (mapcar #'car aux)))
 	       (specials (remove-if (lambda (x) (find x lambda-variables))
 				    (pick-variables 'special declares)))
-	       (env (cons (list* :bindings (mapcar (lambda (x) (cons x x)) specials)) env)))
+	       (env (cons (list* :bindings (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x))) specials)) env)))
 	  (setf (lambda-information-body info) (pass1-form `(progn ,@body) env)))
 	;; Perform (un)used-variable warnings.
 	(dolist (var (lambda-information-required-args info))
@@ -175,9 +175,9 @@
   (mapcar (lambda (x) (pass1-form x env)) forms))
 
 (defun find-variable (symbol env &optional allow-symbol-macros)
-  "Find SYMBOL in ENV, returning SYMBOL if it's special or if it's not found."
+  "Find SYMBOL in ENV, returning a SPECIAL-VARIABLE if it's special or if it's not found."
   ;; FIXME: Should check for symbols defined with DEFINE-SYMBOL-MACRO.
-  (dolist (e env symbol)
+  (dolist (e env (make-instance 'special-variable :name symbol))
     (when (eq (first e) :bindings)
       (let ((v (assoc symbol (rest e))))
 	(when v
@@ -233,19 +233,20 @@
        (if expandedp
            (pass1-form expansion env)
            (let ((var (find-variable form env)))
-             (cond ((symbolp var)
-                    ;; Replace constants with their quoted values.
-                    (or (expand-constant-variable form)
-                        ;; And replace special variable with calls to symbol-value.
-                        (pass1-form `(symbol-value ',var) env)))
-                    (t
-                     (when (eq (lexical-variable-ignore var) 't)
-                       (warn 'sys.int::simple-style-warning
-                             :format-control "Reading ignored variable ~S."
-                             :format-arguments (list (lexical-variable-name var))))
-                     (incf (lexical-variable-use-count var))
-                     (pushnew *current-lambda* (lexical-variable-used-in var))
-                     var))))))
+             (etypecase var
+               (special-variable
+                ;; Replace constants with their quoted values.
+                (or (expand-constant-variable form)
+                    ;; And replace special variable with calls to symbol-value.
+                    (pass1-form `(symbol-value ',(name var)) env)))
+               (lexical-variable
+                (when (eq (lexical-variable-ignore var) 't)
+                  (warn 'sys.int::simple-style-warning
+                        :format-control "Reading ignored variable ~S."
+                        :format-arguments (list (lexical-variable-name var))))
+                (incf (lexical-variable-use-count var))
+                (pushnew *current-lambda* (lexical-variable-used-in var))
+                var))))))
     ;; Self-evaluating forms are quoted.
     ((not (consp form))
      (make-instance 'ast-quote :value form))
@@ -451,7 +452,7 @@
                                                        (mapcar (lambda (b)
                                                                  (cons (first b) (third b)))
                                                                variables)
-                                                       (mapcar (lambda (x) (cons x x))
+                                                       (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x)))
                                                                (remove-if (lambda (x) (find x variables :key #'first))
                                                                           (pick-variables 'special declares))))
                                                env)))))))
@@ -474,7 +475,7 @@
 		    inner (body inner)
 		    env (cons (list :bindings (cons name var)) env)))))
 	(setf (body inner) (pass1-form `(progn ,@body)
-                                       (cons (list* :bindings (mapcar (lambda (x) (cons x x))
+                                       (cons (list* :bindings (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x)))
                                                                       (remove-if (lambda (x) (find x var-names))
                                                                                  (pick-variables 'special declares))))
                                              env)))
@@ -490,7 +491,7 @@
       (parse-declares forms)
     (let ((env (cons (list :bindings) env)))
       (dolist (s (pick-variables 'special declares))
-	(push (cons s s) (rest (first env))))
+	(push (cons s (make-instance 'special-variable :name s)) (rest (first env))))
       (pass1-form `(progn ,@body) env))))
 
 (defun pass1-locally (form env)
@@ -588,8 +589,8 @@
     (let ((var (find-variable (first i) env t))
 	  (val (second i)))
       (etypecase var
-        (symbol
-         (push (pass1-form `(funcall #'(setf symbol-value) ,val ',var) env) forms))
+        (special-variable
+         (push (pass1-form `(funcall #'(setf symbol-value) ,val ',(name var)) env) forms))
         (lexical-variable
          (when (eq (lexical-variable-ignore var) 't)
            (warn 'sys.int::simple-style-warning
