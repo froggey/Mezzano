@@ -162,13 +162,17 @@ A list of any declaration-specifiers."
 (defun lexical-variable-p (object)
   (typep object 'lexical-variable))
 
+(defmethod print-object ((object lexical-variable) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (lexical-variable-name object))))
+
 ;;; A special variable, only used in bindings.
 (defclass special-variable ()
   ((%name :initarg :name :accessor name)))
 
-(defmethod print-object ((object lexical-variable) stream)
+(defmethod print-object ((object special-variable) stream)
   (print-unreadable-object (object stream :type t :identity t)
-    (format stream "~S" (lexical-variable-name object))))
+    (format stream "~S" (name object))))
 
 (defclass block-information (lexical-variable)
   ((%return-mode :initarg :return-mode :accessor block-information-return-mode)
@@ -214,6 +218,10 @@ A list of any declaration-specifiers."
 (defclass ast-function ()
   ((%name :initarg :name :accessor name)))
 
+(defmethod print-object ((object ast-function) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (name object))))
+
 (defclass ast-go ()
   ((%target :initarg :target :accessor target)
    (%info :initarg :info :accessor info)))
@@ -245,6 +253,10 @@ A list of any declaration-specifiers."
 
 (defclass ast-quote ()
   ((%value :initarg :value :accessor value)))
+
+(defmethod print-object ((object ast-quote) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (value object))))
 
 (defclass ast-return-from ()
   ((%target :initarg :target :accessor target)
