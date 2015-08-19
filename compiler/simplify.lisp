@@ -272,6 +272,7 @@
                   (typep form '(or ast-go ast-return-from)))
              ;; Non-local exit. Remove all following forms.
              (change-made)
+             (setf (cdr tail) (cons form nil))
              (return (cdr result)))
             (t
              (setf (cdr tail) (cons form nil)
