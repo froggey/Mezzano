@@ -49,36 +49,35 @@
 ;;;  (let bindings form1 ... (if formn then else))
 ;;; Beware when hoisting LET/M-V-B, must not hoist special bindings.
 (defun hoist-form-out-of-if (form)
-  (cond ((and (typep form 'ast-if)
-              (listp (test form))
-              (member (first (test form)) '(let multiple-value-bind)))
-         (let* ((test-form (test form))
-                (len (length test-form)))
-           (multiple-value-bind (leading-forms bound-variables)
-               (ecase (first test-form)
-                 ((let) (values 2 (mapcar #'first (second test-form))))
-                 ((multiple-value-bind) (values 3 (second test-form))))
-             (when (find-if (lambda (x) (typep x 'special-variable)) bound-variables)
-               (return-from hoist-form-out-of-if nil))
-             (append (subseq test-form 0 (max leading-forms (1- len)))
-                     (if (<= len leading-forms)
-                         ;; No body forms, must evaluate to NIL!
-                         ;; Fold away the IF.
-                         (list (if-else form))
-                         (list (ast `(if ,(first (last test-form))
-                                         ,(if-then form)
-                                         ,(if-else form)))))))))
-        ((and (typep form 'ast-if)
-              (typep (test form) 'ast-progn))
-         (let* ((test-form (test form)))
-           (if (forms test-form)
-               (ast `(progn ,@(append (butlast (forms test-form))
-                                      (list `(if ,(first (last (forms test-form)))
-                                                 ,(if-then form)
-                                                 ,(if-else form))))))
-               ;; No body forms, must evaluate to NIL!
-               ;; Fold away the IF.
-               (if-else form))))))
+  (let ((test-form (test form)))
+    (typecase test-form
+      (ast-let
+       (when (find-if (lambda (x) (typep x 'special-variable))
+                      (bindings test-form)
+                      :key #'first)
+         (return-from hoist-form-out-of-if nil))
+       (ast `(let ,(bindings test-form)
+               (if ,(body test-form)
+                   ,(if-then form)
+                   ,(if-else form)))))
+      (ast-multiple-value-bind
+       (when (find-if (lambda (x) (typep x 'special-variable))
+                      (bindings test-form))
+         (return-from hoist-form-out-of-if nil))
+       (ast `(multiple-value-bind ,(bindings test-form)
+                 ,(value-form test-form)
+               (if ,(body test-form)
+                   ,(if-then form)
+                   ,(if-else form)))))
+      (ast-progn
+       (if (forms test-form)
+           (ast `(progn ,@(append (butlast (forms test-form))
+                                  (list `(if ,(first (last (forms test-form)))
+                                             ,(if-then form)
+                                             ,(if-else form))))))
+           ;; No body forms, must evaluate to NIL!
+           ;; Fold away the IF.
+           (if-else form))))))
 
 (defmethod simp-form ((form ast-if))
   (let ((new-form (hoist-form-out-of-if form)))
