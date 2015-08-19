@@ -337,7 +337,8 @@
               (t ;; Flatten the body as much as possible.
                (setf (cdr tail) (flatten x)
                      tail (last tail))))))
-    ;; Kill code after GO statements and try to eliminate no-op GOs.
+    ;; Kill code after GO/RETURN-FROM statements and try to eliminate no-op GOs.
+    ;; Remove forms with no effect as well.
     (do* ((i (statements form) (cdr i))
           (prev nil)
           (last-was-go nil))
@@ -351,7 +352,7 @@
                (if prev
                    (setf (cdr prev) (cdr i))
                    (setf (statements form) (cdr i))))
-              ((typep stmt 'ast-go)
+              ((typep stmt '(or ast-go ast-return-from))
                (cond ((eql (cadr i) (target stmt))
                       ;; This GO can be eliminated.
                       (change-made)
@@ -364,10 +365,10 @@
     ;; Reduce tagbodys with no tags to progn.
     (cond ((tagbody-information-go-tags (info form))
            ;; Has go tags.
-	   form)
-	  ((endp (statements form))
+           form)
+          ((endp (statements form))
            ;; Empty tagbody.
-	   (change-made)
+           (change-made)
            (ast `(quote nil)))
           (t
            ;; Non-empty tagbody with no go tags.
