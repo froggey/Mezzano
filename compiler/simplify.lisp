@@ -240,23 +240,26 @@
 (defun simp-progn-body (x)
   ;; Merge nested progns, remove unused quote/function/lambda/variable forms
   ;; and eliminate code after return-from/go.
-  (do ((i x (rest i)))
-      ((endp i)
-       x)
-    (let ((form (first i)))
+  (do* ((i x (rest i))
+        (result (cons nil nil))
+        (tail result))
+       ((endp i)
+        (cdr result))
+    (let ((form (simp-form (first i))))
       (cond ((and (typep form 'ast-progn)
                   (forms form))
              ;; Non-empty PROGN.
              (change-made)
-             (simp-progn-body (forms form))
              ;; Rewrite ((progn v1 ... vn) . xn) to (v1 .... vn . xn).
-             (setf (first i) (first (forms form))
-                   (rest i) (nconc (rest (forms form)) (rest i))))
+             (setf (cdr tail) (simp-progn-body (forms form))
+                   tail (last tail)))
             ((and (typep form 'ast-progn)
                   (not (forms form)))
-             ;; Empty progn. Replace with 'NIL.
-             (setf (first i) (ast `(quote nil)))
-             (change-made))
+             ;; Empty progn. Replace with 'NIL if at end.
+             (change-made)
+             (when (rest i)
+               (setf (cdr tail) (cons (ast `(quote nil)) nil)
+                     tail (cdr tail))))
             ((and (rest i) ; not at end.
                   (or (typep form 'ast-quote)
                       (typep form 'ast-function)
@@ -264,27 +267,29 @@
                       (lambda-information-p form)))
              ;; This is a constantish value not at the end.
              ;; Remove it.
-             (change-made)
-             (setf (first i) (second i)
-                   (rest i) (rest (rest i))))
+             (change-made))
             ((and (rest i) ; not at end
                   (typep form '(or ast-go ast-return-from)))
              ;; Non-local exit. Remove all following forms.
              (change-made)
-             (setf (rest i) nil))
-            (t (setf (first i) (simp-form form)))))))
+             (return (cdr result)))
+            (t
+             (setf (cdr tail) (cons form nil)
+                   tail (cdr tail)))))))
 
 (defmethod simp-form ((form ast-progn))
-  (cond ((null (forms form))
-	 ;; Flush empty PROGNs.
-	 (change-made)
-         (ast `(quote nil)))
-	((null (rest (forms form)))
-	 ;; Reduce single form PROGNs.
-	 (change-made)
-	 (simp-form (first (forms form))))
-	(t (simp-progn-body (forms form))
-	   form)))
+  (let ((new-forms (simp-progn-body (forms form))))
+    (cond ((endp new-forms)
+           ;; Flush empty PROGNs.
+           (change-made)
+           (ast `(quote nil)))
+          ((endp (rest new-forms))
+           ;; Reduce single form PROGNs.
+           (change-made)
+           (first new-forms))
+          (t
+           (setf (forms form) new-forms)
+	   form))))
 
 (defmethod simp-form ((form ast-quote))
   form)
