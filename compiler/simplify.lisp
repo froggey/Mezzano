@@ -347,7 +347,11 @@
         (cond ((go-tag-p stmt)
                (setf prev i)
                (setf last-was-go nil))
-              (last-was-go
+              ((or last-was-go
+                   (typep stmt '(or ast-quote
+                                    ast-function
+                                    lexical-variable
+                                    lambda-information)))
                (change-made)
                (if prev
                    (setf (cdr prev) (cdr i))
