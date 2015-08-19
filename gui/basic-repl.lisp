@@ -175,9 +175,9 @@
                                framebuffer end-y 0)
            (mezzano.gui.compositor:damage-window window 0 end-y end-x 16)))))
 
-(defun repl-main ()
+(defun repl-main (&key width height)
   (let* ((fifo (mezzano.supervisor:make-fifo 50))
-         (window (mezzano.gui.compositor:make-window fifo 640 480))
+         (window (mezzano.gui.compositor:make-window fifo (or width 640) (or height 480)))
          (framebuffer (mezzano.gui.compositor:window-buffer window))
          (term (make-instance 'basic-repl
                               :fifo fifo
@@ -202,8 +202,8 @@
          (sys.int::repl)
       (mezzano.gui.compositor:close-window window))))
 
-(defun spawn ()
-  (mezzano.supervisor:make-thread 'repl-main
+(defun spawn (&rest args)
+  (mezzano.supervisor:make-thread (lambda () (apply #'repl-main args))
                                   :name "Lisp Listener"))
 
 (spawn)
