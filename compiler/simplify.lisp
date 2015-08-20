@@ -111,13 +111,6 @@
            ;; Rewrite (if x (go A-TAG) (go A-TAG)) => (go A-TAG)
            (change-made)
            (simp-form (if-then form)))
-          ((and (typep (test form) 'ast-call)
-                (eql (name (test form)) 'values)
-                (eql (length (arguments (test form))) 1))
-           ;; (if (values X) ...) => (if X ...)
-           (setf (test form) (first (arguments (test form))))
-           (change-made)
-           form)
           ((typep (test form) 'ast-quote)
            ;; (if 'not-nil then else) => then
            ;; (if 'nil then else) => else

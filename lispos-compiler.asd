@@ -35,6 +35,8 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/kill-temps"
                       :depends-on ("compiler/cross" "compiler/compiler"))
+               (:file "compiler/value-aware-lowering"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/lower-environment"
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/lower-special-bindings"

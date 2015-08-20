@@ -105,6 +105,7 @@ A list of any declaration-specifiers."
       (setf form (constprop (detect-uses form)))
       (setf form (simplify (detect-uses form)))
       (setf form (kill-temporaries (detect-uses form)))
+      (setf form (value-aware-lowering (detect-uses form)))
       (detect-uses form)
       (when (eql *change-count* 0)
 	(return form)))))
@@ -288,7 +289,7 @@ A list of any declaration-specifiers."
    (%targets :initarg :targets :accessor targets)))
 
 (defmethod print-object ((object go-tag) stream)
-  (print-unreadable-object (object stream :type t)
+  (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (go-tag-name object))))
 
 (defgeneric flush-form (form)
@@ -1006,12 +1007,12 @@ Must be run after keywords have been lowered."
 (defun unparse-compiler-form (form)
   (etypecase form
     (ast-block
-     `(block ,(lexical-variable-name (info form))
+     `(block ,(info form)
         ,(unparse-compiler-form (body form))))
     (ast-function
      `(function ,(name form)))
     (ast-go
-     `(go ,(go-tag-name (target form)) ,(unparse-compiler-form (info form))))
+     `(go ,(target form) ,(unparse-compiler-form (info form))))
     (ast-if
      `(if ,(unparse-compiler-form (test form))
           ,(unparse-compiler-form (if-then form))
@@ -1050,9 +1051,10 @@ Must be run after keywords have been lowered."
               ,(unparse-compiler-form (value form)))))
     (ast-tagbody
      `(tagbody
+         ,(info form)
          ,@(mapcar (lambda (x)
                      (if (go-tag-p x)
-                         (go-tag-name x)
+                         x
                          (unparse-compiler-form x)))
                    (statements form))))
     (ast-the

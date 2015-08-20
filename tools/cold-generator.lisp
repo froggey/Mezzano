@@ -115,6 +115,7 @@
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
+    "compiler/value-aware-lowering.lisp"
     "system/file-compiler.lisp"
     "gui/package.lisp"
     "gui/blit.lisp"
