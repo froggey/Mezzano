@@ -65,12 +65,12 @@
 
 (defmethod cp-form ((form ast-if))
   (flet ((pick-branch (use-this-one kill-this-one)
+           (declare (ignore kill-this-one))
 	   ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
 	   #+nil(unless (typep kill-this-one 'ast-quote)
 	     (warn 'sys.int::simple-style-warning
 		   :format-control "Deleting unreacable code: ~S."
 		   :format-arguments (list kill-this-one)))
-	   (flush-form kill-this-one)
 	   (cp-form use-this-one)))
     (setf (test form) (cp-form (test form)))
     (let ((value (form-value (test form))))

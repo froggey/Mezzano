@@ -149,7 +149,6 @@
                                                      (eql (lexical-variable-write-count val) 0)))
                                             (eql (lexical-variable-use-count var) 0)
                                             (progn (change-made)
-                                                   (flush-form val)
                                                    t))))
                                    (bindings form)))
   (dolist (b (bindings form))
