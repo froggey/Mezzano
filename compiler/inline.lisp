@@ -72,10 +72,10 @@
   form)
 
 (defmethod il-form ((form ast-tagbody))
-  (do ((i (statements form) (cdr i)))
-      ((endp i))
-    (unless (go-tag-p (car i))
-      (setf (car i) (il-form (car i)))))
+  (setf (statements form)
+        (loop
+           for (go-tag statement) in (statements form)
+           collect (list go-tag (il-form statement))))
   form)
 
 (defmethod il-form ((form ast-the))

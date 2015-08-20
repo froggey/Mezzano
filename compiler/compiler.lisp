@@ -233,10 +233,18 @@ A list of any declaration-specifiers."
    (%else :initarg :else :accessor if-else)))
 
 (defclass ast-let ()
+  ;; BINDINGS is a list of (variable init-form), where
+  ;; variable is either a LEXICAL-VARIABLE or a SPECIAL-VARIABLE.
+  ;; Init-forms are evaluated in list order.
+  ;; Lexical bindings occur immediately
+  ;; Special bindings occur once all init-forms have been evaulated.
   ((%bindings :initarg :bindings :accessor bindings)
    (%body :initarg :body :accessor body)))
 
 (defclass ast-multiple-value-bind ()
+  ;; BINDING is a list of variables, which can be either LEXICAL-VARIABLEs
+  ;; or SPECIAL-VARIABLES.
+  ;; Bindings occur after VALUE-FORM has been evaulated.
   ((%bindings :initarg :bindings :accessor bindings)
    (%value-form :initarg :value-form :accessor value-form)
    (%body :initarg :body :accessor body)))
@@ -270,6 +278,11 @@ A list of any declaration-specifiers."
 
 (defclass ast-tagbody ()
   ((%info :initarg :info :accessor info)
+   ;; A list of (go-tag form).
+   ;; Form that do not end in a control transfer will cause the
+   ;; tagbody to return.
+   ;; Only the first statement is directly reachable, other
+   ;; statements can only be reached via GO forms.
    (%statements :initarg :statements :accessor statements)))
 
 (defclass ast-the ()
@@ -417,11 +430,10 @@ A list of any declaration-specifiers."
         (push (cons tag new-tag) *replacements*)))
     (make-instance 'ast-tagbody
                    :info info
-                   :statements (mapcar (lambda (x)
-                                         (if (go-tag-p x)
-                                             (copy-form-fix x)
-                                             (copy-form-1 x)))
-                                       (statements form)))))
+                   :statements (loop
+                                  for (go-tag statement) in (statements form)
+                                  collect (list (copy-form-fix go-tag)
+                                                (copy-form-1 statement))))))
 
 (defmethod copy-form-1 ((form ast-the))
   (make-instance 'ast-the
@@ -567,9 +579,13 @@ A list of any declaration-specifiers."
   (dolist (tag (tagbody-information-go-tags (info form)))
     (setf (go-tag-use-count tag) 0
           (go-tag-used-in tag) '()))
-  (dolist (i (statements form))
-    (unless (go-tag-p i)
-      (detect-uses-1 i))))
+  (let ((first-go-tag (first (first (statements form)))))
+    ;; First go tag/statement is always reachable. It's the entry point.
+    (incf (go-tag-use-count first-go-tag))
+    (push *current-lambda* (go-tag-used-in first-go-tag)))
+  (loop
+     for (go-tag statement) in (statements form)
+     do (detect-uses-1 statement)))
 
 (defmethod detect-uses-1 ((form ast-the))
   (detect-uses-1 (value form)))
@@ -671,20 +687,23 @@ A list of any declaration-specifiers."
                               rest))))
               (progn
                 (tagbody tb
-                   (go test-tag tb)
-                 head-tag
-                   (if (call null (call cdr ,itr))
-                       (call error
-                             'sys.int::simple-program-error
-                             ':format-control '"Odd number of &KEY arguments.")
-                       (quote nil))
-                   (let ((,current-keyword (call car ,itr)))
-                     ,(create-key-test-list keys values suppliedp))
-                   (setq ,itr (call cddr ,itr))
-                 test-tag
-                   (if ,itr
-                       (go head-tag tb)
-                       (quote nil)))
+                   (entry
+                    (go test-tag tb))
+                   (head-tag
+                    (progn
+                      (if (call null (call cdr ,itr))
+                          (call error
+                                'sys.int::simple-program-error
+                                ':format-control '"Odd number of &KEY arguments.")
+                          (quote nil))
+                      (let ((,current-keyword (call car ,itr)))
+                        ,(create-key-test-list keys values suppliedp))
+                      (setq ,itr (call cddr ,itr))
+                      (go test-tag tb)))
+                   (test-tag
+                    (if ,itr
+                        (go head-tag tb)
+                        (quote nil))))
                 ,(create-key-let-body keys values suppliedp)))))))
 
 (defun lower-keyword-arguments (form)
@@ -737,9 +756,9 @@ A list of any declaration-specifiers."
   (lower-keyword-arguments-1 (value form)))
 
 (defmethod lower-keyword-arguments-1 ((form ast-tagbody))
-  (dolist (i (statements form))
-    (unless (go-tag-p i)
-      (lower-keyword-arguments-1 i))))
+  (loop
+     for (go-tag statement) in (statements form)
+     do (lower-keyword-arguments-1 statement)))
 
 (defmethod lower-keyword-arguments-1 ((form ast-the))
   (lower-keyword-arguments-1 (value form)))
@@ -835,9 +854,9 @@ Must be run after keywords have been lowered."
   (lower-arguments-1 (value form)))
 
 (defmethod lower-arguments-1 ((form ast-tagbody))
-  (dolist (i (statements form))
-    (unless (go-tag-p i)
-      (lower-arguments-1 i))))
+  (loop
+     for (go-tag statement) in (statements form)
+     do (lower-arguments-1 statement)))
 
 (defmethod lower-arguments-1 ((form ast-the))
   (lower-arguments-1 (value form)))
@@ -970,11 +989,10 @@ Must be run after keywords have been lowered."
     (ast-tagbody
      `(tagbody
          ,(info form)
-         ,@(mapcar (lambda (x)
-                     (if (go-tag-p x)
-                         x
-                         (unparse-compiler-form x)))
-                   (statements form))))
+         ,@(loop
+              for (go-tag form) in (statements form)
+              collect go-tag
+              collect (unparse-compiler-form form))))
     (ast-the
      `(the ,(the-type form) ,(unparse-compiler-form (value form))))
     (ast-unwind-protect

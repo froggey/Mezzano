@@ -91,13 +91,12 @@ of statements opens a new contour."
   (let ((env-is-dx t))
     (let ((*active-environment-vector* (info form))
           (*allow-dx-environment* t))
-      (dolist (stmt (statements form))
-        (cond ((go-tag-p stmt)
-               (unless (finalize-environment-layout *active-environment-vector*)
-                 (setf env-is-dx nil))
-               (setf *active-environment-vector* stmt
-                     *allow-dx-environment* t))
-              (t (compute-environment-layout stmt))))
+      (loop for (go-tag stmt) in (statements form) do
+           (unless (finalize-environment-layout *active-environment-vector*)
+             (setf env-is-dx nil))
+           (setf *active-environment-vector* go-tag
+                 *allow-dx-environment* t)
+           (compute-environment-layout stmt))
       (unless (finalize-environment-layout *active-environment-vector*)
         (setf env-is-dx nil)))
     (unless env-is-dx
@@ -243,7 +242,7 @@ of statements opens a new contour."
 
 (defmethod compute-free-variable-sets-1 ((form ast-tagbody))
   (remove (info form)
-          (compute-free-variable-sets-form-list (remove-if #'go-tag-p (statements form)))))
+          (compute-free-variable-sets-form-list (mapcar #'second (statements form)))))
 
 (defmethod compute-free-variable-sets-1 ((form ast-the))
   (compute-free-variable-sets-1 (value form)))
@@ -372,7 +371,7 @@ of statements opens a new contour."
 
 (defmethod lower-env-form ((form ast-tagbody))
   (let* ((possible-env-vector-heads (list* (info form)
-                                           (remove-if-not #'go-tag-p (statements form))))
+                                           (mapcar #'first (statements form))))
          (env-vector-heads (remove-if (lambda (x) (endp (gethash x *environment-layout*)))
                                       possible-env-vector-heads))
          (new-envs (loop for i in env-vector-heads
@@ -382,49 +381,53 @@ of statements opens a new contour."
                                                    :definition-point *current-lambda*)
                                     (gethash i *environment-layout*)))))
     (labels ((frob-outer ()
-               (ast `(tagbody ,(info form)
-                        ;; Save the tagbody info.
-                        ,@(when (not (localp (info form)))
-                            (let ((env-var (second (first *environment-chain*)))
-                                  (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
-                              (setf (tagbody-information-env-var (info form)) env-var
-                                    (tagbody-information-env-offset (info form)) env-offset)
-                              (list `(call (setf sys.int::%object-ref-t)
-                                           ,(info form)
-                                           ,env-var
-                                           (quote ,env-offset)))))
-                        ,@(let ((info (assoc (info form) new-envs)))
-                            (when info
-                              (if *environment*
-                                  (list `(setq ,(second info) ,(generate-make-environment (info form) (1+ (length (third info)))))
-                                        `(call (setf sys.int::%object-ref-t)
-                                               ,(second (first *environment-chain*))
-                                               ,(second info)
-                                               (quote 0)))
-                                  (list `(setq ,(second info)
-                                               ,(generate-make-environment (info form) (1+ (length (third info)))))))))
-                        ,@(frob-inner (info form)))))
+               (let* ((new-statements (frob-inner (info form)))
+                      (old-entry (first (first new-statements))))
+                 (ast `(tagbody ,(info form)
+                          (entry (progn
+                                   ;; Save the tagbody info.
+                                   ,@(when (not (localp (info form)))
+                                       (let ((env-var (second (first *environment-chain*)))
+                                             (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                         (setf (tagbody-information-env-var (info form)) env-var
+                                               (tagbody-information-env-offset (info form)) env-offset)
+                                         (list `(call (setf sys.int::%object-ref-t)
+                                                      ,(info form)
+                                                      ,env-var
+                                                      (quote ,env-offset)))))
+                                   ,@(let ((info (assoc (info form) new-envs)))
+                                       (when info
+                                         (if *environment*
+                                             (list `(setq ,(second info) ,(generate-make-environment (info form) (1+ (length (third info)))))
+                                                   `(call (setf sys.int::%object-ref-t)
+                                                          ,(second (first *environment-chain*))
+                                                          ,(second info)
+                                                          (quote 0)))
+                                             (list `(setq ,(second info)
+                                                          ,(generate-make-environment (info form) (1+ (length (third info)))))))))
+                                   (go ,old-entry ,(info form))))
+                          ,@new-statements))))
              (frob-inner (current-env)
-               (loop for stmt in (statements form)
-                  append (cond ((go-tag-p stmt)
-                                (setf current-env stmt)
-                                (let ((info (assoc current-env new-envs)))
-                                  (append (list stmt)
-                                          (when info
-                                            (list (ast `(setq ,(second info)
-                                                              ,(generate-make-environment current-env (1+ (length (third info))))))))
-                                          (when (and info *environment*)
-                                            (list (ast `(call (setf sys.int::%object-ref-t)
-                                                              ,(second (first *environment-chain*))
-                                                              ,(second info)
-                                                              (quote 0))))))))
-                                (t (let ((info (assoc current-env new-envs)))
-                                     (if info
-                                         (let ((*environment-chain* (list* (list current-env (second info))
-                                                                           *environment-chain*))
-                                               (*environment* (list* current-env *environment*)))
-                                           (list (lower-env-form stmt)))
-                                         (list (lower-env-form stmt)))))))))
+               (loop
+                  for (go-tag stmt) in (statements form)
+                  collect (let ((info (assoc go-tag new-envs)))
+                            (setf current-env go-tag)
+                            (list go-tag
+                                  (ast `(progn
+                                          ,@(when info
+                                              (list `(setq ,(second info)
+                                                           ,(generate-make-environment current-env (1+ (length (third info)))))))
+                                          ,@(when (and info *environment*)
+                                              (list `(call (setf sys.int::%object-ref-t)
+                                                           ,(second (first *environment-chain*))
+                                                           ,(second info)
+                                                           (quote 0))))
+                                          ,(if info
+                                               (let ((*environment-chain* (list* (list current-env (second info))
+                                                                                 *environment-chain*))
+                                                     (*environment* (list* current-env *environment*)))
+                                                 (lower-env-form stmt))
+                                               (lower-env-form stmt)))))))))
       (if (endp new-envs)
           (frob-outer)
           (ast `(let ,(loop

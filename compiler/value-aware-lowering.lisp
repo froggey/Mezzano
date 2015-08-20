@@ -28,8 +28,8 @@
          (change-class info 'tagbody-information
                        :go-tags (list end-tag))
          (ast `(tagbody ,info
-                  ,body
-                  ,end-tag)))))
+                  (entry ,body)
+                  (,end-tag 'nil))))))
     ((:single :multiple)
      (setf (body form) (value-aware-lowering-1 (body form) mode))
      form)))
@@ -128,10 +128,8 @@
 
 (defmethod value-aware-lowering-1 ((form ast-tagbody) mode)
   (setf (statements form) (loop
-                             for stmt in (statements form)
-                             collect (if (go-tag-p stmt)
-                                         stmt
-                                         (value-aware-lowering-1 stmt :effect))))
+                             for (go-tag stmt) in (statements form)
+                             collect (list go-tag (value-aware-lowering-1 stmt :effect))))
   form)
 
 (defmethod value-aware-lowering-1 ((form ast-the) mode)

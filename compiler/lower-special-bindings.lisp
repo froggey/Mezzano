@@ -174,11 +174,9 @@
         (info (info form)))
     (flet ((frob-tagbody ()
              (ast `(tagbody ,(info form)
-                      ,@(mapcar (lambda (x)
-                                  (if (go-tag-p x)
-                                      x
-                                      (lsb-form x)))
-                                (statements form))))))
+                      ,@(loop
+                           for (go-tag stmt) in (statements form)
+                           collect (list go-tag (lsb-form stmt)))))))
       (push (list :block-or-tagbody
                   info
                   (tagbody-information-env-var info)

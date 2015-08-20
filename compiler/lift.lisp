@@ -109,10 +109,10 @@
   (unless (eq (lexical-variable-definition-point (info form)) *current-lambda*)
     (change-made)
     (setf (lexical-variable-definition-point (info form)) *current-lambda*))
-  (do ((i (statements form) (cdr i)))
-      ((endp i))
-    (unless (go-tag-p (car i))
-      (setf (car i) (ll-form (car i)))))
+  (setf (statements form)
+        (loop
+           for (go-tag statement) in (statements form)
+           collect (list go-tag (ll-form statement))))
   form)
 
 (defmethod ll-form ((form ast-the))

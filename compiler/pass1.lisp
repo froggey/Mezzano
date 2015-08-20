@@ -618,26 +618,56 @@
     (let ((env (list* (list* :symbol-macros definitions) env)))
       (pass1-locally-body body env))))
 
+;; Turn a list of statements (mixed go tags and forms) into
+;; a list of (go-tag form). If there is no initial go tag, then one will
+;; be created. GO forms will be inserted to replicate normal fall-through behaviour.
+(defun parse-tagbody-body (statements)
+  (let ((current-tag nil)
+        (accumulated-forms '())
+        (result '()))
+    (cond ((typep (first statements) '(or symbol integer))
+           (setf current-tag (pop statements)))
+          (t
+           ;; Generate an entry tag.
+           (setf current-tag (gensym "TAGBODY-ENTRY"))))
+    (dolist (statement statements)
+      (etypecase statement
+        ((or symbol integer)
+         ;; Finish the current tag and switch to the next.
+         (push `(go ,statement) accumulated-forms)
+         (push (list current-tag `(progn ,@(reverse accumulated-forms))) result)
+         (setf current-tag statement
+               accumulated-forms '()))
+        (cons
+         (push statement accumulated-forms))))
+    ;; Finish up.
+    (push (list current-tag `(progn ,@(reverse accumulated-forms))) result)
+    (reverse result)))
+
 (defun pass1-tagbody (form env)
   (let* ((tb (make-instance 'tagbody-information
                             :name (gensym "TAGBODY")
                             :definition-point *current-lambda*))
-	 (env (cons (list* :tagbody tb (mapcan (lambda (stmt)
-						 (when (or (symbolp stmt) (integerp stmt))
-						   (let ((tag (make-instance 'go-tag
-                                                                             :name stmt
-                                                                             :tagbody tb)))
-						     (push tag (tagbody-information-go-tags tb))
-						     (list (cons stmt tag)))))
-					       (rest form)))
-		    env)))
+         (parsed-body (parse-tagbody-body (rest form)))
+         (go-tags (loop
+                     for (name form) in parsed-body
+                     collect (let ((tag (make-instance 'go-tag
+                                                       :name name
+                                                       :tagbody tb)))
+                               (push tag (tagbody-information-go-tags tb))
+                               tag))))
+    (setf env (cons (list* :tagbody tb
+                           (loop
+                              for (name form) in parsed-body
+                              for go-tag in go-tags
+                              collect (cons name go-tag)))
+                    env))
     (make-instance 'ast-tagbody
                    :info tb
-                   :statements (mapcar (lambda (stmt)
-                                         (if (or (symbolp stmt) (integerp stmt))
-                                             (cdr (assoc stmt (cddr (first env))))
-                                             (pass1-form stmt env)))
-                                       (rest form)))))
+                   :statements (loop
+                                  for (name form) in parsed-body
+                                  for go-tag in go-tags
+                                    collect (list go-tag (pass1-form form env))))))
 
 (defun pass1-the (form env)
   (destructuring-bind (value-type form) (cdr form)

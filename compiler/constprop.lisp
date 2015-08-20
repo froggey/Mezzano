@@ -172,10 +172,10 @@
 
 (defmethod cp-form ((form ast-tagbody))
   (flush-mutable-variables)
-  (do ((i (statements form) (cdr i)))
-      ((endp i))
-    (unless (go-tag-p (car i))
-      (setf (car i) (cp-form (car i)))))
+  (setf (statements form)
+        (loop
+           for (go-tag statement) in (statements form)
+           collect (list go-tag (cp-form statement))))
   form)
 
 (defmethod cp-form ((form ast-the))

@@ -1166,12 +1166,12 @@ Returns an appropriate tag."
 		     (eq (car (go-tag-used-in tag)) (lexical-variable-definition-point info))))
       (return nil))))
 
-;;; FIXME: Everything must return a valid tag if control flow follows.
 (defun cg-tagbody (form)
   (let ((*for-value* nil)
 	(stack-slots nil)
 	(*rename-list* *rename-list*)
-	(last-value t)
+	(need-exit-label nil)
+        (exit-label (gensym "tagbody-exit"))
         (escapes (not (tagbody-localp (info form))))
         (jump-table (gensym))
         (tag-labels (mapcar (lambda (tag)
@@ -1203,14 +1203,15 @@ Returns an appropriate tag."
     (mapcar (lambda (tag label)
               (push (list tag label) *rename-list*))
             (tagbody-information-go-tags (info form)) tag-labels)
-    (dolist (stmt (statements form))
-      (if (go-tag-p stmt)
-	  (progn
-	    (smash-r8)
-	    (setf *stack-values* (copy-stack-values stack-slots))
-	    (setf last-value t)
-	    (emit (second (assoc stmt *rename-list*))))
-	  (setf last-value (cg-form stmt))))
+    (loop
+       for (go-tag stmt) in (statements form)
+       do
+         (smash-r8)
+         (setf *stack-values* (copy-stack-values stack-slots))
+         (emit (second (assoc go-tag *rename-list*)))
+         (when (cg-form stmt)
+           (setf need-exit-label t)
+           (emit `(sys.lap-x86:jmp ,exit-label))))
     (when escapes
       ;; Emit the jump-table.
       ;; TODO: Prune local labels out.
@@ -1222,9 +1223,10 @@ Returns an appropriate tag."
          for thunk in thunk-labels
          for label in tag-labels do
            (emit-nlx-thunk thunk label nil)))
-    (if last-value
-	''nil
-	'nil)))
+    (cond (need-exit-label
+           (emit exit-label)
+           ''nil)
+          (t nil))))
 
 (defun cg-the (form)
   (cg-form (value form)))

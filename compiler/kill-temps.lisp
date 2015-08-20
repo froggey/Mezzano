@@ -167,21 +167,22 @@
     (values form did-replace)))
 
 (defmethod kt-form ((form ast-tagbody) &optional target-variable replacement-form)
-  (cond ((and (first (statements form))
-              (not (go-tag-p (first (statements form)))))
+  (cond ((eql (go-tag-use-count (first (first (statements form)))) 1)
+         ;; Entry statement only has one use, safe to push forms into it.
          (multiple-value-bind (new-form did-replace)
-             (kt-form (first (statements form)) target-variable replacement-form)
-           (setf (first (statements form)) new-form)
-           (do ((i (rest (statements form)) (cdr i)))
-               ((null i))
-             (unless (go-tag-p (car i))
-               (setf (car i) (kt-form (car i)))))
+             (kt-form (second (first (statements form))) target-variable replacement-form)
+           (setf (second (first (statements form))) new-form)
+           (setf (rest (statements form))
+                 (loop
+                    for (go-tag statement) in (rest (statements form))
+                    collect (list go-tag (kt-form statement))))
            (values form did-replace)))
-        (t (do ((i (statements form) (cdr i)))
-               ((null i))
-             (unless (go-tag-p (car i))
-               (setf (car i) (kt-form (car i)))))
-           form)))
+        (t
+         (setf (statements form)
+               (loop
+                  for (go-tag statement) in (statements form)
+                  collect (list go-tag (kt-form statement))))
+         form)))
 
 (defmethod kt-form ((form ast-the) &optional target-variable replacement-form)
   (multiple-value-bind (new-form did-replace)

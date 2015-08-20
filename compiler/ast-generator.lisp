@@ -146,23 +146,26 @@ Inherit source locations/etc from INHERIT."
         (new-go-tags '()))
     (when (symbolp info)
       (push (cons info tagbody-info) new-variables))
-    (dolist (stmt statements)
-      (when (go-tag-p stmt)
-        (assert (eql (go-tag-tagbody stmt) tagbody-info)))
-      (when (symbolp stmt)
-        (let ((tag (make-instance 'go-tag
-                                  :name stmt
-                                  :tagbody tagbody-info
-                                  :use-count 1)))
-          (push (cons stmt tag) new-variables)
-          (push tag new-go-tags))))
+    (loop
+       for (go-tag statement) in statements
+       do (etypecase go-tag
+            (go-tag
+             (assert (eql (go-tag-tagbody go-tag) tagbody-info)))
+            (symbol
+             (let ((tag (make-instance 'go-tag
+                                       :name go-tag
+                                       :tagbody tagbody-info
+                                       :use-count 1)))
+               (push (cons go-tag tag) new-variables)
+               (push tag new-go-tags)))))
     (setf (tagbody-information-go-tags tagbody-info) (append (reverse new-go-tags)
                                                              (tagbody-information-go-tags tagbody-info)))
     (make-instance 'ast-tagbody
                    :info tagbody-info
                    :statements (loop
-                                  for statement in statements
-                                  collect (convert-ast-form statement new-variables)))))
+                                  for (go-tag statement) in statements
+                                  collect (list (convert-ast-form go-tag new-variables)
+                                                (convert-ast-form statement new-variables))))))
 
 (defun convert-ast-the (new-variables type value)
   (make-instance 'ast-the
