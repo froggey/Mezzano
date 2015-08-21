@@ -106,6 +106,7 @@ A list of any declaration-specifiers."
       (setf form (simplify (detect-uses form)))
       (setf form (kill-temporaries (detect-uses form)))
       (setf form (value-aware-lowering (detect-uses form)))
+      (setf form (simplify-control-flow (detect-uses form)))
       (detect-uses form)
       (when (eql *change-count* 0)
 	(return form)))))

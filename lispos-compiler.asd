@@ -41,6 +41,8 @@
                       :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/lower-special-bindings"
                       :depends-on ("compiler/cross" "compiler/compiler"))
+               (:file "compiler/simplify-control-flow"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/builtins/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
                                    "compiler/codegen" "system/data-types" "lap" "lap-x86"))

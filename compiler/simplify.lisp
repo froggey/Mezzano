@@ -258,12 +258,6 @@
              ;; This is a constantish value not at the end.
              ;; Remove it.
              (change-made))
-            ((and (rest i) ; not at end
-                  (typep form '(or ast-go ast-return-from)))
-             ;; Non-local exit. Remove all following forms.
-             (change-made)
-             (setf (cdr tail) (cons form nil))
-             (return (cdr result)))
             (t
              (setf (cdr tail) (cons form nil)
                    tail (cdr tail)))))))
@@ -358,25 +352,6 @@
                   (push (list new-go-tag new-statement) new-stmts)))
             (t (push (list go-tag statement) new-stmts))))
     (setf (statements form) (reverse new-stmts)))
-  ;; Collapse redundant GOs.
-  ;; One at a time, or it'll be weird.
-  (loop
-     (let ((victim (find-if (lambda (x)
-                              (destructuring-bind (go-tag statement) x
-                                (declare (ignore go-tag))
-                                (and (typep statement 'ast-go)
-                                     (eql (info statement) (info form))
-                                     (eql (go-tag-use-count (target statement)) 1))))
-                            (statements form))))
-       (when (not victim)
-         (return))
-       (change-made)
-       (let ((new-statement (find (target (second victim))
-                                  (statements form)
-                                  :key #'first)))
-         (assert new-statement)
-         (setf (second victim) (second new-statement))
-         (setf (statements form) (remove new-statement (statements form))))))
   ;; Simplify forms.
   (setf (statements form) (loop
                              for (go-tag statement) in (statements form)
