@@ -301,10 +301,61 @@
                    (tagbody-information-go-tags (info form))))
   (setf (statements form) (remove-if (lambda (x) (eql (go-tag-use-count (first x)) 0))
                                      (statements form)))
-  ;; Simplify statements.
-  (setf (statements form) (loop
-                             for (go-tag statement) in (statements form)
-                             collect (list go-tag (simp-form statement))))
+  ;; Try to merge any nested TAGBODYs.
+  ;; Do this before simplification, because GO forms will need to be updated.
+  (let ((new-stmts '()))
+    (loop
+       for (go-tag statement) in (statements form)
+       do (typecase statement
+            (ast-progn
+             (cond ((some (lambda (x) (typep x 'ast-tagbody)) (forms statement))
+                    ;; Contains at least one nested TAGBODY.
+                    (let ((current-go-tag go-tag)
+                          (accum '()))
+                      (dolist (subform (forms statement))
+                        (typecase subform
+                          (ast-tagbody
+                           ;; Reached a tagbody.
+                           ;; Jump from the current tag to the tagbody's entry tag.
+                           (push (ast `(go ,(first (first (statements subform))) ,(info form)))
+                                 accum)
+                           (incf (go-tag-use-count (first (first (statements subform)))))
+                           ;; Finish accumulating the forms before this tagbody.
+                           (push (list current-go-tag (ast `(progn ,@(reverse accum)))) new-stmts)
+                           ;; Create a new go-tag that is *after* this tagbody.
+                           (setf current-go-tag (make-instance 'go-tag
+                                                               :name (gensym "tagbody-resume")
+                                                               :use-count 1
+                                                               :tagbody (info form))
+                                 accum '())
+                           (push current-go-tag (tagbody-information-go-tags (info form)))
+                           ;; Splice tagbody in, and after each statement add a GO to
+                           ;; the resume tag.
+                           (loop
+                              for (new-go-tag new-statement) in (statements subform)
+                              do
+                                (push new-go-tag (tagbody-information-go-tags (info form)))
+                                (setf (go-tag-tagbody new-go-tag) (info form))
+                                (incf (go-tag-use-count current-go-tag))
+                                (push (list new-go-tag (ast `(progn
+                                                               ,new-statement
+                                                               (go ,current-go-tag ,(info form)))))
+                                      new-stmts)))
+                          (t ;; Normal form, accumulate it.
+                           (push subform accum))))
+                      ;; Finish the current tag.
+                      (push (list current-go-tag (ast `(progn ,@(reverse accum) 'nil))) new-stmts)))
+                   (t (push (list go-tag statement) new-stmts))))
+            (ast-tagbody
+             ;; Get this one.
+             (loop
+                for (new-go-tag new-statement) in (statements statement)
+                do
+                  (push new-go-tag (tagbody-information-go-tags (info form)))
+                  (setf (go-tag-tagbody new-go-tag) (info form))
+                  (push (list new-go-tag new-statement) new-stmts)))
+            (t (push (list go-tag statement) new-stmts))))
+    (setf (statements form) (reverse new-stmts)))
   ;; Collapse redundant GOs.
   ;; One at a time, or it'll be weird.
   (loop
@@ -321,8 +372,13 @@
        (let ((new-statement (find (target (second victim))
                                   (statements form)
                                   :key #'first)))
+         (assert new-statement)
          (setf (second victim) (second new-statement))
          (setf (statements form) (remove new-statement (statements form))))))
+  ;; Simplify forms.
+  (setf (statements form) (loop
+                             for (go-tag statement) in (statements form)
+                             collect (list go-tag (simp-form statement))))
   ;; If the entry go-tag has one use, and there aren't any more statements, then
   ;; reduce this to a progn.
   (cond ((and (eql (go-tag-use-count (first (first (statements form)))) 1)
