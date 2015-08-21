@@ -348,6 +348,8 @@
                    (t (push (list go-tag statement) new-stmts))))
             (ast-tagbody
              ;; Get this one.
+             (push (list go-tag (ast `(go ,(first (first (statements statement))) ,(info form)))) new-stmts)
+             (incf (go-tag-use-count (first (first (statements statement)))))
              (loop
                 for (new-go-tag new-statement) in (statements statement)
                 do
