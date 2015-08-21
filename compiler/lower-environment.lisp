@@ -383,30 +383,35 @@ of statements opens a new contour."
     (labels ((frob-outer ()
                (let* ((new-statements (frob-inner (info form)))
                       (old-entry (first (first new-statements))))
-                 (ast `(tagbody ,(info form)
-                          (entry (progn
-                                   ;; Save the tagbody info.
-                                   ,@(when (not (localp (info form)))
-                                       (let ((env-var (second (first *environment-chain*)))
-                                             (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
-                                         (setf (tagbody-information-env-var (info form)) env-var
-                                               (tagbody-information-env-offset (info form)) env-offset)
-                                         (list `(call (setf sys.int::%object-ref-t)
-                                                      ,(info form)
-                                                      ,env-var
-                                                      (quote ,env-offset)))))
-                                   ,@(let ((info (assoc (info form) new-envs)))
-                                       (when info
-                                         (if *environment*
-                                             (list `(setq ,(second info) ,(generate-make-environment (info form) (1+ (length (third info)))))
-                                                   `(call (setf sys.int::%object-ref-t)
-                                                          ,(second (first *environment-chain*))
-                                                          ,(second info)
-                                                          (quote 0)))
-                                             (list `(setq ,(second info)
-                                                          ,(generate-make-environment (info form) (1+ (length (third info)))))))))
-                                   (go ,old-entry ,(info form))))
-                          ,@new-statements))))
+                 ;; Avoid adding new statements if it's not needed.
+                 (if (or (not (localp (info form)))
+                         (assoc (info form) new-envs))
+                     (ast `(tagbody ,(info form)
+                              (entry (progn
+                                       ;; Save the tagbody info.
+                                       ,@(when (not (localp (info form)))
+                                               (let ((env-var (second (first *environment-chain*)))
+                                                     (env-offset (1+ (position (info form) (gethash (first *environment*) *environment-layout*)))))
+                                                 (setf (tagbody-information-env-var (info form)) env-var
+                                                       (tagbody-information-env-offset (info form)) env-offset)
+                                                 (list `(call (setf sys.int::%object-ref-t)
+                                                              ,(info form)
+                                                              ,env-var
+                                                              (quote ,env-offset)))))
+                                       ,@(let ((info (assoc (info form) new-envs)))
+                                              (when info
+                                                (if *environment*
+                                                    (list `(setq ,(second info) ,(generate-make-environment (info form) (1+ (length (third info)))))
+                                                          `(call (setf sys.int::%object-ref-t)
+                                                                 ,(second (first *environment-chain*))
+                                                                 ,(second info)
+                                                                 (quote 0)))
+                                                    (list `(setq ,(second info)
+                                                                 ,(generate-make-environment (info form) (1+ (length (third info)))))))))
+                                       (go ,old-entry ,(info form))))
+                              ,@new-statements))
+                     (ast `(tagbody ,(info form)
+                              ,@new-statements)))))
              (frob-inner (current-env)
                (loop
                   for (go-tag stmt) in (statements form)
