@@ -240,6 +240,10 @@
 )
 (%define-type-symbol 't #'(lambda (x) (declare (ignore x)) t))
 
+;; Not exactly correct. This is a class, SUBTYPEP has problems with that.
+(deftype list ()
+  `(or cons null))
+
 (defun or-type (object type)
   (dolist (elt (cdr type))
     (when (typep object elt)
@@ -421,6 +425,16 @@
            (dolist (type (rest t2) (values nil t))
              (when (subtypep t1 type)
                (return (values t t)))))
+          ((and (consp t1)
+                (eql (first t1) 'and))
+           (dolist (type (rest t1) (values t t))
+             (when (not (subtypep type t2))
+               (return (values nil t)))))
+          ((and (consp t2)
+                (eql (first t2) 'and))
+           (dolist (type (rest t2) (values t t))
+             (when (not (subtypep t1 type))
+               (return (values nil t)))))
 	  (t (values nil t)))))
 
 (defun subclassp (class-1 class-2)
