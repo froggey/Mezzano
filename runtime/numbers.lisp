@@ -31,7 +31,6 @@
   (sys.lap-x86:ret))
 
 (defun float (number &optional prototype)
-  (declare (ignore prototype))
   (etypecase number
     (float number)
     (fixnum (%%coerce-fixnum-to-float number))
