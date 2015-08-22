@@ -176,6 +176,9 @@
         (decf (physical-buddy-bin-count buddy-allocator-address avail-bin))
         (when (physical-page-frame-next frame)
           (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
+        (when *verbose-physical-allocation*
+          (debug-print-line "Considering frame " frame " type " (physical-page-frame-type frame)
+                            " avail bin " avail-bin " best bin " best-bin))
         (when (not (eql (physical-page-frame-type frame) :free))
           (panic "Allocated allocated page " frame))
         (setf (physical-page-frame-type frame) type)
@@ -210,6 +213,8 @@ If the allocation could not be satisfied then NIL will be returned
 when MANDATORY-P is false, otherwise PANIC will be called.
 If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
+  (when *verbose-physical-allocation*
+    (debug-print-line "Allocating " n-pages " of type " type))
   (let ((frame
          (safe-without-interrupts (n-pages type 32-bit-only)
            (with-symbol-spinlock (*physical-lock*)
@@ -223,6 +228,8 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                             +boot-information-32-bit-physical-buddy-bins-offset+
                                             +n-32-bit-physical-buddy-bins+
                                             type))))))
+    (when *verbose-physical-allocation*
+      (debug-print-line "Allocated frame " frame))
     (when (and (not frame)
                mandatory-p)
       (panic "No physical memory: " mandatory-p))
