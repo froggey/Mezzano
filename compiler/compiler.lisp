@@ -298,6 +298,10 @@ A list of any declaration-specifiers."
   ((%name :initarg :name :accessor name)
    (%arguments :initarg :arguments :accessor arguments)))
 
+(defmethod print-object ((object ast-call) stream)
+  (print-unreadable-object (object stream :type t :identity t)
+    (format stream "~S" (name object))))
+
 (defclass ast-jump-table ()
   ((%value :initarg :value :accessor value)
    (%targets :initarg :targets :accessor targets)))
@@ -1015,14 +1019,20 @@ Must be run after keywords have been lowered."
                        (list '&optional)
                        (loop
                           for (arg init-form suppliedp) in (lambda-information-optional-args form)
-                          collect (list (unparse-compiler-form arg) (unparse-compiler-form init-form) (unparse-compiler-form suppliedp)))
+                          collect (list (unparse-compiler-form arg)
+                                        (unparse-compiler-form init-form)
+                                        (when suppliedp
+                                          (unparse-compiler-form suppliedp))))
                        (when (lambda-information-rest-arg form)
                          `(&rest ,(unparse-compiler-form (lambda-information-rest-arg form))))
                        (when (lambda-information-enable-keys form)
                          `(&key
                            ,@(loop
                                 for ((keyword arg) init-form suppliedp) in (lambda-information-key-args form)
-                                collect (list (list keyword (unparse-compiler-form arg)) (unparse-compiler-form init-form) (unparse-compiler-form suppliedp)))
+                                collect (list (list keyword (unparse-compiler-form arg))
+                                              (unparse-compiler-form init-form)
+                                              (when suppliedp
+                                                (unparse-compiler-form suppliedp))))
                            ,@(when (lambda-information-allow-other-keys form)
                                    '(&allow-other-keys)))))
         ,(unparse-compiler-form (lambda-information-body form))))))
