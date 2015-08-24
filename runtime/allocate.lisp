@@ -15,8 +15,8 @@
 
 (defvar *wired-allocator-lock*)
 (defvar *allocator-lock*)
-(defvar *general-area-expansion-granularity* (* 4 1024 1024))
-(defvar *cons-area-expansion-granularity* (* 4 1024 1024))
+(defvar *general-area-expansion-granularity* (* 16 1024 1024))
+(defvar *cons-area-expansion-granularity*    (* 16 1024 1024))
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")

@@ -2,18 +2,24 @@
 ;;;; This code is licensed under the MIT license.
 
 (in-package :cl-user)
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  #.(with-open-file (in "ipl-configuration.lisp")
+      `(progn ,@(loop :for form = (read in nil in)
+                      :until (eq form in)
+                      :collect form))))
+
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
 ;; Host where the initial system is kept.
-;; Change the IP to the host computer's local IP.
-(mezzano.file-system.remote:add-simple-file-host :remote '(192 168 0 4))
-;; Use PATHNAME instead of #p because the cross-compiler doesn't support #p.
-;; Point *DEFAULT-PATHNAME-DEFAULTS* at the full path to the source tree.
-(setf *default-pathname-defaults* (pathname "REMOTE:/Full/path/to/Mezzano/"))
-;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
-(setf mezzano.file-system::*home-directory* (pathname "REMOTE:/Full/path/to/Mezzano/home/"))
+(mezzano.file-system.remote:add-simple-file-host :remote *file-server-ip*)
+;; (setf *default-pathname-defaults*            #.(parse-namestring *file-server-source-directory* "REMOTE"))
+;; (setf mezzano.file-system::*home-directory*  #.(parse-namestring *file-server-home-directory*   "REMOTE"))
+(setf *default-pathname-defaults*            (make-pathname :host "REMOTE"
+                                                            :directory '(:absolute "Users" "pjb" "src" "Mezzano")))
+(setf mezzano.file-system::*home-directory*  (make-pathname :host "REMOTE"
+                                                            :directory '(:absolute "Users" "pjb" "Documents" "Mezzano")))
 
 (defun sys.int::snapshot-and-exit ()
   (mezzano.supervisor:make-thread (lambda ()
@@ -69,7 +75,7 @@ If the compiled file is out of date, recompile it."
 ;; Other stuff.
 ;; The desktop image, this can be removed or replaced.
 ;; If it is removed, then the line below that starts the desktop must be updated.
-(sys.int::copy-file (merge-pathnames "Mandarin_Pair.jpg" (user-homedir-pathname))
+(sys.int::copy-file (merge-pathnames *desktop-image* (user-homedir-pathname))
                     "LOCAL:>Desktop.jpeg"
                     '(unsigned-byte 8))
 
@@ -109,6 +115,7 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "applications/fs-viewer.lisp")
+
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))

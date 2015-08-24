@@ -1,0 +1,81 @@
+I added a Makefile, lisp scripts and modified ipl.lisp to simplify and
+automatize the configuration, installation and building of Mezzano.
+
+Requirements
+============
+
+Unix tools:
+
+    - GNU make
+    - sbcl
+    - git
+    - wget
+    - tar
+    
+
+Procedure
+=========
+    
+0- edit configure.lisp and ipl-configure.lisp to match your environment.
+
+   (You may not have to modify configurure.lisp in a "standard"
+   quicklisp environment, but you definitely will want to edit
+   ipl-configure.lisp.  Later we may add some auto-configuration of
+   the file server default IP, and the source directory path).
+
+
+   /!\ For now, we must also edit the pathnames in ipl.lisp.
+
+
+1- install the dependencies (once):
+
+   make install-dependencies
+
+2- install the fonts (once):
+
+   # MEZZANO_HOME = same path as in *file-server-home-directory* in ipl-configuration.lisp
+   mkdir $MEZZANO_HOME/Fonts/ 
+   cp  /opt/local/share/texmf-texlive/fonts/truetype/public/dejavu/*.ttf $MEZZANO_HOME/Fonts/
+   
+3- launch the file server in a detached screen:
+
+    make launch-file-server
+
+4- compile the mezzano.image:
+
+    make image
+
+5- generate a vmdk for Virtual Box referencing mezzano.image
+
+    make vmdk
+
+6- launch Virtual Box, create a new VM:
+          RAM: 1GB 
+          HD: the mezzano.vmdk
+          Ethernet: select the virtio-net adapter
+          Serial port: assign the serial port COM1 to some raw file where the logs will be written.
+   and boot it.
+
+
+Initially loading the whole system takes approximately 2 hours in
+VirtualBox running on a 2.4GHz Core 2 Quad.
+
+
+Debugging
+=========
+
+To test the connection with the file server:
+
+   (sys.net::ping-host "192.168.x.y")
+
+
+
+Troobleshooting
+===============
+
+Hang on New ARP Table (and eventually time out)
+-----------------------------------------------
+
+This seems to occur when we reboot the VM.  We have to use power
+down/relaunch, for a cold start, not reboot.
+
