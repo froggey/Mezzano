@@ -48,10 +48,7 @@
       (frag (+ x^ 0.5)    y^)
       (frag    x^      (+ y^ 0.5))
       (frag (+ x^ 0.5) (+ y^ 0.5))
-      (logior #xFF000000
-              (ash (round (* (/ r 4) 255)) 16)
-              (ash (round (* (/ g 4) 255)) 8)
-              (round (* (/ b 4) 255))))))
+      (mezzano.gui:make-colour (/ r 4) (/ g 4) (/ b 4)))))
 
 (defgeneric dispatch-event (frame event)
   (:method (f e)))
@@ -94,7 +91,7 @@
               ;; More than one thread, even.
               (dotimes (y height)
                 (dotimes (x width)
-                  (setf (aref framebuffer (+ top y) (+ left x)) (render-mandelbrot x y width height hue-offset)))
+                  (setf (mezzano.gui:surface-pixel framebuffer (+ left x) (+ top y)) (render-mandelbrot x y width height hue-offset)))
                 (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
                 (loop
                    (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))

@@ -100,11 +100,13 @@
      for glyph = (mezzano.gui.font:character-to-glyph font ch)
      for mask = (mezzano.gui.font:glyph-mask glyph)
      do
-       (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) colour
-                                            mask 0 0
-                                            framebuffer
-                                            (- y (mezzano.gui.font:glyph-yoff glyph))
-                                            (+ pen (mezzano.gui.font:glyph-xoff glyph)))
+       (mezzano.gui:bitset :blend
+                           (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                           colour
+                           framebuffer
+                           (+ pen (mezzano.gui.font:glyph-xoff glyph))
+                           (- y (mezzano.gui.font:glyph-yoff glyph))
+                           mask 0 0)
        (incf pen (mezzano.gui.font:glyph-advance glyph))
      finally (return pen)))
 
@@ -131,11 +133,12 @@
                      :key (lambda (x) (first (last (pathname-directory x)))))))
     (multiple-value-bind (left right top bottom)
         (mezzano.gui.widgets:frame-size (frame viewer))
-      (mezzano.gui:bitset (- height top bottom)
+      (mezzano.gui:bitset :set
                           (- width left right)
+                          (- height top bottom)
                           mezzano.gui:*default-background-colour*
                           framebuffer
-                          top left)
+                          left top)
       (let ((y top))
         (flet ((wr (string &optional (offset 0) (min-line-height 0))
                  (draw-string string
@@ -145,17 +148,18 @@
                               mezzano.gui:*default-foreground-colour*)
                  (incf y (max min-line-height (mezzano.gui.font:line-height font))))
                (seperator ()
-                 (mezzano.gui:bitset 1
-                                     (- width left right)
+                 (mezzano.gui:bitset :set
+                                     (- width left right) 1
                                      mezzano.gui:*default-foreground-colour*
                                      framebuffer
-                                     y left)
+                                     left y)
                  (incf y))
                (clickable (icon name thing)
-                 (mezzano.gui:bitblt-argb-xrgb 16 16
-                                               icon 0 0
-                                               framebuffer
-                                               y (1+ left))
+                 (mezzano.gui:bitblt :blend
+                                     16 16
+                                     icon 0 0
+                                     framebuffer
+                                     (1+ left) y)
                  (let ((end (draw-string name
                                          font
                                          framebuffer
@@ -176,11 +180,12 @@
                                                       framebuffer
                                                       0 0
                                                       #x00000000)))
-                         (mezzano.gui:bitset (mezzano.gui.font:line-height font)
+                         (mezzano.gui:bitset :set
                                              (+ 10 text-width 10)
+                                             (mezzano.gui.font:line-height font)
                                              mezzano.gui:*default-foreground-colour*
                                              framebuffer
-                                             y (- pen 10))
+                                             (- pen 10) y)
                          (setf pen (draw-string (mezzano.file-system:host-name host)
                                                 font
                                                 framebuffer

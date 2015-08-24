@@ -40,7 +40,7 @@
         (slot-value instance '%fifo) (mezzano.supervisor:make-fifo 50)
         (slot-value instance '%lock) (mezzano.supervisor:make-mutex "Popup Stream Lock")
         (slot-value instance '%cvar) (mezzano.supervisor:make-condition-variable "Popup Stream Cvar"))
-  (let* ((framebuffer (make-array (list height width) :element-type '(unsigned-byte 32)))
+  (let* ((framebuffer (mezzano.gui:make-surface width height))
          (frame (make-instance 'mezzano.gui.widgets:frame
                                :framebuffer framebuffer
                                :title (string (or title (format nil "~S" instance)))
@@ -120,18 +120,19 @@
     (throw 'mezzano.supervisor::terminate-thread nil)))
 
 (defmethod dispatch-event (window (event damage))
-  (mezzano.gui:bitblt (height event) (width event)
+  (mezzano.gui:bitblt :set
+                      (width event) (height event)
                       (framebuffer window)
-                      (y event) (x event)
+                      (x event) (y event)
                       (mezzano.gui.compositor:window-buffer (window window))
-                      (y event) (x event))
+                      (x event) (y event))
   (mezzano.gui.compositor:damage-window (window window)
                                         (x event) (y event)
                                         (width event) (height event)))
 
 
 (defun window-thread (stream)
-  (mezzano.gui.compositor:with-window (window (fifo stream) (array-dimension (framebuffer stream) 1) (array-dimension (framebuffer stream) 0)
+  (mezzano.gui.compositor:with-window (window (fifo stream) (mezzano.gui:surface-width (framebuffer stream)) (mezzano.gui:surface-height (framebuffer stream))
                                               :initial-z-order :below-current)
     (setf (slot-value stream '%window) window
           (mezzano.gui.widgets:activep (frame stream)) nil)

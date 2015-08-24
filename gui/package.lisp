@@ -10,15 +10,28 @@
            #:rectangle-y
            #:rectangle-width
            #:rectangle-height
-           #:bitset
-           #:bitset-argb-xrgb-mask-8
-           #:bitset-argb-xrgb-mask-1
-           #:bitset-argb-xrgb
            #:bitblt
-           #:bitblt-argb-xrgb
-           #:bitxor
+           #:bitset
            #:*default-foreground-colour*
-           #:*default-background-colour*))
+           #:*default-background-colour*
+           #:colour
+           #:make-colour
+           #:make-colour-from-octets
+           #:colour-equal
+           #:colour-red
+           #:colour-red-as-octet
+           #:colour-green
+           #:colour-green-as-octet
+           #:colour-blue
+           #:colour-blue-as-octet
+           #:colour-alpha
+           #:colour-alpha-as-octet
+           #:surface
+           #:make-surface
+           #:make-surface-from-array
+           #:surface-width
+           #:surface-height
+           #:surface-pixel))
 
 (defpackage :mezzano.gui.compositor
   (:use :cl :mezzano.gui)

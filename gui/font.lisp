@@ -150,25 +150,16 @@
   (let* ((bb (scale-bb (zpb-ttf:bounding-box glyph) scale))
          (width (- (zpb-ttf:xmax bb) (zpb-ttf:xmin bb)))
          (height (- (zpb-ttf:ymax bb) (zpb-ttf:ymin bb)))
-         (array (make-array (list height width)
-                            :element-type '(unsigned-byte 8)
-                            :initial-element 0))
+         (array (mezzano.gui:make-surface width height :format :a8))
          (paths (paths-ttf:paths-from-glyph glyph
                                             :scale-x scale
                                             :scale-y (- scale)
                                             :offset (paths:make-point 0 (zpb-ttf:ymax bb))
                                             :auto-orient :cw)))
     (rasterize-paths paths (lambda (x y alpha)
-                             (setf (aref array y (- x (zpb-ttf:xmin bb)))
+                             (setf (mezzano.gui:surface-pixel array (- x (zpb-ttf:xmin bb)) y)
                                    (normalize-alpha alpha))))
     array))
-
-(defun expand-bit-mask-to-ub8-mask (mask)
-  (let ((new (make-array (array-dimensions mask) :element-type '(unsigned-byte 8))))
-    (dotimes (y (array-dimension mask 0))
-      (dotimes (x (array-dimension mask 1))
-        (setf (aref new y x) (* #xFF (aref mask y x)))))
-    new))
 
 (defgeneric character-to-glyph (font character))
 
@@ -203,7 +194,8 @@
                    (let ((mask (or (sys.int::map-unifont-2d (code-char code))
                                    (sys.int::map-unifont-2d #\WHITE_VERTICAL_RECTANGLE))))
                      (setf glyph (make-glyph :character (code-char code)
-                                             :mask (expand-bit-mask-to-ub8-mask mask)
+                                             :mask (mezzano.gui:make-surface-from-array
+                                                    mask :format :a1)
                                              :yoff 12
                                              :xoff 0
                                              :advance (array-dimension mask 1))

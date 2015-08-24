@@ -970,9 +970,8 @@ Tries to stay as close to the hint column as possible."
        with win-width = (editor-width)
        with point = (buffer-point (current-buffer *editor*))
        with mark-active = (buffer-mark-active (current-buffer *editor*))
-       with buffer = (make-array (list line-height win-width)
-                                 :element-type '(unsigned-byte 32)
-                                 :initial-element background)
+       with buffer = (mezzano.gui:make-surface win-width line-height
+                                               :initial-colour background)
        for ch-position from start below (line-length line)
        for glyph = (mezzano.gui.font:character-to-glyph font (line-character line ch-position))
        for mask = (mezzano.gui.font:glyph-mask glyph)
@@ -994,24 +993,29 @@ Tries to stay as close to the hint column as possible."
                                             (< ch-position line-2-charpos)))))))
            ;; Invert the point.
            (when at-point
-             (mezzano.gui:bitset line-height advance
-                                   foreground
-                                   buffer 0 pen))
-           (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1)
-                                                (if at-point
-                                                    background
-                                                    foreground)
-                                                mask 0 0
-                                                buffer
-                                                (- baseline (mezzano.gui.font:glyph-yoff glyph))
-                                                (+ pen (mezzano.gui.font:glyph-xoff glyph)))
+             (mezzano.gui:bitset :set
+                                 advance line-height
+                                 foreground
+                                 buffer
+                                 pen 0))
+           (mezzano.gui:bitset :blend
+                               (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                               (if at-point
+                                   background
+                                   foreground)
+                               buffer
+                               (+ pen (mezzano.gui.font:glyph-xoff glyph))
+                               (- baseline (mezzano.gui.font:glyph-yoff glyph))
+                               mask 0 0)
            ;; Underline the region.
            (when in-region
-             (mezzano.gui:bitset-argb-xrgb 1 advance
-                                           (if at-point
-                                               background
-                                               foreground)
-                                           buffer baseline pen))
+             (mezzano.gui:bitset :blend
+                                 advance 1
+                                 (if at-point
+                                     background
+                                     foreground)
+                                 buffer
+                                 pen baseline))
            (incf pen advance))
        finally
        ;; Reached end of line, check for the point.
@@ -1020,10 +1024,12 @@ Tries to stay as close to the hint column as possible."
            ;; Point is here, render it past the last character.
            (let* ((glyph (mezzano.gui.font:character-to-glyph font #\Space))
                   (advance (mezzano.gui.font:glyph-advance glyph)))
-             (when (<= (+ pen advance) win-width) ; FIXME, how to display point at end of line & display line properly. also fix blit crash bug.
-               (mezzano.gui:bitset line-height advance
+             (when (<= (+ pen advance) win-width) ; FIXME, how to display point at end of line & display line properly.
+               (mezzano.gui:bitset :set
+                                   advance line-height
                                    foreground
-                                   buffer 0 pen))))
+                                   buffer
+                                   pen 0))))
        ;; TODO: Render underline to end of line region spans whole line.
          (return (values buffer ch-position)))))
 
@@ -1069,16 +1075,18 @@ Tries to stay as close to the hint column as possible."
            (win-width (editor-width)))
       (if line
           ;; Blitting line.
-          (mezzano.gui:bitblt line-height win-width
+          (mezzano.gui:bitblt :set
+                              win-width line-height
                               (display-line-representation line)
                               0 0
                               fb
-                              real-y left)
+                              left real-y)
           ;; Line is empty.
-          (mezzano.gui:bitset line-height win-width
+          (mezzano.gui:bitset :set
+                              win-width line-height
                               (background-colour *editor*)
                               fb
-                              real-y left))
+                              left real-y))
       (mezzano.gui.compositor:damage-window (window *editor*)
                                             left real-y
                                             win-width line-height))))
@@ -1720,11 +1728,12 @@ If no such form is found, then return the CL-USER package."
         (mezzano.gui.widgets:draw-frame frame)
         (multiple-value-bind (left right top bottom)
             (mezzano.gui.widgets:frame-size (frame *editor*))
-          (mezzano.gui:bitset (- (mezzano.gui.compositor:height window) top bottom)
+          (mezzano.gui:bitset :set
                               (- (mezzano.gui.compositor:width window) left right)
+                              (- (mezzano.gui.compositor:height window) top bottom)
                               (background-colour *editor*)
                               framebuffer
-                              top left)
+                              left top)
           (mezzano.gui.compositor:damage-window window
                                                 left top
                                                 (- (mezzano.gui.compositor:width window) left right)

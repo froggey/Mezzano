@@ -134,7 +134,7 @@ Calls FN with each output character."
                 (logior (ash (if (zerop red)   0 (+ (* red   40) 55)) 16)
                         (ash (if (zerop green) 0 (+ (* green 40) 55)) 8)
                              (if (zerop blue)  0 (+ (* blue  40) 55)))))))
-    ;; 232-255 area a greyscale ramp, leaving out black & white.
+    ;; 232-255 are a greyscale ramp, leaving out black & white.
     (dotimes (grey 24)
       (let ((level (+ (* grey 10) 8)))
         (setf (aref colours (+ 232 grey))
@@ -144,6 +144,8 @@ Calls FN with each output character."
     colours))
 
 (defparameter *xterm-colours* (generate-xterm-colour-table))
+(defparameter *xterm-default-background-colour* (mezzano.gui:make-colour 0 0 0)
+  "Use this colour for the background when no background colour has been specified.")
 
 (defparameter *dec-special-characters-and-line-drawing*
   #(#\BLACK_LOZENGE
@@ -179,34 +181,44 @@ Calls FN with each output character."
     #\MIDDLE_DOT))
 
 (defun true-foreground-colour (terminal)
-  (let ((colour (or (if (inverse terminal)
-                        (background-colour terminal)
-                        (foreground-colour terminal))
-                    (if (inverse terminal) 0 7))))
+  (let ((colour-index (or (if (inverse terminal)
+                              (background-colour terminal)
+                              (foreground-colour terminal))
+                          (if (inverse terminal) 0 7))))
     (when (and (bold terminal)
                (not (inverse terminal))
-               (< colour 8))
-      (incf colour 8))
-    (logior #xFF000000
-            (elt *xterm-colours* colour))))
+               (< colour-index 8))
+      (incf colour-index 8))
+    (let ((colour (elt *xterm-colours* colour-index)))
+      (mezzano.gui:make-colour-from-octets
+       (ldb (byte 8 16) colour) ; Red
+       (ldb (byte 8 8) colour) ; Green
+       (ldb (byte 8 0) colour))))) ; Blue
 
 (defun true-background-colour (terminal)
-  (logior #xFF000000
-          (elt *xterm-colours* (or (if (inverse terminal)
-                                       (foreground-colour terminal)
-                                       (background-colour terminal))
-                                   (if (inverse terminal) 7 0)))))
+  (let ((colour-index (or (if (inverse terminal)
+                              (foreground-colour terminal)
+                              (background-colour terminal))
+                          (if (inverse terminal) 7 nil))))
+    (if colour-index
+        (let ((colour (elt *xterm-colours* colour-index)))
+          (mezzano.gui:make-colour-from-octets
+           (ldb (byte 8 16) colour) ; Red
+           (ldb (byte 8 8) colour) ; Green
+           (ldb (byte 8 0) colour))) ; Blue
+        *xterm-default-background-colour*)))
 
 (defmethod initialize-instance :after ((term xterm-terminal) &key width height font &allow-other-keys)
-  (let* ((fb (terminal-framebuffer term))
-         (dims (array-dimensions fb)))
+  (let* ((fb (terminal-framebuffer term)))
     (setf (slot-value term 'width) (truncate width (cell-pixel-width term))
           (slot-value term 'height) (truncate height (cell-pixel-height term)))
     (soft-reset term)
-    (mezzano.gui:bitset (* (terminal-height term) (cell-pixel-height term))
+    (mezzano.gui:bitset :set
                         (* (terminal-width term) (cell-pixel-width term))
-                        (true-background-colour term) fb
-                        (y-offset term) (x-offset term))
+                        (* (terminal-height term) (cell-pixel-height term))
+                        (true-background-colour term)
+                        fb
+                        (x-offset term) (y-offset term))
     (funcall (damage-function term)
              (x-offset term) (y-offset term)
              (* (terminal-width term) (cell-pixel-width term))
@@ -236,17 +248,22 @@ Calls FN with each output character."
   (when (and (<= 0 x (1- (terminal-width term)))
              (<= 0 y (1- (terminal-height term))))
     (let* ((glyph (mezzano.gui.font:character-to-glyph (font term) char))
-           (mask (mezzano.gui.font:glyph-mask glyph)))
-      (mezzano.gui:bitset (cell-pixel-height term) (cell-pixel-width term)
-                          (true-background-colour term) (terminal-framebuffer term)
-                          (y-pixel-position term y) (x-pixel-position term x))
-      (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (true-foreground-colour term)
-                                           mask 0 0
-                                           (terminal-framebuffer term)
-                                           (- (+ (y-pixel-position term y) (mezzano.gui.font:ascender (font term))) (mezzano.gui.font:glyph-yoff glyph))
-                                           (+ (x-pixel-position term x) (mezzano.gui.font:glyph-xoff glyph)))
+           (mask (mezzano.gui.font:glyph-mask glyph))
+           (fb (terminal-framebuffer term)))
+      (mezzano.gui:bitset :set
+                          (cell-pixel-width term) (cell-pixel-height term)
+                          (true-background-colour term)
+                          fb
+                          (x-pixel-position term x) (y-pixel-position term y))
+      (mezzano.gui:bitset :blend
+                          (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                          (true-foreground-colour term)
+                          fb
+                          (+ (x-pixel-position term x) (mezzano.gui.font:glyph-xoff glyph))
+                          (- (+ (y-pixel-position term y) (mezzano.gui.font:ascender (font term))) (mezzano.gui.font:glyph-yoff glyph))
+                          mask 0 0)
       #+nil(when (bold term)
-             (mezzano.gui:bitset-argb-xrgb-mask-1 16 7 (true-foreground-colour term)
+             (mezzano.gui:bitset-blend-mask-1 16 7 (true-foreground-colour term)
                                                   glyph 0 0
                                                   (terminal-framebuffer term)
                                                   (y-pixel-position term y)
@@ -275,42 +292,63 @@ Calls FN with each output character."
         rend (min rend (1- (terminal-height term))))
   (when (> rstart rend)
     (return-from scroll-terminal))
-  (let ((rsize (- rend rstart)))
+  (let ((rsize (- rend rstart))
+        (fb (terminal-framebuffer term)))
     (cond ((> lines 0)
            ;; Screen goes up.
            (cond ((>= lines rsize)
                   ;; All the way up.
-                  (mezzano.gui:bitset (* rsize (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                      (true-background-colour term) (terminal-framebuffer term)
-                                      (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term)))
-                 (t (mezzano.gui:bitblt (* (1+ (- rsize lines)) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                        (terminal-framebuffer term)
-                                        (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term))
+                  (mezzano.gui:bitset :set
+                                      (* (terminal-width term) (cell-pixel-width term))
+                                      (* rsize (cell-pixel-height term))
+                                      (true-background-colour term)
+                                      fb
+                                      (x-offset term)
+                                      (+ (* rstart (cell-pixel-height term)) (y-offset term))))
+                 (t (mezzano.gui:bitblt :set
+                                        (* (terminal-width term) (cell-pixel-width term))
+                                        (* (1+ (- rsize lines)) (cell-pixel-height term))
+                                        fb
                                         (x-offset term)
-                                        (terminal-framebuffer term)
-                                        (+ (* rstart (cell-pixel-height term)) (y-offset term))
-                                        (x-offset term))
-                    (mezzano.gui:bitset (* lines (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                        (true-background-colour term) (terminal-framebuffer term)
-                                        (+ (* (1+ (- rend lines)) (cell-pixel-height term)) (y-offset term)) (x-offset term)))))
+                                        (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term))
+                                        fb
+                                        (x-offset term)
+                                        (+ (* rstart (cell-pixel-height term)) (y-offset term)))
+                    (mezzano.gui:bitset :set
+                                        (* (terminal-width term) (cell-pixel-width term))
+                                        (* lines (cell-pixel-height term))
+                                        (true-background-colour term)
+                                        fb
+                                        (x-offset term)
+                                        (+ (* (1+ (- rend lines)) (cell-pixel-height term)) (y-offset term))))))
           ((< lines 0)
            ;; Screen goes down.
            (setf lines (- lines))
            (cond ((>= lines rsize)
                   ;; All the way down.
-                  (mezzano.gui:bitset (* rsize (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                      (true-background-colour term) (terminal-framebuffer term)
-                                      (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term)))
-                 (t (mezzano.gui:bitblt (* (1+ (- rsize lines)) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                        (terminal-framebuffer term)
-                                        (+ (* rstart (cell-pixel-height term)) (y-offset term))
+                  (mezzano.gui:bitset :set
+                                      (* (terminal-width term) (cell-pixel-width term))
+                                      (* rsize (cell-pixel-height term))
+                                      (true-background-colour term)
+                                      fb
+                                      (x-offset term)
+                                      (+ (* rstart (cell-pixel-height term)) (y-offset term))))
+                 (t (mezzano.gui:bitblt :set
+                                        (* (terminal-width term) (cell-pixel-width term))
+                                        (* (1+ (- rsize lines)) (cell-pixel-height term))
+                                        fb
                                         (x-offset term)
-                                        (terminal-framebuffer term)
-                                        (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term))
-                                        (x-offset term))
-                    (mezzano.gui:bitset (* lines (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                                        (true-background-colour term) (terminal-framebuffer term)
-                                        (+ (* rstart (cell-pixel-height term)) (y-offset term)) (x-offset term))))))
+                                        (+ (* rstart (cell-pixel-height term)) (y-offset term))
+                                        fb
+                                        (x-offset term)
+                                        (+ (* (+ rstart lines) (cell-pixel-height term)) (y-offset term)))
+                    (mezzano.gui:bitset :set
+                                        (* (terminal-width term) (cell-pixel-width term))
+                                        (* lines (cell-pixel-height term))
+                                        (true-background-colour term)
+                                        fb
+                                        (x-offset term)
+                                        (+ (* rstart (cell-pixel-height term)) (y-offset term)))))))
     ;; Wow. Such lazy. Much damage.
     (funcall (damage-function term)
              (x-offset term) (y-offset term)
@@ -326,9 +364,13 @@ Calls FN with each output character."
   (setf top (clamp top 0 (terminal-height term)))
   (setf bottom (clamp bottom 0 (terminal-height term)))
   (when (< top bottom)
-    (mezzano.gui:bitset (* (- bottom top) (cell-pixel-height term)) (* (terminal-width term) (cell-pixel-width term))
-                        (true-background-colour term) (terminal-framebuffer term)
-                        (+ (* top (cell-pixel-height term)) (y-offset term)) (x-offset term))
+    (mezzano.gui:bitset :set
+                        (* (terminal-width term) (cell-pixel-width term))
+                        (* (- bottom top) (cell-pixel-height term))
+                        (true-background-colour term)
+                        (terminal-framebuffer term)
+                        (x-offset term)
+                        (+ (* top (cell-pixel-height term)) (y-offset term)))
     (funcall (damage-function term)
              (x-offset term) (+ (* top (cell-pixel-height term)) (y-offset term))
              (* (terminal-width term) (cell-pixel-width term)) (* (- bottom top) (cell-pixel-height term)))))
@@ -338,9 +380,13 @@ Calls FN with each output character."
   (setf right (clamp right 0 (terminal-width term)))
   (when (and (<= 0 (y-pos term) (1- (terminal-height term)))
              (< left right))
-    (mezzano.gui:bitset (cell-pixel-height term) (* (- right left) (cell-pixel-width term))
-                        (true-background-colour term) (terminal-framebuffer term)
-                        (+ (* (y-pos term) (cell-pixel-height term)) (y-offset term)) (+ (* left (cell-pixel-width term)) (x-offset term)))
+    (mezzano.gui:bitset :set
+                        (* (- right left) (cell-pixel-width term))
+                        (cell-pixel-height term)
+                        (true-background-colour term)
+                        (terminal-framebuffer term)
+                        (+ (* left (cell-pixel-width term)) (x-offset term))
+                        (+ (* (y-pos term) (cell-pixel-height term)) (y-offset term)))
     (funcall (damage-function term)
              (+ (* left (cell-pixel-width term)) (x-offset term)) (+ (* (y-pos term) (cell-pixel-height term)) (y-offset term))
              (* (- right left) (cell-pixel-width term)) (cell-pixel-height term))))

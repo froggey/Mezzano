@@ -63,9 +63,10 @@
   (let* ((truename (truename path))
          (image (gethash truename *image-cache*)))
     (unless image
-      (setf image (or (load-jpeg truename)
+      (setf image (mezzano.gui:make-surface-from-array
+                   (or (load-jpeg truename)
                       (load-png truename)
-                      (error "Unable to load ~S." path)))
+                      (error "Unable to load ~S." path))))
       (setf (gethash truename *image-cache*) image))
     image))
 
@@ -136,12 +137,12 @@
      do (progn ;ignore-errors
           (incf icon-pen 20)
           (let* ((image (load-image icon))
-                 (width (array-dimension image 1))
-                 (height (array-dimension image 0)))
+                 (width (mezzano.gui:surface-width image))
+                 (height (mezzano.gui:surface-height image)))
             (when (and (<= 20 x (1- (+ 20 width)))
                        (<= icon-pen y (1- (+ icon-pen height))))
               (return icon-repr))
-            (incf icon-pen (array-dimension image 0))))))
+            (incf icon-pen (mezzano.gui:surface-height image))))))
 
 (defmethod dispatch-event (desktop (event mezzano.gui.compositor:mouse-event))
   (when (logbitp 0 (mezzano.gui.compositor:mouse-button-change event))
@@ -169,16 +170,20 @@
          (desktop-height (mezzano.gui.compositor:height window))
          (framebuffer (mezzano.gui.compositor:window-buffer window))
          (font (font desktop)))
-    (mezzano.gui:bitset desktop-height desktop-width
+    (mezzano.gui:bitset :set
+                        desktop-width desktop-height
                         (colour desktop)
                         framebuffer 0 0)
     (when (image desktop)
       (let* ((image (image desktop))
-             (image-width (array-dimension image 1))
-             (image-height (array-dimension image 0)))
-        (mezzano.gui:bitblt-argb-xrgb image-height image-width
-                                      image 0 0
-                                      framebuffer (- (truncate desktop-height 2) (truncate image-height 2)) (- (truncate desktop-width 2) (truncate image-width 2)))))
+             (image-width (mezzano.gui:surface-width image))
+             (image-height (mezzano.gui:surface-height image)))
+        (mezzano.gui:bitblt :blend
+                            image-width image-height
+                            image 0 0
+                            framebuffer
+                            (- (truncate desktop-width 2) (truncate image-width 2))
+                            (- (truncate desktop-height 2) (truncate image-height 2)))))
     (loop
        with icon-pen = 0
        for icon-repr in *icons*
@@ -186,27 +191,32 @@
        do (progn ;ignore-errors
             (incf icon-pen 20)
             (let ((image (load-image icon)))
-              (mezzano.gui:bitblt-argb-xrgb (array-dimension image 0) (array-dimension image 1)
-                                            image 0 0
-                                            framebuffer icon-pen 20)
+              (mezzano.gui:bitblt :blend
+                                  (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
+                                  image 0 0
+                                  framebuffer 20 icon-pen)
               (when (eql icon-repr (clicked-icon desktop))
-                (mezzano.gui:bitxor (array-dimension image 0) (array-dimension image 1)
+                (mezzano.gui:bitset :xor
+                                    (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
                                     #x00FFFFFF
-                                    framebuffer icon-pen 20))
+                                    framebuffer
+                                    20 icon-pen))
               (loop
                  with pen = 0
                  for ch across name
                  for glyph = (mezzano.gui.font:character-to-glyph font ch)
                  for mask = (mezzano.gui.font:glyph-mask glyph)
                  do
-                   (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFFFFFFFF
-                                                        mask 0 0
-                                                        framebuffer
-                                                        (- (+ icon-pen (truncate (array-dimension image 1) 2) (mezzano.gui.font:ascender font))
-                                                           (mezzano.gui.font:glyph-yoff glyph))
-                                                        (+ 20 (array-dimension image 0) 10 pen (mezzano.gui.font:glyph-xoff glyph)))
+                   (mezzano.gui:bitset :blend
+                                       (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                                       (mezzano.gui:make-colour 1 1 1)
+                                       framebuffer
+                                       (+ 20 (mezzano.gui:surface-height image) 10 pen (mezzano.gui.font:glyph-xoff glyph))
+                                       (- (+ icon-pen (truncate (mezzano.gui:surface-width image) 2) (mezzano.gui.font:ascender font))
+                                          (mezzano.gui.font:glyph-yoff glyph))
+                                       mask 0 0)
                    (incf pen (mezzano.gui.font:glyph-advance glyph)))
-              (incf icon-pen (array-dimension image 0)))))
+              (incf icon-pen (mezzano.gui:surface-height image)))))
     (mezzano.gui.compositor:damage-window window 0 0 (mezzano.gui.compositor:width window) (mezzano.gui.compositor:height window))))
 
 (defun desktop-main (desktop)

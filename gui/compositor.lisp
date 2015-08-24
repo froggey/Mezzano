@@ -3,8 +3,8 @@
 
 (in-package :mezzano.gui.compositor)
 
-(defvar *default-foreground-colour* #xFFDCDCCC)
-(defvar *default-background-colour* #xFF3E3E3E)
+(defvar *default-foreground-colour* (mezzano.gui:make-colour-from-octets #xDC #xDC #xCC))
+(defvar *default-background-colour* (mezzano.gui:make-colour-from-octets #x3E #x3E #x3E))
 
 (defun clamp (x min max)
   (cond ((< x min) min)
@@ -36,10 +36,10 @@
 (defgeneric height (thing))
 
 (defmethod width ((window window))
-  (array-dimension (window-buffer window) 1))
+  (mezzano.gui:surface-width (window-buffer window)))
 
 (defmethod height ((window window))
-  (array-dimension (window-buffer window) 0))
+  (mezzano.gui:surface-height (window-buffer window)))
 
 (defvar *window-list* '())
 (defvar *active-window* nil)
@@ -93,7 +93,8 @@
                 :initial-contents data)))
 
 (defvar *mouse-pointer*
-  (2d-array '((#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
+  (mezzano.gui:make-surface-from-array
+   (2d-array '((#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFF000000 #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFF000000 #xFF000000 #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
@@ -110,7 +111,7 @@
               (#xFFFFFFFF #xFF000000 #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000)
               (#xFFFFFFFF #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000 #x00000000))
-            '(unsigned-byte 32)))
+            '(unsigned-byte 32))))
 
 ;;; Position of the "hot" pixel in *MOUSE-POINTER*, this is where clicks actually occur.
 (defvar *mouse-hot-x* 0)
@@ -708,8 +709,8 @@ A passive drag sends no drag events to the window.")
         (setf (window-y *drag-window*) (- *mouse-y* *drag-y*))
         (expand-clip-rectangle-by-window *drag-window*))
       ;; Mouse position changed, redraw the screen.
-      (expand-clip-rectangle old-x old-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0))
-      (expand-clip-rectangle new-x new-y (array-dimension *mouse-pointer* 1) (array-dimension *mouse-pointer* 0)))
+      (expand-clip-rectangle old-x old-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*))
+      (expand-clip-rectangle new-x new-y (mezzano.gui:surface-width *mouse-pointer*) (mezzano.gui:surface-height *mouse-pointer*)))
     (when (and (not (logbitp 0 buttons))
                (logbitp 0 changes)
                *drag-window*)
@@ -783,9 +784,7 @@ A passive drag sends no drag events to the window.")
                                :height height
                                :fifo fifo
                                :thread (mezzano.supervisor:current-thread)
-                               :buffer (make-array (list height width)
-                                                   :element-type '(unsigned-byte 32)
-                                                   :initial-element 0)
+                               :buffer (mezzano.gui:make-surface width height)
                                :layer layer
                                :kind kind)))
     (mezzano.supervisor:fifo-push (make-instance 'window-create-event
@@ -976,9 +975,10 @@ A passive drag sends no drag events to the window.")
                (not (zerop c-nrows)))
       #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
               c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
-      (bitblt-argb-xrgb c-nrows c-ncols
-                        buffer (- c-row row) (- c-col col)
-                        *screen-backbuffer* c-row c-col))))
+      (bitblt :blend
+              c-ncols c-nrows
+              buffer (- c-col col) (- c-row row)
+              *screen-backbuffer* c-col c-row))))
 
 (defun fill-with-clip (nrows ncols colour row col)
   "Fill a rectangle with COLOUR on the screen backbuffer, obeying the global clip region."
@@ -990,9 +990,10 @@ A passive drag sends no drag events to the window.")
                (not (zerop c-nrows)))
       #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
                     c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
-      (bitset-argb-xrgb c-nrows c-ncols
-                        colour
-                        *screen-backbuffer* c-row c-col))))
+      (bitset :blend
+              c-ncols c-nrows
+              colour
+              *screen-backbuffer* c-col c-row))))
 
 (defun recompose-windows (&optional full)
   (when full
@@ -1014,15 +1015,16 @@ A passive drag sends no drag events to the window.")
                       #x80000000
                       (window-y window) (window-x window))))
   ;; Then the mouse pointer on top.
-  (blit-with-clip (array-dimension *mouse-pointer* 0) (array-dimension *mouse-pointer* 1)
+  (blit-with-clip (surface-height *mouse-pointer*) (surface-width *mouse-pointer*)
                   *mouse-pointer*
                   (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
   ;; Update the actual screen.
   (mezzano.supervisor:framebuffer-blit *main-screen*
-                                         *clip-rect-height*
-                                         *clip-rect-width*
-                                         *screen-backbuffer* *clip-rect-y* *clip-rect-x*
-                                         *clip-rect-y* *clip-rect-x*)
+                                       *clip-rect-height*
+                                       *clip-rect-width*
+                                       (mezzano.gui::surface-pixels *screen-backbuffer*)
+                                       *clip-rect-y* *clip-rect-x*
+                                       *clip-rect-y* *clip-rect-x*)
   ;; Reset clip region.
   (setf *clip-rect-x* 0
         *clip-rect-y* 0
@@ -1034,9 +1036,9 @@ A passive drag sends no drag events to the window.")
      (when (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
        ;; Framebuffer changed. Rebuild the screen.
        (setf *main-screen* (mezzano.supervisor:current-framebuffer)
-             *screen-backbuffer* (make-array (list (mezzano.supervisor:framebuffer-height *main-screen*)
-                                                   (mezzano.supervisor:framebuffer-width *main-screen*))
-                                             :element-type '(unsigned-byte 32)))
+             *screen-backbuffer* (mezzano.gui:make-surface
+                                  (mezzano.supervisor:framebuffer-width *main-screen*)
+                                  (mezzano.supervisor:framebuffer-height *main-screen*)))
        (recompose-windows t)
        (broadcast-notification :screen-geometry
                                (make-instance 'screen-geometry-update

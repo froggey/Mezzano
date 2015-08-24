@@ -55,40 +55,42 @@
 
 ;; TODO: Load these from a file, maybe.
 (defvar *close-button*
-  (mezzano.gui.compositor::2d-array
-   '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
-     (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353E #xFFE5737A #xFFEA949A #xFFE9949A #xFFE5727A #xFFCC313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
-     (#x00000000 #x2213090A #xE1A51D25 #xFFE76F76 #xFFF9DFE1 #xFFFDF6F6 #xFFFDF5F5 #xFFFDF5F5 #xFFFDF6F6 #xFFF9E0E2 #xFFE66F77 #xD7A40E16 #x17140202 #x00000000)
-     (#x02000201 #xBD861A20 #xFFE25059 #xFFF5D1D3 #xFFF3C9CB #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF3C9CB #xFFF5D1D3 #xFFE15059 #xAD880A10 #x00000000)
-     (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEBA5A9 #xFFEA9DA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9DA2 #xFFEBA5A9 #xFFE37980 #xFFD01C26 #x355F393B)
-     (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE47D82 #xFFDD565E #xFFCE1621 #x85CA7377)
-     (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFDF585F #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF585F #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
-     (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFDC3B44 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDC3B44 #xFFDB323B #xFFDA3039 #xFFD82832 #xA6CC6368)
-     (#x897A2125 #xFFE5343C #xFFDE363F #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE353E #xFFDE353E #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE363F #xFFD7262F #x8AD28588)
-     (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
-     (#x00F5F6F5 #xACC44E53 #xFFDF2E37 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE43D45 #xFFDC2C34 #xBBC8676B #x02FDFEFE)
-     (#x00FFFFFF #x16F5E3E3 #xD5CC4248 #xFFDC2C35 #xFFE43C45 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE33D45 #xFFE43C44 #xFFDD2C34 #xDFC2474C #x20F0E7E8 #x00FFFFFF)
-     (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFCF2B32 #xFFDB2C34 #xFFE0323B #xFFE0323B #xFFDB2C34 #xFFCC2B32 #xB9C6666A #x22EFE7E8 #x00FFFFFF #x00FFFFFF)
-     (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
-   '(unsigned-byte 32)))
+  (mezzano.gui:make-surface-from-array
+   (mezzano.gui.compositor::2d-array
+    '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
+      (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353E #xFFE5737A #xFFEA949A #xFFE9949A #xFFE5727A #xFFCC313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
+      (#x00000000 #x2213090A #xE1A51D25 #xFFE76F76 #xFFF9DFE1 #xFFFDF6F6 #xFFFDF5F5 #xFFFDF5F5 #xFFFDF6F6 #xFFF9E0E2 #xFFE66F77 #xD7A40E16 #x17140202 #x00000000)
+      (#x02000201 #xBD861A20 #xFFE25059 #xFFF5D1D3 #xFFF3C9CB #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF2C4C7 #xFFF3C9CB #xFFF5D1D3 #xFFE15059 #xAD880A10 #x00000000)
+      (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEBA5A9 #xFFEA9DA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9EA2 #xFFEA9DA2 #xFFEBA5A9 #xFFE37980 #xFFD01C26 #x355F393B)
+      (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE3787E #xFFE47D82 #xFFDD565E #xFFCE1621 #x85CA7377)
+      (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFDF585F #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF575E #xFFDF585F #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
+      (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFDC3B44 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDD3E46 #xFFDC3B44 #xFFDB323B #xFFDA3039 #xFFD82832 #xA6CC6368)
+      (#x897A2125 #xFFE5343C #xFFDE363F #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE353E #xFFDE353E #xFFDE353E #xFFDD343D #xFFDE353E #xFFDE363F #xFFD7262F #x8AD28588)
+      (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE03A42 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
+      (#x00F5F6F5 #xACC44E53 #xFFDF2E37 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE23C44 #xFFE43D45 #xFFDC2C34 #xBBC8676B #x02FDFEFE)
+      (#x00FFFFFF #x16F5E3E3 #xD5CC4248 #xFFDC2C35 #xFFE43C45 #xFFE33D45 #xFFE23C44 #xFFE23C44 #xFFE33D45 #xFFE43C44 #xFFDD2C34 #xDFC2474C #x20F0E7E8 #x00FFFFFF)
+      (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFCF2B32 #xFFDB2C34 #xFFE0323B #xFFE0323B #xFFDB2C34 #xFFCC2B32 #xB9C6666A #x22EFE7E8 #x00FFFFFF #x00FFFFFF)
+      (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
+    '(unsigned-byte 32))))
 
 (defvar *close-button-hover*
-  (mezzano.gui.compositor::2d-array
-   '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
-     (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353F #xFFE5737A #xFFE9949A #xFFE9949A #xFFE5727A #xFFCD313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
-     (#x00000000 #x2213090A #xE1A51D25 #xFFE76E76 #xFFF6DFE1 #xFFFDF6F6 #xFFFEF5F6 #xFFFEF5F6 #xFFFEF6F7 #xFFF6E0E2 #xFFE56F77 #xD7A40E16 #x17140202 #x00000000)
-     (#x02000201 #xBD861A20 #xFFE25059 #xFFF7D1D3 #xFFD2C4C5 #xFFC0BDBD #xFFEFC4C7 #xFFF6C5C8 #xFFCCBFC0 #xFFC5C2C3 #xFFF4D1D3 #xFFE15159 #xAD880A10 #x00000000)
-     (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEEA5A9 #xFFDD9C9F #xFF8B8E8E #xFFBB9698 #xFFD59A9E #xFF868D8D #xFFC9989B #xFFEFA6AA #xFFE37980 #xFFD01C26 #x355F393B)
-     (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFEB7980 #xFFA06C6E #xFF5F605F #xFF6A6262 #xFF7D6566 #xFFE6787F #xFFE57D83 #xFFDD565E #xFFCE1621 #x85CA7377)
-     (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFE15860 #xFFDB565E #xFF4A3939 #xFF2D3332 #xFFBE5056 #xFFE65961 #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
-     (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFE13C45 #xFFD03B43 #xFF211413 #xFF050D0C #xFFA73237 #xFFE73D47 #xFFDA323B #xFFDA3039 #xFFD82832 #xA6CC6368)
-     (#x897A2125 #xFFE5343C #xFFDE363F #xFFDD353E #xFFEB3841 #xFF5B1619 #xFF0A0202 #xFF220809 #xFF250809 #xFFDF353E #xFFE0363F #xFFDE363F #xFFD7262F #x8AD28588)
-     (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE83C45 #xFFB62F35 #xFF000000 #xFF7C2024 #xFFB93036 #xFF000000 #xFF7E2125 #xFFED3D46 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
-     (#x00F5F6F5 #xACC44E53 #xFFDF2F37 #xFFEA4047 #xFF491416 #xFF260A0C #xFFDD3B43 #xFFF04048 #xFF55171A #xFF1D0809 #xFFD63A41 #xFFE02D35 #xBBC8676B #x02FDFEFE)
-     (#x00FFFFFF #x16F5E3E3 #xD5CD4248 #xFFDB2C34 #xFFCF373E #xFFDA3B42 #xFFE63D45 #xFFE43D45 #xFFE13C44 #xFFD1373E #xFFD62A32 #xDFC3474C #x20F0E7E8 #x00FFFFFF)
-     (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFD32B33 #xFFDD2D35 #xFFE0323A #xFFE0323A #xFFDC2C34 #xFFD02C33 #xB9C7666A #x22EEE7E8 #x00FFFFFF #x00FFFFFF)
-     (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
-   '(unsigned-byte 32)))
+  (mezzano.gui:make-surface-from-array
+   (mezzano.gui.compositor::2d-array
+    '((#x00000000 #x00000000 #x00000000 #x00000202 #x472B0C0E #x93650E13 #xB58F141B #xB48E1219 #x8F650A0F #x412B0709 #x00000101 #x00000000 #x00000000 #x00000000)
+      (#x00000000 #x00000000 #x24130A0A #xBC84161D #xFFCD353F #xFFE5737A #xFFE9949A #xFFE9949A #xFFE5727A #xFFCD313B #xB2830A11 #x1A130404 #x00000000 #x00000000)
+      (#x00000000 #x2213090A #xE1A51D25 #xFFE76E76 #xFFF6DFE1 #xFFFDF6F6 #xFFFEF5F6 #xFFFEF5F6 #xFFFEF6F7 #xFFF6E0E2 #xFFE56F77 #xD7A40E16 #x17140202 #x00000000)
+      (#x02000201 #xBD861A20 #xFFE25059 #xFFF7D1D3 #xFFD2C4C5 #xFFC0BDBD #xFFEFC4C7 #xFFF6C5C8 #xFFCCBFC0 #xFFC5C2C3 #xFFF4D1D3 #xFFE15159 #xAD880A10 #x00000000)
+      (#x432B0E10 #xFFCE1F29 #xFFE3787F #xFFEEA5A9 #xFFDD9C9F #xFF8B8E8E #xFFBB9698 #xFFD59A9E #xFF868D8D #xFFC9989B #xFFEFA6AA #xFFE37980 #xFFD01C26 #x355F393B)
+      (#x906D1C20 #xFFDB242E #xFFDD565E #xFFE47D82 #xFFEB7980 #xFFA06C6E #xFF5F605F #xFF6A6262 #xFF7D6566 #xFFE6787F #xFFE57D83 #xFFDD565E #xFFCE1621 #x85CA7377)
+      (#xB29A252B #xFFDB2B35 #xFFD8313A #xFFDE5259 #xFFE15860 #xFFDB565E #xFF4A3939 #xFF2D3332 #xFFBE5056 #xFFE65961 #xFFDE5259 #xFFD8313A #xFFD3212B #xA5CE6268)
+      (#xB09A2228 #xFFE0323B #xFFDA3039 #xFFDB323B #xFFE13C45 #xFFD03B43 #xFF211413 #xFF050D0C #xFFA73237 #xFFE73D47 #xFFDA323B #xFFDA3039 #xFFD82832 #xA6CC6368)
+      (#x897A2125 #xFFE5343C #xFFDE363F #xFFDD353E #xFFEB3841 #xFF5B1619 #xFF0A0202 #xFF220809 #xFF250809 #xFFDF353E #xFFE0363F #xFFDE363F #xFFD7262F #x8AD28588)
+      (#x37AF8B8C #xFFCB2129 #xFFE33C44 #xFFE83C45 #xFFB62F35 #xFF000000 #xFF7C2024 #xFFB93036 #xFF000000 #xFF7E2125 #xFFED3D46 #xFFE33A43 #xFFCC2830 #x41E6CBCC)
+      (#x00F5F6F5 #xACC44E53 #xFFDF2F37 #xFFEA4047 #xFF491416 #xFF260A0C #xFFDD3B43 #xFFF04048 #xFF55171A #xFF1D0809 #xFFD63A41 #xFFE02D35 #xBBC8676B #x02FDFEFE)
+      (#x00FFFFFF #x16F5E3E3 #xD5CD4248 #xFFDB2C34 #xFFCF373E #xFFDA3B42 #xFFE63D45 #xFFE43D45 #xFFE13C44 #xFFD1373E #xFFD62A32 #xDFC3474C #x20F0E7E8 #x00FFFFFF)
+      (#x00FFFFFF #x00FFFFFF #x19F2E5E5 #xAFCE6368 #xFFD32B33 #xFFDD2D35 #xFFE0323A #xFFE0323A #xFFDC2C34 #xFFD02C33 #xB9C7666A #x22EEE7E8 #x00FFFFFF #x00FFFFFF)
+      (#x00FFFFFF #x00FFFFFF #x00FFFFFF #x00FDFFFF #x3EE6C8C9 #x88D3878A #xA7CB676C #xA8CA686B #x8CD0888B #x45E2C9CA #x00FDFFFF #x00FFFFFF #x00FFFFFF #x00FFFFFF))
+    '(unsigned-byte 32))))
 
 (defvar *close-button-x* 5)
 (defvar *close-button-y* 3)
@@ -113,40 +115,65 @@
                           (ldb (byte 8 0) c2)
                           a))))
 
-(defun vertical-gradient (nrows ncols colour1 colour2 to-array to-row to-col)
-  (dotimes (i nrows)
-    (mezzano.gui:bitset 1 ncols
-                        (lerp-colour colour1 colour2 (/ i (1- nrows)))
-                        to-array (+ to-row i) to-col)))
+(defun vertical-gradient (width height colour1 colour2 to-array to-x to-y)
+  (dotimes (i height)
+    (mezzano.gui:bitset :set
+                        width 1
+                        (lerp-colour colour1 colour2 (/ i (1- height)))
+                        to-array to-x (+ to-y i))))
+
+(defvar *active-frame-colour* (mezzano.gui:make-colour-from-octets #x80 #x80 #x80))
+(defvar *active-frame-top-colour* (mezzano.gui:make-colour-from-octets #xFF #xFF #xFF))
+(defvar *inactive-frame-colour* (mezzano.gui:make-colour-from-octets #x40 #x40 #x40))
+(defvar *inactive-frame-top-colour* (mezzano.gui:make-colour-from-octets #x80 #x80 #x80))
+
+(defvar *frame-title-text-colour* (mezzano.gui:make-colour-from-octets #x3F #x3F #x3F))
 
 (defmethod draw-frame ((frame frame))
   (let* ((framebuffer (framebuffer frame))
-         (win-width (array-dimension framebuffer 1))
-         (win-height (array-dimension framebuffer 0))
+         (win-width (mezzano.gui:surface-width framebuffer))
+         (win-height (mezzano.gui:surface-height framebuffer))
          (title (frame-title frame))
-         (colour (if (activep frame) #xFF808080 #xFF404040))
-         (top-colour (if (activep frame) #xFFFFFFFF #xFF808080)))
+         (colour (if (activep frame) *active-frame-colour* *inactive-frame-colour*))
+         (top-colour (if (activep frame) *active-frame-top-colour* *inactive-frame-top-colour*)))
     ;; Top.
-    (vertical-gradient 19 win-width
+    (vertical-gradient win-width 19
                        top-colour colour
                        framebuffer 0 0)
     ;; Bottom.
-    (mezzano.gui:bitset 1 win-width colour framebuffer (1- win-height) 0)
+    (mezzano.gui:bitset :set
+                        win-width 1
+                        colour
+                        framebuffer 0 (1- win-height))
     ;; Left.
-    (mezzano.gui:bitset win-height 1 colour framebuffer 19 0)
+    (mezzano.gui:bitset :set
+                        1 win-height
+                        colour
+                        framebuffer 0 19)
     ;; Right.
-    (mezzano.gui:bitset win-height 1 colour framebuffer 19 (1- win-width))
+    (mezzano.gui:bitset :set
+                        1 win-height
+                        colour
+                        framebuffer (1- win-width) 19)
     ;; Round off the corners.
     (dotimes (y (array-dimension *corner-mask* 0))
-      (dotimes (x (array-dimension *corner-mask* 1))
-        (let ((alpha (truncate (* (aref *corner-mask* y x) 255))))
-          (setf (ldb (byte 8 24) (aref framebuffer y x)) alpha
-                (ldb (byte 8 24) (aref framebuffer y (- win-width x 1))) alpha))))
+      (let ((line-colour (lerp-colour top-colour colour (/ y 19))))
+        (dotimes (x (array-dimension *corner-mask* 1))
+          (let* ((alpha (aref *corner-mask* y x))
+                 (real-colour (mezzano.gui:make-colour (* (mezzano.gui:colour-red line-colour)   alpha)
+                                                       (* (mezzano.gui:colour-green line-colour) alpha)
+                                                       (* (mezzano.gui:colour-blue line-colour)  alpha)
+                                                       (* (mezzano.gui:colour-alpha line-colour) alpha)
+                                                       t)))
+            (setf (mezzano.gui:surface-pixel framebuffer x y) real-colour
+                  (mezzano.gui:surface-pixel framebuffer (- win-width x 1) y) real-colour)))))
     ;; Close button.
     (when (close-button-p frame)
-      (mezzano.gui:bitblt-argb-xrgb (array-dimension *close-button* 0) (array-dimension *close-button* 1)
-                                    (if (close-button-hover frame) *close-button-hover* *close-button*) 0 0
-                                    framebuffer *close-button-y* *close-button-x*))
+      (mezzano.gui:bitblt :blend
+                          (mezzano.gui:surface-width *close-button*) (mezzano.gui:surface-height *close-button*)
+                          (if (close-button-hover frame) *close-button-hover* *close-button*)
+                          0 0
+                          framebuffer *close-button-x* *close-button-y*))
     ;; Title.
     (when title
       (let ((width 0))
@@ -164,9 +191,13 @@
                    (mask (glyph-mask glyph)))
               (when (> pen width)
                 (return))
-              (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) #xFF3F3F3F
-                                                   mask 0 0
-                                                   framebuffer (- (+ 4 (ascender *frame-title-font*)) (glyph-yoff glyph)) (+ origin pen (glyph-xoff glyph)))
+              (mezzano.gui:bitset :blend
+                                  (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                                  *frame-title-text-colour*
+                                  framebuffer
+                                  (+ origin pen (glyph-xoff glyph))
+                                  (- (+ 4 (ascender *frame-title-font*)) (glyph-yoff glyph))
+                                  mask 0 0)
               (incf pen (glyph-advance glyph)))))))
     ;; Damage the whole window.
     (funcall (damage-function frame) 0 0 win-width win-height)))
@@ -178,11 +209,13 @@
 (defun in-frame-close-button (frame x y)
   (and (close-button-p frame)
        (>= x *close-button-x*)
-       (< x (+ *close-button-x* (array-dimension *close-button* 1)))
+       (< x (+ *close-button-x* (mezzano.gui:surface-width *close-button*)))
        (>= y *close-button-y*)
-       (< y (+ *close-button-y* (array-dimension *close-button* 0)))
+       (< y (+ *close-button-y* (mezzano.gui:surface-height *close-button*)))
        ;; Alpha test.
-       (> (ldb (byte 8 24) (aref *close-button* (- y *close-button-y*) (- x *close-button-x*))) 128)))
+       (> (mezzano.gui:colour-alpha
+           (mezzano.gui:surface-pixel *close-button* (- x *close-button-x*) (- y *close-button-y*)))
+          0.5)))
 
 (defmethod frame-mouse-event ((frame frame) event)
   (cond ((in-frame-close-button frame
@@ -193,7 +226,7 @@
            (draw-frame frame)
            (funcall (damage-function frame)
                     0 0
-                    (array-dimension (framebuffer frame) 1) 19))
+                    (mezzano.gui:surface-width (framebuffer frame)) 19))
          ;; Check for close button click.
          (when (and (logbitp 0 (mouse-button-change event))
                     ;; Mouse1 up
@@ -204,7 +237,7 @@
          (draw-frame frame)
          (funcall (damage-function frame)
                   0 0
-                  (array-dimension (framebuffer frame) 1) 19))))
+                  (mezzano.gui:surface-width (framebuffer frame)) 19))))
 
 (defclass text-widget (sys.gray:fundamental-character-output-stream)
   ((%framebuffer :initarg :framebuffer :reader framebuffer)
@@ -234,10 +267,11 @@
            (let ((line-height (line-height (font stream)))
                  (x (+ (x-position stream) (cursor-x stream)))
                  (y (+ (y-position stream) (cursor-y stream))))
-             (mezzano.gui:bitxor line-height 1
+             (mezzano.gui:bitset :xor
+                                 1 line-height
                                  #x00FFFFFF
                                  (framebuffer stream)
-                                 y x)
+                                 x y)
              (funcall (damage-function stream)
                       x y
                       1 line-height))))
@@ -273,7 +307,10 @@
            (left (x-position stream))
            (top (y-position stream)))
       ;; Clear to the end of the current line.
-      (mezzano.gui:bitset line-height (- win-width x) (background-colour stream) fb (+ top y) (+ left x))
+      (mezzano.gui:bitset :set
+                          (- win-width x) line-height
+                          (background-colour stream)
+                          fb (+ left x) (+ top y))
       (funcall (damage-function stream) (+ left x) (+ top y) (- win-width x) line-height)
       ;; Advance to the next line.
       (setf (cursor-x stream) 0
@@ -281,17 +318,24 @@
       (cond ((> (+ y (* line-height 2)) win-height)
              ;; Off the end of the screen. Scroll!
              (incf (cursor-line stream) line-height)
-             (mezzano.gui:bitblt (- win-height line-height) win-width
-                                 fb (+ top line-height) left
-                                 fb top left)
+             (mezzano.gui:bitblt :set
+                                 win-width (- win-height line-height)
+                                 fb left (+ top line-height)
+                                 fb left top)
              ;; Clear line.
-             (mezzano.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
+             (mezzano.gui:bitset :set
+                                 win-width line-height
+                                 (background-colour stream)
+                                 fb left (+ top y))
              ;; Damage the whole area.
              (funcall (damage-function stream) left top win-width win-height))
             (t (incf y line-height)
                (setf (cursor-y stream) y)
                ;; Clear line.
-               (mezzano.gui:bitset line-height win-width (background-colour stream) fb (+ top y) left)
+               (mezzano.gui:bitset :set
+                                   win-width line-height
+                                   (background-colour stream)
+                                   fb left (+ top y))
                (funcall (damage-function stream) left (+ top y) win-width line-height))))))
 
 (defmethod sys.gray:stream-write-char ((stream text-widget) character)
@@ -312,10 +356,17 @@
            ;; Fetch x/y after terpri.
            (let ((x (cursor-x stream))
                  (y (cursor-y stream)))
-             (mezzano.gui:bitset line-height advance (background-colour stream) fb (+ top y) (+ left x))
-             (mezzano.gui:bitset-argb-xrgb-mask-8 (array-dimension mask 0) (array-dimension mask 1) (foreground-colour stream)
-                                                  mask 0 0
-                                                  fb (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph))) (+ left x (glyph-xoff glyph)))
+             (mezzano.gui:bitset :set
+                                 advance line-height
+                                 (background-colour stream)
+                                 fb (+ left x) (+ top y))
+             (mezzano.gui:bitset :blend
+                                 (mezzano.gui:surface-width mask) (mezzano.gui:surface-height mask)
+                                 (foreground-colour stream)
+                                 fb
+                                 (+ left x (glyph-xoff glyph))
+                                 (+ top (- (+ y (ascender (font stream))) (glyph-yoff glyph)))
+                                 mask 0 0)
              (funcall (damage-function stream) (+ left x) (+ top y) advance line-height)
              (incf (cursor-x stream) advance)
              (incf (cursor-column stream))))))))
@@ -379,21 +430,30 @@
             end-y (- end-y (cursor-line stream)))
       (cond ((eql start-y end-y)
              ;; Clearing one line.
-             (mezzano.gui:bitset line-height (- end-x start-x) colour framebuffer (+ top start-y) (+ left start-x))
+             (mezzano.gui:bitset :set
+                                 (- end-x start-x) line-height
+                                 colour
+                                 framebuffer (+ left start-x) (+ top start-y))
              (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- end-x start-x) line-height))
             (t ;; Clearing many lines.
              ;; Clear top line.
-             (mezzano.gui:bitset line-height (- win-width start-x) colour
-                                 framebuffer (+ top start-y) (+ left start-x))
+             (mezzano.gui:bitset :set
+                                 (- win-width start-x) line-height
+                                 colour
+                                 framebuffer (+ left start-x) (+ top start-y))
              (funcall (damage-function stream) (+ left start-x) (+ top start-y) (- win-width start-x) line-height)
              ;; Clear in-between.
              (when (> (- end-y start-y) line-height)
-               (mezzano.gui:bitset (- end-y start-y line-height) win-width colour
-                                   framebuffer (+ top start-y line-height) left)
+               (mezzano.gui:bitset :set
+                                   win-width (- end-y start-y line-height)
+                                   colour
+                                   framebuffer left (+ top start-y line-height))
                (funcall (damage-function stream) left (+ top start-y line-height) win-width (- end-y start-y line-height)))
              ;; Clear bottom line.
-             (mezzano.gui:bitset line-height end-x colour
-                                 framebuffer (+ top end-y) left)
+             (mezzano.gui:bitset :set
+                                 end-x line-height
+                                 colour
+                                 framebuffer left (+ top end-y))
              (funcall (damage-function stream) left (+ top end-y) end-x line-height))))))
 
 (defmethod reset ((widget text-widget))
@@ -402,7 +462,9 @@
         (cursor-column widget) 0
         (cursor-line widget) 0
         (cursor-visible widget) nil)
-  (mezzano.gui:bitset (height widget) (width widget)
+  (mezzano.gui:bitset :set
+                      (width widget) (height widget)
                       (background-colour widget)
-                      (framebuffer widget) (y-position widget) (x-position widget))
+                      (framebuffer widget)
+                      (x-position widget) (y-position widget))
   (funcall (damage-function widget) (x-position widget) (y-position widget) (width widget) (height widget)))

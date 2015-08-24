@@ -223,7 +223,22 @@
               (string= "ACTION " message :start2 1 :end2 8))
          (format (display-pane irc) "~&[~A]* ~A ~A" channel from
                  (subseq message 8 (1- (length message)))))
-        (t (format (display-pane irc) "~&[~A]<~A> ~A" channel from message))))
+        (t (format (display-pane irc) "~&[~A]<~A> ~A" channel from message)
+           #+(or)
+           (when (and (>= (length message) 6)
+                      (string-equal "!eval " message :end2 6))
+             (let ((msg (handler-case
+                            (with-output-to-string (*standard-output*)
+                              (eval (read-from-string message t nil :start 6)))
+                          (error (condition)
+                            (format nil "~A" condition)))))
+               (setf msg (substitute #\Space #\Newline msg))
+               (when (> (length msg) 400)
+                 (setf msg (subseq msg 0 400))
+                 (setf msg (concatenate 'string msg "...")))
+               (buffered-format (irc-connection irc) "PRIVMSG ~A :~A~%"
+                                (or channel from) msg))))))
+
 
 (define-server-command ping (irc from message)
   (buffered-format (irc-connection irc) "PONG :~A~%" message))
@@ -562,18 +577,20 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                    :input-pane input-pane)))
           (setf (slot-value input-pane '%irc) irc)
           ;; Line seperating display and input panes.
-          (mezzano.gui:bitset 1 (- (mezzano.gui.compositor:width window)
+          (mezzano.gui:bitset :set
+                              (- (mezzano.gui.compositor:width window)
                                    (nth-value 0 (mezzano.gui.widgets:frame-size frame))
                                    (nth-value 1 (mezzano.gui.widgets:frame-size frame)))
-                              #xFF808080
+                              1
+                              (mezzano.gui:make-colour 0.5 0.5 0.5)
                               framebuffer
+                              (nth-value 0 (mezzano.gui.widgets:frame-size frame))
                               (+ (nth-value 2 (mezzano.gui.widgets:frame-size frame))
                                  (- (mezzano.gui.compositor:height window)
                                     (nth-value 2 (mezzano.gui.widgets:frame-size frame))
                                     (nth-value 3 (mezzano.gui.widgets:frame-size frame))
                                     (mezzano.gui.font:line-height font)
-                                    1))
-                              (nth-value 0 (mezzano.gui.widgets:frame-size frame)))
+                                    1)))
           (mezzano.gui.widgets:draw-frame frame)
           (mezzano.gui.compositor:damage-window window
                                                 0 0

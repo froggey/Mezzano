@@ -34,8 +34,8 @@
   ;; Make a fake frame to get the frame size.
   (multiple-value-bind (left right top bottom)
       (mezzano.gui.widgets:frame-size (make-instance 'mezzano.gui.widgets:frame))
-    (values (+ left (max 32 (array-dimension image 1)) right)
-            (+ top (max 32 (array-dimension image 0)) bottom))))
+    (values (+ left (max 32 (mezzano.gui:surface-width image)) right)
+            (+ top (max 32 (mezzano.gui:surface-height image)) bottom))))
 
 (defun main (path)
   (let ((font (mezzano.gui.font:open-font
@@ -60,11 +60,12 @@
                                       :frame frame)))
           (multiple-value-bind (left right top bottom)
               (mezzano.gui.widgets:frame-size frame)
-            (mezzano.gui:bitblt (array-dimension image 0) (array-dimension image 1)
+            (mezzano.gui:bitblt :set
+                                (mezzano.gui:surface-width image) (mezzano.gui:surface-height image)
                                 image 0 0
                                 framebuffer
-                                (+ top (- (truncate (- height top bottom) 2) (truncate (array-dimension image 0) 2)))
-                                (+ left (- (truncate (- width left right) 2) (truncate (array-dimension image 1) 2))))
+                                (+ left (- (truncate (- width left right) 2) (truncate (mezzano.gui:surface-width image) 2)))
+                                (+ top (- (truncate (- height top bottom) 2) (truncate (mezzano.gui:surface-height image) 2))))
             (mezzano.gui.widgets:draw-frame frame)
             (mezzano.gui.compositor:damage-window window
                                                   0 0

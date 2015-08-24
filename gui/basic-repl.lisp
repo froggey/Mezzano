@@ -57,28 +57,28 @@
   (let* ((x (cursor-x stream))
          (y (cursor-y stream))
          (window (window stream))
-         (fb (mezzano.gui.compositor:window-buffer window))
+         (fb (mezzano.gui::surface-pixels (mezzano.gui.compositor:window-buffer window)))
          (win-width (mezzano.gui.compositor:width window))
          (win-height (mezzano.gui.compositor:height window)))
     ;; Clear to the end of the current line.
-    (mezzano.gui:bitset 16 (- win-width x) (background-colour stream) fb y x)
+    (mezzano.gui::2d-array-bitset 16 (- win-width x) (background-colour stream) fb y x)
     (mezzano.gui.compositor:damage-window window x y (- win-width x) 16)
     ;; Advance to the next line.
     (setf (cursor-x stream) 0)
     (cond ((> (+ y 16 16) win-height)
            ;; Off the end of the screen. Scroll!
            (incf (cursor-line stream) 16)
-           (mezzano.gui:bitblt (- win-height 16) win-width
-                                 fb 16 0
-                                 fb 0 0)
+           (mezzano.gui::2d-array-bitblt (- win-height 16) win-width
+                                         fb 16 0
+                                         fb 0 0)
            ;; Clear line.
-           (mezzano.gui:bitset 16 win-width (background-colour stream) fb y 0)
+           (mezzano.gui::2d-array-bitset 16 win-width (background-colour stream) fb y 0)
            ;; Damage the whole window.
            (mezzano.gui.compositor:damage-window window 0 0 win-width win-height))
           (t (incf y 16)
              (setf (cursor-y stream) y)
              ;; Clear line.
-             (mezzano.gui:bitset 16 win-width (background-colour stream) fb y 0)
+             (mezzano.gui::2d-array-bitset 16 win-width (background-colour stream) fb y 0)
              (mezzano.gui.compositor:damage-window window 0 y win-width 16)))))
 
 (defmethod sys.gray:stream-write-char ((stream basic-repl) character)
@@ -89,7 +89,7 @@
      (sys.gray:stream-terpri stream))
     (t (let* ((width (sys.int::unifont-glyph-width character))
               (window (window stream))
-              (fb (mezzano.gui.compositor:window-buffer window))
+              (fb (mezzano.gui::surface-pixels (mezzano.gui.compositor:window-buffer window)))
               (win-width (mezzano.gui.compositor:width window))
               (win-height (mezzano.gui.compositor:height window)))
          (when (> (+ (cursor-x stream) width) win-width)
@@ -97,11 +97,11 @@
          (let ((x (cursor-x stream))
                (y (cursor-y stream))
                (glyph (sys.int::map-unifont-2d character)))
-           (mezzano.gui:bitset 16 width (background-colour stream) fb y x)
+           (mezzano.gui::2d-array-bitset 16 width (background-colour stream) fb y x)
            (when glyph
-             (mezzano.gui:bitset-argb-xrgb-mask-1 16 width (foreground-colour stream)
-                                                  glyph 0 0
-                                                  fb y x))
+             (mezzano.gui::2d-array-bitset-blend-mask-1 16 width (foreground-colour stream)
+                                                        glyph 0 0
+                                                        fb y x))
            (mezzano.gui.compositor:damage-window window x y width 16)
            (incf (cursor-x stream) width))))))
 
@@ -150,7 +150,7 @@
 
 (defmethod sys.int::stream-clear-between ((stream basic-repl) start-x start-y end-x end-y)
   (let* ((window (window stream))
-         (framebuffer (mezzano.gui.compositor:window-buffer window))
+         (framebuffer (mezzano.gui::surface-pixels (mezzano.gui.compositor:window-buffer window)))
          (win-width (mezzano.gui.compositor:width window))
          (win-height (mezzano.gui.compositor:height window))
          (colour (background-colour stream)))
@@ -158,27 +158,27 @@
           end-y (- end-y (cursor-line stream)))
     (cond ((eql start-y end-y)
            ;; Clearing one line.
-           (mezzano.gui:bitset 16 (- end-x start-x) colour framebuffer start-y start-x)
+           (mezzano.gui::2d-array-bitset 16 (- end-x start-x) colour framebuffer start-y start-x)
            (mezzano.gui.compositor:damage-window window start-x start-y (- end-x start-x) 16))
           (t ;; Clearing many lines.
            ;; Clear top line.
-           (mezzano.gui:bitset 16 (- win-width start-x) colour
-                               framebuffer start-y start-x)
+           (mezzano.gui::2d-array-bitset 16 (- win-width start-x) colour
+                                         framebuffer start-y start-x)
            (mezzano.gui.compositor:damage-window window start-x start-y (- win-width start-x) 16)
            ;; Clear in-between.
            (when (> (- end-y start-y) 16)
-             (mezzano.gui:bitset (- end-y start-y 16) win-width colour
-                                 framebuffer (+ start-y 16) 0)
+             (mezzano.gui::2d-array-bitset (- end-y start-y 16) win-width colour
+                                           framebuffer (+ start-y 16) 0)
              (mezzano.gui.compositor:damage-window window 0 (+ start-y 16) win-width (- end-y start-y 16)))
            ;; Clear bottom line.
-           (mezzano.gui:bitset 16 end-x colour
-                               framebuffer end-y 0)
+           (mezzano.gui::2d-array-bitset 16 end-x colour
+                                         framebuffer end-y 0)
            (mezzano.gui.compositor:damage-window window 0 end-y end-x 16)))))
 
 (defun repl-main (&key width height)
   (let* ((fifo (mezzano.supervisor:make-fifo 50))
          (window (mezzano.gui.compositor:make-window fifo (or width 640) (or height 480)))
-         (framebuffer (mezzano.gui.compositor:window-buffer window))
+         (framebuffer (mezzano.gui::surface-pixels (mezzano.gui.compositor:window-buffer window)))
          (term (make-instance 'basic-repl
                               :fifo fifo
                               :window window
@@ -190,10 +190,10 @@
          (*query-io* *standard-input*)
          (*trace-output* *standard-input*)
          (*debug-io* *standard-input*))
-    (mezzano.gui:bitset (mezzano.gui.compositor:height window)
-                        (mezzano.gui.compositor:width window)
-                        (background-colour term)
-                        framebuffer 0 0)
+    (mezzano.gui::2d-array-bitset (mezzano.gui.compositor:height window)
+                                  (mezzano.gui.compositor:width window)
+                                  (background-colour term)
+                                  framebuffer 0 0)
     (mezzano.gui.compositor:damage-window window
                                           0 0
                                           (mezzano.gui.compositor:width window)
