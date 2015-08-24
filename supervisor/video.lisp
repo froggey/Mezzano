@@ -38,7 +38,8 @@
                                                   :width width
                                                   :height height
                                                   :pitch pitch
-                                                  :layout layout))))
+                                                  :layout layout))
+    (set-run-light t)))
 
 (defun current-framebuffer ()
   *current-framebuffer*)
