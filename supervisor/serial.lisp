@@ -102,183 +102,27 @@
 
 (defconstant +bochs-log-port+ #xE9)
 
-(defconstant +debug-serial-buffer-size+ 256)
+(defconstant +debug-serial-tx-fifo-size+ 16)
 
 (defvar *debug-serial-io-port*)
-(defvar *debug-serial-irq*)
-(defvar *debug-serial-tx-buffer*)
-(defvar *debug-serial-tx-buffer-head*)
-(defvar *debug-serial-tx-buffer-tail*)
-(defvar *debug-serial-rx-fifo*)
 (defvar *debug-serial-lock*)
 (defvar *serial-at-line-start*)
-
-(defmacro debug-fifo-push (value buffer buffer-size head tail)
-  `(let ((next (1+ ,tail)))
-     (when (>= next ,buffer-size)
-       (setf next 0))
-     (cond ((= next ,head)
-            ;; When next reaches head, the buffer is full.
-            nil)
-           (t (setf (svref ,buffer ,tail) ,value
-                    ,tail next)
-              t))))
-
-(defmacro debug-fifo-pop (buffer buffer-size head tail)
-  `(if (eql ,head ,tail)
-       (values nil nil)
-       (values (prog1 (svref ,buffer ,head)
-                 (incf ,head)
-                 (when (>= ,head ,buffer-size)
-                   (setf ,head 0)))
-               t)))
-
-(defmacro debug-fifo-emptyp (buffer buffer-size head tail)
-  (declare (ignore buffer buffer-size))
-  `(eql ,head ,tail))
-
-(defmacro debug-fifo-fullp (buffer buffer-size head tail)
-  (declare (ignore buffer))
-  `(let ((next (1+ ,tail)))
-     (when (>= next ,buffer-size)
-       (setf next 0))
-     (eql next ,head)))
-
-(defun debug-serial-irq-handler (interrupt-frame irq)
-  (declare (ignore interrupt-frame irq))
-  (with-symbol-spinlock (*debug-serial-lock*)
-    (let ((iir (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IIR+))))
-      ;; Read any received data.
-      (do ()
-          ((not (logbitp +serial-lsr-data-available+
-                         (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))))
-        (irq-fifo-push (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-RBR+))
-                       *debug-serial-rx-fifo*))
-      ;; Refill the TX FIFO when it becomes empty.
-      (when (logbitp +serial-lsr-thr-empty+
-                     (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
-        (loop
-           ;; Push at most 16 bytes into the FIFO.
-           for i below 16
-           while (not (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                         +debug-serial-buffer-size+
-                                         *debug-serial-tx-buffer-head*
-                                         *debug-serial-tx-buffer-tail*))
-           do
-             (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-                   (debug-fifo-pop *debug-serial-tx-buffer*
-                                   +debug-serial-buffer-size+
-                                   *debug-serial-tx-buffer-head*
-                                   *debug-serial-tx-buffer-tail*))))
-      ;; Turn the TX interrupt off when the TX buffer is empty.
-      (when (debug-fifo-emptyp *debug-serial-tx-buffer*
-                               +debug-serial-buffer-size+
-                               *debug-serial-tx-buffer-head*
-                               *debug-serial-tx-buffer-tail*)
-        (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
-              +serial-ier-received-data-available+)))))
-
-(defun debug-serial-force-output ()
-  (safe-without-interrupts ()
-    ;; Disable the TX interrupt.
-    (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
-          +serial-ier-received-data-available+)
-    ;; Write everything to the port.
-    (loop
-       (when (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                +debug-serial-buffer-size+
-                                *debug-serial-tx-buffer-head*
-                                *debug-serial-tx-buffer-tail*)
-         (return))
-       (loop
-          (when (logbitp +serial-lsr-thr-empty+
-                         (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+)))
-            (return)))
-       (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-             (debug-fifo-pop *debug-serial-tx-buffer*
-                             +debug-serial-buffer-size+
-                             *debug-serial-tx-buffer-head*
-                             *debug-serial-tx-buffer-tail*)))))
 
 ;; Low-level byte functions.
 
 (defun debug-serial-write-byte (byte)
   (setf (sys.int::io-port/8 +bochs-log-port+) byte)
   (safe-without-interrupts (byte)
-    (loop
-       (with-symbol-spinlock (*debug-serial-lock*)
-         ;; Try to write directly to the serial port if the TX buffer is empty.
-         (when (and (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                       +debug-serial-buffer-size+
-                                       *debug-serial-tx-buffer-head*
-                                       *debug-serial-tx-buffer-tail*)
-                    (logbitp +serial-lsr-thr-empty+
-                             (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+))))
-           (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
-                 byte)
-           (return))
-         ;; Write into the buffer, if not full.
-         (when (not (debug-fifo-fullp *debug-serial-tx-buffer*
-                                      +debug-serial-buffer-size+
-                                      *debug-serial-tx-buffer-head*
-                                      *debug-serial-tx-buffer-tail*))
-           ;; If the buffer was empty, then the TX interrupt will have been
-           ;; turned off. Turn it back on.
-           (when (debug-fifo-emptyp *debug-serial-tx-buffer*
-                                    +debug-serial-buffer-size+
-                                    *debug-serial-tx-buffer-head*
-                                    *debug-serial-tx-buffer-tail*)
-             (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-IER+))
-                   (logior +serial-ier-received-data-available+
-                           +serial-ier-transmitter-holding-register-empty+)))
-           (debug-fifo-push byte
-                            *debug-serial-tx-buffer*
-                            +debug-serial-buffer-size+
-                            *debug-serial-tx-buffer-head*
-                            *debug-serial-tx-buffer-tail*)
-           (return)))
-       ;; Delay until an interrupt, the serial port may have drained part of
-       ;; the TX buffer after.
-       ;; Use without-interrupts & stihlt/cli to avoid race conditions on
-       ;; the local cpu (taking an interrupt between testing the buffer and
-       ;; going to sleep). This is still not SMP-safe.
-       (sys.int::%stihlt)
-       (sys.int::%cli))))
-
-(defun debug-serial-read-byte (&optional (waitp t))
-  (irq-fifo-pop *debug-serial-rx-fifo* waitp))
+    (with-symbol-spinlock (*debug-serial-lock*)
+      ;; Wait for the TX FIFO to empty.
+      (loop
+         until (logbitp +serial-lsr-thr-empty+
+                        (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+))))
+      ;; Write byte.
+      (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+)) byte))))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
-
-(defun debug-serial-read-char ()
-  (loop
-     (let* ((leader (debug-serial-read-byte))
-            (extra-bytes (cond ((eql (logand leader #b10000000) #b00000000) 0)
-                               ((eql (logand leader #b11100000) #b11000000) 1)
-                               ((eql (logand leader #b11110000) #b11100000) 2)
-                               ((eql (logand leader #b11111000) #b11110000) 3)
-                               ;; Reject 5 and 6 byte encodings, and continuation bytes
-                               (t (return #\REPLACEMENT_CHARACTER)))))
-       (dotimes (i extra-bytes)
-         ;; FIXME: this should avoid consuming non-continuation bytes.
-         ;; Need to add a peek-byte function, but also prevent other threads
-         ;; reading characters between the two calls.
-         (let ((byte (debug-serial-read-byte)))
-           (unless (eql (logand byte #b11000000) #b10000000)
-             (return #\REPLACEMENT_CHARACTER))
-           (setf leader (logior (ash leader 6)
-                                (logand byte #b00111111)))))
-       ;; Reject overlong forms and non-unileader values.
-       (when (or (cond ((< leader #x80) (not (eql extra-bytes 0)))
-                       ((< leader #x800) (not (eql extra-bytes 1)))
-                       ((< leader #x10000) (not (eql extra-bytes 2))))
-                 (<= #xD800 leader #xDFFF)
-                 (< #x10FFFF leader))
-         (return #\REPLACEMENT_CHARACTER))
-       ;; Ignore CR characters.
-       (unless (eql leader #x0D)
-         (return (code-char leader))))))
 
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
@@ -312,24 +156,18 @@
 
 (defun debug-serial-stream (op &optional arg)
   (ecase op
-    (:read-char (debug-serial-read-char))
-    (:clear-input (irq-fifo-reset *debug-serial-rx-fifo*))
+    (:read-char (error "Serial read char not implemented."))
+    (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
-    (:force-output (debug-serial-force-output))
+    (:force-output)
     (:start-line-p *serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port irq baud)
+  (declare (ignore irq))
   (setf *debug-serial-io-port* io-port
-        *debug-serial-irq* irq
         *debug-serial-lock* :unlocked
-        *serial-at-line-start* t
-        *debug-serial-tx-buffer* (sys.int::make-simple-vector +debug-serial-buffer-size+ :wired)
-        *debug-serial-tx-buffer-head* 0
-        *debug-serial-tx-buffer-tail* 0)
-  (when (not (boundp '*debug-serial-rx-fifo*))
-    (setf *debug-serial-rx-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))))
-  (irq-fifo-reset *debug-serial-rx-fifo*)
+        *serial-at-line-start* t)
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf
@@ -354,41 +192,4 @@
                                                            +serial-mcr-auxiliary-output-2+)
      ;; Enable RX interrupts.
      (sys.int::io-port/8 (+ io-port +serial-IER+)) +serial-ier-received-data-available+))
-  (debug-set-output-pseudostream 'debug-serial-stream)
-  (i8259-hook-irq irq 'debug-serial-irq-handler)
-  (i8259-unmask-irq irq))
-
-(defvar *debug-early-serial-io-port*)
-
-(defun debug-early-serial-write-byte (byte)
-  (setf (sys.int::io-port/8 +bochs-log-port+) byte)
-  ;; Wait for the TX buffer to drain.
-  (loop
-     (when (logbitp +serial-lsr-thr-empty+
-                    (sys.int::io-port/8 (+ *debug-early-serial-io-port* +serial-LSR+)))
-       (return)))
-  ;; Write byte.
-  (setf (sys.int::io-port/8 (+ *debug-early-serial-io-port* +serial-THR+)) byte))
-
-(defun debug-early-serial-write-char (char)
-  (let ((code (ldb (byte 8 0) (char-code char))))
-    (cond ((eql char #\Newline)
-           (setf *serial-at-line-start* t)
-           ;; Turn #\Newline into CRLF
-           (debug-early-serial-write-byte #x0D)
-           (debug-early-serial-write-byte #x0A))
-          (t (debug-early-serial-write-byte code)))))
-
-(defun debug-early-serial-stream (op &optional arg)
-  (ecase op
-    (:write-char
-     (debug-early-serial-write-char arg))
-    (:write-string
-     (dotimes (i (string-length arg))
-       (debug-early-serial-write-char (char arg i))))
-    (:force-output)
-    (:start-line-p nil)))
-
-(defun initialize-early-debug-serial (io-port)
-  (setf *debug-early-serial-io-port* io-port)
-  (debug-set-output-pseudostream 'debug-early-serial-stream))
+  (debug-set-output-pseudostream 'debug-serial-stream))

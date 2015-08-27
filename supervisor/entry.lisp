@@ -189,7 +189,7 @@ Returns two values, the packet data and the receiving NIC."
   (let ((first-run-p nil)
         ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
         (serial-port-io-base #x3F8))
-    (initialize-early-debug-serial serial-port-io-base)
+    (initialize-debug-serial serial-port-io-base 4 38400)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil
@@ -218,7 +218,6 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-pager)
     (initialize-snapshot)
     (sys.int::%sti)
-    (initialize-debug-serial serial-port-io-base 4 38400)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
     (irq-fifo-reset *received-packets*)

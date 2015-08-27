@@ -153,9 +153,7 @@
   ;; Stop the world, just in case printing the backtrace requires paging stuff in.
   (setf *world-stopper* (current-thread)
         *panic-in-progress* t)
-  (when (eql *debug-pseudostream* 'debug-serial-stream)
-    (debug-force-output)
-    (setf *debug-pseudostream* 'debug-early-serial-stream))
+  (debug-force-output)
   (set-panic-light)
   (disable-page-fault-ist)
   (debug-print-line-1 things)
