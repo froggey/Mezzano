@@ -162,6 +162,15 @@ Returns two values, the packet data and the receiving NIC."
     (when nic
       (irq-fifo-push (cons nic pkt) *received-packets*))))
 
+(defun initialize-net ()
+  (when (not (boundp '*received-packets*))
+    ;; First run.
+    ;; FIXME: This should be a normal non-IRQ FIFO, but
+    ;; creating a FIFO won't work until the cold load finishes.
+    (setf *received-packets* (make-irq-fifo 50)))
+  (setf *nics* '())
+  (irq-fifo-reset *received-packets*))
+
 (defvar *deferred-boot-actions*)
 
 (defun add-deferred-boot-action (action)
@@ -194,7 +203,6 @@ Returns two values, the packet data and the receiving NIC."
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
-          *nics* '()
           *deferred-boot-actions* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
@@ -206,10 +214,7 @@ Returns two values, the packet data and the receiving NIC."
       ;; FIXME: Should be done by cold generator
       (setf mezzano.runtime::*tls-lock* :unlocked
             mezzano.runtime::*active-catch-handlers* 'nil
-            *pseudo-atomic* nil
-            ;; FIXME: This should be a normal non-IRQ FIFO, but
-            ;; creating a FIFO won't work until the cold load finishes.
-            *received-packets* (make-irq-fifo 50)))
+            *pseudo-atomic* nil))
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)
     (initialize-i8259)
@@ -220,7 +225,7 @@ Returns two values, the packet data and the receiving NIC."
     (sys.int::%sti)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
-    (irq-fifo-reset *received-packets*)
+    (initialize-net)
     (initialize-time)
     (initialize-ata)
     (initialize-ahci)
