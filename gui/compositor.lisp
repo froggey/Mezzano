@@ -965,35 +965,35 @@ A passive drag sends no drag events to the window.")
     (setf h (- (+ clip-y clip-h) y)))
   (values x y (max w 0) (max h 0)))
 
-(defun blit-with-clip (nrows ncols buffer row col)
+(defun blit-with-clip (width height buffer x y)
   "Blit BUFFER to the screen backbuffer, obeying the global clip region."
-  (multiple-value-bind (c-col c-row c-ncols c-nrows)
-      (clip-rectangle col row ncols nrows
+  (multiple-value-bind (c-x c-y c-width c-height)
+      (clip-rectangle x y width height
                       *clip-rect-x* *clip-rect-y*
                       *clip-rect-width* *clip-rect-height*)
-    (when (and (not (zerop c-ncols))
-               (not (zerop c-nrows)))
+    (when (and (not (zerop c-width))
+               (not (zerop c-height)))
       #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
-              c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
+              c-width c-height (- c-x x) (- c-y y) x y)
       (bitblt :blend
-              c-ncols c-nrows
-              buffer (- c-col col) (- c-row row)
-              *screen-backbuffer* c-col c-row))))
+              c-width c-height
+              buffer (- c-x x) (- c-y y)
+              *screen-backbuffer* c-x c-y))))
 
-(defun fill-with-clip (nrows ncols colour row col)
+(defun fill-with-clip (width height colour x y)
   "Fill a rectangle with COLOUR on the screen backbuffer, obeying the global clip region."
-  (multiple-value-bind (c-col c-row c-ncols c-nrows)
-      (clip-rectangle col row ncols nrows
+  (multiple-value-bind (c-x c-y c-width c-height)
+      (clip-rectangle x y width height
                       *clip-rect-x* *clip-rect-y*
                       *clip-rect-width* *clip-rect-height*)
-    (when (and (not (zerop c-ncols))
-               (not (zerop c-nrows)))
+    (when (and (not (zerop c-width))
+               (not (zerop c-height)))
       #+(or)(format t "Blitting with clip. ~D,~D ~D,~D ~D,~D~%"
-                    c-nrows c-ncols (- c-row row) (- c-col col) c-row c-col)
+              c-width c-height (- c-x x) (- c-y y) x y)
       (bitset :blend
-              c-ncols c-nrows
+              c-width c-height
               colour
-              *screen-backbuffer* c-col c-row))))
+              *screen-backbuffer* c-x c-y))))
 
 (defun recompose-windows (&optional full)
   (when full
@@ -1003,21 +1003,21 @@ A passive drag sends no drag events to the window.")
           *clip-rect-x* 0
           *clip-rect-y* 0))
   (when (or (zerop *clip-rect-width*)
-                 (zerop *clip-rect-height*))
+            (zerop *clip-rect-height*))
     (return-from recompose-windows))
   ;; Draw windows back-to-front.
   (dolist (window (reverse *window-list*))
-    (blit-with-clip (height window) (width window)
+    (blit-with-clip (width window) (height window)
                     (window-buffer window)
-                    (window-y window) (window-x window))
+                    (window-x window) (window-y window))
     (when (window-unresponsive window)
-      (fill-with-clip (height window) (width window)
-                      #x80000000
-                      (window-y window) (window-x window))))
+      (fill-with-clip (width window) (height window)
+                      (mezzano.gui:make-colour 0 0 0 0.5)
+                      (window-x window) (window-y window))))
   ;; Then the mouse pointer on top.
-  (blit-with-clip (surface-height *mouse-pointer*) (surface-width *mouse-pointer*)
+  (blit-with-clip (surface-width *mouse-pointer*) (surface-height *mouse-pointer*)
                   *mouse-pointer*
-                  (- *mouse-y* *mouse-hot-y*) (- *mouse-x* *mouse-hot-x*))
+                  (- *mouse-x* *mouse-hot-x*) (- *mouse-y* *mouse-hot-y*))
   ;; Update the actual screen.
   (mezzano.supervisor:framebuffer-blit *main-screen*
                                        *clip-rect-height*
