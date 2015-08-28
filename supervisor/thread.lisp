@@ -603,10 +603,9 @@ Interrupts must be off, the current thread must be locked."
   (let ((current (current-thread))
         (next (%update-run-queue)))
     ;; todo: reset preemption timer here.
-    (when (eql next current)
-      ;; Can't do this.
-      (panic "Bad! Returning to interrupted thread through %reschedule-via-interrupt"))
-    (%lock-thread next)
+    ;; Avoid double-locking the thread when returning to the current thread.
+    (when (not (eql next current))
+      (%lock-thread next))
     (setf (thread-state next) :active)
     (%%switch-to-thread-via-interrupt current interrupt-frame next)))
 
@@ -711,6 +710,17 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:pop :rax)
   (sys.lap-x86:pop :rbp)
   (sys.lap-x86:iret))
+
+(defun maybe-preempt-via-interrupt (interrupt-frame)
+  (let ((current (current-thread)))
+    (when (not (or (eql current *world-stopper*)
+                   (eql current sys.int::*pager-thread*)
+                   (eql current sys.int::*snapshot-thread*)
+                   (eql current sys.int::*disk-io-thread*)
+                   (eql current sys.int::*bsp-idle-thread*)))
+      (%lock-thread current)
+      (setf (thread-state current) :runnable)
+      (%reschedule-via-interrupt interrupt-frame))))
 
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
