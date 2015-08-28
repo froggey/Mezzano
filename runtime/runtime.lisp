@@ -559,3 +559,30 @@ Arguments to FUNCTION:
                          (1 :rax)
                          (2 :rax-rcx)
                          (3 :rax-rcx-rdx))))))))
+
+(define-lap-function %copy-words ((destination-address source-address count))
+  "Copy COUNT words from SOURCE-ADDRESS to DESTINATION-ADDRESS.
+Source & destination must both be byte addresses."
+  (sys.lap-x86:mov64 :rdi :r8) ; Destination
+  (sys.lap-x86:mov64 :rsi :r9) ; Source
+  (sys.lap-x86:mov64 :rcx :r10) ; Count
+  (sys.lap-x86:sar64 :rdi #.+n-fixnum-bits+) ; Unbox destination
+  (sys.lap-x86:sar64 :rsi #.+n-fixnum-bits+) ; Unbox source
+  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+) ; Unbox count
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  (sys.lap-x86:ret))
+
+(define-lap-function %fill-words ((destination-address value count))
+  "Store VALUE into COUNT words starting at DESTINATION-ADDRESS.
+Destination must a be byte address.
+VALUE must be an immediate value (fixnum, character, single-float, NIL or T) or
+the GC must be deferred during FILL-WORDS."
+  (sys.lap-x86:mov64 :rdi :r8) ; Destination
+  (sys.lap-x86:mov64 :rax :r9) ; Value
+  (sys.lap-x86:mov64 :rcx :r10) ; Count
+  (sys.lap-x86:sar64 :rdi #.+n-fixnum-bits+) ; Unbox destination
+  (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+) ; Unbox count
+  (sys.lap-x86:rep)
+  (sys.lap-x86:stos64)
+  (sys.lap-x86:ret))

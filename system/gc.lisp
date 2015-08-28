@@ -667,7 +667,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
            (when (< address *gc-last-general-address*)
              (incf *old-objects-copied*))))
     ;; Energize!
-    (%fast-copy new-address address (* length 8))
+    (%copy-words new-address address length)
     ;; Leave a forwarding pointer.
     (setf (memref-t address 0) (%%assemble-value new-address +tag-gc-forward+))
     ;; Update meter.

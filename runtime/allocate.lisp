@@ -103,8 +103,7 @@
         ;; Write object header.
         (set-allocated-object-header freelist tag data sys.int::*pinned-mark-bit*)
         ;; Clear data.
-        (dotimes (i (1- words))
-          (setf (sys.int::memref-unsigned-byte-64 freelist (1+ i)) 0))
+        (sys.int::%fill-words (+ freelist 8) 0 (1- words))
         ;; Return address.
         (return freelist)))))
 
