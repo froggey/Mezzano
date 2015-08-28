@@ -183,27 +183,26 @@
   (remf (symbol-plist symbol) indicator))
 
 ;; (%cpuid leaf ecx) -> eax ebx ecx edx
+;; Must be called with the GC deferred as CPUID uses EBX.
 (sys.int::define-lap-function %cpuid ()
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:sar64 :rax #.+n-fixnum-bits+)
   (sys.lap-x86:mov64 :rcx :r9)
   (sys.lap-x86:sar64 :rcx #.+n-fixnum-bits+)
-  ;; Temporarily disable interrupts, CPUID sets RBX to an unsafe value.
-  (sys.lap-x86:cli)
   (sys.lap-x86:cpuid)
   (sys.lap-x86:lea64 :r8 ((:rax #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r9 ((:rbx #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r10 ((:rcx #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:lea64 :r11 ((:rdx #.(ash 1 +n-fixnum-bits+))))
   (sys.lap-x86:xor32 :ebx :ebx)
-  (sys.lap-x86:sti)
   (sys.lap-x86:mov32 :ecx #.(ash 4 +n-fixnum-bits+))
   (sys.lap-x86:ret))
 
 (defun cpuid (leaf &optional (rcx 0))
   (check-type leaf (unsigned-byte 32))
   (check-type rcx (unsigned-byte 32))
-  (%cpuid leaf rcx))
+  (mezzano.supervisor:with-pseudo-atomic
+    (%cpuid leaf rcx)))
 
 (defun decode-cpuid-vendor (vendor-1 vendor-2 vendor-3)
   (let ((vendor (make-string (* 4 3))))
