@@ -618,7 +618,7 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 21)
+      (setf (ub16ref/le header 34) 22)
       ;; Number of extents.
       (setf (ub32ref/le header 36) 2)
       ;; Entry fref.
@@ -1399,7 +1399,7 @@
     (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
     (if (streamp image-name)
         (write-image image-name
-                     (make-value (function-reference 'sys.int::%%bootloader-entry-point)
+                     (make-value (function-reference 'sys.int::bootloader-entry-point)
                                  sys.int::+tag-object+)
                      initial-thread
                      image-size
@@ -1409,7 +1409,7 @@
                            :element-type '(unsigned-byte 8)
                            :if-exists :supersede)
           (write-image s
-                       (make-value (function-reference 'sys.int::%%bootloader-entry-point)
+                       (make-value (function-reference 'sys.int::bootloader-entry-point)
                                    sys.int::+tag-object+)
                        initial-thread
                        image-size

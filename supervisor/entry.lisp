@@ -77,6 +77,7 @@
 (defconstant +boot-information-framebuffer-pitch+                 (+ +boot-information-video+ 16))
 (defconstant +boot-information-framebuffer-height+                (+ +boot-information-video+ 24))
 (defconstant +boot-information-framebuffer-layout+                (+ +boot-information-video+ 32))
+(defconstant +boot-information-acpi-rsdp+                         808)
 (defconstant +boot-information-n-memory-map-entries+              824)
 (defconstant +boot-information-memory-map+                        832)
 
@@ -84,17 +85,6 @@
   (check-type offset (integer 0 15))
   (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
                                    offset))
-
-;; This thunk exists purely so that the GC knows when to stop unwinding the initial process' stack.
-;; I'd like to get rid of it somehow...
-(sys.int::define-lap-function sys.int::%%bootloader-entry-point ()
-  (:gc :no-frame)
-  ;; Drop the bootloader's return address.
-  (sys.lap-x86::add64 :rsp 8)
-  ;; Call the real entry point.
-  (sys.lap-x86:mov64 :r13 (:function sys.int::bootloader-entry-point))
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  (sys.lap-x86:ud2))
 
 (defvar *boot-hook-lock*)
 (defvar *boot-hooks*)
