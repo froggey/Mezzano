@@ -321,3 +321,36 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                  bin)
                                 (ash 1 bin)))))
       (values n-free-pages total-pages))))
+
+;;; Accessors into physical memory.
+(declaim (inline physical-memref-unsigned-byte-8
+                 physical-memref-unsigned-byte-16
+                 physical-memref-unsigned-byte-32
+                 physical-memref-unsigned-byte-64
+                 physical-memref-t
+                 (setf physical-memref-unsigned-byte-8)
+                 (setf physical-memref-unsigned-byte-16)
+                 (setf physical-memref-unsigned-byte-32)
+                 (setf physical-memref-unsigned-byte-64)
+                 (setf physical-memref-t)))
+(defun physical-memref-unsigned-byte-8 (address &optional (index 0))
+  (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index))
+(defun physical-memref-unsigned-byte-16 (address &optional (index 0))
+  (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index))
+(defun physical-memref-unsigned-byte-32 (address &optional (index 0))
+  (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index))
+(defun physical-memref-unsigned-byte-64 (address &optional (index 0))
+  (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index))
+(defun physical-memref-t (address &optional (index 0))
+  (sys.int::memref-t (+ +physical-map-base+ address) index))
+
+(defun (setf physical-memref-unsigned-byte-8) (value address &optional (index 0))
+  (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index) value))
+(defun (setf physical-memref-unsigned-byte-16) (value address &optional (index 0))
+  (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index) value))
+(defun (setf physical-memref-unsigned-byte-32) (value address &optional (index 0))
+  (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index) value))
+(defun (setf physical-memref-unsigned-byte-64) (value address &optional (index 0))
+  (setf (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index) value))
+(defun (setf physical-memref-t) (value address &optional (index 0))
+  (setf (sys.int::memref-t (+ +physical-map-base+ address) index) value))

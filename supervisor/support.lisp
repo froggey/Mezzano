@@ -18,3 +18,7 @@
 (defun align-up (value power-of-two)
   "Align VALUE up to the nearest multiple of POWER-OF-TWO."
   (logand (+ value (1- power-of-two)) (lognot (1- power-of-two))))
+
+(defun align-down (value power-of-two)
+  "Align VALUE down to the nearest multiple of POWER-OF-TWO."
+  (logand value (lognot (1- power-of-two))))

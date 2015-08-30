@@ -29,6 +29,7 @@
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"
     "supervisor/rtl8168.lisp"
+    "supervisor/acpi.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"

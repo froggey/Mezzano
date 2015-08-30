@@ -215,6 +215,7 @@ Returns two values, the packet data and the receiving NIC."
     (sys.int::%sti)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
+    (initialize-acpi)
     (initialize-net)
     (initialize-time)
     (initialize-ata)
