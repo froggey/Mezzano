@@ -3,6 +3,7 @@
 
 (in-package :mezzano.supervisor)
 
+(defconstant +msr-ia32-efer+    #xC0000080)
 (defconstant +msr-ia32-fs-base+ #xC0000100)
 (defconstant +msr-ia32-gs-base+ #xC0000101)
 
@@ -36,7 +37,16 @@
 (defconstant +cpu-info-tss-size+ 104)
 (defconstant +cpu-info-idt-offset+ 4096)
 
-(sys.int::define-lap-function %lgdt ()
+(sys.int::define-lap-function local-cpu-info (())
+  "Return the address of the local CPU's info vector."
+  (:gc :no-frame)
+  (sys.lap-x86:fs)
+  (sys.lap-x86:mov64 :r8 (#.+cpu-info-self-offset+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function %lgdt ((length address))
+  "Load a new GDT."
   (:gc :no-frame)
   (sys.lap-x86:sub64 :rsp 16)
   (:gc :no-frame :layout #*00)
@@ -51,7 +61,8 @@
   (:gc :no-frame)
   (sys.lap-x86:ret))
 
-(sys.int::define-lap-function %lidt ()
+(sys.int::define-lap-function %lidt ((length address))
+  "Load a new IDT."
   (:gc :no-frame)
   (sys.lap-x86:sub64 :rsp 16)
   (:gc :no-frame :layout #*00)
@@ -66,13 +77,15 @@
   (:gc :no-frame)
   (sys.lap-x86:ret))
 
-(sys.int::define-lap-function %ltr ()
+(sys.int::define-lap-function %ltr ((selector))
+  "Load the task register."
   (sys.lap-x86:mov64 :rax :r8) ; selector
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:ltr :ax)
   (sys.lap-x86:ret))
 
-(sys.int::define-lap-function %load-cs ()
+(sys.int::define-lap-function %load-cs ((selector))
+  "Load CS."
   (sys.lap-x86:mov64 :rax :r8) ; selector
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:push :rax)
@@ -92,13 +105,8 @@
 
 (defconstant +tss-io-map-base+ 102)
 
-(defun initialize-boot-cpu ()
-  "Generate GDT, IDT and TSS for the boot CPU."
-  ;; Carve out a pair of pages.
-  (let* ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
-                  sys.int::+tag-object+))
-         (tss-base (+ addr +cpu-info-tss-offset+)))
-    (debug-print-line "CPU info at " addr)
+(defun populate-cpu-info-vector (addr wired-stack-pointer exception-stack-pointer irq-stack-pointer)
+  (let* ((tss-base (+ addr +cpu-info-tss-offset+)))
     ;; IDT completely fills the second page (256 * 16)
     (dotimes (i 256)
       (multiple-value-bind (lo hi)
@@ -129,28 +137,39 @@
     (dotimes (i +cpu-info-tss-size+)
       (setf (sys.int::memref-unsigned-byte-16 tss-base i) 0))
     ;; IST1.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) (+ sys.int::*exception-stack-base*
-                                                                         sys.int::*exception-stack-size*))
+    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-1+) 0) exception-stack-pointer)
     ;; IST2.
-    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) (+ sys.int::*irq-stack-base*
-                                                                         sys.int::*irq-stack-size*))
+    (setf (sys.int::memref-signed-byte-64 (+ tss-base +tss-ist-2+) 0) irq-stack-pointer)
     ;; I/O Map Base Address, follows TSS body.
     (setf (sys.int::memref-unsigned-byte-16 (+ tss-base +tss-io-map-base+) 0) +cpu-info-tss-size+)
     ;; Other stuff.
     (setf (sys.int::memref-t (+ addr +cpu-info-self-offset+) 0) addr)
     (setf (sys.int::memref-signed-byte-64 (+ addr +cpu-info-wired-stack-offset+) 0)
-          (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*))
+          wired-stack-pointer)
     ;; Shove the cpu info page into FS.
-    (setf (sys.int::msr +msr-ia32-fs-base+) addr)
+    (setf (sys.int::msr +msr-ia32-fs-base+) addr)))
+
+(defun initialize-boot-cpu ()
+  "Generate GDT, IDT and TSS for the boot CPU."
+  ;; Carve out a pair of pages.
+  (let* ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
+                  sys.int::+tag-object+)))
+    (debug-print-line "BSP CPU info at " addr)
+    (populate-cpu-info-vector addr
+                              (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
+                              (+ sys.int::*exception-stack-base* sys.int::*exception-stack-size*)
+                              (+ sys.int::*irq-stack-base* sys.int::*irq-stack-size*))
     ;; Load various bits.
-    (%lgdt (1- (* 4 8)) (+ addr +cpu-info-gdt-offset+))
-    (%lidt (1- (* 256 16)) (+ addr +cpu-info-idt-offset+))
-    (%ltr 16)
-    (%load-cs 8)))
+    (load-cpu-bits addr)))
+
+(defun load-cpu-bits (addr)
+  (%lgdt (1- (* 4 8)) (+ addr +cpu-info-gdt-offset+))
+  (%lidt (1- (* 256 16)) (+ addr +cpu-info-idt-offset+))
+  (%ltr 16)
+  (%load-cs 8))
 
 (defun disable-page-fault-ist ()
-  (let ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
-                 sys.int::+tag-object+)))
+  (let ((addr (local-cpu-info)))
     (multiple-value-bind (lo hi)
         (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
                                  (svref sys.int::*interrupt-service-routines* 14)
