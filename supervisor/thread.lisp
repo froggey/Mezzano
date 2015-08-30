@@ -654,7 +654,10 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
   ;; Drop the locks on both threads. Must be done before touching the thread stack.
   (sys.lap-x86:mov64 :r10 (:constant :unlocked))
+  (sys.lap-x86:cmp64 :r9 :r8)
+  (sys.lap-x86:je SWITCH-TO-SAME-THREAD)
   (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
+  SWITCH-TO-SAME-THREAD
   (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
   ;; Check if the thread is in the interrupt save area.
   (sys.lap-x86:gs)
