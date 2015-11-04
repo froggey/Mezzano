@@ -1047,9 +1047,11 @@ A passive drag sends no drag events to the window.")
      (sys.int::log-and-ignore-errors
        (process-event (mezzano.supervisor:fifo-pop *event-queue*)))))
 
+(defvar *compositor-update-interval* 1/60)
+
 (defun compositor-heartbeat-thread ()
   (loop
-     (sleep 1/60)
+     (sleep *compositor-update-interval*)
      ;; Redisplay only when the system framebuffer changes or when there's
      ;; nonempty clip rect.
      (when (or (not (eql *main-screen* (mezzano.supervisor:current-framebuffer)))
