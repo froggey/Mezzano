@@ -310,8 +310,42 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           "Range not page aligned.")
   (pager-rpc 'allocate-memory-range-in-pager base length flags))
 
+(defun map-new-wired-page (address)
+  (let ((pte (get-pte-for-address address))
+        (block-info (block-info-for-virtual-address address)))
+    ;;(debug-print-line "MNWP " address " block " block-info)
+    (when (page-present-p pte 0)
+      (panic "Mapping new wired page at " address " but page already mapped!"))
+    (when (or (not block-info)
+              (not (logtest sys.int::+block-map-present+ block-info)))
+      (panic "Mapping new wired page at " address " but address not present!"))
+    (when (not (logtest sys.int::+block-map-zero-fill+ block-info))
+      (panic "Not implemented! Mapping new wired page at " address " but not zero!"))
+    ;; No page allocated. Allocate a page and read the data.
+    (let* ((frame (pager-allocate-page :wired))
+           (addr (+ +physical-map-base+ (ash frame 12))))
+      (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
+            (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
+      ;; Block is zero-filled.
+      (zeroize-page addr)
+      ;; Clear the zero-fill flag.
+      (set-address-flags address (logand block-info
+                                         sys.int::+block-map-flag-mask+
+                                         (lognot sys.int::+block-map-zero-fill+)))
+      (setf (page-table-entry pte 0) (logior (ash frame 12)
+                                             +page-table-present+
+                                             (if (logtest sys.int::+block-map-writable+ block-info)
+                                                 +page-table-write+
+                                                 0)))
+      ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
+      (sys.int::%invlpg address))))
+
 (defun allocate-memory-range-in-pager (base length flags)
   (debug-print-line "Allocate range " base "-" (+ base length) "  " flags)
+  (when (< base #x80000000)
+    ;; This will require allocating new wired backing frames as well.
+    (debug-print-line "TODO: Allocate pages in the wired area.")
+    (return-from allocate-memory-range-in-pager nil))
   (with-mutex (*vm-lock*)
     ;; Ensure there's enough fudged memory before allocating.
     (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
@@ -321,7 +355,12 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (dotimes (i (truncate length #x1000))
       (allocate-new-block-for-virtual-address
        (+ base (* i #x1000))
-       flags)))
+       flags))
+    (when (and (<= #x200000000000 base) ; wired stack area.
+                   (< base #x208000000000))
+      ;; Pages in the wired stack area don't require backing frames.
+      (dotimes (i (truncate length #x1000))
+        (map-new-wired-page (+ base (* i #x1000))))))
   t)
 
 (defun release-memory-range (base length)
@@ -479,6 +518,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Note that this test is done after the pte test. this is a hack to make
       ;; runtime-allocated stacks work before allocate-stack actually modifies the
       ;; block map.
+      ;; ### must investigate if allocate-stack still needs this behaviour & why.
       (when (or (not block-info)
                 (not (logtest sys.int::+block-map-present+ block-info)))
         #+(or)(debug-print-line "WFP " address " not present")
@@ -524,6 +564,16 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
 
+;; Fast path, called from the page-fault handler.
+;; If the *VM-LOCK* is not taken,
+;; and the page tables for the address have already been allocated,
+;; and the page for the address is a zero-page,
+;; and there is a free page frame
+;; then immediately allocate, zero, and map a frame, then return true.
+;; Otherwise return false to punt back to w-f-p-via-interrupt.
+;; Blocking is not permitted during a page-fault, which is why
+;; this function can't block on the lock, or wait for a frame to be
+;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address)
   (with-mutex (*vm-lock* nil)
     (let ((pte (get-pte-for-address fault-address nil))
