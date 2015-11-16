@@ -7,6 +7,9 @@ Alphabetic keys typed with control or meta ignore case. C-A and C-a are the same
 Use M-F12 to switch between En-GB and En-US keymaps.
 Windows can be moved by holding the Alt key and dragging.
 
+M-Esc will attempt to interrupt the thread associated with the current window.
+This won't work if the thread is stuck in a tight loop or if the thread is blocked.
+
 Line editing
 ------------
 The line editor supports most standard line navigation and editing commands.

@@ -6,32 +6,37 @@ SBCL 1.2.10 is also known to work.
 Newer versions should work, but have not been tested.
 (setf sb-impl::*default-external-format* :utf-8)
 
-Required systems, available via Quicklisp:
+Required systems for running the cross-compiler and file-server:
 Alexandria
 Iterate
 Nibbles
 CL-PPCRE
 CL-FAD
 
+These systems should be installed via Quicklisp and are distinct from
+the libraries downloaded below.
+
 Home Directory
 --------------
 
-The stock ipl.lisp configuration expects a home directory containing all the
-required libraries and fonts.
+The stock ipl.lisp configuration expects a "home" directory containing all the
+required libraries, fonts and the desktop image.
 
-Inside the Mezzano source directory:
-mkdir home
-mkdir home/fonts
+This directory should be created outside the Mezzano source directory.
+Creating it inside may cause the cross-compiler host's ASDF to detect and load
+libraries meant to run on Mezzano, instead of using the prerequisites installed previously.
 
-Download the DejaVu Sans and Mono fonts from http://dejavu-fonts.org/ and place the .ttf files in the fonts directory.
+Create a subdirectory called "fonts" inside the home directory, download
+the DejaVu Sans and Mono fonts from http://dejavu-fonts.org/ and place
+the .ttf files in the fonts directory.
 
-Download supporting libraries and extract them in home/
+Download supporting libraries and extract them in the home directory.
 ASDF from https://github.com/froggey/asdf
 trivial-features from https://github.com/froggey/trivial-features
 zpb-ttf from https://github.com/froggey/zpb-ttf
 cl-jpeg from https://github.com/froggey/cl-jpeg
 chipz from https://github.com/froggey/chipz
-alexandria from git://common-lisp.net/projects/alexandria/alexandria.git
+alexandria from https://gitlab.common-lisp.net/alexandria/alexandria.git
    Revision 0c39310e is known to work
 babel from https://github.com/cl-babel/babel
    Revision a994dec2 is known to work
@@ -44,6 +49,30 @@ Create an ASDF config file in home/.config/common-lisp/source-registry.conf cont
 (:source-registry
  (:tree "/full/path/to/home/")
  :inherit-configuration)
+
+Download the default desktop image from
+http://commons.wikimedia.org/wiki/File:Mandarin_Pair.jpg and save it in the
+home directory. This can be replaced with any png or jpg image, as long as the file
+name is updated in ipl.lisp.
+
+The final layout of the home directory should look similar to:
+
+home/
+   Mandardin_Pair.jpg
+   fonts/
+      DejaVuSans.ttf
+      DejaVuSansMono.ttf
+      [more fonts]
+   asdf/
+      asdf.lisp
+   trivial-features/
+      [...]
+   cl-jpeg/
+      [...]
+   [other libraries]/
+   .config/
+      common-lisp/
+         source-registry.conf
 
 Build Instructions
 ------------------
