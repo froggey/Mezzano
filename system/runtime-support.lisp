@@ -5,6 +5,15 @@
 
 (setf sys.lap-x86:*function-reference-resolver* #'function-reference)
 
+(defun inline-info-location-for-name (name)
+  (if (symbolp name)
+      (values name 'inline-mode 'inline-form)
+      (case (first name)
+        ((setf)
+         (values (second name) 'setf-inline-mode 'setf-inline-form))
+        ((cas)
+         (values (second name) 'cas-inline-mode 'cas-inline-form)))))
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (special (dolist (var (rest declaration-specifier))
@@ -14,16 +23,12 @@
     (inline
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
-           (if (symbolp name)
-               (values name 'inline-mode)
-               (values (second name) 'setf-inline-mode))
+           (inline-info-location-for-name name)
          (setf (get sym indicator) t))))
     (notinline
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
-           (if (symbolp name)
-               (values name 'inline-mode)
-               (values (second name) 'setf-inline-mode))
+           (inline-info-location-for-name name)
          (setf (get sym indicator) nil))))))
 
 (defun system:symbol-mode (symbol)
@@ -49,9 +54,7 @@
 
 (defun sys.c::function-inline-info (name)
   (multiple-value-bind (sym mode-name form-name)
-      (if (symbolp name)
-          (values name 'inline-mode 'inline-form)
-          (values (second name) 'setf-inline-mode 'setf-inline-form))
+      (inline-info-location-for-name name)
     (values (get sym mode-name)
             (get sym form-name))))
 
@@ -371,9 +374,7 @@
 (defun %compiler-defun (name source-lambda)
   "Compile-time defun code. Store the inline form if required."
   (multiple-value-bind (sym mode-name form-name)
-      (if (symbolp name)
-          (values name 'inline-mode 'inline-form)
-          (values (second name) 'setf-inline-mode 'setf-inline-form))
+      (inline-info-location-for-name name)
     (when (or (get sym mode-name)
               (get sym form-name))
       (setf (get sym form-name) source-lambda)))
@@ -397,7 +398,7 @@
 (deftype function-name ()
   '(or
     symbol
-    (cons (eql setf) (cons symbol null))))
+    (cons (member setf cas) (cons symbol null))))
 
 (defun make-function-reference (name)
   (let ((fref (%allocate-object +object-tag-function-reference+ 4 0 :wired)))
@@ -427,6 +428,17 @@
 	   (unless fref
 	     (setf fref (make-function-reference name)
 		   (get (second name) 'setf-fref) fref))
+           fref))
+        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
+        ;; a hash-table or something like that.
+	((and (consp name)
+	      (= (list-length name) 2)
+	      (eql (first name) 'cas)
+	      (symbolp (second name)))
+	 (let ((fref (get (second name) 'cas-fref)))
+	   (unless fref
+	     (setf fref (make-function-reference name)
+		   (get (second name) 'cas-fref) fref))
            fref))
 	(t (error 'type-error
                   :expected-type 'function-name

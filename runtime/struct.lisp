@@ -27,3 +27,8 @@
   (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
   (sys.int::%bounds-check object slot)
   (sys.int::%cas-object object slot old new))
+
+(defun (sys.int::cas sys.int::%struct-slot) (old new object slot)
+  (multiple-value-bind (successp actual-value)
+      (sys.int::%cas-struct-slot object slot old new)
+    actual-value))

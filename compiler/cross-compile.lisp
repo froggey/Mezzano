@@ -783,6 +783,7 @@
     "system/defmacro.lisp"
     "system/backquote.lisp"
     "system/setf.lisp"
+    "system/cas.lisp"
     "system/defstruct.lisp"
     "system/cons-compiler-macros.lisp"
     "system/condition.lisp"

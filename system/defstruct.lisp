@@ -200,10 +200,10 @@
 ;; (slot-name accessor-name initform type read-only)
 (defun parse-defstruct-slot (conc-name slot)
   (if (symbolp slot)
-      (list slot (concat-symbols conc-name slot) nil t nil nil)
-      (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only atomic)
+      (list slot (concat-symbols conc-name slot) nil t nil)
+      (destructuring-bind (slot-name &optional slot-initform &key (type 't) read-only)
           slot
-        (list slot-name (concat-symbols conc-name slot-name) slot-initform type read-only atomic))))
+        (list slot-name (concat-symbols conc-name slot-name) slot-initform type read-only))))
 
 (defun generate-simple-defstruct-constructor (struct-type name area)
   (let ((tmp (gensym)))
@@ -315,9 +315,9 @@
             (parse-defstruct-slot conc-name s))
           (append (when included-structure
                     (mapcar (lambda (x)
-                              (destructuring-bind (slot-name accessor-name initform type read-only atomic) x
+                              (destructuring-bind (slot-name accessor-name initform type read-only) x
                                 (declare (ignore accessor-name))
-                                (list slot-name initform :type type :read-only read-only :atomic atomic)))
+                                (list slot-name initform :type type :read-only read-only)))
                             (structure-slots included-structure)))
                   slot-descriptions)))
 
@@ -368,10 +368,12 @@
 			      (list `(defun (setf ,(second s)) (new-value object)
                                        (check-struct-type object ',struct-type)
 				       (setf (%struct-slot (the ,name object) ,n)
-                                             (the ,(fourth s) new-value)))))
-                          ,@(when (sixth s)
-                              (list `(eval-when (:compile-toplevel :load-toplevel :execute)
-                                       (define-struct-cas ',(second s) ',name ',n))))))
+                                             (the ,(fourth s) new-value)))
+                                    `(defun (cas ,(second s)) (old new object)
+                                       (check-struct-type object ',struct-type)
+				       (cas (%struct-slot (the ,name object) ,n)
+                                            (the ,(fourth s) old)
+                                            (the ,(fourth s) new)))))))
 		     slots))
 	 ,@(mapcar (lambda (x)
 		     (if (symbolp x)
@@ -379,9 +381,6 @@
 			 (generate-defstruct-constructor struct-type (first x) (second x) area)))
 		   constructors)
 	 ',name)))
-
-(defun define-struct-cas (fn-name struct-name offset)
-  (setf (get fn-name 'structure-cas) (list struct-name offset)))
 
 (defun generate-list-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                 included-structure-name included-slot-descriptions
@@ -463,7 +462,11 @@
                             (list `(defun (setf ,(second s)) (new-value object)
                                      ,@(when (and named predicate)
                                          (list `(check-type object (satisfies ,predicate))))
-                                     (setf (aref object ,n) (the ,(fourth s) new-value)))))))
+                                     (setf (aref object ,n) (the ,(fourth s) new-value)))
+                                  `(defun (cas ,(second s)) (old new object)
+                                     ,@(when (and named predicate)
+                                         (list `(check-type object (satisfies ,predicate))))
+                                     (cas (aref object ,n) (the ,(fourth s) old) (the ,(fourth s) new)))))))
                    slots))
        ,@(mapcar (lambda (x)
                    (if (symbolp x)

@@ -295,13 +295,12 @@
     (t                                             (find-class 't))))
 
 (defun canonicalize-struct-slot (slot)
-  (destructuring-bind (slot-name accessor-name initform type read-only atomic)
+  (destructuring-bind (slot-name accessor-name initform type read-only)
       slot
     (list :name slot-name
           :accessor-name accessor-name
           :type type
-          :read-only-p read-only
-          :atomic atomic)))
+          :read-only-p read-only)))
 
 (defun canonicalize-struct-slots (struct-def)
   (mapcar 'canonicalize-struct-slot (sys.int::structure-slots struct-def)))

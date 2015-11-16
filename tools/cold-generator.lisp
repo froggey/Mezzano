@@ -50,6 +50,7 @@
     "system/runtime-support.lisp"
     "system/type.lisp"
     "system/setf.lisp"
+    "system/cas.lisp"
     "system/string.lisp"
     "system/hash-table.lisp"
     "system/runtime-numbers.lisp"
@@ -518,22 +519,22 @@
           (word (+ struct-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
           (word (+ struct-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
           (word (+ struct-def-def 2)) (vsym 'sys.int::structure-definition)
-          ;; (name accessor initial-value type read-only atomic).
-          (word (+ struct-def-def 3)) (vlist (vlist (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
-                                             (vlist (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
-                                             (vlist (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
-                                             (vlist (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym 'nil) (vsym 't) (vsym 't)   (vsym 'nil))
-                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class)  (vsym 'nil) (vsym 't) (vsym 'nil) (vsym 'nil)))
+          ;; (name accessor initial-value type read-only).
+          (word (+ struct-def-def 3)) (vlist (vlist (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym 'nil) (vsym 't) (vsym 't))
+                                             (vlist (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym 'nil) (vsym 't) (vsym 't))
+                                             (vlist (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym 'nil) (vsym 't) (vsym 't))
+                                             (vlist (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym 'nil) (vsym 't) (vsym 't))
+                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class)  (vsym 'nil) (vsym 't) (vsym 'nil)))
           (word (+ struct-def-def 4)) (vsym 'nil)
           (word (+ struct-def-def 5)) (vsym :wired)
           (word (+ struct-def-def 6)) (vsym nil)
           (gethash 'sys.int::structure-definition *struct-table*) (list struct-def-def
                                                                         'sys.int::structure-definition
-                                                                        '((sys.int::name sys.int::structure-name nil t t nil)
-                                                                          (sys.int::slots sys.int::structure-slots nil t t nil)
-                                                                          (sys.int::parent sys.int::structure-parent nil t t nil)
-                                                                          (sys.int::area sys.int::structure-area nil t t nil)
-                                                                          (sys.int::class sys.int::structure-definition-class nil t nil nil))))))
+                                                                        '((sys.int::name sys.int::structure-name nil t t)
+                                                                          (sys.int::slots sys.int::structure-slots nil t t)
+                                                                          (sys.int::parent sys.int::structure-parent nil t t)
+                                                                          (sys.int::area sys.int::structure-area nil t t)
+                                                                          (sys.int::class sys.int::structure-definition-class nil t nil))))))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))
@@ -1709,6 +1710,13 @@
           (eql (first name) 'setf)
           (symbolp (second name)))
      (vlist (vintern "SETF" "COMMON-LISP")
+            (vintern (symbol-name (second name))
+                     (package-name (symbol-package (second name))))))
+    ((and (listp name)
+          (eql (length name) 2)
+          (eql (first name) 'sys.int::cas)
+          (symbolp (second name)))
+     (vlist (vintern "CAS" "SYSTEM.INTERNALS")
             (vintern (symbol-name (second name))
                      (package-name (symbol-package (second name))))))
     (t (error "Bad function name ~S." name))))

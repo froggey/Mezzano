@@ -43,6 +43,11 @@
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (sys.int::%cas-object symbol sys.int::+symbol-value+ old new))
 
+(defun (sys.int::cas sys.int::symbol-global-value) (old new symbol)
+  (multiple-value-bind (successp actual-value)
+      (sys.int::%cas-symbol-global-value symbol old new)
+    actual-value))
+
 (defun symbol-plist (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   (sys.int::%object-ref-t symbol sys.int::+symbol-plist+))

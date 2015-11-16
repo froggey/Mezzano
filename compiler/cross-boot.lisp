@@ -31,7 +31,9 @@
   nil)
 
 (defun sys.int::%defun (name lambda)
-  (setf (fdefinition name) lambda)
+  ;; Completely ignore CAS functions when cross compiling, they're not needed.
+  (unless (and (consp name) (eql (first name) 'sys.int::cas))
+    (setf (fdefinition name) lambda))
   name)
 
 (defun function-inline-info (name)

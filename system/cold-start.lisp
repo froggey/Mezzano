@@ -8,7 +8,7 @@
                   *additional-cold-toplevel-forms*
                   *initial-obarray*
                   *initial-keyword-obarray*
-                  *initial-setf-obarray*
+                  *initial-fref-obarray*
                   *initial-structure-obarray*)
          (special *terminal-io*
                   *standard-output*
@@ -225,7 +225,11 @@ structures to exist, and for memory to be allocated, but not much beyond that."
     (let* ((fref (svref *initial-fref-obarray* i))
            (name (%object-ref-t fref +fref-name+)))
       (when (consp name)
-        (setf (get (second name) 'setf-fref) fref))))
+        (ecase (first name)
+          ((setf)
+           (setf (get (second name) 'setf-fref) fref))
+          ((cas)
+           (setf (get (second name) 'cas-fref) fref))))))
   ;; Run toplevel forms.
   (let ((*package* *package*))
     (dotimes (i (length *cold-toplevel-forms*))
