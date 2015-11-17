@@ -418,7 +418,7 @@
 (defun sys.int::make-closure (function environment &optional area)
   "Allocate a closure object."
   (check-type function function)
-  (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 5 area))
+  (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 3 area))
          (entry-point (sys.int::%object-ref-unsigned-byte-64
                        function
                        sys.int::+function-entry-point+)))
@@ -539,6 +539,8 @@
                         (sys.int::lisp-object-address (sys.int::%unbound-tls-slot)))
                        (:unbound-value
                         (sys.int::lisp-object-address (sys.int::%unbound-value)))
+                       (:funcallable-instance-trampoline
+                        (sys.int::lisp-object-address (sys.int::%funcallable-instance-trampoline)))
                        (t (error "Unsupported fixup ~S." (car fixup))))))
           (dotimes (i 4)
             (setf (sys.int::memref-unsigned-byte-8 address (+ (cdr fixup) i))
@@ -555,30 +557,24 @@
 (defun sys.int::make-function (machine-code constants gc-info &optional wired)
   (sys.int::make-function-with-fixups sys.int::+object-tag-function+ machine-code '() constants gc-info wired))
 
-(defun sys.int::allocate-funcallable-std-instance (function class slots layout)
+(defun sys.int::allocate-funcallable-std-instance (function class slots layout &optional area)
   "Allocate a funcallable instance."
   (check-type function function)
   (let* ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
-                                   ;; MC size (2 2-word units)
-                                   ;; constant pool size (5 entries)
+                                   ;; MC size (1 2-word units, header + entry-point)
+                                   ;; constant pool size (4 entries)
                                    ;; GC info size (0 octets)
-                                   #x00000005000200
-                                   9
-                                   :pinned))
-         (address (ash (sys.int::%pointer-field object) 4))
-         (entry-point (sys.int::%object-ref-unsigned-byte-64 function sys.int::+function-entry-point+)))
+                                   #x00000004000100
+                                   5
+                                   area))
+         (entry-point (sys.int::%object-ref-unsigned-byte-64
+                       (sys.int::%funcallable-instance-trampoline)
+                       sys.int::+function-entry-point+)))
     (setf
-     ;; Entry point
-     (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) (+ address 16)
-     ;; The code.
-     ;; mov :rbx (:rip 17)/pool[1]
-     ;; jmp (:rip 3)/pool[0]
-     (sys.int::%object-ref-unsigned-byte-32 object 2) #x111D8B48
-     (sys.int::%object-ref-unsigned-byte-32 object 3) #xFF000000
-     (sys.int::%object-ref-unsigned-byte-32 object 4) #x00000325
-     (sys.int::%object-ref-unsigned-byte-32 object 5) #xCCCCCC00
-     ;; entry-point and constant pool entries.
-     (sys.int::%object-ref-unsigned-byte-64 object sys.int::+funcallable-instance-entry-point+) entry-point
+     ;; Entry point. F-I trampoline.
+     ;; TODO: If FUNCTION is an +object-tag-function+, then the entry point could point directly at it.
+     (sys.int::%object-ref-unsigned-byte-64 object sys.int::+function-entry-point+) entry-point
+     ;; Function and other bits.
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-function+) function
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-class+) class
      (sys.int::%object-ref-t object sys.int::+funcallable-instance-slots+) slots

@@ -174,8 +174,15 @@
     ;; This will work even if the fref was altered or made funbound.
     ;; (SETF FUNCTION-REFERENCE-FUNCTION) will set the function to the
     ;; undefined-function thunk in that case, so everything works fine.
-    (sys.lap-x86:jmp (:rbx ,(+ (- sys.int::+tag-object+) 8))))
-  "Trampoline used for calling a closure via an fref.")
+    (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
+  "Trampoline used for calling a closure or funcallable-instance via an fref.")
+
+(defparameter *funcallable-instance-trampoline*
+  `(;; Load the real function from the funcallable-instance.
+    (sys.lap-x86:mov64 :rbx (:object :rbx ,sys.int::+funcallable-instance-function+))
+    ;; Invoke the real function via the FUNCTION calling convention.
+    (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
+  "Trampoline used for calling a closure or funcallable-instance via a funcallable-instance.")
 
 (defvar *symbol-table*)
 (defvar *reverse-symbol-table*)
@@ -186,6 +193,7 @@
 (defvar *unbound-tls-slot-address*)
 (defvar *undefined-function-address*)
 (defvar *closure-trampoline-address*)
+(defvar *f-i-trampoline-address*)
 (defvar *load-time-evals*)
 (defvar *string-dedup-table*)
 (defvar *structure-definition-definition*)
@@ -456,6 +464,7 @@
         (unbound-tls-val (allocate 2 :wired))
         (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline))
         (closure-tramp (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline))
+        (f-i-tramp (compile-lap-function *funcallable-instance-trampoline* :area :wired :name 'sys.int::%%funcallable-instance-trampoline))
         (struct-def-def (allocate 7 :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
@@ -471,6 +480,7 @@
           (gethash cl-keyword *reverse-symbol-table*) '("COMMON-LISP" . "KEYWORD")
           *undefined-function-address* undef-fn
           *closure-trampoline-address* closure-tramp
+          *f-i-trampoline-address* f-i-tramp
           *unbound-value-address* unbound-val
           *unbound-tls-slot-address* unbound-tls-val)
     (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
@@ -1258,6 +1268,7 @@
          (*struct-table* (make-hash-table))
          (*undefined-function-address* nil)
          (*closure-trampoline-address* nil)
+         (*f-i-trampoline-address* nil)
          (*function-map* '())
          (*string-dedup-table* (make-hash-table :test 'equal))
          (initial-thread)
@@ -1907,7 +1918,9 @@ Tag with +TAG-OBJECT+."
                         ((:undefined-function undefined-function)
                          (make-value *undefined-function-address* sys.int::+tag-object+))
                         ((:closure-trampoline closure-trampoline)
-                         (make-value *closure-trampoline-address* sys.int::+tag-object+)))))
+                         (make-value *closure-trampoline-address* sys.int::+tag-object+))
+                        ((:funcallable-instance-trampoline funcallable-instance)
+                         (make-value *f-i-trampoline-address* sys.int::+tag-object+)))))
            (length (ecase type
                      (:signed32 (check-type value (signed-byte 32))
                                 4)

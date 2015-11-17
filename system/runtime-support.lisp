@@ -324,17 +324,9 @@
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
-  (let ((entry-point (%object-ref-t value +function-entry-point+))
-        (old-1 (%object-ref-t funcallable-instance +funcallable-instance-entry-point+))
-        (old-2 (%object-ref-t funcallable-instance +funcallable-instance-function+)))
-    ;; Entry point is followed by function.
-    ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.
-    ;; Don't bother CASing in a loop. If another CPU beats us, then it as if
-    ;; this write succeeded, but was immediately overwritten.
-    (%dcas-object funcallable-instance +funcallable-instance-entry-point+
-                  old-1 old-2
-                  entry-point value)
-    value))
+  ;; TODO: If the function is an +OBJECT-TAG-FUNCTION+, then the entry point could point directly at it.
+  ;; Same as in ALLOCATE-FUNCALLABLE-STD-INSTANCE.
+  (setf (%object-ref-t funcallable-instance +funcallable-instance-function+) value))
 
 (defun funcallable-std-instance-class (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
@@ -471,16 +463,16 @@ VALUE may be nil to make the fref unbound."
          ;; works correctly.
          (values (%undefined-function)
                  (%object-ref-t (%undefined-function)
-                                    +function-entry-point+)))
-        ((eql (%object-tag value) +object-tag-closure+)
-         ;; Use the closure trampoline.
-         (values value
-                 (%object-ref-t (%closure-trampoline)
-                                    +function-entry-point+)))
-        (t ;; Normal call.
+                                +function-entry-point+)))
+        ((eql (%object-tag value) +object-tag-function+)
+         ;; Normal call.
          (values value
                  (%object-ref-t value
-                                    +function-entry-point+))))
+                                +function-entry-point+)))
+        (t ;; Something else, either a closure or funcallable-instance. Use the closure trampoline.
+         (values value
+                 (%object-ref-t (%closure-trampoline)
+                                +function-entry-point+))))
     ;; Atomically update both values.
     ;; Functions is followed by entry point.
     ;; A 128-byte store would work instead of a CAS, but it needs to be atomic.

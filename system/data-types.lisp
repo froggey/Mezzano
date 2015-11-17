@@ -166,16 +166,12 @@
 (defconstant +closure-function+ 1)
 
 ;;; Funcallable instances.
-;; Funcallable instances store the entry point of their function to avoid an
-;; additional indirection when invoked. This is seperate from the function
-;; entry point slot.
 ;; Layout is important. Update (setf funcallable-std-instance-function) if
 ;; it changes.
-(defconstant +funcallable-instance-entry-point+ 3)
-(defconstant +funcallable-instance-function+ 4)
-(defconstant +funcallable-instance-class+ 5)
-(defconstant +funcallable-instance-slots+ 6)
-(defconstant +funcallable-instance-layout+ 7)
+(defconstant +funcallable-instance-function+ 1)
+(defconstant +funcallable-instance-class+ 2)
+(defconstant +funcallable-instance-slots+ 3)
+(defconstant +funcallable-instance-layout+ 4)
 
 ;;; Layout of function-references.
 

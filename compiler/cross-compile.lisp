@@ -452,7 +452,8 @@
                              (:unbound-value . :fixup)
                              (:unbound-tls-slot . :fixup)
                              (:undefined-function . :fixup)
-                             (:closure-trampoline . :fixup))
+                             (:closure-trampoline . :fixup)
+                             (:funcallable-instance-trampoline . :fixup))
           :info (list name debug-info)))
     (declare (ignore symbols))
     (make-cross-function :mc mc

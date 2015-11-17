@@ -987,6 +987,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (scavenge-object (%unbound-tls-slot))
   (scavenge-object (%undefined-function))
   (scavenge-object (%closure-trampoline))
+  (scavenge-object (%funcallable-instance-trampoline))
   ;; Scavenge the current thread's stack.
   (scavenge-current-thread)
   ;; Now do the bulk of the work by scavenging the dynamic areas.

@@ -26,6 +26,7 @@
 (defun raise-undefined-function (invoked-through &rest args)
   (setf invoked-through (function-reference-name invoked-through))
   ;; Allow restarting.
+  ;; FIXME: Restarting doesn't actually work, as args are lost by the undefined function thunk.
   (restart-case (error 'undefined-function :name invoked-through)
     (use-value (v)
       :interactive (lambda ()
