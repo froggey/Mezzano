@@ -696,12 +696,12 @@ It will put the thread to sleep, while it waits for the page."
             (set-paging-light nil)
             ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
             (%lock-thread sys.int::*pager-thread*)
-            (release-place-spinlock *pager-lock*)
+            (release-place-spinlock (sys.int::symbol-global-value '*pager-lock*))
             (setf (thread-state sys.int::*pager-thread*) :sleeping
                   (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
             (%reschedule)
             (sys.int::%cli)
-            (acquire-place-spinlock *pager-lock*))))
+            (acquire-place-spinlock (sys.int::symbol-global-value '*pager-lock*)))))
      (cond ((eql (thread-state *pager-current-thread*) :pager-request)
             (handle-pager-request))
            ;; Page it in

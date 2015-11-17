@@ -154,7 +154,6 @@
   ;; Carve out a pair of pages.
   (let* ((addr (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
                   sys.int::+tag-object+)))
-    (debug-print-line "BSP CPU info at " addr)
     (populate-cpu-info-vector addr
                               (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
                               (+ sys.int::*exception-stack-base* sys.int::*exception-stack-size*)

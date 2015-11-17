@@ -115,17 +115,43 @@ RETURN-FROM/GO must not be used to leave this form."
 (defmacro initialize-place-spinlock (place)
   `(setf ,place (place-spinlock-initializer)))
 
-(defmacro acquire-place-spinlock (place)
-  (let ((self (gensym)))
-    `(let ((,self (current-thread)))
-       (ensure-interrupts-disabled)
-       ;; TODO... Need generic CAS, but this can wait until SMP support.
-       (when (not (eql ,place :unlocked))
-         (panic "Place spinlock " ',place " held by " ,place))
-       (setf ,place ,self))))
+(defmacro acquire-place-spinlock (place &environment environment)
+  (let ((self (gensym))
+        (old-value (gensym)))
+    (multiple-value-bind (vars vals old-sym new-sym cas-form read-form)
+        (sys.int::get-cas-expansion place environment)
+      `(let ((,self (local-cpu-info))
+             ,@(mapcar #'list vars vals))
+         (ensure-interrupts-disabled)
+         (block nil
+           ;; Attempt one.
+           (let* ((,old-sym :unlocked)
+                  (,new-sym ,self)
+                  (,old-value ,cas-form))
+             (when (eq ,old-value :unlocked)
+               ;; Prev value was :unlocked, have locked the lock.
+               (return))
+             (when (eq ,old-value ,self)
+               (panic "Spinlock " ',place " held by self!")))
+           ;; Loop until acquired.
+           (loop
+              ;; Read (don't CAS) the place until it goes back to :unlocked.
+              (loop
+                 (when (eq ,read-form :unlocked)
+                   (return))
+                 (sys.int::cpu-relax))
+              ;; Cas the place, try to lock it.
+              (let* ((,old-sym :unlocked)
+                     (,new-sym ,self)
+                     (,old-value ,cas-form))
+                ;; Prev value was :unlocked, have locked the lock.
+                (when (eq ,old-value :unlocked)
+                  (return)))))
+         (values)))))
 
 (defmacro release-place-spinlock (place)
-  `(setf ,place :unlocked))
+  `(progn (setf ,place :unlocked)
+          (values)))
 
 (defmacro with-place-spinlock ((place) &body body)
   `(progn
@@ -285,7 +311,6 @@ If clear, the fault occured in supervisor mode.")
 (defvar *i8259-handlers* nil)
 
 (defun i8259-interrupt-handler (interrupt-frame info)
-  (declare (ignore interrupt-frame))
   (let ((irq (- info +i8259-base-interrupt+)))
     (dolist (handler (svref *i8259-handlers* irq))
       (funcall handler interrupt-frame irq))

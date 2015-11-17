@@ -188,6 +188,7 @@ Returns two values, the packet data and the receiving NIC."
   (let ((first-run-p nil)
         ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
         (serial-port-io-base #x3F8))
+    (initialize-boot-cpu)
     (initialize-debug-serial serial-port-io-base 4 38400)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
@@ -197,7 +198,6 @@ Returns two values, the packet data and the receiving NIC."
           *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
-    (initialize-boot-cpu)
     (when (not (boundp 'mezzano.runtime::*tls-lock*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
