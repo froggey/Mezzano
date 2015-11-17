@@ -79,7 +79,7 @@
        for slot in (structure-slots type) do
          (let ((*print-level* 3)
                (*print-length* 5))
-           (format t "  ~S: ~S~%" (first slot) (%struct-slot object i))))))
+           (format t "  ~S: ~S~%" (structure-slot-name slot) (%struct-slot object i))))))
 
 (defun describe-thread (object stream)
   (format stream "~S is a thread with address ~X~%"

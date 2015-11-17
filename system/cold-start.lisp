@@ -216,6 +216,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))
   ;; Wire up all the structure types.
   (setf (get 'sys.int::structure-definition 'sys.int::structure-type) sys.int::*structure-type-type*)
+  (setf (get 'sys.int::structure-slot-definition 'sys.int::structure-type) sys.int::*structure-slot-type*)
   (dotimes (i (length *initial-structure-obarray*))
     (let ((defn (svref *initial-structure-obarray* i)))
       (setf (get (structure-name defn) 'structure-type) defn)))

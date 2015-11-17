@@ -43,7 +43,7 @@
                   (loop
                      for i from 1
                      for slot in (structure-slots type)
-                     collect (intern (symbol-name (first slot)) "KEYWORD")
+                     collect (intern (symbol-name (structure-slot-name slot)) "KEYWORD")
                      collect (%struct-slot object i)))
            :stream stream)))
 

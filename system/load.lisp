@@ -33,6 +33,7 @@
     (#.+llf-character+ 'character)
     (#.+llf-character-with-bits+ 'character-with-bits)
     (#.+llf-structure-definition+ 'structure-definition)
+    (#.+llf-structure-slot-definition+ 'structure-slot-definition)
     (#.+llf-single-float+ 'single-float)
     (#.+llf-proper-list+ 'proper-list)
     (#.+llf-package+ 'package)
@@ -141,6 +142,10 @@
                     :area :wired)
         vector)))
 
+(defun structure-slot-definition-compatible (x y)
+  (and (eql (structure-slot-name x) (structure-slot-name y))
+       (equal (structure-slot-type x) (structure-slot-type y))))
+
 (defun load-llf-structure-definition (stream stack)
   (let* ((area (vector-pop stack))
          (parent (vector-pop stack))
@@ -148,10 +153,19 @@
          (name (vector-pop stack))
          (definition (get name 'structure-type)))
     (cond (definition
-           (unless (equal (structure-slots definition) slots)
-             (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))
+           (unless (and (eql (length (structure-slots definition)) (length slots))
+                        (every #'structure-slot-definition-compatible (structure-slots definition) slots))
+             (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-slots definition) slots))
            definition)
           (t (make-struct-definition name slots parent area)))))
+
+(defun load-llf-structure-slot-definition (stream stack)
+  (let* ((read-only (vector-pop stack))
+         (type (vector-pop stack))
+         (initform (vector-pop stack))
+         (accessor (vector-pop stack))
+         (name (vector-pop stack)))
+    (make-struct-slot-definition name accessor initform type read-only)))
 
 (defun load-llf-array (stream stack)
   (let* ((n-dimensions (load-integer stream))
@@ -214,6 +228,8 @@
        (%make-character (char-code ch) bits)))
     (#.+llf-structure-definition+
      (load-llf-structure-definition stream stack))
+    (#.+llf-structure-slot-definition+
+     (load-llf-structure-slot-definition stream stack))
     (#.+llf-single-float+
      (%integer-as-single-float (load-integer stream)))
     (#.+llf-proper-list+

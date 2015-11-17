@@ -25,6 +25,21 @@
 (defun sys.int::make-struct-definition (&rest blah)
   (apply #'sys.int::make-struct-type blah))
 
+(defstruct (structure-slot
+             (:constructor sys.int::make-struct-slot-definition
+                           (name accessor initform type read-only)))
+  name
+  accessor
+  initform
+  type
+  read-only)
+
+(defun sys.int::structure-slot-name (x) (structure-slot-name x))
+(defun sys.int::structure-slot-accessor (x) (structure-slot-accessor x))
+(defun sys.int::structure-slot-initform (x) (structure-slot-initform x))
+(defun sys.int::structure-slot-type (x) (structure-slot-type x))
+(defun sys.int::structure-slot-read-only (x) (structure-slot-read-only x))
+
 (defvar *structure-types* (make-hash-table :test 'eq))
 
 (defparameter *char-name-alist*
@@ -590,6 +605,14 @@
   (save-object (structure-type-parent object) omap stream)
   (save-object (structure-type-area object) omap stream)
   (write-byte sys.int::+llf-structure-definition+ stream))
+
+(defmethod save-one-object ((object structure-slot) omap stream)
+  (save-object (structure-slot-name object) omap stream)
+  (save-object (structure-slot-accessor object) omap stream)
+  (save-object (structure-slot-initform object) omap stream)
+  (save-object (structure-slot-type object) omap stream)
+  (save-object (structure-slot-read-only object) omap stream)
+  (write-byte sys.int::+llf-structure-slot-definition+ stream))
 
 (defun %single-float-as-integer (value)
   (check-type value single-float)

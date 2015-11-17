@@ -199,6 +199,8 @@
 (defvar *load-time-evals*)
 (defvar *string-dedup-table*)
 (defvar *structure-definition-definition*)
+(defvar *structure-slot-definition-definition*)
+(defvar *image-to-cross-slot-definitions*)
 
 (defvar *function-map*)
 (defvar *pending-fixups*)
@@ -467,7 +469,8 @@
         (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline))
         (closure-tramp (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline))
         (f-i-tramp (compile-lap-function *funcallable-instance-trampoline* :area :wired :name 'sys.int::%%funcallable-instance-trampoline))
-        (struct-def-def (allocate 7 :wired)))
+        (struct-def-def (allocate 7 :wired))
+        (struct-slot-def-def (allocate 7 :wired)))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
     (format t "UDF at word ~X~%" undef-fn)
@@ -516,15 +519,16 @@
     (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
     (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))
     (setf *structure-definition-definition* struct-def-def
-          (word (+ struct-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
+          *structure-slot-definition-definition* struct-slot-def-def)
+    ;; Populate *structure-definition-definition*.
+    (setf (word (+ struct-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
           (word (+ struct-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
           (word (+ struct-def-def 2)) (vsym 'sys.int::structure-definition)
-          ;; (name accessor initial-value type read-only).
-          (word (+ struct-def-def 3)) (vlist (vlist (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym 'nil) (vsym 't) (vsym 't))
-                                             (vlist (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym 'nil) (vsym 't) (vsym 't))
-                                             (vlist (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym 'nil) (vsym 't) (vsym 't))
-                                             (vlist (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym 'nil) (vsym 't) (vsym 't))
-                                             (vlist (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class)  (vsym 'nil) (vsym 't) (vsym 'nil)))
+          (word (+ struct-def-def 3)) (vlist (vmake-struct-slot-def (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym nil) (vsym 't) (vsym t))
+                                             (vmake-struct-slot-def (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym nil) (vsym 't) (vsym t))
+                                             (vmake-struct-slot-def (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym nil) (vsym 't) (vsym t))
+                                             (vmake-struct-slot-def (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym nil) (vsym 't) (vsym t))
+                                             (vmake-struct-slot-def (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class) (vsym nil) (vsym 't) (vsym t)))
           (word (+ struct-def-def 4)) (vsym 'nil)
           (word (+ struct-def-def 5)) (vsym :wired)
           (word (+ struct-def-def 6)) (vsym nil)
@@ -534,7 +538,37 @@
                                                                           (sys.int::slots sys.int::structure-slots nil t t)
                                                                           (sys.int::parent sys.int::structure-parent nil t t)
                                                                           (sys.int::area sys.int::structure-area nil t t)
-                                                                          (sys.int::class sys.int::structure-definition-class nil t nil))))))
+                                                                          (sys.int::class sys.int::structure-definition-class nil t nil))))
+    ;; Populate *structure-slot-definition-definition*.
+    (setf (word (+ struct-slot-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
+          (word (+ struct-slot-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
+          (word (+ struct-slot-def-def 2)) (vsym 'sys.int::structure-slot-definition)
+          (word (+ struct-slot-def-def 3)) (vlist (vmake-struct-slot-def (vsym 'sys.int::name)      (vsym 'sys.int::structure-slot-name)      (vsym nil) (vsym 't) (vsym t))
+                                                  (vmake-struct-slot-def (vsym 'sys.int::accessor)  (vsym 'sys.int::structure-slot-accessor)  (vsym nil) (vsym 't) (vsym t))
+                                                  (vmake-struct-slot-def (vsym 'sys.int::initform)  (vsym 'sys.int::structure-slot-initform)  (vsym nil) (vsym 't) (vsym t))
+                                                  (vmake-struct-slot-def (vsym 'sys.int::type)      (vsym 'sys.int::structure-slot-type)      (vsym nil) (vsym 't) (vsym t))
+                                                  (vmake-struct-slot-def (vsym 'sys.int::read-only) (vsym 'sys.int::structure-slot-read-only) (vsym nil) (vsym 't) (vsym t)))
+          (word (+ struct-slot-def-def 4)) (vsym 'nil)
+          (word (+ struct-slot-def-def 5)) (vsym :wired)
+          (word (+ struct-slot-def-def 6)) (vsym nil)
+          (gethash 'sys.int::structure-slot-definition *struct-table*) (list struct-slot-def-def
+                                                                             'sys.int::structure-slot-definition
+                                                                             '((sys.int::name      sys.int::structure-slot-name      nil t t)
+                                                                               (sys.int::accessor  sys.int::structure-slot-accessor  nil t t)
+                                                                               (sys.int::initform  sys.int::structure-slot-initform  nil t t)
+                                                                               (sys.int::type      sys.int::structure-slot-type      nil t t)
+                                                                               (sys.int::read-only sys.int::structure-slot-read-only nil t nil))))))
+
+(defun vmake-struct-slot-def (name accessor initial-value type read-only)
+  (let ((addr (allocate 7 :wired)))
+    (setf (word (+ addr 0)) (array-header sys.int::+object-tag-structure-object+ 6)
+          (word (+ addr 1)) (make-value *structure-slot-definition-definition* sys.int::+tag-object+)
+          (word (+ addr 2)) name
+          (word (+ addr 3)) accessor
+          (word (+ addr 4)) initial-value
+          (word (+ addr 5)) type
+          (word (+ addr 6)) read-only)
+    (make-value addr sys.int::+tag-object+)))
 
 (defun add-page-to-block-map (bml4 block virtual-address flags)
   (let ((bml4e (ldb (byte 9 39) virtual-address))
@@ -1281,7 +1315,8 @@
                                :test #'string=))
          (pf-exception-stack (create-stack (* 128 1024)))
          (irq-stack (create-stack (* 128 1024)))
-         (wired-stack (create-stack (* 128 1024))))
+         (wired-stack (create-stack (* 128 1024)))
+         (*image-to-cross-slot-definitions* (make-hash-table)))
     ;; Generate the support objects. NIL/T/etc, and the initial thread.
     (create-support-objects)
     (create-low-level-interrupt-support)
@@ -1411,6 +1446,7 @@
       (set-value 'sys.int::*wired-stack-area-bump* *stack-area-bump*)
       (set-value 'sys.int::*stack-area-bump* +stack-area-base+))
     (setf (cold-symbol-value 'sys.int::*structure-type-type*) (make-value *structure-definition-definition* sys.int::+tag-object+))
+    (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
     (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
     (if (streamp image-name)
@@ -1557,6 +1593,9 @@
     array))
 
 (defun extract-object (value)
+  (let ((slot-def (gethash value *image-to-cross-slot-definitions*)))
+    (when slot-def
+      (return-from extract-object slot-def)))
   (let ((address (pointer-part value)))
     (ecase (tag-part value)
       ;; FIXME: Negative numbers...
@@ -1739,6 +1778,12 @@ Tag with +TAG-OBJECT+."
           (setf (word (+ sym-addr 4)) (make-value fref sys.int::+tag-object+)))))
     fref))
 
+(defun load-structure-slot-definition (name accessor initform type read-only)
+  (let ((image-def (vmake-struct-slot-def name accessor initform type read-only))
+        (cross-def (sys.int::make-struct-slot-definition name accessor initform type read-only)))
+    (setf (gethash image-def *image-to-cross-slot-definitions*) cross-def)
+    image-def))
+
 (defun load-one-object (command stream stack)
   (ecase command
     (#.sys.int::+llf-function+
@@ -1809,6 +1854,13 @@ Tag with +TAG-OBJECT+."
            (slots (vector-pop stack))
            (name (vector-pop stack)))
        (load-structure-definition name slots parent area)))
+    (#.sys.int::+llf-structure-slot-definition+
+     (let ((read-only (vector-pop stack))
+           (type (vector-pop stack))
+           (initform (vector-pop stack))
+           (accessor (vector-pop stack))
+           (name (vector-pop stack)))
+       (load-structure-slot-definition name accessor initform type read-only)))
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              sys.int::+tag-single-float+))
