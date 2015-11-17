@@ -443,121 +443,90 @@
                package
                name))
       ;; Symbols are always wired.
-      (let ((address (allocate 6 :wired)))
-        ;; fixme, keywords should be constant.
-        (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+ 0)
-              (word (+ address 1)) (make-value (store-string name :wired)
-                                               sys.int::+tag-object+)
-              (word (+ address 2)) (make-value (symbol-address package "KEYWORD") sys.int::+tag-object+)
-              (word (+ address 3)) (if (string= package "KEYWORD")
-                                       (make-value address sys.int::+tag-object+)
-                                       (unbound-value))
-              (word (+ address 4)) (make-value (gethash '("NIL" . "COMMON-LISP") *symbol-table*) sys.int::+tag-object+)
-              (word (+ address 5)) (make-value (gethash '("NIL" . "COMMON-LISP") *symbol-table*) sys.int::+tag-object+))
-        (setf (gethash address *reverse-symbol-table*) (cons name package)
-              (gethash (cons name package) *symbol-table*) address))))
+      (let ((address (allocate-symbol name package)))
+        (populate-symbol address
+                         name (intern package "KEYWORD")
+                         (if (string= package "KEYWORD")
+                             (make-value address sys.int::+tag-object+)
+                             (unbound-value))
+                         (string= package "KEYWORD"))
+        address)))
 
-;; fixme, nil and t should be constant.
+(defun allocate-symbol (name package)
+  (let ((address (allocate 6 :wired)))
+    (setf (gethash address *reverse-symbol-table*) (cons name package)
+          (gethash (cons name package) *symbol-table*) address)
+    address))
+
+(defun populate-symbol (address name package value &optional is-constant)
+  (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
+                                           (if is-constant
+                                               (ash sys.int::+symbol-mode-constant+ sys.int::+symbol-header-mode-position+)
+                                               0)) ; flags & header
+        (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
+        (word (+ address 2)) (vsym package) ; package
+        (word (+ address 3)) value ; value
+        (word (+ address 4)) (vsym nil) ; function
+        (word (+ address 5)) (vsym nil))) ; plist
+
+(defun populate-structure-definition (address name slots parent area)
+  (setf (word (+ address 0)) (array-header sys.int::+object-tag-structure-object+ 6)
+        (word (+ address 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
+        (word (+ address 2)) (vsym name)
+        (word (+ address 3)) (apply #'vlist (mapcar (lambda (def)
+                                                      (apply #'vmake-struct-slot-def (mapcar #'vsym def)))
+                                                    slots))
+        (word (+ address 4)) (or parent (vsym nil))
+        (word (+ address 5)) (vsym area)
+        (word (+ address 6)) (vsym nil)
+        (gethash name *struct-table*) (list address name slots)))
+
 (defun create-support-objects ()
   "Create NIL, T and the undefined function thunk."
-  (let ((nil-value (allocate 6 :wired))
-        (t-value (allocate 6 :wired))
-        (keyword-keyword (allocate 6 :wired))
-        (cl-keyword (allocate 6 :wired))
-        (unbound-val (allocate 2 :wired))
-        (unbound-tls-val (allocate 2 :wired))
-        (undef-fn (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline))
-        (closure-tramp (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline))
-        (f-i-tramp (compile-lap-function *funcallable-instance-trampoline* :area :wired :name 'sys.int::%%funcallable-instance-trampoline))
-        (struct-def-def (allocate 7 :wired))
-        (struct-slot-def-def (allocate 7 :wired)))
+  ;; Create initial symbols. Don't need the unbound value yet.
+  (let ((nil-value (allocate-symbol "NIL" "COMMON-LISP"))
+        (t-value (allocate-symbol "T" "COMMON-LISP"))
+        (keyword-keyword (allocate-symbol "KEYWORD" "KEYWORD"))
+        (cl-keyword (allocate-symbol "COMMON-LISP" "KEYWORD")))
     (format t "NIL at word ~X~%" nil-value)
     (format t "  T at word ~X~%" t-value)
-    (format t "UDF at word ~X~%" undef-fn)
-    (format t "UBV at word ~X~%" unbound-val)
-    (setf (gethash '("NIL" . "COMMON-LISP") *symbol-table*) nil-value
-          (gethash nil-value *reverse-symbol-table*) '("NIL" . "COMMON-LISP")
-          (gethash '("T" . "COMMON-LISP") *symbol-table*) t-value
-          (gethash t-value *reverse-symbol-table*) '("T" . "COMMON-LISP")
-          (gethash '("KEYWORD" . "KEYWORD") *symbol-table*) keyword-keyword
-          (gethash keyword-keyword *reverse-symbol-table*) '("KEYWORD" . "KEYWORD")
-          (gethash '("COMMON-LISP" . "KEYWORD") *symbol-table*) cl-keyword
-          (gethash cl-keyword *reverse-symbol-table*) '("COMMON-LISP" . "KEYWORD")
-          *undefined-function-address* undef-fn
-          *closure-trampoline-address* closure-tramp
-          *f-i-trampoline-address* f-i-tramp
-          *unbound-value-address* unbound-val
-          *unbound-tls-slot-address* unbound-tls-val)
-    (setf (word (+ nil-value 0)) (array-header sys.int::+object-tag-symbol+ 0) ; flags & header
-          (word (+ nil-value 1)) (make-value (store-string "NIL" :wired)
-                                       sys.int::+tag-object+) ; name
-          (word (+ nil-value 2)) (make-value cl-keyword sys.int::+tag-object+) ; package
-          (word (+ nil-value 3)) (make-value nil-value sys.int::+tag-object+) ; value
-          (word (+ nil-value 4)) (make-value nil-value sys.int::+tag-object+) ; function
-          (word (+ nil-value 5)) (make-value nil-value sys.int::+tag-object+)) ; plist
-    (setf (word (+ t-value 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ t-value 1)) (make-value (store-string "T" :wired)
-                                     sys.int::+tag-object+)
-          (word (+ t-value 2)) (make-value cl-keyword sys.int::+tag-object+)
-          (word (+ t-value 3)) (make-value t-value sys.int::+tag-object+)
-          (word (+ t-value 4)) (make-value nil-value sys.int::+tag-object+)
-          (word (+ t-value 5)) (make-value nil-value sys.int::+tag-object+))
-    (setf (word (+ keyword-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ keyword-keyword 1)) (make-value (store-string "KEYWORD" :wired)
-                                     sys.int::+tag-object+)
-          (word (+ keyword-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
-          (word (+ keyword-keyword 3)) (make-value keyword-keyword sys.int::+tag-object+)
-          (word (+ keyword-keyword 4)) (make-value nil-value sys.int::+tag-object+)
-          (word (+ keyword-keyword 5)) (make-value nil-value sys.int::+tag-object+))
-    (setf (word (+ cl-keyword 0)) (array-header sys.int::+object-tag-symbol+ 0)
-          (word (+ cl-keyword 1)) (make-value (store-string "COMMON-LISP" :wired)
-                                     sys.int::+tag-object+)
-          (word (+ cl-keyword 2)) (make-value keyword-keyword sys.int::+tag-object+)
-          (word (+ cl-keyword 3)) (make-value cl-keyword sys.int::+tag-object+)
-          (word (+ cl-keyword 4)) (make-value nil-value sys.int::+tag-object+)
-          (word (+ cl-keyword 5)) (make-value nil-value sys.int::+tag-object+))
-    (setf (word unbound-val) (array-header sys.int::+object-tag-unbound-value+ 0))
-    (setf (word unbound-tls-val) (array-header sys.int::+object-tag-unbound-value+ 1))
-    (setf *structure-definition-definition* struct-def-def
-          *structure-slot-definition-definition* struct-slot-def-def)
-    ;; Populate *structure-definition-definition*.
-    (setf (word (+ struct-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
-          (word (+ struct-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
-          (word (+ struct-def-def 2)) (vsym 'sys.int::structure-definition)
-          (word (+ struct-def-def 3)) (vlist (vmake-struct-slot-def (vsym 'sys.int::name)   (vsym 'sys.int::structure-name)   (vsym nil) (vsym 't) (vsym t))
-                                             (vmake-struct-slot-def (vsym 'sys.int::slots)  (vsym 'sys.int::structure-slots)  (vsym nil) (vsym 't) (vsym t))
-                                             (vmake-struct-slot-def (vsym 'sys.int::parent) (vsym 'sys.int::structure-parent) (vsym nil) (vsym 't) (vsym t))
-                                             (vmake-struct-slot-def (vsym 'sys.int::area)   (vsym 'sys.int::structure-area)   (vsym nil) (vsym 't) (vsym t))
-                                             (vmake-struct-slot-def (vsym 'sys.int::class)  (vsym 'sys.int::structure-definition-class) (vsym nil) (vsym 't) (vsym t)))
-          (word (+ struct-def-def 4)) (vsym 'nil)
-          (word (+ struct-def-def 5)) (vsym :wired)
-          (word (+ struct-def-def 6)) (vsym nil)
-          (gethash 'sys.int::structure-definition *struct-table*) (list struct-def-def
-                                                                        'sys.int::structure-definition
-                                                                        '((sys.int::name sys.int::structure-name nil t t)
-                                                                          (sys.int::slots sys.int::structure-slots nil t t)
-                                                                          (sys.int::parent sys.int::structure-parent nil t t)
-                                                                          (sys.int::area sys.int::structure-area nil t t)
-                                                                          (sys.int::class sys.int::structure-definition-class nil t nil))))
-    ;; Populate *structure-slot-definition-definition*.
-    (setf (word (+ struct-slot-def-def 0)) (array-header sys.int::+object-tag-structure-object+ 6)
-          (word (+ struct-slot-def-def 1)) (make-value *structure-definition-definition* sys.int::+tag-object+)
-          (word (+ struct-slot-def-def 2)) (vsym 'sys.int::structure-slot-definition)
-          (word (+ struct-slot-def-def 3)) (vlist (vmake-struct-slot-def (vsym 'sys.int::name)      (vsym 'sys.int::structure-slot-name)      (vsym nil) (vsym 't) (vsym t))
-                                                  (vmake-struct-slot-def (vsym 'sys.int::accessor)  (vsym 'sys.int::structure-slot-accessor)  (vsym nil) (vsym 't) (vsym t))
-                                                  (vmake-struct-slot-def (vsym 'sys.int::initform)  (vsym 'sys.int::structure-slot-initform)  (vsym nil) (vsym 't) (vsym t))
-                                                  (vmake-struct-slot-def (vsym 'sys.int::type)      (vsym 'sys.int::structure-slot-type)      (vsym nil) (vsym 't) (vsym t))
-                                                  (vmake-struct-slot-def (vsym 'sys.int::read-only) (vsym 'sys.int::structure-slot-read-only) (vsym nil) (vsym 't) (vsym t)))
-          (word (+ struct-slot-def-def 4)) (vsym 'nil)
-          (word (+ struct-slot-def-def 5)) (vsym :wired)
-          (word (+ struct-slot-def-def 6)) (vsym nil)
-          (gethash 'sys.int::structure-slot-definition *struct-table*) (list struct-slot-def-def
-                                                                             'sys.int::structure-slot-definition
-                                                                             '((sys.int::name      sys.int::structure-slot-name      nil t t)
-                                                                               (sys.int::accessor  sys.int::structure-slot-accessor  nil t t)
-                                                                               (sys.int::initform  sys.int::structure-slot-initform  nil t t)
-                                                                               (sys.int::type      sys.int::structure-slot-type      nil t t)
-                                                                               (sys.int::read-only sys.int::structure-slot-read-only nil t nil))))))
+    (populate-symbol nil-value         "NIL"         :common-lisp (vsym nil)          t)
+    (populate-symbol t-value           "T"           :common-lisp (vsym t)            t)
+    (populate-symbol keyword-keyword   "KEYWORD"     :keyword     (vsym :keyword)     t)
+    (populate-symbol cl-keyword        "COMMON-LISP" :keyword     (vsym :common-lisp) t))
+  ;; Create the unbound values.
+  (setf *unbound-value-address* (allocate 2 :wired))
+  (setf (word *unbound-value-address*) (array-header sys.int::+object-tag-unbound-value+ 0))
+  (format t "UBV at word ~X~%" *unbound-value-address*)
+  (setf *unbound-tls-slot-address* (allocate 2 :wired))
+  (setf (word *unbound-tls-slot-address*) (array-header sys.int::+object-tag-unbound-value+ 1))
+  ;; Create trampoline functions.
+  (setf *undefined-function-address* (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline)
+        *closure-trampoline-address* (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline)
+        *f-i-trampoline-address* (compile-lap-function *funcallable-instance-trampoline* :area :wired :name 'sys.int::%%funcallable-instance-trampoline))
+  (format t "UDF at word ~X~%" *undefined-function-address*)
+  ;; And finally the initial structure definitions.
+  (setf *structure-definition-definition* (allocate 7 :wired)
+        *structure-slot-definition-definition* (allocate 7 :wired))
+  (populate-structure-definition *structure-definition-definition*
+                                 'sys.int::structure-definition
+                                 ;; name, accessor, initform, type, read-only
+                                 '((sys.int::name   sys.int::structure-name             nil t t)
+                                   (sys.int::slots  sys.int::structure-slots            nil t t)
+                                   (sys.int::parent sys.int::structure-parent           nil t t)
+                                   (sys.int::area   sys.int::structure-area             nil t t)
+                                   (sys.int::class  sys.int::structure-definition-class nil t nil))
+                                 nil
+                                 :wired)
+  (populate-structure-definition *structure-slot-definition-definition*
+                                 'sys.int::structure-slot-definition
+                                 '((sys.int::name      sys.int::structure-slot-name      nil t t)
+                                   (sys.int::accessor  sys.int::structure-slot-accessor  nil t t)
+                                   (sys.int::initform  sys.int::structure-slot-initform  nil t t)
+                                   (sys.int::type      sys.int::structure-slot-type      nil t t)
+                                   (sys.int::read-only sys.int::structure-slot-read-only nil t t))
+                                 nil
+                                 :wired))
 
 (defun vmake-struct-slot-def (name accessor initial-value type read-only)
   (let ((addr (allocate 7 :wired)))
@@ -1396,6 +1365,8 @@
             sys.int::*cons-area-bump*
             sys.int::*stack-area-bump*
             :wired :pinned :general :cons :nursery :stack
+            sys.int::*structure-type-type*
+            sys.int::*structure-slot-type*
             ))
     (loop
        for (what address byte-offset type debug-info) in *pending-fixups*
