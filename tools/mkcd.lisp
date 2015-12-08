@@ -12,7 +12,7 @@
 (in-package :mkcd)
 
 (defvar *staging-path* #p"iso_stage/")
-(defvar *cdkboot* #p"tools/kboot/cdkboot")
+(defvar *cdkboot* #p"tools/kboot/cdkboot.img")
 
 (defun pathname-file-part (pathname)
   (make-pathname :name (pathname-name pathname)
@@ -23,8 +23,8 @@
                            confirm
                            (verbose t)
                            (base-path *default-pathname-defaults*)
-                           (kboot-options '(("video_mode" . "1024x768")))
-                           (disk "(hd0)"))
+                           (kboot-options '(("video_mode" . "lfb:1024x768")))
+                           (disk "hd0"))
   (let* ((stage (merge-pathnames *staging-path*))
          (image-path (merge-pathnames (make-pathname :name name :type "iso")))
          (*default-pathname-defaults* base-path))
@@ -44,17 +44,17 @@
              (format t "KBoot loader: ~A~%" (merge-pathnames (pathname-file-part *cdkboot*) stage)))
            (copy-file (merge-pathnames *cdkboot* base-path)
                       (merge-pathnames (pathname-file-part *cdkboot*) stage))
-           (with-open-file (s (merge-pathnames "loader.cfg" stage)
+           (with-open-file (s (merge-pathnames "kboot.cfg" stage)
                               :direction :output
                               :if-does-not-exist :create)
              (format s "set \"timeout\" 1~%")
              (format s "entry \"Mezzano\" {~%")
              (loop for (name . value) in kboot-options
                 do (format s "  set ~S ~S~%" name value))
-             (format s "  mezzanine ~S~%" disk)
+             (format s "  mezzano ~S~%" disk)
              (format s "}~%"))
            (external-program:run "mkisofs"
-                                 (list "-R" "-J" "-b" "cdkboot" "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
+                                 (list "-R" "-J" "-b" "cdkboot.img" "-no-emul-boot" "-boot-load-size" "4" "-boot-info-table" "-o"
                                        (format nil "~A" image-path)
                                        (format nil "~A" stage))
                                  :output *standard-output*

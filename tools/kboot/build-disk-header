@@ -1,0 +1,24 @@
+#!/bin/bash
+# The disk_header only needs to be rebuilt when kboot is updated.
+# This script requires e2fsprogs, kboot-install and kboot.bin from the kboot distribution.
+
+set -e
+set -x
+
+rm -f bootfs.img disk_header
+
+# Create the bootloader partition, just under 1MB.
+dd if=/dev/zero of=bootfs.img bs=512 count=2040
+mke2fs -t ext2 bootfs.img
+# debugfs doesn't seem to support images at arbitrary offsets, the partition must be created seperately.
+debugfs -w -f build-disk-header-debugfs-script.txt bootfs.img
+
+# Create the actual disk header.
+# mbr-and-partition-table.bin contains a normal mbr and two partitions.
+# Partition one is active, has type 0x83, starts at LBA 8 and is 2040 blocks in size.
+# Partition two has type 0x83, starts at LBA 2048 and can be of any size.
+# The cold generator will adjust the size of partition one when it creates the image.
+dd if=mbr-and-partition-table.bin of=disk_header
+dd if=bootfs.img of=disk_header bs=512 seek=8
+
+kboot-install --target=bios --image=disk_header --offset=4096 --path=boot/kboot.bin --verbose
