@@ -514,7 +514,7 @@ This is required to make the GC interrupt safe."
                  ;; This metadata entry is past the offset, return the previous values.
                  (return))
                (setf framep entry-framep
-                     interrupt entry-interruptp
+                     interruptp entry-interruptp
                      pushed-values entry-pushed-values
                      pushed-values-register entry-pushed-values-register
                      layout-address entry-layout-address
