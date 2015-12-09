@@ -10,7 +10,7 @@
 ;; The bootloader will generate this for us.
 ;; +0 type & extra data:
 ;;    (byte 8 0) - type
-;;         0  Other
+;;         0  Other external. Memory not managed by this code. Could be device memory, system firmware, etc
 ;;         1  Free
 ;;         2  Wired page
 ;;         3  Wired backing page
@@ -18,6 +18,7 @@
 ;;         5  Active, waiting for writeback
 ;;         6  Inactive, waiting for writeback
 ;;         7  Page table
+;;         8  Other
 ;;    (byte 8 8) - Buddy bin, only when free
 ;;    (byte 52 8) - Virtual page, only when active or wired backing page.
 ;; +1 store block id (when inactive, waiting for writeback or wired backing page)
@@ -62,26 +63,28 @@
 
 (defun physical-page-frame-type (page-number)
   (ecase (ldb (byte 8 0) (physical-page-frame-flags page-number))
-    (0 :other)
+    (0 :other-external)
     (1 :free)
     (2 :wired)
     (3 :wired-backing)
     (4 :active)
     (5 :active-writeback)
     (6 :inactive-writeback)
-    (7 :page-table)))
+    (7 :page-table)
+    (8 :other)))
 
 (defun (setf physical-page-frame-type) (value page-number)
   (setf (ldb (byte 8 0) (physical-page-frame-flags page-number))
         (ecase value
-          (:other 0)
+          (:other-external 0)
           (:free 1)
           (:wired 2)
           (:wired-backing 3)
           (:active 4)
           (:active-writeback 5)
           (:inactive-writeback 6)
-          (:page-table 7))))
+          (:page-table 7)
+          (:other 8))))
 
 (defun physical-page-frame-bin (page-number)
   (ldb (byte 8 8) (physical-page-frame-flags page-number)))
