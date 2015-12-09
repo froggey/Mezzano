@@ -886,7 +886,7 @@ Interrupts must be off, the current thread must be locked."
              (:area :wired))
   ;; When NIL, the lock is free, otherwise is set to
   ;; the thread that holds the lock.
-  (owner nil) ; must be slot 5, after wait-queue is included.
+  (owner nil)
   (stack-next nil))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
@@ -896,7 +896,7 @@ Interrupts must be off, the current thread must be locked."
       (unless (not *pseudo-atomic*)
         (panic "Trying to acquire mutex " mutex " while pseudo-atomic.")))
     ;; Fast path - try to lock.
-    (when (sys.int::%cas-struct-slot mutex 5 nil self)
+    (when (eql (sys.int::cas (mutex-owner mutex) nil self) nil)
       ;; We got it.
       (setf (mutex-stack-next mutex) (thread-mutex-stack self)
             (thread-mutex-stack self) mutex)
@@ -913,7 +913,7 @@ Interrupts must be off, the current thread must be locked."
   ;; Slow path.
   (lock-wait-queue mutex)
   ;; Try to acquire again, release may have been running.
-  (when (sys.int::%cas-struct-slot mutex 5 nil self)
+  (when (eql (sys.int::cas (mutex-owner mutex) nil self) nil)
     ;; We got it.
     (setf (mutex-stack-next mutex) (thread-mutex-stack self)
           (thread-mutex-stack self) mutex)
