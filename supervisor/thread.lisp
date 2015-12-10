@@ -24,81 +24,16 @@
 ;; The cold-generator creates an idle thread for the BSP.
 (defvar sys.int::*bsp-idle-thread*)
 
-;; Thread object layout:
-;;  0 name.
-;;    The name of the thread, a string.
-;;  1 state (:active :runnable :sleeping :dead)
-;;    Current state.
-;;      :active   - the thread is currently running on a core.
-;;      :runnable - the thread can be run, but is not currently running.
-;;      :sleeping - the thread is waiting for an event and cannot run.
-;;      :dead     - the thread has exited or been killed and cannot run.
-;;      :waiting-for-page - the thread is waiting for memory to be paged in.
-;;  2 lock
-;;    Spinlock protecting access to the thread.
-;;  3 stack
-;;    Stack object for the stack.
-;;  4 ** free (ish)
-;;  5 Wait item.
-;;    If a thread is sleeping or waiting for page, this will describe what it's waiting for.
-;;    When waiting for paging to complete, this will be the faulting address.
-;;  6 special stack pointer
-;;    The thread's current special stack pointer.
-;;    Note! The compiler must be updated if this changes and all code rebuilt.
-;;  7 full-save-p
-;;    When true, all registers are saved in the the thread's state save area.
-;;    When false, only the stack pointer and frame pointer are valid.
-;;  8 ** free
-;;  9 %next
-;;    Forward link to the next thread in whatever list the thread is in.
-;; 10 %prev
-;;    Backward link to the previous thread in whatever list the thread is in.
-;; 11 ** free
-;; 12 ** free
-;; 13 mutex stack
-;; 14 global-next
-;; 15 global-prev
-;;    Linked list of all living threads.
-;; 32-127 MV slots
-;;    Slots used as part of the multiple-value return convention.
-;;    Note! The compiler must be updated if this changes and all code rebuilt.
-;; 128-426 TLS slots
-;;    Slots used for bound symbol values.
-;;    Note! The start of this area is known by the cold-generator.
-;; 427-446 State save area.
-;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
-;;    The registers are saved here, not on the stack, because the stack may not be paged in.
-;;    This has the same layout as an interrupt frame.
-;;   +0 R15
-;;   +1 R14
-;;   +2 R13
-;;   +3 R12
-;;   +4 R11
-;;   +5 R10
-;;   +6 R9
-;;   +7 R8
-;;   +8 RDI
-;;   +9 RSI
-;;  +10 RBX
-;;  +11 RDX
-;;  +12 RCX
-;;  +13 RAX
-;;  +14 RBP (frame pointer)
-;;  +15 RIP
-;;  +16 CS
-;;  +17 RFLAGS
-;;  +18 RSP (stack pointer)
-;;  +19 SS
-;; 447-510 FXSAVE area
-;;    Unboxed area where the FPU/SSE state is saved.
-;; COLD-GENERATOR::CREATE-INITIAL-THREAD must match.
-
 (deftype thread ()
   `(satisfies threadp))
 
 (defun threadp (object)
   (and (eql (sys.int::%tag-field object) sys.int::+tag-object+)
        (eql (sys.int::%object-tag object) sys.int::+object-tag-thread+)))
+
+;;; Thread locking.
+;;;
+;;; Each thread has a per-thread spinlock (the thread-lock field), and there is the *GLOBAL-THREAD-LOCK*.
 
 (macrolet ((field (name offset &key (type 't) (accessor 'sys.int::%object-ref-t))
              (let ((field-name (intern (format nil "+THREAD-~A+" (symbol-name name))
@@ -121,26 +56,76 @@
               `(progn
                  (field ,state-name ,offset :accessor sys.int::%object-ref-signed-byte-64)
                  (field ,state-name-value ,offset :accessor sys.int::%object-ref-t)))))
-  (field name                     0)
+  ;; The name of the thread, a string.
+  (field name                     0 :type string)
+  ;; Current state.
+  ;;   :active    - the thread is currently running on a core.
+  ;;   :runnable  - the thread can be run, but is not currently running.
+  ;;   :sleeping  - the thread is waiting for an event and cannot run.
+  ;;   :dead      - the thread has exited or been killed and cannot run.
+  ;;   :waiting-for-page - the thread is waiting for memory to be paged in.
+  ;;   :pager-request - the thread is waiting for a pager RPC call to complete.
   (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request))
+  ;; Spinlock protecting access to the thread.
   (field lock                     2)
+  ;; Stack object for the stack.
   (field stack                    3)
   ;; 4 - magic field used by bootloader.
+  ;; If a thread is sleeping, waiting for page or performing a pager-request, this will describe what it's waiting for.
+  ;; When waiting for paging to complete, this will be the faulting address.
+  ;; When waiting for a pager-request, this will be the called function.
   (field wait-item                5)
+  ;; The thread's current special stack pointer.
+  ;; Note! The compiler must be updated if this changes and all code rebuilt.
   (field special-stack-pointer    6)
+  ;; When true, all registers are saved in the the thread's state save area.
+  ;; When false, only the stack pointer and frame pointer are valid.
   (field full-save-p              7)
-  ;; 8
+  ;; 8 - free
+  ;; Next/previous links for run queues and wait queues.
   (field %next                    9)
   (field %prev                   10)
+  ;; A list of foothold functions that need to be run.
   (field pending-footholds       11)
+  ;; A non-negative fixnum, when 0 footholds are permitted to run.
+  ;; When positive, they are deferred.
   (field inhibit-footholds       12)
   (field mutex-stack             13)
+  ;; Next/previous links for the *all-threads* list.
+  ;; This only contains live (not state = :dead) threads.
   (field global-next             14)
   (field global-prev             15)
+  ;; Thread's priority, can be either :normal or :low.
+  ;; The pager, disk io, and thread currently stopping the world all
+  ;; have higher-than-:normal priority, no matter what the priority field contains.
   (field priority                16 :type (member :low :normal))
+  ;; Arguments passed to the pager when performing an RPC.
   (field pager-argument-1        17)
   (field pager-argument-2        18)
   (field pager-argument-3        19)
+  ;; Table of active breakpoints.
+  (field breakpoint-table        20)
+  ;; Sorted simple-vector of breakpoint addresses, used when the thread is running in software-breakpoint mode.
+  (field software-breakpoints    21)
+  ;; 22-32 - free
+  ;; 32-127 MV slots
+  ;;    Slots used as part of the multiple-value return convention.
+  ;;    Note! The compiler must be updated if this changes and all code rebuilt.
+  (defconstant +thread-mv-slots-start+ 32)
+  (defconstant +thread-mv-slots-end+ 128)
+  ;; 128-426 TLS slots
+  ;;    Slots used for bound symbol values.
+  ;;    Note! The start of this area is known by the cold-generator.
+  (defconstant +thread-tls-slots-start+ 128)
+  (defconstant +thread-tls-slots-end+ 427)
+  ;; 427-446 State save area.
+  ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
+  ;;    The registers are saved here, not on the stack, because the stack may not be paged in.
+  ;;    This has the same layout as an interrupt frame.
+  ;; 447-510 FXSAVE area
+  ;;    Unboxed area where the FPU/SSE state is saved.
+  (defconstant +thread-interrupt-save-area+ 427)
+  (defconstant +thread-fx-save-area+ 447)
   (reg-field r15                427)
   (reg-field r14                428)
   (reg-field r13                429)
@@ -162,6 +147,8 @@
   (reg-field rsp                445)
   (reg-field ss                 446))
 
+;;; Aliases for a few registers.
+
 (defun thread-frame-pointer (thread)
   (thread-state-rbp thread))
 
@@ -174,12 +161,11 @@
 (defun (setf thread-stack-pointer) (value thread)
   (setf (thread-state-rsp thread) value))
 
-(defconstant +thread-mv-slots-start+ 32)
-(defconstant +thread-mv-slots-end+ 128)
-(defconstant +thread-tls-slots-start+ 128)
-(defconstant +thread-tls-slots-end+ 427)
-(defconstant +thread-interrupt-save-area+ 427)
-(defconstant +thread-fx-save-area+ 447)
+;;; Locking macros.
+
+(defmacro with-global-thread-lock ((&optional) &body body)
+  `(with-symbol-spinlock (*global-thread-lock*)
+     ,@body))
 
 (defmacro with-thread-lock ((thread) &body body)
   (let ((sym (gensym "thread")))
@@ -206,6 +192,8 @@
   (assert (eql (sys.int::%object-ref-t thread +thread-lock+)
                (current-thread)))
   (setf (sys.int::%object-ref-t thread +thread-lock+) :unlocked))
+
+;;; Run queue management.
 
 (defun push-run-queue-1 (thread head tail)
   (cond ((null (symbol-value head))
@@ -248,6 +236,266 @@
 (defun pop-run-queue ()
   (or (pop-run-queue-1 '*thread-run-queue-head* '*thread-run-queue-tail*)
       (pop-run-queue-1 '*low-priority-thread-run-queue-head* '*low-priority-thread-run-queue-tail*)))
+
+(defun %update-run-queue ()
+  "Possibly return the current thread to the run queue, and
+return the next thread to run.
+Interrupts must be off, the current thread must be locked."
+  (let ((current (current-thread)))
+    (with-symbol-spinlock (*global-thread-lock*)
+      (cond (*world-stopper*
+             ;; World is stopped, the only runnable threads are
+             ;; the pager, the disk io thread, the idle thread and the world stopper.
+             (unless (or (eql current *world-stopper*)
+                         (eql current sys.int::*pager-thread*)
+                         (eql current sys.int::*disk-io-thread*))
+               (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
+             (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
+                    ;; Pager is ready to run.
+                    sys.int::*pager-thread*)
+                   ((eql (thread-state sys.int::*disk-io-thread*) :runnable)
+                    ;; Disk IO is ready to run.
+                    sys.int::*disk-io-thread*)
+                   ((eql (thread-state *world-stopper*) :runnable)
+                    ;; The world stopper is ready.
+                    *world-stopper*)
+                   (t ;; Switch to idle.
+                    sys.int::*bsp-idle-thread*)))
+            (t ;; Return the current thread to the run queue and fetch the next thread.
+             (when (eql current sys.int::*bsp-idle-thread*)
+               (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
+             (when (eql (thread-state current) :runnable)
+               (push-run-queue current))
+             (or (when (eql (thread-state sys.int::*pager-thread*) :runnable)
+                   ;; Pager is ready to run.
+                   sys.int::*pager-thread*)
+                 (when (eql (thread-state sys.int::*disk-io-thread*) :runnable)
+                   ;; Disk IO is ready to run.
+                   sys.int::*disk-io-thread*)
+                 ;; Try taking from the run queue.
+                 (pop-run-queue)
+                 ;; Fall back on idle.
+                 sys.int::*bsp-idle-thread*))))))
+
+;;; Thread switching.
+
+(defun thread-yield ()
+  "Call this to give up the remainder of the current thread's timeslice and possibly switch to another runnable thread."
+  (%call-on-wired-stack-without-interrupts
+   (lambda (sp fp)
+    (let ((current (current-thread)))
+      (%lock-thread current)
+      (setf (thread-state current) :runnable)
+      (%reschedule-via-wired-stack sp fp)))
+   nil))
+
+(defun %reschedule-via-wired-stack (sp fp)
+  ;; Interrupts must be off and the current thread's lock must be held.
+  ;; Releases the thread lock and reenables interrupts.
+  (let ((current (current-thread))
+        (next (%update-run-queue)))
+    ;; todo: reset preemption timer here.
+    (when (eql next current)
+      ;; Staying on the same thread, unlock and return.
+      (%unlock-thread current)
+      (%%return-to-same-thread sp fp)
+      (panic "unreachable"))
+    (when (<= sys.int::*exception-stack-base*
+              (thread-stack-pointer next)
+              (1- sys.int::*exception-stack-size*))
+      (panic "Other thread " next " stopped on exception stack!!!"))
+    (%lock-thread next)
+    (setf (thread-state next) :active)
+    (%%switch-to-thread-via-wired-stack current sp fp next)))
+
+(sys.int::define-lap-function %%return-to-same-thread ()
+  (sys.lap-x86:mov64 :rsp :r8)
+  (sys.lap-x86:mov64 :rbp :r9)
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:sti)
+  (:gc :no-frame)
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
+  ;; Save frame pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :r10)
+  ;; Save fpu state.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
+  ;; Save stack pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :r9)
+  ;; Only partial state was saved.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
+  ;; Jump to common function.
+  (sys.lap-x86:mov64 :r9 :r11)
+  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
+  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
+
+(defun %reschedule ()
+  ;; Interrupts must be off and the current thread's lock must be held.
+  ;; Releases the thread lock and reenables interrupts.
+  (let ((current (current-thread))
+        (next (%update-run-queue)))
+    ;; todo: reset preemption timer here.
+    (when (eql next current)
+      ;; Staying on the same thread, unlock and return.
+      (%unlock-thread current)
+      (sys.int::%sti)
+      (return-from %reschedule))
+    (when (<= sys.int::*exception-stack-base*
+              (thread-stack-pointer next)
+              (1- sys.int::*exception-stack-size*))
+      (panic "Other thread " next " stopped on exception stack!!!"))
+    (%lock-thread next)
+    (setf (thread-state next) :active)
+    (%%switch-to-thread current next)))
+
+;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
+;;; Watch out. The GC grovels around in the stack of not-running threads, if the
+;;; layout changes, it must be updated.
+(sys.int::define-lap-function %%switch-to-thread ()
+  (:gc :no-frame)
+  ;; Save frame pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :rbp)
+  ;; Save fpu state.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
+  ;; Save stack pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :rsp)
+  ;; Only partial state was saved.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
+  ;; Jump to common function.
+  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
+  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
+
+(defun %reschedule-via-interrupt (interrupt-frame)
+  ;; Interrupts must be off and the current thread's lock must be held.
+  ;; Releases the thread lock and reenables interrupts.
+  (let ((current (current-thread))
+        (next (%update-run-queue)))
+    ;; todo: reset preemption timer here.
+    ;; Avoid double-locking the thread when returning to the current thread.
+    (when (not (eql next current))
+      (%lock-thread next))
+    (setf (thread-state next) :active)
+    (%%switch-to-thread-via-interrupt current interrupt-frame next)))
+
+;;; current-thread interrupt-frame next-thread
+;;; Interrupts must be off, current & next must be locked.
+(sys.int::define-lap-function %%switch-to-thread-via-interrupt ()
+  (:gc :no-frame)
+  ;; Save fpu state.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
+  ;; Copy the interrupt frame over to the save area.
+  (sys.lap-x86:mov64 :rsi (:object :r9 0))
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:sub64 :rsi #.(* 14 8)) ; 14 registers below the pointer, 6 above.
+  (sys.lap-x86:lea64 :rdi (:object :r8 #.+thread-interrupt-save-area+))
+  (sys.lap-x86:mov32 :ecx 20) ; 20 values to copy.
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  ;; Full state was saved.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) t)
+  ;; Jump to common function.
+  (sys.lap-x86:mov64 :r9 :r10) ; next-thread
+  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
+  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
+
+;; (current-thread new-thread)
+(sys.int::define-lap-function %%switch-to-thread-common ()
+  ;; Old thread's state has been saved, restore the new-thread's state.
+  ;; Switch threads.
+  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
+  (sys.lap-x86:mov64 :rax :r9)
+  (sys.lap-x86:mov64 :rdx :r9)
+  (sys.lap-x86:shr64 :rdx 32)
+  (sys.lap-x86:wrmsr)
+  ;; Restore fpu state.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
+  ;; Drop the locks on both threads. Must be done before touching the thread stack.
+  (sys.lap-x86:mov64 :r10 (:constant :unlocked))
+  (sys.lap-x86:cmp64 :r9 :r8)
+  (sys.lap-x86:je SWITCH-TO-SAME-THREAD)
+  (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
+  SWITCH-TO-SAME-THREAD
+  (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
+  ;; Check if the thread is in the interrupt save area.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-full-save-p+) nil)
+  (sys.lap-x86:jne FULL-RESTORE)
+  ;; Restore stack pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-state-rsp+))
+  ;; Restore frame pointer.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rbp (:object nil #.+thread-state-rbp+))
+  ;; Reenable interrupts. Must be done before touching the thread stack.
+  (sys.lap-x86:sti)
+  (:gc :no-frame)
+  ;; Check for pending footholds.
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
+  (sys.lap-x86:jne RUN-FOOTHOLDS)
+  ;; No value return.
+  NORMAL-RETURN
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:mov64 :r8 nil)
+  ;; Return, restoring RIP.
+  (sys.lap-x86:ret)
+  RUN-FOOTHOLDS
+  (sys.lap-x86:gs)
+  (sys.lap-x86:cmp64 (:object nil #.+thread-inhibit-footholds+) 0)
+  (sys.lap-x86:jne NORMAL-RETURN)
+  ;; Jump to the support function to run the footholds.
+  (sys.lap-x86:mov64 :r8 nil)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
+  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+  ;; Returning to an interrupted thread. Restore saved registers and stuff.
+  ;; TODO: How to deal with footholds here? The stack might be paged out here.
+  FULL-RESTORE
+  (sys.lap-x86:lea64 :rsp (:object :r9 #.+thread-interrupt-save-area+))
+  (sys.lap-x86:pop :r15)
+  (sys.lap-x86:pop :r14)
+  (sys.lap-x86:pop :r13)
+  (sys.lap-x86:pop :r12)
+  (sys.lap-x86:pop :r11)
+  (sys.lap-x86:pop :r10)
+  (sys.lap-x86:pop :r9)
+  (sys.lap-x86:pop :r8)
+  (sys.lap-x86:pop :rdi)
+  (sys.lap-x86:pop :rsi)
+  (sys.lap-x86:pop :rbx)
+  (sys.lap-x86:pop :rdx)
+  (sys.lap-x86:pop :rcx)
+  (sys.lap-x86:pop :rax)
+  (sys.lap-x86:pop :rbp)
+  (sys.lap-x86:iret))
+
+(defun maybe-preempt-via-interrupt (interrupt-frame)
+  (let ((current (current-thread)))
+    (when (not (or (eql current *world-stopper*)
+                   (eql current sys.int::*pager-thread*)
+                   (eql current sys.int::*snapshot-thread*)
+                   (eql current sys.int::*disk-io-thread*)
+                   (eql current sys.int::*bsp-idle-thread*)))
+      (%lock-thread current)
+      (setf (thread-state current) :runnable)
+      (%reschedule-via-interrupt interrupt-frame))))
+
+;;; Stuff.
 
 (defun current-thread ()
   "Returns the thread object for the calling thread."
@@ -480,153 +728,6 @@
   (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable)
   (condition-notify *world-stop-resume-cvar*))
 
-(defun thread-yield ()
-  (%call-on-wired-stack-without-interrupts
-   (lambda (sp fp)
-    (let ((current (current-thread)))
-      (%lock-thread current)
-      (setf (thread-state current) :runnable)
-      (%reschedule-via-wired-stack sp fp)))
-   nil))
-
-(defun %update-run-queue ()
-  "Possibly return the current thread to the run queue, and
-return the next thread to run.
-Interrupts must be off, the current thread must be locked."
-  (let ((current (current-thread)))
-    (with-symbol-spinlock (*global-thread-lock*)
-      (cond (*world-stopper*
-             ;; World is stopped, the only runnable threads are
-             ;; the pager, the disk io thread, the idle thread and the world stopper.
-             (unless (or (eql current *world-stopper*)
-                         (eql current sys.int::*pager-thread*)
-                         (eql current sys.int::*disk-io-thread*))
-               (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
-             (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
-                    ;; Pager is ready to run.
-                    sys.int::*pager-thread*)
-                   ((eql (thread-state sys.int::*disk-io-thread*) :runnable)
-                    ;; Disk IO is ready to run.
-                    sys.int::*disk-io-thread*)
-                   ((eql (thread-state *world-stopper*) :runnable)
-                    ;; The world stopper is ready.
-                    *world-stopper*)
-                   (t ;; Switch to idle.
-                    sys.int::*bsp-idle-thread*)))
-            (t ;; Return the current thread to the run queue and fetch the next thread.
-             (when (eql current sys.int::*bsp-idle-thread*)
-               (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
-             (when (eql (thread-state current) :runnable)
-               (push-run-queue current))
-             (or (when (eql (thread-state sys.int::*pager-thread*) :runnable)
-                   ;; Pager is ready to run.
-                   sys.int::*pager-thread*)
-                 (when (eql (thread-state sys.int::*disk-io-thread*) :runnable)
-                   ;; Disk IO is ready to run.
-                   sys.int::*disk-io-thread*)
-                 ;; Try taking from the run queue.
-                 (pop-run-queue)
-                 ;; Fall back on idle.
-                 sys.int::*bsp-idle-thread*))))))
-
-(defun %reschedule-via-wired-stack (sp fp)
-  ;; Interrupts must be off and the current thread's lock must be held.
-  ;; Releases the thread lock and reenables interrupts.
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
-    (when (eql next current)
-      ;; Staying on the same thread, unlock and return.
-      (%unlock-thread current)
-      (%%return-to-same-thread sp fp)
-      (panic "unreachable"))
-    (when (<= sys.int::*exception-stack-base*
-              (thread-stack-pointer next)
-              (1- sys.int::*exception-stack-size*))
-      (panic "Other thread " next " stopped on exception stack!!!"))
-    (%lock-thread next)
-    (setf (thread-state next) :active)
-    (%%switch-to-thread-via-wired-stack current sp fp next)))
-
-(sys.int::define-lap-function %%return-to-same-thread ()
-  (sys.lap-x86:mov64 :rsp :r8)
-  (sys.lap-x86:mov64 :rbp :r9)
-  (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:sti)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
-
-(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
-  ;; Save frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :r10)
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Save stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :r9)
-  ;; Only partial state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r9 :r11)
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
-
-(defun %reschedule ()
-  ;; Interrupts must be off and the current thread's lock must be held.
-  ;; Releases the thread lock and reenables interrupts.
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
-    (when (eql next current)
-      ;; Staying on the same thread, unlock and return.
-      (%unlock-thread current)
-      (sys.int::%sti)
-      (return-from %reschedule))
-    (when (<= sys.int::*exception-stack-base*
-              (thread-stack-pointer next)
-              (1- sys.int::*exception-stack-size*))
-      (panic "Other thread " next " stopped on exception stack!!!"))
-    (%lock-thread next)
-    (setf (thread-state next) :active)
-    (%%switch-to-thread current next)))
-
-;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
-;;; Watch out. The GC grovels around in the stack of not-running threads, if the
-;;; layout changes, it must be updated.
-(sys.int::define-lap-function %%switch-to-thread ()
-  (:gc :no-frame)
-  ;; Save frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :rbp)
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Save stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :rsp)
-  ;; Only partial state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
-
-(defun %reschedule-via-interrupt (interrupt-frame)
-  ;; Interrupts must be off and the current thread's lock must be held.
-  ;; Releases the thread lock and reenables interrupts.
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
-    ;; Avoid double-locking the thread when returning to the current thread.
-    (when (not (eql next current))
-      (%lock-thread next))
-    (setf (thread-state next) :active)
-    (%%switch-to-thread-via-interrupt current interrupt-frame next)))
-
 (defun wake-thread (thread)
   "Wake a sleeping thread."
   (without-interrupts
@@ -634,114 +735,6 @@ Interrupts must be off, the current thread must be locked."
       (with-symbol-spinlock (*global-thread-lock*)
         (setf (thread-state thread) :runnable)
         (push-run-queue thread)))))
-
-;;; current-thread interrupt-frame next-thread
-;;; Interrupts must be off, current & next must be locked.
-(sys.int::define-lap-function %%switch-to-thread-via-interrupt ()
-  (:gc :no-frame)
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Copy the interrupt frame over to the save area.
-  (sys.lap-x86:mov64 :rsi (:object :r9 0))
-  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:sub64 :rsi #.(* 14 8)) ; 14 registers below the pointer, 6 above.
-  (sys.lap-x86:lea64 :rdi (:object :r8 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:mov32 :ecx 20) ; 20 values to copy.
-  (sys.lap-x86:rep)
-  (sys.lap-x86:movs64)
-  ;; Full state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) t)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r9 :r10) ; next-thread
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
-
-;; (current-thread new-thread)
-(sys.int::define-lap-function %%switch-to-thread-common ()
-  ;; Old thread's state has been saved, restore the new-thread's state.
-  ;; Switch threads.
-  (sys.lap-x86:mov32 :ecx #.+msr-ia32-gs-base+)
-  (sys.lap-x86:mov64 :rax :r9)
-  (sys.lap-x86:mov64 :rdx :r9)
-  (sys.lap-x86:shr64 :rdx 32)
-  (sys.lap-x86:wrmsr)
-  ;; Restore fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxrstor (:object nil #.+thread-fx-save-area+))
-  ;; Drop the locks on both threads. Must be done before touching the thread stack.
-  (sys.lap-x86:mov64 :r10 (:constant :unlocked))
-  (sys.lap-x86:cmp64 :r9 :r8)
-  (sys.lap-x86:je SWITCH-TO-SAME-THREAD)
-  (sys.lap-x86:mov64 (:object :r9 #.+thread-lock+) :r10)
-  SWITCH-TO-SAME-THREAD
-  (sys.lap-x86:mov64 (:object :r8 #.+thread-lock+) :r10)
-  ;; Check if the thread is in the interrupt save area.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-full-save-p+) nil)
-  (sys.lap-x86:jne FULL-RESTORE)
-  ;; Restore stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rsp (:object nil #.+thread-state-rsp+))
-  ;; Restore frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rbp (:object nil #.+thread-state-rbp+))
-  ;; Reenable interrupts. Must be done before touching the thread stack.
-  (sys.lap-x86:sti)
-  (:gc :no-frame)
-  ;; Check for pending footholds.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-pending-footholds+) nil)
-  (sys.lap-x86:jne RUN-FOOTHOLDS)
-  ;; No value return.
-  NORMAL-RETURN
-  (sys.lap-x86:xor32 :ecx :ecx)
-  (sys.lap-x86:mov64 :r8 nil)
-  ;; Return, restoring RIP.
-  (sys.lap-x86:ret)
-  RUN-FOOTHOLDS
-  (sys.lap-x86:gs)
-  (sys.lap-x86:cmp64 (:object nil #.+thread-inhibit-footholds+) 0)
-  (sys.lap-x86:jne NORMAL-RETURN)
-  ;; Jump to the support function to run the footholds.
-  (sys.lap-x86:mov64 :r8 nil)
-  (sys.lap-x86:gs)
-  (sys.lap-x86:xchg64 (:object nil #.+thread-pending-footholds+) :r8)
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
-  (sys.lap-x86:mov64 :r13 (:function %run-thread-footholds))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  ;; Returning to an interrupted thread. Restore saved registers and stuff.
-  ;; TODO: How to deal with footholds here? The stack might be paged out here.
-  FULL-RESTORE
-  (sys.lap-x86:lea64 :rsp (:object :r9 #.+thread-interrupt-save-area+))
-  (sys.lap-x86:pop :r15)
-  (sys.lap-x86:pop :r14)
-  (sys.lap-x86:pop :r13)
-  (sys.lap-x86:pop :r12)
-  (sys.lap-x86:pop :r11)
-  (sys.lap-x86:pop :r10)
-  (sys.lap-x86:pop :r9)
-  (sys.lap-x86:pop :r8)
-  (sys.lap-x86:pop :rdi)
-  (sys.lap-x86:pop :rsi)
-  (sys.lap-x86:pop :rbx)
-  (sys.lap-x86:pop :rdx)
-  (sys.lap-x86:pop :rcx)
-  (sys.lap-x86:pop :rax)
-  (sys.lap-x86:pop :rbp)
-  (sys.lap-x86:iret))
-
-(defun maybe-preempt-via-interrupt (interrupt-frame)
-  (let ((current (current-thread)))
-    (when (not (or (eql current *world-stopper*)
-                   (eql current sys.int::*pager-thread*)
-                   (eql current sys.int::*snapshot-thread*)
-                   (eql current sys.int::*disk-io-thread*)
-                   (eql current sys.int::*bsp-idle-thread*)))
-      (%lock-thread current)
-      (setf (thread-state current) :runnable)
-      (%reschedule-via-interrupt interrupt-frame))))
 
 (defun initialize-initial-thread ()
   "Called very early after boot to reset the initial thread."
@@ -775,6 +768,19 @@ Interrupts must be off, the current thread must be locked."
        list)
     (push current list)))
 
+(defun terminate-thread (thread)
+  (establish-thread-foothold
+   thread
+   (lambda ()
+     (throw 'terminate-thread nil))))
+
+(defmacro dx-lambda (lambda-list &body body)
+  `(flet ((dx-lambda ,lambda-list ,@body))
+     (declare (dynamic-extent #'dx-lambda))
+     #'dx-lambda))
+
+;;; Foothold management.
+
 (defun %pop-foothold ()
   (safe-without-interrupts ()
     (pop (thread-pending-footholds (current-thread)))))
@@ -806,17 +812,7 @@ Interrupts must be off, the current thread must be locked."
                                    old (cons function old))
          (return)))))
 
-(defun terminate-thread (thread)
-  (establish-thread-foothold
-   thread
-   (lambda ()
-     (throw 'terminate-thread nil))))
-
-(defmacro dx-lambda (lambda-list &body body)
-  `(flet ((dx-lambda ,lambda-list ,@body))
-     (declare (dynamic-extent #'dx-lambda))
-     #'dx-lambda))
-
+;;; Stopping the world.
 ;;; WITH-WORLD-STOPPED and WITH-PSEUDO-ATOMIC work together as a sort-of global
 ;;; reader/writer lock over the whole system.
 
@@ -874,6 +870,8 @@ Interrupts must be off, the current thread must be locked."
 
 (defmacro with-pseudo-atomic (&body body)
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))
+
+;;; Higher-level locks and things.
 
 ;;; Common structure for sleepable things.
 (defstruct (wait-queue
