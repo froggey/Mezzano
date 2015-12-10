@@ -57,9 +57,12 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
-(declaim (inline zeroize-page))
+(declaim (inline zeroize-page zeroize-physical-page))
 (defun zeroize-page (addr)
   (sys.int::%fill-words addr 0 512))
+
+(defun zeroize-physical-page (physical-addr)
+  (sys.int::%fill-words (+ +physical-map-base+ physical-addr) 0 512))
 
 (defun page-aligned-p (value)
   (zerop (logand value #xFFF)))

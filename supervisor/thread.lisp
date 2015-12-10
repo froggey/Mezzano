@@ -334,6 +334,24 @@
               *all-threads* thread)))
     thread))
 
+(defun make-ephemeral-thread (entry-point initial-state &key name (stack-size (* 256 1024)) (priority :normal))
+  (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
+         (stack (%allocate-stack stack-size t)))
+    (setf (sys.int::%object-ref-t thread +thread-name+) name
+          (sys.int::%object-ref-t thread +thread-lock+) :unlocked
+          (sys.int::%object-ref-t thread +thread-stack+) stack
+          (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
+          (sys.int::%object-ref-t thread +thread-wait-item+) nil
+          (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
+          (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
+          (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
+          (sys.int::%object-ref-t thread +thread-priority+) priority
+          (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
+          (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
+          (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
+    (reset-ephemeral-thread thread entry-point initial-state)
+    thread))
+
 (defun thread-entry-trampoline (function)
   (let ((self (current-thread)))
     (unwind-protect
