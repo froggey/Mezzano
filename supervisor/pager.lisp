@@ -59,8 +59,7 @@
 
 (declaim (inline zeroize-page))
 (defun zeroize-page (addr)
-  (dotimes (i 512)
-    (setf (sys.int::memref-unsigned-byte-64 addr i) 0)))
+  (sys.int::%fill-words addr 0 512))
 
 (defun page-aligned-p (value)
   (zerop (logand value #xFFF)))

@@ -11,16 +11,9 @@
 (defvar *snapshot-pending-writeback-pages-count*)
 (defvar *snapshot-pending-writeback-pages*)
 
-;;; (destination source)
-(sys.int::define-lap-function %fast-page-copy ()
-  (sys.lap-x86:mov64 :rdi :r8)
-  (sys.lap-x86:mov64 :rsi :r9)
-  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:mov32 :ecx 512)
-  (sys.lap-x86:rep)
-  (sys.lap-x86:movs64)
-  (sys.lap-x86:ret))
+(declaim (inline %fast-page-copy))
+(defun %fast-page-copy (destination source)
+  (sys.int::%copy-words destination source 512))
 
 (defun snapshot-add-to-writeback-list (frame)
   ;; Link frame into writeback list.
