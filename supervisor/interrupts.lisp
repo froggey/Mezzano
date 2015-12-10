@@ -52,12 +52,9 @@ This can be used when executing on any stack.
 RETURN-FROM/GO must not be used to leave this form."
   (let ((sp (gensym))
         (fp (gensym)))
-    (assert (<= (length captures) 3))
-    `(%call-on-wired-stack-without-interrupts
-      (lambda (,sp ,fp ,@captures)
-        (declare (ignore ,sp ,fp))
-        ,@body)
-      nil ,@captures)))
+    `(%run-on-wired-stack-without-interrupts (,sp ,fp ,@captures)
+      (declare (ignore ,sp ,fp))
+      ,@body)))
 
 ;; (function unused &optional arg1 arg2 arg3)
 ;; Call FUNCTION on the wired stack with interrupts disabled.
@@ -108,6 +105,15 @@ RETURN-FROM/GO must not be used to leave this form."
   (sys.lap-x86:pop :rbp)
   ;; Done, return.
   (sys.lap-x86:ret))
+
+(defmacro %run-on-wired-stack-without-interrupts ((sp fp &rest captures) &body body)
+  (assert (<= (length captures) 3))
+  (assert (every #'symbolp captures))
+  `(%call-on-wired-stack-without-interrupts
+    (lambda (,sp ,fp ,@captures)
+      ,@body)
+    nil
+    ,@captures))
 
 (defun place-spinlock-initializer ()
   :unlocked)

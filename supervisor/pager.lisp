@@ -284,23 +284,21 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (setf (thread-pager-argument-1 self) arg1
             (thread-pager-argument-2 self) arg2
             (thread-pager-argument-3 self) arg3))
-    (%call-on-wired-stack-without-interrupts
-     (lambda (sp fp fn)
-       (let ((self (current-thread)))
-         (with-symbol-spinlock (*pager-lock*)
-           (%lock-thread self)
-           (setf (thread-state self) :pager-request
-                 (thread-wait-item self) fn
-                 (thread-%next self) *pager-waiting-threads*
-                 *pager-waiting-threads* self)
-           (with-thread-lock (sys.int::*pager-thread*)
-             (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
-                        (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
-               (setf (thread-state sys.int::*pager-thread*) :runnable)
-               (with-symbol-spinlock (*global-thread-lock*)
-                 (push-run-queue sys.int::*pager-thread*)))))
-         (%reschedule-via-wired-stack sp fp)))
-     nil fn)
+    (%run-on-wired-stack-without-interrupts (sp fp fn)
+     (let ((self (current-thread)))
+       (with-symbol-spinlock (*pager-lock*)
+         (%lock-thread self)
+         (setf (thread-state self) :pager-request
+               (thread-wait-item self) fn
+               (thread-%next self) *pager-waiting-threads*
+               *pager-waiting-threads* self)
+         (with-thread-lock (sys.int::*pager-thread*)
+           (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
+                      (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
+             (setf (thread-state sys.int::*pager-thread*) :runnable)
+             (with-symbol-spinlock (*global-thread-lock*)
+               (push-run-queue sys.int::*pager-thread*)))))
+       (%reschedule-via-wired-stack sp fp)))
     (thread-pager-argument-1 (current-thread))))
 
 (defun allocate-memory-range (base length flags)
@@ -699,7 +697,8 @@ It will put the thread to sleep, while it waits for the page."
             (release-place-spinlock (sys.int::symbol-global-value '*pager-lock*))
             (setf (thread-state sys.int::*pager-thread*) :sleeping
                   (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
-            (%reschedule)
+            (%run-on-wired-stack-without-interrupts (sp fp)
+             (%reschedule-via-wired-stack sp fp))
             (sys.int::%cli)
             (acquire-place-spinlock (sys.int::symbol-global-value '*pager-lock*)))))
      (cond ((eql (thread-state *pager-current-thread*) :pager-request)

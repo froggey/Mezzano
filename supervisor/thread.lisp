@@ -281,15 +281,14 @@ Interrupts must be off, the current thread must be locked."
 
 (defun thread-yield ()
   "Call this to give up the remainder of the current thread's timeslice and possibly switch to another runnable thread."
-  (%call-on-wired-stack-without-interrupts
-   (lambda (sp fp)
-    (let ((current (current-thread)))
-      (%lock-thread current)
-      (setf (thread-state current) :runnable)
-      (%reschedule-via-wired-stack sp fp)))
-   nil))
+  (%run-on-wired-stack-without-interrupts (sp fp)
+   (let ((current (current-thread)))
+     (%lock-thread current)
+     (setf (thread-state current) :runnable)
+     (%reschedule-via-wired-stack sp fp))))
 
 (defun %reschedule-via-wired-stack (sp fp)
+  ;; Switch to the next thread saving minimal state.
   ;; Interrupts must be off and the current thread's lock must be held.
   ;; Releases the thread lock and reenables interrupts.
   (let ((current (current-thread))
@@ -335,47 +334,8 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
   (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
 
-(defun %reschedule ()
-  ;; Interrupts must be off and the current thread's lock must be held.
-  ;; Releases the thread lock and reenables interrupts.
-  (let ((current (current-thread))
-        (next (%update-run-queue)))
-    ;; todo: reset preemption timer here.
-    (when (eql next current)
-      ;; Staying on the same thread, unlock and return.
-      (%unlock-thread current)
-      (sys.int::%sti)
-      (return-from %reschedule))
-    (when (<= sys.int::*exception-stack-base*
-              (thread-stack-pointer next)
-              (1- sys.int::*exception-stack-size*))
-      (panic "Other thread " next " stopped on exception stack!!!"))
-    (%lock-thread next)
-    (setf (thread-state next) :active)
-    (%%switch-to-thread current next)))
-
-;;; Switch to a new thread. Takes the current thread and the new thread as arguments.
-;;; Watch out. The GC grovels around in the stack of not-running threads, if the
-;;; layout changes, it must be updated.
-(sys.int::define-lap-function %%switch-to-thread ()
-  (:gc :no-frame)
-  ;; Save frame pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rbp+) :rbp)
-  ;; Save fpu state.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:fxsave (:object nil #.+thread-fx-save-area+))
-  ;; Save stack pointer.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-state-rsp+) :rsp)
-  ;; Only partial state was saved.
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 (:object nil #.+thread-full-save-p+) nil)
-  ;; Jump to common function.
-  (sys.lap-x86:mov64 :r13 (:function %%switch-to-thread-common))
-  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8)))))
-
 (defun %reschedule-via-interrupt (interrupt-frame)
+  ;; Switch to the next thread saving the full state.
   ;; Interrupts must be off and the current thread's lock must be held.
   ;; Releases the thread lock and reenables interrupts.
   (let ((current (current-thread))
@@ -607,18 +567,18 @@ Interrupts must be off, the current thread must be locked."
            (decf (thread-inhibit-footholds self))
            (funcall function))
       ;; Cleanup, terminate the thread.
-      (safe-without-interrupts (self)
-        (%lock-thread self)
-        (setf (thread-state self) :dead)
-        ;; Remove thread from the global list.
-        (with-symbol-spinlock (*global-thread-lock*)
-          (when (thread-global-next self)
-            (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
-          (when (thread-global-prev self)
-            (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
-          (when (eql self *all-threads*)
-            (setf *all-threads* (thread-global-next self))))
-        (%reschedule)))))
+      (%run-on-wired-stack-without-interrupts (sp fp self)
+       (%lock-thread self)
+       (setf (thread-state self) :dead)
+       ;; Remove thread from the global list.
+       (with-symbol-spinlock (*global-thread-lock*)
+         (when (thread-global-next self)
+           (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
+         (when (thread-global-prev self)
+           (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
+         (when (eql self *all-threads*)
+           (setf *all-threads* (thread-global-next self))))
+       (%reschedule-via-wired-stack sp fp)))))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
@@ -643,7 +603,8 @@ Interrupts must be off, the current thread must be locked."
               (%lock-thread sys.int::*bsp-idle-thread*)
               (%lock-thread next)
               (setf (thread-state next) :active)
-              (%%switch-to-thread sys.int::*bsp-idle-thread* next)
+              (%run-on-wired-stack-without-interrupts (sp fp next)
+                (%%switch-to-thread-via-wired-stack sys.int::*bsp-idle-thread* sp fp next))
               (set-run-light nil))
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
@@ -758,7 +719,8 @@ Interrupts must be off, the current thread must be locked."
     (%lock-thread thread)
     (setf (thread-wait-item thread) "The start of a new world"
           (thread-state thread) :sleeping)
-    (%reschedule)
+    (%run-on-wired-stack-without-interrupts (sp fp)
+     (%reschedule-via-wired-stack sp fp))
     (panic "Initial thread woken??")))
 
 (defun all-threads ()
@@ -1041,23 +1003,21 @@ May be used from an interrupt handler when WAIT-P is false or if MUTEX is a spin
   (assert (mutex-held-p mutex))
   (ensure-interrupts-enabled)
   (unwind-protect
-       (%call-on-wired-stack-without-interrupts
-        (lambda (sp fp condition-variable mutex)
-          (let ((self (current-thread)))
-            (lock-wait-queue condition-variable)
-            (%lock-thread self)
-            ;; Attach to the list.
-            (push-wait-queue self condition-variable)
-            ;; Drop the mutex.
-            (release-mutex mutex)
-            ;; Sleep.
-            ;; need to be careful with that, returning or unwinding from condition-wait
-            ;; with the lock unlocked would be quite bad.
-            (setf (thread-wait-item self) condition-variable
-                  (thread-state self) :sleeping)
-            (unlock-wait-queue condition-variable)
-            (%reschedule-via-wired-stack sp fp)))
-        nil condition-variable mutex)
+       (%run-on-wired-stack-without-interrupts (sp fp condition-variable mutex)
+        (let ((self (current-thread)))
+          (lock-wait-queue condition-variable)
+          (%lock-thread self)
+          ;; Attach to the list.
+          (push-wait-queue self condition-variable)
+          ;; Drop the mutex.
+          (release-mutex mutex)
+          ;; Sleep.
+          ;; need to be careful with that, returning or unwinding from condition-wait
+          ;; with the lock unlocked would be quite bad.
+          (setf (thread-wait-item self) condition-variable
+                (thread-state self) :sleeping)
+          (unlock-wait-queue condition-variable)
+          (%reschedule-via-wired-stack sp fp)))
     ;; Got woken up. Reacquire the mutex.
     ;; Slightly tricky, if the thread was interrupted and unwound before
     ;; interrupts were disabled, then the mutex won't have been released.
@@ -1106,30 +1066,30 @@ May be used from an interrupt handler."
 (defun semaphore-down (semaphore &optional (wait-p t))
   (ensure-interrupts-enabled)
   ;; Invert the result here because %RESCHEDULE-VIA-WIRED-STACK will always
-  ;; cause %C-O-W-S-W-I to return NIL, which is actually a success result.
-  (not (%call-on-wired-stack-without-interrupts
-        (lambda (sp fp semaphore wait-p)
-          (let ((self (current-thread)))
-            (lock-wait-queue semaphore)
-            (cond ((not (zerop (semaphore-value semaphore)))
-                   (decf (semaphore-value semaphore))
-                   (unlock-wait-queue semaphore)
-                   nil)
-                  (wait-p
-                   ;; Go to sleep.
-                   (push-wait-queue self semaphore)
-                   ;; Now sleep.
-                   ;; Must take the thread lock before dropping the semaphore lock or up
-                   ;; may be able to remove the thread from the sleep queue before it goes
-                   ;; to sleep.
-                   (%lock-thread self)
-                   (unlock-wait-queue semaphore)
-                   (setf (thread-wait-item self) semaphore
-                         (thread-state self) :sleeping)
-                   (%reschedule-via-wired-stack sp fp))
-                  (t (unlock-wait-queue semaphore)
-                     t))))
-          nil semaphore wait-p)))
+  ;; cause %R-O-W-S-W-I to return NIL, which is actually a success result.
+  (not (%run-on-wired-stack-without-interrupts (sp fp semaphore wait-p)
+        (let ((self (current-thread)))
+          (lock-wait-queue semaphore)
+          (cond ((not (zerop (semaphore-value semaphore)))
+                 (decf (semaphore-value semaphore))
+                 (unlock-wait-queue semaphore)
+                 ;; Success (inverted).
+                 nil)
+                (wait-p
+                 ;; Go to sleep.
+                 (push-wait-queue self semaphore)
+                 ;; Now sleep.
+                 ;; Must take the thread lock before dropping the semaphore lock or up
+                 ;; may be able to remove the thread from the sleep queue before it goes
+                 ;; to sleep.
+                 (%lock-thread self)
+                 (unlock-wait-queue semaphore)
+                 (setf (thread-wait-item self) semaphore
+                       (thread-state self) :sleeping)
+                 (%reschedule-via-wired-stack sp fp))
+                (t (unlock-wait-queue semaphore)
+                   ;; Failure (inverted).
+                   t))))))
 
 (defstruct (latch
              (:include wait-queue)
@@ -1146,24 +1106,22 @@ May be used from an interrupt handler."
   (when (latch-state latch)
     (return-from latch-wait))
   (ensure-interrupts-enabled)
-  (%call-on-wired-stack-without-interrupts
-   (lambda (sp fp latch)
-     (let ((self (current-thread)))
-       (lock-wait-queue latch)
-       (cond ((latch-state latch)
-              ;; Latch was opened after the wait-queue was locked.
-              ;; Don't sleep.
-              (unlock-wait-queue latch))
-             (t ;; Latch is closed, sleep.
-              (%lock-thread self)
-              ;; Attach to the list.
-              (push-wait-queue self latch)
-              ;; Sleep.
-              (setf (thread-wait-item self) latch
-                    (thread-state self) :sleeping)
-              (unlock-wait-queue latch)
-              (%reschedule-via-wired-stack sp fp)))))
-   nil latch)
+  (%run-on-wired-stack-without-interrupts (sp fp latch)
+   (let ((self (current-thread)))
+     (lock-wait-queue latch)
+     (cond ((latch-state latch)
+            ;; Latch was opened after the wait-queue was locked.
+            ;; Don't sleep.
+            (unlock-wait-queue latch))
+           (t ;; Latch is closed, sleep.
+            (%lock-thread self)
+            ;; Attach to the list.
+            (push-wait-queue self latch)
+            ;; Sleep.
+            (setf (thread-wait-item self) latch
+                  (thread-state self) :sleeping)
+            (unlock-wait-queue latch)
+            (%reschedule-via-wired-stack sp fp)))))
   (values))
 
 (defun latch-trigger (latch)

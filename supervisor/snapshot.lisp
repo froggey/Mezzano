@@ -368,7 +368,8 @@
      (setf *snapshot-in-progress* nil)
      (setf (thread-state sys.int::*snapshot-thread*) :sleeping
            (thread-wait-item sys.int::*snapshot-thread*) "Snapshot")
-     (%reschedule)))
+     (%run-on-wired-stack-without-interrupts (sp fp)
+      (%reschedule-via-wired-stack sp fp))))
 
 (defun initialize-snapshot ()
   (setf *snapshot-disk-request* (make-disk-request))

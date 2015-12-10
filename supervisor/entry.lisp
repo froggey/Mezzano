@@ -175,14 +175,12 @@ Returns two values, the packet data and the receiving NIC."
      ;; Now normal boot hooks.
      (run-boot-hooks)
      ;; Sleep til next boot.
-     (%call-on-wired-stack-without-interrupts
-      (lambda (sp fp)
-        (let ((self (current-thread)))
-          (decf *snapshot-inhibit*)
-          (setf (thread-wait-item self) "Next boot"
-                (thread-state self) :sleeping)
-          (%reschedule-via-wired-stack sp fp)))
-      nil)))
+     (%run-on-wired-stack-without-interrupts (sp fp)
+      (let ((self (current-thread)))
+        (decf *snapshot-inhibit*)
+        (setf (thread-wait-item self) "Next boot"
+              (thread-state self) :sleeping)
+        (%reschedule-via-wired-stack sp fp)))))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
   (let ((first-run-p nil)
