@@ -191,7 +191,7 @@ be generated instead.")
       (when code-tag
         (load-multiple-values code-tag)
         (emit `(sys.lap-x86:leave)
-              `(:gc :no-frame)
+              `(:gc :no-frame :multiple-values 0)
               `(sys.lap-x86:ret))))
     (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
@@ -1523,7 +1523,7 @@ Returns an appropriate tag."
            (smash-r8)
            (load-constant :rcx (length (rest (arguments form))))
            (cond ((can-tail-call (rest (arguments form)))
-                  (emit-tail-call (object-ea :rbx :slot 0) (first (arguments form))))
+                  (emit-tail-call (object-ea :rbx :slot 0)))
                  (t (emit `(sys.lap-x86:call ,(object-ea :rbx :slot 0)))))
            (if (member *for-value* '(:multiple :tail))
                (emit-gc-info :multiple-values 0)
@@ -1543,7 +1543,7 @@ Returns an appropriate tag."
     (smash-r8)
     (load-constant :rcx (length (arguments form)))
     (cond ((can-tail-call (arguments form))
-           (emit-tail-call (object-ea :r13 :slot sys.int::+fref-entry-point+) (name form))
+           (emit-tail-call (object-ea :r13 :slot sys.int::+fref-entry-point+))
            nil)
           (t (emit `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+)))
              (if (member *for-value* '(:multiple :tail))
@@ -1577,12 +1577,11 @@ Returns an appropriate tag."
   (and (eql *for-value* :tail)
        (<= (length args) 5)))
 
-(defun emit-tail-call (where &optional what)
-  (declare (ignorable what))
-  #+nil(format t "Performing tail call to ~S in ~S~%"
-          what (lambda-information-name *current-lambda*))
-  (emit `(sys.lap-x86:leave)
-        `(:gc :no-frame))
+(defun emit-tail-call (where)
+  (emit `(sys.lap-x86:leave))
+  ;; Tail calls can only be performed when there are no arguments on the stack.
+  ;; So :GC :NO-FRAME is fine here.
+  (emit `(:gc :no-frame))
   (emit `(sys.lap-x86:jmp ,where)))
 
 (defun cg-variable (form)
