@@ -250,8 +250,9 @@
          (setf (aref vec i) (load-integer stream)))
        vec))
     (#.+llf-ratio+
-     (/ (load-integer stream)
-        (load-integer stream)))
+     (let* ((num (load-integer stream))
+            (denom (load-integer stream)))
+       (/ num denom)))
     (#.+llf-array+
      (load-llf-array stream stack))
     (#.+llf-funcall+
@@ -288,6 +289,8 @@
                      (gethash id omap)
                    (unless value-p
                      (error "Unknown backlink ID ~D." id))
+                   (when *noisy-load*
+                     (format t "BACKLINK ~S~%" id))
                    (vector-push-extend value stack))))
               (#.+llf-add-backlink+
                (let ((id (load-integer stream)))
@@ -296,6 +299,8 @@
                    (declare (ignore existing-value))
                    (when existing-value-p
                      (error "Duplicate backlink ID ~D." id)))
+                 (when *noisy-load*
+                   (format t "ADD-BACKLINK ~S~%" id))
                  (setf (gethash id omap) (vector-pop stack))))
               (t (let ((value (multiple-value-list (load-one-object command stream stack))))
                    (when value
