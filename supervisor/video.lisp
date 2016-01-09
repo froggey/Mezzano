@@ -143,7 +143,8 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:ret))
 
 (defun set-panic-light ()
-  (when *current-framebuffer*
+  (when (and (boundp '*current-framebuffer*)
+             *current-framebuffer*)
     (let ((fb-addr (+ +physical-map-base+
                       (framebuffer-base-address *current-framebuffer*))))
       (dotimes (i (framebuffer-width *current-framebuffer*))
