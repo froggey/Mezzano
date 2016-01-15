@@ -19,7 +19,9 @@
   "Returns the low and high words of the IDT entry."
   ;; ###: Need to be more careful avoiding bignums.
   (let ((value 0))
-    (setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
+    ;; Don't do this, can create bignums!
+    ;;(setf (ldb (byte 16 48) value) (ldb (byte 16 16) offset)
+    (setf value (ash (ldb (byte 16 16) offset) 48)
           (ldb (byte 1 47) value) (if present 1 0)
           (ldb (byte 2 45) value) dpl
           (ldb (byte 4 40) value) (if interrupt-gate-p
