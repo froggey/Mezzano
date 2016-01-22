@@ -791,13 +791,13 @@ a pointer to the new object. Leaves a forwarding pointer in place."
              (scan-object object)))
           (t (when (eql (sys.int::%object-tag object) +object-tag-freelist-entry+)
                (mezzano.supervisor:panic "Marking freelist entry " object))
-             (when (not (eql (logand (memref-unsigned-byte-64 address 0)
-                                          +pinned-object-mark-bit+)
-                                  *pinned-mark-bit*))
+             (when (not (eql (logand (memref-unsigned-byte-8 address 0) ; Read carefully, no bignums.
+                                     +pinned-object-mark-bit+)
+                             *pinned-mark-bit*))
                ;; Not marked, mark it.
-               (setf (memref-unsigned-byte-64 address 0) (logior (logand (memref-unsigned-byte-64 address 0)
-                                                                         (lognot +pinned-object-mark-bit+))
-                                                                 *pinned-mark-bit*))
+               (setf (memref-unsigned-byte-8 address 0) (logior (logand (memref-unsigned-byte-8 address 0)
+                                                                        (lognot +pinned-object-mark-bit+))
+                                                                *pinned-mark-bit*))
                ;; And scan.
                (scan-object object))))))
 
