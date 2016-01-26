@@ -289,4 +289,5 @@
                ((and (eql vendor-id #x10EC)
                      (eql device-id #x8168))
                 ;; The NIC in my test machine.
-                (rtl8168-pci-register device))))))))
+                (rtl8168-pci-register device))
+               (t (debug-print-line "PCI device not supported."))))))))

@@ -136,9 +136,11 @@
     (setf (pci-config/16 location +pci-config-command+) (logior (pci-config/16 location +pci-config-command+)
                                                                 ;; Bit 2 is Bus Master bit.
                                                                 (ash 1 2)))
-    (case (pci-config/16 location +pci-config-subdeviceid+)
-      (#.+virtio-pci-subsystem-network-device+
-       (virtio-net-register dev)))))
+    (let ((subsys (pci-config/16 location +pci-config-subdeviceid+)))
+      (case subsys
+        (#.+virtio-pci-subsystem-network-device+
+         (virtio-net-register dev))
+        (t (debug-print-line "Unknown virtio device type " subsys))))))
 
 (defun virtio-ring-size (queue-size)
   "Compute the actual size of a vring from the queue-size field."
