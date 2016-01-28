@@ -109,6 +109,7 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "applications/fs-viewer.lisp")
+(sys.int::cal "applications/memory-monitor.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
