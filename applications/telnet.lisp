@@ -3,7 +3,7 @@
 
 (defpackage :telnet
   (:use :cl)
-  (:export #:spawn #:spawn-nao #:spawn-nyan #:spawn-magic-1))
+  (:export #:spawn))
 
 (in-package :telnet)
 
@@ -143,6 +143,26 @@ party to perform, the indicated option.")
                 (+ top bottom xterm-height)
                 xterm-width xterm-height)))))
 
+(defun telnet-write-string (telnet string)
+  (loop
+     with xterm = (xterm telnet)
+     for ch across (string string)
+     do (mezzano.gui.xterm:receive-char xterm ch)
+     when (eql ch #\Newline)
+     do (mezzano.gui.xterm:receive-char xterm #\Return)))
+
+(defun telnet-read-line (telnet)
+  (let ((line (make-array 100 :element-type 'character :fill-pointer 0 :adjustable t)))
+    (loop
+       (handler-case
+           (dispatch-event telnet (mezzano.supervisor:fifo-pop (fifo telnet)))
+         (typed-key (c)
+           (let ((key (typed-key c)))
+             (telnet-write-string telnet key)
+             (when (eql key #\Newline)
+               (return line))
+             (vector-push-extend key line)))))))
+
 (defgeneric dispatch-event (telnet event)
   (:method (t e)))
 
@@ -159,8 +179,12 @@ party to perform, the indicated option.")
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
 
+(define-condition typed-key ()
+  ((%key :initarg :key :reader typed-key)))
+
 (defmethod dispatch-event (telnet (event mezzano.gui.compositor:key-event))
   (when (not (mezzano.gui.compositor:key-releasep event))
+    (signal 'typed-key :key (mezzano.gui.compositor:key-key event))
     (mezzano.gui.xterm:input-translate (xterm telnet)
                                        (mezzano.gui.compositor:key-key event)
                                        (lambda (ch)
@@ -171,8 +195,7 @@ party to perform, the indicated option.")
 
 (defmethod dispatch-event (telnet (event server-disconnect-event))
   (setf (connection telnet) nil)
-  (loop for c across "Disconnected from server"
-     do (mezzano.gui.xterm::receive-char (xterm telnet) c)))
+  (telnet-write-string telnet (format nil "~%Disconnected from server")))
 
 (defun telnet-receive (telnet)
   (handler-case
@@ -204,6 +227,30 @@ party to perform, the indicated option.")
     (end-of-file ()
       (mezzano.supervisor:fifo-push (make-instance 'server-disconnect-event)
                                     (fifo telnet)))))
+
+(defvar *server-shortcuts*
+  '(("nao" "nethack.alt.org")
+    ("nyan" "nyancat.dakko.us")))
+
+(defun find-server (telnet server)
+  (cond
+    ((string= server "")
+     ;; Prompting for the server.
+     (telnet-write-string telnet (format nil "Known servers:~%"))
+     (loop
+        for (name address) in *server-shortcuts*
+        do (telnet-write-string telnet (format nil " ~A: ~A~%" name address)))
+     (telnet-write-string telnet "Server> ")
+     (let ((s (telnet-read-line telnet)))
+       (telnet-write-string telnet (format nil "Connecting to ~A~%" s))
+       (find-server telnet s)))
+    (t
+     ;; Lookup by shortcut name.
+     (dolist (s *server-shortcuts*
+              ;; Or just pick that server.
+              server)
+       (when (string-equal (first s) server)
+         (return (second s)))))))
 
 (defun telnet-main (server port terminal-type cwidth cheight)
   (catch 'quit
@@ -240,6 +287,7 @@ party to perform, the indicated option.")
                                                   (mezzano.gui.compositor:height window))
             (unwind-protect
                  (progn
+                   (setf server (find-server telnet server))
                    (setf (connection telnet) (mezzano.network.tcp:tcp-stream-connect server port)
                          (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
                                                                                  :name "Telnet receive"))
@@ -249,7 +297,7 @@ party to perform, the indicated option.")
                 (close (connection telnet))
                 (setf (connection telnet) nil)))))))))
 
-(defun spawn (server &key (port 23) (terminal-type "xterm-color") (width 80) (height 24))
+(defun spawn (&key (server "") (port 23) (terminal-type "xterm-color") (width 80) (height 24))
   (mezzano.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))
                                   :name "Telnet"
                                   :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
@@ -260,15 +308,3 @@ party to perform, the indicated option.")
                                                       (*trace-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*debug-io* ,(make-synonym-stream '*terminal-io*))
                                                       (*query-io* ,(make-synonym-stream '*terminal-io*)))))
-
-(defun spawn-nao ()
-  "Nethack!"
-  (spawn "nethack.alt.org"))
-
-(defun spawn-nyan ()
-  "Nyancat over telnet."
-  (spawn "nyancat.dakko.us"))
-
-(defun spawn-magic-1 ()
-  "The only system slower than Mezzano."
-  (spawn "magic-1.org"))

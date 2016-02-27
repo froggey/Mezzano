@@ -16,8 +16,7 @@
                   ("LOCAL:>Icons>Peek.png" "Peek" "(mezzano.gui.peek:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
                   ("LOCAL:>Icons>Filer.png" "Filer" "(mezzano.gui.filer:spawn)")
-                  ("LOCAL:>Icons>Telnet.png" "Nethack" "(telnet:spawn-nao)")
-                  ("LOCAL:>Icons>Telnet.png" "Nyan Cat" "(telnet:spawn-nyan)")))
+                  ("LOCAL:>Icons>Telnet.png" "Telnet" "(telnet:spawn)")))
 
 (defun load-jpeg (path)
   (ignore-errors
