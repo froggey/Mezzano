@@ -40,6 +40,8 @@
            #p"LOCAL:>Mezzano>")
 (copy-many #p"**/*.asd" *default-pathname-defaults*
            #p"LOCAL:>Mezzano>")
+(copy-many #p"doc/**/*.*" *default-pathname-defaults*
+           #p"LOCAL:>Mezzano>doc>")
 (copy-file "LICENCE" #p"LOCAL:>Mezzano>LICENCE.text")
 (copy-file "README" #p"LOCAL:>Mezzano>README.text")
 (copy-file "tools/cl-symbols.lisp-expr" #p"LOCAL:>Mezzano>tools>cl-symbols.lisp-expr")
