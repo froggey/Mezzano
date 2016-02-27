@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;;; Faster hash table for doing single-dispatch class to effective method lookup.

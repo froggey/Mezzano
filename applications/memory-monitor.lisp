@@ -1,4 +1,4 @@
-;;;; Copyright (c) 2015 Henry Harrington <henry.harrington@gmail.com>
+;;;; Copyright (c) 2015-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
 ;; Simple tool for visually displaying how physical memory is used.
