@@ -78,9 +78,12 @@ If the compiled file is out of date, recompile it."
                     "LOCAL:>README.text")
 
 ;; ASDF.
-;; After ASDF is compiled for the first time it will fail to load with
-;; an undefined-function EXPORT error. This can be fixed by rebooting.
 (sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
+(defun home-source-registry ()
+  `(:source-registry
+    (:tree ,(user-homedir-pathname))
+    :inherit-configuration))
+(eval (read-from-string "(push 'home-source-registry asdf:*default-source-registries*)"))
 
 ;; A bunch of GUI related systems.
 (require :zpb-ttf)
