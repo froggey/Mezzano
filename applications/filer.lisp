@@ -28,18 +28,19 @@
   (mezzano.gui.widgets:draw-frame (frame window)))
 
 (defvar *type-registry*
-  '((:lisp-source-code "lisp" "lsp" "asd")
+  '((:lisp-source-code "lisp" "lsp" "asd" "lisp-expr")
     (:compiled-lisp-code "llf")
-    (:text "text" "txt")
+    (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown")
     (:font "ttf")
     (:image "png" "jpeg" "jpg")))
 
 (defun canonical-type-from-pathname-type (type-string)
-  (when (not type-string)
-    (return-from canonical-type-from-pathname-type :unknown))
+  (when (or (not type-string)
+            (equal type-string ""))
+    (return-from canonical-type-from-pathname-type :text))
   (when (eql type-string :wild)
     (return-from canonical-type-from-pathname-type :wild))
-  (dolist (type *type-registry* :unknown)
+  (dolist (type *type-registry* (intern (format nil "UNKNOWN-~A" type-string) "KEYWORD"))
     (when (member type-string (rest type) :test #'string-equal)
       (return (first type)))))
 
