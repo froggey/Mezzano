@@ -371,14 +371,14 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
 (define-command connect (irc text)
   "CONNECT <server or address>
   Connect to a server. Addresses use the address:port format, with port defaulting to 6667."
-  (cond ((not (nickname irc))
-         (error "No nickname set. Use /nick to set a nickname before connecting."))
-        ((irc-connection irc)
-         (error "Already connected to ~S." (irc-connection irc)))
-        ((zerop (length text))
+  (cond ((zerop (length text))
          (format (display-pane irc) "~&Known servers:")
          (loop for (name address port) in *known-servers*
             do (format (display-pane irc) "~&  ~:(~A~)  ~A:~D" name address port)))
+        ((not (nickname irc))
+         (error "No nickname set. Use /nick to set a nickname before connecting."))
+        ((irc-connection irc)
+         (error "Already connected to ~S." (irc-connection irc)))
         (t (multiple-value-bind (address port)
                (resolve-server-name text)
              (format (display-pane irc) "~&Connecting to ~A (~A:~A)." text address port)
@@ -436,9 +436,12 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
   (format (display-pane irc) "~&Available commands:")
   (maphash (lambda (name help)
              (declare (ignore name))
-             (format (display-pane irc) "~&/~:(~A~)" help))
+             (format (display-pane irc) "~&/~A" help))
            *top-level-command-doc*)
-  (format (display-pane irc) "~&To connect, first set your nickname with the NICK command, then connect to a server with CONNECT."))
+  (format (display-pane irc) "~&To connect, first set your nickname with the NICK command, then connect to a server with CONNECT.")
+  (format (display-pane irc) "~&Known servers, use with the CONNECT command instead of an address:")
+  (loop for (name address port) in *known-servers*
+     do (format (display-pane irc) "~&  ~:(~A~)  ~A:~D" name address port)))
 
 (defclass irc-client ()
   ((%fifo :initarg :fifo :reader fifo)
@@ -597,17 +600,21 @@ If ORIGIN is a server name, then only the host is valid. Nick and ident will be 
                                                 (mezzano.gui.compositor:width window)
                                                 (mezzano.gui.compositor:height window))
           (unwind-protect
-               (loop
-                  (sys.int::log-and-ignore-errors
-                   (with-simple-restart (abort "Return to IRC top-level")
-                     (reset-input irc)
-                     (let ((line (read-line (input-pane irc))))
-                       (multiple-value-bind (command rest)
-                           (parse-command line)
-                         (let ((fn (gethash (string-upcase command) *top-level-commands*)))
-                           (if fn
-                               (funcall fn irc rest)
-                               (error "Unknown command ~S." command))))))))
+               (progn
+                 (funcall (gethash "HELP" *top-level-commands*) irc "")
+                 (loop
+                    (handler-case
+                        (progn
+                          (reset-input irc)
+                          (let ((line (read-line (input-pane irc))))
+                            (multiple-value-bind (command rest)
+                                (parse-command line)
+                              (let ((fn (gethash (string-upcase command) *top-level-commands*)))
+                                (if fn
+                                    (funcall fn irc rest)
+                                    (error "Unknown command ~S." command))))))
+                      (error (c)
+                        (format (display-pane irc) "~&Error: ~A" c)))))
             (when (irc-connection irc)
               (close (irc-connection irc)))))))))
 
