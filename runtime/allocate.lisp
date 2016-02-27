@@ -216,7 +216,8 @@
                 ;; Cannot be done when pseudo-atomic.
                 ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
                 (let ((expansion (logand (truncate *general-area-expansion-granularity* 2) (lognot #xFFF))))
-                  (mezzano.supervisor:debug-print-line "Expanding general area by " expansion)
+                  (when mezzano.supervisor::*pager-noisy*
+                    (mezzano.supervisor:debug-print-line "Expanding general area by " expansion))
                   ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
                   (when (not (mezzano.supervisor:allocate-memory-range
                               (logior sys.int::*dynamic-mark-bit*
@@ -227,7 +228,8 @@
                               (logior sys.int::+block-map-present+
                                       sys.int::+block-map-writable+
                                       sys.int::+block-map-zero-fill+)))
-                    (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC.")
+                    (when mezzano.supervisor::*pager-noisy*
+                      (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC."))
                     (go DO-GC))
                   (when (not (mezzano.supervisor:allocate-memory-range
                               (logior (logxor sys.int::*dynamic-mark-bit*
@@ -367,7 +369,8 @@
                 ;; Cannot be done when pseudo-atomic.
                 ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
                 (let ((expansion (logand (truncate *cons-area-expansion-granularity* 2) (lognot #xFFF))))
-                  (mezzano.supervisor::debug-print-line "Expanding cons area by " expansion)
+                  (when mezzano.supervisor::*pager-noisy*
+                    (mezzano.supervisor::debug-print-line "Expanding cons area by " expansion))
                   ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
                   ;; Allocate newspace.
                   (when (not (mezzano.supervisor:allocate-memory-range
@@ -379,7 +382,8 @@
                               (logior sys.int::+block-map-present+
                                       sys.int::+block-map-writable+
                                       sys.int::+block-map-zero-fill+)))
-                    (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC.")
+                    (when mezzano.supervisor::*pager-noisy*
+                      (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC."))
                     (go DO-GC))
                   ;; Allocate oldspace.
                   (when (not (mezzano.supervisor:allocate-memory-range
@@ -390,7 +394,8 @@
                                       sys.int::*cons-area-limit*)
                               expansion
                               sys.int::+block-map-zero-fill+))
-                    (mezzano.supervisor:debug-print-line "A-M-R oldspace failed, no memory. Doing GC.")
+                    (when mezzano.supervisor::*pager-noisy*
+                      (mezzano.supervisor:debug-print-line "A-M-R oldspace failed, no memory. Doing GC."))
                     ;; Roll back newspace allocation.
                     (mezzano.supervisor:release-memory-range
                      (logior sys.int::*dynamic-mark-bit*
