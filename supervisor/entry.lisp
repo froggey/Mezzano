@@ -137,6 +137,8 @@ Collisions."
   (funcall (nic-stats nic) (mezzano.supervisor::nic-device nic)))
 
 (defun net-transmit-packet (nic pkt)
+  (set-network-light t)
+  (set-network-light nil)
   (funcall (mezzano.supervisor::nic-transmit-packet nic)
            (mezzano.supervisor::nic-device nic)
            pkt))
@@ -144,6 +146,8 @@ Collisions."
 (defun net-receive-packet ()
   "Wait for a packet to arrive.
 Returns two values, the packet data and the receiving NIC."
+  (set-network-light t)
+  (set-network-light nil)
   (let ((info (irq-fifo-pop *received-packets*)))
     (values (cdr info) (car info))))
 
