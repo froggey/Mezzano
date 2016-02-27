@@ -108,7 +108,7 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "applications/fancy-repl.lisp")
 (sys.int::cal "gui/desktop.lisp")
 (sys.int::cal "gui/image-viewer.lisp")
-(sys.int::cal "applications/fs-viewer.lisp")
+(sys.int::cal "applications/filer.lisp")
 (sys.int::cal "applications/memory-monitor.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.

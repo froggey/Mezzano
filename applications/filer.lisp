@@ -1,17 +1,17 @@
 ;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(defpackage :mezzano.gui.fs-viewer
+(defpackage :mezzano.gui.filer
   (:use :cl)
   (:export #:spawn))
 
-(in-package :mezzano.gui.fs-viewer)
+(in-package :mezzano.gui.filer)
 
 (defvar *up-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 Up.png"))
 (defvar *file-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 File.png"))
 (defvar *folder-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 Folder.png"))
 
-(defclass fs-viewer ()
+(defclass filer ()
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
    (%thread :initarg :thread :reader thread)
@@ -52,10 +52,10 @@
   ;; Ech, the terrible groveling.
   (let ((existing (mezzano.gui.compositor:get-window-by-kind :editor)))
     (cond (existing
-           (mezzano.supervisor:fifo-push (make-instance (read-from-string "mezzano.editor:open-file-request") :path path)
+           (mezzano.supervisor:fifo-push (make-instance (read-from-string "med:open-file-request") :path path)
                                            (mezzano.gui.compositor::fifo existing)
                                            nil))
-          (t (funcall (read-from-string "mezzano.editor:spawn") :initial-file path)))))
+          (t (funcall (read-from-string "med:spawn") :initial-file path)))))
 
 (defmethod view ((type (eql :lisp-source-code)) path)
   (view-in-editor path))
@@ -238,17 +238,17 @@
                                    :title (namestring default-path)
                                    :close-button-p t
                                    :damage-function (mezzano.gui.widgets:default-damage-function window)))
-             (fs-viewer (make-instance 'fs-viewer
-                                       :fifo fifo
-                                       :window window
-                                       :thread (mezzano.supervisor:current-thread)
-                                       :font font
-                                       :frame frame
-                                       :path default-path)))
-        (change-path fs-viewer default-path)
+             (filer (make-instance 'filer
+                                   :fifo fifo
+                                   :window window
+                                   :thread (mezzano.supervisor:current-thread)
+                                   :font font
+                                   :frame frame
+                                   :path default-path)))
+        (change-path filer default-path)
         (loop
            (handler-case
-               (dispatch-event fs-viewer (mezzano.supervisor:fifo-pop fifo))
+               (dispatch-event filer (mezzano.supervisor:fifo-pop fifo))
              (error (c)
                (ignore-errors
                  (format t "Error: ~A~%" c)))
