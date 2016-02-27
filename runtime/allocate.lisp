@@ -518,7 +518,7 @@
                                      (logior (ash mc-size 8)
                                              (ash pool-size 24)
                                              (ash (length gc-info) 40))
-                                     total
+                                     (1- total) ; subtract header.
                                      (if wired :wired :pinned)))
            (address (ash (sys.int::%pointer-field object) 4)))
       ;; Initialize entry point.

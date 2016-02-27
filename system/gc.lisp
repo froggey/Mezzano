@@ -899,13 +899,30 @@ a pointer to the new object. Leaves a forwarding pointer in place."
      (incf start (* (align-up (size-of-pinned-area-allocation start) 2) 8))))
 
 (defun make-freelist-header (len)
+  (when *gc-debug-freelist-rebuild*
+    (mezzano.supervisor:debug-print-line "hdr " len))
   (logior *pinned-mark-bit*
           (ash +object-tag-freelist-entry+ +object-type-shift+)
           (ash (align-up len 2) +object-data-shift+)))
 
+(defun dump-pinned-area (base limit)
+  (let ((offset base))
+    (loop
+       (when (>= offset limit)
+         (return))
+       (let* ((type (ash (memref-unsigned-byte-8 offset 0) (- +object-type-shift+)))
+              (size (size-of-pinned-area-allocation offset)))
+         (mezzano.supervisor:debug-print-line offset " " size " " type
+                                              " "
+                                              (when (eql type +object-tag-freelist-entry+)
+                                                (mezzano.runtime::freelist-entry-next offset)))
+         (incf offset (* (align-up size 2) 8))))))
+
 (defun rebuild-freelist (freelist-symbol base limit)
   "Sweep the pinned/wired area chain and rebuild the freelist."
   (mezzano.supervisor:debug-print-line "rebuild freelist " freelist-symbol)
+  (when mezzano.runtime::*paranoid-allocation*
+    (mezzano.runtime::verify-freelist (symbol-value freelist-symbol) base limit))
   ;; Set initial freelist entry.
   (let ((initial (find-next-free-object base limit)))
     (when (not initial)
