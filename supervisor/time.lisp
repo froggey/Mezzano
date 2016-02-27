@@ -76,7 +76,8 @@
     (do ()
         ((null (wait-queue-head *heartbeat-wait-queue*)))
       (wake-thread (pop-wait-queue *heartbeat-wait-queue*))))
-  (profile-sample interrupt-frame))
+  (profile-sample interrupt-frame)
+  (decay-lights *run-time-advance*))
 
 (defun wait-for-heartbeat ()
   (ensure-interrupts-enabled)

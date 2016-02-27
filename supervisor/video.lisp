@@ -150,18 +150,61 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (dotimes (i (framebuffer-width *current-framebuffer*))
         (setf (sys.int::memref-unsigned-byte-32 fb-addr i) #xFFFF0000)))))
 
+(defstruct (light
+             (:area :wired))
+  name
+  index
+  colour
+  state)
+
+(defvar *light-decay-time* (truncate internal-time-units-per-second 8)
+  "Time a light should stay on for after being turned off.
+An integer, measured in internal time units.")
+(defvar *lights* '())
+
+(defun decay-lights (dt)
+  (when (boundp '*lights*)
+    (loop
+       for light in *lights*
+       do (when (integerp (light-state light))
+            (decf (light-state light) dt)
+            (when (<= (light-state light) 0)
+              (clear-light light))))))
+
+(defun set-light (light state)
+  (setf (light-state light) (if state
+                                t
+                                (if (boundp '*light-decay-time*)
+                                    *light-decay-time*
+                                    0)))
+  (when *current-framebuffer*
+    (let ((fb-addr (+ +physical-map-base+
+                      (framebuffer-base-address *current-framebuffer*)
+                      (* (light-index light) 32 4))))
+      (dotimes (i 32)
+        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) (if (light-state light)
+                                                               (light-colour light)
+                                                               0))))))
+
+(defun clear-light (light)
+  (setf (light-state light) nil)
+  (when *current-framebuffer*
+    (let ((fb-addr (+ +physical-map-base+
+                      (framebuffer-base-address *current-framebuffer*)
+                      (* (light-index light) 32 4))))
+      (dotimes (i 32)
+        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) 0)))))
+
 (defmacro deflight (name colour position)
-  (let ((setter (intern (format nil "SET-~A-LIGHT" name))))
-    `(defun ,setter (state)
-       (safe-without-interrupts (state)
-         (when *current-framebuffer*
-           (let ((fb-addr (+ +physical-map-base+
-                             (framebuffer-base-address *current-framebuffer*)
-                             (* ,position 32 4))))
-             (dotimes (i 32)
-               (setf (sys.int::memref-unsigned-byte-32 fb-addr i) (if state
-                                                                      ,colour
-                                                                      0)))))))))
+  (let ((setter (intern (format nil "SET-~A-LIGHT" name)))
+        (light-sym (intern (format nil "*LIGHT-~A*" name))))
+    `(progn
+       (setf ,light-sym (make-light :name ',name :index ',position :colour ',colour :state nil))
+       (push-wired ,light-sym *lights*)
+       (defun ,setter (state)
+         (safe-without-interrupts (state)
+           (when (boundp ',light-sym)
+             (set-light ,light-sym state)))))))
 
 (deflight disk-read #xFF00FF00 0)
 (deflight disk-write #xFFFF0000 1)

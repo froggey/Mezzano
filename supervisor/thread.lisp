@@ -605,7 +605,10 @@ Interrupts must be off, the current thread must be locked."
               (setf (thread-state next) :active)
               (%run-on-wired-stack-without-interrupts (sp fp next)
                 (%%switch-to-thread-via-wired-stack sys.int::*bsp-idle-thread* sp fp next))
-              (set-run-light nil))
+              (when (boundp '*light-run*)
+                ;; Clear the run light immediately so it doesn't stay on between
+                ;; GUI screen updates.
+                (clear-light *light-run*)))
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
