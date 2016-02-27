@@ -103,7 +103,7 @@ If the compiled file is out of date, recompile it."
 (sys.int::cal "applications/telnet.lisp")
 (sys.int::cal "applications/mandelbrot.lisp")
 (sys.int::cal "applications/irc.lisp")
-(sys.int::cal "applications/editor.lisp")
+(require :med)
 (sys.int::cal "applications/peek.lisp")
 (sys.int::cal "applications/fancy-repl.lisp")
 (sys.int::cal "gui/desktop.lisp")

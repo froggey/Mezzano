@@ -11,7 +11,7 @@
 
 (defvar *icons* '(("LOCAL:>Icons>Terminal.png" "Lisp REPL" "(mezzano.gui.fancy-repl:spawn)")
                   ("LOCAL:>Icons>Chat.png" "IRC" "(irc-client:spawn)")
-                  ("LOCAL:>Icons>Editor.png" "Editor" "(mezzano.editor:spawn)")
+                  ("LOCAL:>Icons>Editor.png" "Editor" "(med:spawn)")
                   ("LOCAL:>Icons>Mandelbrot.png" "Mandelbrot" "(mandelbrot:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Peek" "(mezzano.gui.peek:spawn)")
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
