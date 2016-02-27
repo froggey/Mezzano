@@ -82,6 +82,7 @@ Purple       GC in progress.
 Cyan         Activity, system is not idle.
 Yellow       Snapshot in progress.
 Brown        Page fault being serviced.
+Blue         Network activity.
 
 The entire top line will turn red if the system panics.
 
