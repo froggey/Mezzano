@@ -240,7 +240,19 @@
                    (tcp4-send-packet connection
                                      (tcp-connection-s-next connection)
                                      (tcp-connection-r-next connection)
-                                     nil))))
+                                     nil
+                                     :rst-p t)
+                   (setf (tcp-connection-state connection) :closed)
+                   (detach-tcp-connection connection))
+                  (t
+                   (tcp4-send-packet connection
+                                     0
+                                     0
+                                     nil
+                                     :ack-p nil
+                                     :rst-p t)
+                   (setf (tcp-connection-state connection) :closed)
+                   (detach-tcp-connection connection))))
            (t ;; Ignore out-of-order packets - Should resend ACKs when receiving a packet from the past.
             (format t "TCP: Ignoring packet with sequence number ~D, wanted ~D.~%"
                     seq (tcp-connection-r-next connection)))))
