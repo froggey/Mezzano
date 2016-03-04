@@ -212,7 +212,7 @@ An integer, measured in internal time units.")
 (deflight run #xFF00FFFF 3)
 (deflight snapshot #xFFFFFF00 4)
 (deflight paging #xFFFF8000 5)
-(deflight network #xFF6666FF 6)
+(deflight network #xFFCCFF66 6)
 
 (defvar sys.int::*debug-8x8-font*)
 
