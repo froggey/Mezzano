@@ -244,9 +244,10 @@
                      (let* ((address (make-pci-address bus device-nr function))
                             (device (make-pci-device :address address :boot-id *boot-id*))
                             (vendor-id (pci-config/16 device +pci-config-vendorid+))
+                            (device-id (pci-config/16 device +pci-config-deviceid+))
                             (header-type (ldb (byte 7 0) (pci-config/8 device +pci-config-hdr-type+))))
                        (unless (or (eql vendor-id #xFFFF) (eql vendor-id 0))
-                         (debug-print-line bus ":" device-nr ":" function " " vendor-id)
+                         (debug-print-line bus ":" device-nr ":" function " " vendor-id ":" device-id)
                          (push-wired device *pci-devices*)
                          (when (eql header-type +pci-bridge-htype+)
                            ;; Bridge device, scan the other side.
