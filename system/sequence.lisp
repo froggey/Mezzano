@@ -524,23 +524,37 @@
               (not initial-valuep))
          (funcall key (elt sequence 0)))
         (initial-valuep
-         (let ((x (funcall function
-                           initial-value
-                           (funcall key (elt sequence 0)))))
+         (let ((x (if from-end
+                      (funcall function
+                               (funcall key (elt sequence 0))
+                               initial-value)
+                      (funcall function
+                               initial-value
+                               (funcall key (elt sequence 0))))))
            (dotimes (i (1- (length sequence)))
-             (setf x (funcall function
-                              x
-                              (funcall key
-                                       (elt sequence (1+ i))))))
+             (setf x (if from-end
+                         (funcall function
+                                  (funcall key
+                                           (elt sequence (1+ i)))
+                                  x)
+                         (funcall function
+                                  x
+                                  (funcall key
+                                           (elt sequence (1+ i)))))))
            x))
         (t (let ((x (funcall function
                              (funcall key (elt sequence 0))
                              (funcall key (elt sequence 1)))))
              (dotimes (i (- (length sequence) 2))
-               (setf x (funcall function
+               (setf x (if from-end
+                           (funcall function
+                                (funcall key
+                                         (elt sequence (+ i 2)))
+                                x)
+                           (funcall function
                                 x
                                 (funcall key
-                                         (elt sequence (+ i 2))))))
+                                         (elt sequence (+ i 2)))))))
              x))))
 
 (defun set-difference (list-1 list-2)
