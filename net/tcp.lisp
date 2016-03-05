@@ -63,7 +63,8 @@
 (defun %tcp4-receive (packet remote-ip start end)
   (let* ((remote-port (ub16ref/be packet (+ start +tcp4-header-source-port+)))
          (local-port (ub16ref/be packet (+ start +tcp4-header-destination-port+)))
-         (flags (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
+         (flags (ldb (byte 12 0)
+                     (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+))))
          (connection (get-tcp-connection remote-ip remote-port local-port)))
     (cond
       (connection
@@ -86,7 +87,7 @@
                   (tcp4-send-packet connection blah (logand #xFFFFFFFF (1+ seq)) nil
                                     :ack-p t :syn-p t)
                   (funcall (second server) connection))))))
-      (t (format t "Ignoring packet from ~X ~S~%" remote-ip
+      (t (format t "Ignoring packet from ~X ~X ~S~%" remote-ip flags
                  (subseq packet start end))))))
 
 (defun detach-tcp-connection (connection)
@@ -99,8 +100,9 @@
   (with-tcp-connection-locked connection
     (let* ((seq (ub32ref/be packet (+ start +tcp4-header-sequence-number+)))
            (ack (ub32ref/be packet (+ start +tcp4-header-acknowledgment-number+)))
-           (flags (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
-           (header-length (* (ldb (byte 4 12) flags) 4))
+           (flags-and-data-offset (ub16ref/be packet (+ start +tcp4-header-flags-and-data-offset+)))
+           (flags (ldb (byte 12 0) flags-and-data-offset))
+           (header-length (* (ldb (byte 4 12) flags-and-data-offset) 4))
            (data-length (- end (+ start header-length))))
       (case (tcp-connection-state connection)
         (:syn-sent
