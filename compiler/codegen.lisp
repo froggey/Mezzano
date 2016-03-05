@@ -226,7 +226,7 @@ be generated instead.")
                          :key #'car))
              (second (lambda-information-environment-layout lambda))
              (when *compile-file-pathname*
-               (princ-to-string *compile-file-pathname*))
+               (namestring *compile-file-pathname*))
              sys.int::*top-level-form-number*
              (lambda-information-lambda-list lambda)
              (lambda-information-docstring lambda))))))
