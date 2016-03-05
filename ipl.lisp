@@ -23,11 +23,12 @@
                                     (mezzano.supervisor:snapshot)))
   (throw 'mezzano.supervisor::terminate-thread nil))
 
-(defun sys.int::cal (path)
+(defun sys.int::cal (path &key force)
   "Compile and load PATH.
 If the compiled file is out of date, recompile it."
   (let ((compiled (compile-file-pathname path)))
-    (when (or (not (probe-file compiled))
+    (when (or force
+              (not (probe-file compiled))
               (<= (file-write-date compiled) (file-write-date path)))
       (format t "; Compiling ~S~%" path)
       (ignore-errors (delete-file compiled))
