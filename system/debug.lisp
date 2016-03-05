@@ -7,6 +7,30 @@
                   *standard-input*
                   *standard-output*))
 
+(defun debug-info-name (info)
+  (second info))
+
+(defun debug-info-local-variable-locations (info)
+  "Returns a list of (NAME STACK-SLOT) for each local variable."
+  (third info))
+
+(defun debug-info-closure-layout (info)
+  "Returns two values, the stack slot of the closure vector and the layout of the vector.
+Returns NIL if the function captures no variables."
+  (values (fourth info) (fifth info)))
+
+(defun debug-info-source-pathname (info)
+  (sixth info))
+
+(defun debug-info-source-top-level-form-number (info)
+  (seventh info))
+
+(defun debug-info-lambda-list (info)
+  (eighth info))
+
+(defun debug-info-docstring (info)
+  (ninth info))
+
 (defparameter *debugger-depth* 0)
 (defvar *debugger-condition* nil)
 (defvar *current-debug-frame* nil)
@@ -34,40 +58,45 @@
   (let* ((fn (function-from-frame frame))
          (info (function-debug-info fn))
          (var-id 0))
-    (when (and (listp info) (eql (first info) :debug-info))
-      (format t "Locals:~%")
-      (dolist (var (third info))
-        (format t "  ~D ~S: ~S~%" (incf var-id) (first var) (read-frame-slot frame (second var))))
-      (when (fourth info)
+    (format t "Locals:~%")
+    (loop
+       for (name stack-slot) in (debug-info-local-variable-locations info)
+       do (format t "  ~D ~S: ~S~%" (incf var-id) name (read-frame-slot frame stack-slot)))
+    (multiple-value-bind (env-slot env-layout)
+        (sys.int::debug-info-closure-layout info)
+      (when env-slot
         (format t "Closed-over variables:~%")
-        (let ((env-object (read-frame-slot frame (fourth info))))
-          (dolist (level (fifth info))
-            (do ((i 1 (1+ i))
-                 (var level (cdr var)))
-                ((null var))
-              (when (car var)
-                (format t "  ~D ~S: ~S~%" (incf var-id) (car var) (svref env-object i))))
+        (let ((env-object (read-frame-slot frame env-slot)))
+          (dolist (level env-layout)
+            (loop
+               for i from 1
+               for name in level
+               when name
+               do (format t "  ~D ~S: ~S~%" (incf var-id) name (svref env-object i)))
             (setf env-object (svref env-object 0))))))))
 
 (defun debugger-read-variable (frame id)
   (let* ((fn (function-from-frame frame))
          (info (function-debug-info fn))
          (var-id 0))
-    (when (and (listp info) (eql (first info) :debug-info))
-      (dolist (var (third info))
-        (when (eql (incf var-id) id)
-          (return-from debugger-read-variable
-            (values (read-frame-slot frame (second var)) (first var)))))
-      (when (fourth info)
-        (let ((env-object (read-frame-slot frame (fourth info))))
-          (dolist (level (fifth info))
-            (do ((i 1 (1+ i))
-                 (var level (cdr var)))
-                ((null var))
-              (when (and (car var)
+    (loop
+       for (name stack-slot) in (debug-info-local-variable-locations info)
+       when (eql (incf var-id) id)
+       do (return-from debugger-read-variable
+            (values (read-frame-slot frame stack-slot) name)))
+    (multiple-value-bind (env-slot env-layout)
+        (sys.int::debug-info-closure-layout info)
+      (when env-slot
+        (let ((env-object (read-frame-slot frame env-slot)))
+          (dolist (level env-layout)
+            (loop
+               for i from 1
+               for name in level
+               when (and name
                          (eql (incf var-id) id))
-                (return-from debugger-read-variable
-                  (values (svref env-object i) (car var)))))
+               do
+                 (return-from debugger-read-variable
+                   (values (svref env-object i) name)))
             (setf env-object (svref env-object 0)))))))
   (format t "Unknown variable id ~S." id))
 
@@ -75,21 +104,25 @@
   (let* ((fn (function-from-frame frame))
          (info (function-debug-info fn))
          (var-id 0))
-    (when (and (listp info) (eql (first info) :debug-info))
-      (dolist (var (third info))
-        (when (eql (incf var-id) id)
-          (write-frame-slot frame (second var) value)
-          (return-from debugger-write-variable (first var))))
-      (when (fourth info)
-        (let ((env-object (read-frame-slot frame (fourth info))))
-          (dolist (level (fifth info))
-            (do ((i 1 (1+ i))
-                 (var level (cdr var)))
-                ((null var))
-              (when (and (car var)
+    (loop
+       for (name stack-slot) in (debug-info-local-variable-locations info)
+       when (eql (incf var-id) id)
+       do
+         (write-frame-slot frame stack-slot value)
+         (return-from debugger-write-variable name))
+    (multiple-value-bind (env-slot env-layout)
+        (sys.int::debug-info-closure-layout info)
+      (when env-slot
+        (let ((env-object (read-frame-slot frame env-slot)))
+          (dolist (level env-layout)
+            (loop
+               for i from 1
+               for name in level
+               when (and name
                          (eql (incf var-id) id))
-                (setf (svref env-object i) value)
-                (return-from debugger-write-variable (car var))))
+               do
+                 (setf (svref env-object i) value)
+                 (return-from debugger-write-variable name))
             (setf env-object (svref env-object 0)))))))
   (format t "Unknown variable id ~S." id))
 
