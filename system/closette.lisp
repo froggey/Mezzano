@@ -1924,7 +1924,7 @@ Dispatching on class ~S." gf class))
   (std-slot-exists-p instance slot-name))
 (defmethod slot-exists-p-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (fc-std-slot-exists-p instance slot-name))
+  (std-slot-exists-p instance slot-name))
 
 (defgeneric slot-boundp-using-class (class instance slot-name))
 (defmethod slot-boundp-using-class
@@ -1932,7 +1932,7 @@ Dispatching on class ~S." gf class))
   (std-slot-boundp instance slot-name))
 (defmethod slot-boundp-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (fc-std-slot-boundp instance slot-name))
+  (std-slot-boundp instance slot-name))
 
 (defgeneric slot-makunbound-using-class (class instance slot-name))
 (defmethod slot-makunbound-using-class
@@ -1940,7 +1940,7 @@ Dispatching on class ~S." gf class))
   (std-slot-makunbound instance slot-name))
 (defmethod slot-makunbound-using-class
            ((class funcallable-standard-class) instance slot-name)
-  (fc-std-slot-makunbound instance slot-name))
+  (std-slot-makunbound instance slot-name))
 
 ;;; Instance creation and initialization
 
