@@ -130,39 +130,66 @@
   (find-if (complement predicate) sequence :key key :start start :end end :from-end from-end))
 
 (declaim (inline remove-if remove remove-if-not))
-(defun remove-if (test sequence &key key); from-end (start 0) end count
+(defun remove-if (test sequence &key from-end (start 0) end count key)
   (unless key (setf key 'identity))
+  (when from-end
+    (error "from-end not implemented"))
+  (when (or (not (eql start 0))
+            end)
+    (error "start/end not implemented"))
   (etypecase sequence
     (list
      (let* ((list (cons nil nil))
             (tail list))
        (dolist (e sequence (cdr list))
-         (when (not (funcall test (funcall key e)))
+         (when (or (and count
+                        (plusp count))
+                   (not (funcall test (funcall key e))))
+           (when count
+             (decf count))
            (setf (cdr tail) (cons e nil)
                  tail (cdr tail))))))
     (vector
      (loop
         with result = (make-array (length sequence) :element-type (array-element-type sequence) :fill-pointer 0)
         for e across sequence
-        unless (funcall test (funcall key e))
-        do (vector-push e result)
+        when (or (and count
+                      (plusp count))
+                 (not (funcall test (funcall key e))))
+        do
+          (vector-push e result)
+          (when count
+            (decf count))
         finally (return result)))))
 
-(defun remove (item sequence &key key test test-not); from-end (start 0) end count
+(defun remove (item sequence &key from-end test test-not (start 0) end count key)
   (when (and test test-not)
     (error "Both :test and :test-not specified"))
   (when test-not (setf test (complement test-not)))
   (unless test (setf test 'eql))
-  (remove-if (lambda (x) (funcall test item x)) sequence :key key))
+  (remove-if (lambda (x) (funcall test item x)) sequence
+             :from-end from-end
+             :start start
+             :end end
+             :count count
+             :key key))
 
-(defun remove-if-not (test sequence &key key); from-end (start 0) end count
-  (remove-if (complement test) sequence :key key))
+(defun remove-if-not (test sequence &key from-end (start 0) end count key)
+  (remove-if (complement test) sequence
+             :from-end from-end
+             :start start
+             :end end
+             :count count
+             :key key))
 
-(defun delete (item sequence &key key test test-not)
-  (remove item sequence :key key :test test :test-not test-not))
+(defun delete (item sequence &key from-end test test-not (start 0) end count key)
+  (remove item sequence :from-end from-end :test test :test-not test-not :start start :end end :count count :key key))
 
-(defun delete-if (test sequence &key key)
-  (remove-if test sequence :key key))
+(defun delete-if (test sequence &key from-end (start 0) end count key)
+  (remove-if test sequence :from-end from-end :start start :end end :count count :key key))
+
+(defun delete-if-not (test sequence &key from-end (start 0) end count key)
+  (remove-if-not test sequence :from-end from-end :start start :end end :count count :key key))
 
 (defun remove-duplicates (sequence &key from-end test test-not key) ; (start 0) end
   (when (and test test-not)
