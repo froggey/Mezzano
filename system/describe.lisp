@@ -83,7 +83,10 @@
 
 (defun describe-thread (object stream)
   (format stream "~S is a thread with address ~X~%"
-          object (lisp-object-address object)))
+          object (lisp-object-address object))
+  (format stream "  It is named ~S~%" (mezzano.supervisor:thread-name object))
+  (format stream "  It is in the ~S state~%" (mezzano.supervisor:thread-state object))
+  (format stream "  It has priority ~S~%" (mezzano.supervisor:thread-priority object)))
 
 (defun describe-function-reference (object stream)
   (format stream "~S is a function reference named ~S, with address ~X~%"
