@@ -1200,7 +1200,7 @@ It is only possible for the second value to be false when wait-p is false."
 
 (defstruct (fifo
              (:area :wired)
-             (:constructor (make-fifo (size &key (element-type 't) &aux (buffer (make-array size :element-type element-type))))))
+             (:constructor (make-fifo (size &key (element-type 't) &aux (buffer (make-array (list size) :element-type element-type))))))
   (head 0 :type fixnum)
   (tail 0 :type fixnum)
   (size nil :read-only t)
