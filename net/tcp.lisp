@@ -365,7 +365,8 @@
                          (tcp-connection-s-next connection)
                          (tcp-connection-r-next connection)
                          nil
-                         :fin-p t)))))
+                         :fin-p t))
+      (:closed))))
 
 (defun tcp-connect (ip port)
   (let* ((source-port (allocate-local-tcp-port))
