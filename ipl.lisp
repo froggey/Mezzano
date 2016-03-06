@@ -66,6 +66,7 @@
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)
+(require :swank)
 
 ;; And the GUI.
 (sys.int::cal "gui/font.lisp")
