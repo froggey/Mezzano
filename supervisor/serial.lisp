@@ -156,7 +156,7 @@
 
 (defun debug-serial-stream (op &optional arg)
   (ecase op
-    (:read-char (error "Serial read char not implemented."))
+    (:read-char (panic "Serial read char not implemented."))
     (:clear-input)
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
