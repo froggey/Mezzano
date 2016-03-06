@@ -35,27 +35,27 @@
         (copy-file f real-path (guess-element-type-from-extension (pathname-type f)))))))
 
 ;; Copy Mezz source.
-(ensure-directories-exist #p"LOCAL:>Mezzano>")
-(copy-many #p"**/*.lisp" *default-pathname-defaults*
-           #p"LOCAL:>Mezzano>")
-(copy-many #p"**/*.asd" *default-pathname-defaults*
-           #p"LOCAL:>Mezzano>")
-(copy-many #p"doc/**/*.*" *default-pathname-defaults*
-           #p"LOCAL:>Mezzano>doc>")
-(copy-file "LICENCE" #p"LOCAL:>Mezzano>LICENCE.text")
-(copy-file "README" #p"LOCAL:>Mezzano>README.text")
-(copy-file "tools/cl-symbols.lisp-expr" #p"LOCAL:>Mezzano>tools>cl-symbols.lisp-expr")
-(copy-file "tools/disk_header" #p"LOCAL:>Mezzano>tools>disk_header.bin")
-(copy-file "tools/font8x8" #p"LOCAL:>Mezzano>tools>font8x8.lisp-expr")
-(copy-file "tools/pci.ids" #p"LOCAL:>Mezzano>tools>pci-ids.text")
-(copy-file "tools/UnicodeData.txt" #p"LOCAL:>Mezzano>tools>UnicodeData.text")
-(copy-file "tools/unifont-5.1.20080820.hex" (make-pathname :directory '(:absolute "Mezzano") :name "unifont-5.1.20080820" :type "text" :defaults #p"LOCAL:>"))
+(copy-many (merge-pathnames "**/*.*" *default-pathname-defaults*)
+           *default-pathname-defaults*
+           #p"LOCAL:>Mezzano>"
+           (lambda (path)
+             (not (or (member ".git" (pathname-directory path) :test #'string-equal)
+                      (member "notes" (pathname-directory path) :test #'string-equal)
+                      (string-equal (pathname-name path) ".git")
+                      (string-equal (pathname-type path) "llf")
+                      (string-equal (pathname-type path) "image")
+                      (string-equal (pathname-type path) "vmdk")
+                      (string-equal (pathname-type path) "map")
+                      (string-equal (pathname-type path) "iso")
+                      (string-equal (pathname-type path) "pcap")
+                      (string-equal (pathname-name path) "vboxserio")))))
 
 ;; And everything else.
-(copy-many (merge-pathnames "**/*.*" (user-homedir-pathname))
+(copy-many (merge-pathnames "*/**/*.*" (user-homedir-pathname))
            (user-homedir-pathname)
            #p"LOCAL:>Source>"
-           (lambda (x)
-             (not (or (member ".git" (pathname-directory x) :test #'string-equal)
-                      (string-equal (pathname-name x) ".git")
-                      (string-equal (pathname-type x) "llf")))))
+           (lambda (path)
+             (not (or (member ".git" (pathname-directory path) :test #'string-equal)
+                      (member "Fonts" (pathname-directory path) :test #'string-equal)
+                      (string-equal (pathname-name path) ".git")
+                      (string-equal (pathname-type path) "llf")))))
