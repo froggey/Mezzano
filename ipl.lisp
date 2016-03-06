@@ -43,7 +43,7 @@
 ;; Other stuff.
 ;; The desktop image, this can be removed or replaced.
 ;; If it is removed, then the line below that starts the desktop must be updated.
-(sys.int::copy-file (merge-pathnames "Mandarin_Pair.jpg" (user-homedir-pathname))
+(sys.int::copy-file (merge-pathnames "Hypothymis_azurea_-_Kaeng_Krachan.jpg" (user-homedir-pathname))
                     "LOCAL:>Desktop.jpeg"
                     '(unsigned-byte 8))
 
