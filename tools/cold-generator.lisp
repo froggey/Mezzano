@@ -139,6 +139,7 @@
     "net/network-setup.lisp"
     "file/fs.lisp"
     "file/remote.lisp"
+    "config.lisp"
     "ipl.lisp"))
 
 (defparameter *cl-symbol-list-file* "tools/cl-symbols.lisp-expr")

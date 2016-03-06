@@ -15,12 +15,12 @@
 
 ;; Host where the initial system is kept.
 ;; Change the IP to the host computer's local IP.
-(mezzano.file-system.remote:add-simple-file-host :remote '(192 168 0 4))
+(mezzano.file-system.remote:add-simple-file-host :remote sys.int::*file-server-host-ip*)
 ;; Use PATHNAME instead of #p because the cross-compiler doesn't support #p.
 ;; Point *DEFAULT-PATHNAME-DEFAULTS* at the full path to the source tree.
-(setf *default-pathname-defaults* (pathname "REMOTE:/Full/path/to/Mezzano/"))
+(setf *default-pathname-defaults* (pathname (concatenate 'string "REMOTE:" sys.int::*mezzano-source-path*)))
 ;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
-(setf mezzano.file-system::*home-directory* (pathname "REMOTE:/Full/path/to/Mezzano/home/"))
+(setf mezzano.file-system::*home-directory* (pathname (concatenate 'string "REMOTE:" sys.int::*home-directory-path*)))
 
 ;; Local FS. Loaded from the source tree, not the home directory.
 (sys.int::cal "file/local.lisp")
@@ -28,7 +28,7 @@
 
 ;; Fonts. Loaded from the home directory.
 (ensure-directories-exist "LOCAL:>Fonts>")
-(dolist (f (directory (merge-pathnames "fonts/**/*.ttf" (user-homedir-pathname))))
+(dolist (f (directory (merge-pathnames "Fonts/**/*.ttf" (user-homedir-pathname))))
   (sys.int::copy-file f
              (merge-pathnames "LOCAL:>Fonts>" f)
              '(unsigned-byte 8)))
