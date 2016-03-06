@@ -67,38 +67,39 @@
   (throw 'quit nil))
 
 (defun mandelbrot-main ()
-  (catch 'quit
-    (let ((fifo (mezzano.supervisor:make-fifo 50)))
-      (mezzano.gui.compositor:with-window (window fifo 500 500)
-        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-               (frame (make-instance 'mezzano.gui.widgets:frame
-                                     :framebuffer framebuffer
-                                     :title "Mandelbrot"
-                                     :close-button-p t
-                                     :damage-function (mezzano.gui.widgets:default-damage-function window))))
-          (mezzano.gui.widgets:draw-frame frame)
-          (mezzano.gui.compositor:damage-window window
-                                                0 0
-                                                (mezzano.gui.compositor:width window)
-                                                (mezzano.gui.compositor:height window))
-          (multiple-value-bind (left right top bottom)
-              (mezzano.gui.widgets:frame-size frame)
-            (let ((width (- (mezzano.gui.compositor:width window) left right))
-                  (height (- (mezzano.gui.compositor:width window) top bottom))
-                  (pixel-count 0)
-                  (hue-offset (rem (get-universal-time) 360)))
-              ;; Render a line at a time, should do this in a seperate thread really...
-              ;; More than one thread, even.
-              (dotimes (y height)
-                (dotimes (x width)
-                  (setf (mezzano.gui:surface-pixel framebuffer (+ left x) (+ top y)) (render-mandelbrot x y width height hue-offset)))
-                (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
-                (loop
-                   (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
-                     (when (not evt) (return))
-                     (dispatch-event frame evt)))))
-            (loop
-               (dispatch-event frame (mezzano.supervisor:fifo-pop fifo)))))))))
+  (with-simple-restart (abort "Close Mandelbrot")
+    (catch 'quit
+      (let ((fifo (mezzano.supervisor:make-fifo 50)))
+        (mezzano.gui.compositor:with-window (window fifo 500 500)
+          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                 (frame (make-instance 'mezzano.gui.widgets:frame
+                                       :framebuffer framebuffer
+                                       :title "Mandelbrot"
+                                       :close-button-p t
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window))))
+            (mezzano.gui.widgets:draw-frame frame)
+            (mezzano.gui.compositor:damage-window window
+                                                  0 0
+                                                  (mezzano.gui.compositor:width window)
+                                                  (mezzano.gui.compositor:height window))
+            (multiple-value-bind (left right top bottom)
+                (mezzano.gui.widgets:frame-size frame)
+              (let ((width (- (mezzano.gui.compositor:width window) left right))
+                    (height (- (mezzano.gui.compositor:width window) top bottom))
+                    (pixel-count 0)
+                    (hue-offset (rem (get-universal-time) 360)))
+                ;; Render a line at a time, should do this in a seperate thread really...
+                ;; More than one thread, even.
+                (dotimes (y height)
+                  (dotimes (x width)
+                    (setf (mezzano.gui:surface-pixel framebuffer (+ left x) (+ top y)) (render-mandelbrot x y width height hue-offset)))
+                  (mezzano.gui.compositor:damage-window window left (+ top y) width 1)
+                  (loop
+                     (let ((evt (mezzano.supervisor:fifo-pop fifo nil)))
+                       (when (not evt) (return))
+                       (dispatch-event frame evt)))))
+              (loop
+                 (dispatch-event frame (mezzano.supervisor:fifo-pop fifo))))))))))
 
 (defun spawn ()
   (mezzano.supervisor:make-thread 'mandelbrot-main

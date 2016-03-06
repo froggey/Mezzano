@@ -253,34 +253,35 @@
                                             width height))))
 
 (defun main (default-path width height)
-  (let ((font (mezzano.gui.font:open-font
-               mezzano.gui.font:*default-monospace-font*
-               mezzano.gui.font:*default-monospace-font-size*))
-        (fifo (mezzano.supervisor:make-fifo 50)))
-    (mezzano.gui.compositor:with-window (window fifo (or width 640) (or height 480))
-      (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-             (frame (make-instance 'mezzano.gui.widgets:frame
-                                   :framebuffer framebuffer
-                                   :title (namestring default-path)
-                                   :close-button-p t
-                                   :damage-function (mezzano.gui.widgets:default-damage-function window)))
-             (filer (make-instance 'filer
-                                   :fifo fifo
-                                   :window window
-                                   :thread (mezzano.supervisor:current-thread)
-                                   :font font
-                                   :frame frame
-                                   :path default-path)))
-        (change-path filer default-path)
-        (loop
-           (handler-case
-               (dispatch-event filer (mezzano.supervisor:fifo-pop fifo))
-             (error (c)
-               (ignore-errors
-                 (format t "Error: ~A~%" c)))
-             ;; Exit when the close button is clicked.
-             (mezzano.gui.widgets:close-button-clicked ()
-               (return-from main))))))))
+  (with-simple-restart (abort "Close filer")
+    (let ((font (mezzano.gui.font:open-font
+                 mezzano.gui.font:*default-monospace-font*
+                 mezzano.gui.font:*default-monospace-font-size*))
+          (fifo (mezzano.supervisor:make-fifo 50)))
+      (mezzano.gui.compositor:with-window (window fifo (or width 640) (or height 480))
+        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+               (frame (make-instance 'mezzano.gui.widgets:frame
+                                     :framebuffer framebuffer
+                                     :title (namestring default-path)
+                                     :close-button-p t
+                                     :damage-function (mezzano.gui.widgets:default-damage-function window)))
+               (filer (make-instance 'filer
+                                     :fifo fifo
+                                     :window window
+                                     :thread (mezzano.supervisor:current-thread)
+                                     :font font
+                                     :frame frame
+                                     :path default-path)))
+          (change-path filer default-path)
+          (loop
+             (handler-case
+                 (dispatch-event filer (mezzano.supervisor:fifo-pop fifo))
+               (error (c)
+                 (ignore-errors
+                   (format t "Error: ~A~%" c)))
+               ;; Exit when the close button is clicked.
+               (mezzano.gui.widgets:close-button-clicked ()
+                 (return-from main)))))))))
 
 (defun spawn (&key (initial-path *default-pathname-defaults*) width height)
   (setf initial-path (merge-pathnames initial-path))

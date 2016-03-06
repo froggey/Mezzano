@@ -253,49 +253,50 @@ party to perform, the indicated option.")
          (return (second s)))))))
 
 (defun telnet-main (server port terminal-type cwidth cheight)
-  (catch 'quit
-    (let ((font (mezzano.gui.font:open-font
-                 mezzano.gui.font:*default-monospace-font*
-                 mezzano.gui.font:*default-monospace-font-size*))
-          (fifo (mezzano.supervisor:make-fifo 50)))
-      (multiple-value-bind (window-width window-height xterm-width xterm-height)
-          (compute-telnet-window-size font cwidth cheight)
-        (mezzano.gui.compositor:with-window (window fifo window-width window-height)
-          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-                 (frame (make-instance 'mezzano.gui.widgets:frame
-                                       :framebuffer framebuffer
-                                       :title (format nil "Telnet - ~A:~D" server port)
-                                       :close-button-p t
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                 (xterm (make-instance 'mezzano.gui.xterm:xterm-terminal
-                                       :framebuffer framebuffer
-                                       :font font
-                                       :x (nth-value 0 (mezzano.gui.widgets:frame-size frame))
-                                       :y (nth-value 2 (mezzano.gui.widgets:frame-size frame))
-                                       :width xterm-width
-                                       :height xterm-height
-                                       :damage-function (mezzano.gui.widgets:default-damage-function window)))
-                 (telnet (make-instance 'telnet-client
-                                        :fifo fifo
-                                        :window window
-                                        :frame frame
-                                        :xterm xterm)))
-            (mezzano.gui.widgets:draw-frame frame)
-            (mezzano.gui.compositor:damage-window window
-                                                  0 0
-                                                  (mezzano.gui.compositor:width window)
-                                                  (mezzano.gui.compositor:height window))
-            (unwind-protect
-                 (progn
-                   (setf server (find-server telnet server))
-                   (setf (connection telnet) (mezzano.network.tcp:tcp-stream-connect server port)
-                         (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
-                                                                                 :name "Telnet receive"))
-                   (loop
-                      (dispatch-event telnet (mezzano.supervisor:fifo-pop fifo))))
-              (when (connection telnet)
-                (close (connection telnet))
-                (setf (connection telnet) nil)))))))))
+  (with-simple-restart (abort "Close telnet")
+    (catch 'quit
+      (let ((font (mezzano.gui.font:open-font
+                   mezzano.gui.font:*default-monospace-font*
+                   mezzano.gui.font:*default-monospace-font-size*))
+            (fifo (mezzano.supervisor:make-fifo 50)))
+        (multiple-value-bind (window-width window-height xterm-width xterm-height)
+            (compute-telnet-window-size font cwidth cheight)
+          (mezzano.gui.compositor:with-window (window fifo window-width window-height)
+            (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                   (frame (make-instance 'mezzano.gui.widgets:frame
+                                         :framebuffer framebuffer
+                                         :title (format nil "Telnet - ~A:~D" server port)
+                                         :close-button-p t
+                                         :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                   (xterm (make-instance 'mezzano.gui.xterm:xterm-terminal
+                                         :framebuffer framebuffer
+                                         :font font
+                                         :x (nth-value 0 (mezzano.gui.widgets:frame-size frame))
+                                         :y (nth-value 2 (mezzano.gui.widgets:frame-size frame))
+                                         :width xterm-width
+                                         :height xterm-height
+                                         :damage-function (mezzano.gui.widgets:default-damage-function window)))
+                   (telnet (make-instance 'telnet-client
+                                          :fifo fifo
+                                          :window window
+                                          :frame frame
+                                          :xterm xterm)))
+              (mezzano.gui.widgets:draw-frame frame)
+              (mezzano.gui.compositor:damage-window window
+                                                    0 0
+                                                    (mezzano.gui.compositor:width window)
+                                                    (mezzano.gui.compositor:height window))
+              (unwind-protect
+                   (progn
+                     (setf server (find-server telnet server))
+                     (setf (connection telnet) (mezzano.network.tcp:tcp-stream-connect server port)
+                           (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
+                                                                                   :name "Telnet receive"))
+                     (loop
+                        (dispatch-event telnet (mezzano.supervisor:fifo-pop fifo))))
+                (when (connection telnet)
+                  (close (connection telnet))
+                  (setf (connection telnet) nil))))))))))
 
 (defun spawn (&key (server "") (port 23) (terminal-type "xterm-color") (width 80) (height 24))
   (mezzano.supervisor:make-thread (lambda () (telnet-main server port terminal-type width height))

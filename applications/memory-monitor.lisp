@@ -93,33 +93,34 @@
                 (t (mezzano.gui:make-colour 1 1 1)))))))) ; mixed
 
 (defun main (open-width open-height)
-  (catch 'quit
-    (let ((fifo (mezzano.supervisor:make-fifo 50)))
-      (mezzano.gui.compositor:with-window (window fifo (or open-width 500) (or open-height 500))
-        (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
-               (frame (make-instance 'mezzano.gui.widgets:frame
-                                     :framebuffer framebuffer
-                                     :title "Memory monitor"
-                                     :close-button-p t
-                                     :damage-function (mezzano.gui.widgets:default-damage-function window))))
-          (mezzano.gui.widgets:draw-frame frame)
-          (mezzano.gui.compositor:damage-window window
-                                                0 0
-                                                (mezzano.gui.compositor:width window)
-                                                (mezzano.gui.compositor:height window))
-          (multiple-value-bind (left right top bottom)
-              (mezzano.gui.widgets:frame-size frame)
-            (let ((width (- (mezzano.gui.compositor:width window) left right))
-                  (height (- (mezzano.gui.compositor:height window) top bottom)))
-              (loop
-                 ;; FIXME: Should do this in a seperate thread.
-                 (update-display framebuffer left top width height)
-                 (mezzano.gui.compositor:damage-window window
-                                                       left top
-                                                       width height)
-                 (catch 'redraw
-                   (loop
-                      (dispatch-event frame (mezzano.supervisor:fifo-pop fifo))))))))))))
+  (with-simple-restart (abort "Close memory monitor")
+    (catch 'quit
+      (let ((fifo (mezzano.supervisor:make-fifo 50)))
+        (mezzano.gui.compositor:with-window (window fifo (or open-width 500) (or open-height 500))
+          (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
+                 (frame (make-instance 'mezzano.gui.widgets:frame
+                                       :framebuffer framebuffer
+                                       :title "Memory monitor"
+                                       :close-button-p t
+                                       :damage-function (mezzano.gui.widgets:default-damage-function window))))
+            (mezzano.gui.widgets:draw-frame frame)
+            (mezzano.gui.compositor:damage-window window
+                                                  0 0
+                                                  (mezzano.gui.compositor:width window)
+                                                  (mezzano.gui.compositor:height window))
+            (multiple-value-bind (left right top bottom)
+                (mezzano.gui.widgets:frame-size frame)
+              (let ((width (- (mezzano.gui.compositor:width window) left right))
+                    (height (- (mezzano.gui.compositor:height window) top bottom)))
+                (loop
+                   ;; FIXME: Should do this in a seperate thread.
+                   (update-display framebuffer left top width height)
+                   (mezzano.gui.compositor:damage-window window
+                                                         left top
+                                                         width height)
+                   (catch 'redraw
+                     (loop
+                        (dispatch-event frame (mezzano.supervisor:fifo-pop fifo)))))))))))))
 
 (defun spawn (&optional width height)
   (mezzano.supervisor:make-thread (lambda () (main width height))
