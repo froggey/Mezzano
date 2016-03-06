@@ -11,6 +11,17 @@
 (defvar *file-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 File.png"))
 (defvar *folder-icon* (mezzano.gui.desktop::load-image "LOCAL:>Icons>16x16 Folder.png"))
 
+(defvar *directory-colour* mezzano.gui:*default-foreground-colour*)
+
+(defun colourise-path (path)
+  (case (canonical-type-from-pathname-type (pathname-type path))
+    (:lisp-source-code (mezzano.gui:make-colour-from-octets #x94 #xBF #xF3))
+    (:compiled-lisp-code (mezzano.gui:make-colour-from-octets #xF0 #xAF #x8F))
+    (:text (mezzano.gui:make-colour-from-octets #xCC #x93 #x93))
+    (:font (mezzano.gui:make-colour-from-octets #x7F #x9F #x7F))
+    (:image (mezzano.gui:make-colour-from-octets #xDC #x8C #xC3))
+    (t mezzano.gui:*default-foreground-colour*)))
+
 (defclass filer ()
   ((%fifo :initarg :fifo :reader fifo)
    (%window :initarg :window :reader window)
@@ -30,7 +41,7 @@
 (defvar *type-registry*
   '((:lisp-source-code "lisp" "lsp" "asd" "lisp-expr")
     (:compiled-lisp-code "llf")
-    (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown")
+    (:text "text" "txt" "html" "css" "texinfo" "tex" "sh" "markdown" "md" "el")
     (:font "ttf")
     (:image "png" "jpeg" "jpg")))
 
@@ -140,7 +151,10 @@
                           mezzano.gui:*default-background-colour*
                           framebuffer
                           left top)
-      (let ((y top))
+      (let ((y top)
+            (left-margin left)
+            (next-left-margin 0)
+            (column-y))
         (flet ((wr (string &optional (offset 0) (min-line-height 0))
                  (draw-string string
                               font
@@ -155,21 +169,26 @@
                                      framebuffer
                                      left y)
                  (incf y))
-               (clickable (icon name thing)
+               (clickable (icon name thing colour)
                  (mezzano.gui:bitblt :blend
                                      16 16
                                      icon 0 0
                                      framebuffer
-                                     (1+ left) y)
+                                     (1+ left-margin) y)
                  (let ((end (draw-string name
                                          font
                                          framebuffer
-                                         (+ left 16 2) (+ y 2 (mezzano.gui.font:ascender font))
-                                         mezzano.gui:*default-foreground-colour*)))
-                   (push (list left y end (+ y (max 16 (mezzano.gui.font:line-height font)))
+                                         (+ left-margin 16 2) (+ y 2 (mezzano.gui.font:ascender font))
+                                         colour)))
+                   (setf next-left-margin (max next-left-margin end))
+                   (push (list left-margin y end (+ y (max 16 (mezzano.gui.font:line-height font)))
                                thing)
                          (clickables viewer)))
-                 (incf y (max 16 (mezzano.gui.font:line-height font)))))
+                 (incf y (max 16 (mezzano.gui.font:line-height font)))
+                 (when (> (+ y 16) height)
+                   ;; Move to the next column.
+                   (setf y column-y)
+                   (setf left-margin (+ next-left-margin 8)))))
           (setf (clickables viewer) '())
           (let ((pen left))
             (dolist (host (mezzano.file-system:list-all-hosts))
@@ -209,19 +228,23 @@
           (seperator)
           (wr (namestring new-path))
           (seperator)
+          (setf column-y y)
           (when (not (= (length (pathname-directory new-path)) 1))
             (clickable *up-icon*
                        "Parent"
                        (make-pathname :directory (butlast (pathname-directory new-path))
-                                      :defaults new-path)))
+                                      :defaults new-path)
+                       mezzano.gui:*default-foreground-colour*))
           (dolist (d dirs)
             (clickable *folder-icon*
                        (format nil "~A" (first (last (pathname-directory d))))
-                       d))
+                       d
+                       *directory-colour*))
           (dolist (f files)
             (clickable *file-icon*
                        (file-namestring f)
-                       f))))
+                       f
+                       (colourise-path f)))))
       (mezzano.gui.widgets:draw-frame (frame viewer))
       (mezzano.gui.compositor:damage-window window
                                             0 0
