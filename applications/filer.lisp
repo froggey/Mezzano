@@ -283,9 +283,9 @@
 (defun spawn (&key (initial-path *default-pathname-defaults*) width height)
   (setf initial-path (merge-pathnames initial-path))
   (mezzano.supervisor:make-thread (lambda () (main initial-path width height))
-                                  :name "FS Viewer"
+                                  :name "Filer"
                                   :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
-                                                                                     :title "FS Viewer console"))
+                                                                                     :title "Filer console"))
                                                       (*standard-input* ,(make-synonym-stream '*terminal-io*))
                                                       (*standard-output* ,(make-synonym-stream '*terminal-io*))
                                                       (*error-output* ,(make-synonym-stream '*terminal-io*))
