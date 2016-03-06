@@ -87,8 +87,10 @@ A list of two elements, the short & long name." )
 (defun lisp-implementation-type ()
   "Mezzano")
 
+(defvar *lisp-implementation-version* "devel")
+
 (defun lisp-implementation-version ()
-  "devel")
+  *lisp-implementation-version*)
 
 (defun short-site-name () (first *site-info*))
 (defun long-site-name () (second *site-info*))

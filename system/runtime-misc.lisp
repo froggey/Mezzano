@@ -95,3 +95,38 @@
               (if (eql (mezzano.supervisor::pci-device-boot-id object) mezzano.supervisor::*boot-id*)
                   ""
                   " (stale)")))))
+
+(defun snapshot-and-exit ()
+  "Terminate the current thread and take a snapshot.
+To be run this in the basic repl after ipl completes."
+  (mezzano.supervisor:make-thread (lambda ()
+                                    (sleep 3)
+                                    (sys.int::gc)
+                                    (mezzano.supervisor:snapshot)))
+  (throw 'mezzano.supervisor::terminate-thread nil))
+
+(defun cal (path &key force)
+  "Compile and load PATH.
+The file will only be recompiled if the source is newer than the output file, or if FORCE is true."
+  (let ((compiled (compile-file-pathname path)))
+    (when (or force
+              (not (probe-file compiled))
+              (<= (file-write-date compiled) (file-write-date path)))
+      (format t "; Compiling ~S~%" path)
+      (ignore-errors (delete-file compiled))
+      (compile-file path))
+    (format t "; Loading ~S~%" compiled)
+    (load compiled)))
+
+(defun copy-file (filespec new-name &optional (element-type 'character) (source-external-format :default) (destination-external-format :default) (buffer-size (* 1 1024 1024)))
+  (let* ((source (merge-pathnames filespec))
+         (dest (merge-pathnames new-name source))
+         (buf (make-array buffer-size :element-type element-type)))
+    (with-open-file (s source :element-type element-type :external-format source-external-format)
+      (with-open-file (d dest :direction :output :element-type element-type :external-format destination-external-format)
+        (loop
+           (let ((n-elements-read (read-sequence buf s)))
+             (write-sequence buf d :end n-elements-read)
+             (when (< n-elements-read buffer-size)
+               (return))))))
+    dest))

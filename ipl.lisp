@@ -3,6 +3,13 @@
 
 (in-package :cl-user)
 
+(defun sys.int::setup-for-release ()
+  (setf (sys.int::symbol-global-value '*package*) (find-package :cl-user))
+  (setf *default-pathname-defaults* (pathname "LOCAL:>")
+        mezzano.file-system::*home-directory* *default-pathname-defaults*)
+  (setf (mezzano.file-system:find-host :remote) nil)
+  nil)
+
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
 
@@ -14,40 +21,6 @@
 (setf *default-pathname-defaults* (pathname "REMOTE:/Full/path/to/Mezzano/"))
 ;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
 (setf mezzano.file-system::*home-directory* (pathname "REMOTE:/Full/path/to/Mezzano/home/"))
-
-(defun sys.int::snapshot-and-exit ()
-  (mezzano.supervisor:make-thread (lambda ()
-                                    (dotimes (i 100)
-                                      (mezzano.supervisor:wait-for-heartbeat))
-                                    (sys.int::gc)
-                                    (mezzano.supervisor:snapshot)))
-  (throw 'mezzano.supervisor::terminate-thread nil))
-
-(defun sys.int::cal (path &key force)
-  "Compile and load PATH.
-If the compiled file is out of date, recompile it."
-  (let ((compiled (compile-file-pathname path)))
-    (when (or force
-              (not (probe-file compiled))
-              (<= (file-write-date compiled) (file-write-date path)))
-      (format t "; Compiling ~S~%" path)
-      (ignore-errors (delete-file compiled))
-      (compile-file path))
-    (format t "; Loading ~S~%" compiled)
-    (load compiled)))
-
-(defun sys.int::copy-file (filespec new-name &optional (element-type 'character) (source-external-format :default) (destination-external-format :default) (buffer-size (* 1 1024 1024)))
-  (let* ((source (merge-pathnames filespec))
-         (dest (merge-pathnames new-name source))
-         (buf (make-array buffer-size :element-type element-type)))
-    (with-open-file (s source :element-type element-type :external-format source-external-format)
-      (with-open-file (d dest :direction :output :element-type element-type :external-format destination-external-format)
-        (loop
-           (let ((n-elements-read (read-sequence buf s)))
-             (write-sequence buf d :end n-elements-read)
-             (when (< n-elements-read buffer-size)
-               (return))))))
-    dest))
 
 ;; Local FS. Loaded from the source tree, not the home directory.
 (sys.int::cal "file/local.lisp")
@@ -73,10 +46,6 @@ If the compiled file is out of date, recompile it."
 (sys.int::copy-file (merge-pathnames "Mandarin_Pair.jpg" (user-homedir-pathname))
                     "LOCAL:>Desktop.jpeg"
                     '(unsigned-byte 8))
-
-;; Loaded from the source tree.
-(sys.int::copy-file "README"
-                    "LOCAL:>README.text")
 
 ;; ASDF.
 (sys.int::cal (merge-pathnames "asdf/asdf.lisp" (user-homedir-pathname)))
