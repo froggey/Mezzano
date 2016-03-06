@@ -84,6 +84,7 @@
 (sys.int::cal "gui/image-viewer.lisp")
 (sys.int::cal "applications/filer.lisp")
 (sys.int::cal "applications/memory-monitor.lisp")
+(sys.int::cal "file/http.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
