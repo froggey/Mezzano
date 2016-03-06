@@ -144,7 +144,7 @@ Calls FN with each output character."
     colours))
 
 (defparameter *xterm-colours* (generate-xterm-colour-table))
-(defparameter *xterm-default-background-colour* (mezzano.gui:make-colour 0 0 0)
+(defparameter *xterm-default-background-colour* (mezzano.gui:make-colour 0 0 0 0.85)
   "Use this colour for the background when no background colour has been specified.")
 
 (defparameter *dec-special-characters-and-line-drawing*

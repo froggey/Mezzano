@@ -4,7 +4,7 @@
 (in-package :mezzano.gui.compositor)
 
 (defvar *default-foreground-colour* (mezzano.gui:make-colour-from-octets #xDC #xDC #xCC))
-(defvar *default-background-colour* (mezzano.gui:make-colour-from-octets #x3E #x3E #x3E))
+(defvar *default-background-colour* (mezzano.gui:make-colour-from-octets #x3E #x3E #x3E #xD8))
 
 (defun clamp (x min max)
   (cond ((< x min) min)
