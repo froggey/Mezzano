@@ -39,6 +39,9 @@
   t)
 
 (defun ethernet-boot-hook ()
+  ;; delay a little to allow any NIC drivers to complete.
+  ;; TODO: Need a notification mechanism to detect when NICs are attached/detached.
+  (sleep 1)
   (setf mezzano.network.ethernet::*cards* (copy-list mezzano.supervisor:*nics*)
         mezzano.network.ip::*routing-table* '()
         mezzano.network.ip::*ipv4-interfaces* '()
