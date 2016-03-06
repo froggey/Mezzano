@@ -9,7 +9,8 @@
   (setf *default-pathname-defaults* (pathname "LOCAL:>")
         mezzano.file-system::*home-directory* *default-pathname-defaults*)
   (setf (mezzano.file-system:find-host :remote) nil)
-  (sys.int::snapshot-and-exit))
+  (when (y-or-n-p "Snapshot?")
+    (sys.int::snapshot-and-exit)))
 
 ;; Fast eval mode.
 (setf sys.int::*eval-hook* 'mezzano.fast-eval:eval-in-lexenv)
@@ -33,6 +34,9 @@
   (sys.int::copy-file f
              (merge-pathnames "LOCAL:>Fonts>" f)
              '(unsigned-byte 8)))
+(sys.int::copy-file (merge-pathnames "Fonts/LICENSE" (user-homedir-pathname))
+                    "LOCAL:>Fonts>LICENSE"
+                    'character)
 
 ;; Icons. Loaded from the source tree.
 (ensure-directories-exist "LOCAL:>Icons>")
