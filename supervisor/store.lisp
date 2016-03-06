@@ -282,6 +282,8 @@
     (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (if (freelist-metadata-free-p range) "free" "used"))))
 
 (defun initialize-store-freelist (n-store-blocks freelist-block)
+  (when (not (boundp '*verbose-store*))
+    (setf *verbose-store* nil))
   (setf *store-freelist-metadata-freelist* '()
         *store-freelist-recursive-metadata-allocation* nil
         *store-freelist-n-free-metadata* 0)
@@ -299,7 +301,8 @@
        (when (not next-block)
          (return))
        (setf freelist-block next-block)))
-  (dump-store-freelist)
+  (when *verbose-store*
+    (dump-store-freelist))
   (debug-print-line *store-freelist-n-free-blocks* "/" *store-freelist-total-blocks* " store blocks free at boot"))
 
 (defun store-statistics ()
@@ -344,9 +347,11 @@
         ((null range))
       (let ((start (freelist-metadata-start range))
             (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-        (debug-print-line "Free deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+        (when *verbose-store*
+          (debug-print-line "Free deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range)))
         (store-insert-range start n-blocks t)))
-    (dump-store-freelist)
+    (when *verbose-store*
+      (dump-store-freelist))
     ;; Write every allocated region to the block.
     (do ((range *store-freelist-head* (freelist-metadata-next range))
          (current-block nil)
@@ -371,11 +376,13 @@
               current-block (sys.int::memref-t current-page 1)
               free-block-list (sys.int::memref-t current-page 0))
         (zeroize-page current-page)
-        (debug-print-line "Next freelist block " current-block))
+        (when *verbose-store*
+          (debug-print-line "Next freelist block " current-block)))
       (when (not (freelist-metadata-free-p range))
         (let ((start (freelist-metadata-start range))
               (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-          (debug-print-line "Next is " start " " n-blocks)
+          (when *verbose-store*
+            (debug-print-line "Next is " start " " n-blocks))
           ;; Address.
           (setf (sys.int::memref-unsigned-byte-64 current-page (* offset 2)) start)
           ;; Size and free bit (clear).
@@ -400,7 +407,8 @@
           ((null range))
         (let ((start (freelist-metadata-start range))
               (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-          (debug-print-line "Unfree deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+          (when *verbose-store*
+            (debug-print-line "Unfree deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range)))
           (store-insert-range start n-blocks nil)))
       ;; Freelist is back to normal, safe to free the other blocks/pages now.
       (loop
@@ -419,5 +427,6 @@
       ((null range))
     (let ((start (freelist-metadata-start range))
           (n-blocks (- (freelist-metadata-end range) (freelist-metadata-start range))))
-      (debug-print-line "Release deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range))
+      (when *verbose-store*
+        (debug-print-line "Release deferred range " (freelist-metadata-start range) "-" (freelist-metadata-end range)))
       (store-free start n-blocks))))
