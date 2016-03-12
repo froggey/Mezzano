@@ -265,7 +265,7 @@ party to perform, the indicated option.")
             (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
                    (frame (make-instance 'mezzano.gui.widgets:frame
                                          :framebuffer framebuffer
-                                         :title (format nil "Telnet - ~A:~D" server port)
+                                         :title "Telnet"
                                          :close-button-p t
                                          :damage-function (mezzano.gui.widgets:default-damage-function window)))
                    (xterm (make-instance 'mezzano.gui.xterm:xterm-terminal
@@ -292,6 +292,8 @@ party to perform, the indicated option.")
                      (setf (connection telnet) (mezzano.network.tcp:tcp-stream-connect server port)
                            (receive-thread telnet) (mezzano.supervisor:make-thread (lambda () (telnet-receive telnet))
                                                                                    :name "Telnet receive"))
+                     (setf (mezzano.gui.widgets:frame-title frame) (format nil "Telnet - ~A:~D" server port))
+                     (mezzano.gui.widgets:draw-frame frame)
                      (loop
                         (dispatch-event telnet (mezzano.supervisor:fifo-pop fifo))))
                 (when (connection telnet)
