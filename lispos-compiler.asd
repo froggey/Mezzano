@@ -10,8 +10,8 @@
   :licence "MIT"
   :depends-on (#:alexandria #:iterate #:nibbles)
   :components ((:file "compiler/cross")
-               (:file "lap" :depends-on ("compiler/cross"))
-               (:file "lap-x86" :depends-on ("compiler/cross" "lap"))
+               (:file "lap" :depends-on ("compiler/cross" "compiler/cross-compile"))
+               (:file "lap-x86" :depends-on ("compiler/cross" "compiler/cross-compile" "lap"))
                (:file "system/data-types" :depends-on ("compiler/cross"))
                (:file "system/parse" :depends-on ("compiler/cross"))
                (:file "system/backquote" :depends-on ("compiler/cross"))

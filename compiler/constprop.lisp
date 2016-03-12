@@ -301,5 +301,7 @@
              (sys.int::binary-logand (integer integer))
              (sys.int::binary-logeqv (integer integer))
              (sys.int::binary-logior (integer integer))
-             (sys.int::binary-logxor (integer integer))))
+             (sys.int::binary-logxor (integer integer))
+             (byte-size (byte))
+             (byte-position (byte))))
   (setf (get (first x) 'constant-fold-mode) (second x)))

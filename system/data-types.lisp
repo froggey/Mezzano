@@ -21,7 +21,7 @@
 (defconstant +tag-fixnum-010+     #b0100)
 ;;#b0101
 (defconstant +tag-fixnum-011+     #b0110)
-;;#b0111
+(defconstant +tag-byte-specifier+ #b0111)
 (defconstant +tag-fixnum-100+     #b1000)
 (defconstant +tag-object+         #b1001)
 (defconstant +tag-fixnum-101+     #b1010)
@@ -228,7 +228,7 @@ Internal to the pager, should not be used by other code.")
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 56)
 
-(defparameter *llf-version* 9)
+(defparameter *llf-version* 10)
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)
@@ -260,3 +260,4 @@ Internal to the pager, should not be used by other code.")
 (defconstant +llf-function-reference+ #x19)
 (defconstant +llf-character-with-bits+ #x1A)
 (defconstant +llf-structure-slot-definition+ #x1B)
+(defconstant +llf-byte+ #x1C)

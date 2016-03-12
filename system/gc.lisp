@@ -95,7 +95,8 @@
       #.+tag-fixnum-010+ #.+tag-fixnum-011+
       #.+tag-fixnum-100+ #.+tag-fixnum-101+
       #.+tag-fixnum-110+ #.+tag-fixnum-111+
-      #.+tag-character+ #.+tag-single-float+)
+      #.+tag-character+ #.+tag-single-float+
+      #.+tag-byte-specifier+)
      t)
     (t nil)))
 

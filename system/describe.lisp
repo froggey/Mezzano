@@ -18,6 +18,11 @@
   (when (symbol-tls-slot object)
     (format stream "  ~A uses the TLS slot ~D~%" object (symbol-tls-slot object))))
 
+(defun describe-byte-specifier (object stream)
+  (format stream "~S is a ~S.~%" object (type-of object))
+  (format stream "  It has size ~:D.~%" (byte-size object))
+  (format stream "  It has position ~:D.~%" (byte-position object)))
+
 (defun describe-character (object stream)
   (format stream "~S is a ~S.~%" object (type-of object))
   (format stream "  It has the char-code #x~4,'0X~%" (char-code object))
@@ -135,7 +140,9 @@
                       (#.+object-tag-symbol+
                        (describe-symbol object stream))
                       (#.+object-tag-structure-object+
-                       (describe-structure object stream))
+                       (if (bytep object)
+                           (describe-byte-specifier object stream)
+                           (describe-structure object stream)))
                       ((#.+object-tag-std-instance+
                         #.+object-tag-funcallable-instance+)
                        (describe-object object stream))
@@ -151,6 +158,7 @@
                         #.+object-tag-closure+)
                        (describe-function object stream))
                       (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))))))
+        (#b0111 (describe-byte-specifier object stream))
         (#b1011 (describe-character object stream))
         (#b1101 (describe-float object stream))
         (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)

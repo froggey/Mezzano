@@ -43,7 +43,8 @@
     (#.+llf-array+ 'array)
     (#.+llf-funcall+ 'funcall)
     (#.+llf-bit-vector+ 'bit-vector)
-    (#.+llf-function-reference+ 'function-reference)))
+    (#.+llf-function-reference+ 'function-reference)
+    (#.+llf-byte+ 'byte)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -267,7 +268,10 @@
              (setf (bit vec (+ (* i 8) j)) (ldb (byte 1 j) octet)))))
        vec))
     (#.+llf-function-reference+
-     (function-reference (vector-pop stack)))))
+     (function-reference (vector-pop stack)))
+    (#.+llf-byte+
+     (byte (load-integer stream)
+           (load-integer stream)))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)

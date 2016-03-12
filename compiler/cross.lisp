@@ -50,7 +50,12 @@
            :boole-set
            :boole-xor
            :internal-time-units-per-second
-           :pi)
+           :pi
+           :byte
+           :byte-size
+           :byte-position
+           :ldb
+           :dpb)
   (:export . #.(let ((symbols '()))
                  (do-external-symbols (sym :cl symbols)
                    (push sym symbols)))))

@@ -1871,7 +1871,13 @@ Tag with +TAG-OBJECT+."
      (let* ((name (vector-pop stack))
             (truname (extract-object name)))
        (make-value (function-reference truname)
-                   sys.int::+tag-object+)))))
+                   sys.int::+tag-object+)))
+    (#.sys.int::+llf-byte+
+     (let ((size (load-integer stream))
+           (position (load-integer stream)))
+       (logior (ash size 4)
+               (ash position 18)
+               sys.int::+tag-byte-specifier+)))))
 
 (defun load-llf (stream)
   (let ((omap (make-hash-table))

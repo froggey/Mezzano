@@ -54,9 +54,43 @@
              (dotimes (i power accum)
                (setf accum (* accum base)))))))
 
-(defstruct (byte (:constructor byte (size position)))
+(defstruct (large-byte (:constructor make-large-byte (size position)))
   (size 0 :type (integer 0) :read-only t)
   (position 0 :type (integer 0) :read-only t))
+
+;; Stuff size & position into the low 32-bits.
+(defconstant +byte-size+ (byte 14 4))
+(defconstant +byte-position+ (byte 14 18))
+
+(deftype byte ()
+  `(satisfies bytep))
+
+(defun bytep (object)
+  (or (eql (%tag-field object) +tag-byte-specifier+)
+      (large-byte-p object)))
+
+(defun fits-in-field-p (bytespec integer)
+  "Test if INTEGER fits in the byte defined by BYTESPEC."
+  (eql integer (logand integer
+                       (1- (ash 1 (byte-size bytespec))))))
+
+(defun byte (size position)
+  (if (and (fits-in-field-p +byte-size+ size)
+           (fits-in-field-p +byte-position+ position))
+      (%%assemble-value (logior (ash size (byte-position +byte-size+))
+                                (ash position (byte-position +byte-position+)))
+                        +tag-byte-specifier+)
+      (make-large-byte size position)))
+
+(defun byte-size (byte-specifier)
+  (if (eql (%tag-field byte-specifier) +tag-byte-specifier+)
+      (ldb +byte-size+ (lisp-object-address byte-specifier))
+      (large-byte-size byte-specifier)))
+
+(defun byte-position (byte-specifier)
+  (if (eql (%tag-field byte-specifier) +tag-byte-specifier+)
+      (ldb +byte-position+ (lisp-object-address byte-specifier))
+      (large-byte-position byte-specifier)))
 
 (declaim (inline %ldb ldb %dpb dpb %ldb-test ldb-test logbitp
                  %mask-field mask-field %deposit-field deposit-field))

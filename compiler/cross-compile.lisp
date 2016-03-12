@@ -42,6 +42,40 @@
 
 (defvar *structure-types* (make-hash-table :test 'eq))
 
+(defstruct (byte
+             (:constructor byte (size position)))
+  size
+  position)
+
+(defun ldb (bytespec integer)
+  (logand (ash integer (- (byte-position bytespec)))
+          (1- (ash 1 (byte-size bytespec)))))
+
+(defun dpb (newbyte bytespec integer)
+  (let ((mask (1- (ash 1 (byte-size bytespec)))))
+    (logior (ash (logand newbyte mask) (byte-position bytespec))
+            (logand integer (lognot (ash mask (byte-position bytespec)))))))
+
+(define-setf-expander ldb (bytespec int &environment env)
+  (multiple-value-bind (temps vals stores
+                              store-form access-form)
+      (cl:get-setf-expansion int env);Get setf expansion for int.
+    (let ((btemp (gensym))     ;Temp var for byte specifier.
+          (store (gensym))     ;Temp var for byte to store.
+          (stemp (first stores)) ;Temp var for int to store.
+          (bs-size (gensym))   ; Temp var for byte specifier size.
+          (bs-position (gensym))) ; Temp var for byte specifier position.
+      (when (cdr stores) (error "Can't expand this."))
+      ;; Return the setf expansion for LDB as five values.
+      (values (cons btemp temps)       ;Temporary variables.
+              (cons bytespec vals)     ;Value forms.
+              (list store)             ;Store variables.
+              `(let ((,stemp (dpb ,store ,btemp ,access-form)))
+                 ,store-form
+                 ,store)               ;Storing form.
+              `(ldb ,btemp ,access-form) ;Accessing form.
+              ))))
+
 (defparameter *char-name-alist*
   ;; C0 control characters, prioritize friendly names.
   '((#x0000 "Null" "Nul")
@@ -460,6 +494,7 @@
 (defun sys.int::assemble-lap (code &optional name debug-info)
   (multiple-value-bind (mc constants fixups symbols gc-data)
       (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
+        (declare (special sys.lap-x86:*function-reference-resolver*)) ; blech.
         (sys.lap-x86:assemble code
           :base-address 16
           :initial-symbols '((nil . :fixup)
@@ -645,6 +680,11 @@
         (when (>= (+ (* i 8) j) (length object)) (return))
         (setf (ldb (byte 1 j) octet) (bit object j)))
       (write-byte octet stream))))
+
+(defmethod save-one-object ((object byte) omap stream)
+  (write-byte sys.int::+llf-byte+ stream)
+  (save-integer (byte-size object) stream)
+  (save-integer (byte-position object) stream))
 
 (defun save-object (object omap stream)
   (let ((info (alexandria:ensure-gethash object omap (list (hash-table-count omap) 0 nil))))

@@ -315,6 +315,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-object (function-reference-name object) omap stream)
   (write-byte +llf-function-reference+ stream))
 
+(defmethod save-one-object ((object byte) omap stream)
+  (write-byte sys.int::+llf-byte+ stream)
+  (save-integer (byte-size object) stream)
+  (save-integer (byte-position object) stream))
+
 (defmethod make-load-form ((object hash-table) &optional environment)
   (declare (ignore environment))
   ;; FIXME: Should produce creation & initialzation forms, but not that's not implemented yet.

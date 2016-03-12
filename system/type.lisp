@@ -561,7 +561,7 @@
     (#b0100 'fixnum)
     (#b0101 'tag-0101)
     (#b0110 'fixnum)
-    (#b0111 'tag-0111)
+    (#b0111 'byte)
     (#b1000 'fixnum)
     (#b1001
      (ecase (%object-tag object)

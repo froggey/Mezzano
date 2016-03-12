@@ -67,9 +67,17 @@
     (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))
 
+(defun loose-constant-equal (x y)
+  (or (eql x y)
+      (and (typep x 'byte)
+           (typep y 'byte)
+           (equalp x y))))
+
 (defun sys.int::%defconstant (name value &optional docstring)
   (declare (ignore docstring))
-  (eval `(cl:defconstant ,name ',value)))
+  (when (or (not (boundp name))
+            (not (loose-constant-equal (symbol-value name) value)))
+    (eval `(cl:defconstant ,name ',value))))
 
 (def-x-macro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)

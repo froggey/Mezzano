@@ -86,6 +86,11 @@
           (format stream "pointing to ~S" value)
           (format stream "dead")))))
 
+(defmethod print-object ((o byte) stream)
+  (print-unreadable-object (o stream :type t)
+    (format stream ":Size ~D :Position ~D"
+            (byte-size o) (byte-position o))))
+
 (defmethod print-object ((object mezzano.supervisor::pci-device) stream)
   (print-unreadable-object (object stream :type t)
     (multiple-value-bind (bus device function)
