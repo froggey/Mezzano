@@ -394,6 +394,8 @@
                                                                :mandatory-p "snapshot bounce page")))
 
 (defun snapshot ()
+  ;; Run a GC before snapshotting to reduce the amount of space required.
+  (sys.int::gc)
   ;; Attempt to wake the snapshot thread, only waking it if
   ;; there is not snapshot currently in progress.
   (let ((did-wake (safe-without-interrupts ()
