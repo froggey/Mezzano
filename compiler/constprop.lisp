@@ -20,14 +20,14 @@
   "Return the value of form wrapped in quote if its known, otherwise return nil."
   (cond ((or (typep form 'ast-quote)
              (typep form 'ast-function)
-	     (lambda-information-p form))
-	 form)
-	((lexical-variable-p form)
-	 (let ((val (assoc form *known-variables*)))
-	   (when val
-	     (when reduce-use-count
-	       (decf (lexical-variable-use-count form)))
-	     (second val))))))
+             (lambda-information-p form))
+         form)
+        ((lexical-variable-p form)
+         (let ((val (assoc form *known-variables*)))
+           (when val
+             (when reduce-use-count
+               (decf (lexical-variable-use-count form)))
+             (second val))))))
 
 (defun flush-mutable-variable (var)
   "Remove a single mutable variables from the *known-variables* list."
@@ -66,12 +66,12 @@
 (defmethod cp-form ((form ast-if))
   (flet ((pick-branch (use-this-one kill-this-one)
            (declare (ignore kill-this-one))
-	   ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
-	   #+nil(unless (typep kill-this-one 'ast-quote)
-	     (warn 'sys.int::simple-style-warning
-		   :format-control "Deleting unreacable code: ~S."
-		   :format-arguments (list kill-this-one)))
-	   (cp-form use-this-one)))
+           ;; Disabled for now. SBCL seems to be turning print-circle off while printing?
+           #+nil(unless (typep kill-this-one 'ast-quote)
+             (warn 'sys.int::simple-style-warning
+                   :format-control "Deleting unreacable code: ~S."
+                   :format-arguments (list kill-this-one)))
+           (cp-form use-this-one)))
     (setf (test form) (cp-form (test form)))
     (let ((value (form-value (test form))))
       (cond ((and value
@@ -93,22 +93,22 @@
   (let ((*known-variables* *known-variables*))
     (dolist (b (bindings form))
       (let ((var (first b))
-	    (val (second b)))
-	;; Run on the init-form.
-	(setf val (setf (second b) (cp-form val)))
-	;; Add variables to the new constants list.
+            (val (second b)))
+        ;; Run on the init-form.
+        (setf val (setf (second b) (cp-form val)))
+        ;; Add variables to the new constants list.
         ;; Non-constant variables will be flushed when a BLOCK, TAGBODY
         ;; or lambda is seen.
-	(when (and (lexical-variable-p var)
-		   (or (and (lambda-information-p val)
+        (when (and (lexical-variable-p var)
+                   (or (and (lambda-information-p val)
                             (<= (getf (lambda-information-plist val) 'copy-count 0)
                                 *constprop-lambda-copy-limit*))
                        (typep val 'ast-quote)
                        (typep val 'ast-function)
-		       (and (lexical-variable-p val)
-			    (localp val)
-			    (eql (lexical-variable-write-count val) 0))))
-	  (push (list var val 0 b) *known-variables*))))
+                       (and (lexical-variable-p val)
+                            (localp val)
+                            (eql (lexical-variable-write-count val) 0))))
+          (push (list var val 0 b) *known-variables*))))
     ;; Run on the body, with the new constants.
     (setf (body form) (cp-form (body form)))
     form))
@@ -205,34 +205,34 @@
                                            (return-from constant-fold nil))
                                          (value thing))
                                        arg-list mode))))
-	  (ecase mode
-	    (:commutative-arithmetic
-	     ;; Arguments can be freely re-ordered, assumed to be associative.
-	     ;; Addition, multiplication and the logical operators use this.
+          (ecase mode
+            (:commutative-arithmetic
+             ;; Arguments can be freely re-ordered, assumed to be associative.
+             ;; Addition, multiplication and the logical operators use this.
              ;; FIXME: Float arithemetic is non-commutative.
-	     (let ((const-args '())
-		   (nonconst-args '())
-		   (value nil))
-	       (dolist (i arg-list)
-		 (if (typep i 'ast-quote)
-		     (push (value i) const-args)
-		     (push i nonconst-args)))
-	       (setf const-args (nreverse const-args)
-		     nonconst-args (nreverse nonconst-args))
-	       (when (or const-args (not nonconst-args))
-		 (setf value (apply function const-args))
-		 (if nonconst-args
+             (let ((const-args '())
+                   (nonconst-args '())
+                   (value nil))
+               (dolist (i arg-list)
+                 (if (typep i 'ast-quote)
+                     (push (value i) const-args)
+                     (push i nonconst-args)))
+               (setf const-args (nreverse const-args)
+                     nonconst-args (nreverse nonconst-args))
+               (when (or const-args (not nonconst-args))
+                 (setf value (apply function const-args))
+                 (if nonconst-args
                      (ast `(call ,function
                                  (quote ,value)
                                  ,@nonconst-args))
                      (ast `(quote ,value))))))
-	    (:arithmetic
-	     ;; Arguments cannot be re-ordered, assumed to be non-associative.
-	     (if arg-list
-		 (let ((constant-accu '())
-		       (arg-accu '()))
-		   (dolist (i arg-list)
-		     (cond ((typep i 'ast-quote)
+            (:arithmetic
+             ;; Arguments cannot be re-ordered, assumed to be non-associative.
+             (if arg-list
+                 (let ((constant-accu '())
+                       (arg-accu '()))
+                   (dolist (i arg-list)
+                     (cond ((typep i 'ast-quote)
                             (push (value i) constant-accu))
                            (t
                             (when constant-accu
@@ -240,14 +240,14 @@
                                     arg-accu)
                               (setf constant-accu nil))
                             (push i arg-accu))))
-		   (if arg-accu
+                   (if arg-accu
                        (ast `(call ,function
                                    ,@(nreverse arg-accu)
                                    ,@(when constant-accu
                                        (list `(quote ,(apply function (nreverse constant-accu)))))))
                        (ast `(quote ,(apply function (nreverse constant-accu))))))
                  (ast `(quote ,(funcall function)))))
-	    ((nil) nil))))))
+            ((nil) nil))))))
 
 ;;; FIXME: should be careful to avoid propagating lambdas to functions other than funcall.
 (defmethod cp-form ((form ast-call))
@@ -278,28 +278,28 @@
 
 ;;; Initialize constant folders.
 (dolist (x '((sys.int::%simple-array-length ((satisfies sys.int::%simple-array-p)))
-	     (char-code (character))
-	     (eq (t t))
-	     (eql (t t))
-	     (not (t))
-	     (null (t))
-	     (schar (simple-string fixnum))
-	     (1+ (number))
-	     (1- (number))
-	     (ash (integer integer))
-	     (+ :commutative-arithmetic)
-	     (* :commutative-arithmetic)
-	     (logand :commutative-arithmetic)
-	     (logeqv :commutative-arithmetic)
-	     (logior :commutative-arithmetic)
-	     (logxor :commutative-arithmetic)
+             (char-code (character))
+             (eq (t t))
+             (eql (t t))
+             (not (t))
+             (null (t))
+             (schar (simple-string fixnum))
+             (1+ (number))
+             (1- (number))
+             (ash (integer integer))
+             (+ :commutative-arithmetic)
+             (* :commutative-arithmetic)
+             (logand :commutative-arithmetic)
+             (logeqv :commutative-arithmetic)
+             (logior :commutative-arithmetic)
+             (logxor :commutative-arithmetic)
              (lognot (integer))
              (sys.int::binary-= :commutative-arithmetic)
              (sys.int::binary-+ :commutative-arithmetic)
              (sys.int::binary-- (number number))
-	     (sys.int::binary-* :commutative-arithmetic)
-	     (sys.int::binary-logand (integer integer))
-	     (sys.int::binary-logeqv (integer integer))
-	     (sys.int::binary-logior (integer integer))
-	     (sys.int::binary-logxor (integer integer))))
+             (sys.int::binary-* :commutative-arithmetic)
+             (sys.int::binary-logand (integer integer))
+             (sys.int::binary-logeqv (integer integer))
+             (sys.int::binary-logior (integer integer))
+             (sys.int::binary-logxor (integer integer))))
   (setf (get (first x) 'constant-fold-mode) (second x)))
