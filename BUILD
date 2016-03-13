@@ -1,3 +1,7 @@
+NOTE! These instructions are out of date!
+A new build system is coming soon.
+
+
 Prerequisites
 -------------
 
