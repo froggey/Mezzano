@@ -21,24 +21,30 @@
                   ;; The system currently leaks memory when threads die.
                   ("LOCAL:>Icons>Terminal.png" "Swank" "(mezzano.gui.fancy-repl:spawn :initial-function (lambda () (let ((swank/backend:*log-output* *standard-output*)) (swank:create-server :style nil))) :title \"Swank Server\")")))
 
-(defvar *cl-jpeg-lock* (mezzano.supervisor:make-mutex "cl-jpeg lock"))
+;;(defvar *cl-jpeg-lock* (mezzano.supervisor:make-mutex "cl-jpeg lock"))
 
 (defun load-jpeg (path)
   (ignore-errors
     (with-open-file (stream path :element-type '(unsigned-byte 8))
       (multiple-value-bind (data height width channels)
-          (mezzano.supervisor:with-mutex (*cl-jpeg-lock*)
-            (jpeg:decode-stream stream))
-        (when (not (eql channels 3))
+          ;;(mezzano.supervisor:with-mutex (*cl-jpeg-lock*)
+            (jpeg:decode-stream stream);)
+        (when (not (or (eql channels 1) (eql channels 3)))
           (error "Unsupported JPEG image, too many or too few channels."))
         ;; Transcode the image to a proper ARGB array.
         (let ((array (make-array (list height width) :element-type '(unsigned-byte 32))))
           (dotimes (y height)
             (dotimes (x width)
-              (setf (aref array y x) (logior #xFF000000
-                                             (ash (aref data (+ (* (+ (* y width) x) 3) 2)) 16)
-                                             (ash (aref data (+ (* (+ (* y width) x) 3) 1)) 8)
-                                             (aref data (* (+ (* y width) x) 3))))))
+              (setf (aref array y x) 
+		    (cond ((= channels 3)
+			   (logior #xFF000000
+				   (ash (aref data (+ (* (+ (* y width) x) 3) 2)) 16)
+				   (ash (aref data (+ (* (+ (* y width) x) 3) 1)) 8)
+				   (aref data (* (+ (* y width) x) 3)))
+			   (t (logior #xFF000000 ;grayscale
+				      (ash (aref data (+ (* y width) x)) 16)
+				      (ash (aref data (+ (* y width) x)) 8)
+				      (aref data (+ (* y width) x)))))))))
           array)))))
 
 (defun load-png (path)
