@@ -407,9 +407,9 @@
     (setf key 'identity))
   (dolist (i alist)
     (when (and i
-               (funcall test item (funcall key (car i))))
+	       (funcall test item (funcall key (car i))))
       (return i))))
-
+  
 (declaim (inline member))
 (defun member (item list &key key test test-not)
   (when (and test test-not)
@@ -422,8 +422,8 @@
     (setf key 'identity))
   (do ((i list (cdr i)))
       ((endp i))
-    (when (funcall test item (funcall key (car i)))
-      (return i))))
+      (when (funcall test item (funcall key (car i)))
+	(return i))))
 
 (defun member-if (predicate list)
   (when list
@@ -492,8 +492,8 @@
       (if (eql object list)
           (return t))))
 
-(defun adjoin (item list &key key test test-not)
-  (if (member item list :key key :test test :test-not test-not)
+(defun adjoin (item list &key (key #'identity) test test-not)
+  (if (member (funcall key item) list :key key :test test :test-not test-not)
       list
       (cons item list)))
 
