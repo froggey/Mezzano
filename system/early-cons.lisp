@@ -405,11 +405,12 @@
     (setf test 'eql))
   (unless key
     (setf key 'identity))
-  (dolist (i alist)
-    (when (and i
-               (funcall test (funcall key item) (funcall key (car i))))
-      (return i))))
-
+  (let ((keyed-item (funcall key item)))
+    (dolist (i alist)
+      (when (and i
+		 (funcall test keyed-item (funcall key (car i))))
+	(return i)))))
+  
 (declaim (inline member))
 (defun member (item list &key key test test-not)
   (when (and test test-not)
@@ -420,10 +421,11 @@
     (setf test 'eql))
   (unless key
     (setf key 'identity))
-  (do ((i list (cdr i)))
+  (let ((keyed-item (funcall key item)))
+    (do ((i list (cdr i)))
       ((endp i))
-    (when (funcall test (funcall key item) (funcall key (car i)))
-      (return i))))
+    (when (funcall test keyed-item (funcall key (car i)))
+      (return i)))))
 
 (defun member-if (predicate list)
   (when list
