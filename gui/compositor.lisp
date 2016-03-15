@@ -967,8 +967,8 @@
 
 (defvar *current-keymap* *engb-keymap*)
 
-(defvar *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
-;;(defvar *keymap-rota* (cons *enus-keymap*  *engb-keymap*))
+;;(defvar *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
+(defvar *keymap-rota* (cons *enus-keymap*  *engb-keymap*))
 
 (defgeneric convert-scancode-to-key (keymap scancode modifier-state))
 
