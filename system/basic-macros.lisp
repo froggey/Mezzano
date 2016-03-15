@@ -158,6 +158,61 @@
 			 (t `((eql ',keys ,test-key) ,@body)))))
 		   cases)))))
 
+;;; Generate a jump table for all-integer key sets.
+(define-compiler-macro case (&whole whole keyform &body cases)
+;;(defun case-cm (whole keyform &rest cases)
+  (let ((keys (loop for (keys . forms) in cases
+                 when (listp keys) append keys
+                 else collect keys))
+        (default-form '()))
+    (setf default-form (rest (find-if (lambda (x) (member x '(t otherwise))) cases
+                                      :key #'first)))
+    (setf keys (remove-if (lambda (x) (member x '(t otherwise))) keys))
+    (setf cases (remove-if (lambda (x) (member x '(t otherwise))) cases
+                           :key #'first))
+    (if (and keys
+             (every #'integerp keys))
+        (let* ((unique-keys (remove-duplicates keys))
+               (n-keys (length unique-keys))
+               (min-key (apply #'min unique-keys))
+               (max-key (apply #'max unique-keys))
+               (range (- (1+ max-key) min-key)))
+          (if (and (>= n-keys sys.c::*jump-table-size-min*)
+                   (< range sys.c::*jump-table-size-max*))
+              (let ((default-label (gensym "case-default"))
+                    (block-name (gensym "case-block"))
+                    (key-sym (gensym "case-key"))
+                    (key-labels nil)
+                    (form-and-labels nil))
+                (loop for (keys . forms) in cases do
+                     (let ((form-sym (gensym (format nil "ecase-~S" keys))))
+                       (push (list form-sym `(return-from ,block-name (progn ,@forms))) form-and-labels)
+                       (dolist (key (if (listp keys) keys (list keys)))
+                         (unless (assoc key key-labels)
+                           (push (list key form-sym) key-labels)))))
+                `(block ,block-name
+                   (let ((,key-sym ,keyform))
+                     (tagbody
+                        (if (and (,(if (typep range '(signed-byte 61))
+                                       'fixnump
+                                       'integerp)
+                                   ,key-sym)
+                                 (<= ',min-key ,key-sym)
+                                 (<= ,key-sym ',max-key))
+                            (%jump-table (- ,key-sym ',min-key)
+                                         ,@(loop for i below range
+                                              collect (let ((label (assoc (+ i min-key) key-labels)))
+                                                        (if label
+                                                            `(go ,(second label))
+                                                            `(go ,default-label)))))
+                            (go ,default-label))
+                        ,default-label
+                        (return-from ,block-name
+                          (progn ,@default-form))
+                        ,@(apply #'append form-and-labels)))))
+              whole))
+        whole)))
+
 (defmacro ecase (keyform &body cases)
   (let ((test-key (gensym "CASE-KEY"))
 	(all-keys '()))
