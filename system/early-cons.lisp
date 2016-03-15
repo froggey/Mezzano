@@ -407,7 +407,7 @@
     (setf key 'identity))
   (dolist (i alist)
     (when (and i
-               (funcall test item (funcall key (car i))))
+               (funcall test (funcall key item) (funcall key (car i))))
       (return i))))
 
 (declaim (inline member))
@@ -422,7 +422,7 @@
     (setf key 'identity))
   (do ((i list (cdr i)))
       ((endp i))
-    (when (funcall test item (funcall key (car i)))
+    (when (funcall test (funcall key item) (funcall key (car i)))
       (return i))))
 
 (defun member-if (predicate list)
