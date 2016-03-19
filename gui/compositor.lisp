@@ -132,7 +132,7 @@
                      :modifier-state '()))
 
 (defvar *keyboard-modifier-state* '())
-(defvar *keyboard-modifiers*
+(defparameter *keyboard-modifiers*
   '((#\Caps-Lock :caps-lock t)
     (#\Left-Shift :shift)
     (#\Right-Shift :shift)
@@ -969,17 +969,17 @@
 
 (defvar *current-keymap* *engb-keymap*)
 
-;;(defvar *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
+(defparameter *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
 (defvar *keymap-rota* (cons *enus-keymap*  *engb-keymap*))
 
 (defgeneric convert-scancode-to-key (keymap scancode modifier-state))
 
 (defmethod convert-scancode-to-key ((keymap simple-keymap) scancode modifier-state)
   (let* ((caps (member :caps-lock modifier-state))
-	 (control (member :control modifier-state))
+	 (command-char (intersection '(:control :meta :super :hyper) modifier-state))
          (shift (member :shift modifier-state))
 	 (shift2 (member :shift2 modifier-state))
-         (key (if (and control (untranslated-modifiers keymap))
+         (key (if (and command-char (untranslated-modifiers keymap))
 		  (return-from convert-scancode-to-key scancode)
 		  (cdr (assoc scancode (cond (shift2 (keymap-shifted2-map keymap))
 					     (shift (keymap-shifted-map keymap))
