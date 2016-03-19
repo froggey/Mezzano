@@ -124,6 +124,7 @@
     "gui/colour.lisp"
     "gui/surface.lisp"
     "gui/blit.lisp"
+    "gui/keymaps.lisp"
     "gui/compositor.lisp"
     "gui/input-drivers.lisp"
     "system/unifont.lisp"
