@@ -21,14 +21,11 @@
                   ;; The system currently leaks memory when threads die.
                   ("LOCAL:>Icons>Terminal.png" "Swank" "(mezzano.gui.fancy-repl:spawn :initial-function (lambda () (let ((swank/backend:*log-output* *standard-output*)) (swank:create-server :style nil))) :title \"Swank Server\")")))
 
-(defvar *cl-jpeg-lock* (mezzano.supervisor:make-mutex "cl-jpeg lock"))
-
 (defun load-jpeg (path)
   (ignore-errors
     (with-open-file (stream path :element-type '(unsigned-byte 8))
       (multiple-value-bind (data height width channels)
-          (mezzano.supervisor:with-mutex (*cl-jpeg-lock*)
-            (jpeg:decode-stream stream))
+          (jpeg:decode-stream stream)
         (when (not (eql channels 3))
           (error "Unsupported JPEG image, too many or too few channels."))
         ;; Transcode the image to a proper ARGB array.
