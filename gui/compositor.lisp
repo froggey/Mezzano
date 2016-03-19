@@ -132,7 +132,7 @@
                      :modifier-state '()))
 
 (defvar *keyboard-modifier-state* '())
-(defvar *keyboard-modifiers*
+(defparameter *keyboard-modifiers*
   '((#\Caps-Lock :caps-lock t)
     (#\Left-Shift :shift)
     (#\Right-Shift :shift)
@@ -147,6 +147,7 @@
 
 (defclass simple-keymap ()
   ((%name :initarg :name :reader name)
+   (%untranslated-modifiers :initarg :untranslated-modifiers :accessor untranslated-modifiers :initform nil)
    (%unshifted :initarg :unshifted :reader keymap-unshifted-map)
    (%shifted :initarg :shifted :reader keymap-shifted-map)
    (%shifted2 :initarg :shifted2 :reader keymap-shifted2-map :initform '())))
@@ -774,6 +775,7 @@
 
 (defparameter *pancyr-keymap* (make-instance 'simple-keymap
                                      :name "PanCyr"
+				     :untranslated-modifiers t
                                      :unshifted '((#\0 . #\0)
                                                   (#\1 . #\1)
                                                   (#\2 . #\2)
@@ -967,18 +969,21 @@
 
 (defvar *current-keymap* *engb-keymap*)
 
-;;(defvar *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
+(defparameter *keymap-rota* (cons *nobk-keymap*  *pancyr-keymap*))
 (defvar *keymap-rota* (cons *enus-keymap*  *engb-keymap*))
 
 (defgeneric convert-scancode-to-key (keymap scancode modifier-state))
 
 (defmethod convert-scancode-to-key ((keymap simple-keymap) scancode modifier-state)
   (let* ((caps (member :caps-lock modifier-state))
+	 (command-char (intersection '(:control :meta :super :hyper) modifier-state))
          (shift (member :shift modifier-state))
 	 (shift2 (member :shift2 modifier-state))
-         (key (cdr (assoc scancode (cond (shift2 (keymap-shifted2-map keymap))
-					 (shift (keymap-shifted-map keymap))
-					 (t (keymap-unshifted-map keymap)))))))
+         (key (if (and command-char (untranslated-modifiers keymap))
+		  (return-from convert-scancode-to-key scancode)
+		  (cdr (assoc scancode (cond (shift2 (keymap-shifted2-map keymap))
+					     (shift (keymap-shifted-map keymap))
+					     (t (keymap-unshifted-map keymap))))))))
     (when (and key shift2 shift)
       (setf key (char-upcase key)))
     (if (and key (member :caps-lock modifier-state))

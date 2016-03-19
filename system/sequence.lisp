@@ -80,8 +80,13 @@
                :start start
                :end end))
 
-(defun count-if (predicate sequence &key key);from-end start end
-  (unless key (setf key 'identity))
+(defun count-if (predicate sequence &key key from-end (start 0) end)
+  (unless key (setf key #'identity))
+  (when (or (not (zerop start))
+            end)
+   (setf sequence (subseq sequence start end)))
+  (when from-end
+    (setf sequence (reverse sequence)))
   (let ((n 0))
     (if (listp sequence)
 	(dolist (e sequence)
@@ -92,16 +97,15 @@
 	    (incf n))))
     n))
 
-(defun count (item sequence &key key)
-  (setf key (or key #'identity))
-  (let ((n 0))
-    (dotimes (i (length sequence))
-      (when (eql item (funcall key (elt sequence i)))
-        (incf n)))
-    n))
+(defun count (item sequence &key key from-end (start 0) end test test-not)
+  (when (and test test-not)
+    (error "Both :test and :test-not specified"))
+  (when test-not (setf test (complement test-not)))
+  (unless test (setf test 'eql))
+  (count-if #'(lambda (y) (funcall test item y)) sequence :key key :from-end from-end :start start :end end))
 
-(defun count-if-not (predicate sequence &key key);from-end start end
-  (count-if (complement predicate) sequence :key key))
+(defun count-if-not (predicate sequence &key key from-end (start 0) end)
+  (count-if (complement predicate) sequence :key key :from-end from-end :start start :end end))
 
 (declaim (inline find-if find find-if-not))
 (defun find-if (predicate sequence &key key (start 0) end from-end)
