@@ -125,16 +125,18 @@
 	      (,(car stores) (cdr ,item-sym)))
 	 (prog1 (car ,item-sym) ,setter)))))
 
-(defmacro pushnew (&environment env item place &key (key #'identity) test test-not)
+(defmacro pushnew (&environment env item place &key key test test-not)
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (let ((item-sym (gensym))
-	  (list-sym (gensym)))
+	  (list-sym (gensym))
+	  (key-sym (gensym)))
       `(let* ((,item-sym ,item)
 	      ,@(mapcar #'list vars vals)
-	      (,list-sym ,getter))
-	 (if (member (funcall ,key ,item-sym) ,list-sym
-                     ,@(when key (list :key key))
+	      (,list-sym ,getter)
+              (,key-sym ,(or key '#'identity)))
+	 (if (member (funcall ,key-sym ,item-sym) ,list-sym
+                     :key ,key-sym
                      ,@(when test (list :test test))
                      ,@(when test-not (list :test-not test-not)))
              ,list-sym
