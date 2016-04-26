@@ -5,7 +5,8 @@
 
 (defpackage :cross-cl
   (:use :cl)
-  (:shadow :proclaim
+  (:shadow :defconstant
+           :proclaim
            :get-setf-expansion
            :macroexpand
            :macroexpand-1
@@ -299,9 +300,26 @@
   (:export #:assemble
            #:*function-reference-resolver*))
 
-(in-package :system.compiler)
+(in-package :sys.c)
 
 (defstruct (byte
              (:constructor byte (size position)))
   size
   position)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun loose-constant-equal (x y)
+  (or (eql x y)
+      (and (typep x 'byte)
+           (typep y 'byte)
+           (equalp x y))))
+)
+
+;; Super early definition until the real DEFCONSTANT is loaded.
+(defmacro defconstant (name value &optional doc)
+  (let ((value-sym (gensym "value")))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (let ((,value-sym ,value))
+         (when (not (and (boundp ',name)
+                         (loose-constant-equal ,name ,value-sym)))
+           (cl:defconstant ,name ,value-sym ,doc))))))

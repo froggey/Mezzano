@@ -5,6 +5,9 @@
 
 (in-package :sys.c)
 
+(setf (gethash 'cross-cl:defconstant *system-macros*)
+      (cl:macro-function 'cross-cl:defconstant))
+
 (def-x-macro in-package (name)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (setf *package* (sys.int::find-package-or-die ',name))))
@@ -66,12 +69,6 @@
   (unless (cl:macro-function name)
     (setf (cl:macro-function name) lambda))
   (setf (gethash name *system-macros*) lambda))
-
-(defun loose-constant-equal (x y)
-  (or (eql x y)
-      (and (typep x 'byte)
-           (typep y 'byte)
-           (equalp x y))))
 
 (defun sys.int::%defconstant (name value &optional docstring)
   (declare (ignore docstring))
