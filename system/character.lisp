@@ -94,7 +94,8 @@
                   (when (eql (unicode-char-general-category char) :lowercase-letter)
                     (ldb +unicode-info-othercase-code+
                          (unicode-char-info char))))))
-    (if code
+    (if (and code
+             (not (eql code 0)))
 	(%make-character code (char-bits char))
 	char)))
 
@@ -107,7 +108,8 @@
                   (when (eql (unicode-char-general-category char) :uppercase-letter)
                     (ldb +unicode-info-othercase-code+
                          (unicode-char-info char))))))
-    (if code
+    (if (and code
+             (not (eql code 0)))
 	(%make-character code (char-bits char))
 	char)))
 
