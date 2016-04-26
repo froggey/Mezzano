@@ -92,8 +92,10 @@
 		      (logand #xFFFFDF (char-code char))
 		      (char-code char))
 		  (let ((info (unicode-char-info char)))
-		    (when (and info (eql (logand info #x1800000000000) #x1000000000000))
-		      (logand (ash info -26) #x1FFFFF))))))
+		    (when (and info
+                               (eql (ldb +unicode-info-category+ info)
+                                    +unicode-info-category-lowercase+))
+                      (ldb +unicode-info-othercase-code+ info))))))
     (if code
 	(%make-character code (char-bits char))
 	char)))
@@ -105,8 +107,10 @@
 		      (logior #x20 (char-code char))
 		      (char-code char))
 		  (let ((info (unicode-char-info char)))
-		    (when (and info (eql (logand info #x1800000000000) #x0800000000000))
-		      (logand (ash info -26) #x1FFFFF))))))
+		    (when (and info
+                               (eql (ldb +unicode-info-category+ info)
+                                    +unicode-info-category-uppercase+))
+                      (ldb +unicode-info-othercase-code+ info))))))
     (if code
 	(%make-character code (char-bits char))
 	char)))
@@ -117,7 +121,9 @@
   (if (<= (char-code char) #x7F)
       (char<= #\A char #\Z)
       (let ((info (unicode-char-info char)))
-	(and info (eql (logand info #x1800000000000) #x0800000000000)))))
+	(and info
+             (eql (ldb +unicode-info-category+ info)
+                  +unicode-info-category-uppercase+)))))
 
 (defun lower-case-p (char)
   "Returns true if CHAR is an lowercase character; otherwise, false is returned."
@@ -125,7 +131,9 @@
   (if (<= (char-code char) #x7F)
       (char<= #\a char #\z)
       (let ((info (unicode-char-info char)))
-	(and info (eql (logand info #x1800000000000) #x1000000000000)))))
+	(and info
+             (eql (ldb +unicode-info-category+ info)
+                  +unicode-info-category-lowercase+)))))
 
 (defun both-case-p (char)
   "Returns true if CHAR has case; otherwise false is returned."
@@ -133,8 +141,10 @@
   (if (<= (char-code char) #x7F)
       (or (char<= #\A char #\Z) (char<= #\a char #\z))
       (let ((info (unicode-char-info char)))
-	(and info (or (eql (logand info #x1800000000000) #x0800000000000)
-		      (eql (logand info #x1800000000000) #x1000000000000))))))
+	(and info (or (eql (ldb +unicode-info-category+ info)
+                           +unicode-info-category-lowercase+)
+                      (eql (ldb +unicode-info-category+ info)
+                           +unicode-info-category-uppercase+))))))
 
 (define-compiler-macro char= (&whole whole character &rest more-characters)
   (cond ((null more-characters)
@@ -518,8 +528,8 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
 (defun unicode-char-name (char &key (space-char #\Space))
   (let ((info (unicode-char-info char)))
     (when info
-      (let ((start (logand info #xFFFFF))
-	    (length (ash (logand info #x3F00000) -20)))
+      (let ((start (ldb +unicode-info-name-offset+ info))
+	    (length (ldb +unicode-info-name-length+ info)))
 	(decode-unicode-name *unicode-name-store* *unicode-encoding-table*
 			     :start start
 			     :end (+ start length)

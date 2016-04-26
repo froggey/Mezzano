@@ -261,3 +261,21 @@ Internal to the pager, should not be used by other code.")
 (defconstant +llf-character-with-bits+ #x1A)
 (defconstant +llf-structure-slot-definition+ #x1B)
 (defconstant +llf-byte+ #x1C)
+
+;;; Fields in the Unicode info tables.
+
+(defconstant +unicode-info-name-offset+ (byte 20 0)
+  "Offset of the name in the name table.")
+(defconstant +unicode-info-name-length+ (byte 6 20)
+  "Length of the name in the name table.")
+(defconstant +unicode-info-othercase-code+ (byte 21 26)
+  "Character code for the alternate case character.")
+(defconstant +unicode-info-category+ (byte 2 47)
+  "Category code.")
+
+(defconstant +unicode-info-category-no-case+ 0
+  "This character has no case.")
+(defconstant +unicode-info-category-lowercase+ 1
+  "This character is an lowercase character.")
+(defconstant +unicode-info-category-uppercase+ 2
+  "This character is an uppercase character.")

@@ -258,11 +258,15 @@ the seperator character."
 		 (category (nth 2 line))
 		 (uppercase (parse-integer (nth 12 line) :radix 16 :junk-allowed t))
 		 (lowercase (parse-integer (nth 13 line) :radix 16 :junk-allowed t))
-		 (case (cond ((and (string= category "Lu") lowercase)
-			       (logior lowercase (ash 1 21)))
-			     ((and (string= category "Ll") uppercase)
-			      (logior uppercase (ash 2 21)))
-			     (t 0))))
+                 (othercase-code 0)
+		 (char-category (cond ((and (string= category "Lu") lowercase)
+                                       (setf othercase-code lowercase)
+                                       sys.int::+unicode-info-category-uppercase+)
+                                      ((and (string= category "Ll") uppercase)
+                                       (setf othercase-code uppercase)
+                                       sys.int::+unicode-info-category-lowercase+)
+                                      (t
+                                       sys.int::+unicode-info-category-no-case+))))
 	    ;; Insert this codepoint into the information table.
 	    (unless (aref planes plane)
 	      (setf (aref planes plane) (make-array 256 :initial-element nil)))
@@ -270,13 +274,23 @@ the seperator character."
 	      (setf (aref (aref planes plane) row) (make-array 256
 							       :element-type '(unsigned-byte 64)
 							       :initial-element 0)))
-	    (setf (aref (aref (aref planes plane) row) cell)
-		  ;; 20 bits for the offset, 6 for the length,
-		  ;; 21 bits for the othercase character code.
-		  ;; 2 bits for the category. 0 = no case, 1 = lowercase, 2 = uppercase.
-		  (logior (length name-store)
-			  (ash (length encoded-name) 20)
-			  (ash case 26)))
+	    (setf (aref (aref (aref planes plane) row) cell) 0)
+            ;; Name store offset.
+            (setf (cross-cl:ldb sys.int::+unicode-info-name-offset+
+                                (aref (aref (aref planes plane) row) cell))
+                  (length name-store))
+            ;; Compressed name length.
+            (setf (cross-cl:ldb sys.int::+unicode-info-name-length+
+                                (aref (aref (aref planes plane) row) cell))
+                  (length encoded-name))
+            ;; Othercase code.
+            (setf (cross-cl:ldb sys.int::+unicode-info-othercase-code+
+                                (aref (aref (aref planes plane) row) cell))
+                  othercase-code)
+            ;; Category.
+            (setf (cross-cl:ldb sys.int::+unicode-info-category+
+                                (aref (aref (aref planes plane) row) cell))
+                  char-category)
 	    ;; Append the name to the name-store
 	    (dotimes (i (length encoded-name))
 	      (vector-push-extend (aref encoded-name i) name-store))
