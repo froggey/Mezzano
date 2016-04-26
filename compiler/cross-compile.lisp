@@ -42,11 +42,6 @@
 
 (defvar *structure-types* (make-hash-table :test 'eq))
 
-(defstruct (byte
-             (:constructor byte (size position)))
-  size
-  position)
-
 (defun ldb (bytespec integer)
   (logand (ash integer (- (byte-position bytespec)))
           (1- (ash 1 (byte-size bytespec)))))

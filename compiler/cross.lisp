@@ -298,3 +298,10 @@
   (:use :cross-cl :sys.lap)
   (:export #:assemble
            #:*function-reference-resolver*))
+
+(in-package :system.compiler)
+
+(defstruct (byte
+             (:constructor byte (size position)))
+  size
+  position)
