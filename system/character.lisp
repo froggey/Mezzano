@@ -91,11 +91,9 @@
 		  (if (char<= #\a char #\z)
 		      (logand #xFFFFDF (char-code char))
 		      (char-code char))
-		  (let ((info (unicode-char-info char)))
-		    (when (and info
-                               (eql (ldb +unicode-info-category+ info)
-                                    +unicode-info-category-lowercase+))
-                      (ldb +unicode-info-othercase-code+ info))))))
+                  (when (eql (unicode-char-general-category char) :lowercase-letter)
+                    (ldb +unicode-info-othercase-code+
+                         (unicode-char-info char))))))
     (if code
 	(%make-character code (char-bits char))
 	char)))
@@ -106,11 +104,9 @@
 		  (if (char<= #\A char #\Z)
 		      (logior #x20 (char-code char))
 		      (char-code char))
-		  (let ((info (unicode-char-info char)))
-		    (when (and info
-                               (eql (ldb +unicode-info-category+ info)
-                                    +unicode-info-category-uppercase+))
-                      (ldb +unicode-info-othercase-code+ info))))))
+                  (when (eql (unicode-char-general-category char) :uppercase-letter)
+                    (ldb +unicode-info-othercase-code+
+                         (unicode-char-info char))))))
     (if code
 	(%make-character code (char-bits char))
 	char)))
@@ -120,31 +116,23 @@
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (char<= #\A char #\Z)
-      (let ((info (unicode-char-info char)))
-	(and info
-             (eql (ldb +unicode-info-category+ info)
-                  +unicode-info-category-uppercase+)))))
+      (eql (unicode-char-general-category char) :uppercase-letter)))
 
 (defun lower-case-p (char)
   "Returns true if CHAR is an lowercase character; otherwise, false is returned."
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (char<= #\a char #\z)
-      (let ((info (unicode-char-info char)))
-	(and info
-             (eql (ldb +unicode-info-category+ info)
-                  +unicode-info-category-lowercase+)))))
+      (eql (unicode-char-general-category char) :lowercase-letter)))
 
 (defun both-case-p (char)
   "Returns true if CHAR has case; otherwise false is returned."
   ;; Fast path for ASCII
   (if (<= (char-code char) #x7F)
       (or (char<= #\A char #\Z) (char<= #\a char #\z))
-      (let ((info (unicode-char-info char)))
-	(and info (or (eql (ldb +unicode-info-category+ info)
-                           +unicode-info-category-lowercase+)
-                      (eql (ldb +unicode-info-category+ info)
-                           +unicode-info-category-uppercase+))))))
+      (let ((category (unicode-char-general-category char)))
+        (or (eql category :lowercase-letter)
+            (eql category :uppercase-letter)))))
 
 (define-compiler-macro char= (&whole whole character &rest more-characters)
   (cond ((null more-characters)
@@ -245,19 +233,49 @@
 
 (defun graphic-char-p (char)
   "Returns true if CHAR is a graphic character."
-  ;; Treat everything but the Latin1 control characters as graphic characters.
-  (and (zerop (char-bits char))
-       (not (or (<= #x00 (char-code char) #x1F)
-                (<= #x7F (char-code char) #x9F)))))
+  (when (not (zerop (char-bits char)))
+    ;; Control bits set, not graphic.
+    (return-from graphic-char-p nil))
+  ;; Fast path for ASCII.
+  (if (<= (char-code char) #x7F)
+      ;; Control characters are non-graphic.
+      (not (<= #x00 (char-code char) #x1F))
+      (member (unicode-char-general-category char)
+              '(:uppercase-letter
+                :lowercase-letter
+                :titlecase-letter
+                :modifier-letter
+                :other-letter
+                :nonspacing-mark
+                :spacing-mark
+                :enclosing-mark
+                :decimal-number
+                :letter-number
+                :other-number
+                :connector-punctuation
+                :dash-punctuation
+                :open-punctuation
+                :close-punctuation
+                :initial-punctuation
+                :final-punctuation
+                :other-punctuation
+                :math-symbol
+                :currency-symbol
+                :modifier-symbol
+                :other-symbol
+                :space-separator))))
 
 (defun alpha-char-p (char)
   "Returns true if CHAR is an alphabetic character."
   ;; Fast path for ASCII.
   (if (<= (char-code char) #x7F)
       (or (char<= #\A char #\Z) (char<= #\a char #\z))
-      ;; Assume all Unicode characters are alphabetic.
-      ;; TODO.
-      t))
+      (member (unicode-char-general-category char)
+              '(:uppercase-letter
+                :lowercase-letter
+                :titlecase-letter
+                :modifier-letter
+                :other-letter))))
 
 (defun digit-char-p (char &optional (radix 10))
   "Tests whether CHAR is a digit in the specified RADIX.
@@ -524,6 +542,11 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
 	  (if (eql 0 info)
 	      nil
 	      info))))))
+
+(defun unicode-char-general-category (char)
+  (let ((info (unicode-char-info char)))
+    (when info
+      (unicode-general-category-decode (ldb +unicode-info-general-category+ info)))))
 
 (defun unicode-char-name (char &key (space-char #\Space))
   (let ((info (unicode-char-info char)))
