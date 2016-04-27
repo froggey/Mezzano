@@ -317,9 +317,6 @@
 
 ;; Super early definition until the real DEFCONSTANT is loaded.
 (defmacro defconstant (name value &optional doc)
-  (let ((value-sym (gensym "value")))
-    `(eval-when (:compile-toplevel :load-toplevel :execute)
-       (let ((,value-sym ,value))
-         (when (not (and (boundp ',name)
-                         (loose-constant-equal ,name ,value-sym)))
-           (cl:defconstant ,name ,value-sym ,doc))))))
+  `(alexandria:define-constant ,name ,value
+     :test 'loose-constant-equal
+     ,@(when doc (list :documentation doc))))
