@@ -403,8 +403,7 @@ This is required to make the GC interrupt safe."
           (scavenge-many (+ (ash (%pointer-field thread) 4)
                             8
                             (* mezzano.supervisor::+thread-mv-slots-start+ 8))
-                         (- mezzano.supervisor::+thread-mv-slots-end+
-                            mezzano.supervisor::+thread-mv-slots-start+))))
+                         n-mv-area-values)))
       (when (eql incoming-arguments :rcx)
         ;; Prevent SCAVENGE-REGULAR-STACK-FRAME from seeing :RCX in incoming-arguments.
         (setf incoming-arguments nil)
