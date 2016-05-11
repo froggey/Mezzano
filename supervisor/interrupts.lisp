@@ -98,11 +98,11 @@ RETURN-FROM/GO must not be used to leave this form."
   ;; Do not restore :RBP here, that would touch the old stack with
   ;; interrupts disabled.
   (sys.lap-x86:mov64 :rsp :rbp)
-  (:gc :no-frame :multiple-values 0)
   ;; Reenable interrupts, must not be done when on the wired stack.
   (sys.lap-x86:sti)
   ;; Now safe to restore :RBP.
   (sys.lap-x86:pop :rbp)
+  (:gc :no-frame :multiple-values 0)
   ;; Done, return.
   (sys.lap-x86:ret))
 
