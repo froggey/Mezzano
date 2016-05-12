@@ -180,11 +180,12 @@ An integer, measured in internal time units.")
   (when *current-framebuffer*
     (let ((fb-addr (+ +physical-map-base+
                       (framebuffer-base-address *current-framebuffer*)
-                      (* (light-index light) 32 4))))
+                      (* (light-index light) 32 4)))
+          (colour (if (light-state light)
+                      (light-colour light)
+                      0)))
       (dotimes (i 32)
-        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) (if (light-state light)
-                                                               (light-colour light)
-                                                               0))))))
+        (setf (sys.int::memref-unsigned-byte-32 fb-addr i) colour)))))
 
 (defun clear-light (light)
   (setf (light-state light) nil)

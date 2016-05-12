@@ -28,8 +28,7 @@
   `(satisfies threadp))
 
 (defun threadp (object)
-  (and (eql (sys.int::%tag-field object) sys.int::+tag-object+)
-       (eql (sys.int::%object-tag object) sys.int::+object-tag-thread+)))
+  (sys.int::%object-of-type-p object sys.int::+object-tag-thread+))
 
 ;;; Thread locking.
 ;;;
