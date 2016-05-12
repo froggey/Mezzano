@@ -3,6 +3,10 @@
 
 (in-package :mezzano.supervisor)
 
+(defvar *light-position* nil
+  "Control the position of the status light.
+Can be :TOP to position them at the top of the screen, :BOTTOM to position them at the bottom, or NIL to disable them entirely.")
+
 (defstruct (framebuffer
              (:area :wired))
   base-address
@@ -17,6 +21,8 @@
 (defvar *debug-video-col* 0)
 
 (defun initialize-early-video ()
+  (when (not (boundp '*light-position*))
+    (setf *light-position* :top))
   ;; Trash old framebuffer.
   (setf *current-framebuffer* nil)
   (setf *debug-video-x* 0
@@ -53,10 +59,15 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
            :expected-type '(array (unsigned-byte 32) (* *))
            :datum from-array))
   ;; Don't write to the top row of pixels, that's where the lights are.
-  (when (<= to-row 0)
-    (incf from-row (- 1 to-row))
-    (decf nrows (- 1 to-row))
-    (setf to-row 1))
+  (case *light-position*
+    (:top
+     (when (<= to-row 0)
+       (incf from-row (- 1 to-row))
+       (decf nrows (- 1 to-row))
+       (setf to-row 1)))
+    (:bottom
+     (when (>= (+ to-row nrows) (1- (framebuffer-height fb)))
+       (setf nrows (- (framebuffer-height fb) to-row 1)))))
   ;; Dismember the from-array.
   (let ((from-offset 0)
         (from-storage (sys.int::%complex-array-storage from-array))
@@ -177,9 +188,14 @@ An integer, measured in internal time units.")
                                 (if (boundp '*light-decay-time*)
                                     *light-decay-time*
                                     0)))
-  (when *current-framebuffer*
+  (when (and *current-framebuffer*
+             *light-position*)
     (let ((fb-addr (+ +physical-map-base+
                       (framebuffer-base-address *current-framebuffer*)
+                      (if (eql *light-position* :bottom)
+                          (* (1- (framebuffer-height *current-framebuffer*))
+                             (framebuffer-pitch *current-framebuffer*))
+                          0)
                       (* (light-index light) 32 4)))
           (colour (if (light-state light)
                       (light-colour light)
@@ -189,9 +205,14 @@ An integer, measured in internal time units.")
 
 (defun clear-light (light)
   (setf (light-state light) nil)
-  (when *current-framebuffer*
+  (when (and *current-framebuffer*
+             *light-position*)
     (let ((fb-addr (+ +physical-map-base+
                       (framebuffer-base-address *current-framebuffer*)
+                      (if (eql *light-position* :bottom)
+                          (* (1- (framebuffer-height *current-framebuffer*))
+                             (framebuffer-pitch *current-framebuffer*))
+                          0)
                       (* (light-index light) 32 4))))
       (dotimes (i 32)
         (setf (sys.int::memref-unsigned-byte-32 fb-addr i) 0)))))
