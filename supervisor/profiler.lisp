@@ -8,6 +8,8 @@
 (in-package :mezzano.supervisor)
 
 (defvar *enable-profiling* nil)
+(defvar *profile-thread* nil
+  "When non-nil, only this thread will be profiled.")
 
 ;; The profile buffer must be a wired simple-vector.
 ;; It is treated as a circular buffer, when it fill up newer entries
@@ -67,26 +69,39 @@
   (when (and (boundp '*enable-profiling*)
              *enable-profiling*)
     (profile-append-entry :start)
-    ;; Dump the current thread.
-    (profile-append-entry (current-thread))
-    (profile-append-entry :active)
-    (profile-append-entry (thread-wait-item (current-thread)))
-    (profile-append-return-address (interrupt-frame-raw-register interrupt-frame :rip))
-    (profile-append-call-stack (interrupt-frame-raw-register interrupt-frame :rbp))
+    (when (or (not *profile-thread*)
+              (eql *profile-thread* (current-thread)))
+      ;; Dump the current thread.
+      (profile-append-entry (current-thread))
+      (profile-append-entry :active)
+      (profile-append-entry (thread-wait-item (current-thread)))
+      (profile-append-return-address (interrupt-frame-raw-register interrupt-frame :rip))
+      (profile-append-call-stack (interrupt-frame-raw-register interrupt-frame :rbp)))
     ;; And all the others.
-    (loop
-       for thread = *all-threads* then (thread-global-next thread)
-       until (not thread) do
-         (when (not (eql thread (current-thread)))
-           (profile-append-entry thread)
-           (profile-append-entry (thread-state thread))
-           (profile-append-entry (thread-wait-item thread))
-           (when (thread-full-save-p thread)
-             ;; RIP is valid in the save area.
-             (profile-append-return-address (thread-state-rip thread)))
-           (profile-append-call-stack (thread-frame-pointer thread))))))
+    (cond (*profile-thread*
+           (let ((thread *profile-thread*))
+             (when (not (eql thread (current-thread)))
+               (profile-append-entry thread)
+               (profile-append-entry (thread-state thread))
+               (profile-append-entry (thread-wait-item thread))
+               (when (thread-full-save-p thread)
+                 ;; RIP is valid in the save area.
+                 (profile-append-return-address (thread-state-rip thread)))
+               (profile-append-call-stack (thread-frame-pointer thread)))))
+          (t
+           (loop
+              for thread = *all-threads* then (thread-global-next thread)
+              until (not thread) do
+                (when (not (eql thread (current-thread)))
+                  (profile-append-entry thread)
+                  (profile-append-entry (thread-state thread))
+                  (profile-append-entry (thread-wait-item thread))
+                  (when (thread-full-save-p thread)
+                    ;; RIP is valid in the save area.
+                    (profile-append-return-address (thread-state-rip thread)))
+                  (profile-append-call-stack (thread-frame-pointer thread))))))))
 
-(defun start-profiling (&optional buffer-size)
+(defun start-profiling (&key buffer-size thread)
   "Set up a profile sample buffer and enable sampling."
   (assert (not *enable-profiling*) ()
           "Profiling already started.")
@@ -97,6 +112,7 @@
     (setf *profile-buffer* (make-array buffer-size :area :wired)))
   (setf *profile-buffer-head* 0
         *profile-buffer-tail* 0)
+  (setf *profile-thread* thread)
   (setf *enable-profiling* t))
 
 (defun stop-profiling ()
@@ -104,6 +120,7 @@
   (assert *enable-profiling* ()
           "Profiling not started.")
   (setf *enable-profiling* nil)
+  (setf *profile-thread* nil)
   (let* ((n-entries (if (< *profile-buffer-head* *profile-buffer-tail*)
                         (+ (- (length *profile-buffer*) *profile-buffer-tail*)
                            *profile-buffer-head*)

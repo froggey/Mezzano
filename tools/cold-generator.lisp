@@ -69,7 +69,6 @@
     "system/describe.lisp"
     "system/load.lisp"
     "system/time.lisp"
-    "system/profiler.lisp"
 ))
 
 (defparameter *special-source-files*
@@ -120,6 +119,7 @@
     "compiler/value-aware-lowering.lisp"
     "compiler/simplify-control-flow.lisp"
     "system/file-compiler.lisp"
+    "system/profiler.lisp"
     "gui/package.lisp"
     "gui/colour.lisp"
     "gui/surface.lisp"

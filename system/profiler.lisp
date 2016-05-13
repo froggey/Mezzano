@@ -18,23 +18,35 @@
   wait-item
   call-stack)
 
-(defmacro with-profiling ((&whole options &key buffer-size path) &body body)
+(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune) &body body)
+  "Profile BODY.
+:THREAD - Thread to sample.
+          If NIL, then sample all threads.
+          If T, then sample the current thread.
+          Can be a specific thread to sample.
+:BUFFER-SIZE - Size of the profiler's sample buffer.
+:PATH - Path to write th profiler report to, if NIL then the samples will be returned.
+:PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call."
   `(call-with-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-profiling (function &key buffer-size path)
+(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)))
   (let* ((profile-buffer nil)
          (results (unwind-protect
                        (progn
-                         (mezzano.supervisor:start-profiling buffer-size)
+                         (mezzano.supervisor:start-profiling
+                          :buffer-size buffer-size
+                          :thread (if (eq thread t)
+                                      (mezzano.supervisor:current-thread)
+                                      thread))
                          (multiple-value-list (funcall function)))
                     (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
-    (setf profile-buffer (decode-profile-buffer profile-buffer))
+    (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil)))
     (cond (path
-           (save-profile path profile-buffer)
+           (save-profile path profile-buffer :verbosity verbosity)
            (values-list results))
           (t profile-buffer))))
 
-(defun decode-profile-buffer (buffer)
+(defun decode-profile-buffer (buffer &optional prune-function)
   "Convert the buffer returned by STOP-PROFILING into a more useful format.
 The returned value is a sequence of samples, and each sample is a sequence of
 thread states & call-stacks."
@@ -67,7 +79,8 @@ thread states & call-stacks."
               (let ((thread (consume)) ; thread
                     (state (consume)) ; state
                     (wait-item (consume)) ; wait-item
-                    (call-stack (make-array 10 :adjustable t :fill-pointer 0)))
+                    (call-stack (make-array 10 :adjustable t :fill-pointer 0))
+                    (stop nil))
                 (loop
                    (typecase (next)
                      ((eql :truncated)
@@ -75,7 +88,12 @@ thread states & call-stacks."
                       (vector-push-extend (cons :truncated 0) call-stack))
                      (function
                       ;; Called function and offset into.
-                      (vector-push-extend (cons (consume) (consume)) call-stack))
+                      (let ((fn (consume))
+                            (offset (consume)))
+                        (unless stop
+                          (vector-push-extend (cons fn offset) call-stack)
+                          (when (eql fn prune-function)
+                            (setf stop t)))))
                      (t (return))))
                 (vector-push-extend (make-thread-sample :thread thread
                                                         :state state
@@ -85,21 +103,25 @@ thread states & call-stacks."
            (vector-push-extend sample profile-entries))))
     profile-entries))
 
-(defun save-profile (path profile)
+(defun save-profile (path profile &key (verbosity :report))
   "Convert a profile into an almost human-readable format."
   (with-open-file (s path :direction :output :if-exists :new-version :if-does-not-exist :create)
-    (loop
-       for sample across profile do
-         (format s "------------------------~%")
-         (loop
-            for thread across sample do
-              (format s "Thread ~S~%" (thread-sample-thread thread))
-              (format s " State ~S~%" (thread-sample-state thread))
-              (format s " Wait-item ~S~%" (thread-sample-wait-item thread))
-              (format s " Call-stack:~%")
-              (loop
-                 for (fn . offset) across (thread-sample-call-stack thread) do
-                   (format s "  ~S + ~D~%" fn offset))))))
+    (when (member verbosity '(:report :full))
+      (let ((*standard-output* s))
+        (generate-report profile))
+    (when (eql verbosity :full)
+      (loop
+         for sample across profile do
+           (format s "------------------------~%")
+           (loop
+              for thread across sample do
+                (format s "Thread ~S~%" (thread-sample-thread thread))
+                (format s " State ~S~%" (thread-sample-state thread))
+                (format s " Wait-item ~S~%" (thread-sample-wait-item thread))
+                (format s " Call-stack:~%")
+                (loop
+                   for (fn . offset) across (thread-sample-call-stack thread) do
+                     (format s "  ~S + ~D~%" fn offset))))))))
 
 (defstruct tree-branch
   value
@@ -142,9 +164,86 @@ thread states & call-stacks."
              (write-tree-1 branch (1+ depth)))
            (tree-branch-branches tree)))
 
-
 (defun write-tree (tree &optional (depth 0))
   (maphash (lambda (k branch)
              (declare (ignore k))
              (write-tree-1 branch (1+ depth)))
            tree))
+
+(defclass profile-entry ()
+  ((%function :initarg :function :reader profile-entry-function)
+   (%callers :initarg :callers :reader profile-entry-callers)
+   (%callees :initarg :callees :reader profile-entry-callees)
+   (%direct-count :initarg :direct-count :accessor profile-entry-direct-count)
+   (%total-count :initarg :total-count :accessor profile-entry-total-count))
+  (:default-initargs
+   :direct-count 0
+    :total-count 0
+    :callers (make-hash-table)
+    :callees (make-hash-table)))
+
+(defun generate-report (profile)
+  (let ((threads (make-hash-table)))
+    (labels ((entry-for (thread function)
+               (let ((thread-samples (gethash thread threads)))
+                 (when (not thread-samples)
+                   (setf thread-samples (make-hash-table)
+                         (gethash thread threads) thread-samples))
+                 (let ((entry (gethash function thread-samples)))
+                   (when (not entry)
+                     (setf entry (make-instance 'profile-entry :function function)
+                           (gethash function thread-samples) entry))
+                   entry)))
+             (add-sample (thread function directp previous)
+               (let* ((fn (car function))
+                      (entry (entry-for thread fn)))
+                 (cond (directp
+                        (incf (profile-entry-direct-count entry)))
+                       (t
+                        (when previous
+                          (let* ((prev-fn (car previous))
+                                 (prev-entry (entry-for thread prev-fn)))
+                            (incf (gethash prev-fn (profile-entry-callees entry) 0))
+                            (incf (gethash fn (profile-entry-callers prev-entry) 0))))
+                        (incf (profile-entry-total-count entry)))))))
+      (loop for sample across profile do
+           (loop for thread across sample do
+                (loop
+                   for prev = nil then entry
+                   for entry across (thread-sample-call-stack thread)
+                   do
+                     (add-sample (thread-sample-thread thread)
+                                 entry
+                                 nil
+                                 prev))
+                (add-sample (thread-sample-thread thread)
+                            (elt (thread-sample-call-stack thread) 0)
+                            t
+                            nil))))
+    (maphash (lambda (thread sample-table)
+               ;; Convert sample hash table to array of samples.
+               (let ((samples (make-array (hash-table-count sample-table)
+                                          :fill-pointer 0)))
+                 (maphash (lambda (fn sample)
+                            (declare (ignore fn))
+                            (vector-push sample samples))
+                          sample-table)
+                 (setf samples (sort samples #'> :key #'profile-entry-total-count))
+                 ;; Print.
+                 (format t "~S:~%" thread)
+                 (loop
+                    for s across samples
+                    do (format t "  ~D~10T~D~20T~S~%" (profile-entry-direct-count s) (profile-entry-total-count s) (profile-entry-function s)))
+                 ;; Print the callers/callees table too.
+                 (loop
+                    for s across samples
+                    do
+                      (format t "  --------------------~%")
+                      (maphash (lambda (caller count)
+                                 (format t "    ~D~10T~S~%" count caller))
+                               (profile-entry-callers s))
+                      (format t "  ~S~10T~S~%" (profile-entry-total-count s) (profile-entry-function s))
+                      (maphash (lambda (callee count)
+                                 (format t "    ~D~10T~S~%" count callee))
+                               (profile-entry-callees s)))))
+             threads)))
