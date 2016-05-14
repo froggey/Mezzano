@@ -772,6 +772,8 @@
     ;; +6, unused
     ;; Special stack pointer.
     (setf (word (+ address 7)) (vsym 'nil))
+    ;; +8 self.
+    (setf (word (+ address 9)) (make-value address sys.int::+tag-object+))
     ;; Next.
     (setf (word (+ address 10)) (vsym 'nil))
     ;; Prev.

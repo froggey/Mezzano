@@ -80,7 +80,8 @@
   ;; When true, all registers are saved in the the thread's state save area.
   ;; When false, only the stack pointer and frame pointer are valid.
   (field full-save-p              7)
-  ;; 8 - free
+  ;; The thread object, used to make CURRENT-THREAD fast.
+  (field self                     8)
   ;; Next/previous links for run queues and wait queues.
   (field %next                    9)
   (field %prev                   10)
@@ -456,9 +457,18 @@ Interrupts must be off, the current thread must be locked."
 
 ;;; Stuff.
 
-(defun current-thread ()
-  "Returns the thread object for the calling thread."
-  (sys.int::%%assemble-value (sys.int::msr +msr-ia32-gs-base+) 0))
+(sys.int::define-lap-function current-thread (())
+  (sys.lap-x86:test64 :rcx :rcx)
+  (sys.lap-x86:jnz BAD-ARGS)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :r8 (:object nil #.+thread-self+))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  BAD-ARGS
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
+  (sys.lap-x86:xor32 :ecx :ecx)
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:ud2))
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
   (check-type function (or function symbol))
@@ -471,6 +481,7 @@ Interrupts must be off, the current thread must be locked."
           (sys.int::%object-ref-t thread +thread-lock+) :unlocked
           (sys.int::%object-ref-t thread +thread-stack+) stack
           (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
+          (sys.int::%object-ref-t thread +thread-self+) thread
           (sys.int::%object-ref-t thread +thread-wait-item+) nil
           (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
           (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
@@ -548,6 +559,7 @@ Interrupts must be off, the current thread must be locked."
           (sys.int::%object-ref-t thread +thread-lock+) :unlocked
           (sys.int::%object-ref-t thread +thread-stack+) stack
           (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
+          (sys.int::%object-ref-t thread +thread-self+) thread
           (sys.int::%object-ref-t thread +thread-wait-item+) nil
           (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
           (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
