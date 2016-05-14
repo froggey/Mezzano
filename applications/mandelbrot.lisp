@@ -3,7 +3,7 @@
 
 (defpackage :mandelbrot
   (:use :cl)
-  (:export #:spawn))
+  (:export #:spawn #:benchmark))
 
 (in-package :mandelbrot)
 
@@ -65,6 +65,14 @@
 
 (defmethod dispatch-event (frame (event mezzano.gui.compositor:window-close-event))
   (throw 'quit nil))
+
+(defun benchmark (&optional (width 500) (height width))
+  (let ((framebuffer (mezzano.gui:make-surface width height))
+        (hue-offset (rem (get-universal-time) 360)))
+    (dotimes (y height)
+      (dotimes (x width)
+        (setf (mezzano.gui:surface-pixel framebuffer x y) (render-mandelbrot x y width height hue-offset))))
+    framebuffer))
 
 (defun mandelbrot-main ()
   (with-simple-restart (abort "Close Mandelbrot")
