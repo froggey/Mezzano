@@ -183,12 +183,20 @@
   (:gc :frame :pushed-values-register :rcx :pushed-values -5)
   ;; Everything is ready. Call the function!
   do-call
+  ;; If there are 5 or fewer arguments (ie, only register args) the function can be tail-called to.
+  (sys.lap-x86:cmp64 :rcx #.(ash 5 +n-fixnum-bits+))
+  (sys.lap-x86:jbe do-tail-call)
   (sys.lap-x86:call (:rbx #.(+ (- sys.int::+tag-object+) 8)))
   (:gc :frame)
   ;; Finish up & return.
   (sys.lap-x86:leave)
   (:gc :no-frame)
   (sys.lap-x86:ret)
+  do-tail-call
+  (:gc :frame)
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:jmp (:rbx #.(+ (- sys.int::+tag-object+) 8)))
   ;; R8 = function, R9 = arg-list.
   ;; (raise-type-error arg-list 'proper-list)
   list-type-error
