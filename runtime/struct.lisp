@@ -39,14 +39,14 @@
 (defun sys.int::structure-type-p (object struct-type)
   "Test if OBJECT is a structure object of type STRUCT-TYPE."
   (when (sys.int::structure-object-p object)
-    (do ((object-type (sys.int::%struct-slot object 0) (sys.int::structure-parent object-type)))
+    (do ((object-type (sys.int::%object-ref-t object 0) (sys.int::structure-parent object-type)))
         ;; Stop when the object-type stops being a structure-definition, not
         ;; when it becomes NIL.
         ;; This avoids a race condition in the GC when it is
         ;; scavenging a partially initialized structure.
         ((not (and (sys.int::structure-object-p object-type)
-                   (eql (sys.int::%struct-slot object-type 0)
-                        sys.int::*structure-type-type*)))
+                   (eq (sys.int::%struct-slot object-type 0)
+                       sys.int::*structure-type-type*)))
          nil)
       (when (eq object-type struct-type)
         (return t)))))
