@@ -21,6 +21,31 @@
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
 
+(defvar *enable-allocation-profiling* nil)
+(defvar *allocation-profile*)
+
+;; Use a seperate function here, as the compiler seems to want to
+;; hoist allocation outside the *ENABLE-ALLOCATION-PROFILING* test.
+;; This generates data in the same format as the statistical profiler.
+(defun log-allocation-profile-entry-1 ()
+  (let ((*enable-allocation-profiling* nil))
+    (vector-push-extend :start *allocation-profile*)
+    (vector-push-extend (mezzano.supervisor:current-thread) *allocation-profile*)
+    (vector-push-extend :active *allocation-profile*)
+    (vector-push-extend :allocation *allocation-profile*)
+    (sys.int::map-backtrace
+     (lambda (i fp)
+       (let* ((return-address (sys.int::memref-signed-byte-64 fp 1))
+              (fn (sys.int::return-address-to-function return-address))
+              (fn-address (logand (sys.int::lisp-object-address fn) -16))
+              (offset (- return-address fn-address)))
+         (vector-push-extend fn *allocation-profile*)
+         (vector-push-extend offset *allocation-profile*))))))
+
+(defun log-allocation-profile-entry ()
+  (when *enable-allocation-profiling*
+    (log-allocation-profile-entry-1)))
+
 (defun freelist-entry-next (entry)
   (sys.int::memref-t entry 1))
 
@@ -37,6 +62,7 @@
         sys.int::*dynamic-mark-bit* 0
         sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
+        *enable-allocation-profiling* nil
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")))
 
 (defun verify-freelist (start base end)
@@ -160,6 +186,7 @@
               val)))))))
 
 (defun %cons-in-pinned-area (car cdr)
+  (log-allocation-profile-entry)
   (loop
      for i from 0 do
        (let ((result (%cons-in-pinned-area-1 car cdr)))
@@ -182,6 +209,7 @@
             val))))))
 
 (defun %cons-in-wired-area (car cdr)
+  (log-allocation-profile-entry)
   (loop
      for i from 0 do
        (let ((result (%cons-in-wired-area-1 car cdr)))
@@ -260,6 +288,7 @@
 (defun %allocate-object (tag data size area)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
+  (log-allocation-profile-entry)
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
@@ -291,6 +320,23 @@
   ;; Check argument count.
   (sys.lap-x86:cmp64 :rcx #.(ash 2 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  #| Logging every cons tends to explode the profile buffer & exhaust memory.
+  (sys.lap-x86:mov64 :rax (:constant *enable-allocation-profiling*))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  (sys.lap-x86:mov64 :rdx (:object :rax -1))
+  (sys.lap-x86:shr64 :rdx #.sys.c::+tls-offset-shift+)
+  (sys.lap-x86:and32 :edx #xFFFF)
+  (sys.lap-x86:jz PROF-DISABLED)
+  (sys.lap-x86:gs)
+  (sys.lap-x86:mov64 :rdx ((:rdx 8) #.sys.c::+tls-base-offset+))
+  (sys.lap-x86:cmp64 :rdx :unbound-tls-slot)
+  (sys.lap-x86:je PROF-DISABLED)
+  (sys.lap-x86:cmp64 :rdx nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  PROF-DISABLED
+  |#
   ;; Check *GC-IN-PROGRESS*.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*gc-in-progress*))
   (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value+) nil)
@@ -345,6 +391,7 @@
 (defun slow-cons (car cdr)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
+  (log-allocation-profile-entry)
   (let ((gc-count 0))
     (tagbody
      OUTER-LOOP

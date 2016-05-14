@@ -56,17 +56,17 @@ thread states & call-stacks."
     ;; Skip forward to the first one, or the end of the buffer.
     (loop
        (when (or (>= offset (length buffer))
-                 (eql (svref buffer offset) :start))
+                 (eql (aref buffer offset) :start))
          (return))
        (incf offset))
     ;; Pull samples out.
     (flet ((next ()
              (if (< offset (length buffer))
-                 (svref buffer offset)
+                 (aref buffer offset)
                  nil))
            (consume ()
              (prog1
-                 (svref buffer offset)
+                 (aref buffer offset)
                (incf offset))))
       (loop
          (when (>= offset (length buffer))
@@ -102,6 +102,28 @@ thread states & call-stacks."
                                     sample)))
            (vector-push-extend sample profile-entries))))
     profile-entries))
+
+(defmacro with-allocation-profiling ((&whole options &key path verbosity prune) &body body)
+  "Profile BODY.
+:THREAD - Thread to sample.
+          If NIL, then sample all threads.
+          If T, then sample the current thread.
+          Can be a specific thread to sample.
+:BUFFER-SIZE - Size of the profiler's sample buffer.
+:PATH - Path to write th profiler report to, if NIL then the samples will be returned.
+:PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call."
+  `(call-with-allocation-profiling (lambda () ,@body) ,@options))
+
+(defun call-with-allocation-profiling (function &key path (verbosity :report) (prune t))
+  (let* ((raw-buffer (make-array 0 :adjustable t :fill-pointer 0))
+         (results (let* ((mezzano.runtime::*allocation-profile* raw-buffer)
+                         (mezzano.runtime::*enable-allocation-profiling* t))
+                    (multiple-value-list (funcall function))))
+         (profile-buffer (decode-profile-buffer raw-buffer (if prune #'call-with-allocation-profiling nil))))
+    (cond (path
+           (save-profile path profile-buffer :verbosity verbosity)
+           (values-list results))
+          (t profile-buffer))))
 
 (defun save-profile (path profile &key (verbosity :report))
   "Convert a profile into an almost human-readable format."
