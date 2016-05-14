@@ -161,9 +161,9 @@
                (<= end (freelist-metadata-end range)))
       (when (eql (not (not freep)) (freelist-metadata-free-p range))
         (do ((range *store-freelist-head*
-                  (freelist-metadata-next range)))
-          ((null range))
-        (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
+                    (freelist-metadata-next range)))
+            ((null range))
+          (debug-print-line "Range: " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
         (panic "Tried to free a free range or tried to allocate an allocated range. "
                start "-" end ":" freep " " (freelist-metadata-start range) "-" (freelist-metadata-end range) ":" (freelist-metadata-free-p range)))
       (cond
@@ -171,30 +171,29 @@
               (eql (freelist-metadata-end range) end))
          ;; This range will be shrunk to nothingness.
          ;; Merge the next/prev ranges.
-         (cond ((and (freelist-metadata-next range)
-                     (freelist-metadata-prev range))
-                ;; Both sides exist. Pick one to free and enlarge the other.
-                (let ((before (freelist-metadata-prev range))
-                      (after (freelist-metadata-next range)))
+         (let ((before (freelist-metadata-prev range))
+               (after (freelist-metadata-next range)))
+           (cond ((and before after)
+                  ;; Both sides exist. Pick one to free and enlarge the other.
                   (setf (freelist-metadata-prev after) (freelist-metadata-prev before)
                         (freelist-metadata-start after) (freelist-metadata-start before))
                   (cond ((freelist-metadata-prev before)
                          (setf (freelist-metadata-next (freelist-metadata-prev before)) after))
                         (t (setf *store-freelist-head* after)))
                   (freelist-free-metadata before)
-                  (freelist-free-metadata range)))
-               ((freelist-metadata-next range)
-                (setf (freelist-metadata-prev (freelist-metadata-next range)) '()
-                      (freelist-metadata-start (freelist-metadata-next range)) (freelist-metadata-start range)
-                      *store-freelist-head* (freelist-metadata-next range))
-                (freelist-free-metadata range))
-               ((freelist-metadata-prev range)
-                (setf (freelist-metadata-next (freelist-metadata-prev range)) '()
-                      (freelist-metadata-end (freelist-metadata-prev range)) (freelist-metadata-end range)
-                      *store-freelist-tail* (freelist-metadata-prev range))
-                (freelist-free-metadata range))
-               (t ;; Neither side exists! Just flip the free bit.
-                (setf (freelist-metadata-free-p range) freep))))
+                  (freelist-free-metadata range))
+                 (after
+                  (setf (freelist-metadata-prev after) '()
+                        (freelist-metadata-start after) (freelist-metadata-start range)
+                        *store-freelist-head* after)
+                  (freelist-free-metadata range))
+                 (before
+                  (setf (freelist-metadata-next before) '()
+                        (freelist-metadata-end before) (freelist-metadata-end range)
+                        *store-freelist-tail* before)
+                  (freelist-free-metadata range))
+                 (t ;; Neither side exists! Just flip the free bit.
+                  (setf (freelist-metadata-free-p range) freep)))))
         ((eql (freelist-metadata-start range) start)
          ;; Shrink, leaving end the same.
          (adjust-freelist-range-start range end))
