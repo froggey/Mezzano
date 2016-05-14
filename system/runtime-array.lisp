@@ -72,7 +72,7 @@
     ;; Align on a word boundary.
     (unless (zerop (rem total-size 64))
       (incf total-size (- 64 (rem total-size 64))))
-    (%allocate-object (second info) (truncate total-size 64) length area)))
+    (mezzano.runtime::%allocate-object (second info) length (truncate total-size 64) area)))
 
 (defun sign-extend (value width)
   "Convert an unsigned integer to a signed value."

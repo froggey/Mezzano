@@ -504,9 +504,6 @@
       (setf (symbol-plist new-sym) (copy-list (symbol-plist symbol))))
     new-sym))
 
-(defun sys.int::%allocate-object (tag word-count length &optional area)
-  (%allocate-object tag length word-count area))
-
 (sys.int::define-lap-function sys.int::%%make-bignum-128-rdx-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)

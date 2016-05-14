@@ -401,7 +401,7 @@
     (cons (member setf cas) (cons symbol null))))
 
 (defun make-function-reference (name)
-  (let ((fref (%allocate-object +object-tag-function-reference+ 4 0 :wired)))
+  (let ((fref (mezzano.runtime::%allocate-object +object-tag-function-reference+ 0 4 :wired)))
     (setf (%object-ref-t fref +fref-name+) name
           (function-reference-function fref) nil)
     fref))
