@@ -55,6 +55,7 @@
    :stream-write-string
    ;; Extensions.
    :unread-char-mixin
+   :stream-display
    ))
 
 (in-package :sys.gray)
@@ -129,6 +130,8 @@
 (defgeneric stream-write-char (stream character))
 (defgeneric stream-write-string (stream string &optional start end))
 
+(defgeneric stream-display (stream object))
+
 (defclass unread-char-mixin ()
   ((unread-char :initform nil))
   (:documentation "Mixin to add dumb UNREAD-CHAR support to a stream."))
@@ -156,6 +159,9 @@
 
 (defmethod stream-clear-input :before ((stream unread-char-mixin))
   (setf (slot-value stream 'unread-char) nil))
+
+(defmethod stream-display (stream object)
+  (format stream "~S" object))
 
 (in-package :sys.int)
 
