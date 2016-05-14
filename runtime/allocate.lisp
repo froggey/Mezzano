@@ -144,6 +144,7 @@
             (sys.int::%%assemble-value address sys.int::+tag-object+)))))))
 
 (defun %allocate-from-pinned-area (tag data words)
+  (log-allocation-profile-entry)
   (loop
      for i from 0 do
        (let ((result (%allocate-from-pinned-area-1 tag data words)))
@@ -163,6 +164,7 @@
           (sys.int::%%assemble-value address sys.int::+tag-object+))))))
 
 (defun %allocate-from-wired-area (tag data words)
+  (log-allocation-profile-entry)
   (loop
      for i from 0 do
        (let ((result (%allocate-from-wired-area-1 tag data words)))
@@ -220,6 +222,7 @@
        (sys.int::gc)))
 
 (defun %allocate-from-general-area (tag data words)
+  (log-allocation-profile-entry)
   (let ((gc-count 0))
     (tagbody
      OUTER-LOOP
@@ -288,7 +291,6 @@
 (defun %allocate-object (tag data size area)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
-  (log-allocation-profile-entry)
   (let ((words (1+ size)))
     (when (oddp words)
       (incf words))
