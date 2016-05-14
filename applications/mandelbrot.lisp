@@ -74,11 +74,11 @@
         (setf (mezzano.gui:surface-pixel framebuffer x y) (render-mandelbrot x y width height hue-offset))))
     framebuffer))
 
-(defun mandelbrot-main ()
+(defun mandelbrot-main (width height)
   (with-simple-restart (abort "Close Mandelbrot")
     (catch 'quit
       (let ((fifo (mezzano.supervisor:make-fifo 50)))
-        (mezzano.gui.compositor:with-window (window fifo 500 500)
+        (mezzano.gui.compositor:with-window (window fifo width height)
           (let* ((framebuffer (mezzano.gui.compositor:window-buffer window))
                  (frame (make-instance 'mezzano.gui.widgets:frame
                                        :framebuffer framebuffer
@@ -93,7 +93,7 @@
             (multiple-value-bind (left right top bottom)
                 (mezzano.gui.widgets:frame-size frame)
               (let ((width (- (mezzano.gui.compositor:width window) left right))
-                    (height (- (mezzano.gui.compositor:width window) top bottom))
+                    (height (- (mezzano.gui.compositor:height window) top bottom))
                     (pixel-count 0)
                     (hue-offset (rem (get-universal-time) 360)))
                 ;; Render a line at a time, should do this in a seperate thread really...
@@ -109,8 +109,8 @@
               (loop
                  (dispatch-event frame (mezzano.supervisor:fifo-pop fifo))))))))))
 
-(defun spawn ()
-  (mezzano.supervisor:make-thread 'mandelbrot-main
+(defun spawn (&optional (width 500) (height width))
+  (mezzano.supervisor:make-thread (lambda () (mandelbrot-main width height))
                                   :name "Mandelbrot"
                                   :initial-bindings `((*terminal-io* ,(make-instance 'mezzano.gui.popup-io-stream:popup-io-stream
                                                                                      :title "Mandelbrot console"))
