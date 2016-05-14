@@ -20,7 +20,7 @@
 
 ;; http://wiki.osdev.org/Programmable_Interval_Timer
 (defun configure-pit-tick-rate (hz)
-  (let ((divisor (truncate 1193180 hz)))
+  (let ((divisor (min #x10000 (truncate 1193180 hz))))
     (setf *pit-tick-rate* (/ 1.0 hz)
           *run-time-advance* (truncate (* *pit-tick-rate*
                                           internal-time-units-per-second)))
