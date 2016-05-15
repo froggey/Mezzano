@@ -68,65 +68,32 @@
           resume)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin ash (integer count) ()
+(defbuiltin mezzano.runtime::%fixnum-left-shift (integer count) ()
+  ;; INTEGER and COUNT must both be fixnums.
+  (load-in-reg :r8 integer t)
   (cond ((constant-type-p count 'fixnum)
-         (setf count (second count))
-         (load-in-reg :r8 integer t)
-         (let ((not-fixnum (gensym "ash-not-fixnum"))
-               (resume (gensym "ash-resume")))
-           (emit-trailer (not-fixnum)
-             (load-constant :r9 count)
-             (call-support-function 'sys.int::%ash 2)
-             (load-constant :r13 'sys.int::%ash)
+         (let ((count-value (second count))
+               (resume (gensym "ash-resume"))
+               (ovfl (gensym))
+               (loop-head (gensym)))
+           ;; Perform the shift one bit at a time so that overflow can be checked for.
+           (emit-trailer (ovfl)
+             ;; Shift count in R9, overflowed value in R8, carry bit set to last
+             ;; bit shifted out.
+             ;; Undo the last shift, then call into the helper function.
+             (emit `(sys.lap-x86:rcr64 :r8 1))
+             (call-support-function 'mezzano.runtime::left-shift 2)
              (emit `(sys.lap-x86:jmp ,resume)))
-           (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
-                 `(sys.lap-x86:jnz ,not-fixnum))
-           (cond ((minusp count)
-                  ;; Right shift.
-                  (setf count (- count))
-                  (smash-r8)
-                  (cond ((>= count (- 64 sys.int::+n-fixnum-bits+))
-                         ;; All bits shifted out.
-                         (emit `(sys.lap-x86:cqo)
-                               `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
-                               `(sys.lap-x86:mov64 :r8 :rdx)))
-                        (t (emit `(sys.lap-x86:mov64 :rax :r8)
-                                 `(sys.lap-x86:sar64 :rax ,count)
-                                 `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
-                                 `(sys.lap-x86:mov64 :r8 :rax))))
-                  (emit resume)
-                  (setf *r8-value* (list (gensym))))
-                 ((plusp count)
-                  ;; Left shift.
-                  ;; Perform the shift one bit at a time so that overflow can be checked for.
-                  (let ((ovfl (gensym))
-                        (loop-head (gensym)))
-                    (emit-trailer (ovfl)
-                      ;; Shift count in R9, overflowed value in R8, carry bit set to last
-                      ;; bit shifted out.
-                      ;; Undo the last shift, then call into the helper function.
-                      (emit `(sys.lap-x86:rcr64 :r8 1))
-                      (call-support-function 'sys.int::%ash 2)
-                      (emit `(sys.lap-x86:jmp ,resume)))
-                    (load-constant :r9 count)
-                    (smash-r8)
-                    (emit loop-head)
-                    (emit `(sys.lap-x86:shl64 :r8 1)
-                          `(sys.lap-x86:jo ,ovfl)
-                          `(sys.lap-x86:sub64 :r9 ,(fixnum-to-raw 1))
-                          `(sys.lap-x86:jnz ,loop-head))
-                    (emit resume)
-                    (setf *r8-value* (list (gensym)))))
-                 ((zerop count)
-                  ;; Type check only.
-                  (emit resume)
-                  integer))))
-        (t (let ((done-label (gensym))
-                 (shift-left (gensym))
-                 (shift-right (gensym))
-                 (sign-extend (gensym))
+           (load-constant :r9 count-value)
+           (smash-r8)
+           (emit loop-head)
+           (emit `(sys.lap-x86:shl64 :r8 1)
+                 `(sys.lap-x86:jo ,ovfl)
+                 `(sys.lap-x86:sub64 :r9 ,(fixnum-to-raw 1))
+                 `(sys.lap-x86:jnz ,loop-head))
+           (emit resume)))
+        (t (let ((shift-left (gensym))
                  (ovfl (gensym))
-                 (full (gensym))
                  (really-done (gensym))
                  (count-save (allocate-control-stack-slots 1)))
              (emit-trailer (ovfl)
@@ -144,27 +111,13 @@
                 ;; Fall into the bignum helper.
                 `(sys.lap-x86:mov64 :rcx ,(control-stack-slot-ea count-save))
                 `(sys.lap-x86:lea64 :r9 ((:rcx ,(ash 1 sys.int::+n-fixnum-bits+)) ,(fixnum-to-raw -1))))
-               (call-support-function 'sys.int::%ash 2)
-               (emit
-                `(sys.lap-x86:jmp ,really-done)))
-             (emit-trailer (full)
-               (call-support-function 'sys.int::%ash 2)
+               (call-support-function 'mezzano.runtime::left-shift 2)
                (emit
                 `(sys.lap-x86:jmp ,really-done)))
              (load-in-reg :r9 count t)
-             (emit `(sys.lap-x86:test64 :r9 ,sys.int::+fixnum-tag-mask+)
-                   `(sys.lap-x86:jnz ,full))
-             (fixnum-check :r9)
-             (load-in-reg :r8 integer t)
              (smash-r8)
-             (emit `(sys.lap-x86:test64 :r8 ,sys.int::+fixnum-tag-mask+)
-                   `(sys.lap-x86:jnz ,full))
-             (fixnum-check :r8)
+             (emit `(sys.lap-x86:mov64 :rax :r8))
              (emit `(sys.lap-x86:mov64 :rcx :r9)
-                   `(sys.lap-x86:mov64 :rax :r8)
-                   `(sys.lap-x86:cmp64 :rcx 0)
-                   `(sys.lap-x86:jz ,done-label)
-                   `(sys.lap-x86:jl ,shift-right)
                    ;; Left shift.
                    ;; Perform the shift one bit at a time so that overflow can be checked for.
                    `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
@@ -173,24 +126,46 @@
                    `(sys.lap-x86:jo ,ovfl)
                    `(sys.lap-x86:sub64 :rcx 1)
                    `(sys.lap-x86:jnz ,shift-left)
-                   `(sys.lap-x86:jmp ,done-label)
-                   ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
-                   shift-right
-                   `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw -64))
-                   `(sys.lap-x86:jle ,sign-extend)
-                   `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
-                   `(sys.lap-x86:neg64 :rcx)
-                   `(sys.lap-x86:sar64 :rax :cl)
-                   `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
-                   `(sys.lap-x86:jmp ,done-label)
-                   sign-extend
-                   `(sys.lap-x86:cqo)
-                   `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
-                   `(sys.lap-x86:mov64 :rax :rdx)
-                   done-label
                    `(sys.lap-x86:mov64 :r8 :rax)
-                   really-done)
-             (setf *r8-value* (list (gensym)))))))
+                   really-done))))
+  (setf *r8-value* (list (gensym))))
+
+(defbuiltin mezzano.runtime::%fixnum-right-shift (integer count) ()
+  ;; INTEGER and COUNT must both be fixnums.
+  (load-in-reg :r8 integer t)
+  (emit `(sys.lap-x86:mov64 :rax :r8))
+  (cond ((constant-type-p count 'fixnum)
+         (let ((count-value (second count)))
+           (smash-r8)
+           (cond ((>= count-value (- 64 sys.int::+n-fixnum-bits+))
+                  ;; All bits shifted out.
+                  (emit `(sys.lap-x86:cqo)
+                        `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                        `(sys.lap-x86:mov64 :r8 :rdx)))
+                 (t (emit `(sys.lap-x86:sar64 :rax ,count-value)
+                          `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                          `(sys.lap-x86:mov64 :r8 :rax))))))
+        (t
+         ;; Shift right by arbitrary count.
+         (let ((done-label (gensym))
+               (sign-extend (gensym)))
+           (load-in-reg :r9 count t)
+           (smash-r8)
+           (emit `(sys.lap-x86:mov64 :rcx :r9)
+                 ;; x86 masks the shift count to 6 bits, test if all the bits were shifted out.
+                 `(sys.lap-x86:cmp64 :rcx ,(fixnum-to-raw 64))
+                 `(sys.lap-x86:jae ,sign-extend)
+                 `(sys.lap-x86:sar64 :rcx ,sys.int::+n-fixnum-bits+)
+                 `(sys.lap-x86:sar64 :rax :cl)
+                 `(sys.lap-x86:and64 :rax ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                 `(sys.lap-x86:jmp ,done-label)
+                 sign-extend
+                 `(sys.lap-x86:cqo)
+                 `(sys.lap-x86:and64 :rdx ,(- (ash 1 sys.int::+n-fixnum-bits+)))
+                 `(sys.lap-x86:mov64 :rax :rdx)
+                 done-label
+                 `(sys.lap-x86:mov64 :r8 :rax)))))
+  (setf *r8-value* (list (gensym))))
 
 ;;; Arithmetic.
 

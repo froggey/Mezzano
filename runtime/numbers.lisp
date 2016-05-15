@@ -359,3 +359,70 @@
              (1- len)
              len))
       (setf integer (ash integer -1)))))
+
+(declaim (inline left-shift right-shift))
+
+(defun left-shift (integer count)
+  (cond ((and (sys.int::fixnump integer)
+              (sys.int::fixnump count))
+         (%fixnum-left-shift integer count))
+        (t
+         (generic-left-shift integer count))))
+
+(defun right-shift (integer count)
+  (cond ((and (sys.int::fixnump integer)
+              (sys.int::fixnump count))
+         (%fixnum-right-shift integer count))
+        (t
+         (generic-right-shift integer count))))
+
+(defun generic-left-shift (integer count)
+  (cond ((not (sys.int::fixnump count))
+         (check-type count integer)
+         (error "TODO: Bignum LEFT-SHIFT count not implemented yet."))
+        ((sys.int::fixnump integer)
+         (%fixnum-left-shift integer count))
+        ((sys.int::bignump integer)
+         (multiple-value-bind (quot rem)
+             (truncate count 32)
+           (dotimes (i quot)
+             (setf integer (sys.int::%%bignum-left-shift integer 32)))
+           (sys.int::%%bignum-left-shift integer rem)))
+        (t
+         (check-type integer integer))))
+
+(defun generic-right-shift (integer count)
+  (cond ((not (sys.int::fixnump count))
+         (check-type count integer)
+         (check-type integer integer)
+         (if (minusp integer)
+             -1
+             0))
+        ((sys.int::fixnump integer)
+         (%fixnum-right-shift integer count))
+        ((sys.int::bignump integer)
+         (multiple-value-bind (quot rem)
+             (truncate count 32)
+           (dotimes (i quot)
+             (setf integer (sys.int::%%bignum-right-shift integer 32))
+             (cond ((eql integer 0)
+                    (return-from generic-right-shift 0))
+                   ((eql integer -1)
+                    (return-from generic-right-shift -1))
+                   ((sys.int::fixnump integer)
+                    (setf integer (sys.int::%make-bignum-from-fixnum integer)))))
+           (sys.int::%%bignum-right-shift integer rem)))
+        (t
+         (check-type integer integer))))
+
+(defun ash (integer count)
+  (cond
+    ((> count 0)
+     (left-shift integer count))
+    ((< count 0)
+     (right-shift integer (- count)))
+    (t
+     (check-type integer integer)
+     (check-type count integer)
+     (assert (eql count 0))
+     integer)))

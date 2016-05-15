@@ -398,6 +398,22 @@
       (setf (name form) 'eq)))
   form)
 
+(defun simp-ash (form)
+  (simp-form-list (arguments form))
+  (when (and (eql (list-length (arguments form)) 2)
+             (quoted-form-p (second (arguments form)))
+             (integerp (value (second (arguments form)))))
+    ;; (ash value known-count) => left-shift or right-shift.
+    (change-made)
+    (cond ((plusp (value (second (arguments form))))
+           (setf (name form) 'mezzano.runtime::left-shift))
+          (t
+           (setf (name form) 'mezzano.runtime::right-shift
+                 (arguments form) (list (first (arguments form))
+                                        (make-instance 'ast-quote
+                                                       :value (- (value (second (arguments form))))))))))
+  form)
+
 (defmethod simp-form ((form ast-call))
   ;; (funcall 'symbol ...) -> (symbol ...)
   ;; (funcall #'name ...) -> (name ...)
@@ -415,6 +431,8 @@
            (ast `(call ,name ,@(rest (arguments form))))))
         ((eql (name form) 'eql)
          (simp-eql form))
+        ((eql (name form) 'ash)
+         (simp-ash form))
         (t (simp-form-list (arguments form))
            form)))
 

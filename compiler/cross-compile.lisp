@@ -920,3 +920,16 @@ files will be compiled correctly.")
 
 (deftype sys.int::non-negative-fixnum ()
   `(integer 0 ,most-positive-fixnum))
+
+(defun sys.int::fixnump (object)
+  (sys.c::fixnump object))
+
+(defun mezzano.runtime::left-shift (integer count)
+  (check-type integer integer)
+  (check-type count (integer 1))
+  (ash integer count))
+
+(defun mezzano.runtime::right-shift (integer count)
+  (check-type integer integer)
+  (check-type count (integer 1))
+  (ash integer (- count)))
