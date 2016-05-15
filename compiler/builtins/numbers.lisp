@@ -353,7 +353,7 @@
 ;;; Comparisons.
 
 (defmacro define-conditional-builtin (name generic-name conditional)
-  `(defbuiltin ,name (x y) ()
+  `(defbuiltin ,name (x y) (nil)
      (let ((generic (gensym))
            (resume (gensym)))
        (emit-trailer (generic)
@@ -379,3 +379,9 @@
 (define-conditional-builtin sys.int::binary-> sys.int::generic-> :g)
 (define-conditional-builtin sys.int::binary-<= sys.int::generic-<= :le)
 (define-conditional-builtin sys.int::binary-= sys.int::generic-= :e)
+
+(defbuiltin mezzano.runtime::%fixnum-< (x y) ()
+  (load-in-reg :r9 y t)
+  (load-in-reg :r8 x t)
+  (emit `(sys.lap-x86:cmp64 :r8 :r9))
+  (predicate-result :l))

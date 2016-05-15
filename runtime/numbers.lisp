@@ -426,3 +426,37 @@
      (check-type count integer)
      (assert (eql count 0))
      integer)))
+
+(declaim (inline sys.int::binary-=
+                 sys.int::binary-< sys.int::binary-<=
+                 sys.int::binary-> sys.int::binary->=))
+
+(defun sys.int::binary-= (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (eq lhs rhs)
+      (sys.int::generic-= lhs rhs)))
+
+(defun sys.int::binary-< (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-< lhs rhs)
+      (sys.int::generic-< lhs rhs)))
+
+(defun sys.int::binary-<= (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (not (%fixnum-< rhs lhs))
+      (sys.int::generic-<= lhs rhs)))
+
+(defun sys.int::binary-> (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (%fixnum-< rhs lhs)
+      (sys.int::generic-> lhs rhs)))
+
+(defun sys.int::binary->= (lhs rhs)
+  (if (and (sys.int::fixnump lhs)
+           (sys.int::fixnump rhs))
+      (not (%fixnum-< lhs rhs))
+      (sys.int::generic->= lhs rhs)))
