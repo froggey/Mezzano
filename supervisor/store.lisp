@@ -29,27 +29,36 @@
 (defvar *store-freelist-n-deferred-free-blocks*)
 (defvar *store-freelist-total-blocks*)
 
-(macrolet ((field (name offset)
-             (let ((field-name (intern (format nil "+FREELIST-METADATA-~A+" (symbol-name name))
-                                       (symbol-package name)))
-                   (accessor-name (intern (format nil "FREELIST-METADATA-~A" (symbol-name name))
-                                          (symbol-package name))))
-               `(progn
-                  (defconstant ,field-name ,offset)
-                  (defun ,accessor-name (md)
-                    (sys.int::memref-t md ,field-name))
-                  (defun (setf ,accessor-name) (value md)
-                    (setf (sys.int::memref-t md ,field-name) value))))))
-  (field start 0)
-  (field stuff 1)
-  (field next  2)
-  (field prev  3))
+;; Use a macro instead of macrolet to define these functions
+;; because the compiler doesn't generate inlining info when there's
+;; a non-null environment.
+(defmacro define-freelist-metadata-field (name offset)
+  (let ((field-name (intern (format nil "+FREELIST-METADATA-~A+" (symbol-name name))
+                            (symbol-package name)))
+        (accessor-name (intern (format nil "FREELIST-METADATA-~A" (symbol-name name))
+                               (symbol-package name))))
+    `(progn
+       (defconstant ,field-name ,offset)
+       (declaim (inline ,accessor-name (setf ,accessor-name)))
+       (defun ,accessor-name (md)
+         (sys.int::memref-t md ,field-name))
+       (defun (setf ,accessor-name) (value md)
+         (setf (sys.int::memref-t md ,field-name) value)))))
+
+(define-freelist-metadata-field start 0)
+(define-freelist-metadata-field stuff 1)
+(define-freelist-metadata-field next  2)
+(define-freelist-metadata-field prev  3)
+
+(declaim (inline freelist-metadata-end (setf freelist-metadata-end)))
 
 (defun freelist-metadata-end (md)
   (ldb (byte 60 1) (freelist-metadata-stuff md)))
 
 (defun (setf freelist-metadata-end) (value md)
   (setf (ldb (byte 60 1) (freelist-metadata-stuff md)) value))
+
+(declaim (inline freelist-metadata-free-p (setf freelist-metadata-free-p)))
 
 (defun freelist-metadata-free-p (md)
   (logbitp 0 (freelist-metadata-stuff md)))
