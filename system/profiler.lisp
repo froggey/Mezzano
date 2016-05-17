@@ -8,9 +8,17 @@
   (:use :cl)
   (:export #:decode-profile-buffer
            #:save-profile
-           #:with-profiling))
+           #:with-profiling
+           #:with-allocation-profiling))
 
 (in-package :mezzano.profiler)
+
+(defparameter *ignorable-function-names*
+  '(sys.int::%apply
+    apply
+    (lambda :in system.closette::compute-1-effective-discriminator)
+    (lambda :in system.closette::std-compute-effective-method-function)
+    (lambda :in system.closette::compute-n-effective-discriminator)))
 
 (defstruct thread-sample
   thread
@@ -18,7 +26,7 @@
   wait-item
   call-stack)
 
-(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune) &body body)
+(defmacro with-profiling ((&whole options &key buffer-size path thread verbosity prune ignore-functions) &body body)
   "Profile BODY.
 :THREAD - Thread to sample.
           If NIL, then sample all threads.
@@ -26,10 +34,11 @@
           Can be a specific thread to sample.
 :BUFFER-SIZE - Size of the profiler's sample buffer.
 :PATH - Path to write th profiler report to, if NIL then the samples will be returned.
-:PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call."
+:PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call.
+:IGNORE-FUNCTIONS - A list of function names to be removed from the call stack."
   `(call-with-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)))
+(defun call-with-profiling (function &key buffer-size path (thread t) (verbosity :report) (prune (eql thread 't)) (ignore-functions *ignorable-function-names*))
   (let* ((profile-buffer nil)
          (results (unwind-protect
                        (progn
@@ -40,13 +49,13 @@
                                       thread))
                          (multiple-value-list (funcall function)))
                     (setf profile-buffer (mezzano.supervisor:stop-profiling)))))
-    (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil)))
+    (setf profile-buffer (decode-profile-buffer profile-buffer (if prune #'call-with-profiling nil) ignore-functions))
     (cond (path
            (save-profile path profile-buffer :verbosity verbosity)
            (values-list results))
           (t profile-buffer))))
 
-(defun decode-profile-buffer (buffer &optional prune-function)
+(defun decode-profile-buffer (buffer &optional prune-function ignore-functions)
   "Convert the buffer returned by STOP-PROFILING into a more useful format.
 The returned value is a sequence of samples, and each sample is a sequence of
 thread states & call-stacks."
@@ -91,7 +100,9 @@ thread states & call-stacks."
                       (let ((fn (consume))
                             (offset (consume)))
                         (unless stop
-                          (vector-push-extend (cons fn offset) call-stack)
+                          (when (not (find (sys.int::function-name fn) ignore-functions
+                                           :test #'equal))
+                            (vector-push-extend (cons fn offset) call-stack))
                           (when (eql fn prune-function)
                             (setf stop t)))))
                      (t (return))))
@@ -103,7 +114,7 @@ thread states & call-stacks."
            (vector-push-extend sample profile-entries))))
     profile-entries))
 
-(defmacro with-allocation-profiling ((&whole options &key path verbosity prune) &body body)
+(defmacro with-allocation-profiling ((&whole options &key path verbosity prune ignore-functions) &body body)
   "Profile BODY.
 :THREAD - Thread to sample.
           If NIL, then sample all threads.
@@ -114,12 +125,12 @@ thread states & call-stacks."
 :PRUNE - When :THREAD is T, try to prune away stack frames above the WITH-PROFILING call."
   `(call-with-allocation-profiling (lambda () ,@body) ,@options))
 
-(defun call-with-allocation-profiling (function &key path (verbosity :report) (prune t))
+(defun call-with-allocation-profiling (function &key path (verbosity :report) (prune t) (ignore-functions *ignorable-function-names*))
   (let* ((raw-buffer (make-array 0 :adjustable t :fill-pointer 0))
          (results (let* ((mezzano.runtime::*allocation-profile* raw-buffer)
                          (mezzano.runtime::*enable-allocation-profiling* t))
                     (multiple-value-list (funcall function))))
-         (profile-buffer (decode-profile-buffer raw-buffer (if prune #'call-with-allocation-profiling nil))))
+         (profile-buffer (decode-profile-buffer raw-buffer (if prune #'call-with-allocation-profiling nil) ignore-functions)))
     (cond (path
            (save-profile path profile-buffer :verbosity verbosity)
            (values-list results))
