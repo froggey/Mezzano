@@ -720,6 +720,7 @@
                 (lambda (third form))
                 (*load-time-value-hook* 'cross-load-time-value)
                 (fn (compile-lambda lambda (cons env nil))))
+           (declare (special *load-time-value-hook*))
            #+nil(add-to-llf sys.int::+llf-defun+ name fn)
            (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
         ;; And (define-lap-function name (options...) code...)
