@@ -67,6 +67,7 @@
 (%define-type-symbol 'simple-array '%simple-1d-array-p)
 )
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
 (defun parse-array-type (type)
   (destructuring-bind (&optional (element-type '*) (dimension-spec '*))
       (cdr type)
@@ -77,6 +78,7 @@
                 (eql dimension-spec '*))
             (dimension-spec))
     (values element-type dimension-spec)))
+)
 
 (defun array-type-p (object type)
   (multiple-value-bind (element-type dimension-spec)
@@ -103,6 +105,17 @@
 (%define-compound-type 'array 'array-type-p)
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'array 'arrayp)
+(defun compile-array-type (object type)
+  (multiple-value-bind (element-type dimension-spec)
+      (parse-array-type type)
+    (when (not (eql dimension-spec '*))
+      ;; Bail on complicated dimensions.
+      (return-from compile-array-type nil))
+    (case element-type
+      ((*) `(arrayp ,object))
+      ((bit) `(bit-array-p ,object))
+      (t nil))))
+(%define-compound-type-optimizer 'array 'compile-array-type)
 )
 
 (defun upgraded-array-element-type (typespec &optional environment)
@@ -134,6 +147,10 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (%define-type-symbol 'vector 'vectorp)
 )
+
+(defun bit-array-p (object)
+  (and (arrayp object)
+       (eql (array-element-type object) 'bit)))
 
 (defun bit-vector-p (object)
   (and (vectorp object)
@@ -255,8 +272,9 @@
            (unless displaced-index-offset
              (setf displaced-index-offset 0))
            (%make-array-header +object-tag-array+ displaced-to fill-pointer displaced-index-offset dimensions area))
-          ((and (subtypep element-type 'character)
-                (not (subtypep element-type 'nil)))
+          ((or (eql element-type 'character)
+               (and (subtypep element-type 'character)
+                    (not (subtypep element-type 'nil))))
            (let* ((total-size (apply #'* dimensions))
                   (backing-array (make-simple-array total-size '(unsigned-byte 8) area))
                   (array (%make-array-header +object-tag-string+ backing-array fill-pointer nil dimensions area)))
