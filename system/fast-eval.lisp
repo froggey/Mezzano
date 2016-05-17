@@ -10,8 +10,9 @@
 (in-package :mezzano.fast-eval)
 
 (defun eval-compile (form env)
-  (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
-                                  (cons env nil))))
+  (let ((sys.c::*load-time-value-hook* 'sys.c::eval-load-time-value))
+    (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
+                                    (cons env nil)))))
 
 (defun eval-progn-body (forms env)
   (do ((itr forms (cdr itr)))
