@@ -326,8 +326,7 @@
      (funcallable-instance-debug-info function))))
 
 (defun funcallable-std-instance-p (object)
-  (and (eql (%tag-field object) +tag-object+)
-       (eql (%object-tag object) +object-tag-funcallable-instance+)))
+  (%object-of-type-p object +object-tag-funcallable-instance+))
 
 (defun funcallable-std-instance-function (funcallable-instance)
   (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
@@ -453,8 +452,7 @@
                   :datum name))))
 
 (defun function-reference-p (object)
-  (and (eql (%tag-field object) +tag-object+)
-       (eql (%object-tag object) +object-tag-function-reference+)))
+  (%object-of-type-p object +object-tag-function-reference+))
 
 (deftype function-reference ()
   '(satisfies function-reference-p))

@@ -78,9 +78,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
       (setf from-offset (sys.int::%complex-array-info from-array)
             from-storage (sys.int::%complex-array-storage from-storage)))
     ;; Storage must be a simple ub32 array.
-    (when (not (and (eql (sys.int::%tag-field from-storage) sys.int::+tag-object+)
-                    (eql (sys.int::%object-tag from-storage)
-                         sys.int::+object-tag-array-unsigned-byte-32+)))
+    (when (not (sys.int::%object-of-type-p from-storage sys.int::+object-tag-array-unsigned-byte-32+))
       (error 'type-error
              :expected-type (array (unsigned-byte 32) (* *))
              :datum from-array))
