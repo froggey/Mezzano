@@ -97,10 +97,7 @@ be generated instead.")
 
 (defun codegen-lambda (lambda)
   (let* ((*current-lambda* lambda)
-         (*current-lambda-name* (or (lambda-information-name lambda)
-                                    (list 'lambda :in (or *current-lambda-name*
-                                                          (when *compile-file-pathname*
-                                                            (princ-to-string *compile-file-pathname*))))))
+         (*current-lambda-name* (lambda-information-name lambda))
          (*run-counter* 0)
          (*load-list* '())
          (*r8-value* nil)

@@ -100,7 +100,12 @@
     (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
 	(sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((info (make-instance 'lambda-information
-                                  :name name
+                                  :name (or name
+                                            `(lambda :in ,(or (and (boundp '*current-lambda*)
+                                                                   *current-lambda*
+                                                                   (lambda-information-name *current-lambda*))
+                                                              (when *compile-file-pathname*
+                                                                (princ-to-string *compile-file-pathname*)))))
                                   :docstring docstring
                                   :lambda-list lambda-list
                                   :enable-keys enable-keys
@@ -343,7 +348,7 @@
                                :name name
                                :definition-point *current-lambda*)))
       (values name var `(lambda ,(second fn)
-                          (declare (system:lambda-name ,name)
+                          (declare (system:lambda-name (flet ,name :in ,(lambda-information-name *current-lambda*)))
                                    ,@declares)
                           (block ,(if (consp name)
                                       (second name)
