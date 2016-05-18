@@ -715,6 +715,7 @@
         (make-instance 'ast-unwind-protect
                        :protected-form (pass1-form protected-form env)
                        :cleanup-function (pass1-lambda `(lambda ()
+                                                          (declare (system:lambda-name (unwind-protect-cleanup :in ,(lambda-information-name *current-lambda*))))
                                                           (progn ,@cleanup-forms))
                                                        env))
 	(pass1-form protected-form env))))
