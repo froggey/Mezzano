@@ -158,6 +158,8 @@
 	(optional-args (lambda-information-optional-args lambda))
 	(rest-arg (lambda-information-rest-arg lambda))
         (key-args (lambda-information-key-args lambda)))
+    (when (getf (lambda-information-plist lambda) 'notinline)
+      (return-from lift-lambda))
     (when (lambda-information-environment-arg lambda)
       (warn 'sys.int::simple-style-warning
             :format-control "Not inlining ~S, has environment arg."

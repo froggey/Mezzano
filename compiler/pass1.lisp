@@ -360,6 +360,14 @@
                    (equal (second item) name))
           (return-from function-declared-dynamic-extent-p t))))))
 
+(defun function-declared-notinline-p (name declares)
+  "Look for a (notinline NAME) declaration for NAME in DECLARES."
+  (dolist (dec declares)
+    (when (eql (first dec) 'notinline)
+      (dolist (item (rest dec))
+        (when (equal item name)
+          (return-from function-declared-notinline-p t))))))
+
 (defun pass1-flet (form env)
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
@@ -373,6 +381,8 @@
                            (let ((lambda (pass1-lambda lambda env)))
                              (when (function-declared-dynamic-extent-p sym declares)
                                (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                             (when (function-declared-notinline-p sym declares)
+                               (setf (getf (lambda-information-plist lambda) 'notinline) t))
                              (list var lambda))))
 		       functions)
                        ;; TODO: special vars.
@@ -428,6 +438,8 @@
                                            (let ((lambda (pass1-lambda (third x) env)))
                                              (when (function-declared-dynamic-extent-p (first x) declares)
                                                (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                                             (when (function-declared-notinline-p (first x) declares)
+                                               (setf (getf (lambda-information-plist lambda) 'notinline) t))
                                              (list (second x) lambda)))
                                          raw-bindings)
                        ;; TODO: declares
