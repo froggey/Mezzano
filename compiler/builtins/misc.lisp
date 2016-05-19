@@ -153,7 +153,7 @@
 
 ;;; Grovelling in the machine.
 
-(defbuiltin system.internals::read-frame-pointer () ()
+(defbuiltin system.internals::read-frame-pointer () (nil)
   (smash-r8)
   (emit `(sys.lap-x86:lea64 :r8 ((:rbp ,(ash 1 sys.int::+n-fixnum-bits+)))))
   (setf *r8-value* (list (gensym))))
