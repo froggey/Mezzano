@@ -346,7 +346,8 @@
   ;; Grovel directly in the allocator mutex to make sure that it isn't held.
   (sys.lap-x86:mov64 :rax (:constant *allocator-lock*))
   (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
-  (sys.lap-x86:cmp64 (:object :rax 5) nil) ; mutex-owner
+  (sys.lap-x86:mov64 :rbx (:constant :unlocked))
+  (sys.lap-x86:cmp64 (:object :rax 6) :rbx) ; mutex-state
   (sys.lap-x86:jne SLOW-PATH)
   ;; Fetch current bump pointer.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*cons-area-bump*))

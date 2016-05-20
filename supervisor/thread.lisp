@@ -898,42 +898,52 @@ Interrupts must be off, the current thread must be locked."
              (:include wait-queue)
              (:constructor make-mutex (&optional name))
              (:area :wired))
-  ;; When NIL, the lock is free, otherwise is set to
-  ;; the thread that holds the lock.
+  ;; Thread holding the lock, or NIL if it is free.
+  ;; May not be correct when the lock is being acquired/released.
   (owner nil)
-  (stack-next nil))
+  ;; Lock state.
+  ;; :unlocked - No thread is holding the lock.
+  ;; :locked - A thread is holding the lock and no other threads have
+  ;;           attempted to acquire it.
+  ;; :contested - The lock is held, and there are threads attempting to
+  ;;              acquire it. This causes release to wake sleeping threads.
+  ;; Must be index 6. CONS grovels directly in the lock.
+  (state :unlocked)
+  (stack-next nil)
+  ;; Number of times ACQUIRE-MUTEX failed to immediately acquire the lock.
+  (contested-count 0))
 
 (defun acquire-mutex (mutex &optional (wait-p t))
   (let ((self (current-thread)))
-    (when wait-p
-      (ensure-interrupts-enabled)
-      (unless (not *pseudo-atomic*)
-        (panic "Trying to acquire mutex " mutex " while pseudo-atomic.")))
     ;; Fast path - try to lock.
-    (when (eql (sys.int::cas (mutex-owner mutex) nil self) nil)
+    (when (eql (sys.int::cas (mutex-state mutex) :unlocked :locked) :unlocked)
       ;; We got it.
-      (setf (mutex-stack-next mutex) (thread-mutex-stack self)
-            (thread-mutex-stack self) mutex)
+      (setf (mutex-owner mutex) self)
       (return-from acquire-mutex t))
     ;; Idiot check.
     (unless (not (mutex-held-p mutex))
-      (error "Recursive locking detected on ~S." mutex))
+      (panic "Recursive locking detected on " mutex " " (mutex-name mutex)))
+    ;; Increment MUTEX-CONTESTED-COUNT
+    (sys.int::%atomic-fixnum-add-object mutex 8 1)
     (when wait-p
+      (ensure-interrupts-enabled)
+      (unless (not *pseudo-atomic*)
+        (panic "Trying to acquire mutex " mutex " while pseudo-atomic."))
       (%call-on-wired-stack-without-interrupts
        #'acquire-mutex-slow-path nil mutex self)
       t)))
 
 (defun acquire-mutex-slow-path (sp fp mutex self)
   ;; Slow path.
+  ;; Now try to sleep on the lock.
   (lock-wait-queue mutex)
+  ;; Put the lock into the contested state.
   ;; Try to acquire again, release may have been running.
-  (when (eql (sys.int::cas (mutex-owner mutex) nil self) nil)
+  (when (eql (sys.int::%xchg-object mutex 6 :contested) :unlocked)
     ;; We got it.
-    (setf (mutex-stack-next mutex) (thread-mutex-stack self)
-          (thread-mutex-stack self) mutex)
+    (setf (mutex-owner mutex) self)
     (unlock-wait-queue mutex)
     (return-from acquire-mutex-slow-path))
-  ;; No good, have to sleep.
   ;; Add to wait queue. Release will directly transfer ownership
   ;; to this thread.
   (push-wait-queue self mutex)
@@ -942,24 +952,6 @@ Interrupts must be off, the current thread must be locked."
   ;; may be able to remove the thread from the sleep queue before it goes
   ;; to sleep.
   (%lock-thread self)
-  ;; Do some deadlock detection before going to sleep. If the current owner
-  ;; is blocked on a mutex held by self, then a deadlock has occurred.
-  (let ((owner (mutex-owner mutex)))
-    (with-thread-lock (owner)
-      (when (eql (thread-state owner) :sleeping)
-        (do ((lock (thread-mutex-stack self) (mutex-stack-next lock)))
-            ((null lock))
-          (when (eql lock (thread-wait-item owner))
-            (%unlock-thread owner)
-            (%unlock-thread self)
-            (pop-wait-queue mutex)
-            (unlock-wait-queue mutex)
-            (panic "Deadlock detected!~%~
-Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
-                   current
-                   mutex
-                   owner
-                   lock))))))
   (unlock-wait-queue mutex)
   (setf (thread-wait-item self) mutex
         (thread-state self) :sleeping)
@@ -972,23 +964,25 @@ Current thread ~S locking ~S, held by ~S, waiting on lock ~S!"
 (defun release-mutex (mutex)
   (unless (mutex-held-p mutex)
     (panic "Trying to release mutex " mutex " not held by thread."))
-  (safe-without-interrupts (mutex)
-    (with-wait-queue-lock (mutex)
-      (let ((self (current-thread)))
-        (when (not (eql mutex (thread-mutex-stack self)))
-          (panic "Thread " self " releasing mutex " mutex " out of order."))
-        (setf (thread-mutex-stack self) (mutex-stack-next mutex)))
-      ;; Look for a thread to wake.
-      (let ((thread (pop-wait-queue mutex)))
-        (cond (thread
-               ;; Found one, wake it & transfer the lock.
-               (setf (mutex-owner mutex) thread)
-               (setf (mutex-stack-next mutex) (thread-mutex-stack thread)
-                     (thread-mutex-stack thread) mutex)
-               (wake-thread thread))
-              (t
-               ;; No threads sleeping, just drop the lock.
-               (setf (mutex-owner mutex) nil))))))
+  (setf (mutex-owner mutex) nil)
+  (let ((current-state (sys.int::cas (mutex-state mutex) :locked :unlocked)))
+    (case current-state
+      (:locked)
+      (:contested
+       ;; Contested lock. Need to wake a thread and pass the lock to it.
+       (safe-without-interrupts (mutex)
+         (with-wait-queue-lock (mutex)
+           ;; Look for a thread to wake.
+           (let ((thread (pop-wait-queue mutex)))
+             (cond (thread
+                    ;; Found one, wake it & transfer the lock.
+                    (setf (mutex-owner mutex) thread)
+                    (wake-thread thread))
+                   (t
+                    ;; No threads sleeping, just drop the lock.
+                    ;; Any threads trying to lock will be spinning on the wait queue lock.
+                    (setf (mutex-state mutex) :unlocked)))))))
+      (t (panic "Thread " (current-thread) " releasing lock " mutex " " (mutex-name mutex) " in bad state " current-state))))
   (values))
 
 (defun call-with-mutex (thunk mutex wait-p)
