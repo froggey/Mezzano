@@ -31,6 +31,7 @@
   (sys.int::%bounds-check object slot)
   (multiple-value-bind (successp actual-value)
       (sys.int::%cas-object object slot old new)
+    (declare (ignore successp))
     actual-value))
 
 (defun sys.int::structure-type-p (object struct-type)

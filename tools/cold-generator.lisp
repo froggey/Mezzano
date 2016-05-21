@@ -1534,9 +1534,19 @@
       (setf (aref seq i) (code-char (load-character stream))))
     seq))
 
+(defun structure-slot-equal (x y)
+  (and (eql (sys.c::structure-slot-name x)
+            (sys.c::structure-slot-name y))
+       (eql (sys.c::structure-slot-type x)
+            (sys.c::structure-slot-type y))
+       (eql (sys.c::structure-slot-read-only x)
+            (sys.c::structure-slot-read-only y))))
+
 (defun ensure-structure-layout-compatible (definition slots)
-  (unless (equal (third definition) slots)
-    (error "Incompatible redefinition of structure. ~S ~S~%" definition slots)))
+  (let ((definition-slots (third definition)))
+    (unless (and (eql (length definition-slots) (length slots))
+                 (every #'structure-slot-equal slots definition-slots))
+      (error "Incompatible redefinition of structure. ~S ~S~%" definition slots))))
 
 (defun load-structure-definition (name* slots* parent* area*)
   (let* ((name (extract-object name*))
