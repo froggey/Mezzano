@@ -69,7 +69,7 @@ and then some alignment.")
   (lock (make-mutex "Virtio-Net NIC lock"))
   (irq-latch (make-latch "Virtio-Net NIC IRQ latch"))
   irq-handler-function
-  worker
+  worker-thread
   tx-virt
   tx-phys
   (free-tx-buffers nil)
@@ -87,6 +87,10 @@ and then some alignment.")
 
 (defun check-virtio-net-boot (nic)
   (when (not (eql (virtio-net-boot-id nic) *boot-id*))
+    (debug-print-line "virtio-net device " nic " removed. Old boot: "
+                      (sys.int::lisp-object-address (virtio-net-boot-id nic))
+                      " Current boot: "
+                      (sys.int::lisp-object-address *boot-id*))
     (throw 'nic-detached nil)))
 
 (defun virtio-net-receive-processing (nic)
@@ -282,6 +286,7 @@ and then some alignment.")
 (defun virtio-net-register (device)
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
+  (debug-print-line "Detected virtio net device " device)
   (let ((nic (make-virtio-net :virtio-device device
                               :boot-id *boot-id*)))
     (setf (virtio-net-irq-handler-function nic) (lambda (interrupt-frame irq)
@@ -292,8 +297,10 @@ and then some alignment.")
                                 (virtio-net-irq-handler nic)))
     (add-deferred-boot-action
      (lambda ()
-       (setf (virtio-net-worker nic) (make-thread (lambda () (virtio-net-worker nic))
-                                                  :name "Virtio-Net NIC worker"))))))
+       (setf (virtio-net-worker-thread nic)
+             (make-thread (lambda ()
+                            (virtio-net-worker nic))
+                          :name "Virtio-Net NIC worker"))))))
 
 (defun virtio-net-worker (nic)
   (catch 'nic-detached
