@@ -160,6 +160,12 @@
   (when extra
     (funcall extra))
   (panic-print-backtrace (sys.int::read-frame-pointer))
+  (do ((thread *all-threads* (thread-global-next thread)))
+      ((null thread))
+    (when (not (eql thread (current-thread)))
+      (debug-print-line "----------")
+      (debug-print-line "Thread " thread)
+      (panic-print-backtrace (thread-frame-pointer thread))))
   (loop (sys.int::%hlt)))
 
 (defmacro ensure (condition &rest things)
