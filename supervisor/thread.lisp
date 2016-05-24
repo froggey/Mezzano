@@ -965,25 +965,25 @@ Interrupts must be off, the current thread must be locked."
   (unless (mutex-held-p mutex)
     (panic "Trying to release mutex " mutex " not held by thread."))
   (setf (mutex-owner mutex) nil)
-  (let ((current-state (sys.int::cas (mutex-state mutex) :locked :unlocked)))
-    (case current-state
-      (:locked)
-      (:contested
-       ;; Contested lock. Need to wake a thread and pass the lock to it.
-       (safe-without-interrupts (mutex)
-         (with-wait-queue-lock (mutex)
-           ;; Look for a thread to wake.
-           (let ((thread (pop-wait-queue mutex)))
-             (cond (thread
-                    ;; Found one, wake it & transfer the lock.
-                    (setf (mutex-owner mutex) thread)
-                    (wake-thread thread))
-                   (t
-                    ;; No threads sleeping, just drop the lock.
-                    ;; Any threads trying to lock will be spinning on the wait queue lock.
-                    (setf (mutex-state mutex) :unlocked)))))))
-      (t (panic "Thread " (current-thread) " releasing lock " mutex " " (mutex-name mutex) " in bad state " current-state))))
+  (when (not (eql (sys.int::cas (mutex-state mutex) :locked :unlocked) :locked))
+    ;; Mutex must be in the contested state.
+    (release-mutex-slow-path mutex))
   (values))
+
+(defun release-mutex-slow-path (mutex)
+  ;; Contested lock. Need to wake a thread and pass the lock to it.
+  (safe-without-interrupts (mutex)
+    (with-wait-queue-lock (mutex)
+      ;; Look for a thread to wake.
+      (let ((thread (pop-wait-queue mutex)))
+        (cond (thread
+               ;; Found one, wake it & transfer the lock.
+               (setf (mutex-owner mutex) thread)
+               (wake-thread thread))
+              (t
+               ;; No threads sleeping, just drop the lock.
+               ;; Any threads trying to lock will be spinning on the wait queue lock.
+               (setf (mutex-state mutex) :unlocked)))))))
 
 (defun call-with-mutex (thunk mutex wait-p)
   (unwind-protect
