@@ -323,11 +323,10 @@
 (defmacro check-struct-type (place struct-type)
   (let ((value (gensym))
         (struct-type-sym (gensym "struct-type")))
-    ;; FIXME: Place evaluation.
-    `(do ((,value ,place ,place)
-          (,struct-type-sym ,struct-type))
-	 ((structure-type-p ,value ,struct-type-sym))
-       (setf ,place (check-type-error ',place ,value (structure-name ,struct-type-sym) nil)))))
+    `(let ((,value ,place)
+           (,struct-type-sym ,struct-type))
+       (when (not (structure-type-p ,value ,struct-type-sym))
+         (raise-type-error ,value (structure-name ,struct-type-sym))))))
 
 (defun generate-normal-defstruct (name slot-descriptions conc-name constructors predicate area copier
                                   included-structure-name included-slot-descriptions
