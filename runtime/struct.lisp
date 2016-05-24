@@ -17,18 +17,12 @@
   (sys.int::%object-of-type-p object sys.int::+object-tag-structure-object+))
 
 (defun sys.int::%struct-slot (object slot)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
   (sys.int::%object-ref-t object slot))
 
 (defun (setf sys.int::%struct-slot) (value object slot)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
   (setf (sys.int::%object-ref-t object slot) value))
 
 (defun (sys.int::cas sys.int::%struct-slot) (old new object slot)
-  (sys.int::%type-check object sys.int::+object-tag-structure-object+ 'structure-object)
-  (sys.int::%bounds-check object slot)
   (multiple-value-bind (successp actual-value)
       (sys.int::%cas-object object slot old new)
     (declare (ignore successp))
