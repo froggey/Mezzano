@@ -158,7 +158,10 @@
                         (every #'structure-slot-definition-compatible (structure-slots definition) slots))
              (error "Incompatible redefinition of structure. ~S ~S ~S~%" definition (structure-slots definition) slots))
            definition)
-          (t (make-struct-definition name slots parent area)))))
+          (t
+           (let ((def (make-struct-definition name slots parent area)))
+             (%defstruct def)
+             def)))))
 
 (defun load-llf-structure-slot-definition (stream stack)
   (let* ((read-only (vector-pop stack))
