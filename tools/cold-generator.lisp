@@ -1537,8 +1537,11 @@
 (defun structure-slot-equal (x y)
   (and (eql (sys.c::structure-slot-name x)
             (sys.c::structure-slot-name y))
-       (eql (sys.c::structure-slot-type x)
-            (sys.c::structure-slot-type y))
+       (or (eql (sys.c::structure-slot-type x)
+                (sys.c::structure-slot-type y))
+           ;; FIXME: This needs to be a proper type comparison...
+           (equal (extract-object (sys.c::structure-slot-type x))
+                  (extract-object (sys.c::structure-slot-type y))))
        (eql (sys.c::structure-slot-read-only x)
             (sys.c::structure-slot-read-only y))))
 
