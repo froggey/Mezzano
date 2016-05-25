@@ -256,17 +256,27 @@ thread states & call-stacks."
     (maphash (lambda (thread sample-table)
                ;; Convert sample hash table to array of samples.
                (let ((samples (make-array (hash-table-count sample-table)
-                                          :fill-pointer 0)))
+                                          :fill-pointer 0))
+                     (total-total 0)
+                     (total-direct 0))
                  (maphash (lambda (fn sample)
                             (declare (ignore fn))
                             (vector-push sample samples))
                           sample-table)
                  (setf samples (sort samples #'> :key #'profile-entry-total-count))
+                 (loop
+                    for s across samples
+                    do
+                      (incf total-total (profile-entry-total-count s))
+                      (incf total-direct (profile-entry-direct-count s)))
                  ;; Print.
                  (format t "~S:~%" thread)
                  (loop
                     for s across samples
-                    do (format t "  ~D~10T~D~20T~S~%" (profile-entry-direct-count s) (profile-entry-total-count s) (profile-entry-function s)))
+                    do (format t "  ~D ~D%~10T~D ~D%~20T~S~%"
+                               (profile-entry-direct-count s) (* (/ (profile-entry-direct-count s) total-direct) 100.0)
+                               (profile-entry-total-count s) (* (/ (profile-entry-total-count s) total-total) 100.0)
+                               (profile-entry-function s)))
                  ;; Print the callers/callees table too.
                  (loop
                     for s across samples
