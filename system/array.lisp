@@ -152,6 +152,10 @@
   (and (arrayp object)
        (eql (array-element-type object) 'bit)))
 
+(defun simple-bit-vector-p (object)
+  (and (%simple-1d-array-p object)
+       (eql (array-element-type object) 'bit)))
+
 (defun bit-vector-p (object)
   (and (vectorp object)
        (eql (array-element-type object) 'bit)))
