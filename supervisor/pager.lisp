@@ -37,6 +37,11 @@
 (defconstant +page-table-copy-on-write+  #x400)
 (defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
 
+(defun pager-log (&rest things)
+  (declare (dynamic-extent things))
+  (when *pager-noisy*
+    (debug-print-line-1 things)))
+
 (declaim (inline flush-tlb))
 (defun flush-tlb ()
   ;; Reloading CR3 on x86oids causes all TLBs to be marked invalid.
@@ -341,8 +346,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (sys.int::%invlpg address))))
 
 (defun allocate-memory-range-in-pager (base length flags)
-  (when *pager-noisy*
-    (debug-print-line "Allocate range " base "-" (+ base length) "  " flags))
+  (pager-log "Allocate range " base "-" (+ base length) "  " flags)
   (when (< base #x80000000)
     ;; This will require allocating new wired backing frames as well.
     (debug-print-line "TODO: Allocate pages in the wired area.")
@@ -350,9 +354,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (with-mutex (*vm-lock*)
     ;; Ensure there's enough fudged memory before allocating.
     (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
-      (when *pager-noisy*
-        (debug-print-line "Not allocating " length " bytes, too few blocks remaining. "
-                          *store-freelist-n-free-blocks* " " *store-fudge-factor*))
+      (pager-log "Not allocating " length " bytes, too few blocks remaining. "
+                 *store-freelist-n-free-blocks* " " *store-fudge-factor*)
       (return-from allocate-memory-range-in-pager nil))
     (dotimes (i (truncate length #x1000))
       (allocate-new-block-for-virtual-address
@@ -374,8 +377,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 
 (defun release-memory-range-in-pager (base length ignore3)
   (declare (ignore ignore3))
-  (when *pager-noisy*
-    (debug-print-line "Release range " base "-" (+ base length)))
+  (pager-log "Release range " base "-" (+ base length))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
       ;; Update block map.
@@ -401,8 +403,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
   (pager-rpc 'protect-memory-range-in-pager base length flags))
 
 (defun protect-memory-range-in-pager (base length flags)
-  (when *pager-noisy*
-    (debug-print-line "Protect range " base "-" (+ base length) "  " flags))
+  (pager-log "Protect range " base "-" (+ base length) "  " flags)
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate length #x1000))
       ;; Update block map.
@@ -514,9 +515,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
       (when (page-present-p pte 0)
-        (when (and (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
-                   *pager-noisy*)
-          (debug-print-line "Copying page " address " in WFP.")
+        (when (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
+          (pager-log "Copying page " address " in WFP.")
           (snapshot-clone-cow-page (pager-allocate-page) address))
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
         (return-from wait-for-page t))
@@ -534,9 +534,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
              (is-zero-page nil))
         (setf (physical-page-frame-block-id frame) (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+) block-info)
               (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
-        (when (and *pager-noisy*
-                   (not *page-replacement-list-head*))
-          (debug-print-line "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
+        (when (not *page-replacement-list-head*)
+          (pager-log "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
         (append-to-page-replacement-list frame)
         (cond ((logtest sys.int::+block-map-zero-fill+ block-info)
                ;; Block is zero-filled.
