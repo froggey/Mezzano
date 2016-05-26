@@ -368,8 +368,7 @@
   (and (symbolp object)
        (eq (symbol-package object) *keyword-package*)))
 
-;;; TODO: shadowing symbols.
-(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list)
+(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadow-import-list)
   (let ((p (find-package name)))
     (cond (p ;; Add nicknames.
            (dolist (n nicknames)
@@ -379,12 +378,13 @@
            (dolist (n nicknames)
              (pushnew (cons n p) *package-list* :test #'equal)))
           (t (setf p (make-package name :nicknames nicknames))))
+    (dolist (s shadow-list)
+      (shadow-one-symbol (string s) p))
+    (shadowing-import shadow-import-list p)
     (use-package use-list p)
     (import import-list p)
     (dolist (s intern-list)
       (intern (string s) p))
-    (dolist (s shadow-list)
-      (shadow-one-symbol (string s) p))
     (dolist (s export-list)
       (export-one-symbol (intern (string s) p) p))
     p))
@@ -396,7 +396,8 @@
 	(import-list '())
 	(export-list '())
 	(intern-list '())
-        (shadow-list '()))
+        (shadow-list '())
+        (shadow-import-list '()))
     (dolist (o options)
       (ecase (first o)
 	(:nicknames
@@ -431,6 +432,14 @@
         (:shadow
          (dolist (name (cdr o))
 	   (pushnew name shadow-list)))
+        (:shadowing-import-from
+	 (let ((package (find-package-or-die (second o))))
+	   (dolist (name (cddr o))
+	     (multiple-value-bind (symbol status)
+		 (find-symbol (string name) package)
+	       (unless status
+		 (error "No such symbol ~S in package ~S." (string name) package))
+	       (pushnew symbol shadow-import-list)))))
 	(:size)))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(string defined-package-name)
@@ -440,7 +449,8 @@
 		    ',import-list
 		    ',export-list
 		    ',intern-list
-                    ',shadow-list))))
+                    ',shadow-list
+                    ',shadow-import-list))))
 
 (defun rename-package (package new-name &optional new-nicknames)
   (setf package (find-package-or-die package))
@@ -486,6 +496,12 @@
   (let ((new-symbol (make-symbol symbol-name)))
     (setf (symbol-package new-symbol) package
           (gethash symbol-name (package-internal-symbols package)) new-symbol)))
+
+(defun shadowing-import (symbols &optional (package *package*))
+  (when (not (listp symbols))
+    (setf symbols (list symbols)))
+  (assert (every #'symbolp symbols))
+  (import symbols package))
 
 (defun shadow (symbol-names &optional (package *package*))
   (unless (listp symbol-names)
