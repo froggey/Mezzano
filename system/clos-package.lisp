@@ -74,7 +74,7 @@
           structure-class structure-object
           intern-eql-specializer eql-specializer eql-specializer-object
 
-          slot-unbound
+          slot-unbound no-applicable-method
 
           with-slots with-accessors
           ))

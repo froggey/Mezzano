@@ -1490,10 +1490,8 @@ has only has class specializer."
               (class (nth argument-offset classes))
               (applicable-methods
                (compute-applicable-methods-using-classes gf classes)))
-         (when (null applicable-methods)
-           (error "No applicable methods to generic function ~S.
-Dispatching on class ~S." gf (nth argument-offset args)))
-         (cond ((and (every 'primary-method-p applicable-methods)
+         (cond ((and (not (null applicable-methods))
+                     (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
@@ -1508,10 +1506,8 @@ Dispatching on class ~S." gf (nth argument-offset args)))
               (class (nth argument-offset classes))
               (applicable-methods
                (compute-applicable-methods-using-classes gf classes)))
-         (when (null applicable-methods)
-           (error "No applicable methods to generic function ~S.
-Dispatching on class ~S." gf (nth argument-offset args)))
-         (cond ((and (every 'primary-method-p applicable-methods)
+         (cond ((and (not (null applicable-methods))
+                     (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
@@ -1527,10 +1523,8 @@ Dispatching on class ~S." gf (nth argument-offset args)))
               (class (nth argument-offset classes))
               (applicable-methods
                (compute-applicable-methods-using-classes gf classes)))
-         (when (null applicable-methods)
-           (error "No applicable methods to generic function ~S.
-Dispatching on class ~S." gf (nth argument-offset args)))
-         (cond ((and (every 'primary-method-p applicable-methods)
+         (cond ((and (not (null applicable-methods))
+                     (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
@@ -1539,7 +1533,8 @@ Dispatching on class ~S." gf (nth argument-offset args)))
                       (compute-reader-discriminator gf emf-table argument-offset))
                 (set-funcallable-instance-function gf (generic-function-discriminating-function gf))
                 (apply gf args))
-               ((and (every 'primary-method-p applicable-methods)
+               ((and (not (null applicable-methods))
+                     (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
                      (or (eql (class-of class) the-class-standard-class)
                          (eql (class-of class) the-class-funcallable-standard-class)))
@@ -1570,14 +1565,15 @@ Dispatching on class ~S." gf (nth argument-offset args)))
       (compute-applicable-methods-using-classes gf classes)
     (unless validp
       (setf applicable-methods (compute-applicable-methods gf args)))
-    (when (null applicable-methods)
-      (error "No applicable methods to generic function ~S.
-Dispatching on classes ~S." gf classes))
-    (let ((emfun (funcall
-                  (if (eq (class-of gf) the-class-standard-gf)
-                      #'std-compute-effective-method-function
-                      #'compute-effective-method-function)
-                  gf applicable-methods)))
+    (let ((emfun (cond (applicable-methods
+                        (funcall
+                         (if (eq (class-of gf) the-class-standard-gf)
+                             #'std-compute-effective-method-function
+                             #'compute-effective-method-function)
+                         gf applicable-methods))
+                       (t
+                        (lambda (args)
+                          (apply #'no-applicable-method gf args))))))
       ;; Cache is only valid for non-eql methods.
       (when validp
         (setf (gethash classes (classes-to-emf-table gf)) emfun)
@@ -1590,10 +1586,11 @@ Dispatching on classes ~S." gf classes))
                           (required-portion gf args)))
          (applicable-methods
           (compute-applicable-methods-using-classes gf classes)))
-    (when (null applicable-methods)
-      (error "No applicable methods to generic function ~S.
-Dispatching on class ~S." gf class))
-    (let ((emfun (std-compute-effective-method-function gf applicable-methods)))
+    (let ((emfun (cond (applicable-methods
+                        (std-compute-effective-method-function gf applicable-methods))
+                       (t
+                        (lambda (args)
+                          (apply #'no-applicable-method gf args))))))
       (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
       (pushnew gf (class-dependents class))
       (funcall emfun args))))
@@ -2419,3 +2416,9 @@ Dispatching on class ~S." gf class))
   (error "The slot ~S is unbound in the object ~S."
          slot-name
          instance))
+
+(defgeneric no-applicable-method (generic-function &rest function-arguments))
+
+(defmethod no-applicable-method ((generic-function t) &rest function-arguments)
+  (error "No applicable methods to generic function ~S when called with ~S."
+         generic-function function-arguments))
