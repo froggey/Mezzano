@@ -631,17 +631,23 @@ This is required to make the GC interrupt safe."
 (defun transport-object (object)
   "Transport LENGTH words from oldspace to newspace, returning
 a pointer to the new object. Leaves a forwarding pointer in place."
-  (let* ((start-time (tsc))
-         (length nil)
-         (address (ash (%pointer-field object) 4))
-         (first-word (memref-t address 0))
-         (new-address nil))
+  (let* ((address (ash (%pointer-field object) 4))
+         (first-word (memref-t address 0)))
     ;; Check for a GC forwarding pointer.
-    ;; Do this before getting the length.
+    ;; Do this before getting the length as the forwarding pointer will
+    ;; have overwritten the header word.
     (when (eql (%tag-field first-word) +tag-gc-forward+)
       (return-from transport-object
         (%%assemble-value (ash (%pointer-field first-word) 4)
                           (%tag-field object))))
+    (really-transport-object object)))
+
+(defun really-transport-object (object)
+  (let* ((address (ash (%pointer-field object) 4))
+         (first-word (memref-t address 0))
+         (start-time (tsc))
+         (length nil)
+         (new-address nil))
     (setf length (object-size object))
     (when (not length)
       (transport-error object))
