@@ -139,6 +139,9 @@
            #:terminate-thread
            #:make-mutex
            #:with-mutex
+           #:mutex-held-p
+           #:acquire-mutex
+           #:release-mutex
            #:make-condition-variable
            #:condition-wait
            #:condition-notify
