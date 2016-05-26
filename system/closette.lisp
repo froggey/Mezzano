@@ -910,11 +910,14 @@
           :initform (make-hash-table :test #'equal))
        (relevant-arguments)       ; :accessor generic-function-relevant-arguments
        (weird-specializers-p)     ; :accessor generic-function-has-unusual-specializers
+       (method-combination        ; :accessor generic-function-method-combination
+        :initarg :method-combination)
        )
       (:default-initargs
        :name nil
        :lambda-list '()
-       :method-class (find-class 'standard-method))
+       :method-class (find-class 'standard-method)
+       :method-combination nil)
       (:metaclass funcallable-standard-class)))
 
 (defvar the-class-standard-gf) ;standard-generic-function's class metaobject
@@ -953,6 +956,11 @@
   (slot-value gf 'weird-specializers-p))
 (defun (setf generic-function-has-unusual-specializers) (new-value gf)
   (setf (slot-value gf 'weird-specializers-p) new-value))
+
+(defun generic-function-method-combination (gf)
+  (slot-value gf 'method-combination))
+(defun (setf generic-function-method-combination) (new-value gf)
+  (setf (slot-value gf 'method-combination) new-value))
 
 ;;; Internal accessor for effective method function table
 
@@ -1024,6 +1032,9 @@
       (list ':method-class
             `(find-class ',(cadr option))))
     (:method '())
+    (:method-combination
+     (list :method-combination
+           `(resolve-method-combination ',(second option) ,@(cddr option))))
     (declare '())
     (t (list `',(car option) `',(cadr option)))))
 
@@ -1055,7 +1066,7 @@
          (cerror "Clobber it" 'simple-error
                  :format-control "~S is already defined as a non-generic function or macro."
                  :format-arguments (list function-name))
-         ;; Make sure it is well and truely clobbered.
+         ;; Make sure it is well and truly clobbered.
          (when (symbolp function-name)
            (setf (macro-function function-name) nil))
          (when (fboundp function-name)
@@ -1148,13 +1159,14 @@ has only has class specializer."
 ;;; However, it cannot be called until standard-generic-function exists.
 
 (defun make-instance-standard-generic-function
-       (generic-function-class &key name lambda-list method-class documentation)
+       (generic-function-class &key name lambda-list method-class documentation method-combination)
   (declare (ignore generic-function-class))
   (let ((gf (fc-std-allocate-instance the-class-standard-gf)))
     (setf (generic-function-name gf) name)
     (setf (generic-function-lambda-list gf) lambda-list)
     (setf (generic-function-methods gf) ())
     (setf (generic-function-method-class gf) method-class)
+    (setf (generic-function-method-combination gf) method-combination)
     (setf (classes-to-emf-table gf) (make-hash-table))
     (finalize-generic-function gf)
     gf))
@@ -1691,7 +1703,7 @@ has only has class specializer."
 (defun around-method-p (method)
   (equal '(:around) (method-qualifiers method)))
 
-(defun std-compute-effective-method-function (gf methods)
+(defun std-compute-effective-method-function-with-standard-method-combination (gf methods)
   (let ((primaries (remove-if-not #'primary-method-p methods))
         (around (find-if #'around-method-p methods)))
     (when (null primaries)
@@ -1732,6 +1744,58 @@ has only has class specializer."
                        (funcall after args nil)))))
                 (t (lambda (args)
                      (funcall primary args next-emfun))))))))
+
+(defun generate-method-combination-effective-method (name effective-method-body)
+  (let ((method-args (gensym "ARGS"))
+        (next-emfun (gensym "NEXT-EMFUN")))
+    `(lambda (,method-args)
+       (declare (system:lambda-name (effective-method ,@name)))
+       (macrolet ((call-method (method &optional next-method-list)
+                    (when (listp method)
+                      (assert (eql (first method) 'make-method)))
+                    (cond ((listp method)
+                           (assert (eql (first method) 'make-method))
+                           (assert (eql (length method) 2))
+                           (second method))
+                          (t
+                           `(funcall ',(method-function method)
+                                     ,',method-args
+                                     ,(if next-method-list
+                                          `(lambda (,',method-args)
+                                             (call-method ,(first next-method-list)
+                                                          ,(rest next-method-list)))
+                                          nil)))))
+                  (make-method (form)
+                    (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
+         ,effective-method-body))))
+
+(defun generate-method-combination-effective-method-name (gf mc-object methods)
+  (list* (generic-function-name gf)
+         (method-combination-name mc-object)
+         (mapcar (lambda (method)
+                   (list (method-qualifiers method)
+                         (mapcar (lambda (specializer)
+                                   (typecase specializer
+                                     ((or standard-class funcallable-standard-class class)
+                                      (class-name specializer))
+                                     (t specializer)))
+                                 (method-specializers method))))
+                 methods)))
+
+(defun std-compute-effective-method-function (gf methods)
+  (let ((mc (generic-function-method-combination gf)))
+    (cond (mc
+           (let* ((mc-object (method-combination-object-method-combination mc))
+                  (mc-args (method-combination-object-arguments mc))
+                  (effective-method-body (apply (method-combination-combiner mc-object)
+                                                gf
+                                                methods
+                                                mc-args))
+                  (name (generate-method-combination-effective-method-name gf mc-object methods)))
+             (eval (generate-method-combination-effective-method name effective-method-body))))
+          (t
+           (std-compute-effective-method-function-with-standard-method-combination
+            gf methods)))))
 
 ;;; compute an effective method function from a list of primary methods:
 

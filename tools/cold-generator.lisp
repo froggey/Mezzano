@@ -78,6 +78,7 @@
   '("system/clos-package.lisp"
     "system/single-dispatch-emf-table.lisp"
     "system/closette.lisp"
+    "system/method-combination.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
     "system/restarts.lisp"
