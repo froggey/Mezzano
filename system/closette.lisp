@@ -2190,7 +2190,12 @@ has only has class specializer."
   (print-unreadable-object (gf stream :identity t)
     (format stream "~:(~S~) ~S"
             (class-name (class-of gf))
-            (generic-function-name gf)))
+            (generic-function-name gf))
+    (let ((mc (generic-function-method-combination gf)))
+      (when mc
+        (format stream " ~S"
+                (method-combination-name
+                 (method-combination-object-method-combination mc))))))
   gf)
 
 (defmethod initialize-instance :after ((gf standard-generic-function) &key)
