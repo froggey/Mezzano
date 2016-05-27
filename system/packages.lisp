@@ -14,14 +14,30 @@
   "The keyword package.")
 
 (defstruct (package
-	     (:constructor %make-package (name nicknames))
+	     (:constructor %make-package (%name %nicknames))
 	     (:predicate packagep))
-  name
-  nicknames
-  use-list
-  used-by-list
-  internal-symbols
-  external-symbols)
+  %name
+  %nicknames
+  %use-list
+  %used-by-list
+  (%internal-symbols (make-hash-table :test 'equal))
+  (%external-symbols (make-hash-table :test 'equal))
+  %shadowing-symbols)
+
+(defun package-name (package)
+  (package-%name (find-package-or-die package)))
+
+(defun package-nicknames (package)
+  (package-%nicknames (find-package-or-die package)))
+
+(defun package-use-list (package)
+  (package-%use-list (find-package-or-die package)))
+
+(defun package-used-by-list (package)
+  (package-%used-by-list (find-package-or-die package)))
+
+(defun package-shadowing-symbols (package)
+  (package-%used-by-list (find-package-or-die package)))
 
 (defun list-all-packages ()
   (remove-duplicates (mapcar 'cdr *package-list*)))
@@ -42,8 +58,8 @@
 (defun use-one-package (package-to-use package)
   (when (eql package-to-use *keyword-package*)
     (error "Cannot use the KEYWORD package."))
-  (pushnew package-to-use (package-use-list package))
-  (pushnew package (package-used-by-list package-to-use)))
+  (pushnew package-to-use (package-%use-list package))
+  (pushnew package (package-%used-by-list package-to-use)))
 
 (defun use-package (packages-to-use &optional (package *package*))
   (let ((p (find-package-or-die package)))
@@ -62,8 +78,6 @@
   (let ((use-list (mapcar 'find-package use))
 	(package (%make-package (string package-name)
 				(mapcar (lambda (x) (string x)) nicknames))))
-    (setf (package-internal-symbols package) (make-hash-table :test 'equal)
-          (package-external-symbols package) (make-hash-table :test 'equal))
     ;; Use packages.
     (use-package use-list package)
     ;; Install the package in the package registry.
@@ -76,11 +90,11 @@
   (check-type string string)
   (let ((p (find-package-or-die package)))
     (multiple-value-bind (sym present-p)
-        (gethash string (package-internal-symbols p))
+        (gethash string (package-%internal-symbols p))
       (when present-p
 	(return-from find-symbol (values sym :internal))))
     (multiple-value-bind (sym present-p)
-        (gethash string (package-external-symbols p))
+        (gethash string (package-%external-symbols p))
       (when present-p
 	(return-from find-symbol (values sym :external))))
     (dolist (pak (package-use-list p)
@@ -117,14 +131,14 @@
              :report "Leave the existing inherited symbol."
              (return-from import-one-symbol))))))
     (multiple-value-bind (existing-external-symbol external-symbol-presentp)
-        (gethash (symbol-name symbol) (package-external-symbols package))
+        (gethash (symbol-name symbol) (package-%external-symbols package))
       (unless (and external-symbol-presentp
                    (eql symbol existing-external-symbol))
         (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
-            (gethash (symbol-name symbol) (package-internal-symbols package))
+            (gethash (symbol-name symbol) (package-%internal-symbols package))
           (unless (and internal-symbol-presentp
                        (eql symbol existing-internal-symbol))
-            (setf (gethash (symbol-name symbol) (package-internal-symbols package)) symbol)))))
+            (setf (gethash (symbol-name symbol) (package-%internal-symbols package)) symbol)))))
     (unless (symbol-package symbol)
       (setf (symbol-package symbol) package))))
 
@@ -154,9 +168,9 @@
             (unintern other-symbol q))))))
   (import-one-symbol symbol package)
   ;; Remove from the internal-symbols list.
-  (remhash (symbol-name symbol) (package-internal-symbols package))
+  (remhash (symbol-name symbol) (package-%internal-symbols package))
   ;; And add to the external-symbols list.
-  (setf (gethash (symbol-name symbol) (package-external-symbols package)) symbol))
+  (setf (gethash (symbol-name symbol) (package-%external-symbols package)) symbol))
 
 (defun export (symbols &optional (package *package*))
   (let ((p (find-package-or-die package)))
@@ -173,9 +187,9 @@
       (case mode
 	(:external
 	 ;; Remove the symbol from the external symbols
-	 (remhash name (package-external-symbols package))
+	 (remhash name (package-%external-symbols package))
 	 ;; And add to the internal-symbols list.
-	 (setf (gethash name (package-internal-symbols package)) symbol))
+	 (setf (gethash name (package-%internal-symbols package)) symbol))
 	((:internal :inherited))
 	(t
 	 (error "Cannot unexport unaccessable symbol ~S for package ~S." symbol package)))))
@@ -194,24 +208,19 @@
   (setf package (find-package-or-die package))
   (when (eql (symbol-package symbol) package)
     (setf (symbol-package symbol) nil))
-  (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
-      (gethash (symbol-name symbol) (package-internal-symbols package))
-    (when (and internal-symbol-presentp (eql existing-internal-symbol symbol))
-      (remhash (symbol-name symbol) (package-internal-symbols package))))
-  (multiple-value-bind (existing-external-symbol external-symbol-presentp)
-      (gethash (symbol-name symbol) (package-external-symbols package))
-    (when (and external-symbol-presentp (eql existing-external-symbol symbol))
-      (remhash (symbol-name symbol) (package-external-symbols package)))))
-
-;; Function RENAME-PACKAGE
-;; Function SHADOW
-;; Function SHADOWING-IMPORT
-;; Function DELETE-PACKAGE
-;; Function UNEXPORT
-;; Function UNUSE-PACKAGE
-;; Function PACKAGE-SHADOWING-SYMBOLS
-;; Condition Type PACKAGE-ERROR
-;; Function PACKAGE-ERROR-PACKAGE
+  (let ((removed-symbol-p nil))
+    (multiple-value-bind (existing-internal-symbol internal-symbol-presentp)
+        (gethash (symbol-name symbol) (package-%internal-symbols package))
+      (when (and internal-symbol-presentp (eql existing-internal-symbol symbol))
+        (setf removed-symbol-p t)
+        (remhash (symbol-name symbol) (package-%internal-symbols package))))
+    (multiple-value-bind (existing-external-symbol external-symbol-presentp)
+        (gethash (symbol-name symbol) (package-%external-symbols package))
+      (when (and external-symbol-presentp (eql existing-external-symbol symbol))
+        (setf removed-symbol-p t)
+        (remhash (symbol-name symbol) (package-%external-symbols package))))
+    (setf (package-%shadowing-symbols package) (remove symbol (package-%shadowing-symbols package)))
+    removed-symbol-p))
 
 (defun make-package-iterator-find-symbols (package symbol-types)
   "Find all the symbols in PACKAGE that match SYMBOL-TYPES."
@@ -220,18 +229,18 @@
       (maphash (lambda (k v)
                  (declare (ignore k))
                  (push (cons v :internal) symbols))
-               (package-internal-symbols package)))
+               (package-%internal-symbols package)))
     (when (member :external symbol-types)
       (maphash (lambda (k v)
                  (declare (ignore k))
                  (push (cons v :external) symbols))
-               (package-external-symbols package)))
+               (package-%external-symbols package)))
     (when (member :inherited symbol-types)
       (dolist (p (package-use-list package))
         (maphash (lambda (k v)
                    (declare (ignore k))
                    (push (cons v :inherited) symbols))
-                 (package-external-symbols p))))
+                 (package-%external-symbols p))))
     symbols))
 
 (defun make-package-iterator (package-list symbol-types)
@@ -319,11 +328,11 @@
   (let ((symbols '()))
     (dolist (p (list-all-packages))
       (multiple-value-bind (sym foundp)
-          (gethash string (package-internal-symbols p))
+          (gethash string (package-%internal-symbols p))
         (when foundp
           (pushnew sym symbols)))
       (multiple-value-bind (sym foundp)
-          (gethash string (package-external-symbols p))
+          (gethash string (package-%external-symbols p))
         (when foundp
           (pushnew sym symbols))))
     symbols))
@@ -350,17 +359,18 @@
       (error "Package ~S is in use." package))
     ;; Remove the package from the use list.
     (dolist (other (package-use-list p))
-      (setf (package-used-by-list other) (remove p (package-used-by-list other))))
+      (setf (package-%used-by-list other) (remove p (package-used-by-list other))))
     ;; Remove all symbols.
     (maphash (lambda (name symbol)
                (when (eq (symbol-package symbol) package)
                  (setf (symbol-package symbol) nil)))
-             (package-internal-symbols p))
+             (package-%internal-symbols p))
     (maphash (lambda (name symbol)
                (when (eq (symbol-package symbol) package)
                  (setf (symbol-package symbol) nil)))
-             (package-external-symbols p))
-    (setf (package-name p) nil)
+             (package-%external-symbols p))
+    (setf (package-%name p) nil
+          (package-%nicknames p) '())
     (setf *package-list* (remove p *package-list* :key 'cdr))
     t))
 
@@ -473,8 +483,8 @@
     (dolist (name new-names)
       (push (cons name package) *package-list*))
     ;; Rename the package
-    (setf (package-name package) new-name
-          (package-nicknames package) new-nicknames))
+    (setf (package-%name package) new-name
+          (package-%nicknames package) new-nicknames))
   package)
 
 (defmacro do-external-symbols ((var &optional (package '*package*) result-form) &body body)
@@ -483,24 +493,28 @@
        (maphash (lambda (,name-sym ,var)
                   (declare (ignore ,name-sym))
                   ,@body)
-                (package-external-symbols (find-package-or-die ,package)))
+                (package-%external-symbols (find-package-or-die ,package)))
        ,result-form)))
 
 (defun shadow-one-symbol (symbol-name package)
   (multiple-value-bind (symbol presentp)
-      (gethash symbol-name (package-internal-symbols package))
+      (gethash symbol-name (package-%internal-symbols package))
     (when presentp (return-from shadow-one-symbol)))
   (multiple-value-bind (symbol presentp)
-      (gethash symbol-name (package-external-symbols package))
+      (gethash symbol-name (package-%external-symbols package))
     (when presentp (return-from shadow-one-symbol)))
   (let ((new-symbol (make-symbol symbol-name)))
+    (push new-symbol (package-%shadowing-symbols package))
     (setf (symbol-package new-symbol) package
-          (gethash symbol-name (package-internal-symbols package)) new-symbol)))
+          (gethash symbol-name (package-%internal-symbols package)) new-symbol)))
 
 (defun shadowing-import (symbols &optional (package *package*))
   (when (not (listp symbols))
     (setf symbols (list symbols)))
-  (assert (every #'symbolp symbols))
+  (setf package (find-package-or-die package))
+  (dolist (symbol symbols)
+    (check-type symbol symbol)
+    (pushnew symbol (package-%shadowing-symbols package)))
   (import symbols package))
 
 (defun shadow (symbol-names &optional (package *package*))
