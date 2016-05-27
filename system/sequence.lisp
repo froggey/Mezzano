@@ -573,9 +573,13 @@
                                   (funcall key
                                            (elt sequence (1+ i)))))))
            x))
-        (t (let ((x (funcall function
+        (t (let ((x (if from-end
+                        (funcall function
+                             (funcall key (elt sequence 1))
+                             (funcall key (elt sequence 0)))
+                        (funcall function
                              (funcall key (elt sequence 0))
-                             (funcall key (elt sequence 1)))))
+                             (funcall key (elt sequence 1))))))
              (dotimes (i (- (length sequence) 2))
                (setf x (if from-end
                            (funcall function
