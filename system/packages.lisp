@@ -97,13 +97,20 @@
         (gethash string (package-%external-symbols p))
       (when present-p
 	(return-from find-symbol (values sym :external))))
-    (dolist (pak (package-use-list p)
-	     (values nil nil))
-      (multiple-value-bind (symbol status)
-	  (find-symbol string pak)
-	(when (or (eq status :external)
-		  (eq status :inherited))
-	  (return (values symbol :inherited)))))))
+    (let ((pending (remove-duplicates (package-use-list p)))
+          (visited '()))
+      (loop
+         (when (endp pending)
+           (return (values nil nil)))
+         (let ((pak (pop pending)))
+           (when (not (member pak visited))
+             (push pak visited)
+             (multiple-value-bind (sym present-p)
+                 (gethash string (package-%external-symbols pak))
+               (when present-p
+                 (return (values sym :inherited))))
+             (dolist (subpak (package-use-list pak))
+               (pushnew subpak pending))))))))
 
 (defun import-one-symbol (symbol package)
   ;; Check for a conflicting symbol.
