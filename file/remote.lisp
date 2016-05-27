@@ -267,7 +267,8 @@
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
       (let ((stream (cond ((subtypep element-type 'character)
-                           (assert (eql external-format :default) (external-format))
+                           (assert (member external-format '(:default :utf-8))
+                                   (external-format))
                            (make-instance 'simple-file-character-stream
                                           :path path
                                           :pathname pathname

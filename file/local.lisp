@@ -270,7 +270,9 @@
     (error 'simple-file-error
            :pathname pathname
            :format-control "Non-absolute pathname."))
-  (when (not (eql external-format :default))
+  (when (not (or (and (eql element-type 'character)
+                      (eql external-format :utf-8))
+                 (eql external-format :default)))
     (error "Unsupported external format ~S." external-format))
   (when (not (pathname-name pathname))
     (error 'simple-file-error
