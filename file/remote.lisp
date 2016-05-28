@@ -266,7 +266,8 @@
              (error "Cannot create ~A. ~S" pathname x)))
           ((:overwrite :append))
           ((nil) (return-from open-using-host nil))))
-      (let ((stream (cond ((subtypep element-type 'character)
+      (let ((stream (cond ((or (eql element-type :default)
+                               (subtypep element-type 'character))
                            (assert (member external-format '(:default :utf-8))
                                    (external-format))
                            (make-instance 'simple-file-character-stream
