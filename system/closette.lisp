@@ -136,23 +136,29 @@
       (let ((slot (find slot-name
                         (class-slots class)
                         :key #'slot-definition-name)))
-        (if (null slot)
-            (error "The slot ~S is missing from the class ~S."
-                   slot-name class)
-            (let ((pos (position slot
-                                 (remove-if-not #'instance-slot-p
-                                                (class-slots class)))))
-               (if (null pos)
-                   (error "The slot ~S is not an instance~@
+        (when (null slot)
+          (error "The slot ~S is missing from the class ~S."
+                 slot-name class))
+        (case (slot-definition-allocation slot)
+          (:instance
+           (position slot (remove-if-not #'instance-slot-p
+                                         (class-slots class))))
+          (:class
+           (slot-definition-location slot))
+          (t
+           (error "The slot ~S is not an instance or class~@
                            slot in the class ~S."
-                          slot-name class)
-                   pos))))))
+                          slot-name class))))))
 
 (defun slot-contents (slots location)
-  (svref slots location))
+  (if (consp location)
+      (cdr location)
+      (svref slots location)))
 
 (defun (setf slot-contents) (new-value slots location)
-  (setf (svref slots location) new-value))
+  (if (consp location)
+      (setf (cdr location) new-value)
+      (setf (svref slots location) new-value)))
 
 (defun fast-sv-position (value simple-vector)
   (dotimes (i (array-dimension simple-vector 0))
@@ -196,10 +202,13 @@
     (setf slot-name (slot-definition-name slot-name)))
   (multiple-value-bind (slots layout)
       (fetch-up-to-date-instance-slots-and-layout instance)
-    (let* ((location (or (fast-sv-position slot-name layout)
-                         (error "The slot ~S is missing from the class ~S."
-                                slot-name (class-of instance)))))
-      (values slots location))))
+    (let ((location (fast-sv-position slot-name layout)))
+      (cond (location
+             (values slots location))
+            (t
+             ;; Unknown slot, fall back on SLOT-LOCATION.
+             (values slots
+                     (slot-location (class-of instance) slot-name)))))))
 
 (defun std-slot-value (instance slot-name)
   (multiple-value-bind (slots location)
@@ -697,6 +706,8 @@
     (setf (getf* slot ':readers) readers)
     (setf (getf* slot ':writers) writers)
     (setf (getf* slot ':allocation) allocation)
+    (when (eql allocation :class)
+      (setf (getf* slot ':location) (cons name secret-unbound-value)))
     (make-standard-slot-definition :properties slot)))
 
 (defun make-effective-slot-definition
@@ -746,6 +757,11 @@
   (getf (standard-slot-definition-properties slot) ':allocation))
 (defun (setf slot-definition-allocation) (new-value slot)
   (setf (getf* (standard-slot-definition-properties slot) ':allocation) new-value))
+
+(defun slot-definition-location (slot)
+  (getf (standard-slot-definition-properties slot) ':location))
+(defun (setf slot-definition-location) (new-value slot)
+  (setf (getf* (standard-slot-definition-properties slot) ':location) new-value))
 
 ;;; finalize-inheritance
 
@@ -890,7 +906,10 @@
       :initargs (remove-duplicates
                   (mapappend #'slot-definition-initargs
                              direct-slots))
-      :allocation (slot-definition-allocation (car direct-slots)))))
+      :allocation (slot-definition-allocation (car direct-slots))
+      :location (if (eql (slot-definition-allocation (car direct-slots)) :class)
+                    (slot-definition-location (car direct-slots))
+                    nil))))
 
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
@@ -2372,7 +2391,7 @@ has only has class specializer."
   (dolist (superclass (class-direct-superclasses class))
     (setf (class-direct-subclasses superclass) (remove class (class-direct-subclasses superclass))))
   ;; Remove any slot reader/writer methods.
-  (dolist (direct-slot (class-direct-slots class))
+  #+(or)(dolist (direct-slot (class-direct-slots class))
     (dolist (reader (slot-definition-readers direct-slot))
       (remove-reader-method class reader (slot-definition-name direct-slot)))
     (dolist (writer (slot-definition-writers direct-slot))
