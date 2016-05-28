@@ -536,7 +536,10 @@
     (sys.net:buffered-format con "(:FILE-WRITE-DATE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (or (integerp x) (null x))
-        (error "Error: ~A ~S." path x))
+        (error 'simple-file-error
+               :pathname path
+               :format-control "Error: ~A ~S."
+               :format-arguments (list path x)))
       x)))
 
 (defmethod delete-file-using-host ((host simple-file-host) path &key)
@@ -545,7 +548,10 @@
     (sys.net:buffered-format con "(:DELETE ~S)~%" (unparse-simple-file-path path))
     (let ((x (read-preserving-whitespace con)))
       (unless (eql x :ok)
-        (error "Error: ~A ~S." path x))
+        (error 'simple-file-error
+               :pathname path
+               :format-control "Error: ~A ~S."
+               :format-arguments (list path x)))
       x)))
 
 (defmethod expunge-directory-using-host ((host simple-file-host) path &key)
