@@ -126,7 +126,6 @@
 (defvar *result* nil "used to pass back a value")
 
 
-(eval-when (eval load compile)
 (defun structure-type-p (x)
   (and (symbolp x)
        (get x 'sys.int::structure-type)))
@@ -134,7 +133,6 @@
   (sys.gray:stream-line-length s))
 (defun output-position (&optional (s *standard-output*))
   (sys.gray:stream-line-column s))
-)
 
 
 
@@ -161,19 +159,37 @@
 
 ;                       ---- DISPATCHING ----
 
-(defstruct (pprint-dispatch (:conc-name nil) (:copier nil))
-  (conses-with-cars (make-hash-table :test #'eq) :type hash-table)
-  (structures (make-hash-table :test #'eq) :type hash-table)
-  (others nil :type list))
+(defclass pprint-dispatch ()
+  ((conses-with-cars :initarg :conses-with-cars :accessor conses-with-cars)
+   (structures :initarg :structures :accessor structures)
+   (others :initarg :others :accessor others))
+  (:default-initargs
+   :conses-with-cars (make-hash-table :test #'eq)
+   :structures (make-hash-table :test #'eq)
+   :others nil))
+
+(defun make-pprint-dispatch (&rest args)
+  (apply 'make-instance 'pprint-dispatch args))
 
 ;The list and the hash-tables contain entries of the
 ;following form.  When stored in the hash tables, the test entry is
 ;the number of entries in the OTHERS list that have a higher priority.
 
-(defstruct (entry (:conc-name nil))
-  (test nil)        ;predicate function or count of higher priority others.
-  (fn nil)          ;pprint function
-  (full-spec nil))  ;list of priority and type specifier
+(defclass entry ()
+  ((test :initarg :test :accessor test)        ;predicate function or count of higher priority others.
+   (fn :initarg :fn :accessor fn)          ;pprint function
+   (full-spec :initarg :full-spec :accessor full-spec))  ;list of priority and type specifier
+  (:default-initargs
+   :test nil :fn nil :full-spec nil))
+
+(defun make-entry (&rest args)
+  (apply 'make-instance 'entry args))
+
+(defun copy-entry (entry)
+  (make-instance 'entry
+                 :test (test entry)
+                 :fn (fn entry)
+                 :full-spec (full-spec entry)))
 
 (defun copy-pprint-dispatch (&optional (table *print-pprint-dispatch*))
   (when (null table) (setq table *IPD*))
@@ -331,40 +347,40 @@
 
 ;               ---- XP STRUCTURES, AND THE INTERNAL ALGORITHM ----
 
-(eval-when (eval load compile) ;not used at run time.
-  (defvar block-stack-entry-size 1)
-  (defvar prefix-stack-entry-size 5)
-  (defvar queue-entry-size 7)
-  (defvar buffer-entry-size 1)
-  (defvar prefix-entry-size 1)
-  (defvar suffix-entry-size 1))
+(defconstant +block-stack-entry-size+ 1)
+(defconstant +prefix-stack-entry-size+ 5)
+(defconstant +queue-entry-size+ 7)
+(defconstant +buffer-entry-size+ 1)
+(defconstant +prefix-entry-size+ 1)
+(defconstant +suffix-entry-size+ 1)
 
-(eval-when (eval load compile) ;used at run time
-  (defvar block-stack-min-size #.(* 35. block-stack-entry-size))
-  (defvar prefix-stack-min-size #.(* 30. prefix-stack-entry-size))
-  (defvar queue-min-size #.(* 75. queue-entry-size))
-  (defvar buffer-min-size 256.)
-  (defvar prefix-min-size 256.)
-  (defvar suffix-min-size 256.))
+(defconstant +block-stack-min-size+ (* 35 +block-stack-entry-size+))
+(defconstant +prefix-stack-min-size+ (* 30 +prefix-stack-entry-size+))
+(defconstant +queue-min-size+ (* 75 +queue-entry-size+))
+(defconstant +buffer-min-size+ 256)
+(defconstant +prefix-min-size+ 256)
+(defconstant +suffix-min-size+ 256)
 
-(defstruct (xp-structure (:conc-name nil) (:print-function describe-xp))
-  (BASE-STREAM nil) ;;The stream io eventually goes to.
-  LINEL ;;The line length to use for formatting.
-  LINE-LIMIT ;;If non-NIL the max number of lines to print.
-  LINE-NO ;;number of next line to be printed.
-  CHAR-MODE ;;NIL :UP :DOWN :CAP0 :CAP1 :CAPW
-  CHAR-MODE-COUNTER ;depth of nesting of ~(...~)
-  DEPTH-IN-BLOCKS
+(defclass xp-structure ()
+  ((base-stream :initarg :base-stream :initform nil :accessor base-stream) ;;The stream io eventually goes to.
+   (linel :initarg :linel :initform nil :accessor linel) ;;The line length to use for formatting.
+   (line-limit :initarg :line-limit :initform nil :accessor line-limit) ;;If non-NIL the max number of lines to print.
+   (line-no :initarg :line-no :initform nil :accessor line-no) ;;number of next line to be printed.
+   (char-mode :initarg :char-mode :initform nil :accessor char-mode) ;;NIL :UP :DOWN :CAP0 :CAP1 :CAPW
+   (char-mode-counter :initarg :char-mode-counter :initform nil :accessor char-mode-counter) ;depth of nesting of ~(...~)
+   (depth-in-blocks :initarg :depth-in-blocks :initform nil :accessor depth-in-blocks)
    ;;Number of logical blocks at QRIGHT that are started but not ended.
-  (BLOCK-STACK (make-array #.block-stack-min-size)) BLOCK-STACK-PTR
+   (block-stack :initarg :block-stack :initform (make-array +block-stack-min-size+) :accessor block-stack)
+   (block-stack-ptr :initarg :block-stack-ptr :initform nil :accessor block-stack-ptr)
    ;;This stack is pushed and popped in accordance with the way blocks are
    ;;nested at the moment they are entered into the queue.  It contains the
    ;;following block specific value.
    ;;SECTION-START total position where the section (see AIM-1102)
    ;;that is rightmost in the queue started.
-  (BUFFER (make-array #.buffer-min-size
-                      :element-type 'character))
-   CHARPOS BUFFER-PTR BUFFER-OFFSET
+   (buffer :initarg :buffer :initform (make-array +buffer-min-size+ :element-type 'character) :accessor buffer)
+   (charpos :initarg :charpos :initform nil :accessor charpos)
+   (buffer-ptr :initarg :buffer-ptr :initform nil :accessor buffer-ptr)
+   (buffer-offset :initarg :buffer-offset :initform nil :accessor buffer-offset)
    ;;This is a vector of characters (eg a string) that builds up the
    ;;line images that will be printed out.  BUFFER-PTR is the
    ;;buffer position where the next character should be inserted in
@@ -378,7 +394,9 @@
    ;; Line position (eg (+ BUFFER-PTR CHARPOS)).  Indentations are stored in this form.
    ;; Total position if all on one line (eg (+ BUFFER-PTR BUFFER-OFFSET))
    ;;  Positions are stored in this form.
-  (QUEUE (make-array #.queue-min-size)) QLEFT QRIGHT
+   (queue :initarg :queue :initform (make-array +queue-min-size+) :accessor queue)
+   (qleft :initarg :qleft :initform nil :accessor qleft)
+   (qright :initarg :qright :initform nil :accessor qright)
    ;;This holds a queue of action descriptors.  QLEFT and QRIGHT
    ;;point to the next entry to dequeue and the last entry enqueued
    ;;respectively.  The queue is empty when
@@ -396,10 +414,10 @@
    ;;                      or if per-line-prefix then cons of suffix and
    ;;                      per-line-prefix.
    ;;     for :END-BLOCK suffix for the block if any.
-  (PREFIX (make-array #.buffer-min-size
-                      :element-type 'character))
+   (prefix :initarg :prefix :initform (make-array +buffer-min-size+ :element-type 'character) :accessor prefix)
    ;;this stores the prefix that should be used at the start of the line
-  (PREFIX-STACK (make-array #.prefix-stack-min-size)) PREFIX-STACK-PTR
+   (prefix-stack :initarg :prefix-stack :initform (make-array +prefix-stack-min-size+) :accessor prefix-stack)
+   (prefix-stack-ptr :initarg :prefix-stack-ptr :initform nil :accessor prefix-stack-ptr)
    ;;This stack is pushed and popped in accordance with the way blocks
    ;;are nested at the moment things are taken off the queue and printed.
    ;;It contains the following block specific values.
@@ -408,11 +426,19 @@
    ;;NON-BLANK-PREFIX-PTR current length of non-blank prefix.
    ;;INITIAL-PREFIX-PTR prefix-ptr at the start of this block.
    ;;SECTION-START-LINE line-no value at last non-literal break at this level.
-  (SUFFIX (make-array #.buffer-min-size
-                      :element-type 'character)))
+   (suffix :initarg :suffix :initform (make-array +buffer-min-size+ :element-type 'character) :accessor suffix)))
    ;;this stores the suffixes that have to be printed to close of the current
    ;;open blocks.  For convenient in popping, the whole suffix
    ;;is stored in reverse order.
+
+(defmethod print-object ((object xp-structure) stream)
+  (describe-xp object stream 0))
+
+(defun make-xp-structure (&rest args)
+  (apply #'make-instance 'xp-structure args))
+
+(defun xp-structure-p (object)
+  (typep object 'xp-structure))
  
 
 (defmacro LP<-BP (xp &optional (ptr nil))
@@ -436,18 +462,17 @@
 
 (defmacro check-size (xp vect ptr)
   (let* ((min-size
-	   (symbol-value
-	     (intern (concatenate 'string (string vect) "-MIN-SIZE")
-		     :mezzano.xp)))
+          (intern (concatenate 'string "+" (string vect) "-MIN-SIZE+")
+                  :mezzano.xp))
 	 (entry-size
-	   (symbol-value
-	     (intern (concatenate 'string (string vect) "-ENTRY-SIZE")
-		     :mezzano.xp))))
-    `(when (and (> ,ptr ,(- min-size entry-size)) ;seldom happens
+          (intern (concatenate 'string "+" (string vect) "-ENTRY-SIZE+")
+                  :mezzano.xp)))
+    `(when (and (> ,ptr (- ,min-size ,entry-size)) ;seldom happens
 		(> ,ptr (- (length (,vect ,xp)) ,entry-size)))
        (let* ((old (,vect ,xp))
-	      (new (make-array (+ ,ptr ,(if (= entry-size 1) 50
-					    (* 10 entry-size)))
+	      (new (make-array (+ ,ptr (if (= ,entry-size 1)
+                                           50
+                                           (* 10 ,entry-size)))
 			       :element-type (array-element-type old))))
 	 (replace new old)
 	 (setf (,vect ,xp) new)))))
@@ -455,11 +480,11 @@
 (defmacro section-start (xp) `(aref (block-stack ,xp) (block-stack-ptr ,xp)))
 
 (defun push-block-stack (xp)
-  (incf (block-stack-ptr xp) #.block-stack-entry-size)
+  (incf (block-stack-ptr xp) +block-stack-entry-size+)
   (check-size xp block-stack (block-stack-ptr xp)))
 
 (defun pop-block-stack (xp)
-  (decf (block-stack-ptr xp) #.block-stack-entry-size))
+  (decf (block-stack-ptr xp) +block-stack-entry-size+))
 
 (defmacro prefix-ptr (xp)
   `(aref (prefix-stack ,xp) (prefix-stack-ptr ,xp)))
@@ -478,14 +503,14 @@
       (setq old-prefix (prefix-ptr xp)
 	    old-suffix (suffix-ptr xp)
 	    old-non-blank (non-blank-prefix-ptr xp)))
-    (incf (prefix-stack-ptr xp) #.prefix-stack-entry-size)
+    (incf (prefix-stack-ptr xp) +prefix-stack-entry-size+)
     (check-size xp prefix-stack (prefix-stack-ptr xp))
     (setf (prefix-ptr xp) old-prefix)
     (setf (suffix-ptr xp) old-suffix)
     (setf (non-blank-prefix-ptr xp) old-non-blank)))
 
 (defun pop-prefix-stack (xp)
-  (decf (prefix-stack-ptr xp) #.prefix-stack-entry-size))
+  (decf (prefix-stack-ptr xp) +prefix-stack-entry-size+))
 
 (defmacro Qtype   (xp index) `(aref (queue ,xp) ,index))
 (defmacro Qkind   (xp index) `(aref (queue ,xp) (1+ ,index)))
@@ -501,8 +526,8 @@
 ;shifted left for free every time it happens to empty out.
 
 (defun enqueue (xp type kind &optional arg)
-  (incf (Qright xp) #.queue-entry-size)
-  (when (> (Qright xp) #.(- queue-min-size queue-entry-size))
+  (incf (Qright xp) +queue-entry-size+)
+  (when (> (Qright xp) (- +queue-min-size+ +queue-entry-size+))
     (replace (queue xp) (queue xp) :start2 (Qleft xp) :end2 (Qright xp))
     (setf (Qright xp) (- (Qright xp) (Qleft xp)))
     (setf (Qleft xp) 0))
@@ -515,7 +540,7 @@
   (setf (Qoffset xp (Qright xp)) nil)
   (setf (Qarg xp (Qright xp)) arg))
 
-(defmacro Qnext (index) `(+ ,index #.queue-entry-size))
+(defmacro Qnext (index) `(+ ,index +queue-entry-size+))
 
 (defvar *describe-xp-streams-fully* nil "Set to T to see more info.")
 
@@ -552,17 +577,17 @@
 	(cl:format s "~&ptr type         kind           pos depth end offset arg")
 	(do ((p (Qleft xp) (Qnext p))) ((> p (Qright xp)))
 	  (cl:format s "~&~4A~13A~15A~4A~6A~4A~7A~A"
-	    (/ (- p (Qleft xp)) #.queue-entry-size)
+	    (/ (- p (Qleft xp)) +queue-entry-size+)
 	    (Qtype xp p)
 	    (if (member (Qtype xp p) '(:newline :ind)) (Qkind xp p) "")
 	    (BP<-TP xp (Qpos xp p))
 	    (Qdepth xp p)
 	    (if (not (member (Qtype xp p) '(:newline :start-block))) ""
 		(and (Qend xp p)
-		     (/ (- (+ p (Qend xp p)) (Qleft xp)) #.queue-entry-size)))
+		     (/ (- (+ p (Qend xp p)) (Qleft xp)) +queue-entry-size+)))
 	    (if (not (eq (Qtype xp p) :start-block)) ""
 		(and (Qoffset xp p)
-		     (/ (- (+ p (Qoffset xp p)) (Qleft xp)) #.queue-entry-size)))
+		     (/ (- (+ p (Qoffset xp p)) (Qleft xp)) +queue-entry-size+)))
 	    (if (not (member (Qtype xp p) '(:ind :start-block :end-block))) ""
 		(Qarg xp p)))))
       (unless (minusp (prefix-stack-ptr xp))
@@ -612,8 +637,8 @@
   (setf (buffer-ptr xp) 0)
   (setf (buffer-offset xp) (charpos xp))
   (setf (Qleft xp) 0)
-  (setf (Qright xp) #.(- queue-entry-size))
-  (setf (prefix-stack-ptr xp) #.(- prefix-stack-entry-size))
+  (setf (Qright xp) (- +queue-entry-size+))
+  (setf (prefix-stack-ptr xp) (- +prefix-stack-entry-size+))
   xp)
 
 ;The char-mode stuff is a bit tricky.
@@ -810,7 +835,7 @@
 (defun attempt-to-output (xp force-newlines? flush-out?)
   (do () ((> (Qleft xp) (Qright xp))
 	  (setf (Qleft xp) 0)
-	  (setf (Qright xp) #.(- queue-entry-size))) ;saves shifting
+	  (setf (Qright xp) (- +queue-entry-size+))) ;saves shifting
     (case (Qtype xp (Qleft xp))
       (:ind
        (unless (misering? xp)
@@ -1124,7 +1149,7 @@
       (truncate fixnum 10)
     (unless (zerop digits)
       (print-fixnum xp digits))
-    (write-char++ (code-char (+ #.(char-code #\0) d)) xp)))
+    (write-char++ (code-char (+ (char-code #\0) d)) xp)))
 
 ;just wants to succeed fast in a lot of common cases.
 ;assumes no funny readtable junk for the characters shown.
@@ -2466,7 +2491,15 @@
 (defun bq-vector-print (xp obj)
   (funcall (formatter "`#~W") xp (car (bqtify obj))))
 
-(defstruct bq-struct code data)
+(defclass bq-struct ()
+  ((code :initarg :code :initform nil :accessor bq-struct-code)
+   (data :initarg :data :initform nil :accessor bq-struct-data)))
+
+(defun make-bq-struct (&rest args)
+  (apply 'make-instance 'bq-struct args))
+
+(defun bq-struct-p (object)
+  (typep object 'bq-struct))
 
 (defun bq-struct-print (xp obj)
   ;; We must print out the string as a string, in order to prevent
