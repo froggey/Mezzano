@@ -75,10 +75,10 @@
   '(("system/packages.lisp" sys.int::*package-system*)))
 
 (defparameter *warm-source-files*
-  '("system/clos-package.lisp"
-    "system/single-dispatch-emf-table.lisp"
-    "system/closette.lisp"
-    "system/method-combination.lisp"
+  '("system/clos/package.lisp"
+    "system/clos/single-dispatch-emf-table.lisp"
+    "system/clos/closette.lisp"
+    "system/clos/method-combination.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
     "system/restarts.lisp"
