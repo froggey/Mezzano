@@ -346,6 +346,11 @@
 (defun subtypep (type-1 type-2 &optional environment)
   (when (typep type-2 'standard-class)
     (return-from subtypep (subclassp type-1 type-2)))
+  (when (typep type-1 'standard-class)
+    (let ((other-class (when (symbolp type-2)
+                         (find-class type-2 nil))))
+      (when other-class
+        (return-from subtypep (subclassp type-1 other-class)))))
   (let ((t1 (typeexpand type-1 environment))
 	(t2 (typeexpand type-2 environment)))
     (cond ((equal t1 t2) (values t t))
