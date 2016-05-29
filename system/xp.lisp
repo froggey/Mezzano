@@ -239,6 +239,8 @@
     (values (or fn #'non-pretty-print) (not (null fn)))))
 
 (defun get-printer (object table)
+  (when (not (typep table 'pprint-dispatch))
+    (return-from get-printer nil))
   (let* ((entry (if (consp object)
                     (gethash (car object) (conses-with-cars table))
                     (gethash (type-of object) (structures table)))))
@@ -316,25 +318,29 @@
 (defconstant +suffix-min-size+ 256)
 
 (defclass xp-structure (sys.gray:fundamental-character-output-stream)
-  ((base-stream :initarg :base-stream :initform nil :accessor base-stream) ;;The stream io eventually goes to.
-   (linel :initarg :linel :initform nil :accessor linel) ;;The line length to use for formatting.
-   (line-limit :initarg :line-limit :initform nil :accessor line-limit) ;;If non-NIL the max number of lines to print.
-   (line-no :initarg :line-no :initform nil :accessor line-no) ;;number of next line to be printed.
-   (char-mode :initarg :char-mode :initform nil :accessor char-mode) ;;NIL :UP :DOWN :CAP0 :CAP1 :CAPW
-   (char-mode-counter :initarg :char-mode-counter :initform nil :accessor char-mode-counter) ;depth of nesting of ~(...~)
-   (depth-in-blocks :initarg :depth-in-blocks :initform nil :accessor depth-in-blocks)
+  ;;The stream IO eventually goes to.
+  ((base-stream :initarg :base-stream :accessor base-stream)
+   ;;The line length to use for formatting.
+   (linel :accessor linel)
+   ;;If non-NIL the max number of lines to print.
+   (line-limit :accessor line-limit)
+   ;;number of next line to be printed.
+   (line-no :accessor line-no)
+   ;;NIL :UP :DOWN :CAP0 :CAP1 :CAPW
+   (char-mode :accessor char-mode)
+   ;;depth of nesting of ~(...~)
+   (char-mode-counter :accessor char-mode-counter)
    ;;Number of logical blocks at QRIGHT that are started but not ended.
-   (block-stack :initarg :block-stack :initform (make-array +block-stack-min-size+) :accessor block-stack)
-   (block-stack-ptr :initarg :block-stack-ptr :initform nil :accessor block-stack-ptr)
+   (depth-in-blocks :accessor depth-in-blocks)
+
    ;;This stack is pushed and popped in accordance with the way blocks are
    ;;nested at the moment they are entered into the queue.  It contains the
    ;;following block specific value.
    ;;SECTION-START total position where the section (see AIM-1102)
    ;;that is rightmost in the queue started.
-   (buffer :initarg :buffer :initform (make-array +buffer-min-size+ :element-type 'character) :accessor buffer)
-   (charpos :initarg :charpos :initform nil :accessor charpos)
-   (buffer-ptr :initarg :buffer-ptr :initform nil :accessor buffer-ptr)
-   (buffer-offset :initarg :buffer-offset :initform nil :accessor buffer-offset)
+   (block-stack :accessor block-stack)
+   (block-stack-ptr :accessor block-stack-ptr)
+
    ;;This is a vector of characters (eg a string) that builds up the
    ;;line images that will be printed out.  BUFFER-PTR is the
    ;;buffer position where the next character should be inserted in
@@ -348,9 +354,11 @@
    ;; Line position (eg (+ BUFFER-PTR CHARPOS)).  Indentations are stored in this form.
    ;; Total position if all on one line (eg (+ BUFFER-PTR BUFFER-OFFSET))
    ;;  Positions are stored in this form.
-   (queue :initarg :queue :initform (make-array +queue-min-size+) :accessor queue)
-   (qleft :initarg :qleft :initform nil :accessor qleft)
-   (qright :initarg :qright :initform nil :accessor qright)
+   (buffer :accessor buffer)
+   (charpos :accessor charpos)
+   (buffer-ptr :accessor buffer-ptr)
+   (buffer-offset :accessor buffer-offset)
+
    ;;This holds a queue of action descriptors.  QLEFT and QRIGHT
    ;;point to the next entry to dequeue and the last entry enqueued
    ;;respectively.  The queue is empty when
@@ -368,10 +376,13 @@
    ;;                      or if per-line-prefix then cons of suffix and
    ;;                      per-line-prefix.
    ;;     for :END-BLOCK suffix for the block if any.
-   (prefix :initarg :prefix :initform (make-array +buffer-min-size+ :element-type 'character) :accessor prefix)
+   (queue :accessor queue)
+   (qleft :accessor qleft)
+   (qright :accessor qright)
+
    ;;this stores the prefix that should be used at the start of the line
-   (prefix-stack :initarg :prefix-stack :initform (make-array +prefix-stack-min-size+) :accessor prefix-stack)
-   (prefix-stack-ptr :initarg :prefix-stack-ptr :initform nil :accessor prefix-stack-ptr)
+   (prefix :accessor prefix)
+
    ;;This stack is pushed and popped in accordance with the way blocks
    ;;are nested at the moment things are taken off the queue and printed.
    ;;It contains the following block specific values.
@@ -380,13 +391,19 @@
    ;;NON-BLANK-PREFIX-PTR current length of non-blank prefix.
    ;;INITIAL-PREFIX-PTR prefix-ptr at the start of this block.
    ;;SECTION-START-LINE line-no value at last non-literal break at this level.
-   (suffix :initarg :suffix :initform (make-array +buffer-min-size+ :element-type 'character) :accessor suffix)))
+   (prefix-stack :accessor prefix-stack)
+   (prefix-stack-ptr :accessor prefix-stack-ptr)
+
    ;;this stores the suffixes that have to be printed to close of the current
    ;;open blocks.  For convenient in popping, the whole suffix
    ;;is stored in reverse order.
+   (suffix :accessor suffix)))
 
 (defmethod print-object ((object xp-structure) stream)
-  (describe-xp object stream 0))
+  (print-unreadable-object (object stream :type t :identity t)
+    (if (not (base-stream object))
+        (cl:format s "not currently in use")
+        (cl:format s "outputting to ~S" (base-stream object)))))
 
 (defun make-xp-structure (&rest args)
   (apply #'make-instance 'xp-structure args))
@@ -495,104 +512,82 @@
 
 (defmacro Qnext (index) `(+ ,index +queue-entry-size+))
 
-(defvar *describe-xp-streams-fully* nil "Set to T to see more info.")
-
-(defun describe-xp (xp s depth)
-  (declare (ignore depth))
-  (cl:format s "#<XP stream ")
+(defmethod describe-object ((xp xp-structure) s)
+  (cl:format s "~S is an XP stream, " xp)
   (if (not (base-stream xp))
       (cl:format s "not currently in use")
       (cl:format s "outputting to ~S" (base-stream xp)))
   (when (base-stream xp)
     (cl:format s "~&buffer= ~S" (subseq (buffer xp) 0 (max (buffer-ptr xp) 0)))
-    (when (not *describe-xp-streams-fully*) (cl:princ " ..." s))
-    (when *describe-xp-streams-fully*
-      (cl:format s "~&   pos   _123456789_123456789_123456789_123456789")
-      (cl:format s "~&depth-in-blocks= ~D linel= ~D line-no= ~D line-limit= ~D"
-                   (depth-in-blocks xp) (linel xp) (line-no xp) (line-limit xp))
-      (when (or (char-mode xp) (not (zerop (char-mode-counter xp))))
-        (cl:format s "~&char-mode= ~S char-mode-counter= ~D"
-                     (char-mode xp) (char-mode-counter xp)))
-      (unless (minusp (block-stack-ptr xp))
-        (cl:format s "~&section-start")
-        (do ((save (block-stack-ptr xp)))
-            ((minusp (block-stack-ptr xp)) (setf (block-stack-ptr xp) save))
-          (cl:format s " ~D" (section-start xp))
-          (pop-block-stack xp)))
-      (cl:format s "~&linel= ~D charpos= ~D buffer-ptr= ~D buffer-offset= ~D"
-                   (linel xp) (charpos xp) (buffer-ptr xp) (buffer-offset xp))
-      (unless (minusp (prefix-stack-ptr xp))
-        (cl:format s "~&prefix= ~S"
-                     (subseq (prefix xp) 0 (max (prefix-ptr xp) 0)))
-        (cl:format s "~&suffix= ~S"
-                     (subseq (suffix xp) 0 (max (suffix-ptr xp) 0))))
-      (unless (> (Qleft xp) (Qright xp))
-        (cl:format s "~&ptr type         kind           pos depth end offset arg")
-        (do ((p (Qleft xp) (Qnext p))) ((> p (Qright xp)))
-          (cl:format s "~&~4A~13A~15A~4A~6A~4A~7A~A"
-            (/ (- p (Qleft xp)) +queue-entry-size+)
-            (Qtype xp p)
-            (if (member (Qtype xp p) '(:newline :ind)) (Qkind xp p) "")
-            (BP<-TP xp (Qpos xp p))
-            (Qdepth xp p)
-            (if (not (member (Qtype xp p) '(:newline :start-block))) ""
-                (and (Qend xp p)
-                     (/ (- (+ p (Qend xp p)) (Qleft xp)) +queue-entry-size+)))
-            (if (not (eq (Qtype xp p) :start-block)) ""
-                (and (Qoffset xp p)
-                     (/ (- (+ p (Qoffset xp p)) (Qleft xp)) +queue-entry-size+)))
-            (if (not (member (Qtype xp p) '(:ind :start-block :end-block))) ""
-                (Qarg xp p)))))
-      (unless (minusp (prefix-stack-ptr xp))
-        (cl:format s "~&initial-prefix-ptr prefix-ptr suffix-ptr non-blank start-line")
-        (do ((save (prefix-stack-ptr xp)))
-            ((minusp (prefix-stack-ptr xp)) (setf (prefix-stack-ptr xp) save))
-          (cl:format s "~& ~19A~11A~11A~10A~A"
-                       (initial-prefix-ptr xp) (prefix-ptr xp) (suffix-ptr xp)
-                       (non-blank-prefix-ptr xp) (section-start-line xp))
-          (pop-prefix-stack xp)))))
-    (cl:princ ">" s)
-    (values))
+    (cl:format s "~&   pos   _123456789_123456789_123456789_123456789")
+    (cl:format s "~&depth-in-blocks= ~D linel= ~D line-no= ~D line-limit= ~D"
+               (depth-in-blocks xp) (linel xp) (line-no xp) (line-limit xp))
+    (when (or (char-mode xp) (not (zerop (char-mode-counter xp))))
+      (cl:format s "~&char-mode= ~S char-mode-counter= ~D"
+                 (char-mode xp) (char-mode-counter xp)))
+    (unless (minusp (block-stack-ptr xp))
+      (cl:format s "~&section-start")
+      (do ((save (block-stack-ptr xp)))
+          ((minusp (block-stack-ptr xp)) (setf (block-stack-ptr xp) save))
+        (cl:format s " ~D" (section-start xp))
+        (pop-block-stack xp)))
+    (cl:format s "~&linel= ~D charpos= ~D buffer-ptr= ~D buffer-offset= ~D"
+               (linel xp) (charpos xp) (buffer-ptr xp) (buffer-offset xp))
+    (unless (minusp (prefix-stack-ptr xp))
+      (cl:format s "~&prefix= ~S"
+                 (subseq (prefix xp) 0 (max (prefix-ptr xp) 0)))
+      (cl:format s "~&suffix= ~S"
+                 (subseq (suffix xp) 0 (max (suffix-ptr xp) 0))))
+    (unless (> (Qleft xp) (Qright xp))
+      (cl:format s "~&ptr type         kind           pos depth end offset arg")
+      (do ((p (Qleft xp) (Qnext p))) ((> p (Qright xp)))
+        (cl:format s "~&~4A~13A~15A~4A~6A~4A~7A~A"
+                   (/ (- p (Qleft xp)) +queue-entry-size+)
+                   (Qtype xp p)
+                   (if (member (Qtype xp p) '(:newline :ind)) (Qkind xp p) "")
+                   (BP<-TP xp (Qpos xp p))
+                   (Qdepth xp p)
+                   (if (not (member (Qtype xp p) '(:newline :start-block))) ""
+                       (and (Qend xp p)
+                            (/ (- (+ p (Qend xp p)) (Qleft xp)) +queue-entry-size+)))
+                   (if (not (eq (Qtype xp p) :start-block)) ""
+                       (and (Qoffset xp p)
+                            (/ (- (+ p (Qoffset xp p)) (Qleft xp)) +queue-entry-size+)))
+                   (if (not (member (Qtype xp p) '(:ind :start-block :end-block))) ""
+                       (Qarg xp p)))))
+    (unless (minusp (prefix-stack-ptr xp))
+      (cl:format s "~&initial-prefix-ptr prefix-ptr suffix-ptr non-blank start-line")
+      (do ((save (prefix-stack-ptr xp)))
+          ((minusp (prefix-stack-ptr xp)) (setf (prefix-stack-ptr xp) save))
+        (cl:format s "~& ~19A~11A~11A~10A~A"
+                   (initial-prefix-ptr xp) (prefix-ptr xp) (suffix-ptr xp)
+                   (non-blank-prefix-ptr xp) (section-start-line xp))
+        (pop-prefix-stack xp)))))
 
-;This maintains a list of XP structures.  We save them
-;so that we don't have to create new ones all of the time.
-;We have separate objects so that many can be in use at once.
-
-;(Note should really be doing some locking here, but CL does not have the
-;primitives for it.  There is a tiny probability here that two different
-;processes could end up trying to use the same xp-stream)
-
-(defvar *free-xps* nil "free list of XP stream objects") ; never bound
-
-(defun get-pretty-print-stream (stream)
-  (initialize-xp (make-xp-structure) stream))
-
-;If you call this, the xp-stream gets efficiently recycled.
-
-(defun free-pretty-print-stream (xp)
-  (declare (ignore xp)))
-
-;This is called to initialize things when you start pretty printing.
-
-(defun initialize-xp (xp stream)
-  (setf (base-stream xp) stream)
+(defmethod initialize-instance :after ((xp xp-structure) &key &allow-other-keys)
   (setf (linel xp) (max 0 (cond (*print-right-margin*)
-                                ((output-width stream))
+                                ((output-width (base-stream xp)))
                                 (T *default-right-margin*))))
   (setf (line-limit xp) *print-lines*)
   (setf (line-no xp) 1)
   (setf (char-mode xp) nil)
   (setf (char-mode-counter xp) 0)
   (setf (depth-in-blocks xp) 0)
+  (setf (block-stack xp) (make-array +block-stack-min-size+))
   (setf (block-stack-ptr xp) 0)
-  (setf (charpos xp) (cond ((output-position stream)) (T 0)))
+  (setf (buffer xp) (make-array +buffer-min-size+ :element-type 'character))
+  (setf (charpos xp) (cond ((output-position (base-stream xp)))
+                           (T 0)))
   (setf (section-start xp) 0)
   (setf (buffer-ptr xp) 0)
   (setf (buffer-offset xp) (charpos xp))
+  (setf (queue xp) (make-array +queue-min-size+))
   (setf (Qleft xp) 0)
   (setf (Qright xp) (- +queue-entry-size+))
+  (setf (prefix xp) (make-array +buffer-min-size+ :element-type 'character))
+  (setf (prefix-stack xp) (make-array +prefix-stack-min-size+))
   (setf (prefix-stack-ptr xp) (- +prefix-stack-entry-size+))
-  xp)
+  (setf (suffix xp) (make-array +buffer-min-size+ :element-type 'character)))
 
 ;The char-mode stuff is a bit tricky.
 ;one can be in one of the following modes:
@@ -952,7 +947,7 @@
         (T stream)))
 
 (defun do-xp-printing (fn stream args)
-  (let ((xp (get-pretty-print-stream stream))
+  (let ((xp (make-instance 'xp-structure :base-stream stream))
         (*current-level* 0)
         (result nil))
     (catch 'line-limit-abbreviation-exit
@@ -967,7 +962,6 @@
     (when (catch 'line-limit-abbreviation-exit
             (attempt-to-output xp nil T) nil)
       (attempt-to-output xp T T))
-    (free-pretty-print-stream xp)
     result))
 
 (defun write+ (object xp)
