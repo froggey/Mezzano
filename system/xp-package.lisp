@@ -1,7 +1,5 @@
 (defpackage :mezzano.xp
   (:use :cl)
-  (:shadow #:format
-           #:formatter)
   (:export #:format
            #:formatter
            #:copy-pprint-dispatch
