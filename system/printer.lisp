@@ -142,15 +142,19 @@
   "Print STRING while obeying readtable case, *PRINT-CASE* and *PRINT-BASE*."
   (ecase *print-case*
     (:upcase
-     (dotimes (i (length string))
-       (let ((c (char string i)))
-         (cond ((or (and (upper-case-p c)
-                         (digit-char-p c *print-base*))
-                    (member c '(#\| #\\))
-                    (lower-case-p c))
-                (write-char #\\ stream)
-                (write-char c stream))
-               (t (write-char c stream))))))
+     (let ((need-escaping (or (some (lambda (c)
+                                      (or (and (upper-case-p c)
+                                               (digit-char-p c *print-base*))
+                                          (member c '(#\| #\\))
+                                          (lower-case-p c)))
+                                    string)
+                              (zerop (length string)))))
+       (when need-escaping
+         (write-char #\| stream))
+       (dotimes (i (length string))
+         (write-char (char string i) stream))
+       (when need-escaping
+         (write-char #\| stream))))
     (:downcase
      (dotimes (i (length string))
        (let ((c (char string i)))
