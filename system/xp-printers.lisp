@@ -39,8 +39,8 @@
         (write-char++ #\space xp)
         (when (eq i (car template))
           (pprint-indent+ :block (cadr template) xp)
-          (setq template (cddr template))
-          (setq in-first-section nil))
+          (setf template (cddr template))
+          (setf in-first-section nil))
         (pprint-newline (cond ((and (zerop i) in-first-section) :miser)
                               (in-first-section :fill)
                               (T :linear))
@@ -53,10 +53,10 @@
   (when need-newline (pprint-newline+ :mandatory xp))
   (cond ((and item (symbolp item))
          (write+ item xp)
-         (setq need-newline nil))
+         (setf need-newline nil))
         (T (pprint-tab+ :section indentation 0 xp)
            (write+ item xp)
-           (setq need-newline T))))
+           (setf need-newline T))))
 
 (defun function-call-p (x)
   (and (consp x) (symbolp (car x)) (fboundp (car x))))
@@ -103,7 +103,7 @@
     (funcall (formatter "~:<~W~^ ~:/pprint-fill/~^ ~@{~/mezzano.xp::maybelab/~^ ~}~:>")
              xp list)))
 
-(defun setq-print (xp obj)
+(defun setf-print (xp obj)
   (funcall (formatter "~:<~W~^ ~:I~@_~@{~W~^ ~:_~W~^ ~_~}~:>") xp obj))
 
 (defun quote-print (xp list)
@@ -161,7 +161,7 @@
 
 (defun token-type (token &aux string)
   (cond ((not (symbolp token)) :expr)
-        ((string= (setq string (string token)) "FINALLY") :finally)
+        ((string= (setf string (string token)) "FINALLY") :finally)
         ((member string '("IF" "WHEN" "UNLESS") :test #'string=) :cond-head)
         ((member string '("DO" "DOING" "INITIALLY") :test #'string=) :linear-head)
         ((member string '("FOR" "AS" "WITH" "AND" "END" "ELSE"
@@ -181,8 +181,8 @@
         (let (token type)
           (labels ((next-token ()
                      (pprint-exit-if-list-exhausted)
-                     (setq token (pprint-pop))
-                     (setq type (token-type token)))
+                     (setf token (pprint-pop))
+                     (setf type (token-type token)))
                    (print-clause (xp)
                      (case type
                        (:linear-head (print-exprs xp nil :mandatory))
@@ -351,7 +351,7 @@
         (t (list (make-bq-struct :code (cond (copy-p ",@") (T ",."))
                                  :data (car loc))))))
 
-(setq *IPD* (make-pprint-dispatch))
+(setf *IPD* (make-pprint-dispatch))
 
 (set-pprint-dispatch+ '(satisfies function-call-p) 'fn-call '(-5) *IPD*)
 (set-pprint-dispatch+ 'cons 'pprint-fill '(-10) *IPD*)
@@ -405,16 +405,16 @@
 (set-pprint-dispatch+ '(cons (member loop)) 'pretty-loop '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member macrolet)) 'flet-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member multiple-value-bind)) 'mvb-print '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member multiple-value-setq)) 'block-like '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member multiple-value-setf)) 'block-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member prog)) 'prog-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member prog*)) 'prog-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member progv)) 'defun-like '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member psetf)) 'setq-print '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member psetq)) 'setq-print '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member psetf)) 'setf-print '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member psetf)) 'setf-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member quote)) 'quote-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member return-from)) 'block-like '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member setf)) 'setq-print '(0) *IPD*)
-(set-pprint-dispatch+ '(cons (member setq)) 'setq-print '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member setf)) 'setf-print '(0) *IPD*)
+(set-pprint-dispatch+ '(cons (member setf)) 'setf-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member tagbody)) 'tagbody-print '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member throw)) 'block-like '(0) *IPD*)
 (set-pprint-dispatch+ '(cons (member typecase)) 'block-like '(0) *IPD*)
@@ -434,7 +434,7 @@
     (maphash (lambda (key val) (declare (ignore key))
                      (push val stuff))
              (structures table))
-    (setq stuff (sort stuff 'priority-> :key (lambda (x) (car (full-spec x)))))
+    (setf stuff (sort stuff 'priority-> :key (lambda (x) (car (full-spec x)))))
     (pprint-logical-block (xp stuff :prefix "#<" :suffix ">")
       (format xp (formatter "pprint dispatch table containing ~A entries: ")
               (length stuff))
@@ -449,4 +449,4 @@
 
 ;so only happens first time is loaded.
 (when (member *print-pprint-dispatch* '(nil T))
-  (setq *print-pprint-dispatch* (copy-pprint-dispatch nil)))
+  (setf *print-pprint-dispatch* (copy-pprint-dispatch nil)))

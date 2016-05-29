@@ -147,7 +147,7 @@
                  :full-spec (full-spec entry)))
 
 (defun copy-pprint-dispatch (&optional (table *print-pprint-dispatch*))
-  (when (null table) (setq table *IPD*))
+  (when (null table) (setf table *IPD*))
   (let* ((new-conses-with-cars
            (make-hash-table :test #'eq
              :size (max (hash-table-count (conses-with-cars table)) 32)))
@@ -234,7 +234,7 @@
            (structures table)))
 
 (defun pprint-dispatch (object &optional (table *print-pprint-dispatch*))
-  (when (null table) (setq table *IPD*))
+  (when (null table) (setf table *IPD*))
   (let ((fn (get-printer object table)))
     (values (or fn #'non-pretty-print) (not (null fn)))))
 
@@ -243,11 +243,11 @@
                     (gethash (car object) (conses-with-cars table))
                     (gethash (type-of object) (structures table)))))
     (if (not entry)
-        (setq entry (find object (others table) :test #'fits))
+        (setf entry (find object (others table) :test #'fits))
         (do ((i (test entry) (1- i))
              (l (others table) (cdr l)))
             ((zerop i))
-          (when (fits object (car l)) (setq entry (car l)) (return nil))))
+          (when (fits object (car l)) (setf entry (car l)) (return nil))))
     (when entry (fn entry))))
 
 (defun fits (obj entry) (funcall (test entry) obj))
@@ -395,7 +395,7 @@
   (typep object 'xp-structure))
 
 (defmacro LP<-BP (xp &optional (ptr nil))
-  (if (null ptr) (setq ptr `(buffer-ptr ,xp)))
+  (if (null ptr) (setf ptr `(buffer-ptr ,xp)))
   `(+ ,ptr (charpos ,xp)))
 (defmacro TP<-BP (xp)
   `(+ (buffer-ptr ,xp) (buffer-offset ,xp)))
@@ -453,7 +453,7 @@
 (defun push-prefix-stack (xp)
   (let ((old-prefix 0) (old-suffix 0) (old-non-blank 0))
     (when (not (minusp (prefix-stack-ptr xp)))
-      (setq old-prefix (prefix-ptr xp)
+      (setf old-prefix (prefix-ptr xp)
             old-suffix (suffix-ptr xp)
             old-non-blank (non-blank-prefix-ptr xp)))
     (incf (prefix-stack-ptr xp) +prefix-stack-entry-size+)
@@ -644,13 +644,13 @@
 
 (defun write-string+ (string xp start end)
   (let ((sub-end nil) next-newline)
-    (loop (setq next-newline
+    (loop (setf next-newline
                 (position #\newline string :test #'char= :start start :end end))
-          (setq sub-end (if next-newline next-newline end))
+          (setf sub-end (if next-newline next-newline end))
           (write-string++ string xp start sub-end)
           (when (null next-newline) (return nil))
           (pprint-newline+ :unconditional xp)
-          (setq start (1+ sub-end)))))
+          (setf start (1+ sub-end)))))
 
 ;note this checks (> BUFFER-PTR LINEL) instead of (> (LP<-BP) LINEL)
 ;this is important so that when things are longer than a line they
@@ -661,7 +661,7 @@
     (force-some-output xp))
   (let ((new-buffer-end (1+ (buffer-ptr xp))))
     (check-size xp buffer new-buffer-end)
-    (if (char-mode xp) (setq char (handle-char-mode xp char)))
+    (if (char-mode xp) (setf char (handle-char-mode xp char)))
     (setf (char (buffer xp) (buffer-ptr xp)) char)
     (setf (buffer-ptr xp) new-buffer-end)))
 
@@ -685,16 +685,16 @@
          (j start (1+ j)))
         ((= j end))
       (let ((char (char string j)))
-        (if (char-mode xp) (setq char (handle-char-mode xp char)))
+        (if (char-mode xp) (setf char (handle-char-mode xp char)))
         (setf (char buffer i) char)))
     (setf (buffer-ptr xp) new-buffer-end)))
 
 (defun pprint-tab+ (kind colnum colinc xp)
   (let ((indented? nil) (relative? nil))
     (case kind
-      (:section (setq indented? T))
-      (:line-relative (setq relative? T))
-      (:section-relative (setq indented? T relative? T)))
+      (:section (setf indented? T))
+      (:line-relative (setf relative? T))
+      (:section-relative (setf indented? T relative? T)))
     (let* ((current
              (if (not indented?) (LP<-BP xp)
                  (- (TP<-BP xp) (section-start xp))))
@@ -735,7 +735,7 @@
 (defun start-block (xp prefix-string on-each-line? suffix-string)
   (when prefix-string (write-string++ prefix-string xp 0 (length prefix-string)))
   (if (and (char-mode xp) on-each-line?)
-      (setq prefix-string
+      (setf prefix-string
             (subseq (buffer xp) (- (buffer-ptr xp) (length prefix-string))
                     (buffer-ptr xp))))
   (push-block-stack xp)
@@ -851,7 +851,7 @@
       (reverse-string-in-place (suffix xp) 0 (suffix-ptr xp))
       (write-string+++ (suffix xp) xp 0 (suffix-ptr xp))
       (setf (Qleft xp) (Qnext (Qright xp)))
-      (setq *abbreviation-happened* '*print-lines*)
+      (setf *abbreviation-happened* '*print-lines*)
       (throw 'line-limit-abbreviation-exit T))
     (incf (line-no xp))
     (unless *locating-circularities*
@@ -928,7 +928,7 @@
         (if *circularity-hash-table*
             (free-circularity-hash-table *circularity-hash-table*))
         (when *abbreviation-happened*
-          (setq *last-abbreviated-printing*
+          (setf *last-abbreviated-printing*
                 (eval
                   `(function
                      (lambda (&optional (stream ',stream))
@@ -939,12 +939,12 @@
         *result*)))
 
 (defun xp-print (fn stream args)
-  (setq *result* (do-xp-printing fn stream args))
+  (setf *result* (do-xp-printing fn stream args))
   (when *locating-circularities*
-    (setq *locating-circularities* nil)
-    (setq *abbreviation-happened* nil)
-    (setq *parents* nil)
-    (setq *result* (do-xp-printing fn stream args))))
+    (setf *locating-circularities* nil)
+    (setf *abbreviation-happened* nil)
+    (setf *parents* nil)
+    (setf *result* (do-xp-printing fn stream args))))
 
 (defun decode-stream-arg (stream)
   (cond ((eq stream T) *terminal-io*)
@@ -957,13 +957,13 @@
         (result nil))
     (catch 'line-limit-abbreviation-exit
       (start-block xp nil nil nil)
-      (setq result (apply fn xp args))
+      (setf result (apply fn xp args))
       (end-block xp nil))
     (when (and *locating-circularities*
                (zerop *locating-circularities*) ;No circularities.
                (= (line-no xp) 1)               ;Didn't suppress line.
                (zerop (buffer-offset xp)))      ;Didn't suppress partial line.
-      (setq *locating-circularities* nil))      ;print what you have got.
+      (setf *locating-circularities* nil))      ;print what you have got.
     (when (catch 'line-limit-abbreviation-exit
             (attempt-to-output xp nil T) nil)
       (attempt-to-output xp T T))
@@ -976,14 +976,14 @@
                 (eq (circularity-process xp object nil) :subsequent))
       (when (and *circularity-hash-table* (consp object))
         ;;avoid possible double check in handle-logical-block.
-        (setq object (cons (car object) (cdr object))))
+        (setf object (cons (car object) (cdr object))))
       (let ((printer (if *print-pretty* (get-printer object *print-pprint-dispatch*) nil))
             type)
         (cond (printer (funcall printer xp object))
               ((maybe-print-fast xp object))
               ((and *print-pretty*
-                    (symbolp (setq type (type-of object)))
-                    (setq printer (get type 'structure-printer))
+                    (symbolp (setf type (type-of object)))
+                    (setf printer (get type 'structure-printer))
                     (not (eq printer :none)))
                (funcall printer xp object))
               ((and *print-pretty* *print-array* (arrayp object)
@@ -1076,7 +1076,7 @@
          (when (and (null *print-radix*) (= *print-base* 10.))
            (when (minusp object)
              (write-char++ #\- xp)
-             (setq object (- object)))
+             (setf object (- object)))
            (print-fixnum xp object) T))
         ((symbolp object)
          (let ((s (symbol-name object))
@@ -1219,16 +1219,16 @@
                                  &key (prefix nil) (per-line-prefix nil)
                                       (suffix ""))
                                 &body body)
-  (cond ((eq stream-symbol nil) (setq stream-symbol '*standard-output*))
-        ((eq stream-symbol T) (setq stream-symbol '*terminal-io*)))
+  (cond ((eq stream-symbol nil) (setf stream-symbol '*standard-output*))
+        ((eq stream-symbol T) (setf stream-symbol '*terminal-io*)))
   (when (not (symbolp stream-symbol))
     (warn "STREAM-SYMBOL arg ~S to PPRINT-LOGICAL-BLOCK is not a bindable symbol"
           stream-symbol)
-    (setq stream-symbol '*standard-output*))
+    (setf stream-symbol '*standard-output*))
   (when (and prefix per-line-prefix)
     (warn "prefix ~S and per-line-prefix ~S cannot both be specified ~
            in PPRINT-LOGICAL-BLOCK")
-    (setq per-line-prefix nil))
+    (setf per-line-prefix nil))
   `(maybe-initiate-xp-printing
      (lambda (,stream-symbol)
          (let ((+l ,list)
@@ -1255,7 +1255,7 @@
         ((and *print-length* ;must supersede circle check
               (not (< *current-length* *print-length*)))
          (write-string++ "..." xp 0 3)
-         (setq *abbreviation-happened* T)
+         (setf *abbreviation-happened* T)
          T)
         ((and *circularity-hash-table* (not (zerop *current-length*)))
          (case (circularity-process xp args T)
@@ -1278,13 +1278,13 @@
         ((and *print-length* ;must supersede circle check
               (not (< *current-length* *print-length*)))
          (write-string++ "..." xp 0 3)
-         (setq *abbreviation-happened* T)
+         (setf *abbreviation-happened* T)
          T)))
 
 (defmacro pprint-logical-block+ ((var args prefix suffix per-line? circle-check? atsign?)
                                  &body body)
    (when (and circle-check? atsign?)
-     (setq circle-check? 'not-first-p))
+     (setf circle-check? 'not-first-p))
   `(let ((*current-level* (1+ *current-level*))
          (*current-length* -1)
          (*parents* *parents*)
@@ -1300,7 +1300,7 @@
            (end-block ,var ,suffix))))))
 
 (defun pprint-newline (kind &optional (stream *standard-output*))
-  (setq stream (decode-stream-arg stream))
+  (setf stream (decode-stream-arg stream))
   (when (not (member kind '(:linear :miser :fill :mandatory)))
     (error "Invalid KIND argument ~A to PPRINT-NEWLINE" kind))
   (when (xp-structure-p stream)
@@ -1308,7 +1308,7 @@
   nil)
 
 (defun pprint-indent (relative-to n &optional (stream *standard-output*))
-  (setq stream (decode-stream-arg stream))
+  (setf stream (decode-stream-arg stream))
   (when (not (member relative-to '(:block :current)))
     (error "Invalid KIND argument ~A to PPRINT-INDENT" relative-to))
   (when (xp-structure-p stream)
@@ -1316,7 +1316,7 @@
   nil)
 
 (defun pprint-tab (kind colnum colinc &optional (stream *standard-output*))
-  (setq stream (decode-stream-arg stream))
+  (setf stream (decode-stream-arg stream))
   (when (not (member kind '(:line :section :line-relative :section-relative)))
     (error "Invalid KIND argument ~A to PPRINT-TAB" kind))
   (when (xp-structure-p stream)
@@ -1391,7 +1391,7 @@
 
 (defun pprint-tabular (s list &optional (colon? T) atsign? (tabsize nil))
   (declare (ignore atsign?))
-  (when (null tabsize) (setq tabsize 16))
+  (when (null tabsize) (setf tabsize 16))
   (pprint-logical-block (s list :prefix (if colon? "(" "")
                                 :suffix (if colon? ")" ""))
     (pprint-exit-if-list-exhausted)

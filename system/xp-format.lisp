@@ -33,7 +33,7 @@
 ;Initial is always bound to (args) if it is bound at all.
 ;Note this uses args, but only when actually binding
 
-(defun initial () (setq *used-initial* T) 'init)
+(defun initial () (setf *used-initial* T) 'init)
 
 (defmacro bind-initial (&body code)
   `(let* ((*used-initial* nil)
@@ -43,7 +43,7 @@
 ; ARGS holds the current argument list
 ;The val bound to args must always be computed (to use it up) even if args is not used.
 
-(defun args () (setq *used-args* T) 'args)
+(defun args () (setf *used-args* T) 'args)
 
 (defmacro bind-args (doit? val &body code)
   (if (eq doit? T)
@@ -58,7 +58,7 @@
                     (body (code)))
                (if *used-args* (make-binding 'args val body) (cons val body)))))))
 
-(defun outer-args () (setq *used-outer-args* T) 'outer-args)
+(defun outer-args () (setf *used-outer-args* T) 'outer-args)
 
 (defmacro bind-outer-args (&body code)
   `(let* ((*used-outer-args* nil)
@@ -81,9 +81,9 @@
 
 (defun literal (start end)
   (let ((sub-end nil) next-newline (result nil))
-    (loop (setq next-newline
+    (loop (setf next-newline
                 (position #\newline *string* :start start :end end))
-          (setq sub-end (if next-newline next-newline end))
+          (setf sub-end (if next-newline next-newline end))
           (when (< start sub-end)
             (push (if (= start (1- sub-end))
                       `(write-char++ ,(aref *string* start) xp)
@@ -92,7 +92,7 @@
                   result))
           (when (null next-newline) (return nil))
           (push `(pprint-newline+ :unconditional xp) result)
-          (setq start (1+ sub-end)))
+          (setf start (1+ sub-end)))
     (if (null (cdr result)) (car result) (cons 'progn (nreverse result)))))
 
 ;This is available for putting on #".
@@ -156,9 +156,9 @@
 (defun next-directive1 (start end)
   (let ((i (position #\~ *string* :start start :end end)) j)
     (when i
-      (setq j (params-end (1+ i)))
+      (setf j (params-end (1+ i)))
       (when (char= (aref *string* j) #\/)
-        (setq j (position #\/ *string* :start (1+ j) :end end))
+        (setf j (position #\/ *string* :start (1+ j) :end end))
         (when (null j)
           (err 3 "Matching / missing" (position #\/ *string* :start start)))))
     (values i j)))
@@ -166,7 +166,7 @@
 (defun params-end (start) ;start points just after ~
   (let ((j start) (end (length *string*)))
     (loop
-      (setq j (position-not-in "+-0123456789,Vv#:@" j))
+      (setf j (position-not-in "+-0123456789,Vv#:@" j))
       (when (null j) (err 1 "missing directive" (1- start)))
       (when (not (eq (aref *string* j) #\')) (return j))
       (incf j)
@@ -177,7 +177,7 @@
 
 (defun directive-start (end) ;end points at characters after params
   (loop
-    (setq end (position #\~ *string* :end end :from-end T))
+    (setf end (position #\~ *string* :end end :from-end T))
     (when (or (zerop end) (not (eq (aref *string* (1- end)) #\')))
       (return end))
     (decf end)))
@@ -185,18 +185,18 @@
 (defun next-directive (start end)
   (let (i j ii k count c close
         (pairs '((#\( . #\)) (#\[ . #\]) (#\< . #\>) (#\{ . #\}))))
-    (multiple-value-setq (i j) (next-directive1 start end))
+    (multiple-value-setf (i j) (next-directive1 start end))
     (when i
-      (setq c (aref *string* j))
-      (setq close (cdr (assoc c pairs)))
+      (setf c (aref *string* j))
+      (setf close (cdr (assoc c pairs)))
       (when close
-        (setq k j count 0)
+        (setf k j count 0)
         (loop
-          (multiple-value-setq (ii k) (next-directive1 k end))
+          (multiple-value-setf (ii k) (next-directive1 k end))
           (when (null ii) (err 4 "No matching close directive" j))
           (when (eql (aref *string* k) c) (incf count))
           (when (eql (aref *string* k) close) (decf count)
-            (when (minusp count) (setq j k) (return nil))))))
+            (when (minusp count) (setf j k) (return nil))))))
     (values c i j)))
 
 ;breaks things up at ~; directives.
@@ -208,22 +208,22 @@
         (declare (ignore i))
         (when (null c) (return (nreverse (cons end positions))))
         (when (eql c #\;) (push (1+ j) positions))
-        (setq spot j)))))
+        (setf spot j)))))
 
 (defun fancy-directives-p (*string*)
   (let (i (j 0) (end (length *string*)) c)
     (loop
-      (multiple-value-setq (i j) (next-directive1 j end))
+      (multiple-value-setf (i j) (next-directive1 j end))
       (when (not i) (return nil))
-      (setq c (aref *string* j))
+      (setf c (aref *string* j))
       (when (or (find c "_Ii/Ww") (and (find c ">Tt") (colonp j)))
         (return T)))))
 
 (defun num-args-in-args (start &optional (err nil))
   (let ((n 0) (i (1- start)) c)
     (loop
-      (setq i (position-not-in "+-0123456789," (1+ i)))
-      (setq c (aref *string* i))
+      (setf i (position-not-in "+-0123456789," (1+ i)))
+      (setf c (aref *string* i))
       (cond ((or (char= c #\V) (char= c #\v)) (incf n))
             ((char= c #\#)
              (when err
@@ -235,7 +235,7 @@
 (defun compile-format (start end)
   (let ((result nil))
     (prog (c i j fn)
-     L(multiple-value-setq (c i j) (next-directive start end))
+     L(multiple-value-setf (c i j) (next-directive start end))
       (when (if (null c) (< start end) (< start i))
         (push (literal start (if i i end)) result))
       (when (null c) (return (nreverse result)))
@@ -245,18 +245,18 @@
           (when atsign (push `(pprint-newline+ :unconditional xp) result))
           (incf j)
           (when (not colon)
-            (setq j (position-if-not
+            (setf j (position-if-not
                       (lambda (c)
                           (or (char= c #\tab) (char= c #\space)))
                       *string* :start j :end end))
-            (when (null j) (setq j end)))
-          (setq start j)
+            (when (null j) (setf j end)))
+          (setf start j)
           (go L)))
-      (setq fn (gethash c *fn-table*))
+      (setf fn (gethash c *fn-table*))
       (when (null fn) (err 5 "Unknown format directive" j))
       (incf j)
       (push (funcall fn (1+ i) j) result)
-      (setq start j)
+      (setf start j)
       (go L))))
 
 ;This gets called with start pointing to the character after the ~ that
@@ -271,34 +271,34 @@
                      (nocolon nil) (noatsign nil) (nocolonatsign nil))
   (let ((colon nil) (atsign nil) (params nil) (i start) j c)
     (loop
-      (setq c (aref *string* i))
+      (setf c (aref *string* i))
       (cond ((or (char= c #\V) (char= c #\v)) (push (get-arg) params) (incf i))
             ((char= c #\#) (push (num-args) params) (incf i))
             ((char= c #\') (incf i) (push (aref *string* i) params) (incf i))
             ((char= c #\,) (push nil params))
-            (T (setq j (position-not-in "+-0123456789" i))
+            (T (setf j (position-not-in "+-0123456789" i))
                (if (= i j) (return nil))
                (push (parse-integer *string* :start i :end j :radix 10.) params)
-               (setq i j)))
+               (setf i j)))
       (if (char= (aref *string* i) #\,) (incf i) (return nil)))
-    (setq params (nreverse params))
+    (setf params (nreverse params))
     (do ((ps params (cdr ps))
          (ds defaults (cdr ds))
          (nps nil))
-        ((null ds) (setq params (nreconc nps ps)))
+        ((null ds) (setf params (nreconc nps ps)))
       (push (cond ((or (null ps) (null (car ps))) (car ds))
                   ((not (consp (car ps))) (car ps))
                   (T `(cond (,(car ps)) (T ,(car ds)))))
             nps))
     (if (and max (< max (length params))) (err 6 "Too many parameters" i))
     (loop
-      (setq c (aref *string* i))
+      (setf c (aref *string* i))
       (cond ((char= c #\:)
              (if colon (err 7 "Two colons specified" i))
-             (setq colon T))
+             (setf colon T))
             ((char= c #\@)
              (if atsign (err 8 "Two atsigns specified" i))
-             (setq atsign T))
+             (setf atsign T))
             (T (return nil)))
       (incf i))
     (if (and colon nocolon) (err 9 "Colon not permitted" i))
@@ -414,7 +414,7 @@
 (defun multiple-newlines1 (xp kind num)
   (do ((n num (1- n))) ((not (plusp n)))
     (pprint-newline+ kind xp)
-    (setq kind :unconditional)))
+    (setf kind :unconditional)))
 
 (def-format-handler #\| (start end) (declare (ignore end))
   (multiple-chars start #\Page))
@@ -444,11 +444,11 @@
       (multiple-value-bind (colon atsign params)
           (parse-params start '(0) :nocolon t)
           (declare (ignore colon atsign))
-        `(setq args (backup-to ,(car params) ,(initial) ,(args))))
+        `(setf args (backup-to ,(car params) ,(initial) ,(args))))
       (multiple-value-bind (colon atsign params)
           (parse-params start '(1))
           (declare (ignore atsign))
-        `(setq args
+        `(setf args
                ,(if colon `(backup-in-list ,(car params) ,(initial) ,(args))
                     `(nthcdr ,(car params) ,(args)))))))
 
@@ -489,7 +489,7 @@
       (declare (ignore colon))
     (if (not atsign) `(apply #'format xp ,(get-arg) ,(get-arg))
         `(let ((fn (process-format-string ,(get-arg) T)))
-           (setq args (apply fn xp ,(args)))))))
+           (setf args (apply fn xp ,(args)))))))
 
 (def-format-handler #\^ (start end) (declare (ignore end))
   (multiple-value-bind (colon atsign params)
@@ -509,7 +509,7 @@
 (def-format-handler #\[ (start end)
   (multiple-value-bind (colon atsign params)
       (parse-params start nil :max 1 :nocolonatsign T)
-    (setq start (1+ (params-end start)))
+    (setf start (1+ (params-end start)))
     (let* ((chunks (chunk-up start end))
            (innards (do ((ns chunks (cdr ns))
                          (ms (cdr chunks) (cdr ms))
@@ -534,8 +534,8 @@
 
 (def-format-handler #\( (start end)
   (multiple-value-bind (colon atsign) (parse-params start nil)
-    (setq start (1+ (params-end start)))
-    (setq end (directive-start end))
+    (setf start (1+ (params-end start)))
+    (setf end (directive-start end))
     `(progn (push-char-mode xp ,(cond ((and colon atsign) :UP)
                                       (colon :CAP1)
                                       (atsign :CAP0)
@@ -560,8 +560,8 @@
     (let* ((force-once (colonp (1- end)))
            (n (car params))
            (bounded (not (eql n -1))))
-      (setq start (1+ (params-end start)))
-      (setq end (directive-start end))
+      (setf start (1+ (params-end start)))
+      (setf end (directive-start end))
       (car (maybe-bind bounded 'N n ;must be outermost if is V or #
              (maybe-bind (not (> end start)) 'FN  ;must be second
                          `(process-format-string ,(get-arg) T)
@@ -580,12 +580,12 @@
                                        (*inner-end* nil))
                                    (if (not colon)
                                        (if (not (> end start))
-                                           `((setq args (apply FN xp ,(args))))
+                                           `((setf args (apply FN xp ,(args))))
                                            (compile-format start end))
                                        (let ((*inner-end* 'inner))
                                          `((block inner
                                              ,@(if (not (> end start))
-                                                   `((setq args (apply FN xp ,(args))))
+                                                   `((setf args (apply FN xp ,(args))))
                                                    (compile-format start end))))))))))
                          (go L))))))))))
 
@@ -602,9 +602,9 @@
 (defun num-args-in-directive (start end)
   (let ((n 0) c i j)
     (incf n (num-args-in-args start T))
-    (multiple-value-setq (j i) (next-directive1 start end))
+    (multiple-value-setf (j i) (next-directive1 start end))
     (loop
-      (multiple-value-setq (c i j) (next-directive j end))
+      (multiple-value-setf (c i j) (next-directive j end))
       (when (null c) (return n))
       (cond ((eql c #\;)
              (if (colonp j)
@@ -644,7 +644,7 @@
 
 (defun handle-logical-block (start end)
   (multiple-value-bind (colon atsign) (parse-params start nil)
-    (setq start (1+ (params-end start)))
+    (setf start (1+ (params-end start)))
     (let* ((chunks (chunk-up start end))
            (on-each-line?
              (and (cddr chunks) (atsignp (1- (cadr chunks)))))
@@ -663,7 +663,7 @@
       (when (and suffix (or (find #\~ suffix) (find #\newline suffix)))
         (err 26 "Suffix in ~~<...~~:> must be a literal string without newline"
              (cadr chunks)))
-      (car (bind-args T (if atsign `(prog1 ,(args) (setq ,(args) nil)) (get-arg))
+      (car (bind-args T (if atsign `(prog1 ,(args) (setf ,(args) nil)) (get-arg))
              (bind-initial
                `((pprint-logical-block+ (xp ,(args) ,prefix ,suffix ,on-each-line?
                                             ,(not (and *at-top* atsign)) ,atsign)
@@ -678,7 +678,7 @@
 (defun check-block-abbreviation (xp args circle-check?)
   (cond ((not (listp args)) (write+ args xp) T)
         ((and *print-level* (> *current-level* *print-level*))
-         (write-char++ #\# XP) (setq *abbreviation-happened* T) T)
+         (write-char++ #\# XP) (setf *abbreviation-happened* T) T)
         ((and *circularity-hash-table* circle-check?
               (eq (circularity-process xp args nil) :subsequent)) T)
         (T nil)))
@@ -703,9 +703,9 @@
     (do ((index 0 end) (result) (end nil nil)) (nil)
       (let ((white (position-if #'white-space string :start index)))
         (when white
-          (setq end (position-if-not #'white-space string :start (1+ white))))
+          (setf end (position-if-not #'white-space string :start (1+ white))))
         (when (null end)
-          (setq end (length string)))
+          (setf end (length string)))
         (push `(write-string++ ,(subseq string index end) xp ,0 ,(- end index))
               result)
         (if white (push '(pprint-newline+ :fill xp) result))
@@ -726,9 +726,9 @@
         ((null stream)
          (with-output-to-string (stream)
            (apply #'format stream string-or-fn args)))
-        (T (if (eq stream T) (setq stream *standard-output*))
+        (T (if (eq stream T) (setf stream *standard-output*))
            (when (stringp string-or-fn)
-             (setq string-or-fn (process-format-string string-or-fn nil)))
+             (setf string-or-fn (process-format-string string-or-fn nil)))
            (cond ((not (stringp string-or-fn))
                   (apply string-or-fn stream args))
                  ((xp-structure-p stream)
@@ -742,6 +742,6 @@
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
         (T (let ((value (gethash string-or-fn *format-string-cache*)))
              (when (or (not value) (and force-fn? (stringp value)))
-               (setq value (maybe-compile-format-string string-or-fn force-fn?))
+               (setf value (maybe-compile-format-string string-or-fn force-fn?))
                (setf (gethash string-or-fn *format-string-cache*) value))
              value))))
