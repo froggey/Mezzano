@@ -1012,7 +1012,7 @@ Must be run after keywords have been lowered."
     (lexical-variable form #+nil(lexical-variable-name form))
     (lambda-information
      `(lambda ,(append (when (lambda-information-environment-arg form)
-                         `(&env (unparse-compiler-form (lambda-information-environment-arg form))))
+                         `(&env ,(unparse-compiler-form (lambda-information-environment-arg form))))
                        (loop
                           for arg in (lambda-information-required-args form)
                           collect (unparse-compiler-form arg))
