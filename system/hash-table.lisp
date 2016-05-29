@@ -221,9 +221,28 @@ is below the rehash-threshold."
 (defun eq-hash (object)
   (lisp-object-address object))
 
+(defun hash-bignum (bignum)
+  (let ((n (logxor (%n-bignum-fragments bignum)
+                   #xb89a91d9)))
+    (dotimes (i (%n-bignum-fragments bignum))
+      (setf n (logxor n (%bignum-fragment bignum i))))
+    n))
+
 (defun eql-hash (object)
-  ;; TODO: special-case for bignums, ratios and the various complex types.
-  (eq-hash object))
+  ;; Future note: double-floats and other float types will need to be
+  ;; special-cased here as well.
+  (cond ((bignump object)
+         (hash-bignum object))
+        ((ratiop object)
+         (logxor (eql-hash (numerator object))
+                 (eql-hash (denominator object))))
+        ((complexp object)
+         (logxor (eql-hash (realpart object))
+                 (eql-hash (imagpart object))))
+        (t
+         ;; Fixnums, single-floats, and characters are immediate objects and
+         ;; can be safely hashed by their "address".
+         (eq-hash object))))
 
 (defun sxhash-1 (object depth)
   (if (zerop depth)
