@@ -530,8 +530,12 @@ VALUE may be nil to make the fref unbound."
 (defun gensym (&optional (thing "G"))
   (check-type thing (or string (integer 0)))
   (if (integerp thing)
-      (make-symbol (format nil "G~D" thing))
-      (prog1 (make-symbol (format nil "~A~D" thing *gensym-counter*))
+      (make-symbol (with-output-to-string (s)
+                     (write-char #\G s)
+                     (write thing :stream s :base 10)))
+      (prog1 (make-symbol (with-output-to-string (s)
+                            (write-string thing s)
+                            (write *gensym-counter* :stream s :base 10)))
         (incf *gensym-counter*))))
 
 ;;; TODO: Expand this so it knows about the compiler's constant folders.
