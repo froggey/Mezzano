@@ -134,7 +134,8 @@
 ;reported in a file without stopping the compilation of the file.
 
 (defun maybe-compile-format-string (string force-fn?)
-  (if (not (or force-fn? (fancy-directives-p string))) string
+  (if (not (or force-fn? (fancy-directives-p string)))
+      string
       (eval `(formatter ,string))))
 
 ;COMPILE-FORMAT gets called to turn a bit of format control string into code.
@@ -185,14 +186,14 @@
 (defun next-directive (start end)
   (let (i j ii k count c close
         (pairs '((#\( . #\)) (#\[ . #\]) (#\< . #\>) (#\{ . #\}))))
-    (multiple-value-setf (i j) (next-directive1 start end))
+    (setf (values i j) (next-directive1 start end))
     (when i
       (setf c (aref *string* j))
       (setf close (cdr (assoc c pairs)))
       (when close
         (setf k j count 0)
         (loop
-          (multiple-value-setf (ii k) (next-directive1 k end))
+          (setf (values ii k) (next-directive1 k end))
           (when (null ii) (err 4 "No matching close directive" j))
           (when (eql (aref *string* k) c) (incf count))
           (when (eql (aref *string* k) close) (decf count)
@@ -213,7 +214,7 @@
 (defun fancy-directives-p (*string*)
   (let (i (j 0) (end (length *string*)) c)
     (loop
-      (multiple-value-setf (i j) (next-directive1 j end))
+      (setf (values i j) (next-directive1 j end))
       (when (not i) (return nil))
       (setf c (aref *string* j))
       (when (or (find c "_Ii/Ww") (and (find c ">Tt") (colonp j)))
@@ -235,7 +236,7 @@
 (defun compile-format (start end)
   (let ((result nil))
     (prog (c i j fn)
-     L(multiple-value-setf (c i j) (next-directive start end))
+     L(setf (values c i j) (next-directive start end))
       (when (if (null c) (< start end) (< start i))
         (push (literal start (if i i end)) result))
       (when (null c) (return (nreverse result)))
@@ -602,9 +603,9 @@
 (defun num-args-in-directive (start end)
   (let ((n 0) c i j)
     (incf n (num-args-in-args start T))
-    (multiple-value-setf (j i) (next-directive1 start end))
+    (setf (values j i) (next-directive1 start end))
     (loop
-      (multiple-value-setf (c i j) (next-directive j end))
+      (setf (values c i j) (next-directive j end))
       (when (null c) (return n))
       (cond ((eql c #\;)
              (if (colonp j)
@@ -719,9 +720,10 @@
 
 (defun format (stream string-or-fn &rest args)
   (cond ((stringp stream)
-         (cl:format stream "~A"
-                      (with-output-to-string (stream)
-                        (apply #'format stream string-or-fn args)))
+         (apply #'format (make-instance 'sys.int::string-output-stream
+                                        :element-type 'character
+                                        :string stream)
+                string-or-fn args)
          nil)
         ((null stream)
          (with-output-to-string (stream)
