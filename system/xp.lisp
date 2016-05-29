@@ -402,11 +402,8 @@
 (defmethod print-object ((object xp-structure) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (if (not (base-stream object))
-        (cl:format s "not currently in use")
-        (cl:format s "outputting to ~S" (base-stream object)))))
-
-(defun make-xp-structure (&rest args)
-  (apply #'make-instance 'xp-structure args))
+        (cl:format stream "not currently in use")
+        (cl:format stream "outputting to ~S" (base-stream object)))))
 
 (defun xp-structure-p (object)
   (typep object 'xp-structure))

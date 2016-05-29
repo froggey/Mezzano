@@ -114,20 +114,23 @@
      (declare (system:lambda-name (formatter ,string)))
      (formatter-in-package ,string "CL-USER")))
 
-(defun formatter-fn (*string* *default-package*)
-  (or (catch :format-compilation-error
-        `(apply #'maybe-initiate-xp-printing
-                (lambda (xp &rest args)
-                  ,@(bind-initial
-                     `((block top
-                         ,@(let ((*get-arg-carefully* nil)
-                                 (*at-top* t)
-                                 (*inner-end* 'top)
-                                 (*outer-end* 'top))
-                                (compile-format 0 (length *string*))))))
-                  ,(args))
-                s args))
-      `(apply #'format s ,*string* args)))
+(defvar *errors-are-errors* t)
+
+(defun formatter-fn (*string* *default-package* &optional errorp)
+  (let ((*errors-are-errors* errorp))
+    (or (catch :format-compilation-error
+          `(apply #'maybe-initiate-xp-printing
+                  (lambda (xp &rest args)
+                    ,@(bind-initial
+                       `((block top
+                           ,@(let ((*get-arg-carefully* nil)
+                                   (*at-top* t)
+                                   (*inner-end* 'top)
+                                   (*outer-end* 'top))
+                                  (compile-format 0 (length *string*))))))
+                    ,(args))
+                  s args))
+        `(apply #'format s ,*string* args))))
 
 ;The business with the catch above allows many (formatter "...") errors to be
 ;reported in a file without stopping the compilation of the file.
@@ -136,8 +139,11 @@
 
 (defun err (id msg i)
   (if *testing-errors* (throw :testing-errors (list id i)))
-  (warn "XP: cannot compile format string ~%~A~%~S~%~V@T|"
-        msg *string* (1+ i))
+  (if *errors-are-errors*
+      (error "XP: cannot compile format string ~%~A~%~S~%~V@T|"
+             msg *string* (1+ i))
+      (warn "XP: cannot compile format string ~%~A~%~S~%~V@T|"
+            msg *string* (1+ i)))
   (throw :format-compilation-error nil))
 
 (defun position-in (set start)
@@ -744,7 +750,7 @@
   (compile nil
            `(lambda (s &rest args)
               (declare (system:lambda-name (formatter ,string)))
-              (formatter-in-package ,string "CL-USER"))))
+              ,(formatter-fn string "CL-USER" t))))
 
 (defun process-format-string (string-or-fn force-fn?)
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
