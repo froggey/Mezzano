@@ -110,9 +110,9 @@
   (formatter-fn string reader-package))
 
 (defmacro formatter (string)
-  `(function
-    (lambda (s &rest args)
-      (formatter-in-package ,string "CL-USER"))))
+  `(lambda (s &rest args)
+     (declare (system:lambda-name (formatter ,string)))
+     (formatter-in-package ,string "CL-USER")))
 
 (defun formatter-fn (*string* *default-package*)
   (or (catch :format-compilation-error
@@ -369,7 +369,7 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(nil #\Space #\, 3))
-    `(sys.format::format-integer ,(get-arg) ,base ',params ',atsign ',colon)))
+    `(sys.format::format-integer XP ,(get-arg) ,base ',params ',atsign ',colon)))
 
 (def-format-handler #\D (start end) (impl-integer start end 10))
 (def-format-handler #\B (start end) (impl-integer start end 2))
@@ -380,13 +380,13 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(10 nil #\Space #\, 3))
-    `(sys.format::format-radix ,(get-arg) ',params ',atsign ',colon)))
+    `(sys.format::format-radix XP ,(get-arg) ',params ',atsign ',colon)))
 
 (def-format-handler #\C (start end)
   (declare (ignore end))
   (multiple-value-bind (colon atsign)
       (parse-params start '())
-    `(sys.format::format-character ,(get-arg) ',atsign ',colon)))
+    `(sys.format::format-character XP ,(get-arg) ',atsign ',colon)))
 
 ;; TODO.
 (def-format-handler #\F (start end) (impl-integer start end 10))
@@ -738,7 +738,7 @@
            (apply string-or-fn stream args)
            nil)))
 
-(defvar *format-string-cache* (make-hash-table :test #'equal))
+(defvar *format-string-cache* (make-hash-table))
 
 (defun compile-format-string (string)
   (eval `(formatter ,string)))

@@ -207,7 +207,7 @@
                  ,@body
                  ,arguments))))))
 
-(defun format-integer (n base params at-sign colon)
+(defun format-integer (stream n base params at-sign colon)
   (let ((mincol (first params))
 	(padchar (or (second params) #\Space))
 	(commachar (or (third params) #\,))
@@ -215,7 +215,7 @@
     (unless (integerp n)
       (return-from format-integer
         (let ((*print-base* base))
-          (write n :escape nil :readably nil))))
+          (write n :stream stream :escape nil :readably nil))))
     (check-type padchar character)
     (check-type commachar character)
     (check-type comma-interval integer)
@@ -242,24 +242,24 @@
 		  (setf n quot))))
 	  ;; TODO: count commas as well
 	  (dotimes (i (- mincol (+ (length buffer) (if (or negative at-sign) 1 0))))
-	    (write-char padchar))
+	    (write-char padchar stream))
           (cond
             (negative
-             (write-char #\-))
+             (write-char #\- stream))
             (at-sign
-             (write-char #\+)))
+             (write-char #\+ stream)))
 	  (if colon
 	      (dotimes (i (length buffer))
 		(when (and (not (zerop i))
                            (zerop (rem (- (length buffer) i) comma-interval)))
-		  (write-char commachar))
-		(write-char (char buffer (- (length buffer) i 1))))
+		  (write-char commachar stream))
+		(write-char (char buffer (- (length buffer) i 1)) stream))
 	      (dotimes (i (length buffer))
-		(write-char (char buffer (- (length buffer) i 1))))))
+		(write-char (char buffer (- (length buffer) i 1)) stream))))
 	(progn
 	  (when (and at-sign (not (minusp n)))
-	    (write-char #\+))
-	  (write n :escape nil :radix nil :base base :readably nil)))))
+	    (write-char #\+ stream))
+	  (write n :stream stream :escape nil :radix nil :base base :readably nil)))))
 
 (defvar *cardinal-names-1*
   '("zero" "one" "two" "three" "four" "five" "six" "seven" "eight" "nine"
@@ -330,22 +330,22 @@
 
 ;;;; 22.3.1 FORMAT Basic Output.
 
-(defun format-character (c at-sign colon)
+(defun format-character (stream c at-sign colon)
   (check-type c character)
   (cond ((and at-sign (not colon))
-         (write c :escape t))
+         (write c :stream stream :escape t))
         (colon
          (if (and (graphic-char-p c) (not (eql #\Space c)))
-             (write-char c)
-             (write-string (char-name c)))
+             (write-char c stream)
+             (write-string (char-name c) stream))
          ;; TODO: colon & at-sign.
          ;; Describes how to type the character if it requires
          ;; unusual shift keys to type.
          (when at-sign))
-        (t (write-char c))))
+        (t (write-char c stream))))
 
 (define-format-interpreter #\C (at-sign colon)
-  (format-character (consume-argument) at-sign colon))
+  (format-character *standard-output* (consume-argument) at-sign colon))
 
 (define-format-interpreter #\% (at-sign colon &optional n)
   (check-type n (or integer null))
@@ -371,39 +371,40 @@
 
 ;;;; 22.3.2 FORMAT Radix Control.
 
-(defun format-radix (arg params at-sign colon)
+(defun format-radix (stream arg params at-sign colon)
   (cond
     (params
      (let ((base (or (first params) 10)))
        (check-type base integer)
-       (format-integer arg
+       (format-integer stream arg
                        base (rest params)
                        at-sign colon)))
     (at-sign
      (error "TODO: Roman numerals."))
     (colon
-     (print-ordinal arg *standard-output*))
+     (print-ordinal arg stream))
     (t
-     (print-cardinal arg *standard-output*))))
+     (print-cardinal arg stream))))
 
 (define-format-interpreter #\R (at-sign colon &rest params)
-  (format-radix (consume-argument)
+  (format-radix *standard-output*
+                (consume-argument)
                 params at-sign colon))
 
 (define-format-interpreter #\D (at-sign colon &rest params)
-  (format-integer (consume-argument)
+  (format-integer *standard-output* (consume-argument)
                   10 params at-sign colon))
 
 (define-format-interpreter #\B (at-sign colon &rest params)
-  (format-integer (consume-argument)
+  (format-integer *standard-output* (consume-argument)
                   2 params at-sign colon))
 
 (define-format-interpreter #\O (at-sign colon &rest params)
-  (format-integer (consume-argument)
+  (format-integer *standard-output* (consume-argument)
                   8 params at-sign colon))
 
 (define-format-interpreter #\X (at-sign colon &rest params)
-  (format-integer (consume-argument)
+  (format-integer *standard-output* (consume-argument)
                   16 params at-sign colon))
 
 ;;;; 22.3.3 FORMAT Floating-Point Printers.
