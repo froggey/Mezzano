@@ -741,7 +741,10 @@
 (defvar *format-string-cache* (make-hash-table))
 
 (defun compile-format-string (string)
-  (eval `(formatter ,string)))
+  (compile nil
+           `(lambda (s &rest args)
+              (declare (system:lambda-name (formatter ,string)))
+              (formatter-in-package ,string "CL-USER"))))
 
 (defun process-format-string (string-or-fn force-fn?)
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
