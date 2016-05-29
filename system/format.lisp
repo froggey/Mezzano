@@ -330,20 +330,22 @@
 
 ;;;; 22.3.1 FORMAT Basic Output.
 
+(defun format-character (c at-sign colon)
+  (check-type c character)
+  (cond ((and at-sign (not colon))
+         (write c :escape t))
+        (colon
+         (if (and (graphic-char-p c) (not (eql #\Space c)))
+             (write-char c)
+             (write-string (char-name c)))
+         ;; TODO: colon & at-sign.
+         ;; Describes how to type the character if it requires
+         ;; unusual shift keys to type.
+         (when at-sign))
+        (t (write-char c))))
+
 (define-format-interpreter #\C (at-sign colon)
-  (let ((c (consume-argument)))
-    (check-type c character)
-    (cond ((and at-sign (not colon))
-           (write c :escape t))
-	  (colon
-           (if (and (graphic-char-p c) (not (eql #\Space c)))
-               (write-char c)
-               (write-string (char-name c)))
-           ;; TODO: colon & at-sign.
-           ;; Describes how to type the character if it requires
-           ;; unusual shift keys to type.
-           (when at-sign))
-          (t (write-char c)))))
+  (format-character (consume-argument) at-sign colon))
 
 (define-format-interpreter #\% (at-sign colon &optional n)
   (check-type n (or integer null))
@@ -369,21 +371,24 @@
 
 ;;;; 22.3.2 FORMAT Radix Control.
 
+(defun format-radix (arg params at-sign colon)
+  (cond
+    (params
+     (let ((base (or (first params) 10)))
+       (check-type base integer)
+       (format-integer arg
+                       base (rest params)
+                       at-sign colon)))
+    (at-sign
+     (error "TODO: Roman numerals."))
+    (colon
+     (print-ordinal arg *standard-output*))
+    (t
+     (print-cardinal arg *standard-output*))))
+
 (define-format-interpreter #\R (at-sign colon &rest params)
-  (let ((arg (consume-argument)))
-    (cond
-      (params
-       (let ((base (or (first params) 10)))
-         (check-type base integer)
-         (format-integer arg
-                         base (rest params)
-                         at-sign colon)))
-      (at-sign
-       (error "TODO: Roman numerals."))
-      (colon
-       (print-ordinal arg *standard-output*))
-      (t
-       (print-cardinal arg *standard-output*)))))
+  (format-radix (consume-argument)
+                params at-sign colon))
 
 (define-format-interpreter #\D (at-sign colon &rest params)
   (format-integer (consume-argument)
