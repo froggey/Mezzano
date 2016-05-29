@@ -319,8 +319,8 @@
             (when (eql form eof) (return))
             (when *load-print*
               (let ((*print-level* 3)
-                    (*print-lines* 3))
-                (format t ";; Loading ~S~%" form)))
+                    (*print-length* 3))
+                (format t "~&~@<;; ~@;Loading ~S~:>~%" form)))
             (eval form)))
     t))
 
