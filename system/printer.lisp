@@ -199,6 +199,55 @@
   (write-char #\/ stream)
   (write-integer (denominator object) *print-base* stream))
 
+(defmacro with-printer-level/length ((stream) &body body)
+  (let ((length (gensym)))
+    `(cond ((or (not *print-level*)
+                (plusp *print-level*))
+            (let ((*print-level* (if *print-level*
+                                     (1- *print-level*)
+                                     nil))
+                  (,length *print-length*))
+              (flet ((output (obj)
+                       (cond ((not ,length)
+                              (write obj :stream ,stream)
+                              t)
+                             ((plusp ,length)
+                              (decf ,length)
+                              (write obj :stream ,stream)
+                              t)
+                             (t
+                              (write-string "..." ,stream)
+                              nil))))
+                ,@body)))
+           (t
+            (write-char #\# ,stream)))))
+
+(defun write-cons (object stream)
+  (with-printer-level/length (stream)
+    (let ((length *print-length*))
+      (write-char #\( stream)
+      (when (output (car object))
+        (do ((i (cdr object) (cdr i)))
+            ((atom i)
+             (when i
+               (write-string " . " stream)
+               (output i)))
+          (write-char #\Space stream)
+          (when (not (output (car i)))
+            (return)))
+        (write-char #\) stream)))))
+
+(defun write-vector (object stream)
+  (with-printer-level/length (stream)
+    (write-char #\# stream)
+    (write-char #\( stream)
+    (dotimes (i (length object))
+      (unless (zerop i)
+        (write-char #\Space stream))
+      (when (not (output (aref object i)))
+        (return)))
+    (write-char #\) stream)))
+
 (defun write-object (object stream)
   (typecase object
     (integer
@@ -218,16 +267,7 @@
     (ratio
      (write-ratio object stream))
     (cons
-     (write-char #\( stream)
-     (write (car object) :stream stream)
-     (do ((i (cdr object) (cdr i)))
-         ((atom i)
-          (when i
-            (write-string " . " stream)
-            (write i :stream stream))
-          (write-char #\) stream))
-       (write-char #\Space stream)
-       (write (car i) :stream stream)))
+     (write-cons object stream))
     (symbol
      (write-symbol object stream))
     (string
@@ -269,13 +309,7 @@
            (write-char #\0 stream)
            (write-char #\1 stream))))
     (vector
-     (write-char #\# stream)
-     (write-char #\( stream)
-     (dotimes (i (length object))
-       (unless (zerop i)
-         (write-char #\Space stream))
-       (write (aref object i) :stream stream))
-     (write-char #\) stream))
+     (write-vector object stream))
     (complex
      (write-string "#C(" stream)
      (write (realpart object))
@@ -329,7 +363,8 @@
     (cond
       (pretty
        (write-pretty object stream))
-      (t (write-object object stream)))))
+      (t
+       (write-object object stream)))))
 
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
