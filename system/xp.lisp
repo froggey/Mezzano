@@ -315,7 +315,7 @@
 (defconstant +prefix-min-size+ 256)
 (defconstant +suffix-min-size+ 256)
 
-(defclass xp-structure ()
+(defclass xp-structure (sys.gray:fundamental-character-output-stream)
   ((base-stream :initarg :base-stream :initform nil :accessor base-stream) ;;The stream io eventually goes to.
    (linel :initarg :linel :initform nil :accessor linel) ;;The line length to use for formatting.
    (line-limit :initarg :line-limit :initform nil :accessor line-limit) ;;If non-NIL the max number of lines to print.
