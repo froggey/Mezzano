@@ -317,7 +317,10 @@
         (eof (cons nil nil)))
     (loop (let ((form (read stream nil eof)))
             (when (eql form eof) (return))
-            (when *load-print* (format t ";; Loading ~S~%" form))
+            (when *load-print*
+              (let ((*print-level* 3)
+                    (*print-lines* 3))
+                (format t ";; Loading ~S~%" form)))
             (eval form)))
     t))
 
