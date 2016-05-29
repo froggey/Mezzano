@@ -116,29 +116,21 @@
 
 (defun formatter-fn (*string* *default-package*)
   (or (catch :format-compilation-error
-        `(apply (function maybe-initiate-xp-printing)
-                (function
-                 (lambda (xp &rest args)
+        `(apply #'maybe-initiate-xp-printing
+                (lambda (xp &rest args)
                   ,@(bind-initial
                      `((block top
                          ,@(let ((*get-arg-carefully* nil)
                                  (*at-top* t)
                                  (*inner-end* 'top)
                                  (*outer-end* 'top))
-                             (compile-format 0 (length *string*))))))
-                  (if ,(args) (copy-list ,(args))))) ;needed by symbolics.
+                                (compile-format 0 (length *string*))))))
+                  ,(args))
                 s args))
-      `(apply #'format s *string* args)))
+      `(apply #'format s ,*string* args)))
 
 ;The business with the catch above allows many (formatter "...") errors to be
 ;reported in a file without stopping the compilation of the file.
-
-(defun maybe-compile-format-string (string force-fn?)
-  (if (not (or force-fn? (fancy-directives-p string)))
-      string
-      (eval `(formatter ,string))))
-
-;COMPILE-FORMAT gets called to turn a bit of format control string into code.
 
 (defvar *testing-errors* nil "Used only when testing XP")
 
@@ -232,6 +224,8 @@
              (return nil))
             ((char= c #\') (incf i))
             (T (return n))))))
+
+;COMPILE-FORMAT gets called to turn a bit of format control string into code.
 
 (defun compile-format (start end)
   (let ((result nil))
@@ -343,15 +337,26 @@
             `(let ,(mapcar #'list vars params)
                (funcall (symbol-function ',fn) xp ,(get-arg) ,colon ,atsign ,@ vars)))))))
 
+;; TODO: Process mincol,colinc,minpad,padchar.
+(defun impl-A/S (start end escape-value)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign)
+      (parse-params start nil)
+    (declare (ignore atsign))
+    (if colon
+        `(let ((*print-escape* ,escape-value)
+               (arg ,(get-arg)))
+           (if arg
+               (write+ arg XP)
+               (write-string++ "()" XP 0 2)))
+        `(let ((*print-escape* ,escape-value))
+           (write+ ,(get-arg) XP)))))
+
 (def-format-handler #\A (start end)
-  (if (not (= end (1+ start))) (simple-directive start end)
-      `(let ((*print-escape* nil))
-         (write+ ,(get-arg) XP))))
+  (impl-A/S start end nil))
 
 (def-format-handler #\S (start end)
-  (if (not (= end (1+ start))) (simple-directive start end)
-      `(let ((*print-escape* T))
-         (write+ ,(get-arg) XP))))
+  (impl-A/S start end t))
 
 ;The basic Format directives "DBOXRCFEG$".  The key thing about all of
 ;these directives is that they just get a single arg and print a chunk of
@@ -360,35 +365,34 @@
 ;called is the internal routine that FORMAT uses to do the corresponding
 ;work.  However, this cannot be done in a portable way.
 
-(def-format-handler #\D (start end) (simple-directive start end))
-(def-format-handler #\B (start end) (simple-directive start end))
-(def-format-handler #\O (start end) (simple-directive start end))
-(def-format-handler #\X (start end) (simple-directive start end))
-(def-format-handler #\R (start end) (simple-directive start end))
-(def-format-handler #\C (start end) (simple-directive start end))
-(def-format-handler #\F (start end) (simple-directive start end))
-(def-format-handler #\E (start end) (simple-directive start end))
-(def-format-handler #\G (start end) (simple-directive start end))
-(def-format-handler #\$ (start end) (simple-directive start end))
+(defun impl-integer (start end base)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(nil #\Space #\, 3))
+    `(sys.format::format-integer ,(get-arg) ,base ',params ',atsign ',colon)))
 
-(defun simple-directive (start end)
-  (let ((n (num-args-in-args start)))
-    (if n `(using-format xp ,(subseq *string* (1- start) end)
-                         ,@ (copy-tree (make-list (1+ n) :initial-element (get-arg))))
-        (multiple-value-bind (colon atsign params)
-            (parse-params start nil :max 8)
-          (let* ((arg-str (subseq "v,v,v,v,v,v,v,v" 0
-                                  (max 0 (1- (* 2 (length params))))))
-                 (str (concatenate 'string "~"
-                                   arg-str
-                                   (if colon ":" "")
-                                   (if atsign "@" "")
-                                   (subseq *string* (1- end) end))))
-            `(using-format xp ,str ,@ params ,(get-arg)))))))
+(def-format-handler #\D (start end) (impl-integer start end 10))
+(def-format-handler #\B (start end) (impl-integer start end 2))
+(def-format-handler #\O (start end) (impl-integer start end 8))
+(def-format-handler #\X (start end) (impl-integer start end 16))
 
-(defun using-format (xp string &rest args)
-  (let ((result (apply #'cl:format nil string args)))
-    (write-string+ result xp 0 (length result))))
+(def-format-handler #\R (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(10 nil #\Space #\, 3))
+    `(sys.format::format-radix ,(get-arg) ',params ',atsign ',colon)))
+
+(def-format-handler #\C (start end)
+  (declare (ignore end))
+  (multiple-value-bind (colon atsign)
+      (parse-params start '())
+    `(sys.format::format-character ,(get-arg) ',atsign ',colon)))
+
+;; TODO.
+(def-format-handler #\F (start end) (impl-integer start end 10))
+(def-format-handler #\E (start end) (impl-integer start end 10))
+(def-format-handler #\G (start end) (impl-integer start end 10))
+(def-format-handler #\$ (start end) (impl-integer start end 10))
 
 ;Format directives that get open coded "P%&~|T*?^"
 
@@ -595,10 +599,10 @@
       (handle-logical-block start end)
       (handle-standard-< start end)))
 
+;; TODO.
 (defun handle-standard-< (start end)
-  (let ((n (num-args-in-directive start end)))
-    `(using-format xp ,(subseq *string* (1- start) end)
-                   ,@ (copy-tree (make-list n :initial-element (get-arg))))))
+  (num-args-in-directive start end)
+  (compile-format (1+ (params-end start)) (directive-start end)))
 
 (defun num-args-in-directive (start end)
   (let ((n 0) c i j)
@@ -731,19 +735,18 @@
         (T (if (eq stream T) (setf stream *standard-output*))
            (when (stringp string-or-fn)
              (setf string-or-fn (process-format-string string-or-fn nil)))
-           (cond ((not (stringp string-or-fn))
-                  (apply string-or-fn stream args))
-                 ((xp-structure-p stream)
-                  (apply #'using-format stream string-or-fn args))
-                 (T (apply #'cl:format stream string-or-fn args)))
+           (apply string-or-fn stream args)
            nil)))
 
 (defvar *format-string-cache* (make-hash-table :test #'equal))
+
+(defun compile-format-string (string)
+  (eval `(formatter ,string)))
 
 (defun process-format-string (string-or-fn force-fn?)
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
         (T (let ((value (gethash string-or-fn *format-string-cache*)))
              (when (or (not value) (and force-fn? (stringp value)))
-               (setf value (maybe-compile-format-string string-or-fn force-fn?))
+               (setf value (compile-format-string string-or-fn))
                (setf (gethash string-or-fn *format-string-cache*) value))
              value))))
