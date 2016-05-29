@@ -1118,42 +1118,6 @@
                           (find c "*+<>-")))
                  (return nil)))))))
 
-;Any format string that is converted to a function is always printed
-;via an XP stream (See formatter).
-
-(defun format (stream string-or-fn &rest args)
-  (cond ((stringp stream)
-         (cl:format stream "~A"
-                      (with-output-to-string (stream)
-                        (apply #'format stream string-or-fn args)))
-         nil)
-        ((null stream)
-         (with-output-to-string (stream)
-           (apply #'format stream string-or-fn args)))
-        (T (if (eq stream T) (setq stream *standard-output*))
-           (when (stringp string-or-fn)
-             (setq string-or-fn (process-format-string string-or-fn nil)))
-           (cond ((not (stringp string-or-fn))
-                  (apply string-or-fn stream args))
-                 ((xp-structure-p stream)
-                  (apply #'using-format stream string-or-fn args))
-                 (T (apply #'cl:format stream string-or-fn args)))
-           nil)))
-
-(defvar *format-string-cache* T)
-
-(defun process-format-string (string-or-fn force-fn?)
-  (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
-        ((not *format-string-cache*)
-         (maybe-compile-format-string string-or-fn force-fn?))
-        (T (when (not (hash-table-p *format-string-cache*))
-             (setq *format-string-cache* (make-hash-table :test #'eq)))
-           (let ((value (gethash string-or-fn *format-string-cache*)))
-             (when (or (not value) (and force-fn? (stringp value)))
-               (setq value (maybe-compile-format-string string-or-fn force-fn?))
-               (setf (gethash string-or-fn *format-string-cache*) value))
-             value))))
-
 (defmethod sys.gray:stream-write-char ((stream xp-structure) char)
   (write-char+ char stream)
   char)
@@ -1276,6 +1240,46 @@
      (decode-stream-arg ,stream-symbol)))
 
 ;Assumes var and args must be variables.  Other arguments must be literals or variables.
+
+(defmacro pprint-pop+ (args xp)
+  `(if (pprint-pop-check+ ,args ,xp)
+       (return-from logical-block nil)
+       (pop ,args)))
+
+(defun pprint-pop-check+ (args xp)
+  (incf *current-length*)
+  (cond ((not (listp args))  ;must be first so supersedes length abbrev
+         (write-string++ ". " xp 0 2)
+         (write+ args xp)
+         T)
+        ((and *print-length* ;must supersede circle check
+              (not (< *current-length* *print-length*)))
+         (write-string++ "..." xp 0 3)
+         (setq *abbreviation-happened* T)
+         T)
+        ((and *circularity-hash-table* (not (zerop *current-length*)))
+         (case (circularity-process xp args T)
+           (:first ;; note must inhibit rechecking of circularity for args.
+                   (write+ (cons (car args) (cdr args)) xp) T)
+           (:subsequent T)
+           (T nil)))))
+
+(defmacro pprint-pop+top (args xp)
+  `(if (pprint-pop-check+top ,args ,xp)
+       (return-from logical-block nil)
+       (pop ,args)))
+
+(defun pprint-pop-check+top (args xp)
+  (incf *current-length*)
+  (cond ((not (listp args))  ;must be first so supersedes length abbrev
+         (write-string++ ". " xp 0 2)
+         (write+ args xp)
+         T)
+        ((and *print-length* ;must supersede circle check
+              (not (< *current-length* *print-length*)))
+         (write-string++ "..." xp 0 3)
+         (setq *abbreviation-happened* T)
+         T)))
 
 (defmacro pprint-logical-block+ ((var args prefix suffix per-line? circle-check? atsign?)
                                  &body body)
