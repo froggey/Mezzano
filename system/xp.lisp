@@ -70,7 +70,7 @@
 (defvar *default-right-margin* 70.
   "controls default line length; must be a non-negative integer")
 (defvar *last-abbreviated-printing*
-        #'(lambda (&optional stream) (declare (ignore stream)) nil)
+        (lambda (&optional stream) (declare (ignore stream)) nil)
   "funcalling this redoes the last xp printing that was abbreviated.")
 
 (defvar *ipd* nil ;see initialization at end of file.
@@ -154,10 +154,10 @@
          (new-structures
            (make-hash-table :test #'eq
              :size (max (hash-table-count (structures table)) 32))))
-    (maphash #'(lambda (key value)
+    (maphash (lambda (key value)
                  (setf (gethash key new-conses-with-cars) (copy-entry value)))
              (conses-with-cars table))
-    (maphash #'(lambda (key value)
+    (maphash (lambda (key value)
                  (setf (gethash key new-structures) (copy-entry value)))
              (structures table))
     (make-pprint-dispatch
@@ -188,20 +188,20 @@
       (cons-with-car
         (cond ((null entry) (remhash (cadadr type-specifier) (conses-with-cars table)))
               (T (setf (test entry)
-                       (count-if #'(lambda (e)
+                       (count-if (lambda (e)
                                      (priority-> (car (full-spec e)) priority))
                                  (others table)))
                  (setf (gethash (cadadr type-specifier) (conses-with-cars table)) entry))))
       (structure-type
         (cond ((null entry) (remhash type-specifier (structures table)))
               (T (setf (test entry)
-                       (count-if #'(lambda (e)
+                       (count-if (lambda (e)
                                      (priority-> (car (full-spec e)) priority))
                                  (others table)))
                  (setf (gethash type-specifier (structures table)) entry))))
       (T ;other
          (let ((old (car (member type-specifier (others table) :test #'equal
-                                 :key #'(lambda (e) (cadr (full-spec e)))))))
+                                 :key (lambda (e) (cadr (full-spec e)))))))
            (when old
              (setf (others table) (delete old (others table)))
              (adjust-counts table (car (full-spec old)) -1)))
@@ -222,12 +222,12 @@
       (if (consp y) T (> x y))))
 
 (defun adjust-counts (table priority delta)
-  (maphash #'(lambda (key value)
+  (maphash (lambda (key value)
                  (declare (ignore key))
                (if (priority-> priority (car (full-spec value)))
                    (incf (test value) delta)))
            (conses-with-cars table))
-  (maphash #'(lambda (key value)
+  (maphash (lambda (key value)
                  (declare (ignore key))
                (if (priority-> priority (car (full-spec value)))
                    (incf (test value) delta)))
@@ -913,7 +913,7 @@
 (defun sys.int::write-pretty (object stream)
   (cond ((xp-structure-p stream) (write+ object stream))
         (*print-pretty* (maybe-initiate-xp-printing
-                          #'(lambda (s o) (write+ o s)) stream object))
+                          (lambda (s o) (write+ o s)) stream object))
         (T (write object :stream stream))))
 
 (defun maybe-initiate-xp-printing (fn stream &rest args)
@@ -1067,7 +1067,7 @@
 (defun maybe-print-fast (xp object)
   (cond ((stringp object)
          (cond ((null *print-escape*) (write-string+ object xp 0 (length object)) T)
-               ((every #'(lambda (c) (not (or (char= c #\") (char= c #\\))))
+               ((every (lambda (c) (not (or (char= c #\") (char= c #\\))))
                        object)
                 (write-char++ #\" xp)
                 (write-string+ object xp 0 (length object))
@@ -1222,13 +1222,13 @@
                                     (concatenate 'string (string struct-name) "-"))
                                    ((null (cadr conc-name-spec)) "")
                                    (T (string (cadr conc-name-spec)))))
-                  (slots (mapcar #'(lambda (x) (if (consp x) (car x) x)) body)))
+                  (slots (mapcar (lambda (x) (if (consp x) (car x) x)) body)))
              `(eval-when (eval load compile)
                 (cl:defstruct ,name ,@ body)
                 (defun ,xp-print-fn (xp obj)
                   (funcall (formatter "~@<#S(~;~W ~:I~@_~@{:~A ~W~^ ~:_~}~;)~:>") xp
                            ',struct-name
-                           ,@(mapcan #'(lambda (slot)
+                           ,@(mapcan (lambda (slot)
                                          `(,(string slot)
                                             (,(intern (concatenate 'string
                                                          conc-name (string slot)))
@@ -1266,7 +1266,7 @@
            in PPRINT-LOGICAL-BLOCK")
     (setq per-line-prefix nil))
   `(maybe-initiate-xp-printing
-     #'(lambda (,stream-symbol)
+     (lambda (,stream-symbol)
          (let ((+l ,list)
                (+p ,(or prefix per-line-prefix ""))
                (+s ,suffix))

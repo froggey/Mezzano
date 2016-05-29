@@ -188,10 +188,10 @@
   (throw :format-compilation-error nil))
 
 (defun position-in (set start)
-  (position-if #'(lambda (c) (find c set)) *string* :start start))
+  (position-if (lambda (c) (find c set)) *string* :start start))
 
 (defun position-not-in (set start)
-  (position-if-not #'(lambda (c) (find c set)) *string* :start start))
+  (position-if-not (lambda (c) (find c set)) *string* :start start))
 
 (defun next-directive1 (start end)
   (let ((i (position #\~ *string* :start start :end end)) j)
@@ -286,7 +286,7 @@
           (incf j)
           (when (not colon)
             (setq j (position-if-not
-                      #'(lambda (c)
+                      (lambda (c)
                           (or (char= c #\tab) (char= c #\space)))
                       *string* :start j :end end))
             (when (null j) (setq j end)))
@@ -375,7 +375,7 @@
            (fn (intern (string-upcase (subseq *string* name-start (1- end))) pkg)))
       (if (not (find-if #'consp params))
           `(funcall (symbol-function ',fn) xp ,(get-arg) ,colon ,atsign ,@ params)
-          (let ((vars (mapcar #'(lambda (arg)
+          (let ((vars (mapcar (lambda (arg)
                                   (declare (ignore arg))
                                   (gentemp))
                               params)))
@@ -567,7 +567,7 @@
             (T (let* ((j -1) (len (- (length chunks) 2))
                       (else? (colonp (1- (nth len chunks)))))
                  `(case ,(if params (car params) (get-arg))
-                    ,@(mapcar #'(lambda (unit)
+                    ,@(mapcar (lambda (unit)
                                   (incf j)
                                   `(,(if (and else? (= j len)) T j) ,@ unit))
                               innards))))))))
@@ -725,7 +725,7 @@
 
 (defun fill-transform (doit? body)
   (if (not doit?) body
-      (mapcan #'(lambda (form)
+      (mapcan (lambda (form)
                   (cond ((eq (car form) 'write-string++)
                          (fill-transform-literal (cadr form)))
                         ((eq (car form) 'write-char++)
