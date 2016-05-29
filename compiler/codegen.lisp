@@ -699,14 +699,15 @@ be generated instead.")
     new-values))
 
 (defun copy-stack-values (values)
-  "Copy the VALUES array, ensuring that it's at least as long as the current *stack-values*, is adjustable and contains all unboxed slots."
+  "Copy the VALUES array, ensuring that it's at least as long as the current *stack-values*, is adjustable and contains all non-value slots."
   (let ((new (make-array (length *stack-values*) :adjustable t :fill-pointer t :initial-element nil)))
     (setf (subseq new 0) values)
     (dotimes (i (length *stack-values*))
-      (when (equal (aref *stack-values* i) '(:unboxed . :home))
+      (when (or (equal (aref *stack-values* i) '(:unboxed . :home))
+                (equal (aref *stack-values* i) '(:boxed . :home)))
         (assert (or (null (aref new i))
-                    (equal (aref new i) '(:unboxed . :home))))
-        (setf (aref new i) '(:unboxed . :home))))
+                    (equal (aref new i) (aref *stack-values* i))))
+        (setf (aref new i) (aref *stack-values* i))))
     new))
 
 ;;; (predicate inverse jump-instruction cmov-instruction)
