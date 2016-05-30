@@ -1986,7 +1986,7 @@ has only has class specializer."
 
 (defgeneric describe-object (object stream))
 (defmethod describe-object ((object standard-object) stream)
-  (format t "A Closette object~
+  (format stream "A Closette object~
              ~%Printed representation: ~S~
              ~%Class: ~S~
              ~%Structure "
@@ -1995,10 +1995,10 @@ has only has class specializer."
   (dolist (sn (mapcar #'slot-definition-name
                       (class-slots (class-of object))))
     (if (slot-boundp object sn)
-        (format t "~%    ~S <- ~S"
+        (format stream "~%    ~S <- ~S"
                 sn
                 (slot-value object sn))
-        (format t "~%    ~S <- not bound" sn)))
+        (format stream "~%    ~S <- not bound" sn)))
   (values))
 
 (format t "~%Closette is a Knights of the Lambda Calculus production.~%")
