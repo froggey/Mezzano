@@ -1857,125 +1857,135 @@ has only has class specializer."
 ;;; Bootstrap
 ;;;
 
-(format t "Beginning to bootstrap Closette...")
-(forget-all-classes)
-;; How to create the class hierarchy in 10 easy steps:
-;; 1. Figure out standard-class's slots.
-(setq the-slots-of-standard-class
-      (mapcar #'(lambda (slotd)
-                  (make-effective-slot-definition
-                    :name (car slotd)
-                    :initargs
-                      (let ((a (getf (cdr slotd) ':initarg)))
-                        (if a (list a) ()))
-                    :initform (getf (cdr slotd) ':initform)
-                    :initfunction
-                      (let ((a (getf (cdr slotd) ':initform)))
-                        (if a #'(lambda () (eval a)) nil))
-                    :allocation ':instance))
-              (nth 3 the-defclass-standard-class)))
-(setf *standard-class-effective-slots-position*
-      (position 'effective-slots the-slots-of-standard-class
-                :key #'slot-definition-name))
-(setf *standard-class-slot-storage-layout-position*
-      (position 'slot-storage-layout the-slots-of-standard-class
-                :key #'slot-definition-name))
-(setf *standard-class-hash-position*
-      (position 'hash the-slots-of-standard-class
-                :key #'slot-definition-name))
-;; 2. Create the standard-class metaobject by hand.
-(let ((layout (make-array (length the-slots-of-standard-class)))
-      (slots (make-array (length the-slots-of-standard-class)
-                         :initial-element secret-unbound-value)))
-  (loop
-     for slot in the-slots-of-standard-class
-     for i from 0
-     do (setf (svref layout i) (slot-definition-name slot)))
-  (setf the-class-standard-class
-        (allocate-std-instance
-         'tba
-         slots
-         layout))
-  (setf (svref slots *standard-class-slot-storage-layout-position*) layout))
-;; 3. Install standard-class's (circular) class-of link.
-(setf (std-instance-class the-class-standard-class)
-      the-class-standard-class)
-;; (It's now okay to use class-... accessor).
-;; 4. Fill in standard-class's class-slots.
-(setf (class-slots the-class-standard-class) the-slots-of-standard-class)
-;; (Skeleton built; it's now okay to call make-instance-standard-class.)
-;; 5. Hand build the class t so that it has no direct superclasses.
-(setf (find-class 't)
-  (let ((class (std-allocate-instance the-class-standard-class)))
-    (setf (class-name class) 't)
-    (setf (class-direct-subclasses class) ())
-    (setf (class-direct-superclasses class) ())
-    (setf (class-direct-methods class) ())
-    (setf (class-direct-slots class) ())
-    (setf (class-direct-default-initargs class) ())
-    (setf (class-precedence-list class) (list class))
-    (setf (class-slot-storage-layout class) (make-array 0))
-    (setf (class-slots class) ())
-    (setf (class-dependents class) ())
-    (setf (class-hash class) (next-class-hash-value))
-    class))
-;; (It's now okay to define subclasses of t.)
-;; 6. Create the other superclass of standard-class (i.e., standard-object).
-(defclass standard-object (t) ())
-;; 7. Define the full-blown version of standard-class.
-(setf the-class-standard-class (eval the-defclass-standard-class))
-;; 8. Replace all (3) existing pointers to the skeleton with real one.
-(setf (std-instance-class (find-class 't)) the-class-standard-class)
-(setf (std-instance-class (find-class 'standard-object)) the-class-standard-class)
-(setf (std-instance-class the-class-standard-class) the-class-standard-class)
-;; 8a. Update layout pointers as well.
-(let ((real-layout (svref (std-instance-slots the-class-standard-class)
-                          *standard-class-slot-storage-layout-position*)))
-  (setf (std-instance-layout (find-class 't)) real-layout
-        (std-instance-layout (find-class 'standard-object)) real-layout
-        (std-instance-layout the-class-standard-class) real-layout))
-;; (Clear sailing from here on in).
-;; 9. Define the other built-in classes.
-(defclass symbol (t) ())
-(defclass sequence (t) ())
-(defclass array (t) ())
-(defclass number (t) ())
-(defclass character (t) ())
-(defclass function (t) ())
-(defclass stream (t) ())
-(defclass list (sequence) ())
-(defclass null (symbol list) ())
-(defclass cons (list) ())
-(defclass simple-array (array) ())
-(defclass vector (array sequence) ())
-(defclass simple-vector (vector simple-array) ())
-(defclass bit-vector (vector) ())
-(defclass string (vector) ())
-(defclass simple-string (string simple-array) ())
-(defclass integer (number) ())
-(defclass float (number) ())
-(defclass ratio (number) ())
-(defclass complex (number) ())
-(defclass mezzano.supervisor:thread (t) ())
-(defclass sys.int::function-reference (t) ())
-(defclass sys.int::weak-pointer (t) ())
-(defclass byte (t) ())
-;; 10. Define the other standard metaobject classes.
-(setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
-(defclass funcallable-standard-object (standard-object function)
-  ()
-  (:metaclass funcallable-standard-class))
-(setq the-class-standard-gf (eval the-defclass-standard-generic-function))
-(setq the-class-standard-method (eval the-defclass-standard-method))
-(defclass standard-accessor-method (standard-method)
-  ((slot-definition :initarg :slot-definition)))
-(setq the-class-standard-reader-method (defclass standard-reader-method (standard-accessor-method) ()))
-(setq the-class-standard-writer-method (defclass standard-writer-method (standard-accessor-method) ()))
-;; Voila! The class hierarchy is in place.
-(format t "Class hierarchy created.")
-;; (It's now okay to define generic functions and methods.)
+(defun closette-bootstrap ()
+  (format t "Beginning to bootstrap Closette...")
+  (forget-all-classes)
+  ;; How to create the class hierarchy in 10 easy steps:
+  ;; 1. Figure out standard-class's slots.
+  (setq the-slots-of-standard-class
+        (mapcar #'(lambda (slotd)
+                    (make-effective-slot-definition
+                     :name (car slotd)
+                     :initargs
+                     (let ((a (getf (cdr slotd) ':initarg)))
+                       (if a (list a) ()))
+                     :initform (getf (cdr slotd) ':initform)
+                     :initfunction
+                     (let ((a (getf (cdr slotd) ':initform)))
+                       (if a #'(lambda () (eval a)) nil))
+                     :allocation ':instance))
+                (nth 3 the-defclass-standard-class)))
+  (setf *standard-class-effective-slots-position*
+        (position 'effective-slots the-slots-of-standard-class
+                  :key #'slot-definition-name))
+  (setf *standard-class-slot-storage-layout-position*
+        (position 'slot-storage-layout the-slots-of-standard-class
+                  :key #'slot-definition-name))
+  (setf *standard-class-hash-position*
+        (position 'hash the-slots-of-standard-class
+                  :key #'slot-definition-name))
+  ;; 2. Create the standard-class metaobject by hand.
+  (let ((layout (make-array (length the-slots-of-standard-class)))
+        (slots (make-array (length the-slots-of-standard-class)
+                           :initial-element secret-unbound-value)))
+    (loop
+       for slot in the-slots-of-standard-class
+       for i from 0
+       do (setf (svref layout i) (slot-definition-name slot)))
+    (setf the-class-standard-class
+          (allocate-std-instance
+           'tba
+           slots
+           layout))
+    (setf (svref slots *standard-class-slot-storage-layout-position*) layout))
+  ;; 3. Install standard-class's (circular) class-of link.
+  (setf (std-instance-class the-class-standard-class)
+        the-class-standard-class)
+  ;; (It's now okay to use class-... accessor).
+  ;; 4. Fill in standard-class's class-slots.
+  (setf (class-slots the-class-standard-class) the-slots-of-standard-class)
+  ;; (Skeleton built; it's now okay to call make-instance-standard-class.)
+  ;; 5. Hand build the class t so that it has no direct superclasses.
+  (setf (find-class 't)
+        (let ((class (std-allocate-instance the-class-standard-class)))
+          (setf (class-name class) 't)
+          (setf (class-direct-subclasses class) ())
+          (setf (class-direct-superclasses class) ())
+          (setf (class-direct-methods class) ())
+          (setf (class-direct-slots class) ())
+          (setf (class-direct-default-initargs class) ())
+          (setf (class-precedence-list class) (list class))
+          (setf (class-slot-storage-layout class) (make-array 0))
+          (setf (class-slots class) ())
+          (setf (class-dependents class) ())
+          (setf (class-hash class) (next-class-hash-value))
+          class))
+  ;; (It's now okay to define subclasses of t.)
+  ;; 6. Create the other superclass of standard-class (i.e., standard-object).
+  (defclass standard-object (t) ())
+  ;; 7. Define the full-blown version of standard-class.
+  (setf the-class-standard-class (eval the-defclass-standard-class))
+  ;; 8. Replace all (3) existing pointers to the skeleton with real one.
+  (setf (std-instance-class (find-class 't)) the-class-standard-class)
+  (setf (std-instance-class (find-class 'standard-object)) the-class-standard-class)
+  (setf (std-instance-class the-class-standard-class) the-class-standard-class)
+  ;; 8a. Update layout pointers as well.
+  (let ((real-layout (svref (std-instance-slots the-class-standard-class)
+                            *standard-class-slot-storage-layout-position*)))
+    (setf (std-instance-layout (find-class 't)) real-layout
+          (std-instance-layout (find-class 'standard-object)) real-layout
+          (std-instance-layout the-class-standard-class) real-layout))
+  ;; (Clear sailing from here on in).
+  ;; 9. Define the other built-in classes.
+  (defclass symbol (t) ())
+  (defclass sequence (t) ())
+  (defclass array (t) ())
+  (defclass number (t) ())
+  (defclass character (t) ())
+  (defclass function (t) ())
+  (defclass stream (t) ())
+  (defclass list (sequence) ())
+  (defclass null (symbol list) ())
+  (defclass cons (list) ())
+  (defclass simple-array (array) ())
+  (defclass vector (array sequence) ())
+  (defclass simple-vector (vector simple-array) ())
+  (defclass bit-vector (vector) ())
+  (defclass string (vector) ())
+  (defclass simple-string (string simple-array) ())
+  (defclass integer (number) ())
+  (defclass float (number) ())
+  (defclass ratio (number) ())
+  (defclass complex (number) ())
+  (defclass mezzano.supervisor:thread (t) ())
+  (defclass sys.int::function-reference (t) ())
+  (defclass sys.int::weak-pointer (t) ())
+  (defclass byte (t) ())
+  ;; 10. Define the other standard metaobject classes.
+  (setq the-class-funcallable-standard-class (eval the-defclass-funcallable-standard-class))
+  (defclass funcallable-standard-object (standard-object function)
+    ()
+    (:metaclass funcallable-standard-class))
+  (setq the-class-standard-gf (eval the-defclass-standard-generic-function))
+  (setq the-class-standard-method (eval the-defclass-standard-method))
+  (defclass standard-accessor-method (standard-method)
+    ((slot-definition :initarg :slot-definition)))
+  (setq the-class-standard-reader-method (defclass standard-reader-method (standard-accessor-method) ()))
+  (setq the-class-standard-writer-method (defclass standard-writer-method (standard-accessor-method) ()))
+  ;; Voila! The class hierarchy is in place.
+  (format t "Class hierarchy created.")
+  ;; (It's now okay to define generic functions and methods.)
+  )
 
-(fmakunbound 'print-object)
+(when (not (find-class 't nil))
+  (closette-bootstrap))
+
+(when (and (fboundp 'print-object)
+           (not (typep (fdefinition 'print-object) 'standard-generic-function)))
+  ;; Print-object starts off as a normal object.
+  ;; Clobber it during bootstrap, but not after.
+  (fmakunbound 'print-object))
+
 (defgeneric print-object (instance stream))
 
 (defmethod print-object ((instance t) stream)
