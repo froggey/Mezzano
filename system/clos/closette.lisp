@@ -32,49 +32,7 @@
 
 ;;; This is the file closette.lisp
 
-(in-package #:system.closette)
-
-;;;
-;;; Utilities
-;;;
-
-;;; push-on-end is like push except it uses the other end:
-
-(defmacro push-on-end (value location)
-  `(setf ,location (nconc ,location (list ,value))))
-
-;;; (setf getf*) is like (setf getf) except that it always changes the list,
-;;;              which must be non-nil.
-
-(defun (setf getf*) (new-value plist key)
-  (block body
-    (do ((x plist (cddr x)))
-      ((null x))
-      (when (eq (car x) key)
-        (setf (car (cdr x)) new-value)
-        (return-from body new-value)))
-    (push-on-end key plist)
-    (push-on-end new-value plist)
-    new-value))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-;;; mapappend is like mapcar except that the results are appended together:
-
-(defun mapappend (fun &rest args)
-  (if (some #'null args)
-      ()
-      (append (apply fun (mapcar #'car args))
-              (apply #'mapappend fun (mapcar #'cdr args)))))
-
-;;; mapplist is mapcar for property lists:
-
-(defun mapplist (fun x)
-  (if (null x)
-      ()
-      (cons (funcall fun (car x) (cadr x))
-            (mapplist fun (cddr x)))))
-
-)
+(in-package :system.closette)
 
 ;;;
 ;;; Standard instances
@@ -484,88 +442,6 @@
 (defun (setf class-hash) (new-value class)
   (setf (slot-value class 'hash) new-value))
 
-;;; defclass
-
-(defmacro defclass (name direct-superclasses direct-slots
-                    &rest options)
-  `(ensure-class ',name
-     :direct-superclasses
-       ,(canonicalize-direct-superclasses direct-superclasses)
-     :direct-slots
-       ,(canonicalize-direct-slots direct-slots)
-     ,@(canonicalize-defclass-options options)))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(defun canonicalize-direct-slots (direct-slots)
-   `(list ,@(mapcar #'canonicalize-direct-slot direct-slots)))
-
-(defun canonicalize-direct-slot (spec)
-  (if (symbolp spec)
-      `(list :name ',spec)
-      (let ((name (car spec))
-            (initfunction nil)
-            (initform nil)
-            (initargs ())
-            (readers ())
-            (writers ())
-            (other-options ()))
-        (do ((olist (cdr spec) (cddr olist)))
-            ((null olist))
-          (case (car olist)
-            (:initform
-             (setq initfunction
-                   `(function (lambda () ,(cadr olist))))
-             (setq initform `',(cadr olist)))
-            (:initarg
-             (push-on-end (cadr olist) initargs))
-            (:reader
-             (push-on-end (cadr olist) readers))
-            (:writer
-             (push-on-end (cadr olist) writers))
-            (:accessor
-             (push-on-end (cadr olist) readers)
-             (push-on-end `(setf ,(cadr olist)) writers))
-            (otherwise
-             (push-on-end `',(car olist) other-options)
-             (push-on-end `',(cadr olist) other-options))))
-        `(list
-           :name ',name
-           ,@(when initfunction
-               `(:initform ,initform
-                 :initfunction ,initfunction))
-           ,@(when initargs `(:initargs ',initargs))
-           ,@(when readers `(:readers ',readers))
-           ,@(when writers `(:writers ',writers))
-           ,@other-options))))
-
-(defun canonicalize-direct-superclasses (direct-superclasses)
-  `(list ,@(mapcar #'canonicalize-direct-superclass direct-superclasses)))
-
-(defun canonicalize-direct-superclass (class-name)
-  `(find-class ',class-name))
-
-(defun canonicalize-defclass-options (options)
-  (mapappend #'canonicalize-defclass-option options))
-
-(defun canonicalize-defclass-option (option)
-  (case (car option)
-    (:metaclass
-      (list ':metaclass
-       `(find-class ',(cadr option))))
-    (:default-initargs
-      (list
-       ':direct-default-initargs
-       `(list ,@(mapappend
-                  #'(lambda (x) x)
-                  (mapplist
-                    #'(lambda (key value)
-                        `(',key (lambda () ,value)))
-                    (cdr option))))))
-    (t (list `',(car option) `',(cadr option)))))
-
-)
-
 ;;; find-class
 
 (defvar *class-table* (make-hash-table :test #'eq))
@@ -596,9 +472,26 @@
 
 ;;; Ensure class
 
+(defun find-class-forward-ref (name)
+  "Find a class named NAME, or create and install a new FORWARD-REFERENCED-CLASS if no class with that name exists."
+  (cond ((find-class name nil))
+        (t
+         (setf (find-class name) (make-instance 'forward-referenced-class
+                                                :name name)))))
+
 (defun ensure-class (name &rest all-keys
-                          &key (metaclass the-class-standard-class)
+                          &key
+                            (metaclass the-class-standard-class)
+                            direct-superclasses
+                            direct-default-initargs
                           &allow-other-keys)
+  (when (symbolp metaclass)
+    (setf metaclass (find-class metaclass)))
+  (setf direct-superclasses (loop
+                               for sc in direct-superclasses
+                               collect (if (symbolp sc)
+                                           (find-class-forward-ref sc)
+                                           sc)))
   (let* ((existing (find-class name nil))
          (class (apply (cond (existing
                               #'reinitialize-instance)
@@ -609,6 +502,9 @@
                              (t #'make-instance))
                        (or existing metaclass)
                        :name name
+                       ;; Override direct-superclasses and metaclass in all-keys.
+                       :direct-superclasses direct-superclasses
+                       :metaclass metaclass
                        all-keys)))
     (when (not existing)
       (setf (find-class name) class))
@@ -1028,44 +924,6 @@
 (defun (setf method-function) (new-value method)
   (setf (slot-value method 'function) new-value))
 
-;;; defgeneric
-
-(defmacro defgeneric (function-name lambda-list &rest options)
-  `(progn (ensure-generic-function
-           ',function-name
-           :lambda-list ',lambda-list
-           ,@(canonicalize-defgeneric-options options))
-          ,@(defgeneric-methods function-name options)))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(defun canonicalize-defgeneric-options (options)
-  (mapappend #'canonicalize-defgeneric-option options))
-
-(defun canonicalize-defgeneric-option (option)
-  (case (car option)
-    (:generic-function-class
-      (list ':generic-function-class
-            `(find-class ',(cadr option))))
-    (:method-class
-      (list ':method-class
-            `(find-class ',(cadr option))))
-    (:method '())
-    (:method-combination
-     (list :method-combination
-           `(resolve-method-combination ',(second option) ,@(cddr option))))
-    (declare '())
-    (t (list `',(car option) `',(cadr option)))))
-
-(defun defgeneric-methods (name options)
-  (mapcar (lambda (x) (defgeneric-method name x))
-          (remove :method options :key 'first :test-not 'eql)))
-
-(defun defgeneric-method (name def)
-  `(defmethod ,name ,(second def) ,@(cddr def)))
-
-)
-
 ;;; ensure-generic-function
 
 (defun ensure-generic-function
@@ -1144,6 +1002,18 @@ has only has class specializer."
                     do (setf (class-dependents class) (remove gf (class-dependents class)))))
            (clrhash (classes-to-emf-table gf)))))
 
+(defun required-portion (gf args)
+  (let ((number-required (length (gf-required-arglist gf))))
+    (when (< (length args) number-required)
+      (error "Too few arguments to generic function ~S." gf))
+    (subseq args 0 number-required)))
+
+(defun gf-required-arglist (gf)
+  (let ((plist
+          (analyze-lambda-list
+            (generic-function-lambda-list gf))))
+    (getf plist ':required-args)))
+
 (defun finalize-generic-function (gf)
   ;; Examine all methods and compute the relevant argument bit-vector.
   (let* ((required-args (gf-required-arglist gf))
@@ -1198,165 +1068,6 @@ has only has class specializer."
   (apply #'ensure-method
          (ensure-generic-function gf-name)
          args))
-
-(defmacro defmethod (&rest args)
-  (multiple-value-bind (function-name qualifiers
-                        lambda-list specializers function)
-        (parse-defmethod args)
-    `(defmethod-1 ',function-name
-       :lambda-list ',lambda-list
-       :qualifiers ',qualifiers
-       :specializers ,(canonicalize-specializers specializers)
-       :function #',function)))
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(defun canonicalize-specializers (specializers)
-  `(list ,@(mapcar #'canonicalize-specializer specializers)))
-
-(defun canonicalize-specializer (specializer)
-  (cond ((and (listp specializer)
-              (eql (length specializer) 2)
-              (eql (first specializer) 'eql))
-         `(intern-eql-specializer ,(second specializer)))
-        ((symbolp specializer)
-         `(find-class ',specializer))
-        (t (error "Bad method specializer ~S." specializer))))
-
-(defun parse-defmethod (args)
-  (let ((fn-spec (car args))
-        (qualifiers ())
-        (specialized-lambda-list nil)
-        (body ())
-        (parse-state :qualifiers))
-    (dolist (arg (cdr args))
-       (ecase parse-state
-         (:qualifiers
-           (if (and (atom arg) (not (null arg)))
-               (push-on-end arg qualifiers)
-               (progn (setq specialized-lambda-list arg)
-                      (setq parse-state :body))))
-         (:body (push-on-end arg body))))
-    (let ((lambda-list (extract-lambda-list specialized-lambda-list))
-          (specializers (extract-specializers specialized-lambda-list)))
-      (values fn-spec
-              qualifiers
-              lambda-list
-              specializers
-              (compute-method-lambda lambda-list qualifiers specializers body fn-spec)))))
-
-(defun compute-method-lambda (lambda-list qualifiers specializers body fn-spec)
-  (multiple-value-bind (forms declares docstring)
-      (sys.int::parse-declares body :permit-docstring t)
-    (let ((form (list* 'block
-                       (if (consp fn-spec)
-                           (cadr fn-spec)
-                           fn-spec)
-                       forms)))
-      `(lambda (args next-emfun)
-         (declare (system:lambda-name (defmethod ,fn-spec ,@qualifiers ,specializers)))
-         (flet ((call-next-method (&rest cnm-args)
-                  (if (null next-emfun)
-                      (error "No next method.")
-                      (funcall next-emfun (or cnm-args args))))
-                (next-method-p ()
-                  (not (null next-emfun))))
-           (apply (lambda ,(kludge-arglist lambda-list)
-                    (declare ,@declares)
-                    ,form)
-                  args))))))
-
-;;; Several tedious functions for analyzing lambda lists
-
-(defun required-portion (gf args)
-  (let ((number-required (length (gf-required-arglist gf))))
-    (when (< (length args) number-required)
-      (error "Too few arguments to generic function ~S." gf))
-    (subseq args 0 number-required)))
-
-(defun gf-required-arglist (gf)
-  (let ((plist
-          (analyze-lambda-list
-            (generic-function-lambda-list gf))))
-    (getf plist ':required-args)))
-
-(defun extract-lambda-list (specialized-lambda-list)
-  (let* ((plist (analyze-lambda-list specialized-lambda-list))
-         (requireds (getf plist ':required-names))
-         (rv (getf plist ':rest-var))
-         (ks (getf plist ':key-args))
-         (aok (getf plist ':allow-other-keys))
-         (opts (getf plist ':optional-args))
-         (auxs (getf plist ':auxiliary-args)))
-    `(,@requireds
-      ,@(if rv `(&rest ,rv) ())
-      ,@(if (or ks aok) `(&key ,@ks) ())
-      ,@(if aok '(&allow-other-keys) ())
-      ,@(if opts `(&optional ,@opts) ())
-      ,@(if auxs `(&aux ,@auxs) ()))))
-
-(defun extract-specializers (specialized-lambda-list)
-  (let ((plist (analyze-lambda-list specialized-lambda-list)))
-    (getf plist ':specializers)))
-
-(defun analyze-lambda-list (lambda-list)
-  (labels ((make-keyword (symbol)
-              (intern (symbol-name symbol)
-                      (find-package 'keyword)))
-           (get-keyword-from-arg (arg)
-              (if (listp arg)
-                  (if (listp (car arg))
-                      (caar arg)
-                      (make-keyword (car arg)))
-                  (make-keyword arg))))
-    (let ((keys ())           ; Just the keywords
-          (key-args ())       ; Keywords argument specs
-          (required-names ()) ; Just the variable names
-          (required-args ())  ; Variable names & specializers
-          (specializers ())   ; Just the specializers
-          (rest-var nil)
-          (optionals ())
-          (auxs ())
-          (allow-other-keys nil)
-          (state :parsing-required))
-      (dolist (arg lambda-list)
-        (if (member arg lambda-list-keywords)
-          (ecase arg
-            (&optional
-              (setq state :parsing-optional))
-            (&rest
-              (setq state :parsing-rest))
-            (&key
-              (setq state :parsing-key))
-            (&allow-other-keys
-              (setq allow-other-keys 't))
-            (&aux
-              (setq state :parsing-aux)))
-          (case state
-            (:parsing-required
-             (push-on-end arg required-args)
-             (if (listp arg)
-                 (progn (push-on-end (car arg) required-names)
-                        (push-on-end (cadr arg) specializers))
-                 (progn (push-on-end arg required-names)
-                        (push-on-end 't specializers))))
-            (:parsing-optional (push-on-end arg optionals))
-            (:parsing-rest (setq rest-var arg))
-            (:parsing-key
-             (push-on-end (get-keyword-from-arg arg) keys)
-             (push-on-end arg key-args))
-            (:parsing-aux (push-on-end arg auxs)))))
-      (list  :required-names required-names
-             :required-args required-args
-             :specializers specializers
-             :rest-var rest-var
-             :keywords keys
-             :key-args key-args
-             :auxiliary-args auxs
-             :optional-args optionals
-             :allow-other-keys allow-other-keys))))
-
-)
 
 ;;; ensure method
 
@@ -2053,12 +1764,12 @@ has only has class specializer."
 (defun std-compute-initargs (class initargs)
   (let ((default-initargs '()))
     (dolist (c (class-precedence-list class))
-      (do ((i (class-direct-default-initargs c) (cddr i)))
-          ((endp i))
-        (when (and (not (member (first i) initargs))
-                   (not (member (first i) default-initargs)))
-          (push (first i) default-initargs)
-          (push (funcall (second i)) default-initargs))))
+      (loop
+         for (initarg form fn) in (class-direct-default-initargs c)
+         do (when (and (not (member initarg initargs))
+                       (not (member initargs default-initargs)))
+              (push initarg default-initargs)
+              (push (funcall fn) default-initargs))))
     (append initargs (nreverse default-initargs))))
 
 (defgeneric make-instance (class &key))

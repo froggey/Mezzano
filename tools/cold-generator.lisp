@@ -76,6 +76,7 @@
 
 (defparameter *warm-source-files*
   '("system/clos/package.lisp"
+    "system/clos/macros.lisp"
     "system/clos/single-dispatch-emf-table.lisp"
     "system/clos/closette.lisp"
     "system/clos/method-combination.lisp"
