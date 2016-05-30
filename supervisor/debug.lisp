@@ -221,6 +221,9 @@
 (defun sys.int::raise-unbound-error (symbol)
   (panic "Unbound symbol " (symbol-name symbol)))
 
+(defun sys.int::raise-type-error (datum expected-type)
+  (panic "Type error. Expected " expected-type " got " datum))
+
 (defun error (datum &rest arguments)
   (declare (dynamic-extent arguments))
   (panic "Early ERROR. " datum " " arguments))
