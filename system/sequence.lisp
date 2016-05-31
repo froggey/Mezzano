@@ -530,6 +530,22 @@
                (setf (elt sequence (+ start i)) newitem)))
            sequence)))
 
+(defun nsubstitute-if-not (newitem predicate sequence &key key (start 0) end) ; from-end
+  (unless key (setf key 'identity))
+  (cond ((and (listp sequence)
+              (zerop start)
+              (null end))
+         (mapcar (lambda (x)
+                   (if (not (funcall predicate (funcall key x)))
+                       newitem
+                       x))
+                 sequence))
+        (t (unless end (setf end (length sequence)))
+           (dotimes (i (- end start))
+             (when (not (funcall predicate (funcall key (elt sequence (+ start i)))))
+               (setf (elt sequence (+ start i)) newitem)))
+           sequence)))
+
 (defun nsubstitute (newitem olditem sequence &key test test-not key (start 0) end) ; from-end
   (when (and test test-not)
     (error "Both :TEST and :TEST-NOT specified"))

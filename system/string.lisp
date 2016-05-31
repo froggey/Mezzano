@@ -61,6 +61,15 @@ same characters in the corresponding positions; otherwise it returns false."))
   (def nstring-upcase char-upcase nil)
   (def nstring-downcase char-downcase nil))
 
+(defun string-capitalize (name &key (start 0) end)
+  (setf name (string name))
+  (format nil "~A~:(~A~)~A"
+          (subseq name 0 start)
+          (subseq name start end)
+          (if end
+              (subseq name end)
+              "")))
+
 (macrolet ((def (sensitive-name insensitive-name char-comparator numeric-comparator)
              `(progn
                 (defun ,sensitive-name (string1 string2 &key (start1 0) end1 (start2 0) end2)
