@@ -209,6 +209,19 @@
                     ,form)
                   args))))))
 
+;;; N.B. The function kludge-arglist is used to pave over the differences
+;;; between argument keyword compatibility for regular functions versus
+;;; generic functions.
+
+(defun kludge-arglist (lambda-list)
+  (if (and (member '&key lambda-list)
+           (not (member '&allow-other-keys lambda-list)))
+      (append lambda-list '(&allow-other-keys))
+      (if (and (not (member '&rest lambda-list))
+               (not (member '&key lambda-list)))
+          (append lambda-list '(&key &allow-other-keys))
+          lambda-list)))
+
 ;;; Several tedious functions for analyzing lambda lists
 
 (defun extract-lambda-list (specialized-lambda-list)

@@ -1151,11 +1151,6 @@ has only has class specializer."
 ;;; Generic function invocation
 ;;;
 
-;;; apply-generic-function
-
-(defun apply-generic-function (gf args)
-  (apply (generic-function-discriminating-function gf) args))
-
 ;;; compute-discriminating-function
 
 (defun compute-reader-discriminator (gf emf-table argument-offset)
@@ -1384,11 +1379,7 @@ has only has class specializer."
         args)
   nil)
 
-;;; apply-methods and compute-effective-method-function
-
-(defun apply-methods (gf args methods)
-  (funcall (compute-effective-method-function gf methods)
-           args))
+;;; compute-effective-method-function
 
 (defun primary-method-p (method)
   (null (method-qualifiers method)))
@@ -1502,33 +1493,6 @@ has only has class specializer."
             (fn (method-function (car methods))))
         #'(lambda (args)
             (funcall fn args next-emfun)))))
-
-;;; apply-method and compute-method-function
-
-(defun apply-method (method args next-methods)
-  (funcall (method-function method)
-           args
-           (if (null next-methods)
-               nil
-               (compute-effective-method-function
-                 (method-generic-function method) next-methods))))
-
-;;; N.B. The function kludge-arglist is used to pave over the differences
-;;; between argument keyword compatibility for regular functions versus
-;;; generic functions.
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-
-(defun kludge-arglist (lambda-list)
-  (if (and (member '&key lambda-list)
-           (not (member '&allow-other-keys lambda-list)))
-      (append lambda-list '(&allow-other-keys))
-      (if (and (not (member '&rest lambda-list))
-               (not (member '&key lambda-list)))
-          (append lambda-list '(&key &allow-other-keys))
-          lambda-list)))
-
-)
 
 ;;;
 ;;; Bootstrap
