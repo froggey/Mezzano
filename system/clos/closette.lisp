@@ -84,6 +84,7 @@
 
 (defvar *the-class-standard-class*)    ;standard-class's class metaobject
 (defvar *the-class-funcallable-standard-class*)
+(defvar *the-class-t*)
 (defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (defvar *standard-class-slot-storage-layout-position*)
 (defvar *standard-class-hash-position*)
@@ -545,10 +546,16 @@ Other arguments are included directly."
 
 (defun std-after-initialization-for-classes
        (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
-  (let ((supers direct-superclasses))
-    (setf (class-direct-superclasses class) supers)
-    (dolist (superclass supers)
-      (push class (class-direct-subclasses superclass))))
+  (dolist (superclass direct-superclasses)
+    ;; Open code standard VALIDATE-SUPERCLASS here.
+    (when (not (or (and (standardish-class-p (class-of class))
+                        (or (standardish-class-p (class-of superclass))
+                            (eql superclass *the-class-t*)))
+                   (validate-superclass class superclass)))
+      (error "Superclass ~S incompatible with class ~S." (class-of superclass) (class-of class))))
+  (setf (class-direct-superclasses class) direct-superclasses)
+  (dolist (superclass direct-superclasses)
+    (push class (class-direct-subclasses superclass)))
   (let ((slots
           (mapcar #'(lambda (slot-properties)
                       (apply #'make-direct-slot-definition
@@ -1549,10 +1556,12 @@ has only has class specializer."
   ;; The class isn't finalized, but it needs to be finalized for
   ;; STD-ALLOCATE-INSTANCE to work.
   (setf (class-finalized-p *the-class-standard-class*) t)
+  ;; This needs to at least be bound.
+  (setf *the-class-funcallable-standard-class* nil)
   ;; (Skeleton built; it's now okay to call make-instance-standard-class.)
   ;; 5. Hand build the class t so that it has no direct superclasses.
   (format t "Building class T.~%")
-  (setf (find-class 't)
+  (setf *the-class-t*
         (let ((class (std-allocate-instance *the-class-standard-class*)))
           (setf (class-name class) 't)
           (setf (class-direct-subclasses class) ())
@@ -1567,6 +1576,7 @@ has only has class specializer."
           (setf (class-hash class) (next-class-hash-value))
           (setf (class-finalized-p class) 't)
           class))
+  (setf (find-class 't) *the-class-t*)
   ;; (It's now okay to define subclasses of t.)
   ;; 6. Create the other superclasses of standard-class (i.e., standard-object).
   (format t "Defining STANDARD-OBJECT and other classes.~%")
@@ -1601,20 +1611,17 @@ has only has class specializer."
   ;; It is initially defined as a standard class, and then hacked to be a
   ;; built-in-class, as the machinery for defining built-in-classes does not
   ;; work at this point.
+  ;; However, these need to stay as standard classes until after
+  ;; funcallable-standard-object is defined.
+  ;; This fools std-after-initialization-for-classes into thinking that
+  ;; F-S-O's direct-superclasses are actually compatible, when technically
+  ;; they're not (because it derives from FUNCTION).
   (defclass function (t) ())
   ;; Define a few other similar classes needed for the rest of the bootstrap.
   (defclass symbol (t) ())
   (defclass sequence (t) ())
   (defclass list (sequence) ())
   (defclass null (symbol list) ())
-  ;; Fudge some classes so they becomes instances of BUILT-IN-CLASS.
-  ;; B-I-C has the same layout as S-C, so it's not a huge leap.
-  (dolist (name '(t function symbol sequence list null))
-    (let ((class (find-class name))
-          (bic-class (find-class 'built-in-class)))
-      (setf (std-instance-class class) bic-class
-            (std-instance-layout class) (svref (std-instance-slots bic-class)
-                                               *standard-class-slot-storage-layout-position*))))
   ;; 9. Define the other standard metaobject classes.
   (format t "Defining remaining standard metaobject classes.~%")
   (setf *the-class-funcallable-standard-class*
@@ -1662,6 +1669,14 @@ has only has class specializer."
     ((slot-definition :initarg :slot-definition)))
   (defclass standard-reader-method (standard-accessor-method) ())
   (defclass standard-writer-method (standard-accessor-method) ())
+  ;; Fudge some classes so they becomes instances of BUILT-IN-CLASS.
+  ;; B-I-C has the same layout as S-C, so it's not a huge leap.
+  (dolist (name '(t function symbol sequence list null))
+    (let ((class (find-class name))
+          (bic-class (find-class 'built-in-class)))
+      (setf (std-instance-class class) bic-class
+            (std-instance-layout class) (svref (std-instance-slots bic-class)
+                                               *standard-class-slot-storage-layout-position*))))
   ;; (Clear sailing from here on in).
   ;; Voila! The class hierarchy is in place.
   (format t "Class hierarchy created.~%")
@@ -2035,6 +2050,19 @@ has only has class specializer."
     (setf (find-class name) class)
     class))
 
+(defgeneric validate-superclass (class superclass))
+
+(defmethod validate-superclass ((class class) (superclass class))
+  (or (eql superclass *the-class-t*)
+      (eql (class-of class) (class-of superclass))
+      (and (eql (class-of class) 'standard-class)
+           (eql (class-of superclass) 'funcallable-standard-class))
+      (and (eql (class-of class) 'funcallable-standard-class)
+           (eql (class-of superclass) 'standard-class))))
+
+(defmethod validate-superclass ((class clos-class) (superclass forward-referenced-class))
+  t)
+
 ;;; Built-in-class.
 
 (defmethod initialize-instance :after ((class built-in-class) &rest args)
@@ -2276,7 +2304,9 @@ has only has class specializer."
 (defclass array (t) () (:metaclass built-in-class))
 (defclass number (t) () (:metaclass built-in-class))
 (defclass character (t) () (:metaclass built-in-class))
-(defclass stream (t) () (:metaclass built-in-class))
+;; FIXME: This should be a built-in class, but this is tricky to make work
+;; with gray streams.
+(defclass stream (t) ())
 (defclass cons (list) () (:metaclass built-in-class))
 (defclass simple-array (array) () (:metaclass built-in-class))
 (defclass vector (array sequence) () (:metaclass built-in-class))

@@ -80,6 +80,10 @@
 
           extract-lambda-list
           extract-specializer-names
+
+          validate-superclass
+
+          class-finalized-p
           ))
 
 (export exports)
