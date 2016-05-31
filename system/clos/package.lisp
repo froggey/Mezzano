@@ -84,6 +84,7 @@
           validate-superclass
 
           class-finalized-p
+          class-prototype
           ))
 
 (export exports)

@@ -357,7 +357,8 @@
      (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
      (dependents :initform '())
      (hash :initform (next-class-hash-value))
-     (finalized-p :initform nil))
+     (finalized-p :initform nil)
+     (prototype))
     (:default-initargs :name nil)))
 
 ;; STANDARD-CLASS and FUNCALLABLE-STANDARD-CLASS must have the same layout.
@@ -1575,6 +1576,7 @@ has only has class specializer."
           (setf (class-dependents class) ())
           (setf (class-hash class) (next-class-hash-value))
           (setf (class-finalized-p class) 't)
+          (setf (std-slot-value class 'prototype) (std-allocate-instance class))
           class))
   (setf (find-class 't) *the-class-t*)
   ;; (It's now okay to define subclasses of t.)
@@ -1674,6 +1676,8 @@ has only has class specializer."
   (dolist (name '(t function symbol sequence list null))
     (let ((class (find-class name))
           (bic-class (find-class 'built-in-class)))
+      (when (not (std-slot-boundp class 'prototype))
+        (setf (std-slot-value class 'prototype) (std-allocate-instance class)))
       (setf (std-instance-class class) bic-class
             (std-instance-layout class) (svref (std-instance-slots bic-class)
                                                *standard-class-slot-storage-layout-position*))))
@@ -2066,7 +2070,9 @@ has only has class specializer."
 ;;; Built-in-class.
 
 (defmethod initialize-instance :after ((class built-in-class) &rest args)
-  (apply #'std-after-initialization-for-classes class args))
+  (apply #'std-after-initialization-for-classes class args)
+  (when (not (slot-boundp class 'prototype))
+    (setf (slot-value class 'prototype) (std-allocate-instance class))))
 
 (defmethod reinitialize-instance :before ((class built-in-class) &rest args)
   (error "Cannot reinitialize built-in classes."))
@@ -2298,6 +2304,17 @@ has only has class specializer."
 (defmethod no-applicable-method ((generic-function t) &rest function-arguments)
   (error "No applicable methods to generic function ~S when called with ~S."
          generic-function function-arguments))
+
+(defgeneric class-prototype (class))
+
+(defmethod class-prototype :before ((class class))
+  (when (not (class-finalized-p class))
+    (error "Class ~S has not been finalized." class)))
+
+(defmethod class-prototype ((class clos-class))
+  (when (not (slot-boundp class 'prototype))
+    (setf (slot-value class 'prototype) (allocate-instance class)))
+  (slot-value class 'prototype))
 
 ;;; Other built-in classes.
 
