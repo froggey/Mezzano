@@ -50,4 +50,8 @@
                (error 'unknown-coercion :object object :type result-type))))
         ((subtypep result-type 'float)
          (float object))
+        ((and (subtypep result-type 'function)
+              (consp object)
+              (eql (first object) 'lambda))
+         (compile nil object))
         (t (error 'unknown-coercion :object object :type result-type))))
