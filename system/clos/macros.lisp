@@ -214,13 +214,19 @@
 ;;; generic functions.
 
 (defun kludge-arglist (lambda-list)
-  (if (and (member '&key lambda-list)
-           (not (member '&allow-other-keys lambda-list)))
-      (append lambda-list '(&allow-other-keys))
-      (if (and (not (member '&rest lambda-list))
-               (not (member '&key lambda-list)))
-          (append lambda-list '(&key &allow-other-keys))
-          lambda-list)))
+  (let* ((plist (analyze-lambda-list lambda-list))
+         (requireds (getf plist ':required-names))
+         (rv (getf plist ':rest-var))
+         (ks (getf plist ':key-args))
+         (opts (getf plist ':optional-args))
+         (auxs (getf plist ':auxiliary-args)))
+    `(,@requireds
+      ,@(if opts `(&optional ,@opts) ())
+      ,@(if rv `(&rest ,rv) ())
+      &key
+      ,@ks
+      &allow-other-keys
+      ,@(if auxs `(&aux ,@auxs) ()))))
 
 ;;; Several tedious functions for analyzing lambda lists
 
