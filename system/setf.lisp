@@ -222,9 +222,50 @@
   access-fn)
 )
 
-(defmacro defsetf (access-fn update-fn &optional documentation)
+(defmacro defsetf (access-fn &rest args)
+  (cond ((listp (first args))
+         `(defsetf-long ,access-fn ,@args))
+        (t
+         `(defsetf-short ,access-fn ,@args))))
+
+(defmacro defsetf-short (access-fn update-fn &optional documentation)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%defsetf-short-form ',access-fn ',update-fn ',documentation)))
+
+(defmacro defsetf-long (access-fn lambda-list store-variables &body body)
+  (when (member '&aux lambda-list)
+    (error "&AUX not permitted in DEFSETF lambda list ~S." lambda-list))
+  (multiple-value-bind (new-lambda-list env-binding)
+      (fix-lambda-list-environment lambda-list)
+    (let ((subforms (gensym "SUBFORMS"))
+          (env (or env-binding (gensym "ENV"))))
+      `(eval-when (:compile-toplevel :load-toplevel :execute)
+         (%defsetf-long-form ',access-fn
+                             ',(length store-variables)
+                             (lambda (,subforms ,env ,@store-variables)
+                               (declare (system:lambda-name (defsetf ,access-fn))
+                                        (ignorable ,env))
+                               (apply (lambda ,new-lambda-list
+                                        ,@body)
+                                      ,subforms)))))))
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+(defun %defsetf-long-form (access-fn store-variable-count expansion-fn)
+  (flet ((expand (whole env)
+           ;; Generate gensyms for every parameter, and for every store-variable.
+           (let* ((param-syms (loop for f in (rest whole) collect (gensym "PARAM")))
+                  (store-syms (loop repeat store-variable-count collect (gensym "STORE")))
+                  ;; Get the expansion.
+                  (expansion (apply expansion-fn param-syms env store-syms)))
+             (values param-syms
+                     (rest whole)
+                     store-syms
+                     expansion
+                     `(,access-fn ,@param-syms)))))
+    (setf (get access-fn 'setf-expander) #'expand
+          (get access-fn 'setf-update-fn) nil))
+  access-fn)
+)
 
 (defmacro shiftf (&rest args)
   (assert args)
