@@ -50,6 +50,7 @@
   (eq (slot-definition-allocation slot) ':instance))
 
 (defun std-allocate-instance (class)
+  (ensure-class-finalized class)
   (allocate-std-instance
     class
     (allocate-slot-storage (count-if #'instance-slot-p (class-slots class))
@@ -57,6 +58,7 @@
     (class-slot-storage-layout class)))
 
 (defun fc-std-allocate-instance (class)
+  (ensure-class-finalized class)
   (allocate-funcallable-std-instance
    (lambda (&rest x)
      (declare (ignore x))
@@ -345,15 +347,16 @@
     ((name :initarg :name)              ; :accessor class-name
      (direct-superclasses               ; :accessor class-direct-superclasses
       :initarg :direct-superclasses)
-     (direct-slots)                     ; :accessor class-direct-slots
+     (direct-slots :initform ())        ; :accessor class-direct-slots
      (class-precedence-list)            ; :accessor class-precedence-list
-     (effective-slots)                  ; :accessor class-slots
+     (effective-slots :initform ())     ; :accessor class-slots
      (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
      (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
      (direct-methods :initform ())      ; :accessor class-direct-methods
      (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
      (dependents :initform '())
-     (hash :initform (next-class-hash-value)))
+     (hash :initform (next-class-hash-value))
+     (finalized-p :initform nil))
     (:default-initargs :name nil)))
 
 ;; STANDARD-CLASS and FUNCALLABLE-STANDARD-CLASS must have the same layout.
@@ -418,6 +421,11 @@
           (t (std-slot-value class 'hash)))))
 (defun (setf class-hash) (new-value class)
   (setf (slot-value class 'hash) new-value))
+
+(defun class-finalized-p (class)
+  (std-slot-value class 'finalized-p))
+(defun (setf class-finalized-p) (new-value class)
+  (setf (slot-value class 'finalized-p) new-value))
 
 ;;; find-class
 
@@ -527,6 +535,7 @@ Other arguments are included directly."
     (setf (class-direct-methods class) ())
     (setf (class-dependents class) ())
     (setf (class-hash class) (next-class-hash-value))
+    (setf (class-finalized-p class) nil)
     (std-after-initialization-for-classes class
        :direct-slots direct-slots
        :direct-superclasses (or direct-superclasses
@@ -556,11 +565,26 @@ Other arguments are included directly."
         (add-writer-method
           class writer (slot-definition-name direct-slot)))))
   (setf (class-direct-default-initargs class) direct-default-initargs)
-  (funcall (if (standardish-class-p (class-of class))
-               #'std-finalize-inheritance
-               #'finalize-inheritance)
-           class)
+  (maybe-finalize-inheritance class)
   (values))
+
+(defun maybe-finalize-inheritance (class)
+  "If CLASS is not finalized and can be finalized, finalize it, otherwise do nothing."
+  (when (and (not (class-finalized-p class))
+             (every #'class-finalized-p
+                    (class-direct-superclasses class)))
+    (funcall (if (standardish-class-p (class-of class))
+                 #'std-finalize-inheritance
+                 #'finalize-inheritance)
+             class)))
+
+(defun ensure-class-finalized (class)
+  "If CLASS is not finalized, call FINALIZE-INHERITANCE on it."
+  (when (not (class-finalized-p class))
+    (funcall (if (standardish-class-p (class-of class))
+                 #'std-finalize-inheritance
+                 #'finalize-inheritance)
+             class)))
 
 ;;; Slot definition metaobjects
 
@@ -645,6 +669,8 @@ Other arguments are included directly."
 ;;; finalize-inheritance
 
 (defun std-finalize-inheritance (class)
+  (dolist (super (class-direct-superclasses class))
+    (ensure-class-finalized super))
   (setf (class-precedence-list class)
         (funcall (if (standardish-class-p (class-of class))
                      #'std-compute-class-precedence-list
@@ -660,6 +686,7 @@ Other arguments are included directly."
     (setf (class-slot-storage-layout class)
           (make-array (length instance-slots)
                       :initial-contents (mapcar 'slot-definition-name instance-slots))))
+  (setf (class-finalized-p class) t)
   (values))
 
 ;;; Class precedence lists
@@ -1555,6 +1582,9 @@ has only has class specializer."
     ;; (It's now okay to use class-... accessor).
     ;; 4. Fill in standard-class's class-slots.
     (setf (class-slots *the-class-standard-class*) clos-class-slots))
+  ;; The class isn't finalized, but it needs to be finalized for
+  ;; STD-ALLOCATE-INSTANCE to work.
+  (setf (class-finalized-p *the-class-standard-class*) t)
   ;; (Skeleton built; it's now okay to call make-instance-standard-class.)
   ;; 5. Hand build the class t so that it has no direct superclasses.
   (format t "Building class T.~%")
@@ -1571,6 +1601,7 @@ has only has class specializer."
           (setf (class-slots class) ())
           (setf (class-dependents class) ())
           (setf (class-hash class) (next-class-hash-value))
+          (setf (class-finalized-p class) 't)
           class))
   ;; (It's now okay to define subclasses of t.)
   ;; 6. Create the other superclasses of standard-class (i.e., standard-object).
@@ -1990,7 +2021,25 @@ has only has class specializer."
 
 ;;; Metaclasses.
 
-(defclass forward-referenced-class (class) ())
+(defclass forward-referenced-class (class)
+  ((name :initarg :name)
+   (direct-subclasses :initform '())
+   (finalized-p :initform nil)))
+
+(defmethod print-object ((class forward-referenced-class) stream)
+  (print-unreadable-object (class stream :identity t)
+    (format stream "~:(~S~) ~S"
+            (class-name (class-of class))
+            (class-name class)))
+  class)
+
+(defmethod update-instance-for-different-class :before
+           ((old forward-referenced-class) (new standard-class) &rest initargs)
+  (setf (class-direct-superclasses new) (list (find-class 'standard-class))))
+
+(defmethod update-instance-for-different-class :before
+           ((old forward-referenced-class) (new funcallable-standard-class) &rest initargs)
+  (setf (class-direct-superclasses new) (list (find-class 'funcallable-standard-class))))
 
 (defgeneric ensure-class-using-class (class name &key &allow-other-keys))
 
@@ -2132,6 +2181,8 @@ has only has class specializer."
 ;;; Class redefinition.
 
 (defun std-after-reinitialization-for-classes (class &rest args &key &allow-other-keys)
+  ;; Unfinalize the class.
+  (setf (class-finalized-p class) nil)
   ;; Remove the class as a subclass from all existing superclasses.
   (dolist (superclass (class-direct-superclasses class))
     (setf (class-direct-subclasses superclass) (remove class (class-direct-subclasses superclass))))
