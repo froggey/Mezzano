@@ -181,7 +181,7 @@
                       (setq parse-state :body))))
          (:body (push-on-end arg body))))
     (let ((lambda-list (extract-lambda-list specialized-lambda-list))
-          (specializers (extract-specializers specialized-lambda-list)))
+          (specializers (extract-specializer-names specialized-lambda-list)))
       (values qualifiers
               lambda-list
               specializers
@@ -226,7 +226,7 @@
       ,@(if opts `(&optional ,@opts) ())
       ,@(if auxs `(&aux ,@auxs) ()))))
 
-(defun extract-specializers (specialized-lambda-list)
+(defun extract-specializer-names (specialized-lambda-list)
   (let ((plist (analyze-lambda-list specialized-lambda-list)))
     (getf plist ':specializers)))
 

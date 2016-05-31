@@ -77,6 +77,9 @@
           slot-unbound no-applicable-method
 
           with-slots with-accessors
+
+          extract-lambda-list
+          extract-specializer-names
           ))
 
 (export exports)
