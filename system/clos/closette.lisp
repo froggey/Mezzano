@@ -1004,7 +1004,7 @@ has only has class specializer."
       (do ((i 0 (1+ i))
            (spec (method-specializers m) (rest spec)))
           ((null spec))
-        (unless (typep (first spec) '(or standard-class funcallable-standard-class class))
+        (unless (typep (first spec) 'class)
           (setf (generic-function-has-unusual-specializers gf) t))
         (unless (eql (first spec) class-t)
           (setf (bit relevant-args i) 1))))
@@ -1096,7 +1096,7 @@ has only has class specializer."
   (setf (method-generic-function method) gf)
   (push method (generic-function-methods gf))
   (dolist (specializer (method-specializers method))
-    (when (typep specializer '(or standard-class funcallable-standard-class class))
+    (when (typep specializer 'class)
       (pushnew method (class-direct-methods specializer))))
   (finalize-generic-function gf)
   method)
@@ -1106,7 +1106,7 @@ has only has class specializer."
         (remove method (generic-function-methods gf)))
   (setf (method-generic-function method) nil)
   (dolist (class (method-specializers method))
-    (when (typep class '(or standard-class funcallable-standard-class class))
+    (when (typep class 'class)
       (setf (class-direct-methods class)
             (remove method (class-direct-methods class)))))
   (finalize-generic-function gf)
@@ -1204,7 +1204,9 @@ has only has class specializer."
        (let* ((classes (mapcar #'class-of (required-portion gf args)))
               (class (nth argument-offset classes))
               (applicable-methods
-               (compute-applicable-methods-using-classes gf classes)))
+               (if (eql (class-of gf) *the-class-standard-gf*)
+                   (std-compute-applicable-methods-using-classes gf classes)
+                   (compute-applicable-methods-using-classes gf classes))))
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
@@ -1219,7 +1221,9 @@ has only has class specializer."
        (let* ((classes (mapcar #'class-of (required-portion gf args)))
               (class (nth argument-offset classes))
               (applicable-methods
-               (compute-applicable-methods-using-classes gf classes)))
+               (if (eql (class-of gf) *the-class-standard-gf*)
+                   (std-compute-applicable-methods-using-classes gf classes)
+                   (compute-applicable-methods-using-classes gf classes))))
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
@@ -1235,7 +1239,9 @@ has only has class specializer."
        (let* ((classes (mapcar #'class-of (required-portion gf args)))
               (class (nth argument-offset classes))
               (applicable-methods
-               (compute-applicable-methods-using-classes gf classes)))
+               (if (eql (class-of gf) *the-class-standard-gf*)
+                   (std-compute-applicable-methods-using-classes gf classes)
+                   (compute-applicable-methods-using-classes gf classes))))
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
@@ -1273,9 +1279,13 @@ has only has class specializer."
 
 (defun slow-method-lookup (gf args classes)
   (multiple-value-bind (applicable-methods validp)
-      (compute-applicable-methods-using-classes gf classes)
+      (if (eql (class-of gf) *the-class-standard-gf*)
+          (std-compute-applicable-methods-using-classes gf classes)
+          (compute-applicable-methods-using-classes gf classes))
     (unless validp
-      (setf applicable-methods (compute-applicable-methods gf args)))
+      (setf applicable-methods (if (eql (class-of gf) *the-class-standard-gf*)
+                                   (std-compute-applicable-methods gf args)
+                                   (compute-applicable-methods gf args))))
     (let ((emfun (cond (applicable-methods
                         (funcall
                          (if (eq (class-of gf) *the-class-standard-gf*)
@@ -1296,7 +1306,9 @@ has only has class specializer."
   (let* ((classes (mapcar #'class-of
                           (required-portion gf args)))
          (applicable-methods
-          (compute-applicable-methods-using-classes gf classes)))
+          (if (eql (class-of gf) *the-class-standard-gf*)
+              (std-compute-applicable-methods-using-classes gf classes)
+              (compute-applicable-methods-using-classes gf classes))))
     (let ((emfun (cond (applicable-methods
                         (std-compute-effective-method-function gf applicable-methods))
                        (t
@@ -1308,17 +1320,16 @@ has only has class specializer."
 
 ;;; compute-applicable-methods-using-classes
 
-(defun compute-applicable-methods-using-classes
-       (gf required-classes)
+(defun std-compute-applicable-methods-using-classes (gf required-classes)
   (values (sort
            (copy-list
             (remove-if-not #'(lambda (method)
                                (every (lambda (class specializer)
                                         (etypecase specializer
                                           (eql-specializer
-                                           (return-from compute-applicable-methods-using-classes
+                                           (return-from std-compute-applicable-methods-using-classes
                                              (values nil nil)))
-                                          ((or standard-class funcallable-standard-class class)
+                                          (class
                                            (subclassp class specializer))))
                                       required-classes
                                       (method-specializers method)))
@@ -1331,7 +1342,7 @@ has only has class specializer."
                 gf m1 m2 required-classes)))
           t))
 
-(defun compute-applicable-methods (gf args)
+(defun std-compute-applicable-methods (gf args)
   (sort
    (copy-list
     (remove-if-not #'(lambda (method)
@@ -1339,7 +1350,7 @@ has only has class specializer."
                                 (etypecase specializer
                                   (eql-specializer
                                    (eql (eql-specializer-object specializer) arg))
-                                  ((or standard-class funcallable-standard-class class)
+                                  (class
                                    (subclassp (class-of arg) specializer))))
                               args
                               (method-specializers method)))
@@ -1471,7 +1482,7 @@ has only has class specializer."
                    (list (method-qualifiers method)
                          (mapcar (lambda (specializer)
                                    (typecase specializer
-                                     ((or standard-class funcallable-standard-class class)
+                                     (class
                                       (class-name specializer))
                                      (t specializer)))
                                  (method-specializers method))))
@@ -1952,7 +1963,7 @@ has only has class specializer."
               (generic-function-name (method-generic-function method)))
 	    (method-qualifiers method)
 	    (mapcar (lambda (x) (typecase x
-                                  ((or standard-class funcallable-standard-class class)
+                                  (class
                                    (class-name x))
                                   (t x)))
                     (method-specializers method))))
@@ -2318,24 +2329,37 @@ has only has class specializer."
 
 ;;; Other built-in classes.
 
-(defclass array (t) () (:metaclass built-in-class))
-(defclass number (t) () (:metaclass built-in-class))
 (defclass character (t) () (:metaclass built-in-class))
 ;; FIXME: This should be a built-in class, but this is tricky to make work
 ;; with gray streams.
 (defclass stream (t) ())
 (defclass cons (list) () (:metaclass built-in-class))
+(defclass mezzano.supervisor:thread (t) () (:metaclass built-in-class))
+(defclass sys.int::function-reference (t) () (:metaclass built-in-class))
+(defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
+;; FIXME: This doesn't quite work with large bytes.
+(defclass byte (t) () (:metaclass built-in-class))
+
+(defclass array (t) () (:metaclass built-in-class))
 (defclass simple-array (array) () (:metaclass built-in-class))
 (defclass vector (array sequence) () (:metaclass built-in-class))
 (defclass simple-vector (vector simple-array) () (:metaclass built-in-class))
 (defclass bit-vector (vector) () (:metaclass built-in-class))
 (defclass string (vector) () (:metaclass built-in-class))
 (defclass simple-string (string simple-array) () (:metaclass built-in-class))
-(defclass integer (number) () (:metaclass built-in-class))
-(defclass float (number) () (:metaclass built-in-class))
-(defclass ratio (number) () (:metaclass built-in-class))
+
+(defclass number (t) () (:metaclass built-in-class))
+(defclass real (number) () (:metaclass built-in-class))
+(defclass rational (real) () (:metaclass built-in-class))
+(defclass integer (rational) () (:metaclass built-in-class))
+(defclass ratio (rational) () (:metaclass built-in-class))
+(defclass float (real) () (:metaclass built-in-class))
 (defclass complex (number) () (:metaclass built-in-class))
-(defclass mezzano.supervisor:thread (t) () (:metaclass built-in-class))
-(defclass sys.int::function-reference (t) () (:metaclass built-in-class))
-(defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
-(defclass byte (t) () (:metaclass built-in-class))
+
+(defgeneric compute-applicable-methods-using-classes (generic-function classes))
+(defmethod compute-applicable-methods-using-classes ((generic-function standard-generic-function) classes)
+  (std-compute-applicable-methods-using-classes generic-function classes))
+
+(defgeneric compute-applicable-methods (generic-function arguments))
+(defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
+  (std-compute-applicable-methods generic-function arguments))

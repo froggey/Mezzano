@@ -85,6 +85,9 @@
 
           class-finalized-p
           class-prototype
+
+          ensure-class
+          ensure-class-using-class
           ))
 
 (export exports)
