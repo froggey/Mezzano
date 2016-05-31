@@ -12,6 +12,9 @@
 (defconstant most-positive-double-float (%integer-as-single-float #x7F7FFFFF))
 (defconstant most-positive-long-float (%integer-as-single-float #x7F7FFFFF))
 
+(defconstant single-float-epsilon (%integer-as-single-float #x33800001))
+(defconstant single-float-negative-epsilon (%integer-as-single-float #x33000001))
+
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)
             (declare (dynamic-extent numbers))
