@@ -32,7 +32,7 @@
 
 ;;; This is the file closette.lisp
 
-(in-package :system.closette)
+(in-package :mezzano.clos)
 
 ;;;
 ;;; Standard instances

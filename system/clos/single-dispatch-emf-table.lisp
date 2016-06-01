@@ -3,7 +3,7 @@
 
 ;;; Faster hash table for doing single-dispatch class to effective method lookup.
 
-(in-package :system.closette)
+(in-package :mezzano.clos)
 
 ;; Must be a power of two.
 (defvar *default-single-dispatch-emf-table-size* 16)

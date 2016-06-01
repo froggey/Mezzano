@@ -69,8 +69,8 @@
            :funcallable-std-instance-slots
            :funcallable-standard-object))
 
-(defpackage :system.closette
-  (:nicknames :sys.clos))
+(defpackage :mezzano.clos
+  (:use :cl))
 
 ;;; Supervisor manages the hardware, doing paging and memory management.
 (defpackage :mezzano.supervisor

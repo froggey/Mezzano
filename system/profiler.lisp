@@ -16,9 +16,9 @@
 (defparameter *ignorable-function-names*
   '(sys.int::%apply
     apply
-    (lambda :in system.closette::compute-1-effective-discriminator)
-    (lambda :in system.closette::std-compute-effective-method-function)
-    (lambda :in system.closette::compute-n-effective-discriminator)))
+    (lambda :in mezzano.clos::compute-1-effective-discriminator)
+    (lambda :in mezzano.clos::std-compute-effective-method-function)
+    (lambda :in mezzano.clos::compute-n-effective-discriminator)))
 
 (defstruct thread-sample
   thread

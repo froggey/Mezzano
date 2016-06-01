@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :system.closette)
+(in-package :mezzano.clos)
 
 (defvar *method-combinations* (make-hash-table))
 

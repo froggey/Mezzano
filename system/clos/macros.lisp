@@ -3,7 +3,7 @@
 
 ;;;; CLOS User Interface Macros.
 
-(in-package :system.closette)
+(in-package :mezzano.clos)
 
 ;;; DEFCLASS.
 

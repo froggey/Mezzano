@@ -204,7 +204,7 @@
       (cold-stream-p object)
       (and (boundp '*fundamental-stream-class*)
            (std-instance-p object)
-           (member *fundamental-stream-class* (sys.clos::class-precedence-list (std-instance-class object))))))
+           (member *fundamental-stream-class* (mezzano.clos:class-precedence-list (std-instance-class object))))))
 
 (setf (get 'stream 'type-symbol) 'streamp)
 
