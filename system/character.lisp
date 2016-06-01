@@ -289,6 +289,12 @@ If it is, then its weight is returned as an integer; otherwise, nil is returned.
     (when (char= (char-upcase char) (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight))
       (return weight))))
 
+(defun digit-char (weight &optional (radix 10))
+  (check-type weight (integer 0))
+  (check-type radix (integer 2 36) "a radix")
+  (when (< weight radix)
+    (char "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" weight)))
+
 (defun alphanumericp (char)
   (or (digit-char-p char) (alpha-char-p char)))
 
