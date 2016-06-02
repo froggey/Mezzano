@@ -543,11 +543,7 @@ Other arguments are included directly."
                      #'std-compute-class-precedence-list
                      #'compute-class-precedence-list)
                  class))
-  (setf (class-slots class)
-        (funcall (if (std-class-p (class-of class))
-                     #'std-compute-slots
-                     #'compute-slots)
-                 class))
+  (setf (class-slots class) (compute-slots class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
                                         (class-slots class)))
          (layout (make-array (length instance-slots))))
@@ -615,48 +611,49 @@ Other arguments are included directly."
   (let* ((all-slots (mapappend #'class-direct-slots
                                (class-precedence-list class)))
          (all-names (remove-duplicates
-                      (mapcar #'slot-definition-name all-slots)))
-         (effective-slots (mapcar #'(lambda (name)
-                                      (funcall
-                                       (if (std-class-p (class-of class))
-                                           #'std-compute-effective-slot-definition
-                                           #'compute-effective-slot-definition)
-                                       class
-                                       name
-                                       (remove name all-slots
-                                               :key #'slot-definition-name
-                                               :test-not #'eq)))
-                                  all-names)))
-    (loop
-       with next-instance-slot-index = 0
-       for slot in effective-slots
-       do (case (slot-definition-allocation slot)
-            (:instance
-             (setf (slot-definition-location slot) next-instance-slot-index)
-             (incf next-instance-slot-index))
-            (:class
-             ;; Walk up the precedence list looking for the nearest class that defines this slot.
-             (dolist (super (class-precedence-list class)
-                      (error "Unable to locate storage location for :class slot ~S in class ~S"
-                             (slot-definition-name slot) (class-name class)))
-               (let ((existing (find (slot-definition-name slot)
-                                     (class-direct-slots super)
-                                     :key #'slot-definition-name)))
-                 (when existing
-                   (cond ((eql super class)
-                          ;; This class defines the direct slot. Create a new cell to hold the value.
-                          ;; (FIXME: Need to preserve the location over class redefinition.)
-                          (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
-                         (t
-                          (let ((existing-effective (find (slot-definition-name slot)
-                                                          (class-slots super)
-                                                          :key #'slot-definition-name)))
-                            (assert (consp (slot-definition-location existing-effective)))
-                            (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
-                   (return)))))
-            (t
-             (setf (slot-definition-location slot) nil))))
-    effective-slots))
+                      (mapcar #'slot-definition-name all-slots))))
+    (mapcar #'(lambda (name)
+                (funcall
+                 (if (std-class-p (class-of class))
+                     #'std-compute-effective-slot-definition
+                     #'compute-effective-slot-definition)
+                 class
+                 name
+                 (remove name all-slots
+                         :key #'slot-definition-name
+                         :test-not #'eq)))
+            all-names)))
+
+(defun std-compute-slot-layouts (class effective-slots)
+  (loop
+     with next-instance-slot-index = 0
+     for slot in effective-slots
+     do (case (slot-definition-allocation slot)
+          (:instance
+           (setf (slot-definition-location slot) next-instance-slot-index)
+           (incf next-instance-slot-index))
+          (:class
+           ;; Walk up the precedence list looking for the nearest class that defines this slot.
+           (dolist (super (class-precedence-list class)
+                    (error "Unable to locate storage location for :class slot ~S in class ~S"
+                           (slot-definition-name slot) (class-name class)))
+             (let ((existing (find (slot-definition-name slot)
+                                   (class-direct-slots super)
+                                   :key #'slot-definition-name)))
+               (when existing
+                 (cond ((eql super class)
+                        ;; This class defines the direct slot. Create a new cell to hold the value.
+                        ;; (FIXME: Need to preserve the location over class redefinition.)
+                        (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
+                       (t
+                        (let ((existing-effective (find (slot-definition-name slot)
+                                                        (class-slots super)
+                                                        :key #'slot-definition-name)))
+                          (assert (consp (slot-definition-location existing-effective)))
+                          (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
+                 (return)))))
+          (t
+           (setf (slot-definition-location slot) nil)))))
 
 (defun make-effective-slot-definition (class &rest initargs)
   (apply #'make-instance
@@ -1600,6 +1597,11 @@ has only has class specializer."
 (defmethod compute-slots ((class std-class))
   (std-compute-slots class))
 
+(defmethod compute-slots :around ((class std-class))
+  (let ((effective-slots (call-next-method)))
+    (std-compute-slot-layouts class effective-slots)
+    effective-slots))
+
 (defgeneric compute-effective-slot-definition (class name direct-slots))
 (defmethod compute-effective-slot-definition ((class std-class) name direct-slots)
   (std-compute-effective-slot-definition class name direct-slots))
@@ -1744,14 +1746,6 @@ has only has class specializer."
 (defmethod reinitialize-instance :before ((class built-in-class) &rest args)
   (error "Cannot reinitialize built-in classes."))
 
-(defmethod finalize-inheritance ((class built-in-class))
-  (std-finalize-inheritance class)
-  (values))
-(defmethod compute-slots ((class built-in-class))
-  (std-compute-slots class))
-(defmethod compute-class-precedence-list ((class built-in-class))
-  (std-compute-class-precedence-list class))
-
 ;;; Structure-class.
 
 (defclass structure-class (clos-class)
@@ -1793,8 +1787,14 @@ has only has class specializer."
 (defmethod finalize-inheritance ((class structure-class))
   (std-finalize-inheritance class)
   (values))
+
 (defmethod compute-slots ((class structure-class))
   (std-compute-slots class))
+(defmethod compute-slots :around ((class structure-class))
+  (let ((effective-slots (call-next-method)))
+    (std-compute-slot-layouts class effective-slots)
+    effective-slots))
+
 (defmethod compute-class-precedence-list ((class structure-class))
   (std-compute-class-precedence-list class))
 
