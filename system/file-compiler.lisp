@@ -448,8 +448,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                (lambda (f env)
                                  (or (fastload-form f omap)
                                      (add-to-llf +llf-invoke+
-                                                 (sys.c::compile-lambda `(lambda () (progn ,f))
-                                                                        (cons env nil)))))
+                                                 (sys.c::compile-lambda
+                                                  `(lambda ()
+                                                     (declare (system:lambda-name (sys.int::toplevel ,(when *compile-file-pathname*
+                                                                                                            (princ-to-string *compile-file-pathname*))
+                                                                                                     ,sys.int::*top-level-form-number*)))
+                                                     (progn ,f))
+                                                  (cons env nil)))))
                                (lambda (f env)
                                  (eval-in-lexenv f env)))
         (incf *top-level-form-number*))
