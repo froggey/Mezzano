@@ -68,7 +68,9 @@
            #:compute-discriminating-function
            #:compute-applicable-methods-using-classes #:method-more-specific-p
            #:compute-applicable-methods
-           #:compute-effective-method-function #:compute-method-function
+           #:compute-effective-method-function
+           #:compute-effective-method
+           #:compute-method-function
            #:apply-methods #:apply-method
 
            #:metaobject #:specializer #:class

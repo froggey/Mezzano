@@ -1303,6 +1303,16 @@ has only has class specializer."
 (defun around-method-p (method)
   (equal '(:around) (method-qualifiers method)))
 
+;;; compute an effective method function from a list of primary methods:
+
+(defun compute-primary-emfun (methods)
+  (if (null methods)
+      nil
+      (let ((next-emfun (compute-primary-emfun (cdr methods)))
+            (fn (method-function (car methods))))
+        #'(lambda (args)
+            (funcall fn args next-emfun)))))
+
 (defun std-compute-effective-method-function-with-standard-method-combination (gf methods)
   (let ((primaries (remove-if-not #'primary-method-p methods))
         (around (find-if #'around-method-p methods)))
@@ -1382,30 +1392,25 @@ has only has class specializer."
                                  (method-specializers method))))
                  methods)))
 
+(defun std-compute-effective-method (gf mc methods)
+  (apply (method-combination-combiner (method-combination-object-method-combination mc))
+         gf
+         methods
+         (method-combination-object-arguments mc)))
+
 (defun std-compute-effective-method-function (gf methods)
   (let ((mc (generic-function-method-combination gf)))
+    ;; FIXME: Still should call COMPUTE-EFFECTIVE-METHOD when
+    ;; the generic function is not a standard-generic-function and mc is the standard method combination.
     (cond (mc
            (let* ((mc-object (method-combination-object-method-combination mc))
                   (mc-args (method-combination-object-arguments mc))
-                  (effective-method-body (apply (method-combination-combiner mc-object)
-                                                gf
-                                                methods
-                                                mc-args))
+                  (effective-method-body (compute-effective-method gf mc methods))
                   (name (generate-method-combination-effective-method-name gf mc-object methods)))
              (eval (generate-method-combination-effective-method name effective-method-body))))
           (t
            (std-compute-effective-method-function-with-standard-method-combination
             gf methods)))))
-
-;;; compute an effective method function from a list of primary methods:
-
-(defun compute-primary-emfun (methods)
-  (if (null methods)
-      nil
-      (let ((next-emfun (compute-primary-emfun (cdr methods)))
-            (fn (method-function (car methods))))
-        #'(lambda (args)
-            (funcall fn args next-emfun)))))
 
 ;;;
 ;;; Bootstrap
@@ -1652,9 +1657,12 @@ has only has class specializer."
   (std-compute-discriminating-function gf))
 
 (defgeneric compute-effective-method-function (gf methods))
-(defmethod compute-effective-method-function
-           ((gf standard-generic-function) methods)
+(defmethod compute-effective-method-function ((gf standard-generic-function) methods)
   (std-compute-effective-method-function gf methods))
+
+(defgeneric compute-effective-method (generic-function method-combination methods))
+(defmethod compute-effective-method ((gf standard-generic-function) method-combination methods)
+  (std-compute-effective-method gf method-combination method))
 
 ;;; describe-object is a handy tool for enquiring minds:
 
