@@ -468,18 +468,12 @@ Other arguments are included directly."
   (when (and (not (class-finalized-p class))
              (every #'class-finalized-p
                     (class-direct-superclasses class)))
-    (funcall (if (std-class-p (class-of class))
-                 #'std-finalize-inheritance
-                 #'finalize-inheritance)
-             class)))
+    (finalize-inheritance class)))
 
 (defun ensure-class-finalized (class)
   "If CLASS is not finalized, call FINALIZE-INHERITANCE on it."
   (when (not (class-finalized-p class))
-    (funcall (if (std-class-p (class-of class))
-                 #'std-finalize-inheritance
-                 #'finalize-inheritance)
-             class)))
+    (finalize-inheritance class)))
 
 ;;; Slot definition metaobjects
 
@@ -538,11 +532,7 @@ Other arguments are included directly."
 (defun std-finalize-inheritance (class)
   (dolist (super (class-direct-superclasses class))
     (ensure-class-finalized super))
-  (setf (class-precedence-list class)
-        (funcall (if (std-class-p (class-of class))
-                     #'std-compute-class-precedence-list
-                     #'compute-class-precedence-list)
-                 class))
+  (setf (class-precedence-list class) (compute-class-precedence-list class))
   (setf (class-slots class) (compute-slots class))
   (let* ((instance-slots (remove-if-not 'instance-slot-p
                                         (class-slots class)))
@@ -613,10 +603,7 @@ Other arguments are included directly."
          (all-names (remove-duplicates
                       (mapcar #'slot-definition-name all-slots))))
     (mapcar #'(lambda (name)
-                (funcall
-                 (if (std-class-p (class-of class))
-                     #'std-compute-effective-slot-definition
-                     #'compute-effective-slot-definition)
+                (compute-effective-slot-definition
                  class
                  name
                  (remove name all-slots
