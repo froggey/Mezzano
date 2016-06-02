@@ -167,6 +167,10 @@
              (values slots
                      (slot-location (class-of instance) slot-name)))))))
 
+(defun find-effective-slot (object slot-name)
+  (find slot-name (class-slots (class-of object))
+        :key #'slot-definition-name))
+
 (defun std-slot-value (instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
@@ -175,19 +179,28 @@
           (slot-unbound (class-of instance) instance slot-name)
           val))))
 (defun slot-value (object slot-name)
-  (cond ((standardish-class-p (class-of (class-of object)))
+  (cond ((std-class-p (class-of (class-of object)))
          (std-slot-value object slot-name))
-        (t (slot-value-using-class (class-of object) object slot-name))))
+        (t
+         (let ((slot (find-effective-slot object slot-name)))
+           (if slot
+               (slot-value-using-class (class-of object) object slot)
+               (values (slot-missing (class-of object) object slot-name 'slot-value)))))))
 
 (defun (setf std-slot-value) (value instance slot-name)
   (multiple-value-bind (slots location)
       (slot-location-in-instance instance slot-name)
     (setf (slot-contents slots location) value)))
 (defun (setf slot-value) (new-value object slot-name)
-  (cond ((standardish-class-p (class-of (class-of object)))
+  (cond ((std-class-p (class-of (class-of object)))
          (setf (std-slot-value object slot-name) new-value))
         (t
-         (setf (std-slot-value-using-class (class-of object) object slot-name) new-value))))
+         (let ((slot (find-effective-slot object slot-name)))
+           (cond (slot
+                  (setf (slot-value-using-class (class-of object) object slot) value))
+                 (t
+                  (slot-missing (class-of object) object slot-name 'setf value)
+                  value))))))
 
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
@@ -195,9 +208,13 @@
     (not (eq *secret-unbound-value* (slot-contents slots location)))))
 (defun slot-boundp (object slot-name)
   (let ((metaclass (class-of (class-of object))))
-    (cond ((standardish-class-p metaclass)
+    (cond ((std-class-p metaclass)
            (std-slot-boundp object slot-name))
-          (t (slot-boundp-using-class (class-of object) object slot-name)))))
+          (t
+           (let ((slot (find-effective-slot object slot-name)))
+             (if slot
+                 (slot-boundp-using-class (class-of object) object slot)
+                 (values (slot-missing (class-of object) object slot-name 'slot-boundp))))))))
 
 (defun std-slot-makunbound (instance slot-name)
   (multiple-value-bind (slots location)
@@ -206,20 +223,16 @@
   instance)
 (defun slot-makunbound (object slot-name)
   (let ((metaclass (class-of (class-of object))))
-    (cond ((standardish-class-p metaclass)
+    (cond ((std-class-p metaclass)
            (std-slot-makunbound object slot-name))
-          (t (slot-makunbound-using-class (class-of object) object slot-name)))))
+          (t
+           (let ((slot (find-effective-slot object slot-name)))
+             (if slot
+                 (slot-makunbound-using-class (class-of object) object slot)
+                 (values (slot-missing (class-of object) object slot-name 'slot-makunbound))))))))
 
-(defun std-slot-exists-p (instance slot-name)
-  (when (not (symbolp slot-name))
-    (setf slot-name (slot-definition-name slot-name)))
-  (not (null (find slot-name (class-slots (class-of instance))
-                   :key #'slot-definition-name))))
-(defun slot-exists-p (object slot-name)
-  (let ((metaclass (class-of (class-of object))))
-    (cond ((standardish-class-p metaclass)
-           (std-slot-exists-p object slot-name))
-          (t (slot-exists-p-using-class (class-of object) object slot-name)))))
+(defun slot-exists-p (instance slot-name)
+  (not (null (find-effective-slot instance slot-name))))
 
 ;;; class-of
 
@@ -354,7 +367,7 @@
 
 (defun class-hash (class)
   (let ((class-of-class (class-of class)))
-    (cond ((standardish-class-p class-of-class)
+    (cond ((std-class-p class-of-class)
            (svref (std-instance-slots class) *standard-class-hash-position*))
           (t (std-slot-value class 'hash)))))
 (defun (setf class-hash) (new-value class)
@@ -412,7 +425,7 @@ Other arguments are included directly."
          (list (find-class 'funcallable-standard-object)))
         (t (error "Unsupported metaclass ~S." metaclass))))
 
-(defun standardish-class-p (metaclass)
+(defun std-class-p (metaclass)
   "Returns true if METACLASS is either STANDARD-CLASS or FUNCALLABLE-STANDARD-CLASS."
   (or (eql metaclass *the-class-standard-class*)
       (eql metaclass *the-class-funcallable-standard-class*)))
@@ -429,8 +442,8 @@ Other arguments are included directly."
     (setf direct-superclasses (default-direct-superclasses (class-of class))))
   (dolist (superclass direct-superclasses)
     ;; Open code standard VALIDATE-SUPERCLASS here.
-    (when (not (or (and (standardish-class-p (class-of class))
-                        (or (standardish-class-p (class-of superclass))
+    (when (not (or (and (std-class-p (class-of class))
+                        (or (std-class-p (class-of superclass))
                             (eql superclass *the-class-t*)))
                    (validate-superclass class superclass)))
       (error "Superclass ~S incompatible with class ~S." (class-of superclass) (class-of class))))
@@ -457,7 +470,7 @@ Other arguments are included directly."
   (when (and (not (class-finalized-p class))
              (every #'class-finalized-p
                     (class-direct-superclasses class)))
-    (funcall (if (standardish-class-p (class-of class))
+    (funcall (if (std-class-p (class-of class))
                  #'std-finalize-inheritance
                  #'finalize-inheritance)
              class)))
@@ -465,7 +478,7 @@ Other arguments are included directly."
 (defun ensure-class-finalized (class)
   "If CLASS is not finalized, call FINALIZE-INHERITANCE on it."
   (when (not (class-finalized-p class))
-    (funcall (if (standardish-class-p (class-of class))
+    (funcall (if (std-class-p (class-of class))
                  #'std-finalize-inheritance
                  #'finalize-inheritance)
              class)))
@@ -528,12 +541,12 @@ Other arguments are included directly."
   (dolist (super (class-direct-superclasses class))
     (ensure-class-finalized super))
   (setf (class-precedence-list class)
-        (funcall (if (standardish-class-p (class-of class))
+        (funcall (if (std-class-p (class-of class))
                      #'std-compute-class-precedence-list
                      #'compute-class-precedence-list)
                  class))
   (setf (class-slots class)
-        (funcall (if (standardish-class-p (class-of class))
+        (funcall (if (std-class-p (class-of class))
                      #'std-compute-slots
                      #'compute-slots)
                  class))
@@ -607,7 +620,7 @@ Other arguments are included directly."
                       (mapcar #'slot-definition-name all-slots)))
          (effective-slots (mapcar #'(lambda (name)
                                       (funcall
-                                       (if (standardish-class-p (class-of class))
+                                       (if (std-class-p (class-of class))
                                            #'std-compute-effective-slot-definition
                                            #'compute-effective-slot-definition)
                                        class
@@ -1097,7 +1110,7 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
-                     (standardish-class-p (class-of class)))
+                     (std-class-p (class-of class)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
                   (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
@@ -1114,7 +1127,7 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
-                     (standardish-class-p (class-of class)))
+                     (std-class-p (class-of class)))
                 (let ((location (slot-location class (slot-value (first applicable-methods) 'slot-definition))))
                   (setf (single-dispatch-emf-entry emf-table class) location)
                   (pushnew gf (class-dependents class))
@@ -1132,7 +1145,7 @@ has only has class specializer."
          (cond ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-reader-method)
-                     (standardish-class-p (class-of class)))
+                     (std-class-p (class-of class)))
                 ;; Switch to reader-method.
                 (setf (generic-function-discriminating-function gf)
                       (compute-reader-discriminator gf emf-table argument-offset))
@@ -1141,7 +1154,7 @@ has only has class specializer."
                ((and (not (null applicable-methods))
                      (every 'primary-method-p applicable-methods)
                      (typep (first applicable-methods) 'standard-writer-method)
-                     (standardish-class-p (class-of class)))
+                     (std-class-p (class-of class)))
                 ;; Switch to writer-method.
                 (setf (generic-function-discriminating-function gf)
                       (compute-writer-discriminator gf emf-table argument-offset))
@@ -1422,25 +1435,21 @@ has only has class specializer."
 
 ;;; Slot access
 
-(defgeneric slot-value-using-class (class instance slot-name))
-(defmethod slot-value-using-class ((class std-class) instance slot-name)
-  (std-slot-value instance slot-name))
+(defgeneric slot-value-using-class (class instance slot))
+(defmethod slot-value-using-class ((class std-class) instance (slot standard-effective-slot-definition))
+  (std-slot-value instance (slot-definition-name slot)))
 
-(defgeneric (setf slot-value-using-class) (new-value class instance slot-name))
-(defmethod (setf slot-value-using-class) (new-value (class std-class) instance slot-name)
-  (setf (std-slot-value instance slot-name) new-value))
+(defgeneric (setf slot-value-using-class) (new-value class instance slot))
+(defmethod (setf slot-value-using-class) (new-value (class std-class) instance (slot standard-effective-slot-definition))
+  (setf (std-slot-value instance (slot-definition-name slot)) new-value))
 
-(defgeneric slot-exists-p-using-class (class instance slot-name))
-(defmethod slot-exists-p-using-class ((class std-class) instance slot-name)
-  (std-slot-exists-p instance slot-name))
+(defgeneric slot-boundp-using-class (class instance slot))
+(defmethod slot-boundp-using-class ((class std-class) instance (slot standard-effective-slot-definition))
+  (std-slot-boundp instance (slot-definition-name slot)))
 
-(defgeneric slot-boundp-using-class (class instance slot-name))
-(defmethod slot-boundp-using-class ((class std-class) instance slot-name)
-  (std-slot-boundp instance slot-name))
-
-(defgeneric slot-makunbound-using-class (class instance slot-name))
-(defmethod slot-makunbound-using-class ((class std-class) instance slot-name)
-  (std-slot-makunbound instance slot-name))
+(defgeneric slot-makunbound-using-class (class instance slot))
+(defmethod slot-makunbound-using-class ((class std-class) instance (slot standard-effective-slot-definition))
+  (std-slot-makunbound instance (slot-definition-name slot)))
 
 ;;; Stuff...
 
@@ -1761,8 +1770,9 @@ has only has class specializer."
 (defmethod reinitialize-instance :before ((class structure-class) &rest args)
   (error "Cannot reinitialize structure classes."))
 
-(defmethod slot-value-using-class ((class structure-class) instance slot-name)
-  (let ((def (slot-value class 'structure-definition)))
+(defmethod slot-value-using-class ((class structure-class) instance (slot standard-effective-slot-definition))
+  (let ((def (slot-value class 'structure-definition))
+        (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
     (dolist (slot (sys.int::structure-slots def)
@@ -1770,8 +1780,9 @@ has only has class specializer."
       (when (eql (sys.int::structure-slot-name slot) slot-name)
         (return (funcall (sys.int::structure-slot-accessor slot) instance))))))
 
-(defmethod (setf slot-value-using-class) (new-value (class structure-class) instance slot-name)
-  (let ((def (slot-value class 'structure-definition)))
+(defmethod (setf slot-value-using-class) (new-value (class structure-class) instance (slot standard-effective-slot-definition))
+  (let ((def (slot-value class 'structure-definition))
+        (slot-name (slot-definition-name slot)))
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
     (dolist (slot (sys.int::structure-slots def)
@@ -1974,9 +1985,7 @@ has only has class specializer."
 (defgeneric compute-applicable-methods (generic-function arguments))
 (defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
   (std-compute-applicable-methods generic-function arguments))
-#|
-(maphash (lambda (name class)
-           (describe class))
-         *class-table*)
-(fresh-line)
-|#
+
+(defgeneric slot-missing (class object slot-name operation &optional new-value))
+(defmethod slot-missing ((class t) object slot-name operation &optional new-value)
+  (error "Slot ~S missing from class ~S when performing ~S." slot-name class operation))
