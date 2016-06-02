@@ -419,9 +419,11 @@ Other arguments are included directly."
 ;;; called until standard-class itself exists.
 
 (defun default-direct-superclasses (metaclass)
-  (cond ((eql metaclass *the-class-standard-class*)
+  (cond ((or (eql metaclass *the-class-standard-class*)
+             (subclassp metaclass *the-class-standard-class*))
          (list (find-class 'standard-object)))
-        ((eql metaclass *the-class-funcallable-standard-class*)
+        ((or (eql metaclass *the-class-funcallable-standard-class*)
+             (subclassp metaclass *the-class-funcallable-standard-class*))
          (list (find-class 'funcallable-standard-object)))
         (t (error "Unsupported metaclass ~S." metaclass))))
 
