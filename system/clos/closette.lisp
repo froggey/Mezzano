@@ -197,10 +197,10 @@
         (t
          (let ((slot (find-effective-slot object slot-name)))
            (cond (slot
-                  (setf (slot-value-using-class (class-of object) object slot) value))
+                  (setf (slot-value-using-class (class-of object) object slot) new-value))
                  (t
-                  (slot-missing (class-of object) object slot-name 'setf value)
-                  value))))))
+                  (slot-missing (class-of object) object slot-name 'setf new-value)
+                  new-value))))))
 
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
@@ -1649,7 +1649,7 @@ has only has class specializer."
 
 (defgeneric compute-effective-method (generic-function method-combination methods))
 (defmethod compute-effective-method ((gf standard-generic-function) method-combination methods)
-  (std-compute-effective-method gf method-combination method))
+  (std-compute-effective-method gf method-combination methods))
 
 ;;; describe-object is a handy tool for enquiring minds:
 
