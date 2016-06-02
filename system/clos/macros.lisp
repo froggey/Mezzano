@@ -120,8 +120,7 @@
 
 (defun canonicalize-defgeneric-option (option)
   (case (first option)
-    ((:argument-precedence-order
-      :documentation
+    ((:documentation
       :generic-function-class
       :method-class)
      `(,(first option) ',(second option)))
@@ -133,6 +132,8 @@
     (:method-combination
      `(:method-combination
        (resolve-method-combination ',(second option) ,@(cddr option))))
+    (:argument-precedence-order
+     `(:argument-precedence-order ',(rest option)))
     (t
      ;; AMOP doesn't specify what happens to unknown/unsupported options.
      ;; CL says that an implementation must signal an error.
@@ -223,9 +224,9 @@
     `(,@requireds
       ,@(if opts `(&optional ,@opts) ())
       ,@(if rv `(&rest ,rv) ())
-      &key
-      ,@ks
-      &allow-other-keys
+      ,@(if (member '&key lambda-list)
+            `(&key ,@ks &allow-other-keys)
+            '())
       ,@(if auxs `(&aux ,@auxs) ()))))
 
 ;;; Several tedious functions for analyzing lambda lists
@@ -241,7 +242,9 @@
     `(,@requireds
       ,@(if opts `(&optional ,@opts) ())
       ,@(if rv `(&rest ,rv) ())
-      ,@(if (or ks aok) `(&key ,@ks) ())
+      ,@(if (member '&key specialized-lambda-list)
+            `(&key ,@ks)
+            ())
       ,@(if aok '(&allow-other-keys) ())
       ,@(if auxs `(&aux ,@auxs) ()))))
 

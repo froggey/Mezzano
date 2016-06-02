@@ -162,11 +162,13 @@
            #:standard-slot-definition
            #:standard-effective-slot-definition
            #:standard-direct-slot-definition
-           #:class-name
 
+           #:class-name
            #:class-direct-superclasses #:class-direct-slots
            #:class-precedence-list #:class-slots #:class-direct-subclasses
            #:class-direct-methods
+           #:class-finalized-p
+           #:class-prototype
            #:generic-function-name #:generic-function-lambda-list
            #:generic-function-methods #:generic-function-discriminating-function
            #:generic-function-method-class
@@ -178,6 +180,8 @@
            #:slot-definition-initform #:slot-definition-initargs
            #:slot-definition-readers #:slot-definition-writers
            #:slot-definition-allocation
+           #:slot-definition-documentation
+           #:slot-definition-type
            ;;
            ;; Class-related metaobject protocol
            ;;
@@ -207,9 +211,6 @@
            #:extract-specializer-names
 
            #:validate-superclass
-
-           #:class-finalized-p
-           #:class-prototype
 
            #:ensure-class
            #:ensure-class-using-class

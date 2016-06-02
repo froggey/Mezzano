@@ -44,8 +44,6 @@
 
 ;;; Standard instance allocation
 
-(defparameter *secret-unbound-value* (list "slot unbound"))
-
 (defun instance-slot-p (slot)
   (eq (slot-definition-allocation slot) ':instance))
 
@@ -84,6 +82,8 @@
 
 (defvar *the-class-standard-class*)    ;standard-class's class metaobject
 (defvar *the-class-funcallable-standard-class*)
+(defvar *the-class-standard-direct-slot-definition*)
+(defvar *the-class-standard-effective-slot-definition*)
 (defvar *the-class-t*)
 (defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
 (defvar *standard-class-slot-storage-layout-position*)
@@ -100,10 +100,7 @@
           (error "The slot ~S is missing from the class ~S."
                  slot-name class))
         (case (slot-definition-allocation slot)
-          (:instance
-           (position slot (remove-if-not #'instance-slot-p
-                                         (class-slots class))))
-          (:class
+          ((:instance :class)
            (slot-definition-location slot))
           (t
            (error "The slot ~S is not an instance or class~@
@@ -233,31 +230,6 @@
          (funcallable-std-instance-class x))
         (t (built-in-class-of x))))
 
-;;; N.B. This version of built-in-class-of is straightforward but very slow.
-#+nil
-(defun built-in-class-of (x)
-  (typecase x
-    (null                                          (find-class 'null))
-    ((and symbol (not null))                       (find-class 'symbol))
-    ((complex *)                                   (find-class 'complex))
-    ((integer * *)                                 (find-class 'integer))
-    ((float * *)                                   (find-class 'float))
-    (cons                                          (find-class 'cons))
-    (character                                     (find-class 'character))
-    (hash-table                                    (find-class 'hash-table))
-    (package                                       (find-class 'package))
-    (pathname                                      (find-class 'pathname))
-    (readtable                                     (find-class 'readtable))
-    (stream                                        (find-class 'stream))
-    ((and number (not (or integer complex float))) (find-class 'number))
-    ((string *)                                    (find-class 'string))
-    ((bit-vector *)                                (find-class 'bit-vector))
-    ((and (vector * *) (not (or string vector)))   (find-class 'vector))
-    ((and (array * *) (not vector))                (find-class 'array))
-    ((and sequence (not (or vector list)))         (find-class 'sequence))
-    (function                                      (find-class 'function))
-    (t                                             (find-class 't))))
-
 (defun canonicalize-struct-slot (slot)
   (list :name (sys.int::structure-slot-name slot)
         :accessor-name (sys.int::structure-slot-accessor slot)
@@ -295,28 +267,19 @@
 (defun built-in-class-of (x)
   (typecase x
     (null                                          (find-class-cached 'null))
-    ;;((and symbol (not null))                       (find-class-cached 'symbol))
     (symbol                                        (find-class-cached 'symbol))
-    ;;((complex *)                                   (find-class-cached 'complex))
-    ;;((integer * *)                                 (find-class-cached 'integer))
     (integer                                       (find-class-cached 'integer))
-    ;;((float * *)                                   (find-class-cached 'float))
     (float                                         (find-class-cached 'float))
     (complex                                       (find-class-cached 'complex))
     ((satisfies sys.int::ratiop)                   (find-class-cached 'ratio))
     (cons                                          (find-class-cached 'cons))
     (character                                     (find-class-cached 'character))
-    ;;((and number (not (or integer complex float))) (find-class-cached 'number))
-    ;;((string *)                                    (find-class-cached 'string))
     (simple-string                                 (find-class-cached 'simple-string))
     (string                                        (find-class-cached 'string))
-    ;;((bit-vector *)                                (find-class-cached 'bit-vector))
     (bit-vector                                    (find-class-cached 'bit-vector))
-    ;;((and (vector * *) (not (or string vector)))   (find-class-cached 'vector))
     (simple-vector                                 (find-class-cached 'simple-vector))
     (vector                                        (find-class-cached 'vector))
     (array                                         (find-class-cached 'array))
-    ;;((and sequence (not (or vector list)))         (find-class-cached 'sequence))
     (function                                      (find-class-cached 'function))
     (mezzano.supervisor:thread                     (find-class-cached 'mezzano.supervisor:thread))
     (sys.int::function-reference                   (find-class-cached 'sys.int::function-reference))
@@ -338,33 +301,6 @@
 ;;;
 ;;; Class metaobjects and standard-class
 ;;;
-
-;; Bootstrapping assumes that only CLOS-CLASS has any slots.
-;; STANDARD-CLASS/FUNCALLABLE-STANDARD-CLASS and the superclasses must all be
-;; slot free.
-
-(defparameter *the-defclass-clos-class*
-  '(defclass clos-class (class)
-    ((name :initarg :name)              ; :accessor class-name
-     (direct-superclasses               ; :accessor class-direct-superclasses
-      :initarg :direct-superclasses)
-     (direct-slots :initform ())        ; :accessor class-direct-slots
-     (class-precedence-list)            ; :accessor class-precedence-list
-     (effective-slots :initform ())     ; :accessor class-slots
-     (slot-storage-layout :initform ()) ; :accessor class-slot-storage-layout
-     (direct-subclasses :initform ())   ; :accessor class-direct-subclasses
-     (direct-methods :initform ())      ; :accessor class-direct-methods
-     (direct-default-initargs :initform ()) ; :accessor class-direct-default-initargs
-     (dependents :initform '())
-     (hash :initform (next-class-hash-value))
-     (finalized-p :initform nil)
-     (prototype))
-    (:default-initargs :name nil)))
-
-;; STANDARD-CLASS and FUNCALLABLE-STANDARD-CLASS must have the same layout.
-
-;;; Defining the metaobject slot accessor function as regular functions
-;;; greatly simplifies the implementation without removing functionality.
 
 (defun class-name (class)
   (std-slot-value class 'name))
@@ -428,34 +364,6 @@
   (std-slot-value class 'finalized-p))
 (defun (setf class-finalized-p) (new-value class)
   (setf (slot-value class 'finalized-p) new-value))
-
-;;; find-class
-
-(defvar *class-table* (make-hash-table :test #'eq))
-
-(defun find-class (symbol &optional (errorp t) environment)
-  (let ((class (gethash symbol *class-table* nil)))
-    (when (not class)
-      (let ((struct (get symbol 'sys.int::structure-type)))
-        (when struct
-          (setf class (class-of-structure-definition struct)))))
-    (if (and (null class) errorp)
-        (error "No class named ~S." symbol)
-        class)))
-
-(defun (setf find-class) (new-value symbol &optional (errorp t) environment)
-  (setf (gethash symbol *class-table*) new-value))
-
-(defun forget-all-classes ()
-  (clrhash *class-table*)
-  (values))
-
-(defvar *next-class-hash-value* 1)
-
-(defun next-class-hash-value ()
-  (sys.int::%atomic-fixnum-add-object '*next-class-hash-value*
-                                      sys.int::+symbol-value+
-                                      1))
 
 ;;; Ensure class
 
@@ -545,6 +453,12 @@ Other arguments are included directly."
        :direct-default-initargs direct-default-initargs)
     class))
 
+(defun convert-to-direct-slot-definition (class canonicalized-slot)
+  (apply #'make-instance
+         (apply #'direct-slot-definition-class
+                class canonicalized-slot)
+         canonicalized-slot))
+
 (defun std-after-initialization-for-classes
        (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
   (dolist (superclass direct-superclasses)
@@ -557,13 +471,9 @@ Other arguments are included directly."
   (setf (class-direct-superclasses class) direct-superclasses)
   (dolist (superclass direct-superclasses)
     (push class (class-direct-subclasses superclass)))
-  (let ((slots
-          (mapcar #'(lambda (slot-properties)
-                      (apply #'make-direct-slot-definition
-                             (if (standard-slot-definition-p slot-properties)
-                                 (standard-slot-definition-properties slot-properties)
-                                 slot-properties)))
-                    direct-slots)))
+  (let ((slots (mapcar (lambda (direct-slot)
+                         (convert-to-direct-slot-definition class direct-slot))
+                       direct-slots)))
     (setf (class-direct-slots class) slots)
     (dolist (direct-slot slots)
       (dolist (reader (slot-definition-readers direct-slot))
@@ -596,83 +506,55 @@ Other arguments are included directly."
 
 ;;; Slot definition metaobjects
 
-;; Simple wrapper over closette's plist implementation just to give them a
-;; dispatchable type.
-(defstruct standard-slot-definition
-  properties)
-
-;;; N.B. Quietly retain all unknown slot options (rather than signaling an
-;;; error), so that it's easy to add new ones.
-
-(defun make-direct-slot-definition
-       (&rest properties
-        &key name (initargs ()) (initform nil) (initfunction nil)
-             (readers ()) (writers ()) (allocation :instance)
-        &allow-other-keys)
-  (let ((slot (copy-list properties))) ; Don't want to side effect &rest list
-    (setf (getf* slot ':name) name)
-    (setf (getf* slot ':initargs) initargs)
-    (setf (getf* slot ':initform) initform)
-    (setf (getf* slot ':initfunction) initfunction)
-    (setf (getf* slot ':readers) readers)
-    (setf (getf* slot ':writers) writers)
-    (setf (getf* slot ':allocation) allocation)
-    (when (eql allocation :class)
-      (setf (getf* slot ':location) (cons name *secret-unbound-value*)))
-    (make-standard-slot-definition :properties slot)))
-
-(defun make-effective-slot-definition
-       (&rest properties
-        &key name (initargs ()) (initform nil) (initfunction nil)
-             (allocation :instance)
-        &allow-other-keys)
-  (let ((slot (copy-list properties)))  ; Don't want to side effect &rest list
-    (setf (getf* slot ':name) name)
-    (setf (getf* slot ':initargs) initargs)
-    (setf (getf* slot ':initform) initform)
-    (setf (getf* slot ':initfunction) initfunction)
-    (setf (getf* slot ':allocation) allocation)
-    (make-standard-slot-definition :properties slot)))
-
 (defun slot-definition-name (slot)
-  (getf (standard-slot-definition-properties slot) ':name))
+  (slot-value slot 'name))
 (defun (setf slot-definition-name) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':name) new-value))
+  (setf (slot-value slot 'name) new-value))
 
 (defun slot-definition-initfunction (slot)
-  (getf (standard-slot-definition-properties slot) ':initfunction))
+  (slot-value slot 'initfunction))
 (defun (setf slot-definition-initfunction) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':initfunction) new-value))
+  (setf (slot-value slot 'initfunction) new-value))
 
 (defun slot-definition-initform (slot)
-  (getf (standard-slot-definition-properties slot) ':initform))
+  (slot-value slot 'initform))
 (defun (setf slot-definition-initform) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':initform) new-value))
+  (setf (slot-value slot 'initform) new-value))
 
 (defun slot-definition-initargs (slot)
-  (getf (standard-slot-definition-properties slot) ':initargs))
+  (slot-value slot 'initargs))
 (defun (setf slot-definition-initargs) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':initargs) new-value))
+  (setf (slot-value slot 'initargs) new-value))
 
 (defun slot-definition-readers (slot)
-  (getf (standard-slot-definition-properties slot) ':readers))
+  (slot-value slot 'readers))
 (defun (setf slot-definition-readers) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':readers) new-value))
+  (setf (slot-value slot 'readers) new-value))
 
 (defun slot-definition-writers (slot)
-  (getf (standard-slot-definition-properties slot) ':writers))
+  (slot-value slot 'writers))
 (defun (setf slot-definition-writers) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':writers) new-value))
+  (setf (slot-value slot 'writers) new-value))
 
 (defun slot-definition-allocation (slot)
-  (getf (standard-slot-definition-properties slot) ':allocation))
+  (slot-value slot 'allocation))
 (defun (setf slot-definition-allocation) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':allocation) new-value))
+  (setf (slot-value slot 'allocation) new-value))
 
 (defun slot-definition-location (slot)
-  (getf (standard-slot-definition-properties slot) ':location))
+  (slot-value slot 'location))
 (defun (setf slot-definition-location) (new-value slot)
-  (setf (getf* (standard-slot-definition-properties slot) ':location) new-value))
+  (setf (slot-value slot 'location) new-value))
+
+(defun slot-definition-type (slot)
+  (slot-value slot 'type))
+(defun (setf slot-definition-type) (new-value slot)
+  (setf (slot-value slot 'type) new-value))
+
+(defun slot-definition-documentation (slot)
+  (slot-value slot 'documentation))
+(defun (setf slot-definition-documentation) (new-value slot)
+  (setf (slot-value slot 'documentation) new-value))
 
 ;;; finalize-inheritance
 
@@ -689,11 +571,12 @@ Other arguments are included directly."
                      #'std-compute-slots
                      #'compute-slots)
                  class))
-  (let ((instance-slots (remove-if-not 'instance-slot-p
-                                       (class-slots class))))
-    (setf (class-slot-storage-layout class)
-          (make-array (length instance-slots)
-                      :initial-contents (mapcar 'slot-definition-name instance-slots))))
+  (let* ((instance-slots (remove-if-not 'instance-slot-p
+                                        (class-slots class)))
+         (layout (make-array (length instance-slots))))
+    (dolist (slot instance-slots)
+      (setf (aref layout (slot-definition-location slot)) (slot-definition-name slot)))
+    (setf (class-slot-storage-layout class) layout))
   (setf (class-finalized-p class) t)
   (values))
 
@@ -706,41 +589,6 @@ Other arguments are included directly."
                         (mapappend #'local-precedence-ordering
                                    classes-to-order))
                       #'std-tie-breaker-rule)))
-
-;;; topological-sort implements the standard algorithm for topologically
-;;; sorting an arbitrary set of elements while honoring the precedence
-;;; constraints given by a set of (X,Y) pairs that indicate that element
-;;; X must precede element Y.  The tie-breaker procedure is called when it
-;;; is necessary to choose from multiple minimal elements; both a list of
-;;; candidates and the ordering so far are provided as arguments.
-
-(defun topological-sort (elements constraints tie-breaker)
-  (let ((remaining-constraints constraints)
-        (remaining-elements elements)
-        (result ()))
-    (do () (nil)
-      (let ((minimal-elements
-	     (remove-if
-	      #'(lambda (class)
-		  (member class remaining-constraints
-			  :key #'cadr))
-	      remaining-elements)))
-	(when (null minimal-elements)
-	  (if (null remaining-elements)
-	      (return-from topological-sort result)
-	      (error "Inconsistent precedence graph.")))
-	(let ((choice (if (null (cdr minimal-elements))
-			  (car minimal-elements)
-			  (funcall tie-breaker
-				   minimal-elements
-				   result))))
-	  (setq result (append result (list choice)))
-	  (setq remaining-elements
-		(remove choice remaining-elements))
-	  (setq remaining-constraints
-		(remove choice
-			remaining-constraints
-			:test #'member)))))))
 
 ;;; In the event of a tie while topologically sorting class precedence lists,
 ;;; the CLOS Specification says to "select the one that has a direct subclass
@@ -790,37 +638,70 @@ Other arguments are included directly."
   (let* ((all-slots (mapappend #'class-direct-slots
                                (class-precedence-list class)))
          (all-names (remove-duplicates
-                      (mapcar #'slot-definition-name all-slots))))
-    (mapcar #'(lambda (name)
-                (funcall
-                  (if (standardish-class-p (class-of class))
-                      #'std-compute-effective-slot-definition
-                      #'compute-effective-slot-definition)
-                  class
-                  (remove name all-slots
-                          :key #'slot-definition-name
-                          :test-not #'eq)))
-            all-names)))
+                      (mapcar #'slot-definition-name all-slots)))
+         (effective-slots (mapcar #'(lambda (name)
+                                      (funcall
+                                       (if (standardish-class-p (class-of class))
+                                           #'std-compute-effective-slot-definition
+                                           #'compute-effective-slot-definition)
+                                       class
+                                       name
+                                       (remove name all-slots
+                                               :key #'slot-definition-name
+                                               :test-not #'eq)))
+                                  all-names)))
+    (loop
+       with next-instance-slot-index = 0
+       for slot in effective-slots
+       do (case (slot-definition-allocation slot)
+            (:instance
+             (setf (slot-definition-location slot) next-instance-slot-index)
+             (incf next-instance-slot-index))
+            (:class
+             ;; Walk up the precedence list looking for the nearest class that defines this slot.
+             (dolist (super (class-precedence-list class)
+                      (error "Unable to locate storage location for :class slot ~S in class ~S"
+                             (slot-definition-name slot) (class-name class)))
+               (let ((existing (find (slot-definition-name slot)
+                                     (class-direct-slots super)
+                                     :key #'slot-definition-name)))
+                 (when existing
+                   (cond ((eql super class)
+                          ;; This class defines the direct slot. Create a new cell to hold the value.
+                          ;; (FIXME: Need to preserve the location over class redefinition.)
+                          (setf (slot-definition-location slot) (cons (slot-definition-name slot) *secret-unbound-value*)))
+                         (t
+                          (let ((existing-effective (find (slot-definition-name slot)
+                                                          (class-slots super)
+                                                          :key #'slot-definition-name)))
+                            (assert (consp (slot-definition-location existing-effective)))
+                            (setf (slot-definition-location slot) (slot-definition-location existing-effective)))))
+                   (return)))))
+            (t
+             (setf (slot-definition-location slot) nil))))
+    effective-slots))
 
-(defun std-compute-effective-slot-definition (class direct-slots)
-  (declare (ignore class))
+(defun make-effective-slot-definition (class &rest initargs)
+  (apply #'make-instance
+         (apply #'effective-slot-definition-class class initargs)
+         initargs))
+
+(defun std-compute-effective-slot-definition (class name direct-slots)
   (let ((initer (find-if-not #'null direct-slots
                              :key #'slot-definition-initfunction)))
     (make-effective-slot-definition
-      :name (slot-definition-name (car direct-slots))
-      :initform (if initer
-                    (slot-definition-initform initer)
-                    nil)
-      :initfunction (if initer
-                        (slot-definition-initfunction initer)
-                        nil)
-      :initargs (remove-duplicates
-                  (mapappend #'slot-definition-initargs
-                             direct-slots))
-      :allocation (slot-definition-allocation (car direct-slots))
-      :location (if (eql (slot-definition-allocation (car direct-slots)) :class)
-                    (slot-definition-location (car direct-slots))
-                    nil))))
+     class
+     :name name
+     :initform (if initer
+                   (slot-definition-initform initer)
+                   nil)
+     :initfunction (if initer
+                       (slot-definition-initfunction initer)
+                       nil)
+     :initargs (remove-duplicates
+                (mapappend #'slot-definition-initargs
+                           direct-slots))
+     :allocation (slot-definition-allocation (car direct-slots)))))
 
 ;;;
 ;;; Generic function metaobjects and standard-generic-function
@@ -868,12 +749,22 @@ Other arguments are included directly."
 (defun (setf generic-function-method-combination) (new-value gf)
   (setf (slot-value gf 'method-combination) new-value))
 
+(defun generic-function-argument-precedence-order (gf)
+  (slot-value gf 'argument-precedence-order))
+(defun (setf generic-function-argument-precedence-order) (new-value gf)
+  (setf (slot-value gf 'argument-precedence-order) new-value))
+
 ;;; Internal accessor for effective method function table
 
 (defun classes-to-emf-table (gf)
   (slot-value gf 'classes-to-emf-table))
 (defun (setf classes-to-emf-table) (new-value gf)
   (setf (slot-value gf 'classes-to-emf-table) new-value))
+
+(defun argument-reordering-table (gf)
+  (slot-value gf 'argument-reordering-table))
+(defun (setf argument-reordering-table) (value gf)
+  (setf (slot-value gf 'argument-reordering-table) value))
 
 ;;;
 ;;; Method metaobjects and standard-method
@@ -993,12 +884,35 @@ has only has class specializer."
     (getf plist ':required-args)))
 
 (defun finalize-generic-function (gf)
-  ;; Examine all methods and compute the relevant argument bit-vector.
   (let* ((required-args (gf-required-arglist gf))
          (relevant-args (make-array (length required-args)
                                     :element-type 'bit
                                     :initial-element 0))
-         (class-t (find-class 't)))
+         (class-t (find-class 't))
+         (argument-precedence (generic-function-argument-precedence-order gf)))
+    (when (not (eql (length required-args)
+                    (length (remove-duplicates required-args))))
+      (error "Generic function has duplicate required argument in its lambda list ~S."
+             (generic-function-lambda-list gf)))
+    ;; Verify that the argument-precedence order is correct.
+    (when (endp argument-precedence)
+      (setf argument-precedence (copy-list required-args)
+            (generic-function-argument-precedence-order gf) argument-precedence))
+    (assert (endp (set-difference required-args argument-precedence)))
+    (assert (endp (set-difference argument-precedence required-args)))
+    (cond ((every #'eql required-args argument-precedence)
+           ;; No argument reordering required.
+           (setf (argument-reordering-table gf) nil))
+          (t
+           ;; Build a table that maps from reordered arguments to
+           ;; required argument indices.
+           (let ((table (make-array (length required-args))))
+             (loop
+                for i from 0
+                for arg in argument-precedence
+                  do (setf (aref table i) (position arg required-args)))
+             (setf (argument-reordering-table gf) table))))
+    ;; Examine all methods and compute the relevant argument bit-vector.
     (setf (generic-function-has-unusual-specializers gf) nil)
     (dolist (m (generic-function-methods gf))
       (do ((i 0 (1+ i))
@@ -1026,7 +940,13 @@ has only has class specializer."
 ;;; However, it cannot be called until standard-generic-function exists.
 
 (defun make-instance-standard-generic-function
-       (generic-function-class &key name lambda-list method-class documentation method-combination)
+       (generic-function-class &key
+                                 name
+                                 lambda-list
+                                 method-class
+                                 documentation
+                                 method-combination
+                                 argument-precedence-order)
   (declare (ignore generic-function-class))
   (let ((gf (fc-std-allocate-instance *the-class-standard-gf*)))
     (setf (generic-function-name gf) name)
@@ -1035,6 +955,7 @@ has only has class specializer."
     (setf (generic-function-method-class gf) method-class)
     (setf (generic-function-method-combination gf) method-combination)
     (setf (classes-to-emf-table gf) (make-hash-table))
+    (setf (generic-function-argument-precedence-order gf) argument-precedence-order)
     (finalize-generic-function gf)
     gf))
 
@@ -1335,11 +1256,7 @@ has only has class specializer."
                                       (method-specializers method)))
                            (generic-function-methods gf)))
            #'(lambda (m1 m2)
-               (funcall
-                (if (eq (class-of gf) *the-class-standard-gf*)
-                    #'std-method-more-specific-p
-                    #'method-more-specific-p)
-                gf m1 m2 required-classes)))
+               (method-more-specific-p gf m1 m2 required-classes)))
           t))
 
 (defun std-compute-applicable-methods (gf args)
@@ -1356,46 +1273,49 @@ has only has class specializer."
                               (method-specializers method)))
                    (generic-function-methods gf)))
    #'(lambda (m1 m2)
-       (funcall
-        (if (eq (class-of gf) *the-class-standard-gf*)
-            #'std-method-more-specific-with-args-p
-            #'method-more-specific-with-args-p)
-        gf m1 m2 args))))
+       (method-more-specific-with-args-p gf m1 m2 args))))
 
 ;;; method-more-specific-p
 
-(defun std-method-more-specific-p (gf method1 method2 required-classes)
-  (declare (ignore gf))
+(defun reorder-method-specializers (gf method-specializers)
+  (let ((ordering-table (argument-reordering-table gf)))
+    (cond (ordering-table
+           (loop
+              for index across ordering-table
+              collect (nth index method-specializers)))
+          (t
+           method-specializers))))
+
+(defun method-more-specific-p (gf method1 method2 required-classes)
   (mapc #'(lambda (spec1 spec2 arg-class)
             (cond ((and (typep spec1 'eql-specializer)
                         (not (typep spec2 'eql-specializer)))
-                   (return-from std-method-more-specific-p t))
+                   (return-from method-more-specific-p t))
                   ((and (typep spec1 'eql-specializer)
                         (typep spec2 'eql-specializer))
-                   (return-from std-method-more-specific-p nil))
+                   (return-from method-more-specific-p nil))
                   (t (unless (eq spec1 spec2)
-                       (return-from std-method-more-specific-p
+                       (return-from method-more-specific-p
                          (sub-specializer-p spec1 spec2 arg-class))))))
-        (method-specializers method1)
-        (method-specializers method2)
-        required-classes)
+        (reorder-method-specializers gf (method-specializers method1))
+        (reorder-method-specializers gf (method-specializers method2))
+        (reorder-method-specializers gf required-classes))
   nil)
 
-(defun std-method-more-specific-with-args-p (gf method1 method2 args)
-  (declare (ignore gf))
+(defun method-more-specific-with-args-p (gf method1 method2 args)
   (mapc #'(lambda (spec1 spec2 arg)
             (cond ((and (typep spec1 'eql-specializer)
                         (not (typep spec2 'eql-specializer)))
-                   (return-from std-method-more-specific-with-args-p t))
+                   (return-from method-more-specific-with-args-p t))
                   ((and (typep spec1 'eql-specializer)
                         (typep spec2 'eql-specializer))
-                   (return-from std-method-more-specific-with-args-p nil))
+                   (return-from method-more-specific-with-args-p nil))
                   (t (unless (eq spec1 spec2)
-                       (return-from std-method-more-specific-with-args-p
+                       (return-from method-more-specific-with-args-p
                          (sub-specializer-p spec1 spec2 (class-of arg)))))))
-        (method-specializers method1)
-        (method-specializers method2)
-        args)
+        (reorder-method-specializers gf (method-specializers method1))
+        (reorder-method-specializers gf (method-specializers method2))
+        (reorder-method-specializers gf args))
   nil)
 
 ;;; compute-effective-method-function
@@ -1517,190 +1437,6 @@ has only has class specializer."
 ;;; Bootstrap
 ;;;
 
-(defun closette-bootstrap ()
-  (format t "Beginning to bootstrap Closette...~%")
-  (forget-all-classes)
-  ;; How to create the class hierarchy in 10 easy steps:
-  ;; 1. Figure out standard-class's slots.
-  (let ((clos-class-slots
-         (mapcar #'(lambda (slotd)
-                     (make-effective-slot-definition
-                      :name (car slotd)
-                      :initargs
-                      (let ((a (getf (cdr slotd) ':initarg)))
-                        (if a (list a) ()))
-                      :initform (getf (cdr slotd) ':initform)
-                      :initfunction
-                      (let ((a (getf (cdr slotd) ':initform)))
-                        (if a #'(lambda () (eval a)) nil))
-                      :allocation ':instance))
-                 (nth 3 *the-defclass-clos-class*))))
-    (setf *standard-class-effective-slots-position*
-          (position 'effective-slots clos-class-slots
-                    :key #'slot-definition-name))
-    (setf *standard-class-slot-storage-layout-position*
-          (position 'slot-storage-layout clos-class-slots
-                    :key #'slot-definition-name))
-    (setf *standard-class-hash-position*
-          (position 'hash clos-class-slots
-                    :key #'slot-definition-name))
-    (format t "Slots for STANDARD-CLASS: ~S~%" clos-class-slots)
-    ;; 2. Create the standard-class metaobject by hand.
-    (let ((layout (make-array (length clos-class-slots)))
-          (slots (make-array (length clos-class-slots)
-                             :initial-element *secret-unbound-value*)))
-      (loop
-         for slot in clos-class-slots
-         for i from 0
-         do (setf (svref layout i) (slot-definition-name slot)))
-      (setf *the-class-standard-class*
-            (allocate-std-instance
-             'tba
-             slots
-             layout))
-      (setf (svref slots *standard-class-slot-storage-layout-position*) layout))
-    ;; 3. Install standard-class's (circular) class-of link.
-    (setf (std-instance-class *the-class-standard-class*)
-          *the-class-standard-class*)
-    ;; (It's now okay to use class-... accessor).
-    ;; 4. Fill in standard-class's class-slots.
-    (setf (class-slots *the-class-standard-class*) clos-class-slots))
-  ;; The class isn't finalized, but it needs to be finalized for
-  ;; STD-ALLOCATE-INSTANCE to work.
-  (setf (class-finalized-p *the-class-standard-class*) t)
-  ;; This needs to at least be bound.
-  (setf *the-class-funcallable-standard-class* nil)
-  ;; (Skeleton built; it's now okay to call make-instance-standard-class.)
-  ;; 5. Hand build the class t so that it has no direct superclasses.
-  (format t "Building class T.~%")
-  (setf *the-class-t*
-        (let ((class (std-allocate-instance *the-class-standard-class*)))
-          (setf (class-name class) 't)
-          (setf (class-direct-subclasses class) ())
-          (setf (class-direct-superclasses class) ())
-          (setf (class-direct-methods class) ())
-          (setf (class-direct-slots class) ())
-          (setf (class-direct-default-initargs class) ())
-          (setf (class-precedence-list class) (list class))
-          (setf (class-slot-storage-layout class) (make-array 0))
-          (setf (class-slots class) ())
-          (setf (class-dependents class) ())
-          (setf (class-hash class) (next-class-hash-value))
-          (setf (class-finalized-p class) 't)
-          (setf (std-slot-value class 'prototype) (std-allocate-instance class))
-          class))
-  (setf (find-class 't) *the-class-t*)
-  ;; (It's now okay to define subclasses of t.)
-  ;; 6. Create the other superclasses of standard-class (i.e., standard-object).
-  (format t "Defining STANDARD-OBJECT and other classes.~%")
-  (defclass standard-object (t) ())
-  (defclass metaobject () ())
-  (defclass specializer (metaobject) ())
-  (defclass class (specializer) ())
-  (eval *the-defclass-clos-class*)
-  ;; 7. Define the full-blown version of standard-class.
-  ;;    The temporary standard-class was never installed into the class table,
-  ;;    so DEFCLASS won't trigger redefinition, instead it will produce an
-  ;;    entirely new class object.
-  (format t "Defining real STANDARD-CLASS.~%")
-  (setf *the-class-standard-class*
-        (defclass standard-class (clos-class)
-          ()
-          (:default-initargs
-           :direct-superclasses (list (find-class 'standard-object)))))
-  ;; 8. Replace all existing pointers to the skeleton with real one.
-  ;;    Update layout pointers too.
-  (let ((real-layout (svref (std-instance-slots *the-class-standard-class*)
-                            *standard-class-slot-storage-layout-position*)))
-    (dolist (name '(t clos-class standard-object standard-class metaobject specializer class))
-      (format t "Fixing up class ~S.~%" name)
-      (let ((class (find-class name)))
-        (setf (std-instance-class class) *the-class-standard-class*
-              (std-instance-layout class) real-layout))))
-  (format t "Defining remaining bootstrap classes.~%")
-  ;; Define BUILT-IN-CLASS.
-  (defclass built-in-class (clos-class) ())
-  ;; Define FUNCTION. This is needed for FUNCALLABLE-STANDARD-OBJECT.
-  ;; It is initially defined as a standard class, and then hacked to be a
-  ;; built-in-class, as the machinery for defining built-in-classes does not
-  ;; work at this point.
-  ;; However, these need to stay as standard classes until after
-  ;; funcallable-standard-object is defined.
-  ;; This fools std-after-initialization-for-classes into thinking that
-  ;; F-S-O's direct-superclasses are actually compatible, when technically
-  ;; they're not (because it derives from FUNCTION).
-  (defclass function (t) ())
-  ;; Define a few other similar classes needed for the rest of the bootstrap.
-  (defclass symbol (t) ())
-  (defclass sequence (t) ())
-  (defclass list (sequence) ())
-  (defclass null (symbol list) ())
-  ;; 9. Define the other standard metaobject classes.
-  (format t "Defining remaining standard metaobject classes.~%")
-  (setf *the-class-funcallable-standard-class*
-        (defclass funcallable-standard-class (clos-class)
-          ()
-          (:default-initargs
-           :direct-superclasses (list (find-class 'funcallable-standard-object)))))
-  (defclass funcallable-standard-object (standard-object function)
-    ()
-    (:metaclass funcallable-standard-class))
-  (setf *the-class-standard-gf*
-        (defclass standard-generic-function ()
-          ((name :initarg :name)      ; :accessor generic-function-name
-           (lambda-list               ; :accessor generic-function-lambda-list
-            :initarg :lambda-list)
-           (methods :initform ())     ; :accessor generic-function-methods
-           (method-class              ; :accessor generic-function-method-class
-            :initarg :method-class)
-           (discriminating-function)  ; :accessor generic-function-
-                                        ;    -discriminating-function
-           (classes-to-emf-table      ; :accessor classes-to-emf-table
-            :initform (make-hash-table :test #'equal))
-           (relevant-arguments)       ; :accessor generic-function-relevant-arguments
-           (weird-specializers-p)     ; :accessor generic-function-has-unusual-specializers
-           (method-combination        ; :accessor generic-function-method-combination
-            :initarg :method-combination)
-           )
-          (:default-initargs
-           :name nil
-            :lambda-list '()
-            :method-class (find-class 'standard-method)
-            :method-combination nil)
-          (:metaclass funcallable-standard-class)))
-  (setf *the-class-standard-method*
-        (defclass standard-method ()
-          ((lambda-list :initarg :lambda-list)     ; :accessor method-lambda-list
-           (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
-           (specializers :initarg :specializers)   ; :accessor method-specializers
-           (generic-function :initform nil)        ; :accessor method-generic-function
-           (function :initarg :function))          ; :accessor method-function
-          (:default-initargs
-           :qualifiers '()
-            :specializers '())))
-  (defclass standard-accessor-method (standard-method)
-    ((slot-definition :initarg :slot-definition)))
-  (defclass standard-reader-method (standard-accessor-method) ())
-  (defclass standard-writer-method (standard-accessor-method) ())
-  ;; Fudge some classes so they becomes instances of BUILT-IN-CLASS.
-  ;; B-I-C has the same layout as S-C, so it's not a huge leap.
-  (dolist (name '(t function symbol sequence list null))
-    (let ((class (find-class name))
-          (bic-class (find-class 'built-in-class)))
-      (when (not (std-slot-boundp class 'prototype))
-        (setf (std-slot-value class 'prototype) (std-allocate-instance class)))
-      (setf (std-instance-class class) bic-class
-            (std-instance-layout class) (svref (std-instance-slots bic-class)
-                                               *standard-class-slot-storage-layout-position*))))
-  ;; (Clear sailing from here on in).
-  ;; Voila! The class hierarchy is in place.
-  (format t "Class hierarchy created.~%")
-  ;; (It's now okay to define generic functions and methods.)
-  )
-
-(when (not (find-class 't nil))
-  (closette-bootstrap))
-
 (when (and (fboundp 'print-object)
            (not (typep (fdefinition 'print-object) 'standard-generic-function)))
   ;; Print-object starts off as a normal object.
@@ -1762,6 +1498,16 @@ has only has class specializer."
 (defmethod slot-makunbound-using-class
            ((class funcallable-standard-class) instance slot-name)
   (std-slot-makunbound instance slot-name))
+
+;;; Stuff...
+
+(defgeneric direct-slot-definition-class (class &rest initargs))
+(defmethod direct-slot-definition-class ((class std-class) &rest initargs)
+  *the-class-standard-direct-slot-definition*)
+
+(defgeneric effective-slot-definition-class (class &rest initargs))
+(defmethod effective-slot-definition-class ((class std-class) &rest initargs)
+  *the-class-standard-effective-slot-definition*)
 
 ;;; Instance creation and initialization
 
@@ -1878,6 +1624,10 @@ has only has class specializer."
             (class-name class)))
   class)
 
+(defmethod print-object ((slot-definition standard-slot-definition) stream)
+  (print-unreadable-object (slot-definition stream :type t :identity t)
+    (format stream "~S" (slot-definition-name slot-definition))))
+
 (defmethod initialize-instance :after ((class standard-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
@@ -1924,13 +1674,13 @@ has only has class specializer."
 (defmethod compute-slots ((class funcallable-standard-class))
   (std-compute-slots class))
 
-(defgeneric compute-effective-slot-definition (class direct-slots))
+(defgeneric compute-effective-slot-definition (class name direct-slots))
 (defmethod compute-effective-slot-definition
-           ((class standard-class) direct-slots)
-  (std-compute-effective-slot-definition class direct-slots))
+           ((class standard-class) name direct-slots)
+  (std-compute-effective-slot-definition class name direct-slots))
 (defmethod compute-effective-slot-definition
-           ((class funcallable-standard-class) direct-slots)
-  (std-compute-effective-slot-definition class direct-slots))
+           ((class funcallable-standard-class) name direct-slots)
+  (std-compute-effective-slot-definition class name direct-slots))
 
 ;;;
 ;;; Methods having to do with generic function metaobjects.
@@ -1977,16 +1727,6 @@ has only has class specializer."
 (defmethod compute-discriminating-function ((gf standard-generic-function))
   (std-compute-discriminating-function gf))
 
-(defgeneric method-more-specific-p (gf method1 method2 required-classes))
-(defmethod method-more-specific-p
-           ((gf standard-generic-function) method1 method2 required-classes)
-  (std-method-more-specific-p gf method1 method2 required-classes))
-
-(defgeneric method-more-specific-with-args-p (gf method1 method2 args))
-(defmethod method-more-specific-with-args-p
-           ((gf standard-generic-function) method1 method2 args)
-  (std-method-more-specific-with-args-p gf method1 method2 args))
-
 (defgeneric compute-effective-method-function (gf methods))
 (defmethod compute-effective-method-function
            ((gf standard-generic-function) methods)
@@ -1996,29 +1736,24 @@ has only has class specializer."
 
 (defgeneric describe-object (object stream))
 (defmethod describe-object ((object standard-object) stream)
-  (format stream "A Closette object~
-             ~%Printed representation: ~S~
-             ~%Class: ~S~
-             ~%Structure "
+  (format stream "A Closette object~%~
+             Printed representation: ~S~%~
+             Class: ~S~%~
+             Structure~%"
           object
           (class-of object))
   (dolist (sn (mapcar #'slot-definition-name
                       (class-slots (class-of object))))
     (if (slot-boundp object sn)
-        (format stream "~%    ~S <- ~S"
+        (format stream "    ~S <- ~S~%"
                 sn
                 (slot-value object sn))
-        (format stream "~%    ~S <- not bound" sn)))
+        (format stream "    ~S <- not bound~%" sn)))
   (values))
 
-(format t "~%Closette is a Knights of the Lambda Calculus production.~%")
+(format t "Closette is a Knights of the Lambda Calculus production.~%")
 
 ;;; Metaclasses.
-
-(defclass forward-referenced-class (class)
-  ((name :initarg :name)
-   (direct-subclasses :initform '())
-   (finalized-p :initform nil)))
 
 (defmethod print-object ((class forward-referenced-class) stream)
   (print-unreadable-object (class stream :identity t)
@@ -2078,6 +1813,12 @@ has only has class specializer."
 (defmethod validate-superclass ((class clos-class) (superclass forward-referenced-class))
   t)
 
+(defgeneric no-applicable-method (generic-function &rest function-arguments))
+
+(defmethod no-applicable-method ((generic-function t) &rest function-arguments)
+  (error "No applicable methods to generic function ~S (~S) when called with ~S."
+         generic-function (generic-function-name generic-function) function-arguments))
+
 ;;; Built-in-class.
 
 (defmethod initialize-instance :after ((class built-in-class) &rest args)
@@ -2108,6 +1849,11 @@ has only has class specializer."
 (defclass structure-class (clos-class)
   ((structure-definition :initarg :definition)))
 
+(defmethod direct-slot-definition-class ((class structure-class) &rest initargs)
+  *the-class-standard-direct-slot-definition*)
+(defmethod effective-slot-definition-class ((class structure-class) &rest initargs)
+  *the-class-standard-effective-slot-definition*)
+
 (defmethod initialize-instance :after ((class structure-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
@@ -2115,16 +1861,24 @@ has only has class specializer."
   (error "Cannot reinitialize structure classes."))
 
 (defmethod slot-value-using-class ((class structure-class) instance slot-name)
-  (dolist (slot (class-slots class)
-           (error "The slot ~S is missing from the class ~S." slot-name class))
-    (when (eql (slot-definition-name slot) slot-name)
-      (return (funcall (getf (standard-slot-definition-properties slot) ':accessor-name) instance)))))
+  (let ((def (slot-value class 'structure-definition)))
+    (when (not (eql (sys.int::%object-ref-t instance 0) def))
+      (error "Class for structure ~S or instance is outdated?" (class-name class)))
+    (dolist (slot (sys.int::structure-slots def)
+             (error "The slot ~S is missing from the class ~S." slot-name class))
+      (when (eql (sys.int::structure-slot-name slot) slot-name)
+        (return (funcall (sys.int::structure-slot-accessor slot) instance))))))
 
 (defmethod (setf slot-value-using-class) (new-value (class structure-class) instance slot-name)
-  (dolist (slot (class-slots class)
-           (error "The slot ~S is missing from the class ~S." slot-name class))
-    (when (eql (slot-definition-name slot) slot-name)
-      (return (funcall (fdefinition `(setf ,(getf (standard-slot-definition-properties slot) ':accessor-name))) new-value instance)))))
+  (let ((def (slot-value class 'structure-definition)))
+    (when (not (eql (sys.int::%object-ref-t instance 0) def))
+      (error "Class for structure ~S or instance is outdated?" (class-name class)))
+    (dolist (slot (sys.int::structure-slots def)
+             (error "The slot ~S is missing from the class ~S." slot-name class))
+      (when (eql (sys.int::structure-slot-name slot) slot-name)
+        (when (sys.int::structure-slot-read-only slot)
+          (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
+        (return (funcall `(setf ,(sys.int::structure-slot-accessor slot)) new-value instance))))))
 
 (defmethod finalize-inheritance ((class structure-class))
   (std-finalize-inheritance class)
@@ -2134,12 +1888,8 @@ has only has class specializer."
 (defmethod compute-class-precedence-list ((class structure-class))
   (std-compute-class-precedence-list class))
 
-(defmethod compute-effective-slot-definition ((class structure-class) direct-slots)
-  (declare (ignore class))
-  (make-effective-slot-definition
-   :name (slot-definition-name (car direct-slots))
-   :accessor-name (getf (standard-slot-definition-properties (car direct-slots)) :accessor-name)
-   :allocation (slot-definition-allocation (car direct-slots))))
+(defmethod compute-effective-slot-definition ((class structure-class) name direct-slots)
+  (std-compute-effective-slot-definition class name direct-slots))
 
 (defclass structure-object (t)
   ()
@@ -2189,6 +1939,17 @@ has only has class specializer."
 
 ;;; Class redefinition.
 
+(defun convert-direct-slot-definition-to-canonical-direct-slot (direct-slot)
+  `(:name ,(slot-definition-name direct-slot)
+    :allocation ,(slot-definition-allocation direct-slot)
+    :type ,(slot-definition-type direct-slot)
+    :initform ,(slot-definition-initform direct-slot)
+    :initfunction ,(slot-definition-initfunction direct-slot)
+    :initargs ,(slot-definition-initargs direct-slot)
+    :documentation ,(slot-definition-documentation direct-slot)
+    :readers ,(slot-definition-readers direct-slot)
+    :writers ,(slot-definition-writers direct-slot)))
+
 (defun std-after-reinitialization-for-classes (class &rest args &key &allow-other-keys)
   ;; Unfinalize the class.
   (setf (class-finalized-p class) nil)
@@ -2202,10 +1963,12 @@ has only has class specializer."
     (dolist (writer (slot-definition-writers direct-slot))
       (remove-writer-method class writer (slot-definition-name direct-slot))))
   ;; Fall into the initialize-instance code.
-  (apply #'std-after-initialization-for-classes class (append args
-                                                              (list :direct-superclasses (class-direct-superclasses class))
-                                                              (list :direct-slots (class-direct-slots class))
-                                                              (list :direct-default-initargs (class-direct-default-initargs class))))
+  (apply #'std-after-initialization-for-classes
+         class
+         (append args
+                 (list :direct-superclasses (class-direct-superclasses class))
+                 (list :direct-slots (mapcar #'convert-direct-slot-definition-to-canonical-direct-slot (class-direct-slots class)))
+                 (list :direct-default-initargs (class-direct-default-initargs class))))
   ;; Flush the EMF tables of generic functions.
   (dolist (gf (class-dependents class))
     (reset-gf-emf-table gf))
@@ -2310,12 +2073,6 @@ has only has class specializer."
          slot-name
          instance))
 
-(defgeneric no-applicable-method (generic-function &rest function-arguments))
-
-(defmethod no-applicable-method ((generic-function t) &rest function-arguments)
-  (error "No applicable methods to generic function ~S when called with ~S."
-         generic-function function-arguments))
-
 (defgeneric class-prototype (class))
 
 (defmethod class-prototype :before ((class class))
@@ -2327,35 +2084,6 @@ has only has class specializer."
     (setf (slot-value class 'prototype) (allocate-instance class)))
   (slot-value class 'prototype))
 
-;;; Other built-in classes.
-
-(defclass character (t) () (:metaclass built-in-class))
-;; FIXME: This should be a built-in class, but this is tricky to make work
-;; with gray streams.
-(defclass stream (t) ())
-(defclass cons (list) () (:metaclass built-in-class))
-(defclass mezzano.supervisor:thread (t) () (:metaclass built-in-class))
-(defclass sys.int::function-reference (t) () (:metaclass built-in-class))
-(defclass sys.int::weak-pointer (t) () (:metaclass built-in-class))
-;; FIXME: This doesn't quite work with large bytes.
-(defclass byte (t) () (:metaclass built-in-class))
-
-(defclass array (t) () (:metaclass built-in-class))
-(defclass simple-array (array) () (:metaclass built-in-class))
-(defclass vector (array sequence) () (:metaclass built-in-class))
-(defclass simple-vector (vector simple-array) () (:metaclass built-in-class))
-(defclass bit-vector (vector) () (:metaclass built-in-class))
-(defclass string (vector) () (:metaclass built-in-class))
-(defclass simple-string (string simple-array) () (:metaclass built-in-class))
-
-(defclass number (t) () (:metaclass built-in-class))
-(defclass real (number) () (:metaclass built-in-class))
-(defclass rational (real) () (:metaclass built-in-class))
-(defclass integer (rational) () (:metaclass built-in-class))
-(defclass ratio (rational) () (:metaclass built-in-class))
-(defclass float (real) () (:metaclass built-in-class))
-(defclass complex (number) () (:metaclass built-in-class))
-
 (defgeneric compute-applicable-methods-using-classes (generic-function classes))
 (defmethod compute-applicable-methods-using-classes ((generic-function standard-generic-function) classes)
   (std-compute-applicable-methods-using-classes generic-function classes))
@@ -2363,3 +2091,9 @@ has only has class specializer."
 (defgeneric compute-applicable-methods (generic-function arguments))
 (defmethod compute-applicable-methods ((generic-function standard-generic-function) arguments)
   (std-compute-applicable-methods generic-function arguments))
+#|
+(maphash (lambda (name class)
+           (describe class))
+         *class-table*)
+(fresh-line)
+|#

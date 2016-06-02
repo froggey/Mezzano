@@ -78,6 +78,7 @@
   '("system/clos/package.lisp"
     "system/clos/macros.lisp"
     "system/clos/single-dispatch-emf-table.lisp"
+    "system/clos/boot.lisp"
     "system/clos/closette.lisp"
     "system/clos/method-combination.lisp"
     "system/runtime-misc.lisp"
