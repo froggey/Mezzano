@@ -186,8 +186,8 @@
 (defun (setf slot-value) (new-value object slot-name)
   (cond ((standardish-class-p (class-of (class-of object)))
          (setf (std-slot-value object slot-name) new-value))
-        (t (setf-slot-value-using-class
-            new-value (class-of object) object slot-name))))
+        (t
+         (setf (std-slot-value-using-class (class-of object) object slot-name) new-value))))
 
 (defun std-slot-boundp (instance slot-name)
   (multiple-value-bind (slots location)
@@ -1457,46 +1457,23 @@ has only has class specializer."
 ;;; Slot access
 
 (defgeneric slot-value-using-class (class instance slot-name))
-(defmethod slot-value-using-class
-           ((class standard-class) instance slot-name)
-  (std-slot-value instance slot-name))
-(defmethod slot-value-using-class
-           ((class funcallable-standard-class) instance slot-name)
+(defmethod slot-value-using-class ((class std-class) instance slot-name)
   (std-slot-value instance slot-name))
 
 (defgeneric (setf slot-value-using-class) (new-value class instance slot-name))
-(defmethod (setf slot-value-using-class)
-           (new-value (class standard-class) instance slot-name)
+(defmethod (setf slot-value-using-class) (new-value (class std-class) instance slot-name)
   (setf (std-slot-value instance slot-name) new-value))
-(defmethod (setf slot-value-using-class)
-           (new-value (class funcallable-standard-class) instance slot-name)
-  (setf (std-slot-value instance slot-name) new-value))
-;;; N.B. To avoid making a forward reference to a (setf xxx) generic function:
-(defun setf-slot-value-using-class (new-value class object slot-name)
-  (setf (slot-value-using-class class object slot-name) new-value))
 
 (defgeneric slot-exists-p-using-class (class instance slot-name))
-(defmethod slot-exists-p-using-class
-           ((class standard-class) instance slot-name)
-  (std-slot-exists-p instance slot-name))
-(defmethod slot-exists-p-using-class
-           ((class funcallable-standard-class) instance slot-name)
+(defmethod slot-exists-p-using-class ((class std-class) instance slot-name)
   (std-slot-exists-p instance slot-name))
 
 (defgeneric slot-boundp-using-class (class instance slot-name))
-(defmethod slot-boundp-using-class
-           ((class standard-class) instance slot-name)
-  (std-slot-boundp instance slot-name))
-(defmethod slot-boundp-using-class
-           ((class funcallable-standard-class) instance slot-name)
+(defmethod slot-boundp-using-class ((class std-class) instance slot-name)
   (std-slot-boundp instance slot-name))
 
 (defgeneric slot-makunbound-using-class (class instance slot-name))
-(defmethod slot-makunbound-using-class
-           ((class standard-class) instance slot-name)
-  (std-slot-makunbound instance slot-name))
-(defmethod slot-makunbound-using-class
-           ((class funcallable-standard-class) instance slot-name)
+(defmethod slot-makunbound-using-class ((class std-class) instance slot-name)
   (std-slot-makunbound instance slot-name))
 
 ;;; Stuff...
@@ -1529,11 +1506,7 @@ has only has class specializer."
     (append initargs (nreverse default-initargs))))
 
 (defgeneric make-instance (class &key))
-(defmethod make-instance ((class standard-class) &rest initargs)
-  (let ((instance (allocate-instance class)))
-    (apply #'initialize-instance instance (std-compute-initargs class initargs))
-    instance))
-(defmethod make-instance ((class funcallable-standard-class) &rest initargs)
+(defmethod make-instance ((class std-class) &rest initargs)
   (let ((instance (allocate-instance class)))
     (apply #'initialize-instance instance (std-compute-initargs class initargs))
     instance))
@@ -1610,14 +1583,7 @@ has only has class specializer."
 ;;;  Methods having to do with class metaobjects.
 ;;;
 
-(defmethod print-object ((class standard-class) stream)
-  (print-unreadable-object (class stream :identity t)
-    (format stream "~:(~S~) ~S"
-            (class-name (class-of class))
-            (class-name class)))
-  class)
-
-(defmethod print-object ((class funcallable-standard-class) stream)
+(defmethod print-object ((class class) stream)
   (print-unreadable-object (class stream :identity t)
     (format stream "~:(~S~) ~S"
             (class-name (class-of class))
@@ -1628,58 +1594,41 @@ has only has class specializer."
   (print-unreadable-object (slot-definition stream :type t :identity t)
     (format stream "~S" (slot-definition-name slot-definition))))
 
-(defmethod initialize-instance :after ((class standard-class) &rest args)
+(defmethod initialize-instance :after ((class std-class) &rest args)
   (apply #'std-after-initialization-for-classes class args))
 
-(defmethod initialize-instance :after ((class funcallable-standard-class) &rest args)
-  (apply #'std-after-initialization-for-classes class args))
 
 (defgeneric reader-method-class (class direct-slot &rest initargs))
 ;; ### slot objects.
-(defmethod reader-method-class ((class standard-class) direct-slot &rest initargs)
-  (find-class 'standard-reader-method))
-(defmethod reader-method-class ((class funcallable-standard-class) direct-slot &rest initargs)
+(defmethod reader-method-class ((class std-class) direct-slot &rest initargs)
   (find-class 'standard-reader-method))
 
 (defgeneric writer-method-class (class direct-slot &rest initargs))
 ;; ### slot objects.
-(defmethod writer-method-class ((class standard-class) direct-slot &rest initargs)
-  (find-class 'standard-writer-method))
-(defmethod writer-method-class ((class funcallable-standard-class) direct-slot &rest initargs)
+(defmethod writer-method-class ((class std-class) direct-slot &rest initargs)
   (find-class 'standard-writer-method))
 
 ;;; Finalize inheritance
 
 (defgeneric finalize-inheritance (class))
-(defmethod finalize-inheritance ((class standard-class))
-  (std-finalize-inheritance class)
-  (values))
-(defmethod finalize-inheritance ((class funcallable-standard-class))
+(defmethod finalize-inheritance ((class std-class))
   (std-finalize-inheritance class)
   (values))
 
 ;;; Class precedence lists
 
 (defgeneric compute-class-precedence-list (class))
-(defmethod compute-class-precedence-list ((class standard-class))
-  (std-compute-class-precedence-list class))
-(defmethod compute-class-precedence-list ((class funcallable-standard-class))
+(defmethod compute-class-precedence-list ((class std-class))
   (std-compute-class-precedence-list class))
 
 ;;; Slot inheritance
 
 (defgeneric compute-slots (class))
-(defmethod compute-slots ((class standard-class))
-  (std-compute-slots class))
-(defmethod compute-slots ((class funcallable-standard-class))
+(defmethod compute-slots ((class std-class))
   (std-compute-slots class))
 
 (defgeneric compute-effective-slot-definition (class name direct-slots))
-(defmethod compute-effective-slot-definition
-           ((class standard-class) name direct-slots)
-  (std-compute-effective-slot-definition class name direct-slots))
-(defmethod compute-effective-slot-definition
-           ((class funcallable-standard-class) name direct-slots)
+(defmethod compute-effective-slot-definition ((class std-class) name direct-slots)
   (std-compute-effective-slot-definition class name direct-slots))
 
 ;;;
@@ -1754,13 +1703,6 @@ has only has class specializer."
 (format t "Closette is a Knights of the Lambda Calculus production.~%")
 
 ;;; Metaclasses.
-
-(defmethod print-object ((class forward-referenced-class) stream)
-  (print-unreadable-object (class stream :identity t)
-    (format stream "~:(~S~) ~S"
-            (class-name (class-of class))
-            (class-name class)))
-  class)
 
 (defmethod update-instance-for-different-class :before
            ((old forward-referenced-class) (new standard-class) &rest initargs)
@@ -1837,13 +1779,6 @@ has only has class specializer."
 (defmethod compute-class-precedence-list ((class built-in-class))
   (std-compute-class-precedence-list class))
 
-(defmethod print-object ((class built-in-class) stream)
-  (print-unreadable-object (class stream :identity t)
-    (format stream "~:(~S~) ~S"
-            (class-name (class-of class))
-            (class-name class)))
-  class)
-
 ;;; Structure-class.
 
 (defclass structure-class (clos-class)
@@ -1894,13 +1829,6 @@ has only has class specializer."
 (defclass structure-object (t)
   ()
   (:metaclass structure-class))
-
-(defmethod print-object ((class structure-class) stream)
-  (print-unreadable-object (class stream :identity t)
-    (format stream "~:(~S~) ~S"
-            (class-name (class-of class))
-            (class-name class)))
-  class)
 
 ;;; eql specializers.
 
