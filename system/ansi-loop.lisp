@@ -1492,7 +1492,7 @@ collected result will be returned as the value of the LOOP."
       (setq pseudo-steps (nconc pseudo-steps (loop-copylist* (car (setq tem (cdr tem))))))
       (setq tem (cdr tem))
       (when *loop-emitted-body*
-	(loop-error "Iteration in LOOP follows body code."))
+	(warn "Iteration in LOOP follows body code."))
       (unless tem (setq tem data))
       (when (car tem) (push (car tem) pre-loop-pre-step-tests))
       (setq pre-loop-steps (nconc pre-loop-steps (loop-copylist* (car (setq tem (cdr tem))))))
