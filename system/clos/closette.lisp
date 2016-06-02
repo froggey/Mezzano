@@ -394,30 +394,12 @@ Other arguments are included directly."
                `(,key ,value)))))
 
 (defun ensure-class (name &rest all-keys
-                          &key
-                            (metaclass *the-class-standard-class*)
-                            direct-superclasses
-                            direct-default-initargs
-                          &allow-other-keys)
-  (when (symbolp metaclass)
-    (setf metaclass (find-class metaclass)))
-  (let ((existing (find-class name nil)))
-    (cond ((and (not existing)
-                (standardish-class-p metaclass))
-           ;; Non-MOP path. Used when creating a new standard (funcallable) class.
-           ;; Avoids generic function dispatch.
-           (let ((class (apply #'make-instance-clos-class
-                               metaclass
-                               :name name
-                               (compute-class-initialization-arguments all-keys))))
-             (setf (find-class name) class)
-             class))
-          (t
-           ;; MOP path.
-           (apply #'ensure-class-using-class
-                  existing
-                  name
-                  all-keys)))))
+                     &key
+                       &allow-other-keys)
+  (apply #'ensure-class-using-class
+         (find-class name nil)
+         name
+         all-keys))
 
 ;;; make-instance-standard-class creates and initializes an instance of
 ;;; standard-class without falling into method lookup.  However, it cannot be
@@ -435,24 +417,6 @@ Other arguments are included directly."
   (or (eql metaclass *the-class-standard-class*)
       (eql metaclass *the-class-funcallable-standard-class*)))
 
-(defun make-instance-clos-class
-       (metaclass &key name direct-superclasses direct-slots
-        direct-default-initargs
-        &allow-other-keys)
-  (let ((class (std-allocate-instance metaclass)))
-    (setf (class-name class) name)
-    (setf (class-direct-subclasses class) ())
-    (setf (class-direct-methods class) ())
-    (setf (class-dependents class) ())
-    (setf (class-hash class) (next-class-hash-value))
-    (setf (class-finalized-p class) nil)
-    (std-after-initialization-for-classes class
-       :direct-slots direct-slots
-       :direct-superclasses (or direct-superclasses
-                                (default-direct-superclasses metaclass))
-       :direct-default-initargs direct-default-initargs)
-    class))
-
 (defun convert-to-direct-slot-definition (class canonicalized-slot)
   (apply #'make-instance
          (apply #'direct-slot-definition-class
@@ -461,6 +425,8 @@ Other arguments are included directly."
 
 (defun std-after-initialization-for-classes
        (class &key direct-superclasses direct-slots direct-default-initargs &allow-other-keys)
+  (when (endp direct-superclasses)
+    (setf direct-superclasses (default-direct-superclasses (class-of class))))
   (dolist (superclass direct-superclasses)
     ;; Open code standard VALIDATE-SUPERCLASS here.
     (when (not (or (and (standardish-class-p (class-of class))
@@ -1904,19 +1870,8 @@ has only has class specializer."
   (dolist (subclass (class-direct-subclasses class))
     (std-after-reinitialization-for-classes subclass)))
 
-(defmethod reinitialize-instance :after ((class standard-class) &rest args &key direct-superclasses &allow-other-keys)
-  (apply #'std-after-reinitialization-for-classes
-         class
-         :direct-superclasses (or direct-superclasses
-                                  (list (find-class 'standard-object)))
-         args))
-
-(defmethod reinitialize-instance :after ((class funcallable-standard-class) &rest args &key direct-superclasses &allow-other-keys)
-  (apply #'std-after-reinitialization-for-classes
-         class
-         :direct-superclasses (or direct-superclasses
-                                  (list (find-class 'funcallable-standard-object)))
-         args))
+(defmethod reinitialize-instance :after ((class std-class) &rest args &key direct-superclasses &allow-other-keys)
+  (apply #'std-after-reinitialization-for-classes class args))
 
 (defun remove-reader-method (class reader slot-name)
   (declare (ignore slot-name))
