@@ -171,10 +171,18 @@
     (snapshot-clone-cow-page new-frame fault-addr)))
 
 (defun pop-pending-snapshot-page ()
+  "Pop the next pending snapshot page.
+Returns 4 values:
+  FRAME - the frame id of the page. This frame is not in-use, and will either be
+          a copied CoW frame, a wired backing frame, or the snapshot bounce buffer page.
+  FREEP - True if FRAME should be freed after it has been written back.
+  BLOCK-ID - ID of the block to write to. This will always be a valid block, not a deferred block.
+  ADDRESS - Virtual address of the page to write back."
   (with-mutex (*vm-lock*)
     (without-interrupts
       (let* ((frame *snapshot-pending-writeback-pages*)
-             (address (physical-page-virtual-address frame)))
+             (address (physical-page-virtual-address frame))
+             (block-id (physical-page-frame-block-id frame)))
         ;; Remove frame from list.
         (setf *snapshot-pending-writeback-pages* (physical-page-frame-next frame))
         (when *snapshot-pending-writeback-pages*
@@ -201,19 +209,19 @@
            (values *snapshot-bounce-buffer-page*
                    ;; Don't free the bounce page.
                    nil
-                   (physical-page-frame-block-id frame)
+                   block-id
                    address))
           (:inactive-writeback
            ;; Page was copied.
            (values frame
                    t
-                   (physical-page-frame-block-id frame)
+                   block-id
                    address))
           (:wired-backing
            ;; Page is a wired backing page.
            (values frame
                    nil
-                   (physical-page-frame-block-id frame)
+                   block-id
                    address))
           (t (panic "Page " frame " for address " address " has non-writeback type "
                     (physical-page-frame-type frame))))))))
@@ -250,17 +258,32 @@
           (prog1 *store-deferred-freelist-head*
             (setf *store-deferred-freelist-head* '()))))
 
-(defun snapshot-bml1 (bml1)
+(defun snapshot-bml1 (bml1 address-part)
   (let ((bml1-disk (or (store-alloc 1)
                        (panic "Unable to allocate disk space for new block map.")))
         ;; Update the bottom level of the block map in-place.
         (bml1-memory bml1)
-        (bml1-count 0))
+        (bml1-count 0)
+        (next-address-part (ash address-part 9)))
     (dotimes (i 512)
-      (let ((entry (sys.int::memref-unsigned-byte-64 bml1 i)))
+      (let ((entry (sys.int::memref-unsigned-byte-64 bml1 i))
+            (address (* (logior next-address-part i) +4k-page-size+)))
         (when (not (zerop entry))
+          ;; Allocate any lazy blocks.
+          (when (block-info-lazy-block-p entry)
+            (ensure (block-info-committed-p entry) "Uncommitted lazy block.")
+            (let ((new-block (or (store-alloc 1)
+                                 (panic "Unable to allocate lazy block!"))))
+              (decf *store-fudge-factor*)
+              (let ((pte (get-pte-for-address address nil)))
+                (when (and pte
+                           (page-present-p pte 0))
+                  (setf (physical-page-frame-block-id (ash (page-table-entry pte 0) -12)) new-block)))
+              (setf entry (logior (ash new-block sys.int::+block-map-id-shift+)
+                                  (logand entry sys.int::+block-map-flag-mask+))
+                    (sys.int::memref-unsigned-byte-64 bml1 i) entry)))
           ;; Uncommit any committed pages.
-          (when (logtest entry sys.int::+block-map-committed+)
+          (when (block-info-committed-p entry)
             (setf (sys.int::memref-unsigned-byte-64 bml1 i) (logand entry (lognot sys.int::+block-map-committed+)))
             (incf *store-fudge-factor*))
           (incf bml1-count))))
@@ -272,16 +295,17 @@
              (logior (ash bml1-disk sys.int::+block-map-id-shift+)
                      sys.int::+block-map-present+)))))
 
-(defun snapshot-block-map-outer-level (bml next-fn)
+(defun snapshot-block-map-outer-level (bml next-fn address-part)
   (let ((bml-disk (or (store-alloc 1)
                       (panic "Unable to allocate disk space for new block map.")))
         (bml-memory (+ +physical-map-base+ (* (pager-allocate-page :other) +4k-page-size+)))
-        (bml-count 0))
+        (bml-count 0)
+        (next-address-part (ash address-part 9)))
     (dotimes (i 512)
       (let* ((entry (sys.int::memref-signed-byte-64 bml i))
              (disk-entry (if (zerop entry)
                              nil
-                             (funcall next-fn entry))))
+                             (funcall next-fn entry (logior next-address-part i)))))
         (cond (disk-entry
                (setf (sys.int::memref-signed-byte-64 bml-memory i) disk-entry)
                (incf bml-count))
@@ -297,14 +321,14 @@
                          sys.int::+block-map-present+)))
       (free-page bml-memory))))
 
-(defun snapshot-bml2 (bml2)
-  (snapshot-block-map-outer-level bml2 #'snapshot-bml1))
+(defun snapshot-bml2 (bml2 address-part)
+  (snapshot-block-map-outer-level bml2 #'snapshot-bml1 address-part))
 
-(defun snapshot-bml3 (bml3)
-  (snapshot-block-map-outer-level bml3 #'snapshot-bml2))
+(defun snapshot-bml3 (bml3 address-part)
+  (snapshot-block-map-outer-level bml3 #'snapshot-bml2 address-part))
 
 (defun snapshot-bml4 (bml4)
-  (snapshot-block-map-outer-level bml4 #'snapshot-bml3))
+  (snapshot-block-map-outer-level bml4 #'snapshot-bml3 0))
 
 (defun snapshot-block-map ()
   (ash (snapshot-bml4 *bml4*) (- sys.int::+block-map-id-shift+)))

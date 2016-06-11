@@ -219,6 +219,7 @@
       (return))))
 
 (defun store-free (start n-blocks)
+  (ensure (not (eql start sys.int::+block-map-id-deferred+)) "Tried to free deferred block.")
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   (incf *store-freelist-n-free-blocks* n-blocks)
@@ -226,6 +227,7 @@
 
 ;; TODO: Be smarter here, check for overlaps in the deferred list and the main freelist.
 (defun store-deferred-free (start n-blocks)
+  (ensure (not (eql start sys.int::+block-map-id-deferred+)) "Tried to free deferred block.")
   (ensure (mutex-held-p *vm-lock*) "*VM-LOCK* must be held when freeing store.")
   (store-maybe-refill-metadata)
   ;;(debug-print-line "Deferred store free " start " " n-blocks)

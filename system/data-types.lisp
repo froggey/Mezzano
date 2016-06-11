@@ -226,7 +226,10 @@
 Internal to the pager, should not be used by other code.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
-(defconstant +block-map-id-size+ 56)
+(defconstant +block-map-id-size+ 54) ; keep it a few bits smaller than 56 to avoid bignums.
+(defconstant +block-map-id-lazy+ (1- (ash 1 +block-map-id-size+))
+  "When stored in the ID field, this value indicates that space has been
+reserved on the disk, but no specific block has been allocated.")
 
 (defparameter *llf-version* 11)
 

@@ -23,6 +23,8 @@
 (defvar *page-replacement-list-head*)
 (defvar *page-replacement-list-tail*)
 
+(defvar *pager-lazy-block-allocation-enabled*)
+
 (defvar *store-fudge-factor*)
 
 (defconstant +page-table-present+        #x001)
@@ -91,6 +93,10 @@
 (defun block-info-block-id (block-info)
   (ldb (byte sys.int::+block-map-id-size+ sys.int::+block-map-id-shift+)
        block-info))
+
+(declaim (inline block-info-lazy-block-p))
+(defun block-info-lazy-block-p (block-info)
+  (eql (block-info-block-id block-info) sys.int::+block-map-id-lazy+))
 
 (defun page-aligned-p (value)
   (zerop (logand value #xFFF)))
@@ -255,9 +261,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           (t (sys.int::memref-unsigned-byte-64 bme 0)))))
 
 (defun allocate-new-block-for-virtual-address (address flags)
-  (let ((new-block (or (store-alloc 1)
-                       (panic "Aiiee, out of store.")))
+  (let ((new-block (if *pager-lazy-block-allocation-enabled*
+                       sys.int::+block-map-id-lazy+
+                       (or (store-alloc 1)
+                           (panic "Unabled to allocate new block!"))))
         (bme (block-info-for-virtual-address-1 address t)))
+    (when *pager-lazy-block-allocation-enabled*
+      (incf *store-fudge-factor*))
     ;; Update the block info for this address.
     (when (not (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
       (panic "Block " address " entry not zero!"))
@@ -275,10 +285,16 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (let* ((bme (sys.int::memref-unsigned-byte-64 bme-addr 0))
            (block-id (block-info-block-id bme)))
       (cond ((block-info-committed-p bme)
-             (store-free block-id 1))
-            (t #+(or)(debug-print-line "Block " (sys.int::memref-unsigned-byte-64 bme-addr 0) " vaddr " address " is uncommitted.")
-               (store-deferred-free block-id 1)
-               (decf *store-fudge-factor*)))
+             (cond ((not (eql block-id sys.int::+block-map-id-lazy+))
+                    (store-free block-id 1))
+                   (t
+                    (decf *store-fudge-factor*))))
+            (t
+             #+(or)(debug-print-line "Block " (sys.int::memref-unsigned-byte-64 bme-addr 0) " vaddr " address " is uncommitted.")
+             (ensure (not (eql block-id sys.int::+block-map-id-lazy+))
+                     "Tried to release non-committed deferred block.")
+             (store-deferred-free block-id 1)
+             (decf *store-fudge-factor*)))
       (setf (sys.int::memref-unsigned-byte-64 bme-addr 0) 0))))
 
 (defun set-address-flags (address flags)
@@ -476,14 +492,22 @@ Returns NIL if the entry is missing and ALLOCATE is false."
             (let ((new-block (or (store-alloc 1)
                                  (panic "Aiiee, out of store during swap-out.")))
                   (old-block (block-info-block-id bme)))
+              (ensure (not (eql old-block sys.int::+block-map-id-lazy+))
+                      "Uncommitted lazy block")
               (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
                                 sys.int::+block-map-committed+
-                                (logand bme #xFF))
+                                (logand bme sys.int::+block-map-flag-mask+))
                     (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)
               #+(or)(debug-print-line "Replace old block " old-block " with " new-block " vaddr " candidate-virtual)
               (decf *store-fudge-factor*)
               (store-deferred-free old-block 1)
               #+(or)(debug-print-line "Old block: " old-block "  new-block: " new-block)))
+          (when (block-info-lazy-block-p bme)
+            (let ((new-block (or (store-alloc 1)
+                                 (panic "Unable to allocate lazy block!"))))
+              (setf bme (logior (ash new-block sys.int::+block-map-id-shift+)
+                                (logand bme sys.int::+block-map-flag-mask+))
+                    (sys.int::memref-unsigned-byte-64 bme-addr 0) bme)))
           (let ((block-id (block-info-block-id bme)))
             #+(or)(debug-print-line "Candidate is dirty, writing back to block " block-id)
             (disk-submit-request *pager-disk-request*
@@ -670,11 +694,12 @@ It will put the thread to sleep, while it waits for the page."
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))
-    (setf *pager-noisy* t
+    (setf *pager-noisy* nil
           *pager-waiting-threads* '()
           *pager-current-thread* nil
           *pager-lock* (place-spinlock-initializer)
-          *pager-fast-path-enabled* t))
+          *pager-fast-path-enabled* t
+          *pager-lazy-block-allocation-enabled* t))
   (setf *page-replacement-list-head* nil
         *page-replacement-list-tail* nil)
   (setf *pager-fast-path-hits* 0
