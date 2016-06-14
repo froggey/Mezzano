@@ -37,7 +37,7 @@
   value)
 
 ;;(defun object-of-type-p (object type)
-;;  (and (eql (%tag-field object) +tag-object+)
+;;  (and (%value-has-tag-p object +tag-object+)
 ;;       (eql (%object-tag object) type)))
 (defbuiltin sys.int::%object-of-type-p (object object-tag) ()
   (cond ((constant-type-p object-tag `(unsigned-byte ,sys.int::+object-type-size+))
@@ -78,7 +78,7 @@
            (predicate-result :e)))))
 
 ;;(defun type-check (object object-tag expected-type)
-;;  (unless (and (eql (%tag-field object) +tag-object+)
+;;  (unless (and (%value-has-tag-p object +tag-object+)
 ;;               (eql (%object-tag object) object-tag))
 ;;    (raise-type-error object expected-type)))
 (defbuiltin sys.int::%type-check (object object-tag expected-type) ()

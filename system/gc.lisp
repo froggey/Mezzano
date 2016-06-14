@@ -97,15 +97,10 @@
 (declaim (inline immediatep))
 (defun immediatep (object)
   "Return true if OBJECT is an immediate object."
-  (case (%tag-field object)
-    ((#.+tag-fixnum-000+ #.+tag-fixnum-001+
-      #.+tag-fixnum-010+ #.+tag-fixnum-011+
-      #.+tag-fixnum-100+ #.+tag-fixnum-101+
-      #.+tag-fixnum-110+ #.+tag-fixnum-111+
-      #.+tag-character+ #.+tag-single-float+
-      #.+tag-byte-specifier+)
-     t)
-    (t nil)))
+  (or (fixnump object)
+      (%value-has-tag-p object +tag-character+)
+      (%value-has-tag-p object +tag-single-float+)
+      (%value-has-tag-p object +tag-byte-specifier+)))
 
 (defmacro scavengef (place &environment env)
   "Scavenge PLACE. Only update PLACE if the scavenged value is different.
@@ -199,7 +194,7 @@ This is required to make the GC interrupt safe."
                      (gc-log
                       "Scav stack slot " offset
                       "  " (lisp-object-address value)))
-                   (cond ((eql (%tag-field value) +tag-dx-root-object+)
+                   (cond ((%value-has-tag-p value +tag-dx-root-object+)
                           ;; DX root, convert it to a normal object pointer and scan.
                           ;; Don't scan it if it's below the stack pointer. This can
                           ;; happen when a thread is interrupted during a non-local exit.
@@ -627,10 +622,10 @@ This is required to make the GC interrupt safe."
 
 (defun scan-object (object)
   "Scan one object, updating pointer fields."
-  (case (%tag-field object)
-    (#.+tag-cons+
+  (cond
+    ((%value-has-tag-p object +tag-cons+)
      (scan-generic object 2))
-    (#.+tag-object+
+    ((%value-has-tag-p object +tag-object+)
      (scan-object-1 object))
     (t (scan-error object))))
 
@@ -645,7 +640,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     ;; Check for a GC forwarding pointer.
     ;; Do this before getting the length as the forwarding pointer will
     ;; have overwritten the header word.
-    (when (eql (%tag-field first-word) +tag-gc-forward+)
+    (when (%value-has-tag-p first-word +tag-gc-forward+)
       (return-from transport-object
         (%%assemble-value (ash (%pointer-field first-word) 4)
                           (%tag-field object))))
@@ -696,9 +691,10 @@ a pointer to the new object. Leaves a forwarding pointer in place."
     (%%assemble-value new-address (%tag-field object))))
 
 (defun object-size (object)
-  (case (%tag-field object)
-    (#.+tag-cons+ 2)
-    (#.+tag-object+
+  (cond
+    ((%value-has-tag-p object +tag-cons+)
+     2)
+    ((%value-has-tag-p object +tag-object+)
      (let ((length (%object-header-data object)))
        ;; Dispatch again based on the type.
        (case (%object-tag object)
@@ -1116,7 +1112,7 @@ No type information will be provided."
         #.+address-tag-cons+)
        ;; Look for a forwarding pointer.
        (let ((first-word (memref-t address 0)))
-         (cond ((eql (%tag-field first-word) +tag-gc-forward+)
+         (cond ((%value-has-tag-p first-word +tag-gc-forward+)
                 ;; Object is still live.
                 (values (%%assemble-value (ash (%pointer-field first-word) 4)
                                           (%tag-field key))

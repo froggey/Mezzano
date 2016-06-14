@@ -283,8 +283,8 @@
 
 ;; (defun eql (x y)
 ;;   (or (eq x y)
-;;       (and (eq (%tag-field x) +tag-object+)
-;;            (eq (%tag-field y) +tag-object+)
+;;       (and (%value-has-tag-p x +tag-object+)
+;;            (%value-has-tag-p y +tag-object+)
 ;;            (eq (%object-tag x) (%object-tag y))
 ;;            (<= +first-numeric-object-tag+ (%object-tag x) +last-numeric-object-tag+)
 ;;            (= x y))))

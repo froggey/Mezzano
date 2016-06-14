@@ -57,6 +57,26 @@
   (emit `(sys.lap-x86:shl64 :r8 ,sys.int::+n-fixnum-bits+))
   (setf *r8-value* (list (gensym))))
 
+;; (eql (%tag-field value) tag)
+(defbuiltin sys.int::%value-has-tag-p (value tag) ()
+  (cond ((constant-type-p tag `(unsigned-byte 4))
+         ;; Fast case where the tag is a constant.
+         (load-in-reg :r8 value t)
+         ;; Test tag
+         (emit `(sys.lap-x86:lea64 :rax (:r8 ,(- (second tag))))
+               `(sys.lap-x86:test8 :al #b1111))
+         (predicate-result :z))
+        (t ;; Slow path.
+         (load-in-reg :r8 value t)
+         (load-in-reg :r10 tag t)
+         ;; Convert value to fixnum.
+         (emit `(sys.lap-x86:shl8 :r8l 1))
+         ;; Mask away all but tag bits (as fixnum).
+         (emit `(sys.lap-x86:and8 :r8l #b11110))
+         ;; Compare against tag (which must be a fixnum).
+         (emit `(sys.lap-x86:cmp8 :r8l :r10l))
+         (predicate-result :e))))
+
 ;;; x86 IO port accessors.
 
 (defun emit-port-access (instruction port port-reg)

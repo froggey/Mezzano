@@ -65,8 +65,11 @@
 (deftype byte ()
   `(satisfies bytep))
 
+(defun small-byte-p (object)
+  (%value-has-tag-p object +tag-byte-specifier+))
+
 (defun bytep (object)
-  (or (eql (%tag-field object) +tag-byte-specifier+)
+  (or (small-byte-p object)
       (large-byte-p object)))
 
 (defun fits-in-field-p (bytespec integer)
@@ -83,12 +86,12 @@
       (make-large-byte size position)))
 
 (defun byte-size (byte-specifier)
-  (if (eql (%tag-field byte-specifier) +tag-byte-specifier+)
+  (if (small-byte-p byte-specifier)
       (ldb +byte-size+ (lisp-object-address byte-specifier))
       (large-byte-size byte-specifier)))
 
 (defun byte-position (byte-specifier)
-  (if (eql (%tag-field byte-specifier) +tag-byte-specifier+)
+  (if (small-byte-p byte-specifier)
       (ldb +byte-position+ (lisp-object-address byte-specifier))
       (large-byte-position byte-specifier)))
 

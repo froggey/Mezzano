@@ -183,7 +183,7 @@
       ;; then the exact type.
       ;; This stops the disk-thread from touching memory that might not be
       ;; wired.
-      ((and (eql (sys.int::%tag-field buffer) sys.int::+tag-object+)
+      ((and (%value-has-tag-p buffer +tag-object+)
             (< (sys.int::lisp-object-address buffer) (* 2 1024 1024 1024))
             (eql (sys.int::%object-tag buffer) sys.int::+object-tag-array-unsigned-byte-8+))
        ;; Reading or writing into an array, allocate a bounce buffer.
