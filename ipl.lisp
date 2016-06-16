@@ -24,8 +24,11 @@
 ;; Point MEZZANO.FILE-SYSTEM::*HOME-DIRECTORY* at the home directory containing the libraries.
 (setf mezzano.file-system::*home-directory* (pathname (concatenate 'string "REMOTE:" sys.int::*home-directory-path*)))
 
+(push (list "SOURCE;**;*.*.*" (merge-pathnames "**/" *default-pathname-defaults*))
+      (logical-pathname-translations "SYS"))
+
 ;; Local FS. Loaded from the source tree, not the home directory.
-(sys.int::cal "file/local.lisp")
+(sys.int::cal "sys:source;file;local.lisp")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
 
 ;; Fonts. Loaded from the home directory.
@@ -40,7 +43,7 @@
 
 ;; Icons. Loaded from the source tree.
 (ensure-directories-exist "LOCAL:>Icons>")
-(dolist (f (directory "gui/*.png"))
+(dolist (f (directory "sys:source;gui;*.png"))
   (sys.int::copy-file f
                       (merge-pathnames "LOCAL:>Icons>" f)
                       '(unsigned-byte 8)))
@@ -74,22 +77,22 @@
 (require :swank)
 
 ;; And the GUI.
-(sys.int::cal "gui/font.lisp")
-(sys.int::cal "gui/widgets.lisp")
-(sys.int::cal "line-edit-mixin.lisp")
-(sys.int::cal "gui/popup-io-stream.lisp")
-(sys.int::cal "gui/xterm.lisp")
-(sys.int::cal "applications/telnet.lisp")
-(sys.int::cal "applications/mandelbrot.lisp")
-(sys.int::cal "applications/irc.lisp")
+(sys.int::cal "sys:source;gui;font.lisp")
+(sys.int::cal "sys:source;gui;widgets.lisp")
+(sys.int::cal "sys:source;line-edit-mixin.lisp")
+(sys.int::cal "sys:source;gui;popup-io-stream.lisp")
+(sys.int::cal "sys:source;gui;xterm.lisp")
+(sys.int::cal "sys:source;applications;telnet.lisp")
+(sys.int::cal "sys:source;applications;mandelbrot.lisp")
+(sys.int::cal "sys:source;applications;irc.lisp")
 (require :med)
-(sys.int::cal "applications/peek.lisp")
-(sys.int::cal "applications/fancy-repl.lisp")
-(sys.int::cal "gui/desktop.lisp")
-(sys.int::cal "gui/image-viewer.lisp")
-(sys.int::cal "applications/filer.lisp")
-(sys.int::cal "applications/memory-monitor.lisp")
-(sys.int::cal "file/http.lisp")
+(sys.int::cal "sys:source;applications;peek.lisp")
+(sys.int::cal "sys:source;applications;fancy-repl.lisp")
+(sys.int::cal "sys:source;gui;desktop.lisp")
+(sys.int::cal "sys:source;gui;image-viewer.lisp")
+(sys.int::cal "sys:source;applications;filer.lisp")
+(sys.int::cal "sys:source;applications;memory-monitor.lisp")
+(sys.int::cal "sys:source;file;http.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
