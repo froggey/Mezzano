@@ -5,9 +5,11 @@
   (:use #:cl)
   (:export #:find-host
            #:list-all-hosts
+           #:logical-host
            #:unknown-host
            #:host-name
            #:host-default-device
+           #:host-pathname-class
            #:parse-namestring-using-host
            #:unparse-pathname
            #:unparse-pathname-file
@@ -38,6 +40,9 @@
 
 (defgeneric host-name (host))
 (defgeneric host-default-device (host))
+
+(defgeneric host-pathname-class (host)
+  (:method (host) (find-class 'pathname)))
 
 (defvar *host-alist* '())
 
@@ -93,8 +98,9 @@
                         defaults)
   (if defaults
       (setf defaults (pathname defaults))
-      (setf defaults (make-instance 'pathname :host (pathname-host *default-pathname-defaults*))))
-  (make-instance 'pathname
+      (setf defaults (make-instance (host-pathname-class (pathname-host *default-pathname-defaults*))
+                                    :host (pathname-host *default-pathname-defaults*))))
+  (make-instance (host-pathname-class (if host (find-host host) (pathname-host defaults)))
                  :host (if host (find-host host) (pathname-host defaults))
                  :device (if devicep device (pathname-device defaults))
                  :directory (if directoryp directory (pathname-directory defaults))
@@ -141,12 +147,19 @@
         (w-dir (pathname-directory w)))
     (labels ((match (p w)
                (cond
+                 ((eql (first w) :wild-inferiors)
+                  ;; Eat elements until a match is found or the end of the
+                  ;; directory is reached.
+                  (loop
+                     (when (match p (rest w))
+                       (return t))
+                     (when (null p)
+                       (return nil))
+                     (pop p)))
                  ((and (null p) (null w)) t)
                  ((or (null p) (null w)) nil)
                  ((eql (first w) :wild)
                   (match (rest p) (rest w)))
-                 ((eql (first w) :wild-inferiors)
-                  (error "TODO: wild-inferiors"))
                  (t (and (string= (first p) (first w))
                          (match (rest p) (rest w)))))))
       (and (eql (first p-dir) (first w-dir))
@@ -336,7 +349,7 @@ NAMESTRING as the second."
   (check-type direction (member :input :output :io :probe))
   (check-type if-exists (member :error :new-version :rename :rename-and-delete :overwrite :append :supersede nil))
   (check-type if-does-not-exist (member :error :create nil))
-  (let* ((path (merge-pathnames filespec))
+  (let* ((path (translate-logical-pathname (merge-pathnames filespec)))
          (host (pathname-host path)))
     (when (wild-pathname-p path)
       (error 'simple-file-error
@@ -372,18 +385,30 @@ NAMESTRING as the second."
 (defgeneric directory-using-host (host path &key))
 
 (defun directory (pathspec &rest args &key &allow-other-keys)
-  (let ((path (merge-pathnames pathspec)))
+  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
     (apply #'directory-using-host (pathname-host path) path args)))
 
-(defun translate-logical-pathname (pathname &key)
-  (pathname pathname))
+(defun case-correct-path-component (component from-host to-host)
+  (cond ((and (typep from-host 'logical-host)
+              (not (typep to-host 'logical-host))
+              (stringp component))
+         (string-downcase component))
+        ((and (not (typep from-host 'logical-host))
+              (typep to-host 'logical-host)
+              (stringp component))
+         (string-upcase component))
+        (t component)))
 
 (defun translate-one (source from to what)
   (cond ((member (funcall what to) '(nil :wild))
-         (funcall what source))
+         (case-correct-path-component (funcall what source)
+                                      (pathname-host from)
+                                      (pathname-host to)))
         ((or (eql (funcall what source) (funcall what from))
              (eql (funcall what from) :wild))
-         (funcall what source))
+         (case-correct-path-component (funcall what source)
+                                      (pathname-host from)
+                                      (pathname-host to)))
         (t (error "Source and from ~S don't match." what))))
 
 (defun translate-directory (source from-wildcard to-wildcard)
@@ -402,7 +427,8 @@ NAMESTRING as the second."
               (return))
              ((and (null s-d) (null f-d))
               (return))
-             ((or (null s-d) (null f-d)
+             ((or (null s-d)
+                  (null f-d)
                   (not (equal (first s-d) (first f-d))))
               (error "Directory entry mismatch. ~S ~S ~S ~S ~S~%"
                      (first s-d) (first f-d)
@@ -411,19 +437,24 @@ NAMESTRING as the second."
              f-d (rest f-d)))
     ;; Merge SOURCE and TO. First component was done above.
     (do ((d (rest t-d) (cdr d)))
-        ((eql (first d) :wild-inferiors)
-         (assert (null (rest d))
-                 (source from-wildcard to-wildcard)
-                 ":WILD-INFERIORS must be the last directory entry... (FIXME)")
-         (nconc (nreverse new-path) (copy-list s-d)))
+        ((or (null d)
+             (eql (first d) :wild-inferiors))
+         (cond ((null d)
+                (assert (endp s-d) (s-d)
+                        "To-wildcard directory portion exhausted with remaining source values.")
+                (nreverse new-path))
+               (t
+                (assert (null (rest d))
+                        (source from-wildcard to-wildcard)
+                        ":WILD-INFERIORS must be the last directory entry... (FIXME)")
+                (nconc (nreverse new-path)
+                       (loop
+                          for component in s-d
+                          collect (case-correct-path-component component (pathname-host source) (pathname-host to-wildcard)))))))
       (push (first d) new-path))))
 
 (defun translate-pathname (source from-wildcard to-wildcard &key)
-  (assert (and (eql (pathname-host source) (pathname-host from-wildcard))
-               (eql (pathname-host source) (pathname-host to-wildcard)))
-          (source from-wildcard to-wildcard)
-          "Translating between hosts not yet supported...")
-  (make-pathname :host (pathname-host source)
+  (make-pathname :host (pathname-host to-wildcard)
                  :device (translate-one source from-wildcard to-wildcard 'pathname-device)
                  :name (translate-one source from-wildcard to-wildcard 'pathname-name)
                  :type (translate-one source from-wildcard to-wildcard 'pathname-type)
@@ -433,13 +464,18 @@ NAMESTRING as the second."
 (defgeneric ensure-directories-exist-using-host (host pathname &key verbose))
 
 (defun ensure-directories-exist (pathspec &rest keys &key verbose &allow-other-keys)
-  (values pathspec (apply 'ensure-directories-exist-using-host (pathname-host pathspec) (merge-pathnames pathspec) keys)))
+  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
+    (values pathspec
+            (apply 'ensure-directories-exist-using-host
+                   (pathname-host path)
+                   path
+                   keys))))
 
 (defgeneric rename-file-using-host (host source dest))
 
 (defun rename-file (filespec new-name)
-  (let* ((source (merge-pathnames filespec))
-         (dest (merge-pathnames new-name source)))
+  (let* ((source (translate-logical-pathname (merge-pathnames filespec)))
+         (dest (translate-logical-pathname (merge-pathnames new-name source))))
     (assert (eql (pathname-host source) (pathname-host dest))
             (filespec new-name) "Cannot rename across hosts yet.")
     (rename-file-using-host (pathname-host source) source dest)
@@ -448,21 +484,28 @@ NAMESTRING as the second."
 (defgeneric file-write-date-using-host (host path))
 
 (defun file-write-date (pathspec)
-  (let ((path (merge-pathnames pathspec)))
+  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
     (assert (not (wild-pathname-p path)))
     (file-write-date-using-host (pathname-host path) path)))
+
+(defgeneric file-author-using-host (host path))
+
+(defun file-author (pathspec)
+  (let ((path (translate-logical-pathname (merge-pathnames pathspec))))
+    (assert (not (wild-pathname-p path)))
+    (file-author-using-host (pathname-host path) path)))
 
 (defgeneric delete-file-using-host (host path &key))
 
 (defun delete-file (filespec &rest args &key &allow-other-keys)
-  (let ((path (merge-pathnames filespec)))
+  (let ((path (translate-logical-pathname (merge-pathnames filespec))))
     (assert (not (wild-pathname-p path)))
     (apply #'delete-file-using-host (pathname-host path) path args)))
 
 (defgeneric expunge-directory-using-host (host path &key))
 
 (defun expunge-directory (filespec &rest args &key &allow-other-keys)
-  (let ((path (merge-pathnames filespec)))
+  (let ((path (translate-logical-pathname (merge-pathnames filespec))))
     (assert (not (wild-pathname-p path)))
     (apply #'expunge-directory-using-host (pathname-host path) path args)))
 
@@ -472,3 +515,168 @@ NAMESTRING as the second."
   (if (not (member host '(nil :unspecific)))
       nil
       *home-directory*))
+
+;;; Logical pathnames.
+
+(defclass logical-host ()
+  ((%name :initarg :name :reader host-name)
+   (%translations :initform '() :accessor logical-host-translations)))
+
+(defmethod print-object ((object logical-host) stream)
+  (print-unreadable-object (object stream :type t)
+    (format stream "~A" (host-name object))))
+
+(defclass logical-pathname (pathname)
+  ())
+
+(defmethod host-pathname-class ((host logical-host))
+  (find-class 'logical-pathname))
+
+(defmethod parse-namestring-using-host ((host logical-host) namestring junk-allowed)
+  (assert (not junk-allowed) (junk-allowed) "Junk-allowed not implemented yet")
+  (let ((relative :absolute)
+        (directories '())
+        (name nil)
+        (type nil)
+        (version nil)
+        (offset 0))
+    (flet ((consume-char (char)
+             (when (and (< offset (length namestring))
+                        (char= (char namestring offset) char))
+               (incf offset)
+               t))
+           (consume-word ()
+             (let ((chars (make-array 50
+                                      :element-type 'character
+                                      :fill-pointer 0
+                                      :adjustable t)))
+               (loop
+                  (when (>= offset (length namestring))
+                    (return))
+                  (let ((ch (char namestring offset)))
+                    (cond ((or (alphanumericp ch)
+                               (eql ch #\-)
+                               (eql ch #\*))
+                           (vector-push-extend (char-upcase ch) chars)
+                           (incf offset))
+                          (t (return)))))
+               (cond ((string= chars "*")
+                      :wild)
+                     ((string= chars "**")
+                      :wild-inferiors)
+                     ((string= chars "")
+                      nil)
+                     (t chars)))))
+      ;; [relative-directory-marker]
+      (when (consume-char #\;)
+        (setf relative :relative))
+      ;; {directory directory-marker}* [name]
+      (loop
+         (let ((word (consume-word)))
+           (when (not word)
+             (return))
+           (when (not (consume-char #\;))
+             ;; This is the name portion.
+             (when (eql word :wild-inferiors)
+               (error "Unexpected wild-inferiors in name position."))
+             (setf name word)
+             (return))
+           ;; Directory element.
+           (push word directories)))
+      ;; Possible type & version.
+      (when (consume-char #\.)
+        (let ((word (or (consume-word)
+                        (error "Expected type after type-marker."))))
+          (when (eql word :wild-inferiors)
+            (error "Unexpected wild-inferiors in type position."))
+          (setf type word)
+          (when (consume-char #\.)
+            (let ((word (or (consume-word)
+                            (error "Expected version after version-marker."))))
+              (when (eql word :wild-inferiors)
+                (error "Unexpected wild-inferiors in version position."))
+              (cond ((and (stringp word)
+                          (every #'digit-char-p word))
+                     (setf version (parse-integer word)))
+                    ((and (stringp word)
+                          (string= word "NEWEST"))
+                     (setf version :newest))
+                    (t (setf version word))))))))
+    (when (not (eql offset (length namestring)))
+      (error "Unexpected ~C in logical namestring." (char namestring offset)))
+    (make-instance 'logical-pathname
+                   :host host
+                   :device :unspecific
+                   :directory (list* relative (reverse directories))
+                   :name name
+                   :type type
+                   :version version)))
+
+(defmethod unparse-pathname ((path logical-pathname) (host logical-host))
+  (with-output-to-string (namestring)
+    (when (eql (first (pathname-directory path)) :relative)
+      (write-char #\; namestring))
+    (dolist (dir (rest (pathname-directory path)))
+      (cond ((eql dir :wild)
+             (write-string "*" namestring))
+            ((eql dir :wild-inferiors)
+             (write-string "**" namestring))
+            (t
+             (write-string dir namestring)))
+      (write-char #\; namestring))
+    (let ((name (pathname-name path))
+          (type (pathname-type path))
+          (version (pathname-version path)))
+      (cond ((eql name :wild)
+             (write-string "*" namestring))
+            (name
+             (write-string name namestring)))
+      (when type
+        (write-char #\. namestring)
+        (cond ((eql type :wild)
+               (write-string "*" namestring))
+              (t
+               (write-string type namestring)))
+        (when version
+          (write-char #\. namestring)
+          (cond ((eql version :wild)
+                 (write-string "*" namestring))
+                ((eql version :newest)
+                 (write-string "NEWEST" namestring))
+                (t
+                 (write type namestring))))))))
+
+(defun logical-pathname-translations (host)
+  (let ((host (or (find-host host nil)
+                  (error "Logical host ~S not yet defined." host))))
+    (check-type host logical-host)
+    (logical-host-translations host)))
+
+(defun (setf logical-pathname-translations) (new-translations host)
+  (let ((logical-host (find-host host nil)))
+    (when (not logical-host)
+      (check-type host string)
+      (setf logical-host (make-instance 'logical-host :name (string-upcase host))
+            (find-host host) logical-host))
+    (check-type logical-host logical-host)
+    (setf (logical-host-translations logical-host) new-translations)))
+
+(defun translate-logical-pathname (pathname &key)
+  (setf pathname (pathname pathname))
+  (when (not (typep pathname 'logical-pathname))
+    (return-from translate-logical-pathname pathname))
+  (loop
+     with host = (pathname-host pathname)
+     for translation in (logical-pathname-translations host)
+     for from-wildcard = (parse-namestring (first translation) host)
+     for to-wildcard = (pathname (second translation))
+     do
+       (when (pathname-match-p pathname from-wildcard)
+         (return (translate-logical-pathname
+                  (translate-pathname pathname from-wildcard to-wildcard))))
+     finally
+       (error "No matching translation for logical pathname ~S." pathname)))
+
+;; Create the SYS logical host if it doesn't exist.
+(when (not (find-host "SYS" nil))
+  (setf (logical-pathname-translations "SYS") '()))
