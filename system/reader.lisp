@@ -7,6 +7,9 @@
 (defvar *read-eval* t "Controls the #. reader macro.")
 (defvar *read-default-float-format* 'single-float)
 (defvar *read-suppress* nil)
+
+(defvar *read-lookahead-table*)
+
 (declaim (special *readtable* *standard-readtable*)
 	 (type readtable *readtable* *standard-readtable*))
 
@@ -826,23 +829,40 @@
 	 :format-control "Illegal syntax #~A."
 	 :format-arguments (list ch)))
 
+(defun read-#-equal-sign (stream ch p)
+  (declare (ignore ch))
+  (let ((value (read stream t nil t)))
+    (setf (gethash p *read-lookahead-table*) value)
+    value))
+
+(defun read-#-sharp-sign (stream ch p)
+  (declare (ignore stream ch))
+  (multiple-value-bind (value existsp)
+      (gethash p *read-lookahead-table*)
+    (when (not existsp)
+      (cerror "Read NIL" "Unknown read ## value ~D" p))
+    value))
+
 (defun read-common (stream eof-error-p eof-value recursive-p)
-  ;; Skip leading whitespace.
-  (loop (let ((c (read-char stream eof-error-p 'nil t)))
-	  (when (eql c 'nil)
-	    (return eof-value))
-	  (when (invalidp c)
-	    (error 'simple-reader-error :stream stream
-		   :format-control "Read invalid character ~S."
-		   :format-arguments (list c)))
-	  (unless (whitespace[2]p c)
-	    ;; Done reading whitespace. Dispatch to the appropriate
-	    ;; read subfunction.
-	    (let ((value (multiple-value-list (funcall (or (get-macro-character c)
-							   #'read-token)
-						       stream c))))
-	      (when value
-		(return (first value))))))))
+  (let ((*read-lookahead-table* (if recursive-p
+                                    *read-lookahead-table*
+                                    (make-hash-table))))
+    ;; Skip leading whitespace.
+    (loop (let ((c (read-char stream eof-error-p 'nil t)))
+            (when (eql c 'nil)
+              (return eof-value))
+            (when (invalidp c)
+              (error 'simple-reader-error :stream stream
+                     :format-control "Read invalid character ~S."
+                     :format-arguments (list c)))
+            (unless (whitespace[2]p c)
+              ;; Done reading whitespace. Dispatch to the appropriate
+              ;; read subfunction.
+              (let ((value (multiple-value-list (funcall (or (get-macro-character c)
+                                                             #'read-token)
+                                                         stream c))))
+                (when value
+                  (return (first value)))))))))
 
 (defun read (&optional input-stream (eof-error-p t) eof-value recursive-p)
   "READ parses the printed representation of an object from STREAM and builds such an object."
