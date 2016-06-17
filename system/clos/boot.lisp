@@ -166,6 +166,7 @@
    (argument-precedence-order
     :initarg :argument-precedence-order)
    (argument-reordering-table :initform nil)
+   (declarations :initarg :declarations :initform nil)
    )
   (:default-initargs
    :name nil

@@ -715,6 +715,11 @@ Other arguments are included directly."
 (defun (setf generic-function-argument-precedence-order) (new-value gf)
   (setf (slot-value gf 'argument-precedence-order) new-value))
 
+(defun generic-function-declarations (gf)
+  (slot-value gf 'declarations))
+(defun (setf generic-function-declarations) (new-value gf)
+  (setf (slot-value gf 'declarations) new-value))
+
 ;;; Internal accessor for effective method function table
 
 (defun classes-to-emf-table (gf)
@@ -907,7 +912,8 @@ has only has class specializer."
                                  method-class
                                  documentation
                                  method-combination
-                                 argument-precedence-order)
+                                 argument-precedence-order
+                                 declarations)
   (declare (ignore generic-function-class))
   (let ((gf (fc-std-allocate-instance *the-class-standard-gf*)))
     (setf (generic-function-name gf) name)
@@ -915,6 +921,7 @@ has only has class specializer."
     (setf (generic-function-methods gf) ())
     (setf (generic-function-method-class gf) method-class)
     (setf (generic-function-method-combination gf) method-combination)
+    (setf (generic-function-declarations gf) declarations)
     (setf (classes-to-emf-table gf) (make-hash-table))
     (setf (generic-function-argument-precedence-order gf) argument-precedence-order)
     (finalize-generic-function gf)
