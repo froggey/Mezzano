@@ -245,9 +245,10 @@
                              (lambda (,subforms ,env ,@store-variables)
                                (declare (system:lambda-name (defsetf ,access-fn))
                                         (ignorable ,env))
-                               (apply (lambda ,new-lambda-list
-                                        ,@body)
-                                      ,subforms)))))))
+                               (block ,access-fn
+                                 (apply (lambda ,new-lambda-list
+                                          ,@body)
+                                        ,subforms))))))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %defsetf-long-form (access-fn store-variable-count expansion-fn)
