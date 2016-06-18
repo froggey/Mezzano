@@ -392,7 +392,11 @@
     (x-compile-top-level-implicit-progn body env mode)))
 
 (defun make-macrolet-env (definitions env)
-  (list* (list* :macros (mapcar 'hack-macrolet-definition definitions)) env))
+  (list* (list* :macros
+                (loop
+                   for def in definitions
+                   collect (hack-macrolet-definition def env)))
+         env))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)
@@ -935,3 +939,9 @@ files will be compiled correctly.")
   (check-type integer integer)
   (check-type count (integer 1))
   (ash integer (- count)))
+
+(defun sys.int::eval-in-lexenv (lambda env)
+  ;; Just quietly ignore the environment for now...
+  ;; It's not currently needed by any of the cross-compiled files.
+  (declare (ignore env))
+  (eval lambda))
