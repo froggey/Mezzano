@@ -186,17 +186,22 @@
 		  (incf i))))
 	     (t (dotimes (i (array-dimension array 0))
 		  (setf (aref array i) (aref sequence i))))))
-    (2 (when (/= (array-dimension array 0) (length sequence))
-         (error "Malformed :INITIAL-CONTENTS: Dimension of axis 0 is ~S but ~S is ~S long."
-		(array-dimension array 0) sequence (length sequence)))
-       (dotimes (i (array-dimension array 0))
-         (let ((subsequence (elt sequence i)))
-           (when (/= (array-dimension array 1) (length subsequence))
-             (error "Malformed :INITIAL-CONTENTS: Dimension of axis 1 is ~S but ~S is ~S long."
-                    (array-dimension array 1) subsequence (length subsequence)))
-           (dotimes (j (array-dimension array 1))
-             (setf (aref array i j) (elt subsequence j))))))
-    (t (error "TODO: :INITIAL-CONTENTS for multidimensional arrays."))))
+    (t
+     (labels ((frob (axis indices dims contents)
+                (cond ((null dims)
+                       (setf (apply #'aref array indices) contents))
+                      ((/= (first dims) (length contents))
+                       (error "Malformed :INITIAL-CONTENTS: Dimension of axis ~D is ~S but ~S is ~S long."
+                              axis (first dims) sequence (length sequence)))
+                      (t
+                       (cond ((listp contents)
+                              (let ((i 0))
+                                (dolist (e contents)
+                                  (frob (1+ axis) (append indices (list i)) (rest dims) e)
+                                  (incf i))))
+                             (t (dotimes (i (length contents))
+                                  (frob (1+ axis) (append indices (list i)) (rest dims) (aref contents i)))))))))
+       (frob 0 '() (array-dimensions array) sequence)))))
 
 (define-compiler-macro aref (&whole whole array &rest subscripts)
   (case (length subscripts)
@@ -269,7 +274,7 @@
            (let ((array (if initial-element-p
                             (make-simple-array (first dimensions) element-type area initial-element)
                             (make-simple-array (first dimensions) element-type area))))
-             (when initial-contents
+             (when initial-contents-p
                (initialize-from-sequence array initial-contents))
              array))
           (displaced-to
@@ -285,7 +290,7 @@
              (when initial-element-p
                (dotimes (i total-size)
                  (setf (%row-major-aref array i) initial-element)))
-             (when initial-contents
+             (when initial-contents-p
                (initialize-from-sequence array initial-contents))
              array))
           (t (let* ((total-size (if (integerp dimensions)
@@ -295,7 +300,7 @@
                                        (make-simple-array total-size element-type area initial-element)
                                        (make-simple-array total-size element-type area)))
                     (array (%make-array-header +object-tag-array+ backing-array fill-pointer nil dimensions area)))
-               (when initial-contents
+               (when initial-contents-p
                  (initialize-from-sequence array initial-contents))
                array)))))
 
