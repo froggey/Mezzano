@@ -516,10 +516,11 @@
 		 (error 'simple-reader-error :stream stream
 			:format-control "No forms before dot in dotted list."
 			:format-arguments '()))
-	       (unless (char= (read-char stream t nil t) #\))
+	       (unless (char= (peek-char t stream t nil t) #\))
 		 (error 'simple-reader-error :stream stream
 			:format-control "Too many elements after dot in dotted list."
 			:format-arguments '()))
+               (read-char stream t nil t)
 	       (setf (cdr tail) final)
 	       (return (if *read-suppress* nil (cdr list))))))
 	 ;; Oops, it wasn't a dotted list and we can't unread
