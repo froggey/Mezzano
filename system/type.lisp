@@ -448,6 +448,11 @@
           (t (values nil nil)))))
 
 (defun typep (object type-specifier &optional environment)
+  (when (and (or (std-instance-p type-specifier)
+                 (funcallable-std-instance-p type-specifier))
+             (subclassp (class-of type-specifier) (find-class 'mezzano.clos:class)))
+    (return-from typep
+      (member type-specifier (mezzano.clos:class-precedence-list (class-of object)))))
   (let ((type-symbol (cond ((symbolp type-specifier)
 			    type-specifier)
 			   ((and (consp type-specifier)
