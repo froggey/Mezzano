@@ -278,8 +278,9 @@
          (return-from sys.int::%coerce-to-callable
            (fdefinition object)))
        (let ((fn (sys.int::%object-ref-t fref sys.int::+fref-function+)))
-         (or fn
-             (fdefinition object)))))))
+         (if (sys.int::%undefined-function-p fn)
+             (fdefinition object)
+             fn))))))
 
 ;; (defun eql (x y)
 ;;   (or (eq x y)
