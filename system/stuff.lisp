@@ -116,14 +116,6 @@
                 (dotimes (i (array-total-size x) t)
                   (when (not (equalp (row-major-aref x i) (row-major-aref y i)))
                     (return nil)))))
-    (structure-object
-     (and (typep y 'structure-object)
-          (eq (%struct-slot x 0) (%struct-slot y 0))
-          (dotimes (slot (length (structure-slots (%struct-slot x 0)))
-                    t)
-            (when (not (equalp (%struct-slot x (1+ slot))
-                               (%struct-slot y (1+ slot))))
-              (return nil)))))
     (hash-table
      (and (hash-table-p y)
           (eql (hash-table-count x)
@@ -139,6 +131,14 @@
                            (return nil))))
                      x)
             t)))
+    (structure-object
+     (and (typep y 'structure-object)
+          (eq (%struct-slot x 0) (%struct-slot y 0))
+          (dotimes (slot (length (structure-slots (%struct-slot x 0)))
+                    t)
+            (when (not (equalp (%struct-slot x (1+ slot))
+                               (%struct-slot y (1+ slot))))
+              (return nil)))))
     (t (equal x y))))
 
 (defun symbol-macro-expansion (symbol &optional env)
