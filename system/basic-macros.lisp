@@ -443,7 +443,7 @@
   `(progn
      (declaim (special ,name))
      (setq ,name ,initial-value)
-     'name))
+     ',name))
 
 (defmacro defconstant (name initial-value &optional docstring)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
