@@ -291,6 +291,50 @@
               whole))
         whole)))
 
+(defun ccase-error (keyplace key all-keys)
+  (restart-case
+      (error 'simple-type-error
+             :expected-type `(member ,@all-keys)
+             :datum key
+             :format-control "~S fell through CCASE form"
+             :format-arguments (list key))
+    (store-value (new-key)
+      :interactive (lambda ()
+                     (format t "Enter a new value (evaluated): ")
+                     (list (eval (read))))
+      :report (lambda (s)
+                (format s "Input a new value for ~S." keyplace))
+      new-key)))
+
+(defmacro ccase (keyplace &rest cases)
+  (let ((block (gensym "CCASE-BLOCK"))
+        (key (gensym "CCASE-KEY"))
+        (loop (gensym "CCASE-LOOP"))
+        (all-keys '()))
+    `(block ,block
+       (let ((,key ,keyplace))
+         (declare (ignorable ,key))
+         (tagbody
+            ,loop
+            (cond
+              ,@(loop
+                   for (keys . body) in cases
+                   ;; Collect keys.
+                   do (if (listp keys)
+                          (setf all-keys (union all-keys keys))
+                          (pushnew keys all-keys))
+                   collect
+                     `((member ,key ',(if (listp keys)
+                                          keys
+                                          (list keys)))
+                       ;; Empty body should evaluate to nil.
+                       (return-from ,block
+                         (progn ,@(or body '(nil))))))
+              (t
+               (setf ,key (ccase-error ',keyplace ,key ',all-keys)
+                     ,keyplace ,key)
+               (go ,loop))))))))
+
 (defmacro typecase (keyform &rest cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
@@ -323,6 +367,44 @@
                    :datum ,test-key
                    :format-control "~S fell through ETYPECASE form"
                    :format-arguments (list ,test-key)))))))
+
+(defun ctypecase-error (keyplace key types)
+  (restart-case
+      (error 'simple-type-error
+             :expected-type `(or ,@types)
+             :datum key
+             :format-control "~S fell through CTYPECASE form"
+             :format-arguments (list key))
+    (store-value (new-key)
+      :interactive (lambda ()
+                     (format t "Enter a new value (evaluated): ")
+                     (list (eval (read))))
+      :report (lambda (s)
+                (format s "Input a new value for ~S." keyplace))
+      new-key)))
+
+(defmacro ctypecase (keyplace &rest cases)
+  (let ((block (gensym "CTYPECASE-BLOCK"))
+        (key (gensym "CCASE-KEY"))
+        (loop (gensym "CCASE-LOOP"))
+        (all-keys (mapcar #'first cases)))
+    `(block ,block
+       (let ((,key ,keyplace))
+         (declare (ignorable ,key))
+         (tagbody
+            ,loop
+            (cond
+              ,@(loop
+                   for (type . body) in cases
+                   collect
+                     `((typep ,key ',type)
+                       ;; Empty body should evaluate to nil.
+                       (return-from ,block
+                         (progn ,@(or body '(nil))))))
+              (t
+               (setf ,key (ctypecase-error ',keyplace ,key ',all-keys)
+                     ,keyplace ,key)
+               (go ,loop))))))))
 
 (defmacro declaim (&rest declaration-specifiers)
   `(eval-when (:compile-toplevel :load-toplevel :execute)
