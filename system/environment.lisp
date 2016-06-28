@@ -13,8 +13,10 @@ A list of two elements, the short & long name." )
 
 ;;; 25.1.2 Debugging Utilities.
 
-(defgeneric documentation (x doc-type))
-(defgeneric (setf documentation) (new-value x doc-type))
+(defgeneric documentation (object doc-type)
+  (:argument-precedence-order doc-type object))
+(defgeneric (setf documentation) (new-value object doc-type)
+  (:argument-precedence-order new-value doc-type object))
 
 (defmethod documentation (x doc-type) nil)
 (defmethod (setf documentation) (new-value x doc-type) new-value)
