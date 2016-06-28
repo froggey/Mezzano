@@ -85,6 +85,27 @@
               `(char-bit ,access-form ,btemp) ;Accessing form.
               ))))
 
+(defun character-designator-p (object)
+  (or (characterp object)
+      (and (or (stringp object)
+               (symbolp object))
+           (eql (length (string object)) 1))))
+
+(deftype character-designator ()
+  `(satisfies character-designator-p))
+
+(defun character (character-designator)
+  (cond
+    ((characterp character-designator)
+     character-designator)
+    ((and (or (stringp character-designator)
+              (symbolp character-designator))
+          (eql (length (string character-designator)) 1))
+     (char (string character-designator) 0))
+    (t (error 'type-error
+              :expected-type 'character-designator
+              :datum character-designator))))
+
 (defun char-upcase (char)
   "If CHAR is a lowercase character, the corresponding uppercase character. Otherwise, CHAR is returned unchanged."
   (let ((code (if (<= (char-code char) #x7F)
@@ -194,6 +215,18 @@
       (check-type rhs character)
       (when (char= lhs rhs)
 	(return-from char/= nil)))))
+
+(defun char-not-equal (character &rest more-characters)
+  (declare (dynamic-extent more-characters))
+  (check-type character character)
+  (do ((lhs character (car n))
+       (n more-characters (cdr n)))
+      ((endp n)
+       t)
+    (dolist (rhs n)
+      (check-type rhs character)
+      (when (char-equal lhs rhs)
+	(return-from char-not-equal nil)))))
 
 (macrolet ((def (name comparator)
              `(defun ,name (character &rest more-characters)
