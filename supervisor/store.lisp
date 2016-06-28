@@ -72,7 +72,7 @@
   ;; Repopulate freelist.
   (let* ((frame (let ((*store-freelist-recursive-metadata-allocation* t))
                   (pager-allocate-page :other)))
-         (addr (+ +physical-map-base+ (ash frame 12))))
+         (addr (convert-to-pmap-address (ash frame 12))))
     (dotimes (i (truncate #x1000 +freelist-metadata-size+))
       (setf (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 0) 0
             (sys.int::memref-unsigned-byte-64 (+ addr (* i +freelist-metadata-size+)) 1) 0
@@ -340,7 +340,7 @@
                         estimated-count " freelist blocks required.")
       ;; Allocate blocks and pages.
       (dotimes (i estimated-count)
-        (let ((memory (+ +physical-map-base+ (ash (pager-allocate-page) 12)))
+        (let ((memory (convert-to-pmap-address (ash (pager-allocate-page) 12)))
               (disk-block (or (store-alloc 1)
                               (panic "Unable to allocate new freelist entries!"))))
           (setf (sys.int::memref-t memory 0) free-block-list

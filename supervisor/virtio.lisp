@@ -311,7 +311,7 @@
                           (progn (debug-print-line "Virtqueue allocation failed")
                                  (return-from virtio-configure-virtqueues nil))))
                (phys (* frame +4k-page-size+))
-               (virt (+ +physical-map-base+ phys)))
+               (virt (convert-to-pmap-address phys)))
           (debug-print-line "Virtqueue allocated at " phys " (" (ceiling size +4k-page-size+) ")")
           (dotimes (i size)
             (setf (sys.int::memref-unsigned-byte-8 virt i) 0))

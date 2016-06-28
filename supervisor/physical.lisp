@@ -205,7 +205,7 @@
              (incf (physical-buddy-bin-count buddy-allocator-address avail-bin))))
         (when mezzano.runtime::*paranoid-allocation*
           (dotimes (i (* n-pages 512))
-            (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash frame 12)) i) -1)))
+            (setf (sys.int::memref-signed-byte-64 (convert-to-pmap-address (ash frame 12)) i) -1)))
         (when *verbose-physical-allocation*
           (debug-print-line "Allocated " n-pages " pages " frame))
         frame))))
@@ -287,7 +287,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (eql (physical-page-frame-type page-number) :free)) "Tried to free free frame.")
   (when mezzano.runtime::*paranoid-allocation*
     (dotimes (i (* n-pages 512))
-      (setf (sys.int::memref-signed-byte-64 (+ +physical-map-base+ (ash page-number 12)) i) -1)))
+      (setf (physical-memref-signed-byte-64 (ash page-number 12) i) -1)))
   (when *verbose-physical-allocation*
     (debug-print-line "Freeing " n-pages " pages " page-number))
   (safe-without-interrupts (page-number n-pages)
@@ -325,6 +325,10 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                 (ash 1 bin)))))
       (values n-free-pages total-pages))))
 
+(declaim (inline convert-to-pmap-address))
+(defun convert-to-pmap-address (physical-address)
+  (+ +physical-map-base+ physical-address))
+
 ;;; Accessors into physical memory.
 (declaim (inline physical-memref-unsigned-byte-8
                  physical-memref-unsigned-byte-16
@@ -337,23 +341,23 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                  (setf physical-memref-unsigned-byte-64)
                  (setf physical-memref-t)))
 (defun physical-memref-unsigned-byte-8 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-8 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-16 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-16 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-32 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-32 (convert-to-pmap-address address) index))
 (defun physical-memref-unsigned-byte-64 (address &optional (index 0))
-  (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index))
+  (sys.int::memref-unsigned-byte-64 (convert-to-pmap-address address) index))
 (defun physical-memref-t (address &optional (index 0))
-  (sys.int::memref-t (+ +physical-map-base+ address) index))
+  (sys.int::memref-t (convert-to-pmap-address address) index))
 
 (defun (setf physical-memref-unsigned-byte-8) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-8 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-16) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-16 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-32) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-32 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-unsigned-byte-64) (value address &optional (index 0))
-  (setf (sys.int::memref-unsigned-byte-64 (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-unsigned-byte-64 (convert-to-pmap-address address) index) value))
 (defun (setf physical-memref-t) (value address &optional (index 0))
-  (setf (sys.int::memref-t (+ +physical-map-base+ address) index) value))
+  (setf (sys.int::memref-t (convert-to-pmap-address address) index) value))

@@ -355,7 +355,7 @@ This is used to implement the INTRQ_Wait state."
 
 (defun ata-configure-prdt (controller phys-addr n-octets direction)
   (let* ((prdt (ata-controller-prdt-phys controller))
-         (prdt-virt (+ +physical-map-base+ prdt)))
+         (prdt-virt (convert-to-pmap-address prdt)))
     (do ((offset 0))
         ((<= n-octets #x10000)
          ;; Write final chunk.
@@ -400,7 +400,7 @@ This is used to implement the INTRQ_Wait state."
            ;; Transfer is small enough that the bounce page can be used.
            (let* ((bounce-frame (ata-controller-bounce-buffer controller))
                   (bounce-phys (ash bounce-frame 12))
-                  (bounce-virt (+ +physical-map-base+ bounce-phys)))
+                  (bounce-virt (convert-to-pmap-address bounce-phys)))
              (when (eql what :write)
                (%fast-page-copy bounce-virt mem-addr))
              (funcall dma-fn controller device lba count bounce-phys)

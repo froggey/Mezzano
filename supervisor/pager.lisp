@@ -71,7 +71,7 @@
   (sys.int::%fill-words addr 0 512))
 
 (defun zeroize-physical-page (physical-addr)
-  (sys.int::%fill-words (+ +physical-map-base+ physical-addr) 0 512))
+  (sys.int::%fill-words (convert-to-pmap-address physical-addr) 0 512))
 
 (declaim (inline block-info-present-p))
 (defun block-info-present-p (block-info)
@@ -104,7 +104,7 @@
 (defun allocate-page (&optional mandatory)
   (let ((frame (allocate-physical-pages 1 :mandatory-p mandatory)))
     (when frame
-      (+ +physical-map-base+ (* frame +4k-page-size+)))))
+      (convert-to-pmap-address (* frame +4k-page-size+)))))
 
 (defun free-page (page)
   (let ((frame (truncate (- page +physical-map-base+) +4k-page-size+)))
@@ -181,7 +181,7 @@ the data. Free the page with FREE-PAGE when done."
     (let* ((sector-size (disk-sector-size disk))
            (page (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)
                                           :mandatory-p "DETECT-PAGING-DISK disk buffer"))
-           (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
+           (page-addr (convert-to-pmap-address (* page +4k-page-size+))))
       ;; Read first 4k, figure out what to do with it.
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
         (panic "Unable to read first block on disk " disk))
@@ -214,16 +214,17 @@ the data. Free the page with FREE-PAGE when done."
       (when allocate
         ;; No PT. Allocate one.
         (let* ((frame (pager-allocate-page :page-table))
-               (addr (+ +physical-map-base+ (ash frame 12))))
+               (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
                                                             +page-table-present+
                                                             +page-table-write+))
           addr))
-      (+ +physical-map-base+ (logand (page-table-entry page-table index) +page-table-address-mask+))))
+      (convert-to-pmap-address (logand (page-table-entry page-table index)
+                                       +page-table-address-mask+))))
 
 (defun get-pte-for-address (address &optional (allocate t))
-  (let* ((cr3 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF))))
+  (let* ((cr3 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF))))
          (pdp            (descend-page-table cr3  (address-l4-bits address) allocate))
          (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
          (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
@@ -240,7 +241,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                    ((not allocate)
                     (return-from block-info-for-virtual-address-1 nil))
                    (t (let* ((frame (pager-allocate-page :other))
-                             (new-level (+ +physical-map-base+ (* frame +4k-page-size+))))
+                             (new-level (convert-to-pmap-address (* frame +4k-page-size+))))
                         (zeroize-page new-level)
                         (setf (sys.int::memref-signed-byte-64 map entry) new-level)
                         new-level))))))
@@ -362,7 +363,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (panic "Not implemented! Mapping new wired page at " address " but not zero!"))
     ;; No page allocated. Allocate a page and read the data.
     (let* ((frame (pager-allocate-page :wired))
-           (addr (+ +physical-map-base+ (ash frame 12))))
+           (addr (convert-to-pmap-address (ash frame 12))))
       (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
             (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
       ;; Block is zero-filled.
@@ -516,7 +517,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                  (* block-id
                                     (ceiling +4k-page-size+ (disk-sector-size *paging-disk*)))
                                  (ceiling +4k-page-size+ (disk-sector-size *paging-disk*))
-                                 (+ +physical-map-base+ (ash candidate 12)))
+                                 (convert-to-pmap-address (ash candidate 12)))
             (unless (disk-await-request *pager-disk-request*)
               (panic "Unable to swap page to disk."))))
         ;; Now it can be reused.
@@ -572,7 +573,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (return-from wait-for-page nil))
       ;; No page allocated. Allocate a page and read the data.
       (let* ((frame (pager-allocate-page))
-             (addr (+ +physical-map-base+ (ash frame 12)))
+             (addr (convert-to-pmap-address (ash frame 12)))
              (is-zero-page nil))
         (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
               (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
@@ -634,7 +635,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         (let ((frame (allocate-physical-pages 1 :type :active)))
           (when frame
             ;(debug-print-line "Zero page fast path for " fault-address)
-            (let ((page-addr (+ +physical-map-base+ (ash frame 12))))
+            (let ((page-addr (convert-to-pmap-address (ash frame 12))))
               (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
                     (physical-page-virtual-address frame) (logand fault-address (lognot (1- +4k-page-size+))))
               (append-to-page-replacement-list frame)
@@ -686,7 +687,7 @@ It will put the thread to sleep, while it waits for the page."
   (assert (page-aligned-p size))
   (with-mutex (*vm-lock*)
     (dotimes (i (truncate size #x1000))
-      (let ((pte (get-pte-for-address (+ +physical-map-base+ base (* i #x1000)))))
+      (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
         (when (not (page-present-p pte 0))
           (setf (page-table-entry pte 0) (logior (+ base (* i #x1000))
                                                  +page-table-present+

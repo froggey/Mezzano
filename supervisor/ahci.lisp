@@ -374,10 +374,10 @@
 (defun dump-mem (base count)
   (dotimes (i count)
     (debug-print-line (+ base (* i 16)) ":"
-                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 0))
-                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 1))
-                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 2))
-                      " " (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ base) (+ (* i 4) 3)))))
+                      " " (physical-memref-unsigned-byte-32 base (+ (* i 4) 0))
+                      " " (physical-memref-unsigned-byte-32 base (+ (* i 4) 1))
+                      " " (physical-memref-unsigned-byte-32 base (+ (* i 4) 2))
+                      " " (physical-memref-unsigned-byte-32 base (+ (* i 4) 3)))))
 
 (defun ahci-port-reset (ahci port)
   (debug-print-line "Resetting port " port)
@@ -463,7 +463,7 @@
   ;; Dump the IDENTIFY data just after the command table.
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
-         (identify-data (+ +physical-map-base+ identify-data-phys)))
+         (identify-data (convert-to-pmap-address identify-data-phys)))
     (ahci-setup-buffer ahci port identify-data-phys 512 nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port +ata-command-identify+)
@@ -506,8 +506,8 @@
 (defun (setf ahci-fis) (value ahci port offset)
   "Write an octet into the command FIS for PORT."
   (let* ((command-table (ahci-port-command-table (ahci-port ahci port)))
-         (ct (+ +physical-map-base+ command-table +ahci-ct-CFIS+)))
-    (setf (sys.int::memref-unsigned-byte-8 ct offset) value)))
+         (ct (+ command-table +ahci-ct-CFIS+)))
+    (setf (physical-memref-unsigned-byte-8 ct offset) value)))
 
 (defun ahci-setup-lba28 (ahci port lba count)
   "Set registers in the FIS for an LBA28 command."
@@ -540,25 +540,23 @@
 
 (defun ahci-setup-buffer (ahci port buffer length write)
   "Configure the DMA buffer for this command."
-  (let* ((command-table (ahci-port-command-table (ahci-port ahci port)))
-         (ct (+ +physical-map-base+ command-table))
-         (command-list (ahci-port-command-list (ahci-port ahci port)))
-         (cl (+ +physical-map-base+ command-list)))
+  (let* ((ct (ahci-port-command-table (ahci-port ahci port)))
+         (cl (ahci-port-command-list (ahci-port ahci port))))
     ;; Update write bit in the command header.
     (setf (ldb (byte 1 +ahci-ch-di-W+)
-               (sys.int::memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+))
+               (physical-memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+))
           (if write 1 0))
     ;; Point the PRDT 0 to the buffer.
-    (setf (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBA+) (ldb (byte 32 0) buffer)
-          (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBAU+) (ldb (byte 32 32) buffer))
-    (setf (sys.int::memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-descriptor-information+) (ash (1- length) +ahci-PRDT-di-DBC-position+))))
+    (setf (physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBA+) (ldb (byte 32 0) buffer)
+          (physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBAU+) (ldb (byte 32 32) buffer))
+    (setf (physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-descriptor-information+) (ash (1- length) +ahci-PRDT-di-DBC-position+))))
 
 (defun ahci-run-command (ahci port command)
   (let* ((port-info (ahci-port ahci port))
          (irq-latch (ahci-port-irq-latch port-info)))
     ;; Reset PRDBC, stop it accumulating over commands. I'm not sure how the HBA actually uses this,
     ;; if it keeps track of DMA progress or if it's just for reporting.
-    (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+ (ahci-port-command-list port-info)) +ahci-ch-PRDBC+) 0)
+    (setf (physical-memref-unsigned-byte-32 (ahci-port-command-list port-info) +ahci-ch-PRDBC+) 0)
     ;; Final FIS configuration.
     (setf (ahci-fis ahci port +sata-register-fis-type+) +sata-fis-register-h2d+
           (ahci-fis ahci port +sata-register-command-register-update-field+) (ash 1 +sata-register-command-register-update-bit+)
@@ -601,7 +599,7 @@
           (ahci-port-received-fis (ahci-port ahci port)) received-fis
           (ahci-port-command-table (ahci-port ahci port)) command-table)
     ;; Clear Command List & RFIS before programming.
-    (zeroize-page (+ +physical-map-base+ port-data-phys))
+    (zeroize-physical-page port-data-phys)
     ;; Write addresses.
     (setf (ahci-port-register ahci port +ahci-register-PxCLB+)
           (ldb (byte 32 0) command-list))
@@ -652,15 +650,15 @@
                                                                       (ash 1 +ahci-PxIS-HBDS+)
                                                                       (ash 1 +ahci-PxIS-HBFS+)
                                                                       (ash 1 +ahci-PxIS-TFES+)))
-    (let ((cl (+ +physical-map-base+ command-list)))
+    (let ((cl command-list))
       ;; Prep command header 0.
-      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+)
+      (setf (physical-memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+)
             ;; Sending a register FIS (length 5) with one PRDT entry.
             (logior (ash +sata-register-fis-size+ +ahci-ch-di-CFL-position+)
                     (ash 1 +ahci-ch-di-PRDTL-position+)
                     (ash 1 +ahci-ch-di-P+)))
-      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-CTBA+) (ldb (byte 32 0) command-table))
-      (setf (sys.int::memref-unsigned-byte-32 cl +ahci-ch-CTBAU+) (ldb (byte 32 32) command-table)))))
+      (setf (physical-memref-unsigned-byte-32 cl +ahci-ch-CTBA+) (ldb (byte 32 0) command-table))
+      (setf (physical-memref-unsigned-byte-32 cl +ahci-ch-CTBAU+) (ldb (byte 32 32) command-table)))))
 
 (defun ahci-port-irq-handler (ahci port)
   (let ((state (ahci-port-register ahci port +ahci-register-PxIS+)))

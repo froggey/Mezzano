@@ -155,40 +155,32 @@
       ;; Port IO.
       (system:io-port/8 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
-                                          (logand location (lognot #b1111))
-                                          offset)
-                                       0)))
+      (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                          offset))))
 
 (defun pci-io-region/16 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (system:io-port/16 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
-                                           (logand location (lognot #b1111))
-                                           offset)
-                                        0)))
+      (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                           offset))))
 
 (defun pci-io-region/32 (location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (system:io-port/32 (+ (logand location (lognot #b11)) offset))
       ;; MMIO.
-      (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
-                                           (logand location (lognot #b1111))
-                                           offset)
-                                       0)))
+      (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                           offset))))
 
 (defun (setf pci-io-region/8) (value location offset)
   (if (logbitp 0 location)
       ;; Port IO.
       (setf (system:io-port/8 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-8 (+ +physical-map-base+
-                                                (logand location (lognot #b1111))
-                                                offset)
-                                             0)
+      (setf (physical-memref-unsigned-byte-8 (+ (logand location (lognot #b1111))
+                                                offset))
             value)))
 
 (defun (setf pci-io-region/16) (value location offset)
@@ -196,10 +188,8 @@
       ;; Port IO.
       (setf (system:io-port/16 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-16 (+ +physical-map-base+
-                                                 (logand location (lognot #b1111))
-                                                 offset)
-                                              0)
+      (setf (physical-memref-unsigned-byte-16 (+ (logand location (lognot #b1111))
+                                                 offset))
             value)))
 
 (defun (setf pci-io-region/32) (value location offset)
@@ -207,10 +197,8 @@
       ;; Port IO.
       (setf (system:io-port/32 (+ (logand location (lognot #b11)) offset)) value)
       ;; MMIO.
-      (setf (sys.int::memref-unsigned-byte-32 (+ +physical-map-base+
-                                                 (logand location (lognot #b1111))
-                                                 offset)
-                                              0)
+      (setf (physical-memref-unsigned-byte-32 (+ (logand location (lognot #b1111))
+                                                 offset))
             value)))
 
 (defun map-pci-devices (fn)

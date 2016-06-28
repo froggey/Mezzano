@@ -89,17 +89,18 @@
        for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
        for other-frame = (physical-page-frame-next page-frame)
        do
-         (%fast-page-copy (+ +physical-map-base+ (ash other-frame 12)) wired-page)
+         (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
+                          wired-page)
          (snapshot-add-to-writeback-list other-frame))))
 
 (defun snapshot-mark-cow-dirty-pages ()
   ;; Mark all non-wired dirty pages as read-only and set their CoW bits.
-  (let ((pml4 (+ +physical-map-base+ (logand (sys.int::%cr3) (lognot #xFFF)))))
+  (let ((pml4 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF)))))
     (labels ((mark-level (pml index next-fn)
                ;;(debug-print-line " PML " pml " index " index)
                (let* ((entry (sys.int::memref-unsigned-byte-64 pml index))
-                      (next-pml (+ +physical-map-base+
-                                   (logand entry +page-table-address-mask+))))
+                      (next-pml (convert-to-pmap-address
+                                 (logand entry +page-table-address-mask+))))
                  (when (and (logtest entry +page-table-present+)
                             (logtest entry +page-table-accessed+))
                    (dotimes (i 512)
@@ -136,7 +137,7 @@
       (loop for i from 65 below 256 ; stack area to end of persistent memory.
          do (mark-pml4e-cow i))
       ;; Cover the part of the pinned area that got missed as well.
-      (let ((pml3 (+ +physical-map-base+ (logand (sys.int::memref-unsigned-byte-64 pml4 0) +page-table-address-mask+))))
+      (let ((pml3 (convert-to-pmap-address (logand (sys.int::memref-unsigned-byte-64 pml4 0) +page-table-address-mask+))))
         ;; Skip first 2 entries, the wired area.
         (loop for i from 2 below 512
            do (mark-pml3e-cow pml3 i)))))
@@ -148,7 +149,7 @@
          (old-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
     (ensure (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
             "Copying non-CoW page?")
-    (%fast-page-copy (+ +physical-map-base+ (ash new-frame 12))
+    (%fast-page-copy (convert-to-pmap-address (ash new-frame 12))
                      (logand fault-addr (lognot #xFFF)))
     (setf (physical-page-frame-block-id new-frame) (physical-page-frame-block-id old-frame)
           (physical-page-virtual-address new-frame) (physical-page-virtual-address old-frame))
@@ -192,8 +193,8 @@ Returns 4 values:
           (:active-writeback
            ;; Page is mapped in memory.
            ;; Copy to the bounce buffer.
-           (%fast-page-copy (+ +physical-map-base+ (ash *snapshot-bounce-buffer-page* 12))
-                            (+ +physical-map-base+ (ash frame 12)))
+           (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
+                            (convert-to-pmap-address (ash frame 12)))
            ;; Allow access to the page again.
            (let ((pte (or (get-pte-for-address address nil)
                           (panic "No PTE for CoW address?"))))
@@ -238,7 +239,7 @@ Returns 4 values:
        (multiple-value-bind (frame freep block-id address)
            (pop-pending-snapshot-page)
          #+(or)(debug-print-line "Writing back page " frame "/" block-id "/" address)
-         (or (snapshot-write-disk block-id (+ +physical-map-base+ (ash frame 12)))
+         (or (snapshot-write-disk block-id (convert-to-pmap-address (ash frame 12)))
              (panic "Unable to write page to disk!"))
          (when freep
            (release-physical-pages frame 1))))))
@@ -298,7 +299,7 @@ Returns 4 values:
 (defun snapshot-block-map-outer-level (bml next-fn address-part)
   (let ((bml-disk (or (store-alloc 1)
                       (panic "Unable to allocate disk space for new block map.")))
-        (bml-memory (+ +physical-map-base+ (* (pager-allocate-page :other) +4k-page-size+)))
+        (bml-memory (convert-to-pmap-address (* (pager-allocate-page :other) +4k-page-size+)))
         (bml-count 0)
         (next-address-part (ash address-part 9)))
     (dotimes (i 512)
@@ -361,7 +362,7 @@ Returns 4 values:
     (snapshot-write-back-pages)
     ;; Update the block map & freelist entries in the header.
     (debug-print-line "Updating disk header.")
-    (let ((header (+ +physical-map-base+ (* (with-mutex (*vm-lock*)
+    (let ((header (convert-to-pmap-address (* (with-mutex (*vm-lock*)
                                               (pager-allocate-page :other))
                                             +4k-page-size+))))
       (disk-submit-request *snapshot-disk-request*

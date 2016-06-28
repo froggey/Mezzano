@@ -116,7 +116,7 @@
     (let* ((sector-size (disk-sector-size disk))
            (page (allocate-physical-pages (ceiling sector-size +4k-page-size+)
                                           :mandatory-p "DETECT-DISK disk buffer"))
-           (page-addr (+ +physical-map-base+ (* page +4k-page-size+))))
+           (page-addr (convert-to-pmap-address (* page +4k-page-size+))))
       (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
         (panic "Unable to read first block on disk " disk))
       ;; Look for a PC partition table.
@@ -195,7 +195,7 @@
        (when (not bounce-buffer)
          (return-from process-one-disk-request
            (values nil "Unable to allocate disk bounce buffer.")))
-       (setf real-buffer (+ +physical-map-base+ (* bounce-buffer +4k-page-size+)))
+       (setf real-buffer (convert-to-pmap-address (* bounce-buffer +4k-page-size+)))
        (when (eql direction :write)
          (dotimes (i (sys.int::%object-header-data buffer))
            (setf (sys.int::memref-unsigned-byte-8 real-buffer i)
