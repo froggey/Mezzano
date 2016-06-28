@@ -677,6 +677,11 @@ NAMESTRING as the second."
      finally
        (error "No matching translation for logical pathname ~S." pathname)))
 
+(defun logical-pathname (pathspec)
+  (let ((pathname (pathname pathspec)))
+    (check-type pathname logical-pathname)
+    pathname))
+
 ;; Create the SYS logical host if it doesn't exist.
 (when (not (find-host "SYS" nil))
   (setf (logical-pathname-translations "SYS") '()))
