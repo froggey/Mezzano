@@ -227,6 +227,7 @@
                                          sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             ;; Length check.
+            `(sys.lap-x86:and64 :rdx ,(lognot (1- (ash 1 sys.int::+object-data-shift+))))
             `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+object-data-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
@@ -490,6 +491,8 @@
         (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
                               (second offset))))
     (emit-trailer (overflow-label)
+      ;; Undo the shift, then call the helper.
+      (emit `(sys.lap-x86:rcr64 :rax 1))
       (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::%%make-bignum-64-rax))
             `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
             `(sys.lap-x86:jmp ,resume)))
@@ -531,6 +534,7 @@
             `(sys.lap-x86:cmp8 :dl ,(ash sys.int::+object-tag-bignum+
                                          sys.int::+object-type-shift+))
             `(sys.lap-x86:jne ,type-error-label)
+            `(sys.lap-x86:and64 :rdx ,(lognot (1- (ash 1 sys.int::+object-data-shift+))))
             `(sys.lap-x86:cmp64 :rdx ,(ash 1 sys.int::+object-data-shift+))
             `(sys.lap-x86:jne ,type-error-label)
             `(sys.lap-x86:mov64 :rdx ,(object-ea :r8 :slot 0))
