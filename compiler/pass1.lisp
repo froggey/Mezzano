@@ -518,20 +518,23 @@
   "Turn a MACROLET function definition into a name and expansion function."
   (destructuring-bind (name lambda-list &body forms) def
     ;; FIXME: docstring permitted here.
-    (let ((whole (gensym "WHOLE"))
-          (env (gensym "ENV")))
-      (multiple-value-bind (body declares)
-          (parse-declares forms)
-        (cons name (sys.int::eval-in-lexenv
-                    `(lambda (,whole ,env)
-                       (declare (ignorable ,whole ,env)
-                                (system:lambda-name (macrolet ,name)))
-                       (destructuring-bind ,lambda-list (cdr ,whole)
-                         (declare ,@declares)
-                         (block ,name ,@body)))
-                    (remove-if-not (lambda (x) (member x '(:macros :symbol-macros)))
-                                   lexenv
-                                   :key 'first)))))))
+    (let ((whole (gensym "WHOLE")))
+      (multiple-value-bind (lambda-list env)
+          (sys.int::fix-lambda-list-environment lambda-list)
+        (when (not env)
+          (setf env (gensym "ENV")))
+        (multiple-value-bind (body declares)
+            (parse-declares forms)
+          (cons name (sys.int::eval-in-lexenv
+                      `(lambda (,whole ,env)
+                         (declare (ignorable ,whole ,env)
+                                  (system:lambda-name (macrolet ,name)))
+                         (destructuring-bind ,lambda-list (cdr ,whole)
+                           (declare ,@declares)
+                           (block ,name ,@body)))
+                      (remove-if-not (lambda (x) (member x '(:macros :symbol-macros)))
+                                     lexenv
+                                     :key 'first))))))))
 
 (defun pass1-macrolet (form env)
   (destructuring-bind (definitions &body body) (cdr form)
