@@ -128,9 +128,9 @@
     (declare (ignore layout))
     (let* ((val (slot-contents slots location)))
       (if (eq *secret-unbound-value* val)
-          (slot-unbound (class-of instance)
-                        instance
-                        (slot-definition-name (elt (class-slots (class-of instance)) location)))
+          (values (slot-unbound (class-of instance)
+                                instance
+                                (slot-definition-name (elt (class-slots (class-of instance)) location))))
           val))))
 
 (defun fast-slot-write (new-value instance location)
@@ -176,7 +176,7 @@
       (slot-location-in-instance instance slot-name)
     (let ((val (slot-contents slots location)))
       (if (eq *secret-unbound-value* val)
-          (slot-unbound (class-of instance) instance slot-name)
+          (values (slot-unbound (class-of instance) instance slot-name))
           val))))
 (defun slot-value (object slot-name)
   (cond ((std-class-p (class-of (class-of object)))
