@@ -252,6 +252,32 @@
         (return)))
     (write-char #\) stream)))
 
+(defun write-bit-vector (object stream)
+  (write-char #\# stream)
+  (write-char #\* stream)
+  (dotimes (i (length object))
+    (if (zerop (aref object i))
+        (write-char #\0 stream)
+        (write-char #\1 stream))))
+
+(defun write-complex (object stream)
+  (write-string "#C(" stream)
+  (write (realpart object) :stream stream)
+  (write-char #\Space stream)
+  (write (imagpart object) :stream stream)
+  (write-char #\) stream))
+
+(defun write-character (object stream)
+  (cond ((or *print-readably* *print-escape*)
+         (write-char #\# stream)
+         (write-char #\\ stream)
+         (cond ((and (or *print-space-char-ansi* (not (eql object #\Space)))
+                     (not (eql object #\Newline))
+                     (standard-char-p object))
+                (write-char object stream))
+               (t (write-string (char-name object) stream))))
+        (t (write-char object stream))))
+
 (defun write-object (object stream)
   (typecase object
     (integer
@@ -286,15 +312,7 @@
             (write-char #\" stream))
            (t (write-string object stream))))
     (character
-     (cond ((or *print-readably* *print-escape*)
-            (write-char #\# stream)
-            (write-char #\\ stream)
-            (cond ((and (or *print-space-char-ansi* (not (eql object #\Space)))
-                        (not (eql object #\Newline))
-                        (standard-char-p object))
-                   (write-char object stream))
-                  (t (write-string (char-name object) stream))))
-           (t (write-char object stream))))
+     (write-character object stream))
     (function
      (cond ((and (not *print-safe*)
                  (typep object 'mezzano.clos:funcallable-standard-object))
@@ -306,20 +324,11 @@
                       (write name :stream stream))
                     (print-unreadable-object (object stream :type t :identity t)))))))
     (bit-vector
-     (write-char #\# stream)
-     (write-char #\* stream)
-     (dotimes (i (length object))
-       (if (zerop (aref object i))
-           (write-char #\0 stream)
-           (write-char #\1 stream))))
+     (write-bit-vector object stream))
     (vector
      (write-vector object stream))
     (complex
-     (write-string "#C(" stream)
-     (write (realpart object))
-     (write-char #\Space stream)
-     (write (imagpart object))
-     (write-char #\) stream))
+     (write-complex object stream))
     (t (if *print-safe*
            (print-unreadable-object (object stream :type t :identity t))
            (print-object object stream))))
