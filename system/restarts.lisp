@@ -4,6 +4,7 @@
 (in-package :sys.int)
 
 (defparameter *active-restarts* nil)
+(defvar *restart-associations* '())
 
 (defstruct (restart
 	     (:constructor make-restart (name function &key interactive-function report-function test-function)))
@@ -25,23 +26,35 @@
 	(funcall test-fn condition)
 	t)))
 
+(defun restart-associated-with-condition-p (restart condition)
+  (or (not condition)
+      (loop
+         with restart-associated-p = nil
+         for (test-condition . test-restarts) in *restart-associations*
+         do
+           (when (member restart test-restarts)
+             (setf restart-associated-p t)
+             (when (eql test-condition condition)
+               (return t)))
+         finally (return (not restart-associated-p)))))
+
 (defun compute-restarts (&optional condition)
   (let ((restarts '()))
     (dolist (restart-cluster *active-restarts*)
       (dolist (restart restart-cluster)
-        (when (or (not condition)
-                  (test-restart restart condition))
+        (when (and (restart-associated-with-condition-p restart condition)
+                   (test-restart restart condition))
           (push restart restarts))))
     (reverse restarts)))
 
 (defun find-restart (identifier &optional condition)
-  (declare (type (or symbol restart) identifier))
+  (check-type identifier (or symbol restart))
   (if (symbolp identifier)
       (dolist (restarts *active-restarts*)
 	(dolist (r restarts)
 	  (when (and (eql identifier (restart-name r))
-                     (or (not condition)
-                         (test-restart r condition)))
+                     (and (restart-associated-with-condition-p r condition)
+                          (test-restart r condition)))
 	    (return-from find-restart r))))
       identifier))
 
@@ -59,6 +72,15 @@
 
 (defun invoke-restart (restart &rest arguments)
   (apply (restart-function (find-restart-or-die restart)) arguments))
+
+(defmacro with-condition-restarts (condition-form restarts-form &body body)
+  `(call-with-condition-restarts ,condition-form ,restarts-form
+                                 (lambda () (progn ,@body))))
+
+(defun call-with-condition-restarts (condition restarts fn)
+  (let ((*restart-associations* (list* (list* condition restarts)
+                                       *restart-associations*)))
+    (funcall fn)))
 
 (defmacro restart-bind (clauses &rest forms)
   `(let ((*active-restarts* (cons (list ,@(loop
