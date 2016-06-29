@@ -414,3 +414,13 @@
                         offset))
               (error "Not a parseable integer ~S." string)))
         (setf n (+ (* n radix) weight))))))
+
+(defun logcount (integer)
+  (check-type integer integer)
+  (do ((n 0))
+      ((or (eql integer 0)
+           (eql integer -1))
+       n)
+    (when (logtest integer 1)
+      (incf n))
+    (setf integer (ash integer -1))))

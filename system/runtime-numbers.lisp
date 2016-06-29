@@ -1294,3 +1294,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
           (return a))
      (psetf b (mod a b)
             a b)))
+
+(defun conjugate (number)
+  (if (complexp number)
+      (complex (realpart number)
+               (- (imagpart number)))
+      number))
