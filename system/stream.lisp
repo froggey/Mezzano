@@ -505,7 +505,10 @@
   (print-unreadable-object (object stream :type t)
     (format stream "for ~S" (synonym-stream-symbol object))))
 
-(defclass string-output-stream (sys.gray:fundamental-character-output-stream)
+(defclass string-stream (sys.gray:fundamental-character-stream) ())
+
+(defclass string-output-stream (sys.gray:fundamental-character-output-stream
+                                string-stream)
   ((element-type :initarg :element-type)
    (string :initarg :string))
   (:default-initargs :string nil))
@@ -827,7 +830,8 @@ CASE may be one of:
   (stream-element-type (shadow-stream-primary stream)))
 
 (defclass string-input-stream (sys.gray:fundamental-character-input-stream
-                               sys.gray:unread-char-mixin)
+                               sys.gray:unread-char-mixin
+                               string-stream)
   ((string :initarg :string)
    (start :initarg :start)
    (end :initarg :end)))
@@ -883,7 +887,6 @@ CASE may be one of:
      (format *query-io* "Please respond with \"yes\" or \"no\". ")))
 
 ;;; Gray stream default methods.
-
 
 (defmethod stream-element-type ((stream sys.gray:fundamental-character-stream))
   'character)
