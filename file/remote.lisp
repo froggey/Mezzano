@@ -4,7 +4,8 @@
 ;;; Simple remote file protocol client.
 
 (defpackage :mezzano.file-system.remote
-  (:export #:add-simple-file-host)
+  (:export #:add-simple-file-host
+           #:test-host-connectivity)
   (:use #:cl #:mezzano.file-system))
 
 (in-package :mezzano.file-system.remote)
@@ -561,3 +562,14 @@
 
 (defmethod stream-truename ((stream simple-file-stream))
   (file-stream-pathname stream))
+
+(defun test-host-connectivity (host)
+  (handler-case
+      (with-connection (con host)
+        (sys.net:buffered-format con "(:PING)~%")
+        (let ((x (read-preserving-whitespace con nil :end-of-file)))
+          (unless (eql x :pong)
+            (error "Invalid ping response ~S received from remote file server." x)))
+        t)
+    (mezzano.network.tcp:connection-error (c)
+      (error "Unable to connect to file server: ~S." c))))

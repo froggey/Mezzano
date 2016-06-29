@@ -27,6 +27,45 @@
 (push (list "SOURCE;**;*.*.*" (merge-pathnames "**/" *default-pathname-defaults*))
       (logical-pathname-translations "SYS"))
 
+(defun sys.int::check-connectivity ()
+  ;; Make sure that there's one network card.
+  (when (null mezzano.network.ethernet::*cards*)
+    (format t "No network cards detected!~%~
+Make sure there is a virtio-net NIC attached.~%")
+    (return-from sys.int::check-connectivity))
+  (when (not (null (rest mezzano.network.ethernet::*cards*)))
+    (format t "Multiple network cards detected! Not supported, but trying anyway.~%"))
+  (format t "Using network card ~S.~%" (first mezzano.network.ethernet::*cards*))
+  ;; Check connectivity to the file-server.
+  (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
+    (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-simple-file-port*)
+    (when (equalp fs-address (mezzano.network.ip:make-ipv4-address "192.168.0.123"))
+      (format t "Warning! This is the example address. Was this set correctly in the Makefile?~%"))
+    (format t "Pinging file server host... ")
+    (finish-output)
+    (cond ((mezzano.network.ip:ping-host sys.int::*file-server-host-ip* :quiet t)
+           (format t "OK!~%"))
+          (t
+           (format t "Failed! No responses received!~%"))))
+  ;; Try basic access to the file server. Just enough to talk to it.
+  (format t "Testing access to file server... ")
+  (finish-output)
+  (mezzano.file-system.remote:test-host-connectivity
+   (mezzano.file-system:find-host :remote))
+  (format t "OK!~%")
+  ;; Check connectivity to the internet.
+  (format t "Testing internet connectivity.~%")
+  (format t "Attempting to resolve google.com... ")
+  (finish-output)
+  (let ((goog (sys.net::resolve-address "google.com" nil)))
+    (cond (goog
+           (format t "OK!~%")
+           (format t "Has address ~A.~%" goog))
+          (t
+           (format t "Failed! Unable to resolve!~%")))))
+
+(sys.int::check-connectivity)
+
 ;; Local FS. Loaded from the source tree, not the home directory.
 (sys.int::cal "sys:source;file;local.lisp")
 (eval (read-from-string "(mezzano.file-system.local:add-local-file-host :local)"))
