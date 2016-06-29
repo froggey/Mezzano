@@ -113,21 +113,21 @@
                       (tcp-connection-r-next connection) (logand (1+ seq) #xFFFFFFFF))
                 (tcp4-send-packet connection ack (tcp-connection-r-next connection) nil))
                (t
-                (setf (tcp-connection-state connection) :closed)
-                (detach-tcp-connection connection)
-                (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags))))
+                (format t "TCP: got ack ~S, wanted ~S. Flags ~B~%" ack (tcp-connection-s-next connection) flags)
+                (setf (tcp-connection-state connection) :connection-aborted)
+                (detach-tcp-connection connection))))
         (:syn-received
          (cond ((and (eql flags +tcp4-flag-ack+)
                      (eql seq (tcp-connection-r-next connection))
                      (eql ack (tcp-connection-s-next connection)))
                 (setf (tcp-connection-state connection) :established))
                (t
-                (setf (tcp-connection-state connection) :closed)
-                (detach-tcp-connection connection)
                 (format t "TCP: Aborting connect. Got ack ~S, wanted ~S. Got seq ~S, wanted ~S. Flags ~B~%"
                         ack (tcp-connection-s-next connection)
                         seq (tcp-connection-r-next connection)
-                        flags))))
+                        flags)
+                (setf (tcp-connection-state connection) :closed)
+                (detach-tcp-connection connection))))
         (:established
          (cond
            ((eql seq (tcp-connection-r-next connection))
@@ -368,6 +368,19 @@
                          :fin-p t))
       (:closed))))
 
+(define-condition network-error (error)
+  ())
+
+(define-condition connection-error (network-error)
+  ((host :initarg :host :reader connection-error-host)
+   (port :initarg :port :reader connection-error-port)))
+
+(define-condition connection-aborted (connection-error)
+  ())
+
+(define-condition connection-timed-out (connection-error)
+  ())
+
 (defun tcp-connect (ip port)
   (let* ((source-port (allocate-local-tcp-port))
 	 (seq (random #x100000000))
@@ -385,10 +398,16 @@
     (let ((timeout (+ (get-universal-time) 10)))
       (loop
          (when (not (eql (tcp-connection-state connection) :syn-sent))
+           (when (eql (tcp-connection-state connection) :connection-aborted)
+             (error 'connection-aborted
+                    :host ip
+                    :port port))
            (return))
          (when (> (get-universal-time) timeout)
            (close-tcp-connection connection)
-           (error "Connection timed out."))
+           (error 'connection-timed-out
+                  :host ip
+                  :port port))
          (sleep 0.01)))
     connection))
 
