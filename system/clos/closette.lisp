@@ -840,7 +840,9 @@ has only has class specializer."
 (defun required-portion (gf args)
   (let ((number-required (length (gf-required-arglist gf))))
     (when (< (length args) number-required)
-      (error "Too few arguments to generic function ~S." gf))
+      (error 'sys.int::simple-program-error
+             :format-control "Too few arguments to generic function ~S."
+             :format-arguments (list gf)))
     (subseq args 0 number-required)))
 
 (defun gf-required-arglist (gf)
