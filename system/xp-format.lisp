@@ -756,6 +756,10 @@
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
         (T (let ((value (gethash string-or-fn *format-string-cache*)))
              (when (or (not value) (and force-fn? (stringp value)))
+               (when (> (hash-table-count *format-string-cache*) 1000)
+                 ;; Keep the size of the cache down.
+                 ;; TODO: Use a weak hash table.
+                 (clrhash *format-string-cache*))
                (setf value (compile-format-string string-or-fn))
                (setf (gethash string-or-fn *format-string-cache*) value))
              value))))
