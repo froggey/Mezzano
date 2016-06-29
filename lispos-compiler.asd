@@ -21,31 +21,39 @@
                       :depends-on ("compiler/cross"))
                (:file "compiler/cross-boot"
                       :depends-on ("compiler/cross" "compiler/cross-compile"))
+               (:file "compiler/ast"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/ast-generator"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
+               (:file "compiler/keyword-arguments"
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
+               (:file "compiler/simplify-arguments"
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/pass1"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/inline"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/lift"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/simplify"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/constprop"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/kill-temps"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/value-aware-lowering"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/lower-environment"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/lower-special-bindings"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/simplify-control-flow"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/builtins/builtins"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "compiler/codegen" "system/data-types" "lap" "lap-x86"))
+                                   "compiler/ast" "compiler/codegen"
+                                   "system/data-types"
+                                   "lap" "lap-x86"))
                (:file "compiler/builtins/array" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/builtins/character" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/builtins/cons" :depends-on ("compiler/builtins/builtins"))
@@ -57,6 +65,7 @@
                (:file "compiler/builtins/unwind" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/codegen"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
+                                   "compiler/ast"
                                    "system/data-types" "lap" "lap-x86"))
                (:file "compiler/branch-tension"
                       :depends-on ("compiler/cross" "compiler/compiler" "compiler/codegen"
