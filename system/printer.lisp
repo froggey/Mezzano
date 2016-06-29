@@ -331,8 +331,7 @@
      (write-complex object stream))
     (t (if *print-safe*
            (print-unreadable-object (object stream :type t :identity t))
-           (print-object object stream))))
-  object)
+           (print-object object stream)))))
 
 ;; Overridden later when the pretty printer is loaded.
 (defun write-pretty (object stream)
@@ -377,7 +376,8 @@
       (pretty
        (write-pretty object stream))
       (t
-       (write-object object stream)))))
+       (write-object object stream)))
+    object))
 
 (defmacro print-unreadable-object ((object stream &rest keys &key type identity) &body body)
   `(%print-unreadable-object ,(when body `(lambda () (progn ,@body))) ,object ,stream ,@keys))
