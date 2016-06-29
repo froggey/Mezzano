@@ -244,7 +244,7 @@
                             (when (eql (value (car i)) keyword)
                               ;; Keywords match, use this argument.
                               (return (ast `(let ,(var-and-suppliedp-bindings var (nth (1+ p) key-pairs)
-                                                                              suppliedp '(quote nil))
+                                                                              suppliedp '(quote t))
                                               ,(build-key-bindings (rest keys)))))))))
                        (t (ll-form (lambda-information-body lambda))))))
         ;; Evaluate arguments.
