@@ -413,43 +413,49 @@
           (function-reference-function fref) nil)
     fref))
 
-(defun function-reference (name)
-  "Convert a function name to a function reference."
+(defun decode-function-name (name)
   (cond ((symbolp name)
-         (or (%object-ref-t name +symbol-function+)
-             ;; No fref, create one and add it to the function.
-             (let ((new-fref (make-function-reference name)))
-               ;; Try to atomically update the function cell.
-               (multiple-value-bind (successp old-value)
-                   (%cas-object name +symbol-function+ nil new-fref)
-                 (if successp
-                     new-fref
-                     old-value)))))
-        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
-        ;; a hash-table or something like that.
-	((and (consp name)
-	      (= (list-length name) 2)
-	      (eql (first name) 'setf)
+         (values name 'symbol))
+        ((and (consp name)
+              (consp (rest name))
+              (null (rest (rest name)))
+              (member (first name) '(setf cas))
 	      (symbolp (second name)))
-	 (let ((fref (get (second name) 'setf-fref)))
-	   (unless fref
-	     (setf fref (make-function-reference name)
-		   (get (second name) 'setf-fref) fref))
-           fref))
-        ;; FIXME: lock here. It's hard to lock a plist, need to switch to
-        ;; a hash-table or something like that.
-	((and (consp name)
-	      (= (list-length name) 2)
-	      (eql (first name) 'cas)
-	      (symbolp (second name)))
-	 (let ((fref (get (second name) 'cas-fref)))
-	   (unless fref
-	     (setf fref (make-function-reference name)
-		   (get (second name) 'cas-fref) fref))
-           fref))
-	(t (error 'type-error
+         (values (second name) (first name)))
+        (t
+         (error 'type-error
                   :expected-type 'function-name
                   :datum name))))
+
+(defun function-reference (name)
+  "Convert a function name to a function reference."
+  (multiple-value-bind (name-root location)
+      (decode-function-name name)
+    (ecase location
+      (symbol
+       (or (%object-ref-t name-root +symbol-function+)
+           ;; No fref, create one and add it to the function.
+           (let ((new-fref (make-function-reference name-root)))
+             ;; Try to atomically update the function cell.
+             (multiple-value-bind (successp old-value)
+                 (%cas-object name-root +symbol-function+ nil new-fref)
+               (if successp
+                   new-fref
+                   old-value)))))
+      ;; FIXME: lock here. It's hard to lock a plist, need to switch to
+      ;; a hash-table or something like that.
+      (setf
+       (let ((fref (get name-root 'setf-fref)))
+         (unless fref
+           (setf fref (make-function-reference name)
+                 (get name-root 'setf-fref) fref))
+         fref))
+      (cas
+       (let ((fref (get name-root 'cas-fref)))
+         (unless fref
+           (setf fref (make-function-reference name)
+                 (get name-root 'cas-fref) fref))
+         fref)))))
 
 (defun function-reference-p (object)
   (%object-of-type-p object +object-tag-function-reference+))
