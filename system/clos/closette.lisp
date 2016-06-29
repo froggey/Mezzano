@@ -1770,7 +1770,7 @@ has only has class specializer."
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
     (dolist (slot (sys.int::structure-slots def)
-             (error "The slot ~S is missing from the class ~S." slot-name class))
+             (values (slot-missing class instance slot-name 'slot-value)))
       (when (eql (sys.int::structure-slot-name slot) slot-name)
         (return (funcall (sys.int::structure-slot-accessor slot) instance))))))
 
@@ -1780,7 +1780,9 @@ has only has class specializer."
     (when (not (eql (sys.int::%object-ref-t instance 0) def))
       (error "Class for structure ~S or instance is outdated?" (class-name class)))
     (dolist (slot (sys.int::structure-slots def)
-             (error "The slot ~S is missing from the class ~S." slot-name class))
+             (progn
+               (slot-missing class instance slot-name 'setf new-value)
+               new-value))
       (when (eql (sys.int::structure-slot-name slot) slot-name)
         (when (sys.int::structure-slot-read-only slot)
           (error "The slot ~S in class ~S is read-only." slot-name (class-name class)))
