@@ -1963,9 +1963,9 @@ has only has class specializer."
 (defgeneric slot-unbound (class instance slot-name))
 
 (defmethod slot-unbound ((class t) instance slot-name)
-  (error "The slot ~S is unbound in the object ~S."
-         slot-name
-         instance))
+  (error 'unbound-slot
+         :name slot-name
+         :instance instance))
 
 (defgeneric class-prototype (class))
 
