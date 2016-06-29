@@ -660,11 +660,14 @@ VALUE may be nil to make the fref unbound."
 (defun gentemp (&optional (prefix "T") (package *package*))
   (check-type prefix string)
   (do () (nil)
-    (let ((name (format nil "~A~D" prefix (incf *gentemp-counter*))))
+    (let ((name (with-output-to-string (s)
+                  (write-string prefix s)
+                  (write (incf *gentemp-counter*) :stream s :base 10))))
       (multiple-value-bind (x status)
           (find-symbol name package)
         (declare (ignore x))
-        (unless status (return (intern name package)))))))
+        (unless status
+          (return (intern name package)))))))
 
 (defun special-operator-p (symbol)
   (check-type symbol symbol)
