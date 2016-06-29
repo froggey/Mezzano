@@ -12,7 +12,10 @@
     (symbol (symbol-name x))))
 
 (defun stringp (object)
-  (and (character-array-p object)
+  (and (or (character-array-p object)
+           ;; Cover displaced arrays too.
+           (and (arrayp object)
+                (eql (array-element-type object) 'character)))
        (eql (array-rank object) 1)))
 
 (defun simple-string-p (object)
