@@ -554,8 +554,10 @@
             ,@(compile-format start end)
             (pop-char-mode xp))))
 
-(def-format-handler #\; (start end) (declare (ignore start))
-  (err 15 "~~; appears out of context" (1- end)))
+(def-format-handler #\; (start end)
+  (declare (ignore start))
+  (when (not *in-justify*)
+    (err 15 "~~; appears out of context" (1- end))))
 (def-format-handler #\] (start end) (declare (ignore start))
   (err 16 "Unmatched closing directive" (1- end)))
 (def-format-handler #\) (start end) (declare (ignore start))
@@ -605,10 +607,12 @@
       (handle-logical-block start end)
       (handle-standard-< start end)))
 
+(defvar *in-justify* t)
 ;; TODO.
 (defun handle-standard-< (start end)
   (num-args-in-directive start end)
-  (compile-format (1+ (params-end start)) (directive-start end)))
+  (let ((*in-justify* t))
+    `(progn ,@(compile-format (1+ (params-end start)) (directive-start end)))))
 
 (defun num-args-in-directive (start end)
   (let ((n 0) c i j)
@@ -617,7 +621,7 @@
     (loop
       (setf (values c i j) (next-directive j end))
       (when (null c) (return n))
-      (cond ((eql c #\;)
+      (cond #+(or)((eql c #\;)
              (if (colonp j)
                  (err 22 "~~:; not supported in ~~<...~~> by (formatter \"...\")." j)))
             ((find c "*[^<_IiWw{Tt")
