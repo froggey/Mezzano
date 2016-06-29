@@ -88,19 +88,30 @@
 
 (defvar *boot-hook-lock*)
 (defvar *boot-hooks*)
+(defvar *late-boot-hooks*)
 
-(defun add-boot-hook (fn)
+(defun add-boot-hook (fn &optional when)
+  (check-type when (member nil :late))
   (with-mutex (*boot-hook-lock*)
-    (push fn *boot-hooks*)))
+    (case when
+      ((nil)
+       (push fn *boot-hooks*))
+      (:late
+       (push fn *late-boot-hooks*)))))
 
 (defun remove-boot-hook (fn)
   (with-mutex (*boot-hook-lock*)
-    (setf *boot-hooks* (remove fn *boot-hooks*))))
+    (setf *boot-hooks* (remove fn *boot-hooks*))
+    (setf *late-boot-hooks* (remove fn *late-boot-hooks*))))
 
 (defun run-boot-hooks ()
   (dolist (hook *boot-hooks*)
     (sys.int::log-and-ignore-errors
       (format t "Run boot hook ~A~%" hook)
+      (funcall hook)))
+  (dolist (hook *late-boot-hooks*)
+    (sys.int::log-and-ignore-errors
+      (format t "Run late boot hook ~A~%" hook)
       (funcall hook))))
 
 (defvar *boot-id*)
@@ -233,7 +244,8 @@ Returns two values, the packet data and the receiving NIC."
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
                  *boot-hook-lock* (make-mutex "Boot Hook Lock")
-                 *boot-hooks* '())
+                 *boot-hooks* '()
+                 *late-boot-hooks* '())
            (make-thread #'sys.int::initialize-lisp :name "Main thread"))
           (t (wake-thread *post-boot-worker-thread*)))
     (finish-initial-thread)))

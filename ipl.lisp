@@ -27,6 +27,9 @@
 (push (list "SOURCE;**;*.*.*" (merge-pathnames "**/" *default-pathname-defaults*))
       (logical-pathname-translations "SYS"))
 
+(push (list "HOME;**;*.*.*" (merge-pathnames "**/" (user-homedir-pathname)))
+      (logical-pathname-translations "SYS"))
+
 (defun sys.int::check-connectivity ()
   ;; Make sure that there's one network card.
   (when (null mezzano.network.ethernet::*cards*)
@@ -135,5 +138,19 @@ Make sure there is a virtio-net NIC attached.~%")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
 (setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
+
+(defvar sys.int::*init-file-path* "SYS:HOME;INIT.LISP")
+
+(defun sys.int::load-init-file ()
+  (when (and (boundp 'sys.int::*init-file-path*)
+             sys.int::*init-file-path*)
+    (handler-case (load sys.int::*init-file-path*)
+      (error (c)
+        (format t "Unable to load init file ~S: ~A.~%"
+                sys.int::*init-file-path*
+                c)))))
+
+(mezzano.supervisor:add-boot-hook 'sys.int::load-init-file :late)
+(sys.int::load-init-file)
 
 ;; Done.
