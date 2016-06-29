@@ -57,5 +57,6 @@
     (multiple-value-prog1 (funcall fn)
       (let ((finish-cycle (tsc))
             (finish-time (get-universal-time)))
+        (fresh-line *trace-output*)
         (format *trace-output* "; Execution took ~:D seconds (~:D seconds of GC time).~%" (- finish-time start-time) (- *gc-time* start-gc-time))
         (format *trace-output* "; Execution took ~:D cycles.~%" (- finish-cycle start-cycle))))))
