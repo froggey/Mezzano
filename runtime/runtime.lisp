@@ -235,7 +235,7 @@
       (cond ((zerop (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
                          (sys.int::%object-header-data symbol)))
              (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
-               (error "Critial error! TLS slots exhausted!"))
+               (mezzano.supervisor:panic "Critial error! TLS slots exhausted!"))
              (let ((slot sys.int::*next-symbol-tls-slot*))
                (incf sys.int::*next-symbol-tls-slot*)
                ;; Twiddle TLS bits directly in the symbol header.
