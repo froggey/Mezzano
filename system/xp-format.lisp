@@ -375,7 +375,7 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(nil #\Space #\, 3))
-    `(sys.format::format-integer XP ,(get-arg) ,base ',params ',atsign ',colon)))
+    `(sys.format::format-integer XP ,(get-arg) ,base (list ,@params) ',atsign ',colon)))
 
 (def-format-handler #\D (start end) (impl-integer start end 10))
 (def-format-handler #\B (start end) (impl-integer start end 2))
@@ -386,7 +386,7 @@
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
       (parse-params start '(10 nil #\Space #\, 3))
-    `(sys.format::format-radix XP ,(get-arg) ',params ',atsign ',colon)))
+    `(sys.format::format-radix XP ,(get-arg) (list ,@params) ',atsign ',colon)))
 
 (def-format-handler #\C (start end)
   (declare (ignore end))
