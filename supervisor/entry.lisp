@@ -211,12 +211,11 @@ Returns two values, the packet data and the receiving NIC."
           *paging-disk* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
-    (when (not (boundp 'mezzano.runtime::*tls-lock*))
+    (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
-      (setf mezzano.runtime::*tls-lock* :unlocked
-            mezzano.runtime::*active-catch-handlers* 'nil
+      (setf mezzano.runtime::*active-catch-handlers* 'nil
             *pseudo-atomic* nil))
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)

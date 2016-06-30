@@ -523,7 +523,6 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         :initial-symbols '((nil . :fixup)
                            (t . :fixup)
                            (:unbound-value . :fixup)
-                           (:unbound-tls-slot . :fixup)
                            (:undefined-function . :fixup)
                            (:closure-trampoline . :fixup)
                            (:funcallable-instance-trampoline . :fixup))

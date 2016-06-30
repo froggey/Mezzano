@@ -441,11 +441,6 @@ This is required to make the GC interrupt safe."
             (t (when *gc-debug-scavenge-stack*
                  (gc-log "Done scav stack.")))))))
 
-(defun scavenge-thread-tls-area (thread)
-  (let ((address (ash (%pointer-field thread) 4)))
-    (scavenge-many (+ address 8 (* mezzano.supervisor::+thread-tls-slots-start+ 8))
-                   (- mezzano.supervisor::+thread-tls-slots-end+ mezzano.supervisor::+thread-tls-slots-start+))))
-
 (defun scan-thread (object)
   (when *gc-debug-scavenge-stack* (gc-log "Scav thread " object))
   ;; Scavenge various parts of the thread.
@@ -466,22 +461,22 @@ This is required to make the GC interrupt safe."
   (scavengef (mezzano.supervisor:thread-pager-argument-1 object))
   (scavengef (mezzano.supervisor:thread-pager-argument-2 object))
   (scavengef (mezzano.supervisor:thread-pager-argument-3 object))
-  ;; Only scan the thread's stack, MV area & TLS area when it's alive.
+  ;; Only scan the thread's stack and MV area when it's alive.
   (case (mezzano.supervisor:thread-state object)
     (:dead) ; Nothing.
     (0
      ;; This is a partially-initialized thread.
-     ;; It has nothing on the stack that needs to be scanned, but it's data registers and
-     ;; TLS area may contain live references.
-     (scavenge-thread-data-registers object)
-     (scavenge-thread-tls-area object))
+     ;; It has nothing on the stack that needs to be scanned, but its
+     ;; data registers may contain live references.
+     (scavenge-thread-data-registers object))
     (t
-     (scavenge-thread-tls-area object)
      (when (not (or (eql object (mezzano.supervisor:current-thread))
-                    ;; Don't even think about looking at the stacks of these threads. They may run at
-                    ;; any time, even with the world stopped.
-                    ;; Things aren't so bad though, they (should) only contain pointers to wired objects,
-                    ;; and the objects they do point to should be pointed to by other live objects.
+                    ;; Don't even think about looking at the stacks of these
+                    ;; threads. They may run at any time, even with the world
+                    ;; stopped.
+                    ;; Things aren't so bad though, they (should) only contain
+                    ;; pointers to wired objects, and the objects they do point
+                    ;; to should be pointed to by other live objects.
                     (eql object sys.int::*bsp-idle-thread*)
                     (eql object sys.int::*pager-thread*)
                     (eql object sys.int::*disk-io-thread*)
@@ -1012,7 +1007,6 @@ a pointer to the new object. Leaves a forwarding pointer in place."
   (scavenge-object 'nil)
   ;; And various important other roots.
   (scavenge-object (%unbound-value))
-  (scavenge-object (%unbound-tls-slot))
   (scavenge-object (%undefined-function))
   (scavenge-object (%closure-trampoline))
   (scavenge-object (%funcallable-instance-trampoline))

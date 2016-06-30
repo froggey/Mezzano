@@ -14,9 +14,7 @@
   (if (symbol-plist object)
       (format stream "  ~A has the plist ~S~%" object (symbol-plist object)))
   (when (symbol-mode object)
-    (format stream "  ~A is declared ~A~%" object (symbol-mode object)))
-  (when (symbol-tls-slot object)
-    (format stream "  ~A uses the TLS slot ~D~%" object (symbol-tls-slot object))))
+    (format stream "  ~A is declared ~A~%" object (symbol-mode object))))
 
 (defun describe-byte-specifier (object stream)
   (format stream "~S is a ~S.~%" object (type-of object))

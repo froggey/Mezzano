@@ -25,8 +25,6 @@ be generated instead.")
 (defvar *active-nl-exits* nil)
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
-(defconstant +tls-base-offset+ (+ (- sys.int::+tag-object+) 8))
-(defconstant +tls-offset-shift+ (+ sys.int::+object-data-shift+ 2))
 
 (defun emit (&rest instructions)
   (dolist (i instructions)

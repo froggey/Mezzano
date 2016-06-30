@@ -211,14 +211,6 @@
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
 
-(defun symbol-tls-slot (symbol)
-  (check-type symbol symbol)
-  (let ((slot (ldb (byte +symbol-header-tls-size+ +symbol-header-tls-position+)
-                   (%object-header-data symbol))))
-    (if (zerop slot)
-        nil
-        slot)))
-
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))
   (apply function arguments))

@@ -372,7 +372,6 @@
          (predicate-result :e)))))
 
 (define-support-object sys.int::%unbound-value :unbound-value)
-(define-support-object sys.int::%unbound-tls-slot :unbound-tls-slot)
 (define-support-object sys.int::%undefined-function :undefined-function)
 (define-support-object sys.int::%closure-trampoline :closure-trampoline)
 (define-support-object sys.int::%funcallable-instance-trampoline :funcallable-instance-trampoline)

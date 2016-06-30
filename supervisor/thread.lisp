@@ -113,11 +113,7 @@
   ;;    Note! The compiler must be updated if this changes and all code rebuilt.
   (defconstant +thread-mv-slots-start+ 32)
   (defconstant +thread-mv-slots-end+ 128)
-  ;; 128-426 TLS slots
-  ;;    Slots used for bound symbol values.
-  ;;    Note! The start of this area is known by the cold-generator.
-  (defconstant +thread-tls-slots-start+ 128)
-  (defconstant +thread-tls-slots-end+ 427)
+  ;; 128-426 free
   ;; 427-446 State save area.
   ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
   ;;    The registers are saved here, not on the stack, because the stack may not be paged in.
@@ -491,10 +487,6 @@ Interrupts must be off, the current thread must be locked."
           (sys.int::%object-ref-t thread +thread-pager-argument-1+) nil
           (sys.int::%object-ref-t thread +thread-pager-argument-2+) nil
           (sys.int::%object-ref-t thread +thread-pager-argument-3+) nil)
-    ;; Reset TLS slots.
-    (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-      (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
-            (sys.int::%unbound-tls-slot)))
     ;; Perform initial bindings.
     (when initial-bindings
       (let ((symbols (mapcar #'first initial-bindings))
@@ -675,11 +667,7 @@ Interrupts must be off, the current thread must be locked."
   (setf (ldb (byte 16 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 0)))
         #x037F) ; FCW
   (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
-        #x00001F80) ; MXCSR
-  ;; Reset TLS slots.
-  (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-    (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
-          (sys.int::%unbound-tls-slot))))
+        #x00001F80)) ; MXCSR
 
 (defun initialize-threads ()
   (when (not (boundp '*global-thread-lock*))
@@ -719,9 +707,6 @@ Interrupts must be off, the current thread must be locked."
   "Called very early after boot to reset the initial thread."
   (let* ((thread (current-thread)))
     (setf *world-stopper* thread)
-    (dotimes (i (- +thread-tls-slots-end+ +thread-tls-slots-start+))
-      (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
-            (sys.int::%unbound-tls-slot)))
     (setf (thread-state thread) :active)))
 
 (defun finish-initial-thread ()
@@ -729,8 +714,8 @@ Interrupts must be off, the current thread must be locked."
   ;; The initial thread never dies, it just sleeps until the next boot.
   ;; The bootloader will partially wake it up, then initialize-initial-thread
   ;; will finish initialization.
-  ;; The initial thread must finish with no values on the special stack, and
-  ;; all TLS slots initialized. This is required by INITIALIZE-INITIAL-THREAD.
+  ;; The initial thread must finish with no values on the special stack.
+  ;; This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
     (setf *world-stopper* nil)
     (sys.int::%cli)

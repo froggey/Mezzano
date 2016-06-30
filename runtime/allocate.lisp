@@ -586,8 +586,6 @@
                         (sys.int::lisp-object-address (sys.int::%undefined-function)))
                        (:closure-trampoline
                         (sys.int::lisp-object-address (sys.int::%closure-trampoline)))
-                       (:unbound-tls-slot
-                        (sys.int::lisp-object-address (sys.int::%unbound-tls-slot)))
                        (:unbound-value
                         (sys.int::lisp-object-address (sys.int::%unbound-value)))
                        (:funcallable-instance-trampoline

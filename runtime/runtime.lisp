@@ -224,28 +224,6 @@
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
-;;; TODO: This requires a considerably more flexible mechanism.
-(defvar *tls-lock*)
-(defvar sys.int::*next-symbol-tls-slot*)
-(defconstant +maximum-tls-slot+ (1+ mezzano.supervisor::+thread-tls-slots-end+))
-(defun sys.int::%allocate-tls-slot (symbol)
-  (mezzano.supervisor::safe-without-interrupts (symbol)
-    (mezzano.supervisor::with-symbol-spinlock (*tls-lock*)
-      ;; Make sure that another thread didn't allocate a slot while we were waiting for the lock.
-      (cond ((zerop (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                         (sys.int::%object-header-data symbol)))
-             (when (>= sys.int::*next-symbol-tls-slot* +maximum-tls-slot+)
-               (mezzano.supervisor:panic "Critial error! TLS slots exhausted!"))
-             (let ((slot sys.int::*next-symbol-tls-slot*))
-               (incf sys.int::*next-symbol-tls-slot*)
-               ;; Twiddle TLS bits directly in the symbol header.
-               (setf (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                          (sys.int::%object-header-data symbol))
-                     slot)
-               slot))
-            (t (ldb (byte sys.int::+symbol-header-tls-size+ sys.int::+symbol-header-tls-position+)
-                    (sys.int::%object-header-data symbol)))))))
-
 (defvar *active-catch-handlers*)
 (defun sys.int::%catch (tag fn)
   ;; Catch is used in low levelish code, so must avoid allocation.

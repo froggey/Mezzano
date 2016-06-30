@@ -202,7 +202,6 @@
 (defvar *fref-table*)
 (defvar *struct-table*)
 (defvar *unbound-value-address*)
-(defvar *unbound-tls-slot-address*)
 (defvar *undefined-function-address*)
 (defvar *closure-trampoline-address*)
 (defvar *f-i-trampoline-address*)
@@ -513,8 +512,6 @@
   (setf *unbound-value-address* (allocate 2 :wired))
   (setf (word *unbound-value-address*) (array-header sys.int::+object-tag-unbound-value+ 0))
   (format t "UBV at word ~X~%" *unbound-value-address*)
-  (setf *unbound-tls-slot-address* (allocate 2 :wired))
-  (setf (word *unbound-tls-slot-address*) (array-header sys.int::+object-tag-unbound-value+ 1))
   ;; Create trampoline functions.
   (setf *undefined-function-address* (compile-lap-function *undefined-function-thunk* :area :wired :name 'sys.int::%%undefined-function-trampoline)
         *closure-trampoline-address* (compile-lap-function *closure-trampoline* :area :wired :name 'sys.int::%%closure-trampoline)
@@ -1373,7 +1370,6 @@
             sys.int::*pager-thread*
             sys.int::*disk-io-thread*
             sys.int::*initial-areas*
-            sys.int::*next-symbol-tls-slot*
             sys.int::*wired-area-freelist*
             sys.int::*wired-area-bump*
             sys.int::*pinned-area-freelist*
@@ -1426,7 +1422,6 @@
     (flet ((set-value (symbol value)
              (format t "~A is ~X~%" symbol value)
              (setf (cold-symbol-value symbol) (make-fixnum value))))
-      (set-value 'sys.int::*next-symbol-tls-slot* (eval (read-from-string "MEZZANO.SUPERVISOR::+THREAD-TLS-SLOTS-START+")))
       (set-value 'sys.int::*wired-area-bump* *wired-area-bump*)
       (set-value 'sys.int::*pinned-area-bump* *pinned-area-bump*)
       (set-value 'sys.int::*general-area-bump* *general-area-bump*)
@@ -1979,9 +1974,6 @@ Tag with +TAG-OBJECT+."
                       (ecase what
                         ((nil t) (make-value (symbol-address (symbol-name what) "COMMON-LISP")
                                              sys.int::+tag-object+))
-                        (:unbound-tls-slot
-                         (make-value *unbound-tls-slot-address*
-                                     sys.int::+tag-object+))
                         (:unbound-value (unbound-value))
                         ((:undefined-function undefined-function)
                          (make-value *undefined-function-address* sys.int::+tag-object+))
