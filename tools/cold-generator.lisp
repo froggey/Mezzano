@@ -116,7 +116,6 @@
     "compiler/builtins/misc.lisp"
     "compiler/builtins/numbers.lisp"
     "compiler/builtins/objects.lisp"
-    "compiler/builtins/symbols.lisp"
     "compiler/builtins/unwind.lisp"
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
@@ -470,15 +469,20 @@
     address))
 
 (defun populate-symbol (address name package value &optional is-constant)
-  (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
-                                           (if is-constant
-                                               (ash sys.int::+symbol-mode-constant+ sys.int::+symbol-header-mode-position+)
-                                               0)) ; flags & header
-        (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
-        (word (+ address 2)) (vsym package) ; package
-        (word (+ address 3)) value ; value
-        (word (+ address 4)) (vsym nil) ; function
-        (word (+ address 5)) (vsym nil))) ; plist
+  (let ((global-cell (allocate 4 :wired)))
+    (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
+                                             (if is-constant
+                                                 (ash sys.int::+symbol-mode-constant+ sys.int::+symbol-header-mode-position+)
+                                                 0)) ; flags & header
+          (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
+          (word (+ address 2)) (vsym package) ; package
+          (word (+ address 3)) (make-value global-cell sys.int::+tag-object+) ; value
+          (word (+ address 4)) (vsym nil) ; function
+          (word (+ address 5)) (vsym nil)) ; plist
+    (setf (word (+ global-cell 0)) (array-header sys.int::+object-tag-array-t+ 3)
+          (word (+ global-cell 1)) (vsym nil)
+          (word (+ global-cell 2)) (make-value address sys.int::+tag-object+)
+          (word (+ global-cell 3)) value)))
 
 (defun populate-structure-definition (address name slots parent area)
   (setf (word (+ address 0)) (array-header sys.int::+object-tag-structure-object+ 6)
@@ -822,11 +826,11 @@
               sys.int::+tag-object+))
 
 (defun (setf cold-symbol-value) (value symbol)
-  (setf (word (+ (symbol-address (symbol-name symbol)
-                                 (canonical-symbol-package symbol))
-                 1
-                 sys.int::+symbol-value+))
-        value))
+  (let ((global-cell (word (+ (symbol-address (symbol-name symbol)
+                                              (canonical-symbol-package symbol))
+                              1
+                              sys.int::+symbol-value+))))
+    (setf (word (+ (pointer-part global-cell) 3)) value)))
 
 (defun generate-toplevel-form-array (functions symbol)
   ;; Generate array of toplevel forms to eval.

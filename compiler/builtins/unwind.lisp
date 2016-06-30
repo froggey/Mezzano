@@ -58,36 +58,15 @@
     (emit `(sys.lap-x86:gs)
           `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) ,tmp))))
 
-;;; TODO: Check for constants here.
 (defbuiltin sys.int::%%bind (symbol value) (t nil)
-  ;; Don't kill here, going to reload & kill later in the function.
-  (load-in-reg :r9 symbol)
+  (load-in-reg :r9 symbol t)
+  (load-in-reg :r10 value t)
   (smash-r8)
-  (let ((has-tls-slot (gensym)))
-    ;; Ensure there is a TLS slot.
-    (emit `(sys.lap-x86:mov32 :eax ,(object-ea :r9 :slot -1))
-          `(sys.lap-x86:shr32 :eax ,+tls-offset-shift+)
-          `(sys.lap-x86:and32 :eax #xFFFF)
-          `(sys.lap-x86:jnz ,has-tls-slot))
-    ;; Nope, allocate a new one.
-    (emit `(sys.lap-x86:mov64 :r8 :r9))
-    (call-support-function 'sys.int::%allocate-tls-slot 1)
-    (load-in-reg :r9 symbol t)
-    (emit `(sys.lap-x86:mov64 :rax :r8)
-          `(sys.lap-x86:shr32 :eax ,sys.int::+n-fixnum-bits+)
-          has-tls-slot
-          ;; Save the old value on the binding stack.
-          ;; Read the old symbol value.
-          `(sys.lap-x86:gs)
-          `(sys.lap-x86:mov64 :r10 ((:rax 8) ,+tls-base-offset+)))
-    (push-special-stack :r9 :r10))
-  ;; Store new value.
-  (load-in-r8 value t)
-  (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 ((:rax 8) ,+tls-base-offset+) :r8))
-  ''nil)
+  ;; Arrange for the new special stack entry to be stored in :r8,
+  ;; so it can be returned.
+  (push-special-stack :r9 :r10 :r8)
+  (setf *r8-value* (list (gensym))))
 
-;;; TODO: Check for constants here.
 (defbuiltin sys.int::%%push-special-stack (a b) (t nil)
   (load-in-reg :r9 b t)
   (load-in-reg :r8 a t)
@@ -96,18 +75,11 @@
 
 (defbuiltin sys.int::%%unbind () (t nil)
   ;; Top entry in the binding stack is a special variable binding.
-  ;; It's a symbol and the old value.
-  ;; Pop the stack & restore the old value.
+  ;; It's a symbol and the current value.
+  ;; Just pop the stack.
   (smash-r8)
   (emit `(sys.lap-x86:gs)
         `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 :r8 ,(object-ea :rbx :slot 1))
-        `(sys.lap-x86:mov64 :r9 ,(object-ea :rbx :slot 2))
-        `(sys.lap-x86:mov32 :edx ,(object-ea :r8 :slot -1))
-        `(sys.lap-x86:shr32 :edx ,+tls-offset-shift+)
-        `(sys.lap-x86:and32 :edx #xFFFF)
-        `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 ((:rdx 8) ,+tls-base-offset+) :r9)
         `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
         `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :rbx))

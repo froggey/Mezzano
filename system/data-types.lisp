@@ -128,8 +128,8 @@
 (defconstant +symbol-function+ 3)
 (defconstant +symbol-plist+ 4)
 
-(defconstant +symbol-header-tls-size+ 16)
-(defconstant +symbol-header-tls-position+ 2)
+(defconstant +symbol-value-cell-symbol+ 1)
+(defconstant +symbol-value-cell-value+ 2)
 
 (defconstant +symbol-header-mode-size+ 2)
 (defconstant +symbol-header-mode-position+ 0)
@@ -231,7 +231,7 @@ Internal to the pager, should not be used by other code.")
   "When stored in the ID field, this value indicates that space has been
 reserved on the disk, but no specific block has been allocated.")
 
-(defparameter *llf-version* 11)
+(defparameter *llf-version* 12)
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)

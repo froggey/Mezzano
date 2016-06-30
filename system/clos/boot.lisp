@@ -32,9 +32,11 @@
 (defvar *next-class-hash-value* 1)
 
 (defun next-class-hash-value ()
-  (sys.int::%atomic-fixnum-add-object '*next-class-hash-value*
-                                      sys.int::+symbol-value+
-                                      1))
+  (let ((cell (mezzano.runtime::symbol-global-value-cell
+               '*next-class-hash-value*)))
+    (sys.int::%atomic-fixnum-add-object cell
+                                        sys.int::+symbol-value-cell-value+
+                                        1)))
 
 (defparameter *secret-unbound-value* (list "slot unbound"))
 

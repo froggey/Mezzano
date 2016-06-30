@@ -61,7 +61,6 @@
                (:file "compiler/builtins/misc" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/builtins/numbers" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/builtins/objects" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/symbols" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/builtins/unwind" :depends-on ("compiler/builtins/builtins"))
                (:file "compiler/codegen"
                       :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"

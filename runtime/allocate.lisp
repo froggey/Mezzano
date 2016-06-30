@@ -323,45 +323,40 @@
   (sys.lap-x86:cmp64 :rcx #.(ash 2 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH)
   ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
   #| Logging every cons tends to explode the profile buffer & exhaust memory.
   (sys.lap-x86:mov64 :rax (:constant *enable-allocation-profiling*))
-  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value+) nil)
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
-  (sys.lap-x86:mov64 :rdx (:object :rax -1))
-  (sys.lap-x86:shr64 :rdx #.sys.c::+tls-offset-shift+)
-  (sys.lap-x86:and32 :edx #xFFFF)
-  (sys.lap-x86:jz PROF-DISABLED)
-  (sys.lap-x86:gs)
-  (sys.lap-x86:mov64 :rdx ((:rdx 8) #.sys.c::+tls-base-offset+))
-  (sys.lap-x86:cmp64 :rdx :unbound-tls-slot)
-  (sys.lap-x86:je PROF-DISABLED)
-  (sys.lap-x86:cmp64 :rdx nil)
-  (sys.lap-x86:jne SLOW-PATH)
-  PROF-DISABLED
   |#
   ;; Check *GC-IN-PROGRESS*.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*gc-in-progress*))
-  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value+) nil)
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value-cell-value+) nil)
   (sys.lap-x86:jne SLOW-PATH)
   ;; Grovel directly in the allocator mutex to make sure that it isn't held.
   (sys.lap-x86:mov64 :rax (:constant *allocator-lock*))
   (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value-cell-value+))
   (sys.lap-x86:mov64 :rbx (:constant :unlocked))
   (sys.lap-x86:cmp64 (:object :rax 6) :rbx) ; mutex-state
   (sys.lap-x86:jne SLOW-PATH)
   ;; Fetch current bump pointer.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*cons-area-bump*))
-  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.int::+symbol-value-cell-value+))
   ;; + 16, size of cons.
   ;; Keep the old bump pointer, that's the address of the cons.
   (sys.lap-x86:lea64 :rsi (:rbx #.(ash 16 #.sys.int::+n-fixnum-bits+)))
   ;; Test against limit.
   (sys.lap-x86:mov64 :rdx (:constant sys.int::*cons-area-limit*))
-  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rdx (:object :rdx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.int::+symbol-value-cell-value+))
   (sys.lap-x86:ja SLOW-PATH)
   ;; Enough space.
   ;; Update the bump pointer.
-  (sys.lap-x86:mov64 (:object :rax #.sys.int::+symbol-value+) :rsi)
+  (sys.lap-x86:mov64 (:object :rax #.sys.int::+symbol-value-cell-value+) :rsi)
   ;; Generate the cons object.
   ;; Unfixnumize address.
   (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
@@ -372,6 +367,7 @@
   ;; Set mark bit.
   (sys.lap-x86:mov64 :rax (:constant sys.int::*dynamic-mark-bit*))
   (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value-cell-value+))
   (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:or64 :rbx :rax)
   ;; RBX now holds a valid cons, with the CAR and CDR set to zero.
@@ -488,11 +484,14 @@
 (defun make-symbol (name)
   (check-type name string)
   ;; FIXME: Copy name into the wired area and unicode normalize it.
-  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired)))
+  (let* ((symbol (%allocate-object sys.int::+object-tag-symbol+ 0 5 :wired))
+         (global-value (%allocate-object sys.int::+object-tag-array-t+ 3 3 :wired)))
+    (setf (svref global-value sys.int::+symbol-value-cell-symbol+) symbol)
+    (setf (svref global-value sys.int::+symbol-value-cell-value+) (sys.int::%unbound-value))
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-name+) name)
-    (makunbound symbol)
+    (setf (sys.int::%object-ref-t symbol sys.int::+symbol-value+) global-value)
     (setf (sys.int::%object-ref-t symbol sys.int::+symbol-function+) nil
-          (symbol-plist symbol) nil
+          (symbol-plist symbol) '()
           (symbol-package symbol) nil)
     symbol))
 
@@ -661,9 +660,10 @@
          do
            (setf (sys.int::%object-ref-t object sys.int::+weak-pointer-finalizer-link+)
                  prev-finalizer)
-           (when (sys.int::%cas-symbol-global-value 'sys.int::*known-finalizers*
-                                                    prev-finalizer
-                                                    object)
+           (when (eql (sys.int::cas (sys.int::symbol-global-value 'sys.int::*known-finalizers*)
+                                    prev-finalizer
+                                    object)
+                      prev-finalizer)
              (return))))
     ;; Order carefully, KEY must be set last or the GC might finalize this
     ;; too soon.

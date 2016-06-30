@@ -471,6 +471,7 @@ Interrupts must be off, the current thread must be locked."
   (sys.lap-x86:ud2))
 
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
+  (declare (sys.c::closure-allocation :wired))
   (check-type function (or function symbol))
   (check-type priority (member :normal :low))
   ;; Allocate-object will leave the thread's state variable initialized to 0.
@@ -495,10 +496,13 @@ Interrupts must be off, the current thread must be locked."
       (setf (sys.int::%object-ref-t thread (+ +thread-tls-slots-start+ i))
             (sys.int::%unbound-tls-slot)))
     ;; Perform initial bindings.
-    (loop for (symbol value) in initial-bindings do
-         (let ((slot (or (sys.int::symbol-tls-slot symbol)
-                         (sys.int::%allocate-tls-slot symbol))))
-           (setf (sys.int::%object-ref-t thread slot) value)))
+    (when initial-bindings
+      (let ((symbols (mapcar #'first initial-bindings))
+            (values (mapcar #'second initial-bindings))
+            (original-function function))
+        (setf function (lambda ()
+                         (progv symbols values
+                           (funcall original-function))))))
     ;; Initialize the FXSAVE area.
     ;; All FPU/SSE interrupts masked, round to nearest,
     ;; x87 using 80 bit precision (long-float).
