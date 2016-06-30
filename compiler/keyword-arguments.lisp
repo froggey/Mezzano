@@ -12,6 +12,67 @@
     (lexical-variable
      (lexical-variable-name var))))
 
+;; Rewrites:
+;; (lambda (&key (x x-init) (y nil y-p) z) ...)
+;; into something like:
+;; (lambda (&rest args)
+;;   (let ((x-val nil)
+;;         (x-suppliedp nil)
+;;         (y-val nil)
+;;         (y-suppliedp nil)
+;;         (z-val nil)
+;;         (z-suppliedp nil)
+;;         (allow-other-keys nil)
+;;         (itr args))
+;;     (tagbody
+;;        (go TEST)
+;;      HEAD
+;;        (when (eql (car itr1) :allow-other-keys)
+;;          (setf allow-other-keys (car (cdr itr)))
+;;          (go OUT))
+;;        (setq itr (cddr itr))
+;;      TEST
+;;        (when itr
+;;          (go HEAD))
+;;      OUT)
+;;     (setf itr args)
+;;     (tagbody
+;;        (go TEST)
+;;      HEAD
+;;        (if (null (cdr itr))
+;;            (error "Odd number of keys"))
+;;        (let ((kw (car itr)))
+;;          (cond ((eql kw :x)
+;;                 (unless x-suppliedp
+;;                   (setq x-suppliedp t
+;;                         x-val (car (cdr itr)))))
+;;                ((eql kw :y)
+;;                 (unless y-suppliedp
+;;                   (setq y-suppliedp t
+;;                         y-val (car (cdr itr)))))
+;;                ((eql kw :z)
+;;                 (unless z-suppliedp
+;;                   (setq z-suppliedp t
+;;                         z-val (car (cdr itr)))))
+;;                ((eql kw :allow-other-keys))
+;;                (t
+;;                 (unless allow-other-keys
+;;                   (error "Unknown keyword ~S" kw)))))
+;;        (setq itr (cddr itr))
+;;      TEST
+;;        (when itr
+;;          (go HEAD)))
+;;     (let* ((x (if x-suppliedp
+;;                   x-val
+;;                   x-init))
+;;            (y (if y-suppliedp
+;;                   y-val
+;;                   nil))
+;;            (y-p y-suppliedp)
+;;            (z (if z-suppliedp
+;;                   z-val
+;;                   nil)))
+;;       ...)))
 (defun lower-key-arguments* (body rest keys allow-other-keys)
   (let* ((values (mapcar (lambda (x)
                            (make-instance 'lexical-variable
@@ -25,6 +86,12 @@
                                                        (gensym))
                                              :definition-point *current-lambda*))
                             keys))
+         (aok (make-instance 'lexical-variable
+                                 :name (gensym "ALLOW-OTHER-KEYS")
+                                 :definition-point *current-lambda*))
+         (aok-itr (make-instance 'lexical-variable
+                                 :name (gensym)
+                                 :definition-point *current-lambda*))
          (itr (make-instance 'lexical-variable
                              :name (gensym)
                              :definition-point *current-lambda*))
@@ -43,10 +110,14 @@
                      (allow-other-keys
                       '(quote nil))
                      (t
-                      `(call error
-                             'sys.int::simple-program-error
-                             ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
-                             ':format-arguments (call list ,current-keyword (quote ,(mapcar 'caar keys)))))))
+                      `(if ,aok
+                           (quote nil)
+                           (if (call eql ,current-keyword (quote :allow-other-keys))
+                               (quote nil)
+                               (call error
+                                     'sys.int::simple-program-error
+                                     ':format-control '"Unknown &KEY argument ~S. Expected one of ~S."
+                                     ':format-arguments (call list ,current-keyword (quote ,(mapcar 'caar keys)))))))))
              (create-key-let-body (key-args values suppliedp)
                (cond (key-args
                       `(let ((,(second (first (first key-args)))
@@ -60,12 +131,37 @@
                      (t body))))
       (ast `(let (,@(mapcar (lambda (x) (list x '(quote nil))) values)
                   ,@(mapcar (lambda (x) (list x '(quote nil))) suppliedp)
+                    (,aok (quote ,(if allow-other-keys t nil)))
                     (,itr ,(etypecase rest
                              (special-variable
                               `(call symbol-value (quote ,rest)))
                              (lexical-variable
                               rest))))
               (progn
+                ,@(when (not allow-other-keys)
+                    `((tagbody aok-tb
+                         (aok-entry
+                          (go aok-test aok-tb))
+                         (aok-head
+                          (progn
+                            (if (call eql (call car ,itr) (quote :allow-other-keys))
+                                (progn
+                                  (setq ,aok (call car (call cdr ,itr)))
+                                  (go aok-out aok-tb))
+                                (quote nil))
+                            (setq ,itr (call cddr ,itr))
+                            (go aok-test aok-tb)))
+                         (aok-test
+                          (if ,itr
+                              (go aok-head aok-tb)
+                              (go aok-out aok-tb)))
+                         (aok-out
+                          (quote nil)))
+                      (setq ,itr ,(etypecase rest
+                                    (special-variable
+                                     `(call symbol-value (quote ,rest)))
+                                    (lexical-variable
+                                     rest)))))
                 (tagbody tb
                    (entry
                     (go test-tag tb))
