@@ -324,9 +324,13 @@
                       (write name :stream stream))
                     (print-unreadable-object (object stream :type t :identity t)))))))
     (bit-vector
-     (write-bit-vector object stream))
+     (if *print-array*
+         (write-bit-vector object stream)
+         (print-unreadable-object (object stream :type t :identity t))))
     (vector
-     (write-vector object stream))
+     (if *print-array*
+         (write-vector object stream)
+         (print-unreadable-object (object stream :type t :identity t))))
     (complex
      (write-complex object stream))
     (t (if *print-safe*
