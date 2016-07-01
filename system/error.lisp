@@ -150,6 +150,11 @@
   ((lambda-list :initarg :lambda-list
                 :reader invalid-macro-lambda-list-lambda-list)))
 
+(define-condition floating-point-inexact (arithmetic-error) ())
+(define-condition floating-point-invalid-operation (arithmetic-error) ())
+(define-condition floating-point-overflow (arithmetic-error) ())
+(define-condition floating-point-underflow (arithmetic-error) ())
+
 (defun error (datum &rest arguments)
   (let ((condition datum))
     (let ((*infinite-error-protect* (1+ *infinite-error-protect*)))
