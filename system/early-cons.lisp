@@ -527,7 +527,7 @@
       list
       (cons item list)))
 
-(defun subst (new old tree &key test)
+(defun subst-if (new predicate tree &key key)
   (setf test (or test #'eql))
   (cond ((funcall test old tree)
          new)
@@ -538,6 +538,37 @@
                       (funcall test d (cdr tree)))
                  tree
                  (cons a d))))))
+
+(defun subst-if (new predicate tree &key key)
+  (setf key (or key #'identity))
+  (cond ((funcall predicate (funcall key tree))
+         new)
+        ((atom tree)
+         tree)
+        (t (let ((a (subst-if new predicate (car tree) :key key))
+                 (d (subst-if new predicate (cdr tree) :key key)))
+             (if (and (eql a (car tree))
+                      (eql d (cdr tree)))
+                 tree
+                 (cons a d))))))
+
+(defun subst-if-not (new predicate tree &key key)
+  (subst-if new
+            (complement predicate)
+            tree
+            :key key))
+
+(defun subst (new old tree &key key test test-not)
+  (when (and test test-not)
+    (error "TEST and TEST-NOT specified."))
+  (when test-not
+    (setf test (complement test-not)))
+  (unless test
+    (setf test 'eql))
+  (subst-if new
+            (lambda (x) (funcall test old x))
+            tree
+            :key key))
 
 (declaim (inline endp))
 (defun endp (list)
