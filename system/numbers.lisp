@@ -99,7 +99,6 @@
     (t (reduce #'two-arg-gcd integers))))
 
 (define-compiler-macro gcd (&rest integers)
-  (declare (dynamic-extent integers))
   (cond ((null integers) '0)
         ((null (rest integers))
          `(abs (the integer ,(first integers))))
@@ -107,6 +106,21 @@
              (dolist (n (rest integers))
                (setf result (list 'two-arg-gcd result n)))
              result))))
+
+(defun lcm (&rest integers)
+  (cond
+    ((endp integers) 1)
+    ((endp (rest integers))
+     (check-type (first integers) integer)
+     (abs (first integers)))
+    (t (reduce #'two-arg-lcm integers))))
+
+(defun two-arg-lcm (a b)
+  (check-type a integer)
+  (check-type b integer)
+  (cond ((zerop a) b)
+        ((zerop b) a)
+        (t (/ (abs (* a b)) (gcd a b)))))
 
 (defmacro define-comparison-operator (name base type)
   `(progn (defun ,name (number &rest more-numbers)
@@ -117,7 +131,6 @@
                 (return nil))
               (setf number n)))
           (define-compiler-macro ,name (number &rest more-numbers)
-            (declare (dynamic-extent more-numbers))
             (let ((n-numbers (1+ (length more-numbers))))
               (case n-numbers
                 (1 `(progn (check-type ,number ,',type) 't))
