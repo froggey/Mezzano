@@ -648,6 +648,29 @@
 (defmethod sys.gray:stream-read-char ((stream two-way-stream))
   (read-char (two-way-stream-input-stream stream) nil))
 
+(defclass concatenated-stream (sys.gray:fundamental-character-input-stream
+                               sys.gray:unread-char-mixin)
+  ((streams :initarg :streams)))
+
+(defun make-concatenated-stream (&rest input-streams)
+  (dolist (s input-streams)
+    (assert (input-stream-p s)))
+  (make-instance 'concatenated-stream :streams input-streams))
+
+(defun concatenated-stream-streams (concatenated-stream)
+  (check-type concatenated-stream concatenated-stream)
+  (slot-value concatenated-stream 'streams))
+
+(defmethod sys.gray:stream-read-char ((stream concatenated-stream))
+  (loop
+     (when (endp (concatenated-stream-streams stream))
+       (return :eof))
+     (let ((ch (read-char (first (concatenated-stream-streams stream)) nil)))
+       (when ch
+         (return ch))
+       ;; Reached end of this stream. Pop streams.
+       (pop (slot-value stream 'streams)))))
+
 (defclass case-correcting-stream (sys.gray:fundamental-character-output-stream)
   ((stream :initarg :stream)
    (case :initarg :case)
