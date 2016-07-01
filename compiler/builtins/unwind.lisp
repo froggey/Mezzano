@@ -65,6 +65,16 @@
   ;; Arrange for the new special stack entry to be stored in :r8,
   ;; so it can be returned.
   (push-special-stack :r9 :r10 :r8)
+  ;; Also update the cache for this symbol.
+  ;; Recompute the symbol hash.
+  (emit `(sys.lap-x86:mov64 :rax :r9)
+        `(sys.lap-x86:shr32 :eax 4)
+        `(sys.lap-x86:and32 :eax ,(1- 128)))
+  (emit `(sys.lap-x86:gs)
+        `(sys.lap-x86:mov64 ,(object-ea nil
+                                        :slot 128
+                                        :index '(:rax 8))
+                            :r8))
   (setf *r8-value* (list (gensym))))
 
 (defbuiltin sys.int::%%push-special-stack (a b) (t nil)
@@ -76,13 +86,31 @@
 (defbuiltin sys.int::%%unbind () (t nil)
   ;; Top entry in the binding stack is a special variable binding.
   ;; It's a symbol and the current value.
-  ;; Just pop the stack.
-  (smash-r8)
   (emit `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+))
-        `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 0))
+        `(sys.lap-x86:mov64 :rbx (,+binding-stack-gs-offset+)))
+  ;; Pop the stack.
+  (emit `(sys.lap-x86:mov64 :r10 ,(object-ea :rbx :slot 0))
         `(sys.lap-x86:gs)
-        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :rbx))
+        `(sys.lap-x86:mov64 (,+binding-stack-gs-offset+) :r10))
+  ;; Recompute the symbol hash.
+  (emit `(sys.lap-x86:mov64 :rax ,(object-ea :rbx
+                                             :slot sys.int::+symbol-value-cell-symbol+))
+        `(sys.lap-x86:shr32 :eax 4)
+        `(sys.lap-x86:and32 :eax ,(1- 128)))
+  ;; Flush the binding cell cache for this entry.
+  (let ((after-flush (gensym)))
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:cmp64 ,(object-ea nil
+                                          :slot 128
+                                          :index '(:rax 8))
+                              :rbx))
+    (emit `(sys.lap-x86:jne ,after-flush))
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 ,(object-ea nil
+                                          :slot 128
+                                          :index '(:rax 8))
+                              0))
+    (emit after-flush))
   ''nil)
 
 (defbuiltin sys.int::%%disestablish-block-or-tagbody () (t nil)

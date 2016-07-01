@@ -83,6 +83,9 @@
   (sys.int::cas (symbol-value-cell-value (symbol-global-value-cell symbol))
                 old new))
 
+(define-compiler-macro symbol-value-cell (symbol)
+  `(fast-symbol-value-cell ,symbol))
+
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
   ;; Walk the special stack, looking for an associated binding.

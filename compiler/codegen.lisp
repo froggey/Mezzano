@@ -35,9 +35,12 @@ be generated instead.")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun object-ea (base &key (slot 0) index)
-  (if index
-      (list base index (+ (- sys.int::+tag-object+) 8 (* slot 8)))
-      (list base (+ (- sys.int::+tag-object+) 8 (* slot 8)))))
+  (append
+   (when base
+     (list base))
+   (when index
+     (list index))
+   (list (+ (- sys.int::+tag-object+) 8 (* slot 8)))))
 )
 
 (defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)

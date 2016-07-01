@@ -107,13 +107,20 @@
   (field breakpoint-table        20)
   ;; Sorted simple-vector of breakpoint addresses, used when the thread is running in software-breakpoint mode.
   (field software-breakpoints    21)
-  ;; 22-32 - free
+  ;; Symbol binding cache hit count.
+  (field symbol-cache-hit-count  22)
+  ;; Symbol binding cache miss count.
+  (field symbol-cache-miss-count 23)
+  ;; 24-32 - free
   ;; 32-127 MV slots
   ;;    Slots used as part of the multiple-value return convention.
   ;;    Note! The compiler must be updated if this changes and all code rebuilt.
   (defconstant +thread-mv-slots-start+ 32)
   (defconstant +thread-mv-slots-end+ 128)
-  ;; 128-426 free
+  ;; 128-256 Symbol binding cell cache.
+  (defconstant +thread-symbol-cache-start+ 128)
+  (defconstant +thread-symbol-cache-end+ 256)
+  ;; 256-426 free
   ;; 427-446 State save area.
   ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
   ;;    The registers are saved here, not on the stack, because the stack may not be paged in.

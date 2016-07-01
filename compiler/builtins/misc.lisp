@@ -401,3 +401,52 @@
     (emit `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 1) :r9)
           `(sys.lap-x86:mov64 ,(object-ea :r8 :slot 2) :r10)))
   (setf *r8-value* (list (gensym))))
+
+(defbuiltin mezzano.runtime::fast-symbol-value-cell (symbol) ()
+  (smash-r8)
+  (let ((cache-miss (gensym "SYMBOL-CACHE-MISS"))
+        (resume (gensym "RESUME")))
+    (emit-trailer (cache-miss)
+      ;; Call the slow function.
+      (emit `(sys.lap-x86:mov64 :r8 :r9))
+      (call-support-function 'mezzano.runtime::symbol-value-cell 1)
+      ;; Log a cache miss.
+      (emit `(sys.lap-x86:gs)
+            `(sys.lap-x86:add64 ,(object-ea nil :slot 23)
+                                ,(ash 1 sys.int::+n-fixnum-bits+)))
+      ;; Recompute the hash.
+      (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8
+                                                :slot sys.int::+symbol-value-cell-symbol+))
+            `(sys.lap-x86:shr32 :eax 4)
+            `(sys.lap-x86:and32 :eax ,(1- 128)))
+      ;; Write the entry into the cache.
+      (emit `(sys.lap-x86:gs)
+            `(sys.lap-x86:mov64 ,(object-ea nil
+                                            :slot 128
+                                            :index '(:rax 8))
+                                :r8))
+      ;; Done.
+      (emit `(sys.lap-x86:jmp ,resume)))
+    (load-in-reg :r9 symbol t)
+    ;; Compute symbol hash. Symbols are wired, so use the address.
+    ;; Ignore the low 4 bits.
+    (emit `(sys.lap-x86:mov64 :rax :r9)
+          `(sys.lap-x86:shr32 :eax 4)
+          `(sys.lap-x86:and32 :eax ,(1- 128)))
+    ;; Load cache entry.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:mov64 :r8 ,(object-ea nil
+                                              :slot 128
+                                              :index '(:rax 8))))
+    ;; Do symbols match?
+    ;; Be careful here. The entry may be 0.
+    (emit `(sys.lap-x86:test64 :r8 :r8))
+    (emit `(sys.lap-x86:jz ,cache-miss))
+    (emit `(sys.lap-x86:cmp64 :r9 ,(object-ea :r8 :slot sys.int::+symbol-value-cell-symbol+))
+          `(sys.lap-x86:jne ,cache-miss))
+    ;; Cache hit. Log.
+    (emit `(sys.lap-x86:gs)
+          `(sys.lap-x86:add64 ,(object-ea nil :slot 22)
+                              ,(ash 1 sys.int::+n-fixnum-bits+)))
+    (emit resume))
+  (setf *r8-value* (list (gensym))))
