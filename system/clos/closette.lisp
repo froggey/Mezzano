@@ -1459,10 +1459,12 @@ has only has class specializer."
 
 ;;; Instance creation and initialization
 
-(defgeneric allocate-instance (class))
-(defmethod allocate-instance ((class standard-class))
+(defgeneric allocate-instance (class &rest initargs &key &allow-other-keys))
+(defmethod allocate-instance ((class standard-class) &rest initargs)
+  (declare (ignore initargs))
   (std-allocate-instance class))
-(defmethod allocate-instance ((class funcallable-standard-class))
+(defmethod allocate-instance ((class funcallable-standard-class) &rest initargs)
+  (declare (ignore initargs))
   (fc-std-allocate-instance class))
 
 (defun std-compute-initargs (class initargs)
@@ -1476,10 +1478,11 @@ has only has class specializer."
               (push (funcall fn) default-initargs))))
     (append initargs (nreverse default-initargs))))
 
-(defgeneric make-instance (class &key))
+(defgeneric make-instance (class &rest initargs &key &allow-other-keys))
 (defmethod make-instance ((class std-class) &rest initargs)
-  (let ((instance (allocate-instance class)))
-    (apply #'initialize-instance instance (std-compute-initargs class initargs))
+  (let* ((true-initargs (std-compute-initargs class initargs))
+         (instance (apply #'allocate-instance class true-initargs)))
+    (apply #'initialize-instance instance true-initargs)
     instance))
 (defmethod make-instance ((class symbol) &rest initargs)
   (apply #'make-instance (find-class class) initargs))
