@@ -216,7 +216,6 @@
     (restart-case (signal condition)
       (muffle-warning ()
 	:report "Ignore this warning."
-	:test (lambda (c) (eq c condition))
 	(return-from warn nil)))
     (if (typep condition 'style-warning)
 	(format *error-output* "~&Style-Warning: ~A~%" condition)
