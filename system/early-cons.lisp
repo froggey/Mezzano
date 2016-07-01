@@ -395,6 +395,35 @@
   (declare (ignore default))
   (setf (getf (symbol-plist symbol) indicator) value))
 
+(defun %remf (plist indicator)
+  (cond ((endp plist)
+         (values nil nil))
+        ((eql (first plist) indicator)
+         (values (cddr plist) t))
+        (t
+         ;; Not empty and not first entry.
+         (do ((i plist (cddr i)))
+             ((null (cddr i))
+              (values plist nil))
+           (when (eql (third i) indicator)
+             (setf (cddr i) (cddddr i))
+             (return (values plist t)))))))
+
+(defmacro remf (place indicator &environment env)
+  (multiple-value-bind (temps vals stores store-form access-form)
+      (get-setf-expansion place env)
+    (let ((indicator-sym (gensym))
+          (plist (gensym))
+          (result (gensym)))
+      (when (cdr stores)
+        (error "Can't expand this"))
+      `(let* (,@(mapcar #'list temps vals))
+         (multiple-value-bind (,(first stores) ,result)
+             (%remf ,access-form ,indicator)
+           ,store-form
+           ,result)))))
+
+
 (declaim (inline assoc))
 (defun assoc (item alist &key key test test-not)
   (when (and test test-not)

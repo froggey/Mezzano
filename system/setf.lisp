@@ -148,7 +148,8 @@
       (parse-ordinary-lambda-list lambda-list)
     (when (or enable-keys keys allow-other-keys aux)
       (error "&KEYS and &AUX not permitted in define-modify-macro lambda list"))
-    (let ((reference (gensym)) (env (gensym)))
+    (let ((reference (gensym "PLACE"))
+          (env (gensym)))
       `(defmacro ,name (&environment ,env ,reference ,@lambda-list)
 	 ,documentation
 	 (multiple-value-bind (dummies vals newvals setter getter)
