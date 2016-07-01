@@ -117,4 +117,5 @@
   (symbol-value-cell-boundp (symbol-value-cell symbol)))
 
 (defun makunbound (symbol)
-  (symbol-value-cell-makunbound (symbol-value-cell symbol)))
+  (symbol-value-cell-makunbound (symbol-value-cell symbol))
+  symbol)
