@@ -1300,3 +1300,6 @@ Implements the dumb mp_div algorithm from BigNum Math."
       (complex (realpart number)
                (- (imagpart number)))
       number))
+
+(defun phase (number)
+  (atan (imagpart number) (realpart number)))
