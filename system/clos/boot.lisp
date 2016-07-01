@@ -180,7 +180,7 @@
 
 (defclass method (metaobject) ())
 
-(defclass standard-method ()
+(defclass standard-method (method)
   ((lambda-list :initarg :lambda-list)     ; :accessor method-lambda-list
    (qualifiers :initarg :qualifiers)       ; :accessor method-qualifiers
    (specializers :initarg :specializers)   ; :accessor method-specializers
