@@ -73,6 +73,9 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun typeexpand-1 (type &optional environment)
+  (when (not (or (symbolp type)
+                 (listp type)))
+    (return-from typeexpand-1 (values type nil)))
   (let ((expander (get (if (symbolp type)
 			   type
 			   (first type))
