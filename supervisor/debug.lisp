@@ -22,27 +22,27 @@
 (defun debug-set-output-pseudostream (pseudostream)
   (setf *debug-pseudostream* pseudostream))
 
+(defmacro call-debug-pseudostream (command &rest arguments)
+  `(when (sys.int::symbol-global-boundp '*debug-pseudostream*)
+     (funcall (sys.int::symbol-global-value '*debug-pseudostream*)
+              ,command ,@arguments)))
+
 (defun debug-read-char ()
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :read-char)))
+  (call-debug-pseudostream :read-char))
 
 (defun debug-clear-input ()
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :clear-input)))
+  (call-debug-pseudostream :clear-input))
 
 (defun debug-write-string (string)
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :write-string string)))
+  (call-debug-pseudostream :write-string string))
 
 (defun debug-write-char (char)
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :write-char char)))
+  (call-debug-pseudostream :write-char char))
 
 (defun debug-write-line (string)
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :write-string string)
-    (funcall *debug-pseudostream* :write-char #\Newline)
-    (funcall *debug-pseudostream* :force-output)))
+  (call-debug-pseudostream :write-string string)
+  (call-debug-pseudostream :write-char #\Newline)
+  (call-debug-pseudostream :force-output))
 
 ;;; Print a negative fixnum. Use negative numbers to avoid problems
 ;;; near most-negative-fixnum.
@@ -89,29 +89,26 @@
 (defun debug-print-line-1 (things)
   (dolist (thing things)
     (debug-write thing))
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :write-char #\Newline)
-    (funcall *debug-pseudostream* :force-output)))
+  (call-debug-pseudostream :write-char #\Newline)
+  (call-debug-pseudostream :force-output))
 
 (defun debug-print-line (&rest things)
   (declare (dynamic-extent things))
   (debug-print-line-1 things))
 
 (defun debug-start-line-p ()
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :start-line-p)))
+  (call-debug-pseudostream :start-line-p))
 
 (defun debug-force-output ()
-  (when (boundp '*debug-pseudostream*)
-    (funcall *debug-pseudostream* :force-output)))
+  (call-debug-pseudostream :force-output))
 
 (defvar *panic-in-progress* nil)
 
 (defun panic-print-backtrace (initial-frame-pointer)
-  (let ((*pagefault-hook* (dx-lambda (&rest stuff)
-                            (declare (ignore stuff))
-                            (debug-print-line "#<truncated>")
-                            (return-from panic-print-backtrace))))
+  (with-page-fault-hook
+      (()
+       (debug-print-line "#<truncated>")
+       (return-from panic-print-backtrace))
     (do ((fp initial-frame-pointer
              (sys.int::memref-signed-byte-64 fp 0)))
         ((eql fp 0))
@@ -126,19 +123,19 @@
         ;; call from the frame-pointer & return address so that a page-fault
         ;; won't abort the whole entry.
         (block nil
-          (let* ((*pagefault-hook* (dx-lambda (&rest stuff)
-                                     (declare (ignore stuff))
-                                     (debug-write-string "#<unknown>")
-                                     (return)))
-                 (function (sys.int::return-address-to-function return-address))
-                 (info (sys.int::%object-header-data function))
-                 (mc-size (ldb (byte sys.int::+function-machine-code-size+
-                                     sys.int::+function-machine-code-position+)
-                               info))
-                 ;; First entry in the constant pool.
-                 (address (logand (sys.int::lisp-object-address function) -16))
-                 (name (sys.int::memref-t address (* mc-size 2))))
-            (debug-write name)))
+          (with-page-fault-hook
+              (()
+               (debug-write-string "#<unknown>")
+               (return))
+            (let* ((function (sys.int::return-address-to-function return-address))
+                   (info (sys.int::%object-header-data function))
+                   (mc-size (ldb (byte sys.int::+function-machine-code-size+
+                                       sys.int::+function-machine-code-position+)
+                                 info))
+                   ;; First entry in the constant pool.
+                   (address (logand (sys.int::lisp-object-address function) -16))
+                   (name (sys.int::memref-t address (* mc-size 2))))
+              (debug-write name))))
         (debug-print-line)))))
 
 (defun panic (&rest things)
@@ -147,12 +144,12 @@
 
 (defun panic-1 (things extra)
   (sys.int::%cli)
-  (when (and (boundp '*panic-in-progress*)
-             *panic-in-progress*)
+  (when (and (sys.int::symbol-global-boundp '*panic-in-progress*)
+             (sys.int::symbol-global-value '*panic-in-progress*))
     (loop (sys.int::%hlt)))
   ;; Stop the world, just in case printing the backtrace requires paging stuff in.
-  (setf *world-stopper* (current-thread)
-        *panic-in-progress* t)
+  (setf (sys.int::symbol-global-value '*world-stopper*) (current-thread)
+        (sys.int::symbol-global-value '*panic-in-progress*) t)
   (debug-force-output)
   (set-panic-light)
   (disable-page-fault-ist)

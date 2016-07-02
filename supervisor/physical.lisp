@@ -163,6 +163,10 @@
     (setf *physical-lock* :unlocked
           *verbose-physical-allocation* nil)))
 
+(declaim (inline verbose-physical-allocation-p))
+(defun verbose-physical-allocation-p ()
+  (sys.int::symbol-global-value '*verbose-physical-allocation*))
+
 (defun allocate-physical-pages-1 (n-pages buddy-allocator-address max-order type)
   ;; Find the bin that matches this page count and
   ;; the lowest bin with pages that is best-bin <= N < max-bin.
@@ -179,7 +183,7 @@
         (decf (physical-buddy-bin-count buddy-allocator-address avail-bin))
         (when (physical-page-frame-next frame)
           (setf (physical-page-frame-prev (physical-page-frame-next frame)) nil))
-        (when *verbose-physical-allocation*
+        (when (verbose-physical-allocation-p)
           (debug-print-line "Considering frame " frame " type " (physical-page-frame-type frame)
                             " avail bin " avail-bin " best bin " best-bin))
         (when (not (eql (physical-page-frame-type frame) :free))
@@ -191,7 +195,7 @@
              (return))
            (decf avail-bin)
            (let ((p (+ frame (ash 1 avail-bin))))
-             (when *verbose-physical-allocation*
+             (when (verbose-physical-allocation-p)
                (debug-print-line "Split frame " frame " buddy " p " order " avail-bin))
              ;; Mark free, and set bin number.
              (setf (physical-page-frame-type p) :free
@@ -206,7 +210,7 @@
         (when mezzano.runtime::*paranoid-allocation*
           (dotimes (i (* n-pages 512))
             (setf (sys.int::memref-signed-byte-64 (convert-to-pmap-address (ash frame 12)) i) -1)))
-        (when *verbose-physical-allocation*
+        (when (verbose-physical-allocation-p)
           (debug-print-line "Allocated " n-pages " pages " frame))
         frame))))
 
@@ -216,7 +220,7 @@ If the allocation could not be satisfied then NIL will be returned
 when MANDATORY-P is false, otherwise PANIC will be called.
 If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (ensure (not (zerop n-pages)) "Tried to allocate 0 frames.")
-  (when *verbose-physical-allocation*
+  (when (verbose-physical-allocation-p)
     (debug-print-line "Allocating " n-pages " of type " type))
   (let ((frame
          (safe-without-interrupts (n-pages type 32-bit-only)
@@ -231,7 +235,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                                             +boot-information-32-bit-physical-buddy-bins-offset+
                                             +n-32-bit-physical-buddy-bins+
                                             type))))))
-    (when *verbose-physical-allocation*
+    (when (verbose-physical-allocation-p)
       (debug-print-line "Allocated frame " frame))
     (when (and (not frame)
                mandatory-p)
@@ -256,7 +260,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
                    (and (eql (physical-page-frame-type buddy) :free)
                         (not (eql (physical-page-frame-bin buddy) bin))))
            (return))
-         (when *verbose-physical-allocation*
+         (when (verbose-physical-allocation-p)
            (debug-print-line "Merge frame " page-number " buddy " buddy " order " bin " other " (physical-page-frame-bin buddy)))
          ;; Combine with buddy.
          ;; Remove buddy from freelist.
@@ -288,7 +292,7 @@ If MANDATORY-P is non-NIL, it should be a string describing the allocation."
   (when mezzano.runtime::*paranoid-allocation*
     (dotimes (i (* n-pages 512))
       (setf (physical-memref-signed-byte-64 (ash page-number 12) i) -1)))
-  (when *verbose-physical-allocation*
+  (when (verbose-physical-allocation-p)
     (debug-print-line "Freeing " n-pages " pages " page-number))
   (safe-without-interrupts (page-number n-pages)
     (with-symbol-spinlock (*physical-lock*)

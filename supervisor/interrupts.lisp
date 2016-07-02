@@ -249,18 +249,35 @@ If clear, the fault occured in supervisor mode.")
 (defconstant +page-fault-error-instruction+ 4
   "If set, the fault was caused by an instruction fetch.")
 
-(defvar *pagefault-hook* nil)
+(defvar *page-fault-hook* nil)
 
 (defun fatal-page-fault (interrupt-frame info reason address)
   (declare (ignore interrupt-frame info))
   (panic reason " on address " address))
 
+(defmacro with-page-fault-hook (((&optional frame info fault-address) &body hook-body) &body body)
+  (let ((old (gensym))
+        (frame (or frame (gensym "FRAME")))
+        (info (or info (gensym "INFO")))
+        (fault-address (or fault-address (gensym "FAULT-ADDRESS"))))
+    `(flet ((page-fault-hook-fn (,frame ,info ,fault-address)
+              (declare (ignorable ,frame ,info ,fault-address))
+              ,hook-body))
+       (declare (dynamic-extent #'page-fault-hook-fn))
+       (let ((,old (symbol-global-value '*page-fault-hook*)))
+         (unwind-protect
+              (progn
+                (setf (symbol-global-value '*page-fault-hook*) #'page-fault-hook-fn)
+                ,@body)
+           (setf (symbol-global-value '*page-fault-hook*) ,old))))))
+
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (when (and (boundp '*pagefault-hook*)
-               *pagefault-hook*)
-      (funcall *pagefault-hook* interrupt-frame info fault-addr))
-    (cond ((not *paging-disk*)
+    (when (and (sys.int::symbol-global-boundp '*page-fault-hook*)
+               (sys.int::symbol-global-value '*page-fault-hook*))
+      (funcall (sys.int::symbol-global-value '*page-fault-hook*)
+               interrupt-frame info fault-addr))
+    (cond ((not (sys.int::symbol-global-value '*paging-disk*))
            (fatal-page-fault interrupt-frame info "Early page fault" fault-addr))
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
@@ -299,7 +316,7 @@ If clear, the fault occured in supervisor mode.")
   (unhandled-interrupt interrupt-frame info "simd exception"))
 
 (defun sys.int::%user-interrupt-handler (interrupt-frame info)
-  (let ((handler (svref *user-interrupt-handlers* info)))
+  (let ((handler (svref (sys.int::symbol-global-value '*user-interrupt-handlers*) info)))
     (if handler
         (funcall handler interrupt-frame info)
         (unhandled-interrupt interrupt-frame info "user"))))

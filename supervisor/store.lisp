@@ -272,17 +272,20 @@
                (freep (logbitp 0 size)))
           (setf size (ash size -1))
           (when (zerop size)
-            (debug-print-line " freelist processing complete final " block-id ":" i)
+            (when *verbose-store*
+              (debug-print-line " freelist processing complete final " block-id ":" i))
             (return-from process-one-freelist-block
               (values i nil)))
           (cond (freep
                  (incf *store-freelist-n-free-blocks* size))
                 (t
                  (decf *store-freelist-n-free-blocks* size)))
-          (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated"))
+          (when *verbose-store*
+            (debug-print-line " insert freelist entry " start ":" size " " (if freep "free" "allocated")))
           (store-insert-range start size freep)))
       (assert (not (zerop next)) () "Corrupt freelist! No next block.")
-      (debug-print-line " next freelist block " next)
+      (when *verbose-store*
+        (debug-print-line " next freelist block " next))
       (values nil next))))
 
 (defun dump-store-freelist ()

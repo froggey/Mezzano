@@ -249,7 +249,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
            (bml3e (address-l3-bits address))
            (bml2e (address-l2-bits address))
            (bml1e (address-l1-bits address))
-           (bml3 (get-level *bml4* bml4e))
+           (bml3 (get-level (sys.int::symbol-global-value '*bml4*) bml4e))
            (bml2 (get-level bml3 bml3e))
            (bml1 (get-level bml2 bml2e)))
       (+ bml1 (* bml1e 8)))))
@@ -623,7 +623,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address)
-  (with-mutex (*vm-lock* nil)
+  (with-mutex ((sys.int::symbol-global-value '*vm-lock*) nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
@@ -659,26 +659,27 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun wait-for-page-via-interrupt (interrupt-frame address)
   "Called by the page fault handler when a non-present page is accessed.
 It will put the thread to sleep, while it waits for the page."
-  (let ((self (current-thread)))
-    (when (eql self sys.int::*pager-thread*)
+  (let ((self (current-thread))
+        (pager (sys.int::symbol-global-value 'sys.int::*pager-thread*)))
+    (when (eql self pager)
       (panic "Page fault in pager!"))
-    (when (and *pager-fast-path-enabled*
+    (when (and (sys.int::symbol-global-value '*pager-fast-path-enabled*)
                (wait-for-page-fast-path address))
-      (incf *pager-fast-path-hits*)
+      (incf (sys.int::symbol-global-value '*pager-fast-path-hits*))
       (return-from wait-for-page-via-interrupt))
-    (incf *pager-fast-path-misses*)
+    (incf (sys.int::symbol-global-value '*pager-fast-path-misses*))
     (with-symbol-spinlock (*pager-lock*)
       (%lock-thread self)
       (setf (thread-state self) :waiting-for-page
             (thread-wait-item self) address
-            (thread-%next self) *pager-waiting-threads*
-            *pager-waiting-threads* self)
-      (with-thread-lock (sys.int::*pager-thread*)
-        (when (and (eql (thread-state sys.int::*pager-thread*) :sleeping)
-                   (eql (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*))
-          (setf (thread-state sys.int::*pager-thread*) :runnable)
+            (thread-%next self) (sys.int::symbol-global-value '*pager-waiting-threads*)
+            (sys.int::symbol-global-value '*pager-waiting-threads*) self)
+      (with-thread-lock (pager)
+        (when (and (eql (thread-state pager) :sleeping)
+                   (eql (thread-wait-item pager) '*pager-waiting-threads*))
+          (setf (thread-state pager) :runnable)
           (with-symbol-spinlock (*global-thread-lock*)
-            (push-run-queue sys.int::*pager-thread*)))))
+            (push-run-queue pager)))))
     (%reschedule-via-interrupt interrupt-frame)))
 
 (defun map-physical-memory (base size name)

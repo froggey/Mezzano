@@ -22,24 +22,25 @@
 
 (defun profile-append-entry (thing)
   "Append one THING to the profile buffer, wrapping around as required."
-  (let ((buffer-len (sys.int::%object-header-data *profile-buffer*))
-        (place *profile-buffer-head*))
-    (incf *profile-buffer-head*)
-    (when (eql *profile-buffer-head* buffer-len)
-      (setf *profile-buffer-head* 0))
-    (when (eql *profile-buffer-head* *profile-buffer-tail*)
-      (incf *profile-buffer-tail*)
-      (when (eql *profile-buffer-tail* buffer-len)
-        (setf *profile-buffer-tail* 0)))
-    (setf (svref *profile-buffer* place) thing)))
+  (let ((buffer-len (sys.int::%object-header-data (sys.int::symbol-global-value '*profile-buffer*)))
+        (place (sys.int::symbol-global-value '*profile-buffer-head*)))
+    (incf (sys.int::symbol-global-value '*profile-buffer-head*))
+    (when (eql (sys.int::symbol-global-value '*profile-buffer-head*) buffer-len)
+      (setf (sys.int::symbol-global-value '*profile-buffer-head*) 0))
+    (when (eql (sys.int::symbol-global-value '*profile-buffer-head*)
+               (sys.int::symbol-global-value '*profile-buffer-tail*))
+      (incf (sys.int::symbol-global-value '*profile-buffer-tail*))
+      (when (eql (sys.int::symbol-global-value '*profile-buffer-tail*) buffer-len)
+        (setf (sys.int::symbol-global-value '*profile-buffer-tail*) 0)))
+    (setf (svref (sys.int::symbol-global-value '*profile-buffer*) place) thing)))
 
 (defun profile-append-return-address (addr)
   "Append a return address to the profile buffer as a function + offset."
-  (let* ((fn (let ((*pagefault-hook* (dx-lambda (interrupt-frame info fault-addr)
-                                       (declare (ignore interrupt-frame info fault-addr))
-                                       (profile-append-entry addr)
-                                       (profile-append-entry 0)
-                                       (return-from profile-append-return-address))))
+  (let* ((fn (with-page-fault-hook
+                 (()
+                  (profile-append-entry addr)
+                  (profile-append-entry 0)
+                  (return-from profile-append-return-address))
                ;; The function might be unmapped and in the pinned area, so it's possible
                ;; that this can fault.
                (sys.int::return-address-to-function addr)))
@@ -52,10 +53,10 @@
   "Append a complete-as-possible call stack to the profile buffer."
   ;; If a thread's stack is not mapped in, then this may take a page-fault.
   ;; Produce a truncated sample if that happens.
-  (let ((*pagefault-hook* (dx-lambda (interrupt-frame info fault-addr)
-                            (declare (ignore interrupt-frame info fault-addr))
-                            (profile-append-entry :truncated)
-                            (return-from profile-append-call-stack))))
+  (with-page-fault-hook
+      (()
+       (profile-append-entry :truncated)
+       (return-from profile-append-call-stack))
     (do ((fp initial-frame-pointer
              (sys.int::memref-unsigned-byte-64 fp 0)))
         ((eql fp 0))
@@ -66,11 +67,11 @@
 
 ;;; Watch out, this runs in an interrupt handler.
 (defun profile-sample (interrupt-frame)
-  (when (and (boundp '*enable-profiling*)
-             *enable-profiling*)
+  (when (and (sys.int::symbol-global-boundp '*enable-profiling*)
+             (sys.int::symbol-global-value '*enable-profiling*))
     (profile-append-entry :start)
-    (when (or (not *profile-thread*)
-              (eql *profile-thread* (current-thread)))
+    (when (or (not (sys.int::symbol-global-value '*profile-thread*))
+              (eql (sys.int::symbol-global-value '*profile-thread*) (current-thread)))
       ;; Dump the current thread.
       (profile-append-entry (current-thread))
       (profile-append-entry :active)
@@ -78,8 +79,8 @@
       (profile-append-return-address (interrupt-frame-raw-register interrupt-frame :rip))
       (profile-append-call-stack (interrupt-frame-raw-register interrupt-frame :rbp)))
     ;; And all the others.
-    (cond (*profile-thread*
-           (let ((thread *profile-thread*))
+    (cond ((sys.int::symbol-global-value '*profile-thread*)
+           (let ((thread (sys.int::symbol-global-value '*profile-thread*)))
              (when (not (eql thread (current-thread)))
                (profile-append-entry thread)
                (profile-append-entry (thread-state thread))
@@ -90,7 +91,7 @@
                (profile-append-call-stack (thread-frame-pointer thread)))))
           (t
            (loop
-              for thread = *all-threads* then (thread-global-next thread)
+              for thread = (sys.int::symbol-global-value '*all-threads*) then (thread-global-next thread)
               until (not thread) do
                 (when (not (eql thread (current-thread)))
                   (profile-append-entry thread)

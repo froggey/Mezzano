@@ -52,7 +52,9 @@
                  (setf sys.int::symbol-value)
                  (sys.int::cas sys.int::symbol-value)
                  symbol-plist (setf symbol-plist)
-                 boundp makunbound))
+                 boundp makunbound
+                 sys.int::symbol-global-boundp
+                 sys.int::symbol-global-makunbound))
 
 (defun symbolp (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-symbol+))
@@ -121,4 +123,11 @@
 
 (defun makunbound (symbol)
   (symbol-value-cell-makunbound (symbol-value-cell symbol))
+  symbol)
+
+(defun sys.int::symbol-global-boundp (symbol)
+  (symbol-value-cell-boundp (symbol-global-value-cell symbol)))
+
+(defun sys.int::symbol-global-makunbound (symbol)
+  (symbol-value-cell-makunbound (symbol-global-value-cell symbol))
   symbol)

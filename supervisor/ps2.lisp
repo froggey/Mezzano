@@ -47,11 +47,11 @@
 
 (defun ps/2-key-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler *ps/2-key-fifo*))
+  (ps/2-irq-handler (sys.int::symbol-global-value '*ps/2-key-fifo*)))
 
 (defun ps/2-aux-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler *ps/2-aux-fifo*))
+  (ps/2-irq-handler (sys.int::symbol-global-value '*ps/2-aux-fifo*)))
 
 (defun ps/2-input-wait (&optional (what "data"))
   "Wait for space in the input buffer."
