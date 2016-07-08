@@ -181,10 +181,12 @@
         ;; Use an inner LET form to bind any special variables.
         ((some (lambda (x) (typep x 'special-variable)) (bindings form))
          (change-made)
-         (let* ((specials (remove-if-not (lambda (x) (typep x 'special-variable)) (bindings form)))
-                (replacements (loop for s in specials
+         (let* ((specials (remove-if-not (lambda (x) (typep x 'special-variable))
+                                         (bindings form)))
+                (replacements (loop
+                                 for s in specials
                                  collect (make-instance 'lexical-variable
-                                                        :name s
+                                                        :name (name s)
                                                         :definition-point *current-lambda*
                                                         :use-count 1)))
                 ;; Also doubles up as an alist mapping specials to replacements.
@@ -194,7 +196,8 @@
                                   (if (typep var 'special-variable)
                                       (second (assoc var bindings))
                                       var))
-                                (second form))
+                                (bindings form))
+                     ,(value-form form)
                      (let ,bindings
                        ,(simp-form (body form)))))))
         (t (setf (value-form form) (simp-form (value-form form))
