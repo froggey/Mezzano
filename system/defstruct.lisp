@@ -307,18 +307,24 @@
                            slots))))))
 
 (defun compute-defstruct-slots (conc-name slot-descriptions included-structure included-slot-descriptions)
-  (when included-slot-descriptions
-    (error "Included slot-descriptions not supported yet."))
-  (mapcar (lambda (s)
-            (parse-defstruct-slot conc-name s))
-          (append (when included-structure
-                    (mapcar (lambda (x)
-                              (list (structure-slot-name x)
-                                    (structure-slot-initform x)
-                                    :type (structure-slot-type x)
-                                    :read-only (structure-slot-read-only x)))
-                            (structure-slots included-structure)))
-                  slot-descriptions)))
+  (let ((included-slots (when included-structure
+                          (mapcar (lambda (x)
+                                    (list (structure-slot-name x)
+                                          (structure-slot-initform x)
+                                          :type (structure-slot-type x)
+                                          :read-only (structure-slot-read-only x)))
+                                  (structure-slots included-structure)))))
+    (dolist (is included-slot-descriptions)
+      (let* ((slot-name (first is))
+             (def (assoc slot-name included-slots)))
+          (assert def () "Included slot definition ~S refers to unknown slot ~S."
+                  is slot-name)
+          (when (rest is)
+            (setf (second def) (second is)))))
+    (mapcar (lambda (s)
+              (parse-defstruct-slot conc-name s))
+            (append included-slots
+                    slot-descriptions))))
 
 (defmacro check-struct-type (place struct-type)
   (let ((value (gensym))
