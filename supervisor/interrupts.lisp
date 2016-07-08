@@ -264,12 +264,13 @@ If clear, the fault occured in supervisor mode.")
               (declare (ignorable ,frame ,info ,fault-address))
               ,hook-body))
        (declare (dynamic-extent #'page-fault-hook-fn))
-       (let ((,old (symbol-global-value '*page-fault-hook*)))
+       (ensure-interrupts-disabled)
+       (let ((,old (sys.int::symbol-global-value '*page-fault-hook*)))
          (unwind-protect
               (progn
-                (setf (symbol-global-value '*page-fault-hook*) #'page-fault-hook-fn)
+                (setf (sys.int::symbol-global-value '*page-fault-hook*) #'page-fault-hook-fn)
                 ,@body)
-           (setf (symbol-global-value '*page-fault-hook*) ,old))))))
+           (setf (sys.int::symbol-global-value '*page-fault-hook*) ,old))))))
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
