@@ -1860,6 +1860,12 @@ Tag with +TAG-OBJECT+."
     (#.sys.int::+llf-single-float+
      (logior (ash (load-integer stream) 32)
              sys.int::+tag-single-float+))
+    (#.sys.int::+llf-double-float+
+     (let* ((bits (load-integer stream))
+            (address (allocate 2)))
+       (setf (word address) (array-header sys.int::+object-tag-double-float+ 0)
+             (word (1+ address)) bits)
+       (make-value address sys.int::+tag-object+)))
     (#.sys.int::+llf-proper-list+
      (let ((list (make-value (symbol-address "NIL" "COMMON-LISP") sys.int::+tag-object+))
            (length (load-integer stream)))

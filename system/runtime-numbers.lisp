@@ -3,10 +3,10 @@
 
 (in-package :sys.int)
 
-(deftype short-float () 'float)
-(deftype single-float () 'float)
-(deftype double-float () 'float)
-(deftype long-float () 'float)
+(deftype short-float () 'single-float)
+(deftype single-float () '(satisfies single-float-p))
+(deftype double-float () '(satisfies double-float-p))
+(deftype long-float () 'double-float)
 (deftype bignum () '(satisfies bignump))
 (deftype ratio () '(satisfies ratiop))
 (deftype complex (&optional typespec) '(satisfies complexp))
@@ -136,26 +136,51 @@
   (%deposit-field newbyte (byte-size bytespec) (byte-position bytespec) integer))
 
 (defun float-nan-p (float)
-  (let* ((bits (%single-float-as-integer float))
-         (exp (ldb (byte 8 23) bits))
-         (sig (ldb (byte 23 0) bits)))
-    (and (eql exp #xFF)
-         (not (zerop sig)))))
+  (etypecase float
+    (single-float
+     (let* ((bits (%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (not (zerop sig)))))
+    (double-float
+     (let* ((bits (%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (not (zerop sig)))))))
 
 (defun float-trapping-nan-p (float)
-  (let* ((bits (%single-float-as-integer float))
-         (exp (ldb (byte 8 23) bits))
-         (sig (ldb (byte 23 0) bits)))
-    (and (eql exp #xFF)
-         (not (zerop sig))
-         (not (ldb-test (byte 1 22) sig)))))
+  (etypecase float
+    (single-float
+     (let* ((bits (%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (not (zerop sig))
+            (not (logbitp 22 sig)))))
+    (double-float
+     (let* ((bits (%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (not (zerop sig))
+            (not (logbitp 51 sig)))))))
 
 (defun float-infinity-p (float)
-  (let* ((bits (%single-float-as-integer float))
-         (exp (ldb (byte 8 23) bits))
-         (sig (ldb (byte 23 0) bits)))
-    (and (eql exp #xFF)
-         (zerop sig))))
+  (etypecase float
+    (single-float
+     (let* ((bits (%single-float-as-integer float))
+            (exp (ldb (byte 8 23) bits))
+            (sig (ldb (byte 23 0) bits)))
+       (and (eql exp #xFF)
+            (zerop sig))))
+    (double-float
+     (let* ((bits (%double-float-as-integer float))
+            (exp (ldb (byte 11 52) bits))
+            (sig (ldb (byte 52 0) bits)))
+       (and (eql exp #x7FF)
+            (zerop sig))))))
 
 (define-lap-function %single-float-as-integer ()
   (sys.lap-x86:mov64 :rax :r8)
@@ -172,6 +197,15 @@
   (sys.lap-x86:lea64 :r8 (:rax #.sys.int::+tag-single-float+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
+
+(defun %double-float-as-integer (double-float)
+  (%object-ref-unsigned-byte-64 double-float 0))
+
+(define-lap-function %integer-as-double-float ()
+  (sys.lap-x86:mov64 :rax :r8)
+  (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:mov64 :r13 (:function %%make-double-float-rax))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
 (declaim (inline bignump
                  %n-bignum-fragments
@@ -242,6 +276,17 @@
   (sys.lap-x86:sar64 :rdi 63)
   (sys.lap-x86:jmp sx-right-resume))
 
+(declaim (inline call-with-float-contagion))
+(defun call-with-float-contagion (x y single-fn double-fn)
+  (if (or (double-float-p x)
+          (double-float-p y))
+      (funcall double-fn
+               (float x 1.0d0)
+               (float y 1.0d0))
+      (funcall single-fn
+               (float x 1.0f0)
+               (float y 1.0f0))))
+
 (defun sys.int::full-< (x y)
   (check-type x real)
   (check-type y real)
@@ -261,14 +306,7 @@
      (sys.int::%%bignum-< x y))
     ((or (floatp x)
          (floatp y))
-     ;; Convert both arguments to the same kind of float.
-     (let ((x* (if (floatp y)
-                   (float x y)
-                   x))
-           (y* (if (floatp x)
-                   (float y x)
-                   y)))
-       (%%float-< x* y*)))
+     (call-with-float-contagion x y #'%%single-float-< #'%%double-float-<))
     ((or (sys.int::ratiop x)
          (sys.int::ratiop y))
        (< (* (numerator x) (denominator y))
@@ -310,14 +348,7 @@
           (= (imagpart x) (imagpart y))))
     ((or (floatp x)
          (floatp y))
-     ;; Convert both arguments to the same kind of float.
-     (let ((x* (if (floatp y)
-                   (float x y)
-                   x))
-           (y* (if (floatp x)
-                   (float y x)
-                   y)))
-       (%%float-= x* y*)))
+     (call-with-float-contagion x y #'%%single-float-= #'%%double-float-=))
     ((or (sys.int::fixnump x)
          (sys.int::fixnump y))
      (eq x y))
@@ -386,7 +417,11 @@ Implements the dumb mp_div algorithm from BigNum Math."
                                      val
                                      most-positive-fixnum)
                                   ;; Fits in a fixnum, convert quickly.
-                                  (sys.int::%%truncate-float val)
+                                  (etypecase val
+                                    (single-float
+                                     (%%truncate-single-float val))
+                                    (double-float
+                                     (%%truncate-double-float val)))
                                   ;; Grovel inside the float
                                   (multiple-value-bind (significand exponent)
                                       (integer-decode-float val)
@@ -429,8 +464,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
                         (* (realpart x) (imagpart y)))
                      (+ (expt (realpart y) 2)
                         (expt (imagpart y) 2)))))
-        ((or (floatp x) (floatp y))
-         (sys.int::%%float-/ (float x) (float y)))
+        ((or (floatp x)
+             (floatp y))
+         (call-with-float-contagion x y #'%%single-float-/ #'%%double-float-/))
         ((or (sys.int::ratiop x) (sys.int::ratiop y))
          (/ (* (numerator x) (denominator y))
             (* (denominator x) (numerator y))))
@@ -554,14 +590,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
                   (+ (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
-         ;; Convert both arguments to the same kind of float.
-         (let ((x* (if (floatp y)
-                       (float x y)
-                       x))
-               (y* (if (floatp x)
-                       (float y x)
-                       y)))
-           (sys.int::%%float-+ x* y*)))
+         (call-with-float-contagion x y #'%%single-float-+ #'%%double-float-+))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (+ (* (numerator x) (denominator y))
@@ -688,14 +717,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
                   (- (imagpart x) (imagpart y))))
         ((or (floatp x)
              (floatp y))
-         ;; Convert both arguments to the same kind of float.
-         (let ((x* (if (floatp y)
-                       (float x y)
-                       x))
-               (y* (if (floatp x)
-                       (float y x)
-                       y)))
-           (sys.int::%%float-- x* y*)))
+         (call-with-float-contagion x y #'%%single-float-- #'%%double-float--))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (- (* (numerator x) (denominator y))
@@ -817,14 +839,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
                      (* (realpart x) (imagpart y)))))
         ((or (floatp x)
              (floatp y))
-         ;; Convert both arguments to the same kind of float.
-         (let ((x* (if (floatp y)
-                       (float x y)
-                       x))
-               (y* (if (floatp x)
-                       (float y x)
-                       y)))
-           (sys.int::%%float-* x* y*)))
+         (call-with-float-contagion x y #'%%single-float-* #'%%double-float-*))
         ((or (sys.int::ratiop x)
              (sys.int::ratiop y))
          (/ (* (numerator x) (numerator y))
@@ -1042,7 +1057,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
               (- number)
               number))))
 
-(define-lap-function %%float-sqrt ()
+(define-lap-function %%single-float-sqrt ()
   ;; Unbox the float.
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -1057,10 +1072,20 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+(sys.int::define-lap-function %%double-float-sqrt ()
+  (sys.lap-x86:movq :xmm0 (:object :r8 0))
+  (sys.lap-x86:sqrtsd :xmm0 (:object :r9 0))
+  (sys.lap-x86:movq :rax :xmm0)
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-double-float-rax))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
 (defun sqrt (number)
   (check-type number number)
   (etypecase number
-    (real (%%float-sqrt (float number)))))
+    (single-float
+     (%%single-float-sqrt number))
+    (real
+     (%%double-float-sqrt (float number 0.0d0)))))
 
 ;;; Convert a bignum to canonical form.
 ;;; If it can be represented as a fixnum it is converted,

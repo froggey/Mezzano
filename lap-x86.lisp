@@ -1118,29 +1118,33 @@ Remaining values describe the effective address: base index scale disp rip-relat
 
 (define-instruction movq (dst src)
   (when (and (eql (reg-class dst) :xmm)
-             (or (eql (reg-class src) :gpr-32)
+             (or (eql (reg-class src) :gpr-64)
                  (consp src)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :xmm)
-             (or (eql (reg-class dst) :gpr-32)
+             (or (eql (reg-class dst) :gpr-64)
                  (consp dst)))
     (emit #x66)
     (return-from instruction
       (generate-modrm :gpr-64 dst src '(#x0F #x7E))))
   (when (and (eql (reg-class dst) :mm)
-             (or (eql (reg-class src) :gpr-32)
+             (or (eql (reg-class src) :gpr-64)
                  (consp src)))
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x6E))))
   (when (and (eql (reg-class src) :mm)
-             (or (eql (reg-class dst) :gpr-32)
+             (or (eql (reg-class dst) :gpr-64)
                  (consp dst)))
     (return-from instruction
       (generate-modrm :gpr-64 dst src '(#x0F #x7E)))))
 
 (define-instruction ucomiss (lhs rhs)
+  (modrm :xmm rhs lhs '(#x0F #x2E)))
+
+(define-instruction ucomisd (lhs rhs)
+  (emit #x66)
   (modrm :xmm rhs lhs '(#x0F #x2E)))
 
 (defmacro define-sse-float-op (name opcode)
@@ -1186,6 +1190,46 @@ Remaining values describe the effective address: base index scale disp rip-relat
     (emit #xF3)
     (return-from instruction
       (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
+
+(define-instruction cvtsd2si64 (dst src)
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-64)
+                 (consp dst)))
+    (emit #xF2)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x2D)))))
+
+(define-instruction cvttsd2si64 (dst src)
+  (when (and (eql (reg-class src) :xmm)
+             (or (eql (reg-class dst) :gpr-64)
+                 (consp dst)))
+    (emit #xF2)
+    (return-from instruction
+      (generate-modrm :gpr-64 dst src '(#x0F #x2C)))))
+
+(define-instruction cvtsi2sd64 (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :gpr-64)
+                 (consp src)))
+    (emit #xF2)
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x2A)))))
+
+(define-instruction cvtss2sd64 (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
+    (emit #xF3)
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x5A)))))
+
+(define-instruction cvtsd2ss64 (dst src)
+  (when (and (eql (reg-class dst) :xmm)
+             (or (eql (reg-class src) :xmm)
+                 (consp src)))
+    (emit #xF2)
+    (return-from instruction
+      (generate-modrm :gpr-64 src dst '(#x0F #x5A)))))
 
 (define-instruction fxrstor (area)
   (when (consp area)

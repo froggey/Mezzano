@@ -652,9 +652,20 @@
   #+sbcl (ldb (byte 32 0) (sb-kernel:single-float-bits value))
   #-(or sbcl) (error "Not implemented on this platform!"))
 
+(defun %double-float-as-integer (value)
+  (check-type value double-float)
+  #+sbcl (logior (ash (ldb (byte 64 0) (sb-kernel:double-float-high-bits value)) 32)
+                 (ldb (byte 64 0) (sb-kernel:double-float-low-bits value)))
+  #-(or sbcl) (error "Not implemented on this platform!"))
+
 (defmethod save-one-object ((object float) omap stream)
-  (write-byte sys.int::+llf-single-float+ stream)
-  (save-integer (%single-float-as-integer object) stream))
+  (etypecase object
+    (single-float
+     (write-byte sys.int::+llf-single-float+ stream)
+     (save-integer (%single-float-as-integer object) stream))
+    (double-float
+     (write-byte sys.int::+llf-double-float+ stream)
+     (save-integer (%double-float-as-integer object) stream))))
 
 (defmethod save-one-object ((object ratio) omap stream)
   (write-byte sys.int::+llf-ratio+ stream)

@@ -82,8 +82,12 @@
     (return-from write-float))
   (when (float-infinity-p float)
     (if (minusp float)
-        (format stream "#.~S" 'single-float-negative-infinity)
-        (format stream "#.~S" 'single-float-positive-infinity))
+        (format stream "#.~S" (if (single-float-p float)
+                                  'single-float-negative-infinity
+                                  'double-float-negative-infinity))
+        (format stream "#.~S" (if (single-float-p float)
+                                  'single-float-positive-infinity
+                                  'double-float-positive-infinity)))
     (return-from write-float))
   (when (< float 0.0)
     (write-char #\- stream)
@@ -115,7 +119,13 @@
                               (frob quot (1+ digit-position))
                               (when (>= digit-position trailing-zeros)
                                 (write rem :stream stream :base 10))))))
-                 (frob adjusted-decimal 0)))))))
+                 (frob adjusted-decimal 0))))))
+  (when (not (eql (type-of float) *read-default-float-format*))
+    (etypecase float
+      (single-float
+       (write-string "F0" stream))
+      (double-float
+       (write-string "D0" stream)))))
 
 (defun terpri (&optional stream)
   (write-char #\Newline stream)
@@ -293,7 +303,8 @@
      (write-integer object *print-base* stream)
      (when (and *print-radix* (eql *print-base* 10))
        (write-char #\. stream)))
-    (float (write-float object stream))
+    (float
+     (write-float object stream))
     (ratio
      (write-ratio object stream))
     (cons

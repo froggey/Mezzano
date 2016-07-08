@@ -400,7 +400,7 @@
            (when (not weight) (return))
            (consume)
            (setf saw-integer-digits t)
-           (setf integer-part (+ (* integer-part 10) weight))))
+           (setf integer-part (+ (* integer-part 10.0d0) weight))))
       ;; Parse the decimal portion.
       (when (decimal-point-p (peek))
         (setf saw-decimal-point t)

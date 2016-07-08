@@ -10,8 +10,6 @@
   (emit `(sys.lap-x86:test8 :r8l ,sys.int::+fixnum-tag-mask+))
   (predicate-result :z))
 
-(define-tag-type-predicate floatp sys.int::+tag-single-float+)
-
 ;;; Bitwise operators.
 
 (defmacro define-two-arg-bitwise-op (name instruction support-function)

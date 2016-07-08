@@ -33,8 +33,15 @@
   (when (char-bit object :hyper)
     (format stream "  It has the hyper bit set.~%")))
 
-(defun describe-float (object stream)
-  (format stream "~D is a single-precision floating-point number.~%" object))
+(defun describe-single-float (object stream)
+  (format stream "~D is a single-precision floating-point number.~%" object)
+  (format stream "  It's representation is ~X.~%"
+          (ash (lisp-object-address object) -32)))
+
+(defun describe-double-float (object stream)
+  (format stream "~D is a double-precision floating-point number, with address ~X.~%" object (lisp-object-address object))
+  (format stream "  It's representation is ~X.~%"
+          (%object-ref-unsigned-byte-64 object 0)))
 
 (defun describe-function (object stream)
   (multiple-value-bind (lambda-expression closure-p name)
@@ -135,6 +142,8 @@
                        (describe-complex object stream))
                       (#.+object-tag-ratio+
                        (describe-ratio object stream))
+                      (#.+object-tag-double-float+
+                       (describe-double-float object stream))
                       (#.+object-tag-symbol+
                        (describe-symbol object stream))
                       (#.+object-tag-structure-object+
@@ -158,7 +167,7 @@
                       (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))))))
         (#b0111 (describe-byte-specifier object stream))
         (#b1011 (describe-character object stream))
-        (#b1101 (describe-float object stream))
+        (#b1101 (describe-single-float object stream))
         (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)
                                                                                                    (lognot #xF))))
         (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object)))))

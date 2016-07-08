@@ -44,7 +44,8 @@
     (#.+llf-funcall+ 'funcall)
     (#.+llf-bit-vector+ 'bit-vector)
     (#.+llf-function-reference+ 'function-reference)
-    (#.+llf-byte+ 'byte)))
+    (#.+llf-byte+ 'byte)
+    (#.+llf-double-float+ 'double-float)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -236,6 +237,8 @@
      (load-llf-structure-slot-definition stream stack))
     (#.+llf-single-float+
      (%integer-as-single-float (load-integer stream)))
+    (#.+llf-double-float+
+     (%integer-as-double-float (load-integer stream)))
     (#.+llf-proper-list+
      (let ((list '())
            (len (load-integer stream)))
