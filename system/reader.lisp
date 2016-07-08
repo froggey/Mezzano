@@ -370,11 +370,12 @@
   ;; exponent = exponent-marker [sign] decimal-digit+
   ;; exponent-marker = d | D | e | E | f | F | l | L | s | S
   (let ((integer-part 0)
-        (decimal-part 0.0)
+        ;; Work in double-precision.
+        (decimal-part 0.0d0)
         (saw-integer-digits nil)
         (saw-decimal-digits nil)
         (saw-decimal-point nil)
-        (exponent #\F)
+        (exponent #\E)
         (exponent-sign 1)
         (exponent-value 0)
         (sign 1)
@@ -443,10 +444,17 @@
       (when (peek)
         (return-from read-float))
       ;; TODO, deal with float type selection correctly.
-      (* sign
-         (+ integer-part decimal-part)
-         ;; ### 10.0 to work around a missing feature in FLOAT. No bignum support.
-         (expt 10.0 (* exponent-sign exponent-value))))))
+      (coerce
+       (* sign
+          (+ integer-part decimal-part)
+          ;; ### 10.0 to work around a missing feature in FLOAT. No bignum support.
+          (expt 10.0d0 (* exponent-sign exponent-value)))
+       (ecase (char-upcase exponent)
+         (#\S 'short-float)
+         (#\F 'single-float)
+         (#\D 'double-float)
+         (#\L 'long-float)
+         (#\E *read-default-float-format*))))))
 
 (defun read-integer (token)
   "Attempt to parse TOKEN as an integer. Return false if it can't be parsed as an integer."
@@ -482,14 +490,6 @@
             ;; This character is not a digit in the current base.
             (return))
           (setf number (+ (* number read-base) weight)))))))
-
-(defun read-maybe-nothing (stream char)
-  (let ((retval (multiple-value-list
-                 (funcall (get-coerced-cmt-entry char *readtable*)
-                          stream
-                          char))))
-    (when retval
-      (setf (cdr retval) nil))))
 
 ;; Can't use read-delimited-list because it doesn't handle dotted lists
 (defun read-left-parenthesis (stream first)
