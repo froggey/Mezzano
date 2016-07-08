@@ -505,7 +505,8 @@
 	 ;; Read the ) and drop it
 	 (read-char stream t nil t)
 	 (return (if *read-suppress* nil (cdr list))))
-	((eql x #\.)
+        ((and (eql x #\.)
+              (not *read-suppress*))
 	 ;; Reading a potentially dotted list
 	 ;; Read the dot and drop it
 	 (read-char stream t nil t)
