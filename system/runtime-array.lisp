@@ -135,7 +135,17 @@
     (#.+object-tag-array-signed-byte-64+
      (%object-ref-signed-byte-64 array index))
     (#.+object-tag-array-single-float+
-     (%integer-as-single-float (%object-ref-unsigned-byte-32 array index)))))
+     (%integer-as-single-float (%object-ref-unsigned-byte-32 array index)))
+    (#.+object-tag-array-double-float+
+     (%integer-as-double-float (%object-ref-unsigned-byte-64 array index)))
+    (#.+object-tag-array-complex-single-float+
+     (complex
+      (%integer-as-single-float (%object-ref-unsigned-byte-32 array (* index 2)))
+      (%integer-as-single-float (%object-ref-unsigned-byte-32 array (1+ (* index 2))))))
+    (#.+object-tag-array-double-float+
+     (complex
+      (%integer-as-double-float (%object-ref-unsigned-byte-64 array (* index 2)))
+      (%integer-as-double-float (%object-ref-unsigned-byte-64 array (1+ (* index 2))))))))
 
 (defun (setf %simple-array-aref) (value array index)
   (ecase (%object-tag array)
@@ -213,7 +223,23 @@
     (#.+object-tag-array-single-float+
      (check-type value single-float)
      (setf (%object-ref-unsigned-byte-32 array index)
-           (%single-float-as-integer value)))))
+           (%single-float-as-integer value)))
+    (#.+object-tag-array-double-float+
+     (check-type value double-float)
+     (setf (%object-ref-unsigned-byte-64 array index)
+           (%double-float-as-integer value)))
+    (#.+object-tag-array-complex-single-float+
+     (check-type value (complex single-float))
+     (let ((realpart (%single-float-as-integer (realpart value)))
+           (imagpart (%single-float-as-integer (imagpart value))))
+       (setf (%object-ref-unsigned-byte-32 array (* index 2)) realpart
+             (%object-ref-unsigned-byte-32 array (1+ (* index 2))) imagpart)))
+    (#.+object-tag-array-complex-double-float+
+     (check-type value (complex double-float))
+     (let ((realpart (%double-float-as-integer (realpart value)))
+           (imagpart (%double-float-as-integer (imagpart value))))
+       (setf (%object-ref-unsigned-byte-64 array (* index 2)) realpart
+             (%object-ref-unsigned-byte-64 array (1+ (* index 2))) imagpart)))))
 
 (defun %simple-array-element-type (array)
   (svref *array-types* (%object-tag array)))
