@@ -1134,10 +1134,10 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun sqrt (number)
   (check-type number number)
   (etypecase number
-    (single-float
-     (%%single-float-sqrt number))
+    (double-float
+     (%%double-float-sqrt (float number 0.0d0)))
     (real
-     (%%double-float-sqrt (float number 0.0d0)))))
+     (%%single-float-sqrt number))))
 
 ;;; Convert a bignum to canonical form.
 ;;; If it can be represented as a fixnum it is converted,
