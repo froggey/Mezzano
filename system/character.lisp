@@ -274,7 +274,8 @@
   ;; Fast path for ASCII.
   (if (<= (char-code char) #x7F)
       ;; Control characters are non-graphic.
-      (not (<= #x00 (char-code char) #x1F))
+      (not (or (<= #x00 (char-code char) #x1F)
+               (eql (char-code char) #x7F)))
       (member (unicode-char-general-category char)
               '(:uppercase-letter
                 :lowercase-letter
