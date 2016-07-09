@@ -308,9 +308,9 @@
          (smash-r8)
          ;; Read.
          (cond (constant-offset
-                (emit '(,read-op :eax (list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
+                (emit `(,',read-op :eax (:r9 ,(+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
                (t
-                (emit '(,read-op :eax ,(object-ea :r9 :index `(:rdi ,width))))))
+                (emit `(,',read-op :eax ,(object-ea :r9 :index `(:rdi ,',width))))))
          ;; Convert to fixnum.
          (emit '(sys.lap-x86:lea64 :r8 ((:rax ,(ash 1 sys.int::+n-fixnum-bits+)))))
          (setf *r8-value* (list (gensym)))))
@@ -442,7 +442,7 @@
          (smash-r8)
          ;; Read.
          (cond (constant-offset
-                (emit '(,read-op :rax (list :r9 (+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
+                (emit `(,',read-op :rax (:r9 ,(+ (- sys.int::+tag-object+) 8 (* constant-offset ,width))))))
                (t
                 (emit '(,read-op :rax ,(object-ea :r9 :index `(:rdi ,width))))))
          ;; Convert to fixnum.
