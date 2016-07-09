@@ -5,6 +5,8 @@
 
 (in-package sys.c)
 
+(defvar *tagbody-statement-stack* '())
+
 (defun simplify-control-flow (form)
   (simplify-control-flow-1 form '() '() '()))
 
@@ -56,7 +58,8 @@
       ;; to maintain proper control flow.
       (when (and (not (typep stmt 'ast-quote))
                  (member tb-ast permitted-hoist-tagbodys)
-                 (eql (go-tag-use-count (target form)) 1))
+                 (eql (go-tag-use-count (target form)) 1)
+                 (not (member (target form) *tagbody-statement-stack*)))
         (change-made)
         (let ((new-stmt (ast `(progn ,stmt ,form))))
           (setf (second stmt-pair) (ast `(quote nil)))
@@ -260,10 +263,11 @@
   ;; Visit go-tag statements.
   (loop
      for statements in (statements form)
-     do (setf (second statements) (simplify-control-flow-1 (second statements)
-                                                  ti/tb-mapping
-                                                  permitted-hoist-tagbodys
-                                                  renames)))
+     do (let ((*tagbody-statement-stack* (list* (first statements) *tagbody-statement-stack*)))
+          (setf (second statements) (simplify-control-flow-1 (second statements)
+                                                             ti/tb-mapping
+                                                             permitted-hoist-tagbodys
+                                                             renames))))
   form)
 
 (defmethod simplify-control-flow-1 ((form ast-the) ti/tb-mapping permitted-hoist-tagbodys renames)
