@@ -69,7 +69,7 @@
     (format stream "  ~D: ~16,'0X~%" i (%bignum-fragment object i))))
 
 (defun describe-complex (object stream)
-  (format stream "~S is a complex with an element-type of ~A, with address ~X~%"
+  (format stream "~S is a complex number with an element-type of ~A, with address ~X~%"
           object (second (type-of object)) (lisp-object-address object))
   (format stream "  The real part is ~A~%" (realpart object))
   (format stream "  The imaginary part is ~A~%" (imagpart object)))

@@ -703,10 +703,3 @@
     (setf (sys.int::%object-ref-t value sys.int::+ratio-numerator+) numerator
           (sys.int::%object-ref-t value sys.int::+ratio-denominator+) denominator)
     value))
-
-;; TODO: Specialize this.
-(defun sys.int::make-complex (realpart imagpart)
-  (let ((value (%allocate-object sys.int::+object-tag-complex-rational+ 0 2 nil)))
-    (setf (sys.int::%object-ref-t value sys.int::+complex-realpart+) realpart
-          (sys.int::%object-ref-t value sys.int::+complex-imagpart+) imagpart)
-    value))

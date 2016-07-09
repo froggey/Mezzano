@@ -26,25 +26,62 @@
 
 ;; TODO: Specialize this.
 (defun complexp (object)
-  (%object-of-type-p object +object-tag-complex-rational+))
+  (or (%object-of-type-p object +object-tag-complex-rational+)
+      (%object-of-type-p object +object-tag-complex-single-float+)
+      (%object-of-type-p object +object-tag-complex-double-float+)))
 
 (defun complex (realpart &optional imagpart)
   (check-type realpart real)
   (check-type imagpart (or real null))
-  (unless imagpart (setf imagpart (coerce 0 (type-of realpart))))
-  (if (and (integerp realpart) (zerop imagpart))
-      realpart
-      (make-complex realpart imagpart)))
+  (unless imagpart
+    (setf imagpart (coerce 0 (type-of realpart))))
+  (cond ((or (typep realpart 'double-float)
+             (typep imagpart 'double-float))
+         (let ((r (%double-float-as-integer (float realpart 0.0d0)))
+               (i (%double-float-as-integer (float imagpart 0.0d0)))
+               (result (mezzano.runtime::%allocate-object +object-tag-complex-double-float+ 0 2 nil)))
+           (setf (%object-ref-unsigned-byte-64 result sys.int::+complex-realpart+) r
+                 (%object-ref-unsigned-byte-64 result sys.int::+complex-imagpart+) i)
+           result))
+        ((or (typep realpart 'single-float)
+             (typep imagpart 'single-float))
+         (let ((r (%single-float-as-integer (float realpart 0.0s0)))
+               (i (%single-float-as-integer (float imagpart 0.0s0)))
+               (result (mezzano.runtime::%allocate-object +object-tag-complex-single-float+ 0 1 nil)))
+           (setf (%object-ref-unsigned-byte-32 result sys.int::+complex-realpart+) r
+                 (%object-ref-unsigned-byte-32 result sys.int::+complex-imagpart+) i)
+           result))
+        ((not (zerop imagpart))
+         (let ((result (mezzano.runtime::%allocate-object +object-tag-complex-rational+ 0 2 nil)))
+           (setf (%object-ref-t result sys.int::+complex-realpart+) realpart
+                 (%object-ref-t result sys.int::+complex-imagpart+) imagpart)
+           result))
+        (t
+         realpart)))
 
 (defun realpart (number)
-  (if (complexp number)
-      (%object-ref-t number +complex-realpart+)
-      number))
+  (cond
+    ((%object-of-type-p number +object-tag-complex-rational+)
+     (%object-ref-t number +complex-realpart+))
+    ((%object-of-type-p number +object-tag-complex-single-float+)
+     (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-realpart+)))
+    ((%object-of-type-p number +object-tag-complex-double-float+)
+     (%integer-as-double-float (%object-ref-unsigned-byte-64 number +complex-realpart+)))
+    (t
+     (check-type number number)
+     number)))
 
 (defun imagpart (number)
-  (if (complexp number)
-      (%object-ref-t number +complex-imagpart+)
-      0))
+  (cond
+    ((%object-of-type-p number +object-tag-complex-rational+)
+     (%object-ref-t number +complex-imagpart+))
+    ((%object-of-type-p number +object-tag-complex-single-float+)
+     (%integer-as-single-float (%object-ref-unsigned-byte-32 number +complex-imagpart+)))
+    ((%object-of-type-p number +object-tag-complex-double-float+)
+     (%integer-as-double-float (%object-ref-unsigned-byte-64 number +complex-imagpart+)))
+    (t
+     (check-type number number)
+     0)))
 
 (defun expt (base power)
   (check-type power integer)
