@@ -348,9 +348,9 @@
 
 ;;; This is annoyingly incomplete and isn't particularly well integrated.
 (defun subtypep (type-1 type-2 &optional environment)
-  (when (typep type-2 'standard-class)
+  (when (typep type-2 'class)
     (return-from subtypep (subclassp type-1 type-2)))
-  (when (typep type-1 'standard-class)
+  (when (typep type-1 'class)
     (let ((other-class (when (symbolp type-2)
                          (find-class type-2 nil))))
       (when other-class
@@ -444,10 +444,18 @@
            (dolist (type (rest t2) (values t t))
              (when (not (subtypep t1 type))
                (return (values nil t)))))
-	  (t (values nil t)))))
+          ((and (symbolp t1)
+                (find-class t1 nil)
+                (symbolp t2)
+                (find-class t2 nil))
+           (subclassp (find-class t1 nil) (find-class t2 nil)))
+	  (t
+           (values nil t)))))
 
 (defun subclassp (class-1 class-2)
-  (let ((c1 (if (typep class-1 'standard-class) class-1 (find-class class-1 nil))))
+  (let ((c1 (if (typep class-1 'class)
+                class-1
+                (find-class class-1 nil))))
     (cond (c1 (values (member class-2 (mezzano.clos:class-precedence-list c1)) t))
           (t (values nil nil)))))
 
