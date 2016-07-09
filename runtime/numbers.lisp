@@ -76,9 +76,9 @@
         (%%coerce-single-float-to-double-float number))))
     (double-float
      (etypecase prototype
-       ((or null single-float)
+       (single-float
         (%%coerce-double-float-to-single-float number))
-       (double-float
+       ((or null double-float)
         number)))
     (fixnum
      (etypecase prototype
