@@ -201,11 +201,11 @@
 (defun %double-float-as-integer (double-float)
   (%object-ref-unsigned-byte-64 double-float 0))
 
-(define-lap-function %integer-as-double-float ()
-  (sys.lap-x86:mov64 :rax :r8)
-  (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
-  (sys.lap-x86:mov64 :r13 (:function %%make-double-float-rax))
-  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+(defun %integer-as-double-float (integer)
+  (let ((result (mezzano.runtime::%allocate-object
+                 sys.int::+object-tag-double-float+ 0 1 nil)))
+    (setf (%object-ref-unsigned-byte-64 result 0) integer)
+    result))
 
 (declaim (inline bignump
                  %n-bignum-fragments
