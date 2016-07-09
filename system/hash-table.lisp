@@ -239,6 +239,8 @@ is below the rehash-threshold."
         ((complexp object)
          (logxor (eql-hash (realpart object))
                  (eql-hash (imagpart object))))
+        ((double-float-p object)
+         (%double-float-as-integer object))
         (t
          ;; Fixnums, single-floats, and characters are immediate objects and
          ;; can be safely hashed by their "address".
