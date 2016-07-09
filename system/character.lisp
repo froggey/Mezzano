@@ -255,7 +255,7 @@
   (def char-not-greaterp <=)
   (def char-not-lessp >=))
 
-(defun base-char-p (character)
+(defun latin1-char-p (character)
   (check-type character character)
   (and (zerop (char-bits character))
        (< (char-code character) 256)))

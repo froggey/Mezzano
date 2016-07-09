@@ -233,8 +233,6 @@
 (%define-type-symbol 'integer 'integerp)
 (%define-type-symbol 'rational 'rationalp)
 (%define-type-symbol 'float 'floatp)
-(%define-type-symbol 'standard-char 'standard-char-p)
-(%define-type-symbol 'base-char 'base-char-p)
 (%define-type-symbol 'character 'characterp)
 (%define-type-symbol 'string 'stringp)
 (%define-type-symbol 'function 'functionp)
@@ -338,6 +336,9 @@
 
 (defun real-type-p (type) (numeric-subtypep type 'real))
 (defun number-type-p (type) (numeric-subtypep type 'number))
+
+(deftype standard-char ()
+  '(and character (satisfies standard-char-p)))
 
 (deftype base-char ()
   'character)
