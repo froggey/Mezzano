@@ -438,7 +438,7 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
          (transmit-icmp-packet source-ip
                                +icmp-echo-reply+ 0
                                identifier sequence-number
-                               (subseq packet (+ start +icmp4-header-size+))))
+                               (subseq packet (+ start +icmp4-header-size+) end)))
         (#.+icmp-echo-reply+)
         (t (format t "Ignoring ICMP packet with unknown type/code ~D/~D.~%"
                    type code))))))
