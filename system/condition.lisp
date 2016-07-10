@@ -60,6 +60,9 @@
   (declare (dynamic-extent slot-initializations))
   (apply #'make-instance type slot-initializations))
 
+(deftype condition-designator ()
+  '(or symbol string function condition))
+
 (defun coerce-to-condition (default datum arguments)
   (cond ((symbolp datum)
 	 (apply #'make-condition datum arguments))
@@ -68,10 +71,13 @@
 	 (make-condition default
 			 :format-control datum
 			 :format-arguments arguments))
-	((and (typep datum 'condition)
-	      (null arguments))
+	((typep datum 'condition)
+         (check-type arguments null)
 	 datum)
-	(t (error "Invalid condition designator ~S ~S." datum arguments))))
+	(t
+         (error 'type-error
+                :datum default
+                :expected-type 'condition-designator))))
 
 (defun signal (datum &rest arguments)
   (declare (dynamic-extent arguments))
