@@ -59,9 +59,11 @@
 (defclass interpreted-function ()
   ((name :initarg :name :reader interpreted-function-name)
    (lambda :initarg :lambda :reader interpreted-function-lambda)
-   (env :initarg :env :reader interpreted-function-environment))
+   (env :initarg :env :reader interpreted-function-environment)
+   (filename :initarg :filename :reader interpreted-function-filename)
+   (tlf :initarg :tlf :reader interpreted-function-tlf))
   (:metaclass mezzano.clos:funcallable-standard-class)
-  (:default-initargs :name nil))
+  (:default-initargs :name nil :filename nil :tlf nil))
 
 (defmethod sys.int::funcallable-instance-lambda-expression ((function interpreted-function))
   (values (interpreted-function-lambda function)
@@ -70,12 +72,13 @@
 
 (defmethod sys.int::funcallable-instance-debug-info ((function interpreted-function))
   (list :debug-info
-        (slot-value function 'name)
+        (interpreted-function-name function)
         nil
         nil
-        nil
-        nil
-        (second (slot-value function 'lambda))))
+        (interpreted-function-filename function)
+        (interpreted-function-tlf function)
+        (second (interpreted-function-lambda function))
+        nil))
 
 (defmethod sys.int::funcallable-instance-compiled-function-p ((function interpreted-function))
   nil)
@@ -139,7 +142,9 @@
           (let ((x (make-instance 'interpreted-function
                                   :name name
                                   :lambda lambda
-                                  :env outer-env)))
+                                  :env outer-env
+                                  :filename (ignore-errors (namestring *load-truename*))
+                                  :tlf sys.int::*top-level-form-number*)))
             (mezzano.clos:set-funcallable-instance-function x #'interpret-function)
             x))))))
 
