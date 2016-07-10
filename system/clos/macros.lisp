@@ -7,76 +7,124 @@
 
 ;;; DEFCLASS.
 
+(defvar *defclass-slot-names*)
+(defvar *defclass-options*)
+
 (defmacro defclass (name direct-superclasses direct-slots &rest options)
   (check-type name (and symbol (not null)))
   (dolist (superclass-name direct-superclasses)
     (check-type superclass-name (and symbol (not null))))
-  `(ensure-class ',name
-                 :direct-superclasses ',direct-superclasses
-                 :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
-                 ,@(mapcan #'canonicalize-defclass-option options)))
+  (let ((*defclass-slot-names* '())
+        (*defclass-options* '()))
+    `(ensure-class ',name
+                   :direct-superclasses ',direct-superclasses
+                   :direct-slots (list ,@(mapcar #'canonicalize-defclass-direct-slot direct-slots))
+                   ,@(mapcan #'canonicalize-defclass-option options))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+
+(defun check-duplicate-slot-option (slot-name slot-options option)
+  (do ((i slot-options (cddr i))
+       (saw-option nil))
+      ((endp i))
+    (when (eql (first i) option)
+      (cond (saw-option
+             (error 'sys.int::simple-program-error
+                    :format-control "Duplicate slot option ~S for slot ~S."
+                    :format-arguments (list option slot-name)))
+            (t
+             (setf saw-option t))))))
+
+(defun check-plist (plist)
+  (do ((i plist (cddr i)))
+      ((null i))
+    (when (not (and (consp i)
+                    (symbolp (first i))
+                    (consp (rest i))))
+      (error 'sys.int::simple-program-error
+               :format-control "Malformed plist ~S."
+               :format-arguments (list plist)))))
 
 (defun canonicalize-defclass-direct-slot (direct-slot)
   (check-type direct-slot (or (and symbol (not null))
                               cons))
-  (if (symbolp direct-slot)
-      `'(:name ,direct-slot)
-      (let ((name (first direct-slot))
-            (initform '())
-            (initfunction nil)
-            (initargs '())
-            (readers '())
-            (writers '())
-            (documentation nil)
-            (others '()))
-        (check-type name (and symbol (not null)))
-        (do ((i (rest direct-slot) (cddr i)))
-            ((endp i))
-          (let ((sym (first i))
-                (val (second i)))
-            (case sym
-              (:initform
-               (setf initform val
-                     initfunction `#'(lambda () ,val)))
-              (:initarg
-               (push val initargs))
-              (:reader
-               (push val readers))
-              (:writer
-               (push val writers))
-              (:accessor
-               (push val readers)
-               (push `(setf ,val) writers))
-              (:documentation
-               (setf documentation val))
-              (t
-               (let ((existing (assoc sym others)))
-                 (when (not existing)
-                   (setf existing (cons sym '()))
-                   (push existing others))
-                 (push val (cdr existing)))))))
-        `(list :name ',name
-               ,@(when initfunction
-                   `(:initform ',initform
-                     :initfunction ,initfunction))
-               ,@(when initargs
-                   `(:initargs ',(reverse initargs)))
-               ,@(when readers
-                   `(:readers ',(reverse readers)))
-               ,@(when writers
-                   `(:writers ',(reverse writers)))
-               ,@(when documentation
-                   `(:documentation ',documentation))
-               ,@(loop for (sym . values) in (reverse others)
-                      collect `',sym
-                      collect (if (rest values)
-                                  `',(reverse values)
-                                  `',(first values)))))))
+  (cond ((symbolp direct-slot)
+         (when (member direct-slot *defclass-slot-names*)
+           (error 'sys.int::simple-program-error
+               :format-control "Duplicate slot named ~S."
+               :format-arguments (list direct-slot)))
+         (push direct-slot *defclass-slot-names*)
+         `'(:name ,direct-slot))
+        (t
+         (let ((name (first direct-slot))
+               (initform '())
+               (initfunction nil)
+               (initargs '())
+               (readers '())
+               (writers '())
+               (documentation nil)
+               (others '()))
+           (check-type name (and symbol (not null)))
+           (when (member name *defclass-slot-names*)
+             (error 'sys.int::simple-program-error
+                    :format-control "Duplicate slot named ~S."
+                    :format-arguments (list name)))
+           (push name *defclass-slot-names*)
+           (check-plist (rest direct-slot))
+           (check-duplicate-slot-option name (rest direct-slot) :initform)
+           (check-duplicate-slot-option name (rest direct-slot) :allocation)
+           (check-duplicate-slot-option name (rest direct-slot) :documentation)
+           (check-duplicate-slot-option name (rest direct-slot) :type)
+           (do ((i (rest direct-slot) (cddr i)))
+               ((endp i))
+             (let ((sym (first i))
+                   (val (second i)))
+               (case sym
+                 (:initform
+                  (setf initform val
+                        initfunction `#'(lambda () ,val)))
+                 (:initarg
+                  (push val initargs))
+                 (:reader
+                  (push val readers))
+                 (:writer
+                  (push val writers))
+                 (:accessor
+                  (push val readers)
+                  (push `(setf ,val) writers))
+                 (:documentation
+                  (setf documentation val))
+                 (t
+                  (let ((existing (assoc sym others)))
+                    (when (not existing)
+                      (setf existing (cons sym '()))
+                      (push existing others))
+                    (push val (cdr existing)))))))
+           `(list :name ',name
+                  ,@(when initfunction
+                          `(:initform ',initform
+                                      :initfunction ,initfunction))
+                  ,@(when initargs
+                          `(:initargs ',(reverse initargs)))
+                  ,@(when readers
+                          `(:readers ',(reverse readers)))
+                  ,@(when writers
+                          `(:writers ',(reverse writers)))
+                  ,@(when documentation
+                          `(:documentation ',documentation))
+                  ,@(loop for (sym . values) in (reverse others)
+                       collect `',sym
+                       collect (if (rest values)
+                                   `',(reverse values)
+                                   `',(first values))))))))
 
 (defun canonicalize-defclass-option (option)
   (check-type (first option) symbol)
+  (when (member (first option) *defclass-options*)
+    (error 'sys.int::simple-program-error
+           :format-control "Duplicate class option ~S."
+           :format-arguments (list (first option))))
+  (push (first option) *defclass-options*)
   (case (first option)
     (:default-initargs
      `(:direct-default-initargs ,(canonicalize-defclass-default-initargs (rest option))))
@@ -88,6 +136,16 @@
      `(,(first option) ',(rest option)))))
 
 (defun canonicalize-defclass-default-initargs (initargs)
+  (check-plist initargs)
+  (let ((seen-initargs '()))
+    (loop
+       for (initarg form) on initargs by #'cddr
+       do
+         (when (member initarg seen-initargs)
+           (error 'sys.int::simple-program-error
+                  :format-control "Duplicate default initarg option ~S."
+                  :format-arguments (list initarg)))
+         (push initarg seen-initargs)))
   `(list ,@(loop
               for (initarg form) on initargs by #'cddr
               collect `(list ',initarg ',form #'(lambda () ,form)))))
