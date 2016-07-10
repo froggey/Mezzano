@@ -107,7 +107,7 @@
   boot-id
   (lock (make-mutex "RTL8168 NIC lock"))
   (irq-latch (make-latch "RTL8168 NIC IRQ latch"))
-  worker
+  worker-thread
   irq
   irq-handler-function
   io-base
@@ -142,8 +142,8 @@
     (i8259-hook-irq (rtl8168-irq nic) (rtl8168-irq-handler-function nic))
     (add-deferred-boot-action
        (lambda ()
-         (setf (rtl8168-worker nic) (make-thread (lambda () (rtl8168-worker nic))
-                                                    :name "RTL8168 NIC worker"))))))
+         (setf (rtl8168-worker-thread nic) (make-thread (lambda () (rtl8168-worker nic))
+                                                 :name "RTL8168 NIC worker"))))))
 
 ;;; Register access.
 
