@@ -44,15 +44,17 @@
 		     :reader simple-condition-format-arguments)))
 
 (defmethod print-object ((c simple-condition) s)
-  (cond ((and (simple-condition-format-control c)
-              (not *print-escape*))
+  (cond (*print-escape*
+         (print-unreadable-object (c s :type t :identity t)
+           (format s "~S ~:S"
+                   (simple-condition-format-control c)
+                   (simple-condition-format-arguments c))))
+        ((simple-condition-format-control c)
          (apply #'format s
                 (simple-condition-format-control c)
                 (simple-condition-format-arguments c)))
-        (t (print-unreadable-object (c s :type t)
-             (apply #'format s
-                    (simple-condition-format-control c)
-                    (simple-condition-format-arguments c))))))
+        (t
+         (error "No format control for ~S." c))))
 
 (defun make-condition (type &rest slot-initializations)
   (declare (dynamic-extent slot-initializations))
