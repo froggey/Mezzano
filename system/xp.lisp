@@ -114,7 +114,7 @@
 
 ;                       ---- DISPATCHING ----
 
-(defclass pprint-dispatch ()
+(defclass pprint-dispatch-table ()
   ((conses-with-cars :initarg :conses-with-cars :accessor conses-with-cars)
    (structures :initarg :structures :accessor structures)
    (others :initarg :others :accessor others))
@@ -124,7 +124,7 @@
    :others nil))
 
 (defun make-pprint-dispatch (&rest args)
-  (apply 'make-instance 'pprint-dispatch args))
+  (apply 'make-instance 'pprint-dispatch-table args))
 
 ;The list and the hash-tables contain entries of the
 ;following form.  When stored in the hash tables, the test entry is
