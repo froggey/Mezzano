@@ -3,14 +3,6 @@
 
 (in-package :sys.int)
 
-(deftype short-float () 'single-float)
-(deftype single-float () '(satisfies single-float-p))
-(deftype double-float () '(satisfies double-float-p))
-(deftype long-float () 'double-float)
-(deftype bignum () '(satisfies bignump))
-(deftype ratio () '(satisfies ratiop))
-(deftype complex (&optional typespec) '(satisfies complexp))
-
 (defun ratiop (object)
   (%object-of-type-p object +object-tag-ratio+))
 
@@ -24,7 +16,6 @@
     (ratio (%object-ref-t rational +ratio-denominator+))
     (integer 1)))
 
-;; TODO: Specialize this.
 (defun complexp (object)
   (or (%object-of-type-p object +object-tag-complex-rational+)
       (%object-of-type-p object +object-tag-complex-single-float+)

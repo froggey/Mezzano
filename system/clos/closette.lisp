@@ -284,7 +284,7 @@
     (integer                                       (find-class-cached 'integer))
     (float                                         (find-class-cached 'float))
     (complex                                       (find-class-cached 'complex))
-    ((satisfies sys.int::ratiop)                   (find-class-cached 'ratio))
+    (ratio                                         (find-class-cached 'ratio))
     (cons                                          (find-class-cached 'cons))
     (character                                     (find-class-cached 'character))
     (simple-string                                 (find-class-cached 'simple-string))
