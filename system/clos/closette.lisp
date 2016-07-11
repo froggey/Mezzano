@@ -770,12 +770,14 @@ Other arguments are included directly."
   (cond ((and (symbolp function-name)
               (special-operator-p function-name))
          ;; Can't override special operators.
-         (error "~S names a special operator" function-name))
+         (error 'sys.int::simple-program-error
+                :format-control "~S names a special operator"
+                :format-arguments (list function-name)))
         ((or (and (fboundp function-name)
                   (not (typep (fdefinition function-name) 'standard-generic-function)))
              (and (symbolp function-name)
                   (macro-function function-name)))
-         (cerror "Clobber it" 'simple-error
+         (cerror "Clobber it" 'sys.int::simple-program-error
                  :format-control "~S is already defined as a non-generic function or macro."
                  :format-arguments (list function-name))
          ;; Make sure it is well and truly clobbered.
@@ -866,6 +868,7 @@ has only has class specializer."
     (when (endp argument-precedence)
       (setf argument-precedence (copy-list required-args)
             (generic-function-argument-precedence-order gf) argument-precedence))
+    (assert (eql (length required-args) (length argument-precedence)))
     (assert (endp (set-difference required-args argument-precedence)))
     (assert (endp (set-difference argument-precedence required-args)))
     (cond ((every #'eql required-args argument-precedence)
