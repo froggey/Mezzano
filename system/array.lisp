@@ -59,7 +59,8 @@
        (vector character ,size)))
 
 (defun simple-array-type-p (object type)
-  (and (%simple-1d-array-p object)
+  (and (or (%simple-1d-array-p object)
+           (simple-string-p object))
        (array-type-p object type)))
 (%define-compound-type 'simple-array 'simple-array-type-p)
 
@@ -286,7 +287,15 @@
                     (not (subtypep element-type 'nil))))
            (let* ((total-size (apply #'* dimensions))
                   (backing-array (make-simple-array total-size '(unsigned-byte 8) area))
-                  (array (%make-array-header +object-tag-string+ backing-array fill-pointer nil dimensions area)))
+                  (array (%make-array-header (if (and (not adjustable)
+                                                      (not fill-pointer))
+                                                 +object-tag-simple-string+
+                                                 +object-tag-string+)
+                                             backing-array
+                                             fill-pointer
+                                             nil
+                                             dimensions
+                                             area)))
              (when initial-element-p
                (dotimes (i total-size)
                  (setf (%row-major-aref array i) initial-element)))
