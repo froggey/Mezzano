@@ -255,7 +255,9 @@
 
 (defun complex-type (object type)
   (destructuring-bind (&optional (typespec '*))
-      (rest type)
+      (if (listp type)
+          (rest type)
+          '(*))
     (and (complexp object)
          (or (eql typespec '*)
              (typep (realpart object)
