@@ -749,12 +749,17 @@
            nil)))
 
 (defvar *format-string-cache* (make-hash-table))
+(defvar *compiling-format-string* nil)
 
 (defun compile-format-string (string)
-  (compile nil
-           `(lambda (s &rest args)
-              (declare (system:lambda-name (formatter ,string)))
-              ,(formatter-fn string "CL-USER" t))))
+  (let ((form `(lambda (s &rest args)
+                 (declare (system:lambda-name (formatter ,string)))
+                 ,(formatter-fn string "CL-USER" t))))
+    (cond (*compiling-format-string*
+           (values (mezzano.full-eval:eval-in-lexenv form nil) nil))
+          (t
+           (let ((*compiling-format-string* t))
+             (values (compile nil form) t))))))
 
 (defun process-format-string (string-or-fn force-fn?)
   (cond ((not (stringp string-or-fn)) string-or-fn) ;called from ~? too.
@@ -764,6 +769,9 @@
                  ;; Keep the size of the cache down.
                  ;; TODO: Use a weak hash table.
                  (clrhash *format-string-cache*))
-               (setf value (compile-format-string string-or-fn))
-               (setf (gethash string-or-fn *format-string-cache*) value))
+               (multiple-value-bind (fn cachep)
+                   (compile-format-string string-or-fn)
+                 (setf value fn)
+                 (when cachep
+                   (setf (gethash string-or-fn *format-string-cache*) value))))
              value))))
