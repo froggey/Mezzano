@@ -215,6 +215,11 @@
   (declare (ignore stream))
   (debug-clear-input))
 
+(defun sys.int::cold-listen (stream)
+  (declare (ignore stream))
+  ;; Read is not currently implemented for any debug stream.
+  nil)
+
 ;;; Early error functions, replaced later as part of cold load.
 
 (defun sys.int::assert-error (test-form datum &rest arguments)
