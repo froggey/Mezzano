@@ -556,8 +556,8 @@
           ,(unparse-compiler-form (value-form form))
         ,(unparse-compiler-form (body form))))
     (ast-multiple-value-call
-     `(multiple-value-call ,(function-form form)
-        ,(value-form form)))
+     `(multiple-value-call ,(unparse-compiler-form (function-form form))
+        ,(unparse-compiler-form (value-form form))))
     (ast-multiple-value-prog1
      `(multiple-value-prog1
           ,(unparse-compiler-form (value-form form))

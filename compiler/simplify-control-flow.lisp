@@ -98,7 +98,8 @@
               (return-from simplify-control-flow-1
                 (values (if (endp (rest new-bindings))
                             (second (first new-bindings))
-                            (ast `(progn ,@(mapcar #'second (reverse new-bindings)))))
+                            (ast `(let ,(reverse (rest new-bindings))
+                                    ,(second (first new-bindings)))))
                         t)))))
     (setf (bindings form) (reverse new-bindings)))
   (multiple-value-bind (new-form control-terminates)
