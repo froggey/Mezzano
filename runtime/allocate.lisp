@@ -150,6 +150,28 @@
        (let ((result (%allocate-from-pinned-area-1 tag data words)))
          (when result
            (return result)))
+       (when (not (eql i 0))
+         ;; The GC has been run at least once, try enlarging the pinned area.
+         (let ((grow-by (* words 8)))
+           (incf grow-by (1- (* 2 1024 1024)))
+           (setf grow-by (logand (lognot (1- (* 2 1024 1024)))
+                                 grow-by))
+           (mezzano.supervisor:without-footholds
+             (mezzano.supervisor:with-mutex (*allocator-lock*)
+               (mezzano.supervisor:with-pseudo-atomic
+                   (when (mezzano.supervisor:allocate-memory-range
+                          sys.int::*pinned-area-bump*
+                          grow-by
+                          (logior sys.int::+block-map-present+
+                                  sys.int::+block-map-writable+
+                                  sys.int::+block-map-zero-fill+))
+                     (when mezzano.supervisor::*pager-noisy*
+                       (mezzano.supervisor:debug-print-line "Expanded pinned area by " grow-by))
+                     ;; Success. Advance the pinned area limit and slap down a freelist header.
+                     ;; Drop into the GC to rebuild the freelist properly.
+                     (setf (sys.int::memref-unsigned-byte-64 sys.int::*pinned-area-bump* 0) (sys.int::make-freelist-header (truncate grow-by 8))
+                           (sys.int::memref-t sys.int::*pinned-area-bump* 1) nil)
+                     (incf sys.int::*pinned-area-bump* grow-by)))))))
        (when (> i *maximum-allocation-attempts*)
          (error 'storage-condition))
        (sys.int::gc)))
@@ -174,52 +196,25 @@
          (error 'storage-condition))
        (sys.int::gc)))
 
-(defun %cons-in-pinned-area-1 (car cdr)
-  (mezzano.supervisor:without-footholds
-    (mezzano.supervisor:with-mutex (*allocator-lock*)
-      (mezzano.supervisor:with-pseudo-atomic
-        (when *paranoid-allocation*
-          (verify-freelist sys.int::*pinned-area-freelist* (* 2 1024 1024 1024) sys.int::*pinned-area-bump*))
-        (let ((address (%allocate-from-freelist-area sys.int::+object-tag-cons+ 0 4 'sys.int::*pinned-area-freelist*)))
-          (when address
-            (let ((val (sys.int::%%assemble-value (+ address 16) sys.int::+tag-cons+)))
-              (setf (car val) car
-                    (cdr val) cdr)
-              val)))))))
+(defun mangle-pinned/wired-cons (object)
+  ;; Convert an object-tagged cons into a cons-tagged cons.
+  (let ((addr (sys.int::lisp-object-address object)))
+    (sys.int::%%assemble-value (+ (logand addr (lognot #b1111)) 16)
+                               sys.int::+tag-cons+)))
 
 (defun %cons-in-pinned-area (car cdr)
-  (log-allocation-profile-entry)
-  (loop
-     for i from 0 do
-       (let ((result (%cons-in-pinned-area-1 car cdr)))
-         (when result
-           (return result)))
-       (when (> i *maximum-allocation-attempts*)
-         (error 'storage-condition))
-       (sys.int::gc)))
-
-(defun %cons-in-wired-area-1 (car cdr)
-  (mezzano.supervisor::safe-without-interrupts (car cdr)
-    (mezzano.supervisor:with-symbol-spinlock (*wired-allocator-lock*)
-      (when *paranoid-allocation*
-        (verify-freelist sys.int::*wired-area-freelist* (* 2 1024 1024) sys.int::*wired-area-bump*))
-      (let ((address (%allocate-from-freelist-area sys.int::+object-tag-cons+ 0 4 'sys.int::*wired-area-freelist*)))
-        (when address
-          (let ((val (sys.int::%%assemble-value (+ address 16) sys.int::+tag-cons+)))
-            (setf (car val) car
-                  (cdr val) cdr)
-            val))))))
+  (let ((object (mangle-pinned/wired-cons
+                 (%allocate-from-pinned-area sys.int::+object-tag-cons+ 0 4))))
+    (setf (car object) car
+          (cdr object) cdr)
+    object))
 
 (defun %cons-in-wired-area (car cdr)
-  (log-allocation-profile-entry)
-  (loop
-     for i from 0 do
-       (let ((result (%cons-in-wired-area-1 car cdr)))
-         (when result
-           (return result)))
-       (when (> i *maximum-allocation-attempts*)
-         (error 'storage-condition))
-       (sys.int::gc)))
+  (let ((object (mangle-pinned/wired-cons
+                 (%allocate-from-wired-area sys.int::+object-tag-cons+ 0 4))))
+    (setf (car object) car
+          (cdr object) cdr)
+    object))
 
 (defun %allocate-from-general-area (tag data words)
   (log-allocation-profile-entry)
