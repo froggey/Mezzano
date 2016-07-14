@@ -6,11 +6,11 @@
 ;;; FIXME: Should not be here.
 ;;; >>>>>>
 
-(defun stack-base (stack)
-  (car stack))
-
-(defun stack-size (stack)
-  (cdr stack))
+(defstruct (stack
+             (:constructor %make-stack (base size))
+             (:area :wired))
+  base
+  size)
 
 (defun %allocate-stack-1 (aligned-size bump-sym)
   (safe-without-interrupts (aligned-size bump-sym)
@@ -21,6 +21,7 @@
 
 ;; TODO: Actually allocate virtual memory.
 (defun %allocate-stack (size &optional wired)
+  (declare (sys.c::closure-allocation :wired))
   ;; 4k align the size.
   (setf size (logand (+ size #xFFF) (lognot #xFFF)))
   ;; 2m align the memory region.
@@ -28,7 +29,7 @@
                                   (if wired
                                       'sys.int::*wired-stack-area-bump*
                                       'sys.int::*stack-area-bump*)))
-         (stack (sys.int::cons-in-area addr size :wired)))
+         (stack (%make-stack addr size)))
     ;; Allocate blocks.
     (loop
        for i from 0 do
@@ -41,6 +42,11 @@
            (error 'storage-condition))
          (debug-print-line "No memory for stack, calling GC.")
          (sys.int::gc))
+    (sys.int::make-weak-pointer stack stack
+                                (lambda ()
+                                  (debug-print-line "Relasing stack " addr " " size)
+                                  (release-memory-range addr size))
+                                :wired)
     stack))
 
 (defun reboot ()
@@ -216,7 +222,8 @@ Returns two values, the packet data and the receiving NIC."
       (mezzano.runtime::first-run-initialize-allocator)
       ;; FIXME: Should be done by cold generator
       (setf mezzano.runtime::*active-catch-handlers* 'nil
-            *pseudo-atomic* nil))
+            *pseudo-atomic* nil
+            sys.int::*known-finalizers* nil))
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
     (initialize-interrupts)
     (initialize-i8259)

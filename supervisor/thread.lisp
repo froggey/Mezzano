@@ -627,6 +627,11 @@ Interrupts must be off, the current thread must be locked."
               (sys.int::%stihlt))))))
 
 (defun reset-ephemeral-thread (thread entry-point state)
+  ;; Threads created by the cold-generator have conses instead of real stack
+  ;; objects. Work around this.
+  (when (consp (thread-stack thread))
+    (setf (thread-stack thread) (%make-stack (car (thread-stack thread))
+                                             (cdr (thread-stack thread)))))
   ;; Set up the initial register state.
   (let ((stack-pointer (+ (stack-base (thread-stack thread))
                           (stack-size (thread-stack thread))))
