@@ -157,13 +157,25 @@
   (when extra
     (funcall extra))
   (panic-print-backtrace (sys.int::read-frame-pointer))
-  (do ((thread *all-threads* (thread-global-next thread)))
+  (do ((thread (sys.int::symbol-global-value '*all-threads*)
+               (thread-global-next thread)))
       ((null thread))
     (when (not (eql thread (current-thread)))
       (debug-print-line "----------")
       (debug-print-line "Thread " thread)
       (panic-print-backtrace (thread-frame-pointer thread))))
   (loop (sys.int::%hlt)))
+
+(defun debug-dump-threads ()
+  (debug-print-line "Thread " (current-thread))
+  (panic-print-backtrace (sys.int::read-frame-pointer))
+  (do ((thread (sys.int::symbol-global-value '*all-threads*)
+               (thread-global-next thread)))
+      ((null thread))
+    (when (not (eql thread (current-thread)))
+      (debug-print-line "----------")
+      (debug-print-line "Thread " thread)
+      (panic-print-backtrace (thread-frame-pointer thread)))))
 
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."
