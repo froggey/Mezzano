@@ -239,7 +239,7 @@
     (values (or fn #'non-pretty-print) (not (null fn)))))
 
 (defun get-printer (object table)
-  (when (not (typep table 'pprint-dispatch))
+  (when (not (typep table 'pprint-dispatch-table))
     (return-from get-printer nil))
   (let* ((entry (if (consp object)
                     (gethash (car object) (conses-with-cars table))
