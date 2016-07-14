@@ -917,7 +917,8 @@
         (T (write object :stream stream))))
 
 (defun maybe-initiate-xp-printing (fn stream &rest args)
-  (if (xp-structure-p stream) (apply fn stream args)
+  (if (xp-structure-p stream)
+      (apply fn stream args)
       (let ((*abbreviation-happened* nil)
             (*locating-circularities* (if *print-circle* 0 nil))
             (*circularity-hash-table*
@@ -929,13 +930,12 @@
             (free-circularity-hash-table *circularity-hash-table*))
         (when *abbreviation-happened*
           (setf *last-abbreviated-printing*
-                (eval
-                  `(function
-                     (lambda (&optional (stream ',stream))
-                       (let ((*package* ',*package*))
-                         (apply #'maybe-initiate-xp-printing
-                                ',fn stream
-                                ',(copy-list args))))))))
+                (let ((current-package *package*)
+                      (copied-args (copy-list args)))
+                  (lambda (&optional (stream ',stream))
+                    (let ((*package* current-package))
+                      (apply #'maybe-initiate-xp-printing
+                             fn stream copied-args))))))
         *result*)))
 
 (defun xp-print (fn stream args)
