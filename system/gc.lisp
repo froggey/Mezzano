@@ -1171,16 +1171,20 @@ No type information will be provided."
   (do* ((weak-pointer *known-finalizers* next)
         (next (when weak-pointer (%object-ref-t weak-pointer +weak-pointer-finalizer-link+))
               (when weak-pointer (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
-        (prev nil weak-pointer))
+        (prev nil))
        ((null weak-pointer))
-    (when (not (logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer)))
-      ;; This one has become dead.
-      (cond (prev
-             (setf (%object-ref-t prev +weak-pointer-finalizer-link+)
-                   (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
-            (t (setf *known-finalizers* (%object-ref-t weak-pointer +weak-pointer-finalizer-link+))))
-      (setf (%object-ref-t weak-pointer +weak-pointer-finalizer-link+) *pending-finalizers*
-            *pending-finalizers* weak-pointer))))
+    (cond ((logbitp +weak-pointer-header-livep+ (%object-header-data weak-pointer))
+           ;; Still live.
+           (setf prev weak-pointer))
+          (t
+           ;; This one has become dead.
+           (cond (prev
+                  (setf (%object-ref-t prev +weak-pointer-finalizer-link+)
+                        (%object-ref-t weak-pointer +weak-pointer-finalizer-link+)))
+                 (t
+                  (setf *known-finalizers* (%object-ref-t weak-pointer +weak-pointer-finalizer-link+))))
+           (setf (%object-ref-t weak-pointer +weak-pointer-finalizer-link+) *pending-finalizers*
+                 *pending-finalizers* weak-pointer)))))
 
 (defun run-finalizers ()
   (flet ((pop-finalizer ()
@@ -1196,5 +1200,6 @@ No type information will be provided."
        until (not finalizer)
        do
          (funcall (%object-ref-t finalizer +weak-pointer-finalizer+))
-         ;; Leave the weak pointer completely empty. No references to any other object.
+         ;; Leave the weak pointer completely empty.
+         ;; No references to any other object.
          (setf (%object-ref-t finalizer +weak-pointer-finalizer+) nil))))
