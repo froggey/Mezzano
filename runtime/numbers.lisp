@@ -222,6 +222,12 @@
 (defun sys.int::generic-truncate (number divisor)
   (assert (/= divisor 0) (number divisor) 'division-by-zero)
   (cond
+    ((and (sys.int::fixnump number)
+          (eq divisor -1))
+     ;; This is needed as most-negative-fixnum / -1 will overflow and produce
+     ;; a bignum.
+     (values (- number)
+             0))
     ((or (and (sys.int::single-float-p number)
               (sys.int::fixnump divisor))
          (and (sys.int::fixnump number)
