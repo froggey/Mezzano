@@ -12,8 +12,7 @@
 (defvar *all-threads*)
 
 (defvar *world-stop-lock*)
-(defvar *world-stop-resume-cvar*)
-(defvar *world-stop-pa-exit-cvar*)
+(defvar *world-stop-cvar*)
 (defvar *world-stop-pending*)
 (defvar *world-stopper*)
 (defvar *pseudo-atomic-thread-count*)
@@ -693,8 +692,7 @@ Interrupts must be off, the current thread must be locked."
     (setf *low-priority-thread-run-queue-head* nil
           *low-priority-thread-run-queue-tail* nil)
     (setf *world-stop-lock* (make-mutex "World stop lock")
-          *world-stop-resume-cvar* (make-condition-variable "World resume cvar")
-          *world-stop-pa-exit-cvar* (make-condition-variable "World stop PA exit cvar")
+          *world-stop-cvar* (make-condition-variable "World stop cvar")
           *world-stop-pending* nil
           *pseudo-atomic-thread-count* 0)
     (setf *all-threads* sys.int::*snapshot-thread*
@@ -708,7 +706,7 @@ Interrupts must be off, the current thread must be locked."
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
   (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable)
-  (condition-notify *world-stop-resume-cvar*))
+  (condition-notify *world-stop-cvar*))
 
 (defun wake-thread (thread)
   "Wake a sleeping thread."
@@ -811,21 +809,21 @@ Interrupts must be off, the current thread must be locked."
            (setf *world-stop-pending* self)
            (return))
          ;; Wait for the world to unstop.
-         (condition-wait *world-stop-resume-cvar* *world-stop-lock*))
+         (condition-wait *world-stop-cvar* *world-stop-lock*))
       ;; Now wait for any PA threads to finish.
       (loop
          (when (zerop *pseudo-atomic-thread-count*)
            (setf *world-stopper* self
                  *world-stop-pending* nil)
            (return))
-         (condition-wait *world-stop-pa-exit-cvar* *world-stop-lock*)))
+         (condition-wait *world-stop-cvar* *world-stop-lock*)))
     ;; Don't hold the mutex over the thunk, it's a spinlock and disables interrupts.
     (multiple-value-prog1
         (funcall thunk)
       (with-mutex (*world-stop-lock*)
         ;; Release the dogs!
         (setf *world-stopper* nil)
-        (condition-notify *world-stop-resume-cvar*)))))
+        (condition-notify *world-stop-cvar*)))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
@@ -835,9 +833,11 @@ Interrupts must be off, the current thread must be locked."
     (panic "Going PA with world stopped!"))
   (ensure-interrupts-enabled)
   (with-mutex (*world-stop-lock*)
-    (when *world-stop-pending*
-      ;; Wait for the world to stop & resume.
-      (condition-wait *world-stop-resume-cvar* *world-stop-lock*))
+    (loop
+       (when (null *world-stop-pending*)
+         (return))
+       ;; Don't go PA if there is a thread waiting to stop the world.
+       (condition-wait *world-stop-cvar* *world-stop-lock*))
     ;; TODO: Have a list of pseudo atomic threads, and prevent PA threads
     ;; from being inspected.
     (incf *pseudo-atomic-thread-count*))
@@ -846,7 +846,7 @@ Interrupts must be off, the current thread must be locked."
          (funcall thunk))
     (with-mutex (*world-stop-lock*)
       (decf *pseudo-atomic-thread-count*)
-      (condition-notify *world-stop-pa-exit-cvar*))))
+      (condition-notify *world-stop-cvar*))))
 
 (defmacro with-pseudo-atomic (&body body)
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))
