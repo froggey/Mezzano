@@ -1371,3 +1371,39 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 (defun phase (number)
   (atan (imagpart number) (realpart number)))
+
+(defun ffloor (number &optional (divisor 1))
+  (multiple-value-bind (quotient remainder)
+      (floor number divisor)
+    (values (float quotient (if (or (double-float-p number)
+                                    (double-float-p divisor))
+                                0.0d0
+                                0.0f0))
+            remainder)))
+
+(defun fceiling (number &optional (divisor 1))
+  (multiple-value-bind (quotient remainder)
+      (ceiling number divisor)
+    (values (float quotient (if (or (double-float-p number)
+                                    (double-float-p divisor))
+                                0.0d0
+                                0.0f0))
+            remainder)))
+
+(defun ftruncate (number &optional (divisor 1))
+  (multiple-value-bind (quotient remainder)
+      (truncate number divisor)
+    (values (float quotient (if (or (double-float-p number)
+                                    (double-float-p divisor))
+                                0.0d0
+                                0.0f0))
+            remainder)))
+
+(defun fround (number &optional (divisor 1))
+  (multiple-value-bind (quotient remainder)
+      (round number divisor)
+    (values (float quotient (if (or (double-float-p number)
+                                    (double-float-p divisor))
+                                0.0d0
+                                0.0f0))
+            remainder)))
