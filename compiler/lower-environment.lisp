@@ -32,7 +32,6 @@
 (defun quoted-form-p (form)
   (typep form 'ast-quote))
 
-
 (defgeneric compute-environment-layout (form))
 
 (defmethod compute-environment-layout ((form ast-block))
@@ -378,7 +377,8 @@ of statements opens a new contour."
                       collect (list i
                                     (make-instance 'lexical-variable
                                                    :name (gensym "Environment")
-                                                   :definition-point *current-lambda*)
+                                                   :definition-point *current-lambda*
+                                                   :plist (list 'hide-from-debug-info t))
                                     (gethash i *environment-layout*)))))
     (labels ((frob-outer ()
                (let* ((new-statements (frob-inner (info form)))
@@ -485,14 +485,16 @@ of statements opens a new contour."
       ;; The entry environment vector.
       (let ((env (make-instance 'lexical-variable
                                 :name (gensym "Environment")
-                                :definition-point lambda)))
+                                :definition-point lambda
+                                :plist (list 'hide-from-debug-info t))))
         (setf (lambda-information-environment-arg lambda) env)
         (push (list (first *environment*) env) *environment-chain*)))
     (cond ((not (endp local-env))
            ;; Environment is present, rewrite body with a new vector.
            (let ((new-env (make-instance 'lexical-variable
                                          :name (gensym "Environment")
-                                         :definition-point lambda)))
+                                         :definition-point lambda
+                                         :plist (list 'hide-from-debug-info t))))
              (flet ((set-var (var)
                       `(call (setf sys.int::%object-ref-t)
                              ,var

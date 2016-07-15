@@ -197,6 +197,7 @@ be generated instead.")
            (homes (loop for (var . loc) across *stack-values*
                      for i from 0
                      when (and (lexical-variable-p var)
+                               (not (getf (lexical-variable-plist var) 'hide-from-debug-info))
                                (eql loc :home))
                      collect (list (lexical-variable-name var) i))))
       ;; Fix all the GC instructions.
