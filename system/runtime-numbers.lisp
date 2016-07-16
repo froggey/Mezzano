@@ -1128,7 +1128,7 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (double-float
      (%%double-float-sqrt (float number 0.0d0)))
     (real
-     (%%single-float-sqrt number))))
+     (%%single-float-sqrt (float number 0.0f0)))))
 
 ;;; Convert a bignum to canonical form.
 ;;; If it can be represented as a fixnum it is converted,
