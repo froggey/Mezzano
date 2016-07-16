@@ -173,7 +173,7 @@
       (fill array initial-element))
     array))
 
-(defun initialize-from-sequence (array sequence)
+(defun initialize-from-initial-contents (array sequence)
   "Fill an array using a sequence."
   (case (array-rank array)
     (0 (setf (aref array) sequence))
@@ -276,7 +276,7 @@
                             (make-simple-array (first dimensions) element-type area initial-element)
                             (make-simple-array (first dimensions) element-type area))))
              (when initial-contents-p
-               (initialize-from-sequence array initial-contents))
+               (initialize-from-initial-contents array initial-contents))
              array))
           (displaced-to
            (unless displaced-index-offset
@@ -300,7 +300,7 @@
                (dotimes (i total-size)
                  (setf (%row-major-aref array i) initial-element)))
              (when initial-contents-p
-               (initialize-from-sequence array initial-contents))
+               (initialize-from-initial-contents array initial-contents))
              array))
           (t (let* ((total-size (if (integerp dimensions)
                                     dimensions
@@ -310,20 +310,23 @@
                                        (make-simple-array total-size element-type area)))
                     (array (%make-array-header +object-tag-array+ backing-array fill-pointer nil dimensions area)))
                (when initial-contents-p
-                 (initialize-from-sequence array initial-contents))
+                 (initialize-from-initial-contents array initial-contents))
                array)))))
 
 (defun adjust-array (array new-dimensions &key
-		     (element-type (array-element-type array))
-		     (initial-element nil initial-element-p)
-		     fill-pointer)
+                     (element-type (array-element-type array))
+                     (initial-element nil initial-element-p)
+                     (initial-contents nil initial-contents-p)
+                     fill-pointer)
   (when (integerp new-dimensions)
     (setf new-dimensions (list new-dimensions)))
   (when (not (eql (array-rank array) (length new-dimensions)))
     (error "New dimensions do not match array's rank."))
   (unless (equal element-type (array-element-type array))
     (error "Cannot convert array ~S to different element-type ~S from ~S."
-	   array element-type (array-element-type array)))
+           array element-type (array-element-type array)))
+  (when (and initial-element-p initial-contents-p)
+    (error "Cannot supply :INITIAL-ELEMENT and :INITIAL-CONTENTS."))
   (when fill-pointer
     (unless (vectorp array)
       (error ":FILL-POINTER is only valid with vectors."))
@@ -336,16 +339,19 @@
   (unless (vectorp array)
     (error "TODO: adjust-array on non-vectors."))
   (when (and (array-has-fill-pointer-p array)
-	     (not fill-pointer)
-	     (< (first new-dimensions) (fill-pointer array)))
+             (not fill-pointer)
+             (< (first new-dimensions) (fill-pointer array)))
     (error "Fill-pointer ~S on array ~S is larger than the new size ~S."
-	   (fill-pointer array) array new-dimensions))
+           (fill-pointer array) array new-dimensions))
   (cond ((%simple-1d-array-p array)
          (let ((new-array (if initial-element-p
                               (make-simple-array (first new-dimensions) element-type nil initial-element)
                               (make-simple-array (first new-dimensions) element-type nil))))
-           (dotimes (i (min (first new-dimensions) (array-dimension array 0)))
-             (setf (aref new-array i) (aref array i)))
+           (cond (initial-contents-p
+                  (initialize-from-initial-contents new-array initial-contents))
+                 (t
+                  (dotimes (i (min (first new-dimensions) (array-dimension array 0)))
+                    (setf (aref new-array i) (aref array i)))))
            new-array))
         ((and (null (%complex-array-info array))
               (character-array-p array))
@@ -354,6 +360,8 @@
                                                             :initial-element (char-int initial-element))
                                                   (adjust-array (%complex-array-storage array) new-dimensions))
                (%complex-array-dimension array 0) (first new-dimensions))
+         (when initial-contents-p
+           (initialize-from-initial-contents array initial-contents))
          (when fill-pointer
            (setf (fill-pointer array) fill-pointer))
          array)
@@ -365,6 +373,8 @@
                                                   (adjust-array (%complex-array-storage array) new-dimensions)))
          (when fill-pointer
            (setf (fill-pointer array) fill-pointer))
+         (when initial-contents-p
+           (initialize-from-initial-contents array initial-contents))
          array)
         (t (error "TODO: Adjusting unusual array ~S." array))))
 
