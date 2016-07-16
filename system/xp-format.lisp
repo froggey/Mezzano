@@ -346,9 +346,9 @@
 ;; TODO: Process mincol,colinc,minpad,padchar.
 (defun impl-A/S (start end escape-value)
   (declare (ignore end))
-  (multiple-value-bind (colon atsign)
-      (parse-params start nil)
-    (declare (ignore atsign))
+  (multiple-value-bind (colon atsign params)
+      (parse-params start '(0 1 0 #\Space))
+    (declare (ignore atsign params))
     (if colon
         `(let ((*print-escape* ,escape-value)
                (arg ,(get-arg)))
