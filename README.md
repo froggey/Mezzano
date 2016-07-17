@@ -2,14 +2,13 @@
 
 [![Picture of Emacs REPL](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)
 
-`C-<key>` means to hold the control key while typing <key>.
-`M-<key>` means to hold the alt or meta key while typing <key>.
-Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the same
-key, while `C-!` and `C-1` are different.
+`C-<key>` means to hold the control key while typing `<key>`.
 
-The default keymap is En-GB, use M-F12 to switch between En-GB, En-US,
-No-BK, and PanCyr keymaps.
-Windows can be moved by holding the Alt key and dragging.
+`M-<key>` means to hold the alt or meta key while typing `<key>`.
+
+Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the same key, while `C-!` and `C-1` are different.
+
+The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, and PanCyr keymaps. Windows can be moved by holding the Alt key and dragging.
 
 For help & support, join #mezzano on Freenode (irc.freenode.net)
 
@@ -21,21 +20,35 @@ This won't work if the thread is stuck in a tight loop or if the thread is block
 The line editor supports most standard line navigation and editing commands.
 
 `C-F`          Move forward (right) one character, also bound to Right-Arrow.
+
 `C-B`          Move backward (left) one character, also bound to Left-Arrow.
+
 `C-A`          Move to beginning of line, also bound to Home.
+
 `C-E`          Move to end of line, also bound to End.
+
 `M-F`          Move forward one word.
+
 `M-B`          Move backward one word.
+
 `M-P`          Find previous (older) matching history item, also bound to Up-Arrow.
+
 `M-N`          Find next (newer) matching history item, also bound to Down-Arrow.
+
 `C-D`          Delete the next character, also bound to Delete.
+
 `Backspace`    Delete the previous character.
+
 `M-D`          Delete the next word.
+
 `M-Backspace`  Delete the previous word.
+
 `C-K`          Delete from the cursor to the end of the line.
+
 `C-C`          Enter the debugger using BREAK.
-`C-G`          Invoke the most recent ABORT restart. This will usually clear
-               any input and return you to a prompt.
+
+`C-G`          Invoke the most recent ABORT restart. This will usually clear any input and return you to a prompt.
+
 `Tab`          Cycle through completions for the current symbol.
 
 #Editor commands
@@ -147,11 +160,17 @@ And more!
 A number of status lights are displayed at the top left of the screen.
 From left to right:
 `Green`        Disk read in progress.
+
 `Red`          Disk write in progress.
+
 `Purple`       GC in progress.
+
 `Cyan`         Activity, system is not idle.
+
 `Yellow`       Snapshot in progress.
+
 `Brown`        Page fault being serviced.
+
 `Light Green`  Network activity.
 
 * The entire top line will turn red if the system panics.
@@ -161,28 +180,47 @@ From left to right:
 The memory monitor displays a bitmap indicating how each page of physical memory
 is used. Colours indicate type.
 `Blue`         Free memory.
+
 `Red`          Wired memory.
+
 `Brown`        Wired backing memory, used during a snapshot.
+
 `Green`        Active in-use memory.
+
 `Dark green`   Active in-use memory ready to be written to disk.
+
 `Purple`       Inactive memory ready to be written to disk.
+
 `Pink`         Page tables.
+
 `Grey`         Other.
+
 `White`        Mixture.
+
 `Black`        Unused or not present.
 
 #Included Libraries
 
 ASDF 2.26
+
 Alexandria 5a17c07
+
 Babel 6aaea30
+
 Chipz 0.7.4
+
 cl-jpeg 1.27
+
 cl-vectors 0fda45f
+
 iterate 1.4.3
+
 png-read 991ba74
+
 trivial-features 0.8
+
 Slime 3c65fcb
+
 zpb-ttf 1.0.2
 
 Full source code is available under LOCAL:>Source>
