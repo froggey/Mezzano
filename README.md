@@ -1,6 +1,7 @@
 #Mezzano, an operating system written in Common Lisp.
 
 [![Picture of Emacs REPL](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)](https://dl.dropboxusercontent.com/u/46753018/Screenshot%20from%202016-03-12%2014%3A36%3A55.png)
+
 `C-<key>` means to hold the control key while typing <key>.
 `M-<key>` means to hold the alt or meta key while typing <key>.
 Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the same
@@ -110,13 +111,13 @@ And more!
 
 A number of status lights are displayed at the top left of the screen.
 From left to right:
-- Green        Disk read in progress.
-- Red          Disk write in progress.
-- Purple       GC in progress.
-- Cyan         Activity, system is not idle.
-- Yellow       Snapshot in progress.
-- Brown        Page fault being serviced.
-- Light Green  Network activity.
+`Green`        Disk read in progress.
+`Red`          Disk write in progress.
+`Purple`       GC in progress.
+`Cyan`         Activity, system is not idle.
+`Yellow`       Snapshot in progress.
+`Brown`        Page fault being serviced.
+`Light Green`  Network activity.
 
 * The entire top line will turn red if the system panics.
 
@@ -124,16 +125,16 @@ From left to right:
 
 The memory monitor displays a bitmap indicating how each page of physical memory
 is used. Colours indicate type.
-- Blue         Free memory.
-- Red          Wired memory.
-- Brown        Wired backing memory, used during a snapshot.
-- Green        Active in-use memory.
-- Dark green   Active in-use memory ready to be written to disk.
-- Purple       Inactive memory ready to be written to disk.
-- Pink         Page tables.
-- Grey         Other.
-- White        Mixture.
-- Black        Unused or not present.
+`Blue`         Free memory.
+`Red`          Wired memory.
+`Brown`        Wired backing memory, used during a snapshot.
+`Green`        Active in-use memory.
+`Dark green`   Active in-use memory ready to be written to disk.
+`Purple`       Inactive memory ready to be written to disk.
+`Pink`         Page tables.
+`Grey`         Other.
+`White`        Mixture.
+`Black`        Unused or not present.
 
 #Included Libraries
 
