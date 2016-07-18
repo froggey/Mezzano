@@ -204,7 +204,9 @@
                     ;; BREAK into the thread associated with the current window.
                     (mezzano.supervisor:establish-thread-foothold
                      (window-thread *active-window*)
-                     (lambda () (break)))))
+                     (if (member :control *keyboard-modifier-state*)
+                         (lambda () (cerror "Continue" "Keyboard break"))
+                         (lambda () (break))))))
                  ((and (member :meta *keyboard-modifier-state*)
                        (eql translated #\F1))
                   (when (key-releasep event)
