@@ -54,7 +54,8 @@
                  symbol-plist (setf symbol-plist)
                  boundp makunbound
                  sys.int::symbol-global-boundp
-                 sys.int::symbol-global-makunbound))
+                 sys.int::symbol-global-makunbound
+                 modifying-symbol-value))
 
 (defun symbolp (object)
   (sys.int::%object-of-type-p object sys.int::+object-tag-symbol+))
@@ -79,9 +80,13 @@
   (symbol-value-cell-value (symbol-global-value-cell symbol)))
 
 (defun (setf sys.int::symbol-global-value) (value symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (setf (symbol-value-cell-value (symbol-global-value-cell symbol)) value))
 
 (defun (sys.int::cas sys.int::symbol-global-value) (old new symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-global-value-cell symbol))
                 old new))
 
@@ -103,9 +108,13 @@
   (symbol-value-cell-value (symbol-value-cell symbol)))
 
 (defun (setf symbol-value) (value symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (setf (symbol-value-cell-value (symbol-value-cell symbol)) value))
 
 (defun (sys.int::cas symbol-value) (old new symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (sys.int::cas (symbol-value-cell-value (symbol-value-cell symbol))
                 old new))
 
@@ -122,6 +131,8 @@
   (symbol-value-cell-boundp (symbol-value-cell symbol)))
 
 (defun makunbound (symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (symbol-value-cell-makunbound (symbol-value-cell symbol))
   symbol)
 
@@ -129,5 +140,14 @@
   (symbol-value-cell-boundp (symbol-global-value-cell symbol)))
 
 (defun sys.int::symbol-global-makunbound (symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (modifying-symbol-value symbol)
   (symbol-value-cell-makunbound (symbol-global-value-cell symbol))
   symbol)
+
+(defun modifying-symbol-value (symbol)
+  (when (eql (ldb (byte sys.int::+symbol-header-mode-size+
+                        sys.int::+symbol-header-mode-position+)
+                  (sys.int::%object-header-data symbol))
+             sys.int::+symbol-mode-constant+)
+    (cerror "Change the value" "Attempting to modify constant symbol ~S" symbol)))
