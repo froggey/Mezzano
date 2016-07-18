@@ -199,6 +199,9 @@ is used. Colours indicate type.
 
 `Black`        Unused or not present.
 
+#Installation
+See the MBuild repo for installation: (https://github.com/froggey/MBuild)
+
 #Included Libraries
 
 ASDF 2.26
