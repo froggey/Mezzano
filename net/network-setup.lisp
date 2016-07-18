@@ -22,7 +22,7 @@
           mezzano.network.dns:*dns-servers* '())
     ;; Bring interfaces up.
     (mezzano.network.ip::ifup interface local-ip)
-    #+(or)(mezzano.network.ip::ifup loopback-interface loopback-ip)
+    (mezzano.network.ip::ifup loopback-interface loopback-ip)
     ;; Set up default routing table.
     ;; Default route.
     (mezzano.network.ip:add-route
@@ -35,7 +35,7 @@
      prefix-length
      interface)
     ;; Loopback network.
-    #+(or)(mezzano.network.ip:add-route loopback-network 8 loopback-interface)
+    (mezzano.network.ip:add-route loopback-network 8 loopback-interface)
     (push (mezzano.network.ip:make-ipv4-address dns-server)
           mezzano.network.dns:*dns-servers*))
   t)
