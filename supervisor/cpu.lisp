@@ -173,7 +173,7 @@
   (let ((addr (local-cpu-info)))
     (multiple-value-bind (lo hi)
         (make-idt-entry :offset (sys.int::%object-ref-signed-byte-64
-                                 (svref sys.int::*interrupt-service-routines* 14)
+                                 (svref (sys.int::symbol-global-value 'sys.int::*interrupt-service-routines*) 14)
                                  sys.int::+function-entry-point+)
                         :ist 0)
       (setf (sys.int::memref-unsigned-byte-64 (+ addr +cpu-info-idt-offset+) (* 14 2)) lo
