@@ -280,9 +280,29 @@
 (defun funcallable-instance-compiled-function-p (function)
   t)
 
+(defun closure-p (object)
+  (%object-of-type-p object +object-tag-closure+))
+
 (defun %closure-function (closure)
+  (assert (%object-of-type-p closure +object-tag-closure+))
   ;; Return the closed-over function associated with CLOSURE.
   (%object-ref-t closure +closure-function+))
+
+(defun %closure-length (closure)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (1- (function-pool-size closure)))
+
+(defun %closure-value (closure index)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (assert (<= 0 index))
+  (assert (< index (%closure-length closure)))
+  (%object-ref-t closure (+ 1 +closure-function+ index)))
+
+(defun (setf %closure-value) (value closure index)
+  (assert (%object-of-type-p closure +object-tag-closure+))
+  (assert (<= 0 index))
+  (assert (< index (%closure-length closure)))
+  (setf (%object-ref-t closure (+ 1 +closure-function+ index)) value))
 
 (defun function-name (function)
   (check-type function function)
