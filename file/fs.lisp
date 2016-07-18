@@ -191,18 +191,20 @@
   (unparse-pathname-directory pathname (pathname-host pathname)))
 
 (defun namestring (pathname)
-  (unparse-pathname pathname (pathname-host pathname)))
+  (concatenate 'string
+               (string (host-name (pathname-host pathname)))
+               ":"
+               (unparse-pathname pathname (pathname-host pathname))))
 
 (defun enough-namestring (pathname &optional (defaults *default-pathname-defaults*))
-  (declare (ignore defaults))
-  (namestring pathname))
+  (cond ((eql (pathname-host pathname) (pathname-host defaults))
+         (unparse-pathname pathname (pathname-host pathname)))
+        (t
+         (namestring pathname))))
 
 (defmethod print-object ((object pathname) stream)
   (cond ((pathname-host object)
-         (format stream "#P~S" (concatenate 'string
-                                            (string (host-name (pathname-host object)))
-                                            ":"
-                                            (unparse-pathname object (pathname-host object)))))
+         (format stream "#P~S" (namestring object)))
         (t (print-unreadable-object (object stream :type t)
              (format stream ":HOST ~S :DEVICE ~S :DIRECTORY ~S :NAME ~S :TYPE ~S :VERSION ~S"
                      (pathname-host object) (pathname-device object)
