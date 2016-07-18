@@ -225,11 +225,10 @@
     value))
 
 (defun macro-function (symbol &optional env)
-  (dolist (e env
-           (get symbol '%macro-function))
-    (when (eql (first e) :macros)
-      (let ((fn (assoc symbol (rest e))))
-        (when fn (return (cdr fn)))))))
+  (cond (env
+         (sys.c::macro-function-in-environment symbol env))
+        (t
+         (get symbol '%macro-function))))
 
 (defun (setf macro-function) (value symbol &optional env)
   (when env
@@ -240,13 +239,18 @@
         (get symbol '%macro-function) value))
 
 (defun compiler-macro-function (name &optional environment)
-  (multiple-value-bind (sym indicator)
-      (if (symbolp name)
-          (values name '%compiler-macro-function)
-          (values (second name) '%setf-compiler-macro-function))
-    (get sym indicator)))
+  (cond (environment
+         (sys.c::compiler-macro-function-in-environment name environment))
+        (t
+         (multiple-value-bind (sym indicator)
+             (if (symbolp name)
+                 (values name '%compiler-macro-function)
+                 (values (second name) '%setf-compiler-macro-function))
+           (get sym indicator)))))
 
 (defun (setf compiler-macro-function) (value name &optional environment)
+  (when environment
+    (error "TODO: (Setf Compiler-Macro-function) in environment."))
   (multiple-value-bind (sym indicator)
       (if (symbolp name)
           (values name '%compiler-macro-function)

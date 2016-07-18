@@ -141,16 +141,13 @@
               (return nil)))))
     (t (equal x y))))
 
-(defun symbol-macro-expansion (symbol &optional env)
-  (dolist (e env (values symbol nil))
-    (when (eql (first e) :symbol-macros)
-      (let ((x (assoc symbol (rest e))))
-        (when x
-          (return (values (second x) t)))))))
-
 (defun macroexpand-1 (form &optional env)
   (cond ((symbolp form)
-         (symbol-macro-expansion form env))
+         (let ((var (sys.c::lookup-variable-in-environment form env)))
+           (cond ((typep var 'sys.c::symbol-macro)
+                  (values (sys.c::symbol-macro-expansion var) t))
+                 (t
+                  (values form nil)))))
         ((consp form)
          (let ((fn (macro-function (first form) env)))
            (if fn

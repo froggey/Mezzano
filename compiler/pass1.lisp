@@ -51,23 +51,6 @@
 	(setf vars (union vars (rest decl)))))
     vars))
 
-;;; Currently forwards: SPECIAL, IGNORE, IGNORABLE and DYNAMIC-EXTENT.
-(defun forward-declares (variables declares)
-  (labels ((test (x) (find x variables)))
-    (let ((special (pick-variables 'special declares))
-	  (ignore (pick-variables 'ignore declares))
-	  (ignorable (pick-variables 'ignorable declares))
-	  (dynamic-extent (pick-variables 'dynamic-extent declares)))
-      `(declare (special ,@(remove-if-not #'test special))
-		(ignore ,@(remove-if-not #'test ignore))
-		(ignorable ,@(remove-if-not #'test ignorable))
-		(dynamic-extent ,@(remove-if-not #'test dynamic-extent))))))
-
-(defun lower-aux-arguments (body aux declares)
-  `(let* ,aux
-     ,(forward-declares (mapcar 'car aux) declares)
-     ,@body))
-
 (defun declared-as-p (what name declares)
   (dolist (decl declares nil)
     (when (and (eql what (first decl))
@@ -112,15 +95,11 @@
                                   :allow-other-keys allow-other-keys
                                   :plist (list :declares declares)))
 	     (*current-lambda* info)
-	     (bindings (list :bindings))
-	     (env (list* bindings env)))
-	;; Lower &AUX arguments so they don't have to be dealt with.
-	(when aux
-	  (setf body (list (lower-aux-arguments body aux declares))))
+             (aux-bindings '()))
 	;; Add required, optional and rest arguments to the environment & lambda.
 	(labels ((add-var (name)
 		   (let ((var (make-variable name declares)))
-		     (push (cons name var) (cdr bindings))
+                     (setf env (extend-environment env :variables (list (list name var))))
 		     var)))
 	  (setf (lambda-information-required-args info) (mapcar #'add-var required))
 	  (setf (lambda-information-optional-args info)
@@ -142,22 +121,25 @@
                             (list (list keyword (add-var var))
                                   init-form
                                   (when suppliedp (add-var suppliedp)))))
-                        keys)))
-	;; Add special variables to the environment.
-	;; NOTE: Does not quite work properly with &aux arguments.
-	;; Special declarations will apply inside their init-forms.
-	(let* ((lambda-variables (append required
-					 (mapcar #'car optional)
-					 (delete 'nil (mapcar 'caddr optional))
-					 (when rest
-					   (list rest))
-					 (mapcar #'cadar keys)
-					 (delete 'nil (mapcar 'caddr keys))
-					 (mapcar #'car aux)))
-	       (specials (remove-if (lambda (x) (find x lambda-variables))
-				    (pick-variables 'special declares)))
-	       (env (cons (list* :bindings (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x))) specials)) env)))
-	  (setf (lambda-information-body info) (pass1-form `(progn ,@body) env)))
+                        keys))
+          (setf aux-bindings (mapcar (lambda (binding)
+                                       (let ((var (first binding))
+                                             (init-form (pass1-form (second binding) env)))
+                                         (list (add-var var) init-form)))
+                                     aux)))
+	;; Add declarations to the environment.
+	(let* ((env (extend-environment env
+                                        :variables (mapcar (lambda (x)
+                                                             (list x (make-instance 'special-variable :name x)))
+                                                           (pick-variables 'special declares))
+                                        :declarations declares))
+               ;; Process lambda body.
+               (body-ast (pass1-form `(progn ,@body) env))
+               ;; Actually bind &AUX variables, now that the body has been processed.
+               (body-with-aux (if aux-bindings
+                                  (ast `(let ,aux-bindings ,body-ast))
+                                  body-ast)))
+	  (setf (lambda-information-body info) body-with-aux))
 	;; Perform (un)used-variable warnings.
 	(dolist (var (lambda-information-required-args info))
 	  (when (lexical-variable-p var)
@@ -181,26 +163,21 @@
 
 (defun find-variable (symbol env &optional allow-symbol-macros)
   "Find SYMBOL in ENV, returning a SPECIAL-VARIABLE if it's special or if it's not found."
-  ;; FIXME: Should check for symbols defined with DEFINE-SYMBOL-MACRO.
-  (dolist (e env (make-instance 'special-variable :name symbol))
-    (when (eq (first e) :bindings)
-      (let ((v (assoc symbol (rest e))))
-	(when v
-	  (return (cdr v)))))
-    (when (eql (first e) :symbol-macros)
-      (let ((v (assoc symbol (rest e))))
-        (when v
-          (unless allow-symbol-macros
-            (error "Symbol-macro not allowed here."))
-          (return v))))))
+  (let ((var (lookup-variable-in-environment symbol env)))
+    (cond ((typep var 'symbol-macro)
+           (when (not allow-symbol-macros)
+             (error "Symbol-macro not allowed here."))
+           (list symbol (symbol-macro-expansion var)))
+          (t
+           var))))
 
 (defun find-function (name env)
   "Find the function named by NAME in ENV, returning NAME if not found."
-  (dolist (e env name)
-    (when (eq (first e) :functions)
-      (let ((v (assoc name (rest e) :test #'equal)))
-	(when v
-	  (return (cdr v)))))))
+  (let ((result (lookup-function-in-environment name env)))
+    (cond ((typep result 'top-level-function)
+           name)
+          (t
+           result))))
 
 (defun expand-constant-variable (symbol)
   "Expand a constant variable, returning the quoted value or returning NIL if the variable is not a constant."
@@ -219,7 +196,8 @@
 		       (and (consp name)
 			    (eq (first name) 'setf)))
 	       (compiler-macro-function name env))))
-    (when fn
+    (when (and fn
+               (not (eql (inline-info-in-environment name env) 'notinline)))
       (let ((expansion (funcall *macroexpand-hook* fn form env)))
         (when (not (eq expansion form))
           (return-from compiler-macroexpand-1
@@ -313,13 +291,14 @@
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
-    (let ((var (make-instance 'block-information
-                              :name name
-                              :definition-point *current-lambda*)))
+    (let* ((var (make-instance 'block-information
+                               :name name
+                               :definition-point *current-lambda*))
+           (env (extend-environment env
+                                    :blocks (list (list name var)))))
       (make-instance 'ast-block
                      :info var
-                     :body (pass1-form `(progn ,@forms)
-                                       (cons (list :block name var) env))))))
+                     :body (pass1-form `(progn ,@forms) env)))))
 
 (defun pass1-catch (form env)
   (destructuring-bind (tag &body body) (cdr form)
@@ -377,21 +356,23 @@
   (destructuring-bind (functions &body forms) (cdr form)
     (multiple-value-bind (body declares)
 	(parse-declares forms)
-      (let ((bindings (list :functions)))
+      (let ((bindings '()))
         (make-instance 'ast-let
                        :bindings (mapcar (lambda (x)
-			 (multiple-value-bind (sym var lambda)
-			     (frob-flet-function x)
-			   (push (cons sym var) (cdr bindings))
-                           (let ((lambda (pass1-lambda lambda env)))
-                             (when (function-declared-dynamic-extent-p sym declares)
-                               (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
-                             (when (function-declared-notinline-p sym declares)
-                               (setf (getf (lambda-information-plist lambda) 'notinline) t))
-                             (list var lambda))))
-		       functions)
-                       ;; TODO: special vars.
-                       :body (pass1-form `(progn ,@body) (cons bindings env)))))))
+                                           (multiple-value-bind (sym var lambda)
+                                               (frob-flet-function x)
+                                             (push (list sym var) bindings)
+                                             (let ((lambda (pass1-lambda lambda env)))
+                                               (when (function-declared-dynamic-extent-p sym declares)
+                                                 (setf (getf (lambda-information-plist lambda) 'declared-dynamic-extent) t))
+                                               (when (function-declared-notinline-p sym declares)
+                                                 (setf (getf (lambda-information-plist lambda) 'notinline) t))
+                                               (list var lambda))))
+                                         functions)
+                       :body (pass1-form `(progn ,@body)
+                                         (extend-environment env
+                                                             :functions bindings
+                                                             :declarations declares)))))))
 
 (defun pass1-function (form env)
   (destructuring-bind (name) (cdr form)
@@ -408,16 +389,14 @@
                  (make-instance 'ast-function :name name)))))))
 
 (defun pass1-go (form env)
-  (destructuring-bind (tag) (cdr form)
-    (dolist (e env (error "GO refers to unknown tag ~S." tag))
-      (when (eq (car e) :tagbody)
-	(let ((x (assoc tag (cddr e))))
-	  (when x
-	    (incf (go-tag-use-count (cdr x)))
-	    (pushnew *current-lambda* (go-tag-used-in (cdr x)))
-	    (return (make-instance 'ast-go
-                                   :target (cdr x)
-                                   :info (go-tag-tagbody (cdr x))))))))))
+  (destructuring-bind (tag-name) (cdr form)
+    (let ((tag (or (lookup-go-tag-in-environment tag-name env)
+                   (error "GO refers to unknown tag ~S." tag-name))))
+      (incf (go-tag-use-count tag))
+      (pushnew *current-lambda* (go-tag-used-in tag))
+      (make-instance 'ast-go
+                     :target tag
+                     :info (go-tag-tagbody tag)))))
 
 (defun pass1-if (form env)
   (destructuring-bind (test then &optional else) (cdr form)
@@ -434,10 +413,10 @@
       (let* ((raw-bindings (mapcar (lambda (x)
 				     (multiple-value-list (frob-flet-function x)))
 				   functions))
-	     (env (cons (list* :functions (mapcar (lambda (x)
-						    (cons (first x) (second x)))
-						  raw-bindings))
-			env)))
+	     (env (extend-environment env
+                                      :functions (mapcar (lambda (x)
+                                                           (list (first x) (second x)))
+                                                         raw-bindings))))
         (make-instance 'ast-let
                        :bindings (mapcar (lambda (x)
                                            (let ((lambda (pass1-lambda (third x) env)))
@@ -447,8 +426,8 @@
                                                (setf (getf (lambda-information-plist lambda) 'notinline) t))
                                              (list (second x) lambda)))
                                          raw-bindings)
-                       ;; TODO: declares
-                       :body (pass1-form `(progn ,@body) env))))))
+                       :body (pass1-form `(progn ,@body)
+                                         (extend-environment env :declarations declares)))))))
 
 (defun pass1-let (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
@@ -465,20 +444,19 @@
                                            (list (third b) (pass1-form (second b) env)))
                                          variables)
                        :body (pass1-form `(progn ,@body)
-                                         (cons (append (list :bindings)
-                                                       (mapcar (lambda (b)
-                                                                 (cons (first b) (third b)))
-                                                               variables)
-                                                       (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x)))
-                                                               (remove-if (lambda (x) (find x variables :key #'first))
-                                                                          (pick-variables 'special declares))))
-                                               env)))))))
+                                         (extend-environment env
+                                                             :variables (mapcar (lambda (b)
+                                                                                  (list (first b) (third b)))
+                                                                                variables)
+                                                             :declarations declares)))))))
 
 (defun pass1-let* (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
 	(parse-declares forms)
-      (let* ((result (make-instance 'ast-let :bindings '() :body (make-instance 'ast-quote :value 'nil)))
+      (let* ((result (make-instance 'ast-let
+                                    :bindings '()
+                                    :body (make-instance 'ast-quote :value 'nil)))
 	     (inner result)
 	     (var-names '()))
 	(dolist (b bindings)
@@ -490,12 +468,9 @@
                                                 :bindings (list (list var (pass1-form init-form env)))
                                                 :body (make-instance 'ast-quote :value 'nil))
 		    inner (body inner)
-		    env (cons (list :bindings (cons name var)) env)))))
+		    env (extend-environment env :variables (list (list name var)))))))
 	(setf (body inner) (pass1-form `(progn ,@body)
-                                       (cons (list* :bindings (mapcar (lambda (x) (cons x (make-instance 'special-variable :name x)))
-                                                                      (remove-if (lambda (x) (find x var-names))
-                                                                                 (pick-variables 'special declares))))
-                                             env)))
+                                       (extend-environment env :declarations declares)))
 	(body result)))))
 
 (defun pass1-load-time-value (form env)
@@ -506,10 +481,7 @@
 (defun pass1-locally-body (forms env)
   (multiple-value-bind (body declares)
       (parse-declares forms)
-    (let ((env (cons (list :bindings) env)))
-      (dolist (s (pick-variables 'special declares))
-	(push (cons s (make-instance 'special-variable :name s)) (rest (first env))))
-      (pass1-form `(progn ,@body) env))))
+    (pass1-form `(progn ,@body) (extend-environment env :declarations declares))))
 
 (defun pass1-locally (form env)
   (pass1-locally-body (cdr form) env))
@@ -525,24 +497,22 @@
           (setf env (gensym "ENV")))
         (multiple-value-bind (body declares)
             (parse-declares forms)
-          (cons name (sys.int::eval-in-lexenv
-                      `(lambda (,whole ,env)
-                         (declare (ignorable ,whole ,env)
-                                  (system:lambda-name (macrolet ,name)))
-                         (destructuring-bind ,lambda-list (cdr ,whole)
-                           (declare ,@declares)
-                           (block ,name ,@body)))
-                      (remove-if-not (lambda (x) (member x '(:macros :symbol-macros)))
-                                     lexenv
-                                     :key 'first))))))))
+          (list name
+                (sys.int::eval-in-lexenv
+                 `(lambda (,whole ,env)
+                    (declare (ignorable ,whole ,env)
+                             (system:lambda-name (macrolet ,name)))
+                    (destructuring-bind ,lambda-list (cdr ,whole)
+                      (declare ,@declares)
+                      (block ,name ,@body)))
+                 (environment-macro-definitions-only lexenv))))))))
 
 (defun pass1-macrolet (form env)
   (destructuring-bind (definitions &body body) (cdr form)
-    (let ((env (list* (list* :macros
-                             (loop
-                                for def in definitions
-                                collect (hack-macrolet-definition def env)))
-                      env)))
+    (let* ((macro-functions (loop
+                               for def in definitions
+                               collect (hack-macrolet-definition def env)))
+           (env (extend-environment env :functions macro-functions)))
       (pass1-locally-body body env))))
 
 (defun pass1-multiple-value-call (form env)
@@ -592,15 +562,14 @@
 
 (defun pass1-return-from (form env)
   (destructuring-bind (name &optional result) (cdr form)
-    (dolist (e env (error "RETURN-FROM refers to unknown block ~S." name))
-      (when (and (eq (first e) :block)
-		 (eq (second e) name))
-	(incf (lexical-variable-use-count (third e)))
-	(pushnew *current-lambda* (lexical-variable-used-in (third e)))
-	(return (make-instance 'ast-return-from
-                               :target (third e)
-                               :value (pass1-form result env)
-                               :info (third e)))))))
+    (let ((tag (or (lookup-block-in-environment name env)
+                   (error "RETURN-FROM refers to unknown block ~S." name))))
+      (incf (lexical-variable-use-count tag))
+      (pushnew *current-lambda* (lexical-variable-used-in tag))
+      (make-instance 'ast-return-from
+                     :target tag
+                     :value (pass1-form result env)
+                     :info tag))))
 
 (defun pass1-setq (form env)
   (do ((i (cdr form) (cddr i))
@@ -643,8 +612,24 @@
                    definitions)
             ()
             "Bad SYMBOL-MACROLET definition.")
-    (let ((env (list* (list* :symbol-macros definitions) env)))
-      (pass1-locally-body body env))))
+    (multiple-value-bind (body declares)
+        (parse-declares body)
+      (let* ((defs (loop
+                      for (name expansion) in definitions
+                      do
+                        (when (declared-as-p 'special name declares)
+                          (error "Symbol macro ~S declared special." name))
+                        (when (eql (sys.int::variable-information name) :special)
+                          (error "Attempt to bind special variable ~S as a symbol-macro." name))
+                        (when (eql (sys.int::variable-information name) :constant)
+                          (error "Attempt to bind constant ~S as a symbol-macro." name))
+                      collect (list name
+                                    (make-instance 'symbol-macro
+                                                   :name name
+                                                   :expansion expansion)))))
+        (pass1-form `(progn ,@body) (extend-environment env
+                                                        :variables defs
+                                                        :declarations declares))))))
 
 ;; Turn a list of statements (mixed go tags and forms) into
 ;; a list of (go-tag form). If there is no initial go tag, then one will
@@ -683,19 +668,18 @@
                                                        :name name
                                                        :tagbody tb)))
                                (push tag (tagbody-information-go-tags tb))
-                               tag))))
-    (setf env (cons (list* :tagbody tb
-                           (loop
-                              for (name form) in parsed-body
-                              for go-tag in go-tags
-                              collect (cons name go-tag)))
-                    env))
+                               tag)))
+         (env (extend-environment env
+                                  :go-tags (loop
+                                              for (name form) in parsed-body
+                                              for go-tag in go-tags
+                                              collect (list name go-tag)))))
     (make-instance 'ast-tagbody
                    :info tb
                    :statements (loop
                                   for (name form) in parsed-body
                                   for go-tag in go-tags
-                                    collect (list go-tag (pass1-form form env))))))
+                                  collect (list go-tag (pass1-form form env))))))
 
 (defun pass1-the (form env)
   (destructuring-bind (value-type form) (cdr form)
@@ -707,6 +691,9 @@
   (destructuring-bind (tag result) (cdr form)
     (let ((tag-sym (gensym "TAG"))
           (result-sym (gensym "RESULT")))
+      ;; Why not expand THROW to (M-V-CALL #'%THROW (values tag) result)?
+      ;; Because M-V-CALL with multiple arguments isn't natively supported by the compiler
+      ;; and involves calls to APPEND & MULTIPLE-VALUE-LIST.
       ;; Do some ridiculous gymanstics to put the result values into a list with dynamic extent.
       (pass1-form
        `(let ((,tag-sym ,tag))

@@ -282,29 +282,43 @@
 (set-macro-character #\` 'read-backquote nil *cross-readtable*)
 (set-macro-character #\, 'read-comma nil *cross-readtable*)
 
-(defun sys.int::symbol-macro-expansion (symbol &optional env)
-  (dolist (e env
-           (gethash symbol *system-symbol-macros*))
-    (when (eql (first e) :symbol-macros)
-      (let ((x (assoc symbol (rest e))))
-        (when x (return (second x)))))))
+(defmethod lookup-variable-in-environment (symbol (environment null))
+  (multiple-value-bind (expansion expandedp)
+      (gethash symbol *system-symbol-macros*)
+    (if expandedp
+        (make-instance 'symbol-macro :name symbol :expansion expansion)
+        (make-instance 'special-variable :name symbol))))
+
+(defmethod lookup-function-in-environment (name (environment null))
+  (make-instance 'top-level-function :name name))
+
+(defmethod inline-info-in-environment (name (environment null))
+  (function-inline-info name))
+
+(defmethod lookup-block-in-environment (tag (environment null))
+  nil)
+
+(defmethod lookup-go-tag-in-environment (tag (environment null))
+  nil)
+
+(defmethod environment-macro-definitions-only ((environment null))
+  nil)
+
+(defmethod compiler-macro-function-in-environment (name (environment null))
+  (gethash name *system-compiler-macros*))
+
+(defmethod macro-function-in-environment (symbol (environment null))
+  (gethash symbol *system-macros*))
 
 (defun compiler-macro-function (name &optional env)
-  (dolist (e env
-           (gethash name *system-compiler-macros*))
-    (when (eql (first e) :compiler-macros)
-      (let ((x (assoc name (rest e) :test 'equal)))
-        (when x (return (cdr x)))))))
+  (compiler-macro-function-in-environment name env))
 
 (defun (setf compiler-macro-function) (value name &optional env)
-  (declare (ignore env))
+  (assert (eql env nil))
   (setf (gethash name *system-compiler-macros*) value))
 
 (defun macro-function (symbol &optional env)
-  (dolist (e env (gethash symbol *system-macros*))
-    (when (eql (first e) :macros)
-      (let ((x (assoc symbol (rest e))))
-        (when x (return (cdr x)))))))
+  (macro-function-in-environment symbol env))
 
 (defun macroexpand (form &optional env)
   (let ((did-expand nil))
@@ -317,7 +331,11 @@
 
 (defun macroexpand-1 (form &optional env)
   (cond ((symbolp form)
-         (sys.int::symbol-macro-expansion form env))
+         (let ((var (lookup-variable-in-environment form env)))
+           (cond ((typep var 'symbol-macro)
+                  (values (symbol-macro-expansion var) t))
+                 (t
+                  (values form nil)))))
         ((consp form)
          (let ((fn (macro-function (first form) env)))
            (if fn
@@ -386,17 +404,14 @@
   "Common code for handling the body of LOCALLY, MACROLET and SYMBOL-MACROLET forms at the top-level."
   (multiple-value-bind (body declares)
       (parse-declares forms)
-    (dolist (dec declares)
-      (when (eql 'special (first dec))
-        (push (list* :special (rest dec)) env)))
-    (x-compile-top-level-implicit-progn body env mode)))
+    (x-compile-top-level-implicit-progn
+     body (extend-environment env :declarations declares) mode)))
 
 (defun make-macrolet-env (definitions env)
-  (list* (list* :macros
-                (loop
-                   for def in definitions
-                   collect (hack-macrolet-definition def env)))
-         env))
+  (extend-environment env
+                      :functions (loop
+                         for def in definitions
+                                    collect (hack-macrolet-definition def env))))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)

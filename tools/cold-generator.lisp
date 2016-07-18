@@ -97,6 +97,8 @@
     "lap.lisp"
     "lap-x86.lisp"
     "compiler/compiler.lisp"
+    "compiler/environment.lisp"
+    "compiler/global-environment.lisp"
     "compiler/ast.lisp"
     "compiler/ast-generator.lisp"
     "compiler/pass1.lisp"

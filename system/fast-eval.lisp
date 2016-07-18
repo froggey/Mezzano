@@ -23,10 +23,13 @@
     (eval-in-lexenv (car itr) env)))
 
 (defun eval-one-setq (var val env)
-  (let ((expansion (macroexpand var)))
-    (cond ((symbolp expansion)
-           (setf (symbol-value expansion) (eval-in-lexenv val env)))
-          (t (eval-in-lexenv `(setf ,var ,val) env)))))
+  (check-type var symbol)
+  (multiple-value-bind (expansion expandedp)
+      (macroexpand-1 var)
+    (declare (ignore expansion))
+    (cond (expandedp
+           (eval-in-lexenv `(setf ,var ,val) env))
+          (t (setf (symbol-value var) (eval-in-lexenv val env))))))
 
 (defun eval-setq (pairs env)
   (destructuring-bind (var val &rest rest)

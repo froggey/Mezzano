@@ -135,3 +135,30 @@ The file will only be recompiled if the source is newer than the output file, or
              (when (< n-elements-read buffer-size)
                (return))))))
     dest))
+
+;; FIXME: Should be a weak hash table.
+(defvar *symbol-macro-expansions* (make-hash-table))
+
+(defun symbol-macro-p (symbol)
+  (check-type symbol symbol)
+  (multiple-value-bind (expansion presentp)
+      (gethash symbol *symbol-macro-expansions*)
+    (declare (ignore expansion))
+    presentp))
+
+(defun symbol-macroexpand-1 (symbol)
+  (check-type symbol symbol)
+  (multiple-value-bind (expansion presentp)
+      (gethash symbol *symbol-macro-expansions*)
+    (cond (presentp
+           (values expansion t))
+          (t
+           (values symbol nil)))))
+
+(defun %define-symbol-macro (name expansion)
+  (check-type name symbol)
+  (when (not (member (symbol-mode name) '(nil :symbol-macro)))
+    (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode form)))
+  (setf (symbol-mode name) :symbol-macro)
+  (setf (gethash name *symbol-macro-expansions*) expansion)
+  name)

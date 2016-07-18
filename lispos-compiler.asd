@@ -15,14 +15,16 @@
                (:file "system/data-types" :depends-on ("compiler/cross"))
                (:file "system/parse" :depends-on ("compiler/cross"))
                (:file "system/backquote" :depends-on ("compiler/cross"))
+               (:file "compiler/environment"
+                      :depends-on ("compiler/cross" "compiler/compiler"))
                (:file "compiler/cross-compile"
-                      :depends-on ("compiler/cross" "system/backquote" "system/data-types"))
+                      :depends-on ("compiler/cross" "system/backquote" "system/data-types" "compiler/environment"))
                (:file "compiler/compiler"
                       :depends-on ("compiler/cross"))
                (:file "compiler/cross-boot"
                       :depends-on ("compiler/cross" "compiler/cross-compile"))
                (:file "compiler/ast"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
+                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/environment"))
                (:file "compiler/ast-generator"
                       :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
                (:file "compiler/keyword-arguments"

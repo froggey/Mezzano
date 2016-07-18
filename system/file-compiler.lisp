@@ -22,14 +22,20 @@
 
 (defun make-macrolet-env (defs env)
   "Return a new environment containing the macro definitions."
-  (list* (list* :macros (mapcar (lambda (def)
-                                  (cons (first def)
-                                        (eval (expand-macrolet-function def))))
-                                defs))
-         env))
+  ;; FIXME: Outer macrolets & symbol macrolets should be visible in the macrolet's body.
+  (let ((macro-bindings (loop
+                           for def in defs
+                           collect (list (first def)
+                                         (eval (expand-macrolet-function def))))))
+    (sys.c::extend-environment env :functions macro-bindings)))
 
 (defun make-symbol-macrolet-env (defs env)
-  (cons (list* :symbol-macros defs) env))
+  (let ((defs (loop
+                 for (name expansion) in defs
+                 collect (make-instance 'sys.c::symbol-macro
+                                        :name name
+                                        :expansion expansion))))
+    (sys.c::extend-environment env :variables defs)))
 
 (defun handle-top-level-implicit-progn (forms load-fn eval-fn mode env)
   (dolist (f forms)
@@ -39,10 +45,9 @@
   "Common code for handling the body of LOCALLY, MACROLET and SYMBOL-MACROLET forms at the top-level."
   (multiple-value-bind (body declares)
       (parse-declares forms)
-    (dolist (dec declares)
-      (when (eql 'special (first dec))
-        (push (list* :special (rest dec)) env)))
-    (handle-top-level-implicit-progn body load-fn eval-fn mode env)))
+    (handle-top-level-implicit-progn
+     body load-fn eval-fn mode
+     (sys.c::extend-environment env :declarations declares))))
 
 (defun macroexpand-top-level-form (form env)
   (cond ((and (listp form)

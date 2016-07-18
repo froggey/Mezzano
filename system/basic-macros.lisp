@@ -450,6 +450,10 @@
      (%defconstant ',name ,initial-value
                    ,@(when docstring `(',docstring)))))
 
+(defmacro define-symbol-macro (symbol expansion)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     (%define-symbol-macro ',symbol ',expansion)))
+
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
 		       (second name)
