@@ -36,12 +36,12 @@
 (defun describe-single-float (object stream)
   (format stream "~D is a single-precision floating-point number.~%" object)
   (format stream "  It's representation is ~X.~%"
-          (ash (lisp-object-address object) -32)))
+          (%single-float-as-integer object)))
 
 (defun describe-double-float (object stream)
   (format stream "~D is a double-precision floating-point number, with address ~X.~%" object (lisp-object-address object))
   (format stream "  It's representation is ~X.~%"
-          (%object-ref-unsigned-byte-64 object 0)))
+          (%double-float-as-integer object)))
 
 (defun describe-function (object stream)
   (multiple-value-bind (lambda-expression closure-p name)
