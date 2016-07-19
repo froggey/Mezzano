@@ -1421,3 +1421,126 @@ Implements the dumb mp_div algorithm from BigNum Math."
                                 0.0d0
                                 0.0f0))
             remainder)))
+
+;;; INTEGER-DECODE-FLOAT from SBCL.
+
+(defconstant +single-float-significand-byte+ (byte 23 0))
+(defconstant +single-float-exponent-byte+ (byte 8 23))
+(defconstant +single-float-hidden-bit+ #x800000)
+(defconstant +single-float-bias+ 126)
+(defconstant +single-float-digits+ 24)
+(defconstant +single-float-normal-exponent-max+ 254)
+(defconstant +single-float-normal-exponent-min+ 1)
+
+;;; Handle the denormalized case of INTEGER-DECODE-FLOAT for SINGLE-FLOAT.
+(defun integer-decode-single-denorm (x)
+  (let* ((bits (%single-float-as-integer (abs x)))
+         (sig (ash (ldb +single-float-significand-byte+ bits) 1))
+         (extra-bias 0))
+    (loop
+      (unless (zerop (logand sig +single-float-hidden-bit+))
+        (return))
+      (setq sig (ash sig 1))
+      (incf extra-bias))
+    (values sig
+            (- (- +single-float-bias+)
+               +single-float-digits+
+               extra-bias)
+            (if (minusp (float-sign x)) -1 1))))
+
+;;; Handle the single-float case of INTEGER-DECODE-FLOAT. If an infinity or
+;;; NaN, error. If a denorm, call i-d-s-DENORM to handle it.
+(defun integer-decode-single-float (x)
+  (let* ((bits (%single-float-as-integer (abs x)))
+         (exp (ldb +single-float-exponent-byte+ bits))
+         (sig (ldb +single-float-significand-byte+ bits))
+         (sign (if (minusp (float-sign x)) -1 1))
+         (biased (- exp +single-float-bias+ +single-float-digits+)))
+    (unless (<= exp +single-float-normal-exponent-max+)
+      (error "can't decode NaN or infinity: ~S" x))
+    (cond ((and (zerop exp) (zerop sig))
+           (values 0 biased sign))
+          ((< exp +single-float-normal-exponent-min+)
+           (integer-decode-single-denorm x))
+          (t
+           (values (logior sig +single-float-hidden-bit+) biased sign)))))
+
+(defconstant +double-float-significand-byte+ (byte 20 0))
+(defconstant +double-float-exponent-byte+ (byte 11 20))
+(defconstant +double-float-hidden-bit+ #x100000)
+(defconstant +double-float-bias+ 1022)
+(defconstant +double-float-digits+ 53)
+(defconstant +double-float-normal-exponent-max+ 2046)
+(defconstant +double-float-normal-exponent-min+ 1)
+
+;;; like INTEGER-DECODE-SINGLE-DENORM, only doubly so
+(defun integer-decode-double-denorm (x)
+  (let* ((bits (%double-float-as-integer (abs x)))
+         (high-bits (ldb (byte 32 32) bits))
+         (sig-high (ldb +double-float-significand-byte+ high-bits))
+         (low-bits (ldb (byte 32 0) bits))
+         (sign (if (minusp (float-sign x)) -1 1))
+         (biased (- (- +double-float-bias+) +double-float-digits+)))
+    (if (zerop sig-high)
+        (let ((sig low-bits)
+              (extra-bias (- +double-float-digits+ 33))
+              (bit (ash 1 31)))
+          (loop
+            (unless (zerop (logand sig bit)) (return))
+            (setq sig (ash sig 1))
+            (incf extra-bias))
+          (values (ash sig (- +double-float-digits+ 32))
+                  (- biased extra-bias)
+                  sign))
+        (let ((sig (ash sig-high 1))
+              (extra-bias 0))
+          (loop
+            (unless (zerop (logand sig +double-float-hidden-bit+))
+              (return))
+            (setq sig (ash sig 1))
+            (incf extra-bias))
+          (values (logior (ash sig 32) (ash low-bits (1- extra-bias)))
+                  (- biased extra-bias)
+                  sign)))))
+
+;;; like INTEGER-DECODE-SINGLE-FLOAT, only doubly so
+(defun integer-decode-double-float (x)
+  (let* ((abs (abs x))
+         (bits (%double-float-as-integer abs))
+         (hi (ldb (byte 32 32) bits))
+         (lo (ldb (byte 32 0) bits))
+         (exp (ldb +double-float-exponent-byte+ hi))
+         (sig (ldb +double-float-significand-byte+ hi))
+         (sign (if (minusp (float-sign x)) -1 1))
+         (biased (- exp +double-float-bias+ +double-float-digits+)))
+    (unless (<= exp +double-float-normal-exponent-max+)
+      (error "Can't decode NaN or infinity: ~S." x))
+    (cond ((and (zerop exp) (zerop sig) (zerop lo))
+           (values 0 biased sign))
+          ((< exp +double-float-normal-exponent-min+)
+           (integer-decode-double-denorm x))
+          (t
+           (values
+            (logior (ash (logior (ldb +double-float-significand-byte+ hi)
+                                 +double-float-hidden-bit+)
+                         32)
+                    lo)
+            biased sign)))))
+
+(defun integer-decode-float (float)
+  (etypecase float
+    (single-float (integer-decode-single-float float))
+    (double-float (integer-decode-double-float float))))
+
+(defun float-sign (float1 &optional (float2 (float 1 float1)))
+  "Return a floating-point number that has the same sign as
+   FLOAT1 and, if FLOAT2 is given, has the same absolute value
+   as FLOAT2."
+  (check-type float1 float)
+  (check-type float2 float)
+  (* (if (etypecase float1
+           (single-float (logbitp 31 (%single-float-as-integer float1)))
+           (double-float (logbitp 63 (%double-float-as-integer float1))))
+         (float -1 float1)
+         (float 1 float1))
+     (abs float2)))
