@@ -44,7 +44,6 @@
          (sys.int::gc))
     (sys.int::make-weak-pointer stack stack
                                 (lambda ()
-                                  (debug-print-line "Relasing stack " addr " " size)
                                   (release-memory-range addr size))
                                 :wired)
     stack))
