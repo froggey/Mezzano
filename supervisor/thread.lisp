@@ -706,7 +706,7 @@ Interrupts must be off, the current thread must be locked."
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
   (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable)
-  (condition-notify *world-stop-cvar*))
+  (condition-notify *world-stop-cvar* t))
 
 (defun wake-thread (thread)
   "Wake a sleeping thread."
@@ -823,7 +823,7 @@ Interrupts must be off, the current thread must be locked."
       (with-mutex (*world-stop-lock*)
         ;; Release the dogs!
         (setf *world-stopper* nil)
-        (condition-notify *world-stop-cvar*)))))
+        (condition-notify *world-stop-cvar* t)))))
 
 (defmacro with-world-stopped (&body body)
   `(call-with-world-stopped (dx-lambda () ,@body)))
@@ -846,7 +846,7 @@ Interrupts must be off, the current thread must be locked."
          (funcall thunk))
     (with-mutex (*world-stop-lock*)
       (decf *pseudo-atomic-thread-count*)
-      (condition-notify *world-stop-cvar*))))
+      (condition-notify *world-stop-cvar* t))))
 
 (defmacro with-pseudo-atomic (&body body)
   `(call-with-pseudo-atomic (dx-lambda () ,@body)))
@@ -1266,4 +1266,4 @@ It is only possible for the second value to be false when wait-p is false."
     (setf (fifo-head fifo) 0
           (fifo-tail fifo) 0)
     ;; Signal the cvar to wake any waiting FIFO-PUSH calls.
-    (condition-notify (fifo-cv fifo))))
+    (condition-notify (fifo-cv fifo) t)))
