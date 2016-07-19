@@ -268,6 +268,20 @@
 (defun (setf %bignum-fragment) (value bignum n)
   (setf (%object-ref-unsigned-byte-64 bignum n) value))
 
+(defun bignum-to-float (bignum float-zero digits)
+  (let* ((negative (minusp bignum))
+         (bignum (if negative (- bignum) bignum))
+         (length (integer-length bignum))
+         (sig (ldb (byte digits (- length digits)) bignum))
+         (exp (expt (float 2 float-zero) (- length digits))))
+    (* (float sig float-zero) exp)))
+
+(defun mezzano.runtime::%%coerce-bignum-to-single-float (bignum)
+  (bignum-to-float bignum 0.0f0 24))
+
+(defun mezzano.runtime::%%coerce-bignum-to-double-float (bignum)
+  (bignum-to-float bignum 0.0d0 53))
+
 (define-lap-function %%bignum-< ()
   ;; Read lengths.
   (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
