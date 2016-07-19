@@ -75,24 +75,52 @@
   (when *gc-enable-logging*
     (apply 'mezzano.supervisor:debug-print-line things)))
 
+
+(defvar *gc-lock* (mezzano.supervisor:make-mutex "Garbage Collector Lock"))
+(defvar *gc-cvar* (mezzano.supervisor:make-condition-variable "Garbage Collector Cvar"))
+(defvar *gc-requested* nil)
+(defvar *gc-thread* (mezzano.supervisor:make-thread #'gc-worker :name "Garbage Collector" :stack-size (* 1024 1024)))
+
 (defun gc ()
   "Run a garbage-collection cycle."
-  (when *gc-in-progress*
-    (error "Nested GC?!"))
-  (mezzano.supervisor:with-world-stopped
-    ;; Set *GC-IN-PROGRESS* globally, not with a binding.
-    (unwind-protect
-         (let ((gc-start (get-internal-run-time)))
-           (setf *gc-in-progress* t)
-           (gc-cycle)
-           (let* ((gc-end (get-internal-run-time))
-                  (total-time (- gc-end gc-start))
-                  (total-seconds (/ total-time (float internal-time-units-per-second))))
-             (gc-log "GC took " (truncate (* total-seconds 1000)) "ms")
-             (incf *gc-time* total-seconds)))
-      (setf *gc-in-progress* nil)))
-  ;; TODO: run in a seperate thread & catch errors.
-  (run-finalizers))
+  (mezzano.supervisor:with-mutex (*gc-lock*)
+    (let ((epoch *gc-epoch*))
+      (setf *gc-requested* t)
+      (mezzano.supervisor:condition-notify *gc-cvar* t)
+      (loop
+         (when (not (eql epoch *gc-epoch*))
+           (return))
+         (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))))
+
+(defun gc-worker ()
+  (loop
+     (mezzano.supervisor:with-mutex (*gc-lock*)
+       ;; Notify any waiting threads that the GC epoch has changed.
+       (mezzano.supervisor:condition-notify *gc-cvar* t)
+       ;; Wait for a GC request.
+       (loop
+          (when *gc-requested*
+            (setf *gc-requested* nil)
+            (return))
+          (mezzano.supervisor:condition-wait *gc-cvar* *gc-lock*)))
+     (when *gc-in-progress*
+       (mezzano.supervisor:panic "Nested GC?!"))
+     (mezzano.supervisor:with-world-stopped ()
+       ;; Set *GC-IN-PROGRESS* globally, not with a binding.
+       ;; This ensures that it is visible across all threads, especially
+       ;; threads not stopped by with-world-stopped.
+       (unwind-protect
+            (let ((gc-start (get-internal-run-time)))
+              (setf *gc-in-progress* t)
+              (gc-cycle)
+              (let* ((gc-end (get-internal-run-time))
+                     (total-time (- gc-end gc-start))
+                     (total-seconds (/ total-time (float internal-time-units-per-second))))
+                (gc-log "GC took " (truncate (* total-seconds 1000)) "ms")
+                (incf *gc-time* total-seconds)))
+         (setf *gc-in-progress* nil)))
+     ;; TODO: catch & report errors.
+     (run-finalizers)))
 
 (declaim (inline immediatep))
 (defun immediatep (object)
