@@ -19,11 +19,14 @@
 (defvar *allow-dx-environment*)
 (defvar *environment-allocation-mode* nil)
 (defvar *free-variables*)
+(defvar *lambda-parents*)
 
 (defun lower-environment (lambda)
   (let ((*environment-layout* (make-hash-table))
         (*environment-layout-dx* (make-hash-table))
-        (*allow-dx-environment* 't))
+        (*allow-dx-environment* 't)
+        (*current-lambda* nil)
+        (*lambda-parents* (make-hash-table)))
     (compute-environment-layout lambda)
     (let ((*free-variables* (compute-free-variable-sets lambda))
           (*environment* '()))
@@ -136,6 +139,14 @@ of statements opens a new contour."
              (not (localp variable)))
     (push variable (gethash *active-environment-vector* *environment-layout*))))
 
+(defun lambda-tree-is-dynamic-extent-p (lambda end)
+  (cond ((eql lambda end)
+         t)
+        (t
+         (and (or (eql (getf (lambda-information-plist lambda) 'extent) :dynamic)
+                  (getf (lambda-information-plist lambda) 'declared-dynamic-extent))
+              (lambda-tree-is-dynamic-extent-p (gethash lambda *lambda-parents*) end)))))
+
 (defun finalize-environment-layout (env)
   ;; Inner environments must be DX, and every variable in this environment
   ;; must only be accessed by DX lambdas.
@@ -143,31 +154,34 @@ of statements opens a new contour."
              (every (lambda (var)
                       (every (lambda (l)
                                (or (eql (lexical-variable-definition-point var) l)
-                                   (eql (getf (lambda-information-plist l) 'extent) :dynamic)
-                                   (getf (lambda-information-plist l) 'declared-dynamic-extent)))
+                                   (lambda-tree-is-dynamic-extent-p l *current-lambda*)))
                              (lexical-variable-used-in var)))
                     (gethash env *environment-layout*)))
     (setf (gethash env *environment-layout-dx*) t)
     t))
 
+(defun check-simple-lambda-parameters (lambda)
+  "Ensure that lambda only has simple parameters.
+Keyword arguments, non-constant init-forms and special variables are disallowed."
+  (loop for arg in (lambda-information-required-args lambda) do
+       (assert (lexical-variable-p arg)))
+  (loop for (arg init-form suppliedp) in (lambda-information-optional-args lambda) do
+       (assert (lexical-variable-p arg))
+       (assert (quoted-form-p init-form))
+       (when suppliedp
+         (assert (lexical-variable-p suppliedp))))
+  (when (lambda-information-rest-arg lambda)
+    (assert (lexical-variable-p (lambda-information-rest-arg lambda))))
+  (assert (not (lambda-information-enable-keys lambda))))
+
 (defun compute-lambda-environment-layout (lambda)
   (let ((env-is-dx nil))
+    (setf (gethash lambda *lambda-parents*) *current-lambda*)
     (let ((*active-environment-vector* lambda)
-          (*allow-dx-environment* t))
+          (*allow-dx-environment* t)
+          (*current-lambda* lambda))
       (assert (null (lambda-information-environment-arg lambda)))
-      ;; Special variables are not supported here, nor are keywords or non-trivial &OPTIONAL init-forms.
-      (assert (every (lambda (arg)
-                       (lexical-variable-p arg))
-                     (lambda-information-required-args lambda)))
-      (assert (every (lambda (arg)
-                       (and (lexical-variable-p (first arg))
-                            (quoted-form-p (second arg))
-                            (or (null (third arg))
-                                (lexical-variable-p (first arg)))))
-                     (lambda-information-optional-args lambda)))
-      (assert (or (null (lambda-information-rest-arg lambda))
-                  (lexical-variable-p (lambda-information-rest-arg lambda))))
-      (assert (not (lambda-information-enable-keys lambda)))
+      (check-simple-lambda-parameters lambda)
       (dolist (arg (lambda-information-required-args lambda))
         (maybe-add-environment-variable arg))
       (dolist (arg (lambda-information-optional-args lambda))
