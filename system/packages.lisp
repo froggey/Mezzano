@@ -354,9 +354,9 @@
     (let ((symbol (make-symbol name)))
       (import (list symbol) p)
       (when (eql p *keyword-package*)
-        ;; TODO: Constantness.
-        (proclaim `(constant ,symbol))
+        (setf (symbol-mode symbol) :special)
         (setf (symbol-value symbol) symbol)
+        (setf (symbol-mode symbol) :constant)
         (export (list symbol) p))
       (values symbol nil))))
 
