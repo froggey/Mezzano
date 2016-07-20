@@ -829,16 +829,22 @@
 (defun read-#-equal-sign (stream ch p)
   (declare (ignore ch))
   (let ((value (read stream t nil t)))
-    (setf (gethash p *read-lookahead-table*) value)
-    value))
+    (cond (*read-suppress*
+           (values))
+          (t
+           (setf (gethash p *read-lookahead-table*) value)
+           value))))
 
 (defun read-#-sharp-sign (stream ch p)
   (declare (ignore stream ch))
-  (multiple-value-bind (value existsp)
-      (gethash p *read-lookahead-table*)
-    (when (not existsp)
-      (cerror "Read NIL" "Unknown read ## value ~D" p))
-    value))
+  (cond (*read-suppress*
+         (values))
+        (t
+         (multiple-value-bind (value existsp)
+             (gethash p *read-lookahead-table*)
+           (when (not existsp)
+             (cerror "Read NIL" "Unknown read ## value ~D" p))
+           value))))
 
 (defun read-common (stream eof-error-p eof-value recursive-p)
   (let ((*read-lookahead-table* (if recursive-p
