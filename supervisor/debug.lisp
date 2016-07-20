@@ -242,6 +242,10 @@
   (declare (dynamic-extent arguments))
   (panic "Early ERROR. " datum " " arguments))
 
+(defun cerror (continue-message datum &rest arguments)
+  (declare (dynamic-extent arguments))
+  (panic "Early CERROR. " continue-message " " datum " " arguments))
+
 (defun enter-debugger (condition)
   (panic "Early enter debugger. " condition))
 
