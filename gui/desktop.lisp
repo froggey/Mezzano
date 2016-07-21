@@ -17,9 +17,7 @@
                   ("LOCAL:>Icons>Peek.png" "Memory Monitor" "(mezzano.gui.memory-monitor:spawn)")
                   ("LOCAL:>Icons>Filer.png" "Filer" "(mezzano.gui.filer:spawn)")
                   ("LOCAL:>Icons>Telnet.png" "Telnet" "(telnet:spawn)")
-                  ;; Use the NIL communication style here as multithreaded Swank creates loads of ephemeral threads.
-                  ;; The system currently leaks memory when threads die.
-                  ("LOCAL:>Icons>Terminal.png" "Swank" "(mezzano.gui.fancy-repl:spawn :initial-function (lambda () (let ((swank/backend:*log-output* *standard-output*)) (swank:create-server :style nil))) :title \"Swank Server\")")))
+                  ("LOCAL:>Icons>Terminal.png" "Swank" "(mezzano.gui.fancy-repl:spawn :initial-function (lambda () (let ((swank/backend:*log-output* *standard-output*)) (swank:create-server))) :title \"Swank Server\")")))
 
 (defun load-jpeg (path)
   (ignore-errors
