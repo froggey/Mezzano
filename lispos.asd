@@ -8,11 +8,10 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
-  :depends-on ("lispos-compiler"
+  :depends-on (#:lispos-compiler
                #:nibbles #:cl-ppcre #:iterate
                #:alexandria)
+  :serial t
   :components ((:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
-               (:file "tools/cold-generator"
-                :depends-on ("tools/build-unicode"
-                             "tools/build-pci-ids"))))
+               (:file "tools/cold-generator")))

@@ -9,66 +9,39 @@
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
   :depends-on (#:alexandria #:iterate #:nibbles)
+  :serial t
   :components ((:file "compiler/cross")
-               (:file "lap" :depends-on ("compiler/cross" "compiler/cross-compile"))
-               (:file "lap-x86" :depends-on ("compiler/cross" "compiler/cross-compile" "lap"))
-               (:file "system/data-types" :depends-on ("compiler/cross"))
-               (:file "system/parse" :depends-on ("compiler/cross"))
-               (:file "system/backquote" :depends-on ("compiler/cross"))
-               (:file "compiler/environment"
-                      :depends-on ("compiler/cross" "compiler/compiler"))
-               (:file "compiler/cross-compile"
-                      :depends-on ("compiler/cross" "system/backquote" "system/data-types" "compiler/environment"))
-               (:file "compiler/compiler"
-                      :depends-on ("compiler/cross"))
-               (:file "compiler/cross-boot"
-                      :depends-on ("compiler/cross" "compiler/cross-compile"))
-               (:file "compiler/ast"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/environment"))
-               (:file "compiler/ast-generator"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/keyword-arguments"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/simplify-arguments"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/pass1"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/inline"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/lift"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/simplify"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/constprop"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/kill-temps"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/value-aware-lowering"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/lower-environment"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/lower-special-bindings"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/simplify-control-flow"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/ast"))
-               (:file "compiler/builtins/builtins"
-                      :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "compiler/ast" "compiler/codegen"
-                                   "system/data-types"
-                                   "lap" "lap-x86"))
-               (:file "compiler/builtins/array" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/character" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/cons" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/memory" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/misc" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/numbers" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/objects" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/builtins/unwind" :depends-on ("compiler/builtins/builtins"))
-               (:file "compiler/codegen"
-                      :depends-on ("compiler/cross" "compiler/cross-compile" "compiler/compiler"
-                                   "compiler/ast"
-                                   "system/data-types" "lap" "lap-x86"))
-               (:file "compiler/branch-tension"
-                      :depends-on ("compiler/cross" "compiler/compiler" "compiler/codegen"
-                                   "lap" "lap-x86"))
-))
+               (:file "system/data-types")
+               (:file "system/parse")
+               (:file "system/backquote")
+               (:file "compiler/compiler")
+               (:file "compiler/environment")
+               (:file "compiler/cross-compile")
+               (:file "compiler/cross-boot")
+               (:file "lap")
+               (:file "lap-x86")
+               (:file "compiler/ast")
+               (:file "compiler/ast-generator")
+               (:file "compiler/keyword-arguments")
+               (:file "compiler/simplify-arguments")
+               (:file "compiler/pass1")
+               (:file "compiler/inline")
+               (:file "compiler/lift")
+               (:file "compiler/simplify")
+               (:file "compiler/constprop")
+               (:file "compiler/kill-temps")
+               (:file "compiler/value-aware-lowering")
+               (:file "compiler/lower-environment")
+               (:file "compiler/lower-special-bindings")
+               (:file "compiler/simplify-control-flow")
+               (:file "compiler/codegen")
+               (:file "compiler/branch-tension")
+               (:file "compiler/builtins/builtins")
+               (:file "compiler/builtins/array")
+               (:file "compiler/builtins/character")
+               (:file "compiler/builtins/cons")
+               (:file "compiler/builtins/memory")
+               (:file "compiler/builtins/misc")
+               (:file "compiler/builtins/numbers")
+               (:file "compiler/builtins/objects")
+               (:file "compiler/builtins/unwind")))
