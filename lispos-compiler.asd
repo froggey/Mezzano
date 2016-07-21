@@ -8,7 +8,7 @@
   :version "0"
   :author "Henry Harrington <henry.harrington@gmail.com>"
   :licence "MIT"
-  :depends-on (#:alexandria #:iterate #:nibbles)
+  :depends-on (#:alexandria #:nibbles)
   :serial t
   :components ((:file "compiler/cross")
                (:file "system/data-types")

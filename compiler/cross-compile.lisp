@@ -817,15 +817,15 @@
              (sys.int::*top-level-form-number* 0))
         (when *compile-verbose*
           (format t ";; Cross-compiling ~S~%" input-file))
-        (iter:iter (iter:for form = (read input nil input))
-              (when (eql form input)
-                (return))
-              (when *compile-print*
-                (let ((*print-length* 3)
-                      (*print-level* 2))
-                  (format t ";; X-compiling: ~S~%" form)))
-              (x-compile-top-level form nil)
-              (incf sys.int::*top-level-form-number*))
+        (loop for form = (read input nil input) do
+             (when (eql form input)
+               (return))
+             (when *compile-print*
+               (let ((*print-length* 3)
+                     (*print-level* 2))
+                 (format t ";; X-compiling: ~S~%" form)))
+             (x-compile-top-level form nil)
+             (incf sys.int::*top-level-form-number*))
         ;; Now write everything to the fasl.
         ;; Do two passes to detect circularity.
         (let ((commands (reverse *pending-llf-commands*)))
@@ -856,14 +856,14 @@
            (*gensym-counter* 0))
       (when *compile-verbose*
         (format t ";; Cross-loading ~S~%" input-file))
-      (iter:iter (iter:for form = (read input nil input))
-            (when (eql form input)
-              (return))
-            (when *compile-print*
-              (let ((*print-length* 3)
-                    (*print-level* 2))
-                (format t ";; X-loading: ~S~%" form)))
-            (x-compile-top-level form nil :not-compile-time))))
+      (loop for form = (read input nil input) do
+           (when (eql form input)
+             (return))
+           (when *compile-print*
+             (let ((*print-length* 3)
+                   (*print-level* 2))
+               (format t ";; X-loading: ~S~%" form)))
+           (x-compile-top-level form nil :not-compile-time))))
   t)
 
 (defparameter *cross-source-files*
