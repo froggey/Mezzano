@@ -388,13 +388,13 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defun compile-file-load-time-value (form read-only-p omap)
   (declare (ignore read-only-p))
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-    (or (fastload-form form omap)
+    (or (fastload-form form omap nil)
         (add-to-llf +llf-invoke+
                     (sys.c::compile-lambda `(lambda () (setq ,ltv-sym ,form))
                                            nil)))
     `(symbol-value ',ltv-sym)))
 
-(defun fastload-form (form omap)
+(defun fastload-form (form omap env)
   (cond ((and (consp form)
               (eql (first form) 'sys.int::%defun)
               (= (list-length form) 3)
@@ -405,7 +405,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
               (eql (first (third form)) 'lambda))
          ;; Special case (%defun 'name (lambda ...)) forms.
          (add-to-llf +llf-setf-fdefinition+
-                     (sys.c::compile-lambda (third form) nil)
+                     (sys.c::compile-lambda (third form) env)
                      (second (second form)))
          t)
         ((and (listp form)
@@ -468,7 +468,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
         ;; TODO: Deal with lexical environments.
         (handle-top-level-form form
                                (lambda (f env)
-                                 (or (fastload-form f omap)
+                                 (or (fastload-form f omap env)
                                      (add-to-llf +llf-invoke+
                                                  (sys.c::compile-lambda
                                                   `(lambda ()
@@ -521,7 +521,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                  (*print-level* 3))
              (declare (special *print-length* *print-level*))
              (format t ";; Compiling form ~S.~%" form))
-           (or (fastload-form form omap)
+           (or (fastload-form form omap nil)
                (error "Could not fastload builtin.")))
       ;; Now write everything to the fasl.
       ;; Do two passes to detect circularity.
