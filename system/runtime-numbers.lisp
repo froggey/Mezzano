@@ -1298,19 +1298,157 @@ Implements the dumb mp_div algorithm from BigNum Math."
 
 ;;; Mathematical horrors!
 
-(defconstant pi 3.14159265359)
+(defconstant pi 3.14159265358979323846264338327950288419716939937511d0)
 
-;;; http://devmaster.net/forums/topic/4648-fast-and-accurate-sinecosine/
+;;; Derived from SLEEF: https://github.com/shibatch/sleef
+
+(defconstant +sleef-pi4-af+ 0.78515625f0)
+(defconstant +sleef-pi4-bf+ 0.00024187564849853515625f0)
+(defconstant +sleef-pi4-cf+ 3.7747668102383613586f-08)
+(defconstant +sleef-pi4-df+ 1.2816720341285448015f-12)
+
+(defun sleef-mlaf (x y z)
+  (+ (* x y) z))
+
+(defun sleef-rintf (x)
+  (if (< x 0)
+      (truncate (- x 0.5f0))
+      (truncate (+ x 0.5f0))))
+
+(defconstant +sleef-pi4-a+ 0.78539816290140151978d0)
+(defconstant +sleef-pi4-b+ 4.9604678871439933374d-10)
+(defconstant +sleef-pi4-c+ 1.1258708853173288931d-18)
+(defconstant +sleef-pi4-d+ 1.7607799325916000908d-27)
+
+(defun sleef-mla (x y z)
+  (+ (* x y) z))
+
+(defun sleef-rint (x)
+  (if (< x 0)
+      (truncate (- x 0.5d0))
+      (truncate (+ x 0.5d0))))
+
+(defun sin-single-float (d)
+  (let ((q 0)
+        (u 0.0f0)
+        (s 0.0f0))
+    (setf q (sleef-rintf (* d (/ (float pi)))))
+
+    (setf d (sleef-mlaf q (* +sleef-pi4-af+ -4) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-bf+ -4) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-cf+ -4) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-df+ -4) d))
+
+    (setf s (* d d))
+
+    (when (logtest q 1)
+      (setf d (- d)))
+
+    (finish-sincos-single-float s d)))
+
+(defun cos-single-float (d)
+  (let ((q 0)
+        (u 0.0f0)
+        (s 0.0f0))
+    (setf q (+ 1 (* 2 (sleef-rintf (- (* d (/ (float pi 0.0f0))) 0.5f0)))))
+
+    (setf d (sleef-mlaf q (* +sleef-pi4-af+ -2) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-bf+ -2) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-cf+ -2) d))
+    (setf d (sleef-mlaf q (* +sleef-pi4-df+ -2) d))
+
+    (setf s (* d d))
+
+    (when (not (logtest q 2))
+      (setf d (- d)))
+
+    (finish-sincos-single-float s d)))
+
+(defun finish-sincos-single-float (s d)
+  (let ((u 2.6083159809786593541503f-06))
+    (setf u (sleef-mlaf u s -0.0001981069071916863322258f0))
+    (setf u (sleef-mlaf u s 0.00833307858556509017944336f0))
+    (setf u (sleef-mlaf u s -0.166666597127914428710938f0))
+
+    (setf u (sleef-mlaf s (* u d) d))
+
+    (cond ((float-infinity-p d)
+           (/ 0.0f0 0.0f0))
+          (t
+           u))))
+
+(defun sin-double-float (d)
+  (let ((q 0)
+        (u 0.0d0)
+        (s 0.0d0))
+    (setf q (sleef-rint (* d (/ (float pi 0.0d0)))))
+
+    (setf d (sleef-mla q (* +sleef-pi4-a+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-b+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-c+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-d+ -4) d))
+
+    (setf s (* d d))
+
+    (when (logtest q 1)
+      (setf d (- d)))
+
+    (finish-sincos-double-float s d)))
+
+(defun cos-double-float (d)
+  (let ((q 0)
+        (u 0.0d0)
+        (s 0.0d0))
+    (setf q (+ 1 (* 2 (sleef-rint (- (* d (/ (float pi 0.0d0))) 0.5d0)))))
+
+    (setf d (sleef-mla q (* +sleef-pi4-a+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-b+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-c+ -4) d))
+    (setf d (sleef-mla q (* +sleef-pi4-d+ -4) d))
+
+    (setf s (* d d))
+
+    (when (not (logtest q 2))
+      (setf d (- d)))
+
+    (finish-sincos-double-float s d)))
+
+(defun finish-sincos-double-float (s d)
+  (let ((u -7.97255955009037868891952d-18))
+    (setf u (sleef-mla u s 2.81009972710863200091251d-15))
+    (setf u (sleef-mla u s -7.64712219118158833288484d-13))
+    (setf u (sleef-mla u s 1.60590430605664501629054d-10))
+    (setf u (sleef-mla u s -2.50521083763502045810755d-08))
+    (setf u (sleef-mla u s 2.75573192239198747630416d-06))
+    (setf u (sleef-mla u s -0.000198412698412696162806809d0))
+    (setf u (sleef-mla u s 0.00833333333333332974823815d0))
+    (setf u (sleef-mla u s -0.166666666666666657414808d0))
+
+    (sleef-mla s (* u d) d)))
+
 (defun sin (x)
-  (setf x (- (mod (+ x pi) (* 2 pi)) pi))
-  (let* ((b (/ 4 (float pi 0.0)))
-         (c (/ -4 (* (float pi 0.0) (float pi 0.0))))
-         (y (+ (* b x) (* c x (abs x))))
-         (p 0.225))
-    (+ (* p (- (* y (abs y)) y)) y)))
+  (etypecase x
+    (complex
+     (let ((real (realpart number))
+           (imag (imagpart number)))
+       (complex (* (sin real) (cosh imag))
+                (* (cos real) (sinh imag)))))
+    (double-float
+     (sin-double-float x))
+    (real
+     (sin-single-float (float x)))))
 
 (defun cos (x)
-  (sin (+ x (/ pi 2))))
+  (etypecase x
+    (complex
+     (let ((real (realpart number))
+           (imag (imagpart number)))
+       (complex (* (cos real) (cosh imag))
+                (- (* (sin real) (sinh imag))))))
+    (double-float
+     (cos-double-float x))
+    (real
+     (cos-single-float (float x)))))
 
 ;;; http://en.literateprograms.org/Logarithm_Function_(Python)
 (defun log-e (x)
