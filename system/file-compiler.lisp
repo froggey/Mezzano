@@ -353,6 +353,10 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
           collect `(setf (gethash ',keys ht) ',value))
      ht))
 
+(defmethod make-load-form ((object complex) &optional environment)
+  (declare (ignore environment))
+  `(complex ',(realpart object) ',(imagpart object)))
+
 (defmethod save-one-object (object omap stream)
   (multiple-value-bind (creation-form initialization-form)
       (make-load-form object)
