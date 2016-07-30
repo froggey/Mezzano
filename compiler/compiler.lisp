@@ -26,30 +26,27 @@ A list of any declaration-specifiers."
     (dolist (decl (cdar itr))
       (push decl declares))))
 
-(declaim (special *environment*))
-
 (defun compile-lambda (lambda &optional env)
   (codegen-lambda (compile-lambda-1 lambda env)))
 
 ;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-1 (lambda &optional env)
-  (let ((*environment* (cdr env)))
+  (detect-uses
+   (simplify
     (detect-uses
-     (simplify
+     ;; Make the dynamic environment explicit.
+     (lower-special-bindings
+      ;; Run a final simplify pass to kill off any useless bindings.
       (detect-uses
-       ;; Make the dynamic environment explicit.
-       (lower-special-bindings
-        ;; Run a final simplify pass to kill off any useless bindings.
+       (simplify
         (detect-uses
-         (simplify
+         ;; Lower closed-over variables.
+         (lower-environment
           (detect-uses
-           ;; Lower closed-over variables.
-           (lower-environment
+           (lower-arguments
             (detect-uses
-             (lower-arguments
-              (detect-uses
-               (run-optimizers
-                (pass1-lambda lambda (car env))))))))))))))))
+             (run-optimizers
+              (pass1-lambda lambda env))))))))))))))
 
 (defun eval-load-time-value (form read-only-p)
   (declare (ignore read-only-p))

@@ -19,6 +19,7 @@
 (defvar *allow-dx-environment*)
 (defvar *environment-allocation-mode* nil)
 (defvar *free-variables*)
+(defvar *environment*)
 (defvar *lambda-parents*)
 
 (defun lower-environment (lambda)

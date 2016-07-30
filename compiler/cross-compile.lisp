@@ -748,7 +748,7 @@
          (let* ((name (second (second form)))
                 (lambda (third form))
                 (*load-time-value-hook* 'cross-load-time-value)
-                (fn (compile-lambda lambda (cons env nil))))
+                (fn (compile-lambda lambda env)))
            (declare (special *load-time-value-hook*))
            #+nil(add-to-llf sys.int::+llf-defun+ name fn)
            (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
@@ -790,7 +790,7 @@
                                                                              (princ-to-string *compile-file-pathname*))
                                                                       ,sys.int::*top-level-form-number*)))
                                          (progn ,form))
-                                      (cons env nil))))
+                                      env)))
              (add-to-llf sys.int::+llf-invoke+ fn)))))
 
 (defun cross-compile-file (input-file &key

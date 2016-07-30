@@ -459,7 +459,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                                                                                             (princ-to-string *compile-file-pathname*))
                                                                                                      ,sys.int::*top-level-form-number*)))
                                                      (progn ,f))
-                                                  (cons env nil)))))
+                                                  env))))
                                (lambda (f env)
                                  (eval-in-lexenv f env)))
         (incf *top-level-form-number*))

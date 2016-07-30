@@ -14,7 +14,7 @@
         (*compile-file-pathname* (or *compile-file-pathname*
                                      *load-pathname*)))
     (funcall (sys.c::compile-lambda `(lambda () (progn ,form))
-                                    (cons env nil)))))
+                                    env))))
 
 (defun eval-progn-body (forms env)
   (do ((itr forms (cdr itr)))
