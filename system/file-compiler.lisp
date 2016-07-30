@@ -253,10 +253,23 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (save-integer object stream))
 
 (defmethod save-one-object ((object vector) omap stream)
-  (dotimes (i (length object))
-    (save-object (aref object i) omap stream))
-  (write-byte +llf-simple-vector+ stream)
-  (save-integer (length object) stream))
+  (cond ((eql (array-element-type object) 't)
+         ;; Save as a simple-vector.
+         (dotimes (i (length object))
+           (save-object (aref object i) omap stream))
+         (write-byte +llf-simple-vector+ stream)
+         (save-integer (length object) stream))
+        (t
+         ;; Save the vector with the appropriate element-type,
+         ;; trimming it down based on the fill-pointer (if any).
+         ;; Objects saved to a file are EQUAL to their original objects, not
+         ;; EQL, and EQUAL respects the fill-pointer when comparing vectors.
+         (dotimes (i (length object))
+           (save-object (aref object i) omap stream))
+         (save-object (array-element-type object) omap stream)
+         (write-byte +llf-typed-array+ stream)
+         (save-integer 1 stream)
+         (save-integer (length object) stream))))
 
 (defmethod save-one-object ((object character) omap stream)
   (cond ((zerop (char-bits object))
@@ -301,7 +314,11 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmethod save-one-object ((object array) omap stream)
   (dotimes (i (array-total-size object))
     (save-object (row-major-aref object i) omap stream))
-  (write-byte +llf-array+ stream)
+  (cond ((eql (array-element-type object) 't)
+         (write-byte +llf-array+ stream))
+        (t
+         (save-object (array-element-type object) omap stream)
+         (write-byte +llf-typed-array+ stream)))
   (save-integer (array-rank object) stream)
   (dolist (dim (array-dimensions object))
     (save-integer dim stream)))

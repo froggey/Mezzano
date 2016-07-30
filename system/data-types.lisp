@@ -265,6 +265,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defconstant +llf-structure-slot-definition+ #x1B)
 (defconstant +llf-byte+ #x1C)
 (defconstant +llf-double-float+ #x1D)
+(defconstant +llf-typed-array+ #x1E)
 
 ;;; Fields in the Unicode info tables.
 

@@ -45,7 +45,8 @@
     (#.+llf-bit-vector+ 'bit-vector)
     (#.+llf-function-reference+ 'function-reference)
     (#.+llf-byte+ 'byte)
-    (#.+llf-double-float+ 'double-float)))
+    (#.+llf-double-float+ 'double-float)
+    (#.+llf-typed-array+ 'typed-array)))
 
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
@@ -184,6 +185,21 @@
     (decf (fill-pointer stack) n-elements)
     array))
 
+(defun load-llf-typed-array (stream stack)
+  (let* ((n-dimensions (load-integer stream))
+         (dimensions (loop for i from 0 below n-dimensions
+                        collect (load-integer stream)))
+         (element-type (vector-pop stack))
+         (array (make-array dimensions
+                            :area (if *load-wired* :wired nil)
+                            :element-type element-type))
+         (n-elements (array-total-size array))
+         (start (- (length stack) n-elements)))
+    (dotimes (i n-elements)
+      (setf (row-major-aref array i) (aref stack (+ start i))))
+    (decf (fill-pointer stack) n-elements)
+    array))
+
 (defvar *magic-unbound-value* (cons "Magic unbound value" nil))
 
 (defun load-one-object (command stream stack)
@@ -278,7 +294,9 @@
      (function-reference (vector-pop stack)))
     (#.+llf-byte+
      (byte (load-integer stream)
-           (load-integer stream)))))
+           (load-integer stream)))
+    (#.+llf-typed-array+
+     (load-llf-typed-array stream stack))))
 
 (defun load-llf (stream &optional (*load-wired* nil))
   (check-llf-header stream)
