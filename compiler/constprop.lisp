@@ -146,11 +146,12 @@
   (let* ((info (assoc (setq-variable form) *known-variables*))
          (value (value form)))
     (if info
-        (cond ((or (and (lambda-information-p value)
-                        (<= (getf (lambda-information-plist value) 'copy-count 0)
-                            *constprop-lambda-copy-limit*))
-                   (typep value 'ast-quote)
-                   (typep value 'ast-function))
+        (cond ((and (localp (setq-variable form))
+                    (or (and (lambda-information-p value)
+                             (<= (getf (lambda-information-plist value) 'copy-count 0)
+                                 *constprop-lambda-copy-limit*))
+                        (typep value 'ast-quote)
+                        (typep value 'ast-function)))
                ;; Always propagate the new value forward.
                (setf (second info) value)
                ;; The value is constant. Attempt to push it back to the
