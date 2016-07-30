@@ -286,17 +286,17 @@
            (write-string (elt *cardinal-names-10* quot) stream)
            (unless (zerop rem)
              (write-char #\- stream)
-             (cardinal rem stream))))
+             (print-cardinal rem stream))))
         (t (loop for (power cardinal ordinal) in *radix-powers*
               when (>= integer power) do
                 (multiple-value-bind (quot rem)
                     (truncate integer power)
-                  (cardinal quot stream)
+                  (print-cardinal quot stream)
                   (write-char #\Space stream)
                   (write-string cardinal stream)
                   (unless (zerop rem)
                     (write-char #\Space stream)
-                    (cardinal rem stream)))
+                    (print-cardinal rem stream)))
                 (return)
               finally (error "Number ~:D too large to be printed as a cardinal number." integer)))))
 
@@ -313,18 +313,18 @@
                   (write-string (elt *ordinal-names-10* quot) stream))
                  (t (write-string (elt *cardinal-names-10* quot) stream)
                     (write-char #\- stream)
-                    (ordinal rem stream)))))
+                    (print-ordinal rem stream)))))
         (t (loop for (power cardinal ordinal) in *radix-powers*
               when (>= integer power) do
                 (multiple-value-bind (quot rem)
                     (truncate integer power)
-                  (cardinal quot stream)
+                  (print-cardinal quot stream)
                   (write-char #\Space stream)
                   (cond ((zerop rem)
                          (write-string ordinal stream))
                         (t (write-string cardinal stream)
                            (write-char #\Space stream)
-                           (ordinal rem stream))))
+                           (print-ordinal rem stream))))
                 (return)
               finally (error "Number ~:D too large to be printed as an ordinal number." integer)))))
 

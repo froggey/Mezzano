@@ -385,8 +385,18 @@
 (def-format-handler #\R (start end)
   (declare (ignore end))
   (multiple-value-bind (colon atsign params)
-      (parse-params start '(10 nil #\Space #\, 3))
-    `(sys.format::format-radix XP ,(get-arg) (list ,@params) ',atsign ',colon)))
+      (parse-params start '(:no-parameters-specified nil #\Space #\, 3))
+    `(sys.format::format-radix XP
+                               ,(get-arg)
+                               ;; If no parameters are specified, then pass in
+                               ;; an empty param list to format-radix. That's
+                               ;; how it it knows to print cardinal/ordinal
+                               ;; numbers.
+                               ,(if (eql (first params) :no-parameters-specified)
+                                    '()
+                                    `(list ,@params))
+                               ',atsign
+                               ',colon)))
 
 (def-format-handler #\C (start end)
   (declare (ignore end))
