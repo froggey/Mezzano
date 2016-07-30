@@ -291,6 +291,7 @@
 
 (defun pass1-block (form env)
   (destructuring-bind (name &body forms) (cdr form)
+    (check-type name symbol)
     (let* ((var (make-instance 'block-information
                                :name name
                                :definition-point *current-lambda*))
@@ -390,6 +391,7 @@
 
 (defun pass1-go (form env)
   (destructuring-bind (tag-name) (cdr form)
+    (check-type tag-name (or symbol integer))
     (let ((tag (or (lookup-go-tag-in-environment tag-name env)
                    (error "GO refers to unknown tag ~S." tag-name))))
       (incf (go-tag-use-count tag))
@@ -562,6 +564,7 @@
 
 (defun pass1-return-from (form env)
   (destructuring-bind (name &optional result) (cdr form)
+    (check-type name symbol)
     (let ((tag (or (lookup-block-in-environment name env)
                    (error "RETURN-FROM refers to unknown block ~S." name))))
       (incf (lexical-variable-use-count tag))
