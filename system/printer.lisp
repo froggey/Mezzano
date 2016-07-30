@@ -245,11 +245,11 @@
             ((atom i)
              (when i
                (write-string " . " stream)
-               (output i)))
+               (write i :stream stream)))
           (write-char #\Space stream)
           (when (not (output (car i)))
-            (return)))
-        (write-char #\) stream)))))
+            (return))))
+      (write-char #\) stream))))
 
 (defun write-vector (object stream)
   (with-printer-level/length (stream)
