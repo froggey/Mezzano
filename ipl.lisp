@@ -123,6 +123,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (require :png-read)
 (require :cl-jpeg)
 (require :swank)
+(eval (read-from-string "(swank:create-server :style :spawn :dont-close t)"))
 
 ;; And the GUI.
 (sys.int::cal "sys:source;gui;font.lisp")
