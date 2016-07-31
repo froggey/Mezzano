@@ -135,9 +135,8 @@ the newline if the point is at the end of the line.
 
 #Swank
 
-This release includes Swank 2016-03-04. A server, listening on
-port 4007, can be started by running the Swank application from
-the desktop.
+This release includes Swank 2016-03-04.
+The Swank server is listening on port 4007.
 
 Forwarding for port 4007 will need to be enabled in the virtual
 machine's settings. In VirtualBox this is done throught the port
@@ -256,4 +255,3 @@ If the system does not boot properly then restore your backup and try again.
 
 Development continues!
 ===
-
