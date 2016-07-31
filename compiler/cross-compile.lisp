@@ -669,8 +669,8 @@
 
 (defun %double-float-as-integer (value)
   (check-type value double-float)
-  #+sbcl (logior (ash (ldb (byte 64 0) (sb-kernel:double-float-high-bits value)) 32)
-                 (ldb (byte 64 0) (sb-kernel:double-float-low-bits value)))
+  #+sbcl (logior (ash (ldb (byte 32 0) (sb-kernel:double-float-high-bits value)) 32)
+                 (ldb (byte 32 0) (sb-kernel:double-float-low-bits value)))
   #-(or sbcl) (error "Not implemented on this platform!"))
 
 (defmethod save-one-object ((object float) omap stream)
