@@ -20,6 +20,8 @@
   %nicknames
   %use-list
   %used-by-list
+  %local-nickname-list
+  %locally-nicknamed-by-list
   (%internal-symbols (make-hash-table :test 'equal))
   (%external-symbols (make-hash-table :test 'equal))
   %shadowing-symbols)
@@ -46,10 +48,28 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (setq *package* (find-package-or-die ',name))))
 
-(defun find-package (name)
+(defun find-global-package (name)
   (if (packagep name)
       name
       (cdr (assoc (string name) *package-list* :test 'string=))))
+
+(defun find-global-package-or-die (name)
+  (or (find-global-package name)
+      (error "No package named ~S." name)))
+
+(defun find-package (name)
+  (cond ((packagep name)
+         name)
+        ((not (and (boundp '*package*)
+                   (packagep *package*)))
+         (find-global-package name))
+        (t
+         ;; Search local nicknames, then fall back on the global namespace.
+         (loop
+            for (local-nickname . actual-package) in (package-local-nicknames *package*)
+            when (string= local-nickname name)
+            return actual-package
+            finally (return (find-global-package name))))))
 
 (defun find-package-or-die (name)
   (or (find-package name)
@@ -70,10 +90,10 @@
   t)
 
 (defun make-package (package-name &key nicknames use)
-  (when (find-package package-name)
+  (when (find-global-package package-name)
     (error "A package named ~S already exists." package-name))
   (dolist (n nicknames)
-    (when (find-package n)
+    (when (find-global-package n)
       (error "A package named ~S already exists." n)))
   (let ((use-list (mapcar 'find-package use))
 	(package (%make-package (string package-name)
@@ -385,7 +405,7 @@
   (and (symbolp object)
        (eq (symbol-package object) *keyword-package*)))
 
-(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadow-import-list)
+(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadow-import-list local-nicknames)
   (let ((p (find-package name)))
     (cond (p ;; Add nicknames.
            (dolist (n nicknames)
@@ -404,6 +424,10 @@
       (intern (string s) p))
     (dolist (s export-list)
       (export-one-symbol (intern (string s) p) p))
+    (dolist (package-nickname-pair local-nicknames)
+      (destructuring-bind (local-nickname actual-package)
+          package-nickname-pair
+        (add-package-local-nickname local-nickname actual-package p)))
     p))
 
 (defmacro defpackage (defined-package-name &rest options)
@@ -414,7 +438,8 @@
 	(export-list '())
 	(intern-list '())
         (shadow-list '())
-        (shadow-import-list '()))
+        (shadow-import-list '())
+        (local-nicknames '()))
     (dolist (o options)
       (ecase (first o)
 	(:nicknames
@@ -457,7 +482,9 @@
 	       (unless status
 		 (error "No such symbol ~S in package ~S." (string name) package))
 	       (pushnew symbol shadow-import-list)))))
-	(:size)))
+	(:size)
+        (:local-nicknames
+         (setf local-nicknames (append local-nicknames (rest o))))))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(string defined-package-name)
 		    ',nicknames
@@ -467,7 +494,8 @@
 		    ',export-list
 		    ',intern-list
                     ',shadow-list
-                    ',shadow-import-list))))
+                    ',shadow-import-list
+                    ',local-nicknames))))
 
 (defun rename-package (package new-name &optional new-nicknames)
   (setf package (find-package-or-die package))
@@ -539,28 +567,58 @@
         (setf name nick)))
     name))
 
+(defun package-local-nicknames (package)
+  (package-%local-nickname-list (find-package-or-die package)))
+
+(defun package-locally-nicknamed-by-list (package)
+  (package-%locally-nicknamed-by-list (find-package-or-die package)))
+
+(defun add-package-local-nickname (local-nickname actual-package &optional (package *package*))
+  (let ((local-nickname (string local-nickname))
+        (actual-package (find-global-package-or-die actual-package)))
+    (when (member local-nickname '("CL" "COMMON-LISP" "KEYWORD") :test #'string=)
+      (error "New package local nickname ~S conflicts with standard CL package." local-nickname))
+    (let ((existing (assoc local-nickname (package-local-nicknames package) :test #'string=)))
+      (cond ((not existing)
+             (push (cons local-nickname actual-package) (package-%local-nickname-list package))
+             (pushnew package (package-%locally-nicknamed-by-list actual-package)))
+            ((not (eql actual-package (cdr existing)))
+             (cerror "Replace it" "New local nickname ~S for package ~S conflicts with existing nickname for package ~S."
+                     local-nickname actual-package (cdr existing))
+             (remove-package-local-nickname local-nickname package)
+             (push (cons local-nickname actual-package) (package-%local-nickname-list package))
+             (pushnew package (package-%locally-nicknamed-by-list actual-package))))))
+  package)
+
+(defun remove-package-local-nickname (local-nickname &optional (package *package*))
+  (let* ((existing (assoc local-nickname (package-%local-nickname-list package) :test #'string=)))
+    (when existing
+      (let ((other-package (cdr existing)))
+        (setf (package-%local-nickname-list package) (remove local-nickname (package-%local-nickname-list package)
+                                                             :test #'string= :key #'car))
+        (when (zerop (count other-package (package-%local-nickname-list package)
+                            :key #'cdr))
+          (setf (package-%locally-nicknamed-by-list other-package) (remove package (package-%locally-nicknamed-by-list other-package)))))
+      t)))
+
 (defun initialize-package-system ()
   (write-line "Initializing package system.")
   ;; Create the core packages.
   (setf *package-list* '())
   (setf *keyword-package* (make-package "KEYWORD"))
   (make-package "COMMON-LISP" :nicknames '("CL"))
-  (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
-  (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS"))
   (make-package "COMMON-LISP-USER" :nicknames '("CL-USER") :use '("CL"))
-  (setf *package* (find-package-or-die "SYSTEM.INTERNALS"))
-  (let ((cl-package (find-package "CL"))
-        (system-package (find-package "SYSTEM"))
-        (keyword-package (find-package "KEYWORD")))
-    ;; Now import all the symbols.
-    (dotimes (i (length *initial-obarray*))
-      (let ((sym (aref *initial-obarray* i)))
-        (let* ((package-keyword (symbol-package sym))
-               (package (find-package (string package-keyword))))
-          (when (not package)
-            (setf package (make-package (string package-keyword) :use '("CL"))))
-          (setf (symbol-package sym) nil)
-          (import-one-symbol sym package)
-          (when (member package-keyword '(:common-lisp :keyword :system))
-            (export-one-symbol sym package))))))
+  (make-package "SYSTEM" :nicknames '("SYS") :use '("CL"))
+  (setf *package* (make-package "SYSTEM.INTERNALS" :nicknames '("SYS.INT") :use '("CL" "SYS")))
+  ;; Now import all the symbols.
+  (dotimes (i (length *initial-obarray*))
+    (let ((sym (aref *initial-obarray* i)))
+      (let* ((package-keyword (symbol-package sym))
+             (package (find-package (string package-keyword))))
+        (when (not package)
+          (setf package (make-package (string package-keyword) :use '("CL"))))
+        (setf (symbol-package sym) nil)
+        (import-one-symbol sym package)
+        (when (member package-keyword '(:common-lisp :keyword :system))
+          (export-one-symbol sym package)))))
   (values))

@@ -163,7 +163,9 @@
   :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :x86-64 :lisp-os :ieee-floating-point :ansi-cl :common-lisp))
 
-(defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadowing-import-list)
+(defun sys.int::%defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadowing-import-list package-local-nicknames)
+  (when package-local-nicknames
+    (error "Package local nicknames not supported in cross-build."))
   (eval `(cl:defpackage ,name
            (:nicknames ,@nicknames)
            ,@(mapcar (lambda (symbol)
