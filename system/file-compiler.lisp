@@ -296,8 +296,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (write-byte +llf-structure-slot-definition+ stream))
 
 (defmethod save-one-object ((object float) omap stream)
-  (write-byte +llf-single-float+ stream)
-  (save-integer (%single-float-as-integer object) stream))
+  (declare (ignore omap))
+  (etypecase object
+    (single-float
+     (write-byte +llf-single-float+ stream)
+     (save-integer (%single-float-as-integer object) stream))
+    (double-float
+     (write-byte +llf-double-float+ stream)
+     (save-integer (%double-float-as-integer object) stream))))
 
 (defmethod save-one-object ((object package) omap stream)
   (write-byte +llf-package+ stream)
