@@ -117,20 +117,23 @@
       ;; Wait for the TX FIFO to empty.
       (loop
          until (logbitp +serial-lsr-thr-empty+
-                        (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-LSR+))))
+                        (sys.int::io-port/8 (+ (sys.int::symbol-global-value '*debug-serial-io-port*)
+                                               +serial-LSR+))))
       ;; Write byte.
-      (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+)) byte))))
+      (setf (sys.int::io-port/8 (+ (sys.int::symbol-global-value '*debug-serial-io-port*)
+                                   +serial-THR+))
+            byte))))
 
 ;; High-level character functions. These assume that whatever is on the other
 ;; end of the port uses UTF-8 with CRLF newlines.
 
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
-    (setf *serial-at-line-start* nil)
+    (setf (sys.int::symbol-global-value '*serial-at-line-start*) nil)
     ;; FIXME: Should write all the bytes to the buffer in one go.
     ;; Other processes may interfere.
     (cond ((eql char #\Newline)
-           (setf *serial-at-line-start* t)
+           (setf (sys.int::symbol-global-value '*serial-at-line-start*) t)
            ;; Turn #\Newline into CRLF
            (debug-serial-write-byte #x0D)
            (debug-serial-write-byte #x0A))
@@ -161,13 +164,13 @@
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
     (:force-output)
-    (:start-line-p *serial-at-line-start*)))
+    (:start-line-p (sys.int::symbol-global-value '*serial-at-line-start*))))
 
 (defun initialize-debug-serial (io-port irq baud)
   (declare (ignore irq))
-  (setf *debug-serial-io-port* io-port
-        *debug-serial-lock* :unlocked
-        *serial-at-line-start* t)
+  (setf (sys.int::symbol-global-value '*debug-serial-io-port*) io-port
+        (sys.int::symbol-global-value '*debug-serial-lock*) :unlocked
+        (sys.int::symbol-global-value '*serial-at-line-start*) t)
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf
