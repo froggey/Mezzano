@@ -405,7 +405,16 @@
   (and (symbolp object)
        (eq (symbol-package object) *keyword-package*)))
 
-(defun %defpackage (name nicknames documentation use-list import-list export-list intern-list shadow-list shadow-import-list local-nicknames)
+(defun %defpackage (name &key
+                           nicknames
+                           documentation
+                           ((:uses use-list))
+                           ((:imports import-list))
+                           ((:exports export-list))
+                           ((:interns intern-list))
+                           ((:shadows shadow-list))
+                           ((:shadowing-imports shadow-import-list))
+                           local-nicknames)
   (let ((p (find-package name)))
     (cond (p ;; Add nicknames.
            (dolist (n nicknames)
@@ -487,15 +496,15 @@
          (setf local-nicknames (append local-nicknames (rest o))))))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(string defined-package-name)
-		    ',nicknames
-		    ',documentation
-		    ',use-list
-		    ',import-list
-		    ',export-list
-		    ',intern-list
-                    ',shadow-list
-                    ',shadow-import-list
-                    ',local-nicknames))))
+		    :nicknames ',nicknames
+		    :documentation ',documentation
+		    :uses ',use-list
+		    :imports ',import-list
+		    :exports ',export-list
+		    :interns ',intern-list
+                    :shadows ',shadow-list
+                    :shadowing-imports ',shadow-import-list
+                    :local-nicknames ',local-nicknames))))
 
 (defun rename-package (package new-name &optional new-nicknames)
   (setf package (find-package-or-die package))
