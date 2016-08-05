@@ -3,25 +3,25 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *global-thread-lock* nil
+(sys.int::defglobal *global-thread-lock* nil
   "This lock protects the special variables that make up the thread list and run queues.")
-(defvar *thread-run-queue-head*)
-(defvar *thread-run-queue-tail*)
-(defvar *low-priority-thread-run-queue-head*)
-(defvar *low-priority-thread-run-queue-tail*)
-(defvar *all-threads*)
+(sys.int::defglobal *thread-run-queue-head*)
+(sys.int::defglobal *thread-run-queue-tail*)
+(sys.int::defglobal *low-priority-thread-run-queue-head*)
+(sys.int::defglobal *low-priority-thread-run-queue-tail*)
+(sys.int::defglobal *all-threads*)
 
-(defvar *world-stop-lock*)
-(defvar *world-stop-cvar*)
-(defvar *world-stop-pending*)
-(defvar *world-stopper*)
-(defvar *pseudo-atomic-thread-count*)
+(sys.int::defglobal *world-stop-lock*)
+(sys.int::defglobal *world-stop-cvar*)
+(sys.int::defglobal *world-stop-pending*)
+(sys.int::defglobal *world-stopper*)
+(sys.int::defglobal *pseudo-atomic-thread-count*)
 
 (defvar *pseudo-atomic* nil)
 
 ;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
-(defvar sys.int::*bsp-idle-thread*)
+(sys.int::defglobal sys.int::*bsp-idle-thread*)
 
 (deftype thread ()
   `(satisfies threadp))
@@ -210,7 +210,7 @@
                (sys.int::symbol-global-value tail) thread))))
 
 (defun push-run-queue (thread)
-  (when (or (eql thread (sys.int::symbol-global-value '*world-stopper*))
+  (when (or (eql thread *world-stopper*)
             (eql thread (sys.int::symbol-global-value 'sys.int::*pager-thread*))
             (eql thread (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)))
     (return-from push-run-queue))
@@ -245,10 +245,10 @@ return the next thread to run.
 Interrupts must be off, the current thread must be locked."
   (let ((current (current-thread)))
     (with-symbol-spinlock (*global-thread-lock*)
-      (cond ((sys.int::symbol-global-value '*world-stopper*)
+      (cond (*world-stopper*
              ;; World is stopped, the only runnable threads are
              ;; the pager, the disk io thread, the idle thread and the world stopper.
-             (unless (or (eql current (sys.int::symbol-global-value '*world-stopper*))
+             (unless (or (eql current *world-stopper*)
                          (eql current (sys.int::symbol-global-value 'sys.int::*pager-thread*))
                          (eql current (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)))
                (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
@@ -258,13 +258,13 @@ Interrupts must be off, the current thread must be locked."
                    ((eql (thread-state (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)) :runnable)
                     ;; Disk IO is ready to run.
                     (sys.int::symbol-global-value 'sys.int::*disk-io-thread*))
-                   ((eql (thread-state (sys.int::symbol-global-value '*world-stopper*)) :runnable)
+                   ((eql (thread-state *world-stopper*) :runnable)
                     ;; The world stopper is ready.
-                    (sys.int::symbol-global-value '*world-stopper*))
+                    *world-stopper*)
                    (t ;; Switch to idle.
-                    (sys.int::symbol-global-value 'sys.int::*bsp-idle-thread*))))
+                    sys.int::*bsp-idle-thread*)))
             (t ;; Return the current thread to the run queue and fetch the next thread.
-             (when (eql current (sys.int::symbol-global-value 'sys.int::*bsp-idle-thread*))
+             (when (eql current sys.int::*bsp-idle-thread*)
                (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
              (when (eql (thread-state current) :runnable)
                (push-run-queue current))
@@ -448,7 +448,7 @@ Interrupts must be off, the current thread must be locked."
 
 (defun maybe-preempt-via-interrupt (interrupt-frame)
   (let ((current (current-thread)))
-    (when (not (or (eql current (sys.int::symbol-global-value '*world-stopper*))
+    (when (not (or (eql current *world-stopper*)
                    (eql current (sys.int::symbol-global-value 'sys.int::*pager-thread*))
                    (eql current (sys.int::symbol-global-value 'sys.int::*snapshot-thread*))
                    (eql current (sys.int::symbol-global-value 'sys.int::*disk-io-thread*))

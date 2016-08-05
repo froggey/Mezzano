@@ -42,7 +42,7 @@
 (defconstant +4k-page-size+ #x1000)
 (defconstant +2m-page-size+ #x200000)
 
-(defvar *verbose-physical-allocation*)
+(sys.int::defglobal *verbose-physical-allocation*)
 
 ;;; Accessors into the page frame information vector.
 (macrolet ((def (name offset)
@@ -154,7 +154,7 @@
       (* entry 16))
    1))
 
-(defvar *physical-lock*)
+(sys.int::defglobal *physical-lock*)
 
 ;; Bootloader does everything for us. How kind.
 (defun initialize-physical-allocator ()
@@ -165,7 +165,7 @@
 
 (declaim (inline verbose-physical-allocation-p))
 (defun verbose-physical-allocation-p ()
-  (sys.int::symbol-global-value '*verbose-physical-allocation*))
+  *verbose-physical-allocation*)
 
 (defun allocate-physical-pages-1 (n-pages buddy-allocator-address max-order type)
   ;; Find the bin that matches this page count and

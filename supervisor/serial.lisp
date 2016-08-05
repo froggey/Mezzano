@@ -104,9 +104,9 @@
 
 (defconstant +debug-serial-tx-fifo-size+ 16)
 
-(defvar *debug-serial-io-port*)
-(defvar *debug-serial-lock*)
-(defvar *serial-at-line-start*)
+(sys.int::defglobal *debug-serial-io-port*)
+(sys.int::defglobal *debug-serial-lock*)
+(sys.int::defglobal *serial-at-line-start*)
 
 ;; Low-level byte functions.
 
@@ -117,11 +117,10 @@
       ;; Wait for the TX FIFO to empty.
       (loop
          until (logbitp +serial-lsr-thr-empty+
-                        (sys.int::io-port/8 (+ (sys.int::symbol-global-value '*debug-serial-io-port*)
+                        (sys.int::io-port/8 (+ *debug-serial-io-port*
                                                +serial-LSR+))))
       ;; Write byte.
-      (setf (sys.int::io-port/8 (+ (sys.int::symbol-global-value '*debug-serial-io-port*)
-                                   +serial-THR+))
+      (setf (sys.int::io-port/8 (+ *debug-serial-io-port* +serial-THR+))
             byte))))
 
 ;; High-level character functions. These assume that whatever is on the other
@@ -129,11 +128,11 @@
 
 (defun debug-serial-write-char (char)
   (let ((code (char-code char)))
-    (setf (sys.int::symbol-global-value '*serial-at-line-start*) nil)
+    (setf *serial-at-line-start* nil)
     ;; FIXME: Should write all the bytes to the buffer in one go.
     ;; Other processes may interfere.
     (cond ((eql char #\Newline)
-           (setf (sys.int::symbol-global-value '*serial-at-line-start*) t)
+           (setf *serial-at-line-start* t)
            ;; Turn #\Newline into CRLF
            (debug-serial-write-byte #x0D)
            (debug-serial-write-byte #x0A))
@@ -164,13 +163,13 @@
     (:write-char (debug-serial-write-char arg))
     (:write-string (debug-serial-write-string arg))
     (:force-output)
-    (:start-line-p (sys.int::symbol-global-value '*serial-at-line-start*))))
+    (:start-line-p *serial-at-line-start*)))
 
 (defun initialize-debug-serial (io-port irq baud)
   (declare (ignore irq))
-  (setf (sys.int::symbol-global-value '*debug-serial-io-port*) io-port
-        (sys.int::symbol-global-value '*debug-serial-lock*) :unlocked
-        (sys.int::symbol-global-value '*serial-at-line-start*) t)
+  (setf *debug-serial-io-port* io-port
+        *debug-serial-lock* :unlocked
+        *serial-at-line-start* t)
   ;; Initialize port.
   (let ((divisor (truncate 115200 baud)))
     (setf

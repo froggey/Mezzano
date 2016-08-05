@@ -61,7 +61,7 @@
 
 ;;; <<<<<<
 
-(defvar *boot-information-page*)
+(sys.int::defglobal *boot-information-page*)
 
 (defconstant +virtual-address-bits+ 48)
 (defconstant +log2-4k-page+ 12)
@@ -91,9 +91,9 @@
   (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
                                    offset))
 
-(defvar *boot-hook-lock*)
-(defvar *boot-hooks*)
-(defvar *late-boot-hooks*)
+(sys.int::defglobal *boot-hook-lock*)
+(sys.int::defglobal *boot-hooks*)
+(sys.int::defglobal *late-boot-hooks*)
 
 (defun add-boot-hook (fn &optional when)
   (check-type when (member nil :late))
@@ -119,7 +119,7 @@
       (format t "Run late boot hook ~A~%" hook)
       (funcall hook))))
 
-(defvar *boot-id*)
+(sys.int::defglobal *boot-id*)
 
 (defstruct (nic
              (:area :wired))
@@ -129,8 +129,8 @@
   stats
   mtu)
 
-(defvar *nics*)
-(defvar *received-packets*)
+(sys.int::defglobal *nics*)
+(sys.int::defglobal *received-packets*)
 
 (defun register-nic (device mac transmit-fn stats-fn mtu)
   (debug-print-line "Registered NIC " device " with MAC " mac)
@@ -181,10 +181,12 @@ Returns two values, the packet data and the receiving NIC."
   (setf *nics* '())
   (irq-fifo-reset *received-packets*))
 
-(defvar *deferred-boot-actions*)
+(sys.int::defglobal *deferred-boot-actions*)
 
 (defun add-deferred-boot-action (action)
-  (push-wired action *deferred-boot-actions*))
+  (if (boundp '*deferred-boot-actions*)
+      (push-wired action *deferred-boot-actions*)
+      (funcall action)))
 
 (defun post-boot-worker ()
   (loop

@@ -3,29 +3,29 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *vm-lock*)
+(sys.int::defglobal *vm-lock*)
 
-(defvar *pager-noisy*)
+(sys.int::defglobal *pager-noisy*)
 
-(defvar *pager-fast-path-enabled*)
+(sys.int::defglobal *pager-fast-path-enabled*)
 
-(defvar *pager-fast-path-hits*)
-(defvar *pager-fast-path-misses*)
+(sys.int::defglobal *pager-fast-path-hits*)
+(sys.int::defglobal *pager-fast-path-misses*)
 
-(defvar *pager-waiting-threads*)
-(defvar *pager-current-thread*)
-(defvar *pager-lock*)
-(defvar *pager-disk-request*)
+(sys.int::defglobal *pager-waiting-threads*)
+(sys.int::defglobal *pager-current-thread*)
+(sys.int::defglobal *pager-lock*)
+(sys.int::defglobal *pager-disk-request*)
 
-(defvar *paging-disk*)
-(defvar *bml4*)
+(sys.int::defglobal *paging-disk*)
+(sys.int::defglobal *bml4*)
 
-(defvar *page-replacement-list-head*)
-(defvar *page-replacement-list-tail*)
+(sys.int::defglobal *page-replacement-list-head*)
+(sys.int::defglobal *page-replacement-list-tail*)
 
-(defvar *pager-lazy-block-allocation-enabled*)
+(sys.int::defglobal *pager-lazy-block-allocation-enabled*)
 
-(defvar *store-fudge-factor*)
+(sys.int::defglobal *store-fudge-factor*)
 
 (defconstant +page-table-present+        #x001)
 (defconstant +page-table-write+          #x002)
@@ -249,7 +249,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
            (bml3e (address-l3-bits address))
            (bml2e (address-l2-bits address))
            (bml1e (address-l1-bits address))
-           (bml3 (get-level (sys.int::symbol-global-value '*bml4*) bml4e))
+           (bml3 (get-level *bml4* bml4e))
            (bml2 (get-level bml3 bml3e))
            (bml1 (get-level bml2 bml2e)))
       (+ bml1 (* bml1e 8)))))
@@ -623,7 +623,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 ;; this function can't block on the lock, or wait for a frame to be
 ;; swapped out, or wait for the new data to be swapped in.
 (defun wait-for-page-fast-path (fault-address)
-  (with-mutex ((sys.int::symbol-global-value '*vm-lock*) nil)
+  (with-mutex (*vm-lock* nil)
     (let ((pte (get-pte-for-address fault-address nil))
           (block-info (block-info-for-virtual-address fault-address)))
       (when (and pte
@@ -663,17 +663,17 @@ It will put the thread to sleep, while it waits for the page."
         (pager (sys.int::symbol-global-value 'sys.int::*pager-thread*)))
     (when (eql self pager)
       (panic "Page fault in pager!"))
-    (when (and (sys.int::symbol-global-value '*pager-fast-path-enabled*)
+    (when (and *pager-fast-path-enabled*
                (wait-for-page-fast-path address))
-      (incf (sys.int::symbol-global-value '*pager-fast-path-hits*))
+      (incf *pager-fast-path-hits*)
       (return-from wait-for-page-via-interrupt))
-    (incf (sys.int::symbol-global-value '*pager-fast-path-misses*))
+    (incf *pager-fast-path-misses*)
     (with-symbol-spinlock (*pager-lock*)
       (%lock-thread self)
       (setf (thread-state self) :waiting-for-page
             (thread-wait-item self) address
-            (thread-%next self) (sys.int::symbol-global-value '*pager-waiting-threads*)
-            (sys.int::symbol-global-value '*pager-waiting-threads*) self)
+            (thread-%next self) *pager-waiting-threads*
+            *pager-waiting-threads* self)
       (with-thread-lock (pager)
         (when (and (eql (thread-state pager) :sleeping)
                    (eql (thread-wait-item pager) '*pager-waiting-threads*))

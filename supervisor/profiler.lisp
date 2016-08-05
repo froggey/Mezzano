@@ -7,32 +7,31 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *enable-profiling* nil)
-(defvar *profile-thread* nil
+(sys.int::defglobal *enable-profiling* nil)
+(sys.int::defglobal *profile-thread* nil
   "When non-nil, only this thread will be profiled.")
 
 ;; The profile buffer must be a wired simple-vector.
 ;; It is treated as a circular buffer, when it fill up newer entries
 ;; will replace older entries.
-(defvar *profile-buffer*)
-(defvar *profile-buffer-head*)
-(defvar *profile-buffer-tail*)
+(sys.int::defglobal *profile-buffer*)
+(sys.int::defglobal *profile-buffer-head*)
+(sys.int::defglobal *profile-buffer-tail*)
 
-(defvar *default-profile-buffer-size* (* 1024 1024))
+(sys.int::defglobal *default-profile-buffer-size* (* 1024 1024))
 
 (defun profile-append-entry (thing)
   "Append one THING to the profile buffer, wrapping around as required."
-  (let ((buffer-len (sys.int::%object-header-data (sys.int::symbol-global-value '*profile-buffer*)))
-        (place (sys.int::symbol-global-value '*profile-buffer-head*)))
-    (incf (sys.int::symbol-global-value '*profile-buffer-head*))
-    (when (eql (sys.int::symbol-global-value '*profile-buffer-head*) buffer-len)
-      (setf (sys.int::symbol-global-value '*profile-buffer-head*) 0))
-    (when (eql (sys.int::symbol-global-value '*profile-buffer-head*)
-               (sys.int::symbol-global-value '*profile-buffer-tail*))
-      (incf (sys.int::symbol-global-value '*profile-buffer-tail*))
-      (when (eql (sys.int::symbol-global-value '*profile-buffer-tail*) buffer-len)
-        (setf (sys.int::symbol-global-value '*profile-buffer-tail*) 0)))
-    (setf (svref (sys.int::symbol-global-value '*profile-buffer*) place) thing)))
+  (let ((buffer-len (sys.int::%object-header-data *profile-buffer*))
+        (place *profile-buffer-head*))
+    (incf *profile-buffer-head*)
+    (when (eql *profile-buffer-head* buffer-len)
+      (setf *profile-buffer-head* 0))
+    (when (eql *profile-buffer-head* *profile-buffer-tail*)
+      (incf *profile-buffer-tail*)
+      (when (eql *profile-buffer-tail* buffer-len)
+        (setf *profile-buffer-tail* 0)))
+    (setf (svref *profile-buffer* place) thing)))
 
 (defun profile-append-return-address (addr)
   "Append a return address to the profile buffer as a function + offset."
@@ -67,11 +66,11 @@
 
 ;;; Watch out, this runs in an interrupt handler.
 (defun profile-sample (interrupt-frame)
-  (when (and (sys.int::symbol-global-boundp '*enable-profiling*)
-             (sys.int::symbol-global-value '*enable-profiling*))
+  (when (and (boundp '*enable-profiling*)
+             *enable-profiling*)
     (profile-append-entry :start)
-    (when (or (not (sys.int::symbol-global-value '*profile-thread*))
-              (eql (sys.int::symbol-global-value '*profile-thread*) (current-thread)))
+    (when (or (not *profile-thread*)
+              (eql *profile-thread* (current-thread)))
       ;; Dump the current thread.
       (profile-append-entry (current-thread))
       (profile-append-entry :active)
@@ -79,8 +78,8 @@
       (profile-append-return-address (interrupt-frame-raw-register interrupt-frame :rip))
       (profile-append-call-stack (interrupt-frame-raw-register interrupt-frame :rbp)))
     ;; And all the others.
-    (cond ((sys.int::symbol-global-value '*profile-thread*)
-           (let ((thread (sys.int::symbol-global-value '*profile-thread*)))
+    (cond (*profile-thread*
+           (let ((thread *profile-thread*))
              (when (not (eql thread (current-thread)))
                (profile-append-entry thread)
                (profile-append-entry (thread-state thread))
@@ -91,7 +90,7 @@
                (profile-append-call-stack (thread-frame-pointer thread)))))
           (t
            (loop
-              for thread = (sys.int::symbol-global-value '*all-threads*) then (thread-global-next thread)
+              for thread = *all-threads* then (thread-global-next thread)
               until (not thread) do
                 (when (not (eql thread (current-thread)))
                   (profile-append-entry thread)

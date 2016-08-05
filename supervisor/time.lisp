@@ -7,16 +7,16 @@
 
 (defconstant +pit-irq+ 0)
 
-(defvar *heartbeat-wait-queue*)
+(sys.int::defglobal *heartbeat-wait-queue*)
 
-(defvar *rtc-lock*)
+(sys.int::defglobal *rtc-lock*)
 
-(defvar *pit-tick-rate* 0)
+(sys.int::defglobal *pit-tick-rate* 0)
 
-(defvar *run-time-advance*)
-(defvar *run-time*)
+(sys.int::defglobal *run-time-advance*)
+(sys.int::defglobal *run-time*)
 
-(defvar *cpu-speed*)
+(sys.int::defglobal *cpu-speed*)
 
 ;; http://wiki.osdev.org/Programmable_Interval_Timer
 (defun configure-pit-tick-rate (hz)

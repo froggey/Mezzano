@@ -17,7 +17,7 @@
 ;;     :write-char    Write a character to the stream.
 ;;     :write-string  Write a string to the stream.
 ;;     :force-output  Same as CL:FORCE-OUTPUT.
-(defvar *debug-pseudostream*)
+(sys.int::defglobal *debug-pseudostream*)
 
 (defun debug-set-output-pseudostream (pseudostream)
   (setf *debug-pseudostream* pseudostream))
@@ -102,7 +102,7 @@
 (defun debug-force-output ()
   (call-debug-pseudostream :force-output))
 
-(defvar *panic-in-progress* nil)
+(sys.int::defglobal *panic-in-progress* nil)
 
 (defun panic-print-backtrace (initial-frame-pointer)
   (with-page-fault-hook
@@ -188,7 +188,7 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *cold-unread-char*)
+(sys.int::defglobal *cold-unread-char*)
 
 (defun sys.int::cold-write-char (c stream)
   (declare (ignore stream))
@@ -237,6 +237,9 @@
 
 (defun sys.int::raise-type-error (datum expected-type)
   (panic "Type error. Expected " expected-type " got " datum))
+
+(defun sys.int::raise-invalid-argument-error ()
+  (panic "Invalid arguments."))
 
 (defun error (datum &rest arguments)
   (declare (dynamic-extent arguments))

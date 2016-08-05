@@ -3,7 +3,7 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *light-position* nil
+(sys.int::defglobal *light-position* nil
   "Control the position of the status light.
 Can be :TOP to position them at the top of the screen, :BOTTOM to position them at the bottom, or NIL to disable them entirely.")
 
@@ -15,10 +15,10 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
   pitch
   layout)
 
-(defvar *current-framebuffer*)
-(defvar *debug-video-x* 0)
-(defvar *debug-video-y* 0)
-(defvar *debug-video-col* 0)
+(sys.int::defglobal *current-framebuffer* nil)
+(sys.int::defglobal *debug-video-x* 0)
+(sys.int::defglobal *debug-video-y* 0)
+(sys.int::defglobal *debug-video-col* 0)
 
 (defun initialize-early-video ()
   (when (not (boundp '*light-position*))
@@ -165,10 +165,10 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   colour
   state)
 
-(defvar *light-decay-time* (truncate internal-time-units-per-second 8)
+(sys.int::defglobal *light-decay-time* (truncate internal-time-units-per-second 8)
   "Time a light should stay on for after being turned off.
 An integer, measured in internal time units.")
-(defvar *lights* '())
+(sys.int::defglobal *lights* '())
 
 (defun decay-lights (dt)
   (when (boundp '*lights*)
@@ -231,7 +231,7 @@ An integer, measured in internal time units.")
 (deflight paging #xFFFF8000 5)
 (deflight network #xFFCCFF66 6)
 
-(defvar sys.int::*debug-8x8-font*)
+(sys.int::defglobal sys.int::*debug-8x8-font*)
 
 (defun debug-video-write-char (char)
   (cond ((not *current-framebuffer*))

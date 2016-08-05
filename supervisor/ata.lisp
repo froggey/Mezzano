@@ -68,7 +68,7 @@
 (defconstant +ata-command-write-dma-ext+ #x35)
 (defconstant +ata-command-identify+ #xEC)
 
-(defvar *ata-devices*)
+(sys.int::defglobal *ata-devices*)
 
 (defstruct (ata-controller
              (:area :wired))

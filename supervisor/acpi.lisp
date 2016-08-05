@@ -3,7 +3,7 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *acpi*)
+(sys.int::defglobal *acpi*)
 
 (defconstant +acpi-rsdp-signature-offset+          0)
 (defconstant +acpi-rsdp-checksum-offset+           8)

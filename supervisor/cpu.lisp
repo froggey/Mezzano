@@ -7,11 +7,11 @@
 (defconstant +msr-ia32-fs-base+ #xC0000100)
 (defconstant +msr-ia32-gs-base+ #xC0000101)
 
-(defvar sys.int::*interrupt-service-routines*)
+(sys.int::defglobal sys.int::*interrupt-service-routines*)
 
-(defvar sys.int::*bsp-wired-stack-base*)
-(defvar sys.int::*bsp-wired-stack-size*)
-(defvar sys.int::*bsp-info-vector*)
+(sys.int::defglobal sys.int::*bsp-wired-stack-base*)
+(sys.int::defglobal sys.int::*bsp-wired-stack-size*)
+(sys.int::defglobal sys.int::*bsp-info-vector*)
 
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)

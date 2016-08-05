@@ -13,21 +13,21 @@
 (in-package :mezzano.supervisor)
 
 ;;; In-memory freelist linked list
-(defvar *store-freelist-head*)
-(defvar *store-freelist-tail*)
+(sys.int::defglobal *store-freelist-head*)
+(sys.int::defglobal *store-freelist-tail*)
 
-(defvar *store-deferred-freelist-head*)
+(sys.int::defglobal *store-deferred-freelist-head*)
 
 ;;; Free metadata objects.
-(defvar *store-freelist-metadata-freelist*)
-(defvar *store-freelist-n-free-metadata*)
+(sys.int::defglobal *store-freelist-metadata-freelist*)
+(sys.int::defglobal *store-freelist-n-free-metadata*)
 (defvar *store-freelist-recursive-metadata-allocation*)
 (defconstant +store-freelist-metadata-soft-limit+ 16)
 
 ;;; Block counts.
-(defvar *store-freelist-n-free-blocks*)
-(defvar *store-freelist-n-deferred-free-blocks*)
-(defvar *store-freelist-total-blocks*)
+(sys.int::defglobal *store-freelist-n-free-blocks*)
+(sys.int::defglobal *store-freelist-n-deferred-free-blocks*)
+(sys.int::defglobal *store-freelist-total-blocks*)
 
 ;; Use a macro instead of macrolet to define these functions
 ;; because the compiler doesn't generate inlining info when there's

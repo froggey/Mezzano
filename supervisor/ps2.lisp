@@ -38,39 +38,39 @@
 (defconstant +ps/2-config-aux-clock+ (ash 1 5))
 (defconstant +ps/2-config-key-translation+ (ash 1 6))
 
-(defvar *ps/2-key-fifo*)
-(defvar *ps/2-aux-fifo*)
-(defvar *ps/2-controller-lock*)
+(sys.int::defglobal *ps/2-key-fifo*)
+(sys.int::defglobal *ps/2-aux-fifo*)
+(sys.int::defglobal *ps/2-controller-lock*)
 
-(defvar *ps/2-debug-dump-state*)
+(sys.int::defglobal *ps/2-debug-dump-state*)
 
 (defun ps/2-irq-handler (fifo update-debug-state)
   (let ((byte (system:io-port/8 +ps/2-data-port+)))
     (irq-fifo-push byte fifo)
     (when update-debug-state
-      (case (sys.int::symbol-global-value '*ps/2-debug-dump-state*)
+      (case *ps/2-debug-dump-state*
         ;; Start. Expect left-meta.
         (0 (cond ((eql byte #x38) ; left-meta
-                  (setf (sys.int::symbol-global-value '*ps/2-debug-dump-state*) 1))))
+                  (setf *ps/2-debug-dump-state* 1))))
         ;; Saw left-meta press
         (1 (cond ((eql byte #x38) ; left-meta
                   ;; Stay in this state.
                   )
                  ((eql byte #x57) ; F11
                   (debug-dump-threads)
-                  (setf (sys.int::symbol-global-value '*ps/2-debug-dump-state*) 0))
+                  (setf *ps/2-debug-dump-state* 0))
                  (t
-                  (setf (sys.int::symbol-global-value '*ps/2-debug-dump-state*) 0))))
+                  (setf *ps/2-debug-dump-state* 0))))
         (t
-         (setf (sys.int::symbol-global-value '*ps/2-debug-dump-state*) 0))))))
+         (setf *ps/2-debug-dump-state* 0))))))
 
 (defun ps/2-key-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler (sys.int::symbol-global-value '*ps/2-key-fifo*) t))
+  (ps/2-irq-handler *ps/2-key-fifo* t))
 
 (defun ps/2-aux-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame irq))
-  (ps/2-irq-handler (sys.int::symbol-global-value '*ps/2-aux-fifo*) nil))
+  (ps/2-irq-handler *ps/2-aux-fifo* nil))
 
 (defun ps/2-input-wait (&optional (what "data"))
   "Wait for space in the input buffer."

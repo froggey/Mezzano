@@ -3,20 +3,20 @@
 
 (in-package :mezzano.runtime)
 
-(defvar sys.int::*wired-area-bump*)
-(defvar sys.int::*wired-area-freelist*)
-(defvar sys.int::*pinned-area-bump*)
-(defvar sys.int::*pinned-area-freelist*)
-(defvar sys.int::*general-area-bump*)
-(defvar sys.int::*general-area-limit*)
-(defvar sys.int::*cons-area-bump*)
-(defvar sys.int::*cons-area-limit*)
-(defvar sys.int::*stack-area-bump*)
+(sys.int::defglobal sys.int::*wired-area-bump*)
+(sys.int::defglobal sys.int::*wired-area-freelist*)
+(sys.int::defglobal sys.int::*pinned-area-bump*)
+(sys.int::defglobal sys.int::*pinned-area-freelist*)
+(sys.int::defglobal sys.int::*general-area-bump*)
+(sys.int::defglobal sys.int::*general-area-limit*)
+(sys.int::defglobal sys.int::*cons-area-bump*)
+(sys.int::defglobal sys.int::*cons-area-limit*)
+(sys.int::defglobal sys.int::*stack-area-bump*)
 
-(defvar *wired-allocator-lock*)
-(defvar *allocator-lock*)
-(defvar *general-area-expansion-granularity* (* 4 1024 1024))
-(defvar *cons-area-expansion-granularity* (* 4 1024 1024))
+(sys.int::defglobal *wired-allocator-lock*)
+(sys.int::defglobal *allocator-lock*)
+(sys.int::defglobal *general-area-expansion-granularity* (* 4 1024 1024))
+(sys.int::defglobal *cons-area-expansion-granularity* (* 4 1024 1024))
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")

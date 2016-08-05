@@ -3,13 +3,13 @@
 
 (in-package :mezzano.supervisor)
 
-(defvar *snapshot-in-progress* nil)
-(defvar *snapshot-inhibit*)
+(sys.int::defglobal *snapshot-in-progress* nil)
+(sys.int::defglobal *snapshot-inhibit*)
 
-(defvar *snapshot-disk-request*)
-(defvar *snapshot-bounce-buffer-page*)
-(defvar *snapshot-pending-writeback-pages-count*)
-(defvar *snapshot-pending-writeback-pages*)
+(sys.int::defglobal *snapshot-disk-request*)
+(sys.int::defglobal *snapshot-bounce-buffer-page*)
+(sys.int::defglobal *snapshot-pending-writeback-pages-count*)
+(sys.int::defglobal *snapshot-pending-writeback-pages*)
 
 (declaim (inline %fast-page-copy))
 (defun %fast-page-copy (destination source)

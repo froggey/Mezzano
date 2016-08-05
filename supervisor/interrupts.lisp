@@ -173,7 +173,7 @@ RETURN-FROM/GO must not be used to leave this form."
 
 ;;; Low-level interrupt support.
 
-(defvar *user-interrupt-handlers*)
+(sys.int::defglobal *user-interrupt-handlers*)
 
 (defun initialize-interrupts ()
   "Called when the system is booted to reset all user interrupt handlers."
@@ -249,7 +249,7 @@ If clear, the fault occured in supervisor mode.")
 (defconstant +page-fault-error-instruction+ 4
   "If set, the fault was caused by an instruction fetch.")
 
-(defvar *page-fault-hook* nil)
+(sys.int::defglobal *page-fault-hook* nil)
 
 (defun fatal-page-fault (interrupt-frame info reason address)
   (declare (ignore interrupt-frame info))
@@ -328,11 +328,11 @@ If clear, the fault occured in supervisor mode.")
 
 ;; These are all initialized during early boot,
 ;; The defvars will be run during cold load, but never see the symbols as unbound.
-(defvar *i8259-shadow-mask* nil
+(sys.int::defglobal *i8259-shadow-mask* nil
   "Caches the current IRQ mask, so it doesn't need to be read from the PIC when being modified.")
-(defvar *i8259-spinlock* nil ; should be defglobal or something. defspinlock.
+(sys.int::defglobal *i8259-spinlock* nil
   "Lock serializing access to i8259 and associated variables.")
-(defvar *i8259-handlers* nil)
+(sys.int::defglobal *i8259-handlers* nil)
 
 (defun i8259-interrupt-handler (interrupt-frame info)
   (let ((irq (- info +i8259-base-interrupt+)))

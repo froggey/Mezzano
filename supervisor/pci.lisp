@@ -43,9 +43,9 @@
 
 (defconstant +pci-command-bus-master+ 2)
 
-(defvar *pci-config-lock*)
+(sys.int::defglobal *pci-config-lock*)
 
-(defvar *pci-devices*)
+(sys.int::defglobal *pci-devices*)
 
 (defstruct (pci-device
              (:area :wired))

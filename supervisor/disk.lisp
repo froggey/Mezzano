@@ -15,7 +15,7 @@
 ;;; DISK-AWAIT-REQUEST - Wait for a request to complete.
 ;;; DISK-REQUEST-COMPLETE-P - Returns true if the request is not in-progress.
 
-(defvar *log-disk-requests* nil)
+(sys.int::defglobal *log-disk-requests* nil)
 
 (defstruct (disk
              (:area :wired))
@@ -47,12 +47,12 @@
   (latch (make-latch "Disk request notifier"))
   next)
 
-(defvar *disks*)
+(sys.int::defglobal *disks*)
 
-(defvar *disk-request-current*)
-(defvar *disk-request-queue-head*)
-(defvar *disk-request-queue-lock*)
-(defvar *disk-request-queue-latch*)
+(sys.int::defglobal *disk-request-current*)
+(sys.int::defglobal *disk-request-queue-head*)
+(sys.int::defglobal *disk-request-queue-lock*)
+(sys.int::defglobal *disk-request-queue-latch*)
 
 (defun all-disks ()
   ;; Would be nice to copy the list here, but this is called before the paging disk
