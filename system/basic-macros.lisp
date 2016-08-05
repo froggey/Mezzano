@@ -454,6 +454,17 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      (%define-symbol-macro ',symbol ',expansion)))
 
+(defmacro defglobal (name &optional (initial-value nil initial-valuep) docstring)
+  (if initial-valuep
+      `(progn
+         (declaim (global ,name))
+         (unless (boundp ',name)
+           (setq ,name ,initial-value))
+         ',name)
+      `(progn
+         (declaim (global ,name))
+         ',name)))
+
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
 		       (second name)

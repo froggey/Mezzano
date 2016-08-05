@@ -55,6 +55,8 @@
                  boundp makunbound
                  sys.int::symbol-global-boundp
                  sys.int::symbol-global-makunbound
+                 symbol-global-p
+                 symbol-constant-p
                  modifying-symbol-value))
 
 (defun symbolp (object)
@@ -95,6 +97,9 @@
 
 (defun symbol-value-cell (symbol)
   (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (when (symbol-global-p symbol)
+    (return-from symbol-value-cell
+      (sys.int::%object-ref-t symbol sys.int::+symbol-value+)))
   ;; Walk the special stack, looking for an associated binding.
   (do ((ssp (sys.int::%%special-stack-pointer)
             (sys.int::%object-ref-t ssp 0)))
@@ -145,9 +150,38 @@
   (symbol-value-cell-makunbound (symbol-global-value-cell symbol))
   symbol)
 
+(defun symbol-constant-p (symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (eql (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
+       sys.int::+symbol-mode-constant+))
+
+(defun symbol-global-p (symbol)
+  (sys.int::%type-check symbol sys.int::+object-tag-symbol+ 'symbol)
+  (eql (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
+       sys.int::+symbol-mode-global+))
+
 (defun modifying-symbol-value (symbol)
-  (when (eql (ldb (byte sys.int::+symbol-header-mode-size+
-                        sys.int::+symbol-header-mode-position+)
-                  (sys.int::%object-header-data symbol))
-             sys.int::+symbol-mode-constant+)
-    (cerror "Change the value" "Attempting to modify constant symbol ~S" symbol)))
+  (when (symbol-constant-p symbol)
+    (cond ((or (keywordp symbol)
+               (member symbol '(nil t)))
+           (error "Attempting to modify constant symbol ~S" symbol))
+          (t
+           (cerror "Change the value" "Attempting to modify constant symbol ~S" symbol)))))
+
+(defun system:symbol-mode (symbol)
+  (ecase (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
+    (#.sys.int::+symbol-mode-nil+ nil)
+    (#.sys.int::+symbol-mode-special+ :special)
+    (#.sys.int::+symbol-mode-constant+ :constant)
+    (#.sys.int::+symbol-mode-symbol-macro+ :symbol-macro)
+    (#.sys.int::+symbol-mode-global+ :global)))
+
+(defun (setf system:symbol-mode) (value symbol)
+  (setf (ldb sys.int::+symbol-header-mode+ (sys.int::%object-header-data symbol))
+        (ecase value
+          ((nil) sys.int::+symbol-mode-nil+)
+          ((:special) sys.int::+symbol-mode-special+)
+          ((:constant) sys.int::+symbol-mode-constant+)
+          ((:symbol-macro) sys.int::+symbol-mode-symbol-macro+)
+          ((:global) sys.int::+symbol-mode-global+)))
+  value)

@@ -131,13 +131,13 @@
 (defconstant +symbol-value-cell-symbol+ 1)
 (defconstant +symbol-value-cell-value+ 2)
 
-(defconstant +symbol-header-mode-size+ 2)
-(defconstant +symbol-header-mode-position+ 0)
+(defconstant +symbol-header-mode+ (byte 3 0))
 
 (defconstant +symbol-mode-nil+ 0)
 (defconstant +symbol-mode-special+ 1)
 (defconstant +symbol-mode-constant+ 2)
 (defconstant +symbol-mode-symbol-macro+ 3)
+(defconstant +symbol-mode-global+ 4)
 
 ;;; Layout of a function's header.
 ;;; Currently applies to all 3 function types.

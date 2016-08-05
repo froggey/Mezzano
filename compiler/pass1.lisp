@@ -221,7 +221,7 @@
                 ;; Replace constants with their quoted values.
                 (or (expand-constant-variable form)
                     ;; And replace special variable with calls to symbol-value.
-                    (pass1-form `(symbol-value ',(name var)) env)))
+                    (pass1-form `(,(special-variable-access-function var) ',(name var)) env)))
                (lexical-variable
                 (when (eq (lexical-variable-ignore var) 't)
                   (warn 'sys.int::simple-style-warning
@@ -431,6 +431,12 @@
                        :body (pass1-form `(progn ,@body)
                                          (extend-environment env :declarations declares)))))))
 
+(defun check-variable-bindable (var)
+  (when (and (typep var 'special-variable)
+             (not (member (sys.int::symbol-mode (name var))
+                          '(nil :special))))
+    (error "Attemting to bind ~S variable ~S." (sys.int::symbol-mode (name var)) (name var))))
+
 (defun pass1-let (form env)
   (destructuring-bind (bindings &body forms) (cdr form)
     (multiple-value-bind (body declares)
@@ -439,7 +445,8 @@
 				  (multiple-value-bind (name init-form)
 				      (parse-let-binding binding)
 				    (let ((var (make-variable name declares)))
-					(list name init-form var))))
+                                      (check-variable-bindable var)
+                                      (list name init-form var))))
 				bindings)))
         (make-instance 'ast-let
                        :bindings (mapcar (lambda (b)
@@ -466,6 +473,7 @@
 	      (parse-let-binding b)
 	    (push name var-names)
 	    (let ((var (make-variable name declares)))
+              (check-variable-bindable var)
 	      (setf (body inner) (make-instance 'ast-let
                                                 :bindings (list (list var (pass1-form init-form env)))
                                                 :body (make-instance 'ast-quote :value 'nil))
@@ -574,6 +582,12 @@
                      :value (pass1-form result env)
                      :info tag))))
 
+(defun special-variable-access-function (special-variable)
+  (cond ((eql (sys.int::symbol-mode (name special-variable)) :global)
+         'sys.int::symbol-global-value)
+        (t
+         'symbol-value)))
+
 (defun pass1-setq (form env)
   (do ((i (cdr form) (cddr i))
        (forms '()))
@@ -590,7 +604,8 @@
 	  (val (second i)))
       (etypecase var
         (special-variable
-         (push (pass1-form `(funcall #'(setf symbol-value) ,val ',(name var)) env) forms))
+         (push (pass1-form `(funcall #'(setf ,(special-variable-access-function var))
+                                     ,val ',(name var)) env) forms))
         (lexical-variable
          (when (eq (lexical-variable-ignore var) 't)
            (warn 'sys.int::simple-style-warning

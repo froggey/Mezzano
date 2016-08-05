@@ -14,12 +14,25 @@
         ((cas)
          (values (second name) 'cas-inline-mode 'cas-inline-form)))))
 
+(defun proclaim-symbol-mode (symbol new-mode)
+  (check-type symbol symbol)
+  (when (not (or (null (system:symbol-mode symbol))
+                 (eql (system:symbol-mode symbol) new-mode)))
+    (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
+            symbol (system:symbol-mode symbol) new-mode))
+  (setf (system:symbol-mode symbol) new-mode))
+
 (defun proclaim (declaration-specifier)
   (case (first declaration-specifier)
-    (special (dolist (var (rest declaration-specifier))
-               (setf (system:symbol-mode var) :special)))
-    (constant (dolist (var (rest declaration-specifier))
-                (setf (system:symbol-mode var) :constant)))
+    (special
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :special)))
+    (constant
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :constant)))
+    (global
+     (dolist (var (rest declaration-specifier))
+       (proclaim-symbol-mode var :global)))
     (inline
      (dolist (name (rest declaration-specifier))
        (multiple-value-bind (sym indicator)
@@ -30,24 +43,6 @@
        (multiple-value-bind (sym indicator)
            (inline-info-location-for-name name)
          (setf (get sym indicator) nil))))))
-
-(defun system:symbol-mode (symbol)
-  (ecase (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
-              (%object-header-data symbol))
-    (#.+symbol-mode-nil+ nil)
-    (#.+symbol-mode-special+ :special)
-    (#.+symbol-mode-constant+ :constant)
-    (#.+symbol-mode-symbol-macro+ :symbol-macro)))
-
-(defun (setf system:symbol-mode) (value symbol)
-  (setf (ldb (byte +symbol-header-mode-size+ +symbol-header-mode-position+)
-             (%object-header-data symbol))
-        (ecase value
-          ((nil) +symbol-mode-nil+)
-          ((:special) +symbol-mode-special+)
-          ((:constant) +symbol-mode-constant+)
-          ((:symbol-macro) +symbol-mode-symbol-macro+)))
-  value)
 
 (defun variable-information (symbol)
   (symbol-mode symbol))
@@ -410,10 +405,25 @@
 (defun %defstruct (structure-type)
   (setf (get (structure-name structure-type) 'structure-type) structure-type))
 
+(defparameter *incompatible-constant-redefinition-is-an-error* nil)
+(defparameter *defconstant-redefinition-comparator* 'eql)
+
 (defun %defconstant (name value &optional docstring)
-  (proclaim `(special ,name))
-  (setf (symbol-value name) value)
-  (proclaim `(constant ,name))
+  (cond ((boundp name)
+         (let ((old-value (symbol-value name)))
+           (when (not (funcall *defconstant-redefinition-comparator*
+                               old-value value))
+             (when *incompatible-constant-redefinition-is-an-error*
+               (cerror "Redefine the constant"
+                       'defconstant-uneql
+                       :name name
+                       :old-value old-value
+                       :new-value value))
+             (setf (symbol-mode name) :special)
+             (setf (symbol-value name) value))))
+        (t
+         (setf (symbol-value name) value)))
+  (setf (symbol-mode name) :constant)
   name)
 
 ;;; Function references, FUNCTION, et al.

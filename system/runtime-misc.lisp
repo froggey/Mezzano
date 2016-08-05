@@ -162,3 +162,15 @@ The file will only be recompiled if the source is newer than the output file, or
   (setf (symbol-mode name) :symbol-macro)
   (setf (gethash name *symbol-macro-expansions*) expansion)
   name)
+
+(define-condition defconstant-uneql (error)
+  ((name :initarg :name :reader defconstant-uneql-name)
+   (old-value :initarg :old-value :reader defconstant-uneql-old-value)
+   (new-value :initarg :new-value :reader defconstant-uneql-new-value))
+  (:report
+   (lambda (condition stream)
+     (format stream
+             "~@<The constant ~S is being redefined (from ~S to ~S)~@:>"
+             (defconstant-uneql-name condition)
+             (defconstant-uneql-old-value condition)
+             (defconstant-uneql-new-value condition)))))

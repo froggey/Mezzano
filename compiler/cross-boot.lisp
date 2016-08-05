@@ -80,24 +80,41 @@
   `(eval-when (:compile-toplevel :load-toplevel :execute)
      ,@(mapcar (lambda (x) `(sys.int::proclaim ',x)) declaration-specifiers)))
 
+(defun proclaim-symbol-mode (sym mode)
+  (check-type sym symbol)
+  (when (not (or (null (system:symbol-mode sym))
+                 (eql (system:symbol-mode sym) mode)))
+    (cerror "Continue" "Symbol ~S being changed from ~S to ~S."
+            sym (system:symbol-mode sym) mode))
+  (setf (gethash sym *system-symbol-declarations*) mode))
+
 ;; SYS.INT shadows some CL symbols in the cross-environment. When loaded in the true
 ;; system, the correct symbol will be used.
 (defun sys.int::proclaim (declaration-specifier)
   (case (first declaration-specifier)
     (sys.int::constant
      (dolist (sym (rest declaration-specifier))
-       (setf (gethash sym *system-symbol-declarations*) :constant)))
+       (proclaim-symbol-mode sym :constant)))
     (special
      (dolist (sym (rest declaration-specifier))
+       (proclaim-symbol-mode sym :special)
        (unless (eql (symbol-package sym) (find-package "CL"))
-         (cl:proclaim `(special ,sym)))
-       (setf (gethash sym *system-symbol-declarations*) :special)))
+         (cl:proclaim `(special ,sym)))))
+    (sys.int::global
+     (dolist (sym (rest declaration-specifier))
+       (proclaim-symbol-mode sym :global)
+       (unless (eql (symbol-package sym) (find-package "CL"))
+         (cl:proclaim `(special ,sym)))))
     (inline
      (dolist (name (rest declaration-specifier))
        (setf (gethash name *inline-modes*) t)))
     (notinline
      (dolist (name (rest declaration-specifier))
        (setf (gethash name *inline-modes*) nil)))))
+
+(defun system:symbol-mode (symbol)
+  (check-type symbol symbol)
+  (values (gethash symbol *system-symbol-declarations*)))
 
 (defun sys.int::dotted-list-length (list)
   "Returns the length of LIST if list is a proper list. Returns NIL if LIST is a circular list."

@@ -473,7 +473,7 @@
   (let ((global-cell (allocate 4 :wired)))
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-symbol+
                                              (if is-constant
-                                                 (ash sys.int::+symbol-mode-constant+ sys.int::+symbol-header-mode-position+)
+                                                 (ash sys.int::+symbol-mode-constant+ (cross-cl:byte-position sys.int::+symbol-header-mode+))
                                                  0)) ; flags & header
           (word (+ address 1)) (make-value (store-string name :wired) sys.int::+tag-object+) ; name
           (word (+ address 2)) (vsym package) ; package
