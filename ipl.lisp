@@ -43,12 +43,8 @@ Make sure there is a virtio-net NIC attached.~%")
   (let ((fs-address (mezzano.network.ip:make-ipv4-address sys.int::*file-server-host-ip*)))
     (format t "File server has address ~A, port ~D.~%" fs-address mezzano.file-system.remote::*default-simple-file-port*)
     (when (mezzano.network.ip:address-equal
-           fs-address
-           (mezzano.network.ip:make-ipv4-address "192.168.0.123"))
-      (format t "Warning! This is the example address. Was this set correctly in the Makefile?~%"))
-    (when (mezzano.network.ip:address-equal
-           (mezzano.network.ip:address-network fs-address 8)
-           (mezzano.network.ip:make-ipv4-address "10.0.0.0"))
+           (mezzano.network.ip:address-network fs-address 24)
+           (mezzano.network.ip:make-ipv4-address "10.0.2.0"))
       (format t "Warning! This is on a 10/8 network and is not supported.~%"))
     (format t "Pinging file server host... ")
     (finish-output)

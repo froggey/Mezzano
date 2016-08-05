@@ -6,7 +6,10 @@
 ;;; Hardcode the qemu & virtualbox network layout for now.
 (defun net-setup (&key
                     (local-ip "10.0.2.15")
-                    (prefix-length 8)
+                    ;; Use a prefix-length of 24 instead of 8, so people
+                    ;; running the file-server on non-10.0.2.0 10/8 networks
+                    ;; don't run into trouble.
+                    (prefix-length 24)
                     (gateway "10.0.2.2")
                     (interface (first mezzano.network.ethernet::*cards*))
                     ;; Use Google DNS, as Virtualbox does not provide a DNS server within the NAT.
