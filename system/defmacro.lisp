@@ -34,6 +34,7 @@
 		     (optional-count 0))
 		 ;; Check for a whole-var.
 		 ;; [&whole var]
+                 ;; TODO: &WHOLE can destructure as well.
 		 (when (eq '&whole (car ll))
 		   (when (null (cdr ll))
 		     (error 'invalid-macro-lambda-list
@@ -186,7 +187,13 @@
 	  `(progn
 	     ,(check-sublist current-value lambda-list req-count opt-count)
 	     (let* (,@initial-bindings
-		    ,@bindings)
+		    ,@(loop
+                         for (name init-form) in bindings
+                         collect (list (cond (name)
+                                             (t (let ((sym (gensym)))
+                                                  (push `(ignore ,sym) declares)
+                                                  sym)))
+                                       init-form)))
 	       (declare ,@declares)
 	       ,(if name
 		    `(block ,name
