@@ -608,23 +608,23 @@
                                          (elt sequence (+ i 2)))))))
              x))))
 
-(defun set-difference (list-1 list-2)
+(defun set-difference (list-1 list-2 &key key test test-not)
   (let ((result '()))
     (dolist (e list-1)
-      (when (not (member e list-2))
+      (when (not (member e list-2 :key key :test test :test-not test-not))
 	(setf result (cons e result))))
     result))
 
-(defun union (list-1 list-2)
+(defun union (list-1 list-2 &key key test test-not)
   (let ((result (copy-list list-1)))
     (dolist (e list-2)
-      (when (not (member e list-1))
+      (when (not (member e list-1 :key key :test test :test-not test-not))
 	(setf result (cons e result))))
     result))
 
-(defun intersection (list-1 list-2)
+(defun intersection (list-1 list-2 &key key test test-not)
   (when list-1
-    (if (member (first list-1) list-2)
+    (if (member (first list-1) list-2 :key key :test test :test-not test-not)
         (cons (first list-1) (intersection (rest list-1) list-2))
         (intersection (rest list-1) list-2))))
 
