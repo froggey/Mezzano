@@ -141,19 +141,6 @@
 		 (char-downcase c)
 		 (char-upcase c)))))
 
-;;; Set basic syntax traits for standard characters.
-(setf (readtable-syntax-type #\Tab *standard-readtable*) :whitespace
-      (readtable-syntax-type #\Newline *standard-readtable*) :whitespace
-      (readtable-syntax-type #\Linefeed *standard-readtable*) :whitespace
-      (readtable-syntax-type #\Page *standard-readtable*) :whitespace
-      (readtable-syntax-type #\Return *standard-readtable*) :whitespace
-      (readtable-syntax-type #\Space *standard-readtable*) :whitespace
-      (readtable-syntax-type #\\ *standard-readtable*) :single-escape
-      (readtable-syntax-type #\| *standard-readtable*) :multiple-escape)
-
-;;; Function READ, READ-PRESERVING-WHITESPACE
-;;; Function READ-DELIMITED-LIST
-
 (defun follow-stream-designator (stream default)
   (cond ((null stream) default)
 	((eql stream 't) *terminal-io*)
@@ -925,37 +912,52 @@
     (funcall fn)))
 
 ;;; Set standard reader macros.
-(progn
-  (set-macro-character #\( 'read-left-parenthesis nil *standard-readtable*)
-  (set-macro-character #\) 'read-right-parenthesis nil *standard-readtable*)
-  (set-macro-character #\' 'read-single-quote nil *standard-readtable*)
-  (set-macro-character #\; 'read-semicolon nil *standard-readtable*)
-  (set-macro-character #\" 'read-double-quote nil *standard-readtable*)
-  (set-macro-character #\` 'read-backquote nil *standard-readtable*)
-  (set-macro-character #\, 'read-comma nil *standard-readtable*)
-  (make-dispatch-macro-character #\# t *standard-readtable*)
-  (set-dispatch-macro-character #\# #\\ 'read-#-backslash *standard-readtable*)
-  (set-dispatch-macro-character #\# #\' 'read-#-quote *standard-readtable*)
-  (set-dispatch-macro-character #\# #\( 'read-#-left-parenthesis *standard-readtable*)
-  (set-dispatch-macro-character #\# #\* 'read-#-asterisk *standard-readtable*)
-  (set-dispatch-macro-character #\# #\: 'read-#-colon *standard-readtable*)
-  (set-dispatch-macro-character #\# #\. 'read-#-dot *standard-readtable*)
-  (set-dispatch-macro-character #\# #\B 'read-#-radix *standard-readtable*)
-  (set-dispatch-macro-character #\# #\O 'read-#-radix *standard-readtable*)
-  (set-dispatch-macro-character #\# #\X 'read-#-radix *standard-readtable*)
-  (set-dispatch-macro-character #\# #\R 'read-#-radix *standard-readtable*)
-  (set-dispatch-macro-character #\# #\C 'read-#-complex *standard-readtable*)
-  (set-dispatch-macro-character #\# #\A 'read-#-array *standard-readtable*)
-  (set-dispatch-macro-character #\# #\S 'read-#-struct *standard-readtable*)
-  (set-dispatch-macro-character #\# #\P 'read-#-pathname *standard-readtable*)
-  (set-dispatch-macro-character #\# #\= 'read-#-equal-sign *standard-readtable*)
-  (set-dispatch-macro-character #\# #\# 'read-#-sharp-sign *standard-readtable*)
-  (set-dispatch-macro-character #\# #\+ 'read-#-plus *standard-readtable*)
-  (set-dispatch-macro-character #\# #\- 'read-#-minus *standard-readtable*)
-  (set-dispatch-macro-character #\# #\| 'read-#-vertical-bar *standard-readtable*)
-  (set-dispatch-macro-character #\# #\< 'read-#-invalid *standard-readtable*)
-  (set-dispatch-macro-character #\# #\Newline 'read-#-invalid *standard-readtable*)
-  (set-dispatch-macro-character #\# #\Space 'read-#-invalid *standard-readtable*)
-  (set-dispatch-macro-character #\# #\Tab 'read-#-invalid *standard-readtable*)
-  (set-dispatch-macro-character #\# #\Page 'read-#-invalid *standard-readtable*)
-  (set-dispatch-macro-character #\# #\) 'read-#-invalid *standard-readtable*))
+(defun initialize-standard-readtable (readtable)
+;;; Set basic syntax traits for standard characters.
+  (setf (readtable-syntax-type #\Tab readtable) :whitespace
+        (readtable-syntax-type #\Newline readtable) :whitespace
+        (readtable-syntax-type #\Linefeed readtable) :whitespace
+        (readtable-syntax-type #\Page readtable) :whitespace
+        (readtable-syntax-type #\Return readtable) :whitespace
+        (readtable-syntax-type #\Space readtable) :whitespace
+        (readtable-syntax-type #\\ readtable) :single-escape
+        (readtable-syntax-type #\| readtable) :multiple-escape)
+  ;; And standard reader macros.
+  (set-macro-character #\( 'read-left-parenthesis nil readtable)
+  (set-macro-character #\) 'read-right-parenthesis nil readtable)
+  (set-macro-character #\' 'read-single-quote nil readtable)
+  (set-macro-character #\; 'read-semicolon nil readtable)
+  (set-macro-character #\" 'read-double-quote nil readtable)
+  (set-macro-character #\` 'read-backquote nil readtable)
+  (set-macro-character #\, 'read-comma nil readtable)
+  (make-dispatch-macro-character #\# t readtable)
+  (set-dispatch-macro-character #\# #\\ 'read-#-backslash readtable)
+  (set-dispatch-macro-character #\# #\' 'read-#-quote readtable)
+  (set-dispatch-macro-character #\# #\( 'read-#-left-parenthesis readtable)
+  (set-dispatch-macro-character #\# #\* 'read-#-asterisk readtable)
+  (set-dispatch-macro-character #\# #\: 'read-#-colon readtable)
+  (set-dispatch-macro-character #\# #\. 'read-#-dot readtable)
+  (set-dispatch-macro-character #\# #\B 'read-#-radix readtable)
+  (set-dispatch-macro-character #\# #\O 'read-#-radix readtable)
+  (set-dispatch-macro-character #\# #\X 'read-#-radix readtable)
+  (set-dispatch-macro-character #\# #\R 'read-#-radix readtable)
+  (set-dispatch-macro-character #\# #\C 'read-#-complex readtable)
+  (set-dispatch-macro-character #\# #\A 'read-#-array readtable)
+  (set-dispatch-macro-character #\# #\S 'read-#-struct readtable)
+  (set-dispatch-macro-character #\# #\P 'read-#-pathname readtable)
+  (set-dispatch-macro-character #\# #\= 'read-#-equal-sign readtable)
+  (set-dispatch-macro-character #\# #\# 'read-#-sharp-sign readtable)
+  (set-dispatch-macro-character #\# #\+ 'read-#-plus readtable)
+  (set-dispatch-macro-character #\# #\- 'read-#-minus readtable)
+  (set-dispatch-macro-character #\# #\| 'read-#-vertical-bar readtable)
+  (set-dispatch-macro-character #\# #\< 'read-#-invalid readtable)
+  (set-dispatch-macro-character #\# #\Newline 'read-#-invalid readtable)
+  (set-dispatch-macro-character #\# #\Space 'read-#-invalid readtable)
+  (set-dispatch-macro-character #\# #\Tab 'read-#-invalid readtable)
+  (set-dispatch-macro-character #\# #\Page 'read-#-invalid readtable)
+  (set-dispatch-macro-character #\# #\) 'read-#-invalid readtable))
+
+(setf *protect-the-standard-readtable* nil)
+(initialize-standard-readtable *standard-readtable*)
+(setf *protect-the-standard-readtable* t)
+(setf *readtable* (copy-readtable nil))
