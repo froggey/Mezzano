@@ -911,6 +911,21 @@
 	(*readtable* (copy-readtable nil)))
     (funcall fn)))
 
+(defun read-delimited-list (char &optional input-stream recursive-p)
+  (do* ((result '()))
+       (nil)
+    (let ((x (peek-char t input-stream)))
+      (cond
+	((eql x char)
+	 ;; Done, finish list
+	 ;; Read the ) and drop it
+	 (read-char input-stream)
+	 (return (if *read-suppress*
+                     nil
+                     (reverse result))))
+	(t
+         (push (read input-stream t nil recursive-p) result))))))
+
 ;;; Set standard reader macros.
 (defun initialize-standard-readtable (readtable)
 ;;; Set basic syntax traits for standard characters.
