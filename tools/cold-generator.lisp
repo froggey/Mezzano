@@ -770,7 +770,7 @@
     ;; Array tag.
     (setf (word (+ address 0)) (array-header sys.int::+object-tag-thread+ 0))
     ;; Name.
-    (setf (word (+ address 1)) (make-value (store-string name)
+    (setf (word (+ address 1)) (make-value (store-string name :wired)
                                            sys.int::+tag-object+))
     ;; State.
     (setf (word (+ address 2)) (vsym initial-state))

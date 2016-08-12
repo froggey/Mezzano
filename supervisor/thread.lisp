@@ -5,10 +5,9 @@
 
 (sys.int::defglobal *global-thread-lock* nil
   "This lock protects the special variables that make up the thread list and run queues.")
-(sys.int::defglobal *thread-run-queue-head*)
-(sys.int::defglobal *thread-run-queue-tail*)
-(sys.int::defglobal *low-priority-thread-run-queue-head*)
-(sys.int::defglobal *low-priority-thread-run-queue-tail*)
+(sys.int::defglobal *supervisor-priority-run-queue*)
+(sys.int::defglobal *normal-priority-run-queue*)
+(sys.int::defglobal *low-priority-run-queue*)
 (sys.int::defglobal *all-threads*)
 
 (sys.int::defglobal *world-stop-lock*)
@@ -19,6 +18,17 @@
 
 (defvar *pseudo-atomic* nil)
 
+(defstruct (run-queue
+             (:area :wired)
+             (:constructor make-run-queue (name)))
+  name
+  head
+  tail)
+
+;; Threads initially created by the cold-generator.
+(sys.int::defglobal sys.int::*pager-thread*)
+(sys.int::defglobal sys.int::*snapshot-thread*)
+(sys.int::defglobal sys.int::*disk-io-thread*)
 ;; FIXME: There must be one idle thread per cpu.
 ;; The cold-generator creates an idle thread for the BSP.
 (sys.int::defglobal sys.int::*bsp-idle-thread*)
@@ -97,7 +107,7 @@
   ;; Thread's priority, can be either :normal or :low.
   ;; The pager, disk io, and thread currently stopping the world all
   ;; have higher-than-:normal priority, no matter what the priority field contains.
-  (field priority                16 :type (member :low :normal))
+  (field priority                16 :type (member :low :normal :supervisor))
   ;; Arguments passed to the pager when performing an RPC.
   (field pager-argument-1        17)
   (field pager-argument-2        18)
@@ -197,47 +207,59 @@
 
 ;;; Run queue management.
 
-(defun push-run-queue-1 (thread head tail)
-  (cond ((null (sys.int::symbol-global-value head))
-         (setf (sys.int::symbol-global-value head) thread
-               (sys.int::symbol-global-value tail) thread)
+(defun run-queue-for-priority (priority)
+  (ecase priority
+    (:supervisor *supervisor-priority-run-queue*)
+    (:normal *normal-priority-run-queue*)
+    (:low *low-priority-run-queue*)))
+
+(defun push-run-queue-1 (thread rq)
+  (cond ((null (run-queue-head rq))
+         (setf (run-queue-head rq) thread
+               (run-queue-tail rq) thread)
          (setf (thread-%next thread) nil
                (thread-%prev thread) nil))
         (t
-         (setf (thread-%next (sys.int::symbol-global-value tail)) thread
-               (thread-%prev thread) (sys.int::symbol-global-value tail)
+         (setf (thread-%next (run-queue-tail rq)) thread
+               (thread-%prev thread) (run-queue-tail rq)
                (thread-%next thread) nil
-               (sys.int::symbol-global-value tail) thread))))
+               (run-queue-tail rq) thread))))
 
 (defun push-run-queue (thread)
-  (when (or (eql thread *world-stopper*)
-            (eql thread (sys.int::symbol-global-value 'sys.int::*pager-thread*))
-            (eql thread (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)))
+  (when (eql thread *world-stopper*)
     (return-from push-run-queue))
-  (ecase (thread-priority thread)
-    (:normal
-     (push-run-queue-1 thread
-                       '*thread-run-queue-head*
-                       '*thread-run-queue-tail*))
-    (:low
-     (push-run-queue-1 thread
-                       '*low-priority-thread-run-queue-head*
-                       '*low-priority-thread-run-queue-tail*))))
+  (push-run-queue-1 thread (run-queue-for-priority (thread-priority thread))))
 
-(defun pop-run-queue-1 (head tail)
-  (let ((thread (sys.int::symbol-global-value head)))
+(defun pop-run-queue-1 (rq)
+  (let ((thread (run-queue-head rq)))
     (when thread
-      (cond ((thread-%next (sys.int::symbol-global-value head))
-             (setf (thread-%prev (thread-%next (sys.int::symbol-global-value head))) nil)
-             (setf (sys.int::symbol-global-value head) (thread-%next (sys.int::symbol-global-value head))))
+      (cond ((thread-%next thread)
+             (setf (thread-%prev (thread-%next thread)) nil)
+             (setf (run-queue-head rq) (thread-%next thread)))
             (t
-             (setf (sys.int::symbol-global-value head) nil
-                   (sys.int::symbol-global-value tail) nil)))
+             (setf (run-queue-head rq) nil
+                   (run-queue-tail rq) nil)))
       thread)))
 
 (defun pop-run-queue ()
-  (or (pop-run-queue-1 '*thread-run-queue-head* '*thread-run-queue-tail*)
-      (pop-run-queue-1 '*low-priority-thread-run-queue-head* '*low-priority-thread-run-queue-tail*)))
+  (or (pop-run-queue-1 *supervisor-priority-run-queue*)
+      (pop-run-queue-1 *normal-priority-run-queue*)
+      (pop-run-queue-1 *low-priority-run-queue*)))
+
+(defun dump-run-queue (rq)
+  (debug-print-line "Run queue " rq "/" (run-queue-name rq) ":")
+  (do ((thread (run-queue-head rq) (thread-%next thread)))
+      ((null thread))
+    (debug-print-line "  " thread "/" (thread-name thread))))
+
+(defun dump-run-queues ()
+  (debug-print-line "Run queues:")
+  (when *world-stopper*
+    (debug-print-line "Thread " *world-stopper* "/" (thread-name *world-stopper*) " holds the world"))
+  (debug-print-line "Pager state: " (thread-state sys.int::*pager-thread*) " " (thread-wait-item sys.int::*pager-thread*))
+  (dump-run-queue *supervisor-priority-run-queue*)
+  (dump-run-queue *normal-priority-run-queue*)
+  (dump-run-queue *low-priority-run-queue*))
 
 (defun %update-run-queue ()
   "Possibly return the current thread to the run queue, and
@@ -246,38 +268,29 @@ Interrupts must be off, the current thread must be locked."
   (let ((current (current-thread)))
     (with-symbol-spinlock (*global-thread-lock*)
       (cond (*world-stopper*
-             ;; World is stopped, the only runnable threads are
-             ;; the pager, the disk io thread, the idle thread and the world stopper.
+             ;; World is stopped, the only runnable threads are the world stopper
+             ;; or any thread at :supervisor priority.
              (unless (or (eql current *world-stopper*)
-                         (eql current (sys.int::symbol-global-value 'sys.int::*pager-thread*))
-                         (eql current (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)))
+                         (eql (thread-priority current) :supervisor))
                (panic "Aiee. %UPDATE-RUN-QUEUE called with bad thread " current))
-             (cond ((eql (thread-state (sys.int::symbol-global-value 'sys.int::*pager-thread*)) :runnable)
-                    ;; Pager is ready to run.
-                    (sys.int::symbol-global-value 'sys.int::*pager-thread*))
-                   ((eql (thread-state (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)) :runnable)
-                    ;; Disk IO is ready to run.
-                    (sys.int::symbol-global-value 'sys.int::*disk-io-thread*))
+             ;; Supervisor priority threads first.
+             (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
                    ((eql (thread-state *world-stopper*) :runnable)
                     ;; The world stopper is ready.
                     *world-stopper*)
                    (t ;; Switch to idle.
                     sys.int::*bsp-idle-thread*)))
-            (t ;; Return the current thread to the run queue and fetch the next thread.
+            (t
+             ;; Return the current thread to the run queue and fetch the next thread.
              (when (eql current sys.int::*bsp-idle-thread*)
                (panic "Aiee. Idle thread called %UPDATE-RUN-QUEUE."))
              (when (eql (thread-state current) :runnable)
                (push-run-queue current))
-             (or (when (eql (thread-state (sys.int::symbol-global-value 'sys.int::*pager-thread*)) :runnable)
-                   ;; Pager is ready to run.
-                   (sys.int::symbol-global-value 'sys.int::*pager-thread*))
-                 (when (eql (thread-state (sys.int::symbol-global-value 'sys.int::*disk-io-thread*)) :runnable)
-                   ;; Disk IO is ready to run.
-                   (sys.int::symbol-global-value 'sys.int::*disk-io-thread*))
-                 ;; Try taking from the run queue.
-                 (pop-run-queue)
-                 ;; Fall back on idle.
-                 (sys.int::symbol-global-value 'sys.int::*bsp-idle-thread*)))))))
+             (or
+              ;; Try taking from the run queue.
+              (pop-run-queue)
+              ;; Fall back on idle.
+              sys.int::*bsp-idle-thread*))))))
 
 ;;; Thread switching.
 
@@ -449,10 +462,8 @@ Interrupts must be off, the current thread must be locked."
 (defun maybe-preempt-via-interrupt (interrupt-frame)
   (let ((current (current-thread)))
     (when (not (or (eql current *world-stopper*)
-                   (eql current (sys.int::symbol-global-value 'sys.int::*pager-thread*))
-                   (eql current (sys.int::symbol-global-value 'sys.int::*snapshot-thread*))
-                   (eql current (sys.int::symbol-global-value 'sys.int::*disk-io-thread*))
-                   (eql current (sys.int::symbol-global-value 'sys.int::*bsp-idle-thread*))))
+                   (eql (thread-priority current) :supervisor)
+                   (eql current sys.int::*bsp-idle-thread*)))
       (%lock-thread current)
       (setf (thread-state current) :runnable)
       (%reschedule-via-interrupt interrupt-frame))))
@@ -475,7 +486,7 @@ Interrupts must be off, the current thread must be locked."
 (defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
   (declare (sys.c::closure-allocation :wired))
   (check-type function (or function symbol))
-  (check-type priority (member :normal :low))
+  (check-type priority (member :supervisor :normal :low))
   ;; Allocate-object will leave the thread's state variable initialized to 0.
   ;; The GC detects this to know when it's scanning a partially-initialized thread.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
@@ -573,6 +584,10 @@ Interrupts must be off, the current thread must be locked."
     (reset-ephemeral-thread thread entry-point initial-state)
     thread))
 
+;; MAKE-THREAD arranges for new threads to call this function with the thread's
+;; initial function as an argument.
+;; It sets up the top-level catch for 'terminate-thread, and deals with cleaning
+;; up when the thread exits (either by normal return or by a throw to terminate-thread).
 (defun thread-entry-trampoline (function)
   (let ((self (current-thread)))
     (unwind-protect
@@ -602,14 +617,13 @@ Interrupts must be off, the current thread must be locked."
      (sys.int::%cli)
      ;; Look for a thread to switch to.
      (let ((next (with-symbol-spinlock (*global-thread-lock*)
-                   (cond ((eql (thread-state sys.int::*pager-thread*) :runnable)
-                          sys.int::*pager-thread*)
-                         ((eql (thread-state sys.int::*disk-io-thread*) :runnable)
-                          sys.int::*disk-io-thread*)
-                         (*world-stopper*
-                          (when (eql (thread-state *world-stopper*) :runnable)
-                            *world-stopper*))
-                         (t (pop-run-queue))))))
+                   (cond (*world-stopper*
+                          (cond ((pop-run-queue-1 *supervisor-priority-run-queue*))
+                                ((eql (thread-state *world-stopper*) :runnable)
+                                 *world-stopper*)
+                                (t nil)))
+                         (t
+                          (pop-run-queue))))))
        (cond (next
               (set-run-light t)
               ;; Switch to thread.
@@ -625,7 +639,7 @@ Interrupts must be off, the current thread must be locked."
              (t ;; Wait for an interrupt.
               (sys.int::%stihlt))))))
 
-(defun reset-ephemeral-thread (thread entry-point state)
+(defun reset-ephemeral-thread (thread entry-point state priority)
   ;; Threads created by the cold-generator have conses instead of real stack
   ;; objects. Work around this.
   (when (consp (thread-stack thread))
@@ -663,13 +677,38 @@ Interrupts must be off, the current thread must be locked."
           (thread-state-r13 thread) 0
           (thread-state-r14 thread) 0
           (thread-state-r15 thread) 0))
+  ;; Remove the thread from any potential run queue it may be on.
+  (when priority
+    (let ((rq (run-queue-for-priority (thread-priority thread))))
+      (cond ((and (eql (run-queue-head rq) thread)
+                  (eql (run-queue-tail rq) thread))
+             ;; Only thread on run queue.
+             (setf (run-queue-head rq) nil
+                   (run-queue-tail rq) nil))
+            ((eql (run-queue-head rq) thread)
+             ;; More than one thread, at head.
+             (setf (thread-%prev (thread-%next thread)) nil)
+             (setf (run-queue-head rq) (thread-%next thread)))
+            ((eql (run-queue-tail rq) thread)
+             ;; More than one thread, at tail.
+             (setf (thread-%next (thread-%prev thread)) nil)
+             (setf (run-queue-tail rq) (thread-%prev thread)))
+            ((thread-%next thread)
+             ;; Somewhere in the middle of the run queue.
+             (setf (thread-%next (thread-%prev thread)) (thread-%next thread)
+                   (thread-%prev (thread-%next thread)) (thread-%prev thread))
+             (setf (thread-%next thread) nil
+                   (thread-%prev thread) nil)))))
   (setf (thread-state thread) state
+        (thread-priority thread) (or priority :supervisor)
         (sys.int::%object-ref-t thread +thread-special-stack-pointer+) nil
         (sys.int::%object-ref-t thread +thread-wait-item+) nil
         (sys.int::%object-ref-t thread +thread-mutex-stack+) nil
         (sys.int::%object-ref-t thread +thread-pending-footholds+) '()
         (sys.int::%object-ref-t thread +thread-inhibit-footholds+) 1
         (thread-full-save-p thread) t)
+  (when priority
+    (push-run-queue thread))
   ;; Initialize the FXSAVE area.
   ;; All FPU/SSE interrupts masked, round to nearest,
   ;; x87 using 80 bit precision (long-float).
@@ -687,10 +726,9 @@ Interrupts must be off, the current thread must be locked."
   (when (not (boundp '*global-thread-lock*))
     ;; First-run stuff.
     (setf *global-thread-lock* :unlocked)
-    (setf *thread-run-queue-head* nil
-          *thread-run-queue-tail* nil)
-    (setf *low-priority-thread-run-queue-head* nil
-          *low-priority-thread-run-queue-tail* nil)
+    (setf *supervisor-priority-run-queue* (make-run-queue :supervisor)
+          *normal-priority-run-queue* (make-run-queue :normal)
+          *low-priority-run-queue* (make-run-queue :low))
     (setf *world-stop-lock* (make-mutex "World stop lock")
           *world-stop-cvar* (make-condition-variable "World stop cvar")
           *world-stop-pending* nil
@@ -702,10 +740,10 @@ Interrupts must be off, the current thread must be locked."
           (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*
           (thread-global-next sys.int::*disk-io-thread*) nil
           (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*))
-  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping)
-  (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping)
-  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable)
-  (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable)
+  (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping nil)
+  (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
+  (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable :supervisor)
+  (reset-ephemeral-thread sys.int::*disk-io-thread* #'disk-thread :runnable :supervisor)
   (condition-notify *world-stop-cvar* t))
 
 (defun wake-thread (thread)

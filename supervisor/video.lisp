@@ -281,7 +281,7 @@ An integer, measured in internal time units.")
 
 (defun debug-video-stream (op &optional arg)
   (ecase op
-    (:read-char (loop))
+    (:read-char (loop (thread-yield)))
     (:clear-input)
     (:write-char (debug-video-write-char arg))
     (:write-string (debug-video-write-string arg))
