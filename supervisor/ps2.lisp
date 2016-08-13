@@ -116,8 +116,8 @@
   (setf *ps/2-debug-dump-state* 0)
   (when (not (boundp '*ps/2-controller-lock*))
     (setf *ps/2-controller-lock* :unlocked
-          *ps/2-key-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))
-          *ps/2-aux-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8))))
+          *ps/2-key-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 key fifo")
+          *ps/2-aux-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 aux fifo")))
   ;; Enable the aux port.
   (ps/2-input-wait)
   (setf (system:io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)

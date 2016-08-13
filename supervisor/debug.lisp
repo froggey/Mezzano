@@ -23,8 +23,8 @@
   (setf *debug-pseudostream* pseudostream))
 
 (defmacro call-debug-pseudostream (command &rest arguments)
-  `(when (sys.int::symbol-global-boundp '*debug-pseudostream*)
-     (funcall (sys.int::symbol-global-value '*debug-pseudostream*)
+  `(when (boundp '*debug-pseudostream*)
+     (funcall *debug-pseudostream*
               ,command ,@arguments)))
 
 (defun debug-read-char ()
@@ -84,6 +84,25 @@
            (debug-write (first i) (1+ depth))))
         (t (debug-write-string "#<")
            (debug-write-fixnum (sys.int::lisp-object-address thing))
+           (cond
+             ((threadp thing)
+              (debug-write-string " Thread ")
+              (debug-write (thread-name thing) (1+ depth)))
+             ((mutex-p thing)
+              (debug-write-string " Mutex ")
+              (debug-write (wait-queue-name thing) (1+ depth)))
+             ((condition-variable-p thing)
+              (debug-write-string " Condition-Variable ")
+              (debug-write (wait-queue-name thing) (1+ depth)))
+             ((latch-p thing)
+              (debug-write-string " Latch ")
+              (debug-write (wait-queue-name thing) (1+ depth)))
+             ((semaphore-p thing)
+              (debug-write-string " Semaphore ")
+              (debug-write (wait-queue-name thing) (1+ depth)))
+             ((wait-queue-p thing)
+              (debug-write-string " Wait-Queue ")
+              (debug-write (wait-queue-name thing) (1+ depth))))
            (debug-write-string ">"))))
 
 (defun debug-print-line-1 (things)
@@ -142,40 +161,73 @@
   (declare (dynamic-extent things))
   (panic-1 things nil))
 
+(defun dump-thread (thread fp)
+  (block nil
+    (with-page-fault-hook
+        (()
+         (debug-print-line "<truncated>")
+         (return))
+      (debug-print-line "Thread " thread " " (thread-state thread) " " (thread-wait-item thread))))
+  (when (not (eql thread (current-thread)))
+    (block nil
+      (with-page-fault-hook
+          (()
+           (debug-print-line "<truncated>")
+           (return))
+        (let ((return-address (if (thread-full-save-p thread)
+                                  (thread-state-rip thread)
+                                  (sys.int::memref-signed-byte-64 (thread-state-rsp thread) 0))))
+          (when (eql return-address 0)
+            (return))
+          (debug-write-string "             ")
+          (debug-write return-address)
+          (debug-write-char #\Space)
+          ;; Writing the name itself is fraught with danger. Print it in a seperate
+          ;; call from the frame-pointer & return address so that a page-fault
+          ;; won't abort the whole entry.
+          (block nil
+            (with-page-fault-hook
+                (()
+                 (debug-write-string "#<unknown>")
+                 (return))
+              (let* ((function (sys.int::return-address-to-function return-address))
+                     (info (sys.int::%object-header-data function))
+                     (mc-size (ldb (byte sys.int::+function-machine-code-size+
+                                         sys.int::+function-machine-code-position+)
+                                   info))
+                     ;; First entry in the constant pool.
+                     (address (logand (sys.int::lisp-object-address function) -16))
+                     (name (sys.int::memref-t address (* mc-size 2))))
+                (debug-write name))))
+          (debug-print-line)))))
+  (panic-print-backtrace fp))
+
+(defun debug-dump-threads ()
+  (dump-run-queues)
+  (dump-thread (current-thread) (sys.int::read-frame-pointer))
+  (do ((thread *all-threads*
+               (thread-global-next thread)))
+      ((null thread))
+    (when (not (eql thread (current-thread)))
+      (debug-print-line "----------")
+      (dump-thread thread (thread-frame-pointer thread)))))
+
 (defun panic-1 (things extra)
   (sys.int::%cli)
-  (when (and (sys.int::symbol-global-boundp '*panic-in-progress*)
-             (sys.int::symbol-global-value '*panic-in-progress*))
+  (when (and (boundp '*panic-in-progress*)
+             *panic-in-progress*)
     (loop (sys.int::%hlt)))
   ;; Stop the world, just in case printing the backtrace requires paging stuff in.
-  (setf (sys.int::symbol-global-value '*world-stopper*) (current-thread)
-        (sys.int::symbol-global-value '*panic-in-progress*) t)
+  (setf *world-stopper* (current-thread)
+        *panic-in-progress* t)
   (debug-force-output)
   (set-panic-light)
   (disable-page-fault-ist)
   (debug-print-line-1 things)
   (when extra
     (funcall extra))
-  (panic-print-backtrace (sys.int::read-frame-pointer))
-  (do ((thread (sys.int::symbol-global-value '*all-threads*)
-               (thread-global-next thread)))
-      ((null thread))
-    (when (not (eql thread (current-thread)))
-      (debug-print-line "----------")
-      (debug-print-line "Thread " thread)
-      (panic-print-backtrace (thread-frame-pointer thread))))
+  (debug-dump-threads)
   (loop (sys.int::%hlt)))
-
-(defun debug-dump-threads ()
-  (debug-print-line "Thread " (current-thread))
-  (panic-print-backtrace (sys.int::read-frame-pointer))
-  (do ((thread (sys.int::symbol-global-value '*all-threads*)
-               (thread-global-next thread)))
-      ((null thread))
-    (when (not (eql thread (current-thread)))
-      (debug-print-line "----------")
-      (debug-print-line "Thread " thread)
-      (panic-print-backtrace (thread-frame-pointer thread)))))
 
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."

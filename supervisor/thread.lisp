@@ -255,8 +255,7 @@
 (defun dump-run-queues ()
   (debug-print-line "Run queues:")
   (when *world-stopper*
-    (debug-print-line "Thread " *world-stopper* "/" (thread-name *world-stopper*) " holds the world"))
-  (debug-print-line "Pager state: " (thread-state sys.int::*pager-thread*) " " (thread-wait-item sys.int::*pager-thread*))
+    (debug-print-line "Thread " *world-stopper* " holds the world"))
   (dump-run-queue *supervisor-priority-run-queue*)
   (dump-run-queue *normal-priority-run-queue*)
   (dump-run-queue *low-priority-run-queue*))
@@ -1186,19 +1185,22 @@ May be used from an interrupt handler."
 (defstruct (irq-fifo
              (:area :wired)
              (:constructor %make-irq-fifo))
+  (name nil)
   (head 0 :type fixnum)
   (tail 0 :type fixnum)
   (size)
   (element-type)
   (buffer (error "no buffer supplied") :read-only t)
-  (count (make-semaphore 0))
+  (count)
   (lock (place-spinlock-initializer)))
 
-(defun make-irq-fifo (size &key (element-type 't))
+(defun make-irq-fifo (size &key (element-type 't) name)
   ;; TODO: non-t element types.
   (%make-irq-fifo :size size
                   :buffer (sys.int::make-simple-vector size :wired)
-                  :element-type 't))
+                  :element-type 't
+                  :count (make-semaphore 0 name)
+                  :name name))
 
 (defun irq-fifo-push (value fifo)
   "Push a byte onto FIFO. Returns true if there was space adn value was pushed successfully.
