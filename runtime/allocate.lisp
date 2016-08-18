@@ -173,7 +173,7 @@
                            (sys.int::memref-t sys.int::*pinned-area-bump* 1) nil)
                      (incf sys.int::*pinned-area-bump* grow-by)))))))
        (when (> i *maximum-allocation-attempts*)
-         (error 'storage-condition))
+         (cerror "Retry allocation" 'storage-condition))
        (sys.int::gc)))
 
 (defun %allocate-from-wired-area-1 (tag data words)
@@ -278,7 +278,7 @@
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
-         (error 'storage-condition))
+         (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
        (sys.int::gc)
        (go OUTER-LOOP))))
@@ -450,7 +450,7 @@
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
-         (error 'storage-condition))
+         (cerror "Retry allocation" 'storage-condition))
        (incf gc-count)
        (sys.int::gc)
        (go OUTER-LOOP))))
