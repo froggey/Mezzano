@@ -357,7 +357,7 @@
         (saw-integer-digits nil)
         (saw-decimal-digits nil)
         (saw-decimal-point nil)
-        (exponent #\E)
+        (exponent nil)
         (exponent-sign 1)
         (exponent-value 0)
         (sign 1)
@@ -425,13 +425,16 @@
       ;; Must be at the end.
       (when (peek)
         (return-from read-float))
+      ;; Must have seen either a decimal point or exponent.
+      (when (not (or saw-decimal-point exponent))
+        (return-from read-float))
       ;; TODO, deal with float type selection correctly.
       (coerce
        (* sign
           (+ integer-part decimal-part)
           ;; ### 10.0 to work around a missing feature in FLOAT. No bignum support.
           (expt 10.0d0 (* exponent-sign exponent-value)))
-       (ecase (char-upcase exponent)
+       (ecase (char-upcase (or exponent #\E))
          (#\S 'short-float)
          (#\F 'single-float)
          (#\D 'double-float)
