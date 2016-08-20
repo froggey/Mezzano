@@ -831,6 +831,20 @@ Interrupts must be off, the current thread must be locked."
 ;;; WITH-WORLD-STOPPED and WITH-PSEUDO-ATOMIC work together as a sort-of global
 ;;; reader/writer lock over the whole system.
 
+(defmacro with-world-stop-lock (&body body)
+  `(unwind-protect
+        (progn
+          (loop
+             ;; Spin on the lock to prevent threads stacking up on wait list.
+             ;; Threads sleeping on the mutex will never wake up if the world
+             ;; is stopped.
+             ;; Mutexes and cvars probably aren't the right thing to use here.
+             (when (acquire-mutex *world-stop-lock* nil)
+               (return))
+             (thread-yield))
+          ,@body)
+     (release-mutex *world-stop-lock*)))
+
 (defun call-with-world-stopped (thunk)
   (let ((self (current-thread)))
     (when (eql *world-stopper* self)
@@ -838,7 +852,7 @@ Interrupts must be off, the current thread must be locked."
     (when *pseudo-atomic*
       (panic "Stopping world while pseudo-atomic!"))
     (ensure-interrupts-enabled)
-    (with-mutex (*world-stop-lock*)
+    (with-world-stop-lock ()
       ;; First, try to position ourselves as the next thread to stop the world.
       ;; This prevents any more threads from becoming PA.
       (loop
@@ -869,7 +883,7 @@ Interrupts must be off, the current thread must be locked."
   (when (eql *world-stopper* (current-thread))
     (panic "Going PA with world stopped!"))
   (ensure-interrupts-enabled)
-  (with-mutex (*world-stop-lock*)
+  (with-world-stop-lock ()
     (loop
        (when (null *world-stop-pending*)
          (return))
