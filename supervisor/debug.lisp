@@ -250,6 +250,16 @@
   (declare (ignore stream))
   (debug-start-line-p))
 
+(defun sys.int::cold-line-column (stream)
+  (if (sys.int::cold-start-line-p stream)
+      0
+      ;; Not true, but mostly good enough for XP.
+      1))
+
+(defun sys.int::cold-line-length (stream)
+  (declare (ignore stream))
+  nil)
+
 (defun sys.int::cold-read-char (stream)
   (declare (ignore stream))
   (cond (*cold-unread-char*

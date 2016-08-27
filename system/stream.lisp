@@ -164,10 +164,10 @@
   (format stream "~S" object))
 
 (defmethod stream-line-column ((stream sys.int::cold-stream))
-  nil)
+  (sys.int::cold-line-column stream))
 
 (defmethod stream-line-length ((stream sys.int::cold-stream))
-  nil)
+  (sys.int::cold-line-length stream))
 
 (defmethod stream-line-column ((stream fundamental-character-output-stream))
    nil)
