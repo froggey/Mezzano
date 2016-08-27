@@ -127,30 +127,17 @@
 ;; end of the port uses UTF-8 with CRLF newlines.
 
 (defun debug-serial-write-char (char)
-  (let ((code (char-code char)))
-    (setf *serial-at-line-start* nil)
-    ;; FIXME: Should write all the bytes to the buffer in one go.
-    ;; Other processes may interfere.
-    (cond ((eql char #\Newline)
-           (setf *serial-at-line-start* t)
-           ;; Turn #\Newline into CRLF
-           (debug-serial-write-byte #x0D)
-           (debug-serial-write-byte #x0A))
-          ;; Encode as UTF-8, ignore any flag bits.
-          ((< code #x80)
-           (debug-serial-write-byte code))
-          ((< code #x800)
-           (debug-serial-write-byte (logior #b11000000 (ldb (byte 5 6) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code))))
-          ((< code #x10000)
-           (debug-serial-write-byte (logior #b11100000 (ldb (byte 4 12) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 6) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code))))
-          (t
-           (debug-serial-write-byte (logior #b11110000 (ldb (byte 3 18) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 12) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 6) code)))
-           (debug-serial-write-byte (logior #b10000000 (ldb (byte 6 0) code)))))))
+  (setf *serial-at-line-start* nil)
+  ;; FIXME: Should write all the bytes to the buffer in one go.
+  ;; Other processes may interfere.
+  (cond ((eql char #\Newline)
+         (setf *serial-at-line-start* t)
+         ;; Turn #\Newline into CRLF
+         (debug-serial-write-byte #x0D)
+         (debug-serial-write-byte #x0A))
+        (t
+         (with-utf-8-bytes (char byte)
+           (debug-serial-write-byte byte)))))
 
 (defun debug-serial-write-string (string)
   (dotimes (i (string-length string))

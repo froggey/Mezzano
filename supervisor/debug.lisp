@@ -19,6 +19,17 @@
 ;;     :force-output  Same as CL:FORCE-OUTPUT.
 (sys.int::defglobal *debug-pseudostream*)
 
+;; Log buffer defined by the cold-generator.
+;; Must be a (SIMPLE-ARRAY (UNSIGNED-BYTE 8) (*))
+(sys.int::defglobal sys.int::*supervisor-log-buffer*)
+(sys.int::defglobal *supervisor-log-buffer-position*)
+
+(defun initialize-debug-log ()
+  (cond ((boundp '*supervisor-log-buffer-position*)
+         (debug-log-buffer-write-char #\Newline))
+        (t
+         (setf *supervisor-log-buffer-position* 0))))
+
 (defun debug-set-output-pseudostream (pseudostream)
   (setf *debug-pseudostream* pseudostream))
 
@@ -33,16 +44,57 @@
 (defun debug-clear-input ()
   (call-debug-pseudostream :clear-input))
 
+(defmacro with-utf-8-bytes ((char byte) &body body)
+  (let ((code (gensym "CODE")))
+    `(let ((,code (char-code ,char)))
+       (cond
+        ((< ,code #x80)
+         (let ((,byte ,code))
+           ,@body))
+        ((< ,code #x800)
+         (let ((,byte (logior #b11000000 (ldb (byte 5 6) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 0) ,code))))
+           ,@body))
+        ((< ,code #x10000)
+         (let ((,byte (logior #b11100000 (ldb (byte 4 12) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 6) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 0) ,code))))
+           ,@body))
+        (t
+         (let ((,byte (logior #b11110000 (ldb (byte 3 18) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 12) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 6) ,code))))
+           ,@body)
+         (let ((,byte (logior #b10000000 (ldb (byte 6 0) ,code))))
+           ,@body))))))
+
+(defun debug-log-buffer-write-char (char)
+  (with-utf-8-bytes (char byte)
+    (setf (sys.int::%object-ref-unsigned-byte-8 sys.int::*supervisor-log-buffer*
+                                                *supervisor-log-buffer-position*)
+          byte)
+    (setf *supervisor-log-buffer-position* (rem (1+ *supervisor-log-buffer-position*)
+                                                (sys.int::%object-header-data
+                                                 sys.int::*supervisor-log-buffer*)))))
+
 (defun debug-write-string (string)
+  (dotimes (i (string-length string))
+    (debug-log-buffer-write-char (char string i)))
   (call-debug-pseudostream :write-string string))
 
 (defun debug-write-char (char)
+  (debug-log-buffer-write-char char)
   (call-debug-pseudostream :write-char char))
 
 (defun debug-write-line (string)
-  (call-debug-pseudostream :write-string string)
-  (call-debug-pseudostream :write-char #\Newline)
-  (call-debug-pseudostream :force-output))
+  (debug-write-string string)
+  (debug-write-char #\Newline)
+  (debug-force-output))
 
 ;;; Print a negative fixnum. Use negative numbers to avoid problems
 ;;; near most-negative-fixnum.
@@ -108,8 +160,8 @@
 (defun debug-print-line-1 (things)
   (dolist (thing things)
     (debug-write thing))
-  (call-debug-pseudostream :write-char #\Newline)
-  (call-debug-pseudostream :force-output))
+  (debug-write-char #\Newline)
+  (debug-force-output))
 
 (defun debug-print-line (&rest things)
   (declare (dynamic-extent things))

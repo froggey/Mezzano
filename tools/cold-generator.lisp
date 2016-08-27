@@ -1389,6 +1389,11 @@
                  (symbolp (second what)))
        do (symbol-address (string (second what))
                           (package-name (symbol-package (second what)))))
+    (setf (cold-symbol-value 'sys.int::*supervisor-log-buffer*)
+          (save-object (make-array (* 1024 1024)
+                                   :element-type '(unsigned-byte 8)
+                                   :initial-element 0)
+                       :wired))
     (setf (cold-symbol-value 'sys.int::*bsp-idle-thread*)
           (create-thread "BSP idle thread"
                          :stack-size (* 16 1024)))
@@ -1406,7 +1411,8 @@
                          :initial-state :sleeping))
     (setf (cold-symbol-value 'sys.int::*bsp-info-vector*)
           (save-object (make-array (1- (/ (* 2 #x1000) 8))
-                                   :element-type '(unsigned-byte 64))
+                                   :element-type '(unsigned-byte 64)
+                                   :initial-element 0)
                        :wired))
     ;; Make sure there's a keyword for each package.
     (iter (for ((nil . package-name) nil) in-hashtable *symbol-table*)
