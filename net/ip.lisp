@@ -358,12 +358,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                (when (>= seen-dots 4)
                  (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Too many dots."))
+                        :format-control "Too many dots in address ~S."
+                        :format-arguments (list address)))
                (when (>= octet 256)
                  (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Part ~D too large."
-                        :format-arguments (list (1- seen-dots))))
+                        :format-control "Part ~D too large in address ~S."
+                        :format-arguments (list (1- seen-dots) address)))
                (setf value (+ (ash value 8)
                               octet)
                      octet 0))
@@ -372,12 +373,13 @@ If ADDRESS is not a valid IPv4 address, an error of type INVALID-IPV4-ADDRESS is
                               weight)))
               (t (error 'invalid-ipv4-address
                         :address address
-                        :format-control "Invalid character ~C."
-                        :format-arguments (list c))))))
+                        :format-control "Invalid character ~:C in address ~S."
+                        :format-arguments (list c address))))))
     (when (>= octet (ash 1 (* (- 4 seen-dots) 8)))
       (error 'invalid-ipv4-address
              :address address
-             :format-control "Final part too large."))
+             :format-control "Final part too large in address ~S."
+             :format-arguments (list address)))
     (setf value (+ (ash value (* (- 4 seen-dots) 8))
                    octet))
     (check-type value (unsigned-byte 32))
