@@ -46,6 +46,10 @@ Make sure there is a virtio-net NIC attached.~%")
            (mezzano.network.ip:address-network fs-address 24)
            (mezzano.network.ip:make-ipv4-address "10.0.2.0"))
       (format t "Warning! This is on a 10/8 network and is not supported.~%"))
+    (when (mezzano.network.ip:address-equal
+           fs-address
+           (mezzano.network.ip:make-ipv4-address "127.0.0.1"))
+      (format t "Warning! This is the local loopback address, and is probably not what you want.~%"))
     (format t "Pinging file server host... ")
     (finish-output)
     (cond ((mezzano.network.ip:ping-host sys.int::*file-server-host-ip* :quiet t)
