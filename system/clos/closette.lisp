@@ -1476,7 +1476,7 @@ has only has class specializer."
       (loop
          for (initarg form fn) in (class-direct-default-initargs c)
          do (when (and (not (member initarg initargs))
-                       (not (member initargs default-initargs)))
+                       (not (member initarg default-initargs)))
               (push initarg default-initargs)
               (push (funcall fn) default-initargs))))
     (append initargs (nreverse default-initargs))))
