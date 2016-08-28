@@ -8,7 +8,7 @@
 
 Alphabetic keys typed with control or meta ignore case. `C-A` and `C-a` are the same key, while `C-!` and `C-1` are different.
 
-The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, and PanCyr keymaps. Windows can be moved by holding the Alt key and dragging.
+The default keymap is En-GB, use M-F12 to switch between En-GB, En-US, No-BK, PanCyr, and German keymaps. Windows can be moved by holding the Alt key and dragging.
 
 For help & support, join #mezzano on Freenode (irc.freenode.net)
 
