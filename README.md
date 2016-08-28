@@ -136,9 +136,9 @@ the newline if the point is at the end of the line.
 #Swank
 
 This release includes Swank 2016-03-04.
-The Swank server is listening on port 4007.
+The Swank server is listening on port 4005.
 
-Forwarding for port 4007 will need to be enabled in the virtual
+Forwarding for port 4005 will need to be enabled in the virtual
 machine's settings. In VirtualBox this is done throught the port
 forwarding settings, which can be accessed through
 Settings -> Network -> Advanced -> Port Forwarding
