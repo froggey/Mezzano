@@ -3,7 +3,7 @@
 
 ;;;; Functions which are built in to the compiler and have custom code generators.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 (defparameter *builtins* (make-hash-table :test #'equal))
 

@@ -3,7 +3,7 @@
 
 ;;;; Builtin functions for dealing with numbers.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 (defbuiltin system:fixnump (object) ()
   (load-in-reg :r8 object t)

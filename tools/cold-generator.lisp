@@ -125,16 +125,16 @@
     "compiler/kill-temps.lisp"
     "compiler/keyword-arguments.lisp"
     "compiler/simplify-arguments.lisp"
-    "compiler/codegen.lisp"
-    "compiler/builtins/builtins.lisp"
-    "compiler/builtins/array.lisp"
-    "compiler/builtins/character.lisp"
-    "compiler/builtins/cons.lisp"
-    "compiler/builtins/memory.lisp"
-    "compiler/builtins/misc.lisp"
-    "compiler/builtins/numbers.lisp"
-    "compiler/builtins/objects.lisp"
-    "compiler/builtins/unwind.lisp"
+    "compiler/codegen-x86-64.lisp"
+    "compiler/builtins-x86-64/builtins.lisp"
+    "compiler/builtins-x86-64/array.lisp"
+    "compiler/builtins-x86-64/character.lisp"
+    "compiler/builtins-x86-64/cons.lisp"
+    "compiler/builtins-x86-64/memory.lisp"
+    "compiler/builtins-x86-64/misc.lisp"
+    "compiler/builtins-x86-64/numbers.lisp"
+    "compiler/builtins-x86-64/objects.lisp"
+    "compiler/builtins-x86-64/unwind.lisp"
     "compiler/branch-tension.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
@@ -889,7 +889,8 @@
 
 ;; Ugh.
 (defun load-compiler-builtins ()
-  (sys.c::save-compiler-builtins "%%compiler-builtins.llf")
+  (sys.c::save-compiler-builtins "%%compiler-builtins.llf"
+                                 sys.c::*target-architecture*)
   (load-source-file "%%compiler-builtins.llf" t t))
 
 (defun save-ub1-vector (vec &optional area)

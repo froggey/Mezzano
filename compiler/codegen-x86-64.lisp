@@ -1,16 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
-
-(defparameter *perform-tce* nil
-  "When true, attempt to eliminate tail calls.")
-(defparameter *suppress-builtins* nil
-  "When T, the built-in functions will not be used and full calls will
-be generated instead.")
-(defparameter *enable-branch-tensioner* t)
-(defparameter *enable-stack-alignment-checking* nil)
-(defparameter *trace-asm* nil)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 (defvar *run-counter* nil)
 (defvar *load-list* nil)
@@ -20,6 +11,7 @@ be generated instead.")
 (defvar *rename-list* nil)
 (defvar *code-accum* nil)
 (defvar *trailers* nil)
+(defvar *current-lambda* nil)
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
 (defvar *active-nl-exits* nil)
@@ -52,9 +44,6 @@ be generated instead.")
 	   (progn ,@body)
 	   (nreverse *code-accum*))
 	 *trailers*))
-
-(defun fixnump (object)
-  (typep object '(signed-byte 63)))
 
 (defun fixnum-to-raw (integer)
   (check-type integer (signed-byte 63))
@@ -131,7 +120,7 @@ be generated instead.")
       (when env-arg
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons env-arg :home))
-          (when (not (getf (lambda-information-plist lambda) 'unwind-protect-cleanup))
+          (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
             ;; Read environment pointer from closure object.
             (emit `(sys.lap-x86:mov64 :rbx ,(object-ea :rbx :slot 2))))
           (emit `(sys.lap-x86:mov64 (:stack ,ofs) :rbx)))))
@@ -168,7 +157,7 @@ be generated instead.")
           (emit `(sys.lap-x86:jmp ,end-label)
                 mid-label)
           ;; Argument not supplied. Init-form is a quoted constant.
-          (let ((tag `',(value (second arg))))
+          (let ((tag `',(ast-value (second arg))))
             (load-in-r8 tag t)
             (setf *r8-value* nil)
             (emit `(sys.lap-x86:mov64 (:stack ,var-ofs) :r8))
@@ -184,7 +173,7 @@ be generated instead.")
         (emit-rest-list lambda arg-registers)))
     ;; No longer in argument setup mode, switch over to normal GC info.
     (emit-gc-info)
-    (let ((code-tag (let ((*for-value* (if *perform-tce* :tail :multiple)))
+    (let ((code-tag (let ((*for-value* (if sys.c::*perform-tce* :tail :multiple)))
                       (cg-form (lambda-information-body lambda)))))
       (when code-tag
         (load-multiple-values code-tag)
@@ -207,9 +196,9 @@ be generated instead.")
                                                                       0
                                                                       1))
                                                        'bit-vector))))
-      (when *enable-branch-tensioner*
+      (when sys.c::*enable-branch-tensioner*
         (setf final-code (tension-branches final-code)))
-      (when *trace-asm*
+      (when sys.c::*trace-asm*
         (format t "~S:~%" *current-lambda-name*)
         (format t "Final values: ~S~%" *stack-values*)
         (format t "~{~S~%~}" final-code))
@@ -245,7 +234,7 @@ be generated instead.")
             `(sys.lap-x86:mov64 :r13 (:function sys.int::raise-invalid-argument-error))
             `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
             `(sys.lap-x86:ud2)))
-    (when *enable-stack-alignment-checking*
+    (when sys.c::*enable-stack-alignment-checking*
       (emit-trailer (stack-alignment-error nil)
         (emit `(:gc :frame)
               `(sys.lap-x86:sub64 :rsp 8)
@@ -261,7 +250,7 @@ be generated instead.")
            `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
 	   `(sys.lap-x86:mov64 :rbp :rsp)
            `(:gc :frame :incoming-arguments :rcx))
-     (when *enable-stack-alignment-checking*
+     (when sys.c::*enable-stack-alignment-checking*
        (list `(sys.lap-x86:test64 :rsp 8)
              `(sys.lap-x86:jnz ,stack-alignment-error)))
      ;; Emit the argument count test.
@@ -519,18 +508,19 @@ be generated instead.")
          tag)))))
 
 (defun cg-make-dx-simple-vector (form)
-  (destructuring-bind (size) (arguments form)
+  (destructuring-bind (size)
+      (ast-arguments form)
     (assert (and (quoted-form-p size)
-                 (fixnump (value size)))
+                 (fixnump (ast-value size)))
             (size)
             "Size of dx simple-vector must be known at cg time.")
-    (let ((words (1+ (value size))))
+    (let ((words (1+ (ast-value size))))
       (when (oddp words)
         (incf words))
       (smash-r8)
       (let ((slots (allocate-control-stack-slots words t)))
         ;; Set the header.
-        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (value size) sys.int::+object-data-shift+)))
+        (emit `(sys.lap-x86:mov64 ,(control-stack-slot-ea (+ slots words -1)) ,(ash (ast-value size) sys.int::+object-data-shift+)))
         ;; Generate pointer.
         (emit `(sys.lap-x86:lea64 :r8 (:rbp ,(+ (control-stack-frame-offset (+ slots words -1))
                                                 sys.int::+tag-object+)))))))
@@ -548,7 +538,7 @@ be generated instead.")
     (emit `(sys.lap-x86:jmp ,target-label))))
 
 (defun cg-block (form)
-  (let* ((info (info form))
+  (let* ((info (ast-info form))
          (exit-label (gensym "block"))
          (thunk-label (gensym "block-thunk"))
          (escapes (block-information-env-var info))
@@ -583,7 +573,7 @@ be generated instead.")
     (prog1
         (let* ((*rename-list* (cons (list info exit-label) *rename-list*))
                (stack-slots (set-up-for-branch))
-               (tag (cg-form (body form))))
+               (tag (cg-form (ast-body form))))
           (cond ((and *for-value* tag (/= (block-information-count info) 0))
                  ;; Returning a value, exit is reached normally and there were return-from forms reached.
                  ;; Unify the results, so :MULTIPLE is always returned.
@@ -627,7 +617,7 @@ be generated instead.")
         (emit-nlx-thunk thunk-label exit-label (member *for-value* '(:multiple :tail)))))))
 
 (defun cg-function (form)
-  (let ((name (name form))
+  (let ((name (ast-name form))
         (undefined (gensym "function-undefined"))
         (resume (gensym "function-resume")))
     (smash-r8)
@@ -646,13 +636,13 @@ be generated instead.")
     (setf *r8-value* (list (gensym)))))
 
 (defun cg-go (form)
-  (let ((tag (assoc (target form) *rename-list*)))
+  (let ((tag (assoc (ast-target form) *rename-list*)))
     (smash-r8)
     (cond (tag ;; Local jump.
            (emit `(sys.lap-x86:jmp ,(second tag))))
           (t ;; Non-local exit.
            (let ((tagbody-tag (let ((*for-value* t))
-                                (cg-form (info form)))))
+                                (cg-form (ast-info form)))))
              (load-in-reg :rax tagbody-tag t)
              ;; RAX holds the tagbody info.
              (emit
@@ -660,9 +650,9 @@ be generated instead.")
               `(sys.lap-x86:xor32 :r8d :r8d)
               ;; GO GO GO!
               `(sys.lap-x86:mov64 :rdx (:rax 0))
-              `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (target form)
+              `(sys.lap-x86:add64 :rdx (:rdx ,(* (position (ast-target form)
                                                            (tagbody-information-go-tags
-                                                            (go-tag-tagbody (target form))))
+                                                            (go-tag-tagbody (ast-target form))))
                                                  8)))
               `(sys.lap-x86:jmp :rdx)))))
     'nil))
@@ -780,7 +770,7 @@ be generated instead.")
   (let* ((else-label (gensym))
 	 (end-label (gensym))
 	 (test-tag (let ((*for-value* :predicate))
-		     (cg-form (test form))))
+		     (cg-form (ast-test form))))
 	 (branch-count 0)
 	 (stack-slots (set-up-for-branch))
 	 (loc (when (and test-tag (not (keywordp test-tag)))
@@ -802,7 +792,7 @@ be generated instead.")
                        (predicate-info (invert-predicate test-tag))) ,else-label)))
             (t (emit `(sys.lap-x86:je ,else-label))))
       (branch-to else-label)
-      (let ((tag (cg-form (if-then form))))
+      (let ((tag (cg-form (ast-if-then form))))
 	(when tag
 	  (when *for-value*
             (case *for-value*
@@ -818,7 +808,7 @@ be generated instead.")
 	    *stack-values* (copy-stack-values stack-at-cond))
       (emit-label else-label)
       (emit-gc-info)
-      (let ((tag (cg-form (if-else form))))
+      (let ((tag (cg-form (ast-if-else form))))
 	(when tag
 	  (when *for-value*
             (case *for-value*
@@ -838,15 +828,10 @@ be generated instead.")
               (t (emit-gc-info)
                  (setf *r8-value* (list (gensym)))))))))
 
-(defun localp (var)
-  (or (null (lexical-variable-used-in var))
-      (and (null (cdr (lexical-variable-used-in var)))
-	   (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
-
 (defun cg-let (form)
-  (let* ((bindings (bindings form))
+  (let* ((bindings (ast-bindings form))
          (variables (mapcar 'first bindings))
-         (body (body form)))
+         (body (ast-body form)))
     ;; Ensure there are no non-local variables or special bindings.
     (assert (every (lambda (x)
                      (and (lexical-variable-p x)
@@ -872,9 +857,9 @@ be generated instead.")
   (loop for x in things collect (gensym)))
 
 (defun cg-multiple-value-bind (form)
-  (let ((variables (bindings form))
-        (value-form (value-form form))
-        (body (body form)))
+  (let ((variables (ast-bindings form))
+        (value-form (ast-value-form form))
+        (body (ast-body form)))
     ;; Ensure there are no non-local variables or special bindings.
     (assert (every (lambda (x)
                      (and (lexical-variable-p x)
@@ -935,10 +920,10 @@ Returns an appropriate tag."
            (setf *r8-value* (list (gensym))))))
 
 (defun cg-multiple-value-call (form)
-  (let ((value-form (value-form form))
+  (let ((value-form (ast-value-form form))
         (fn-tag (let ((*for-value* t)) (cg-form (make-instance 'ast-call
                                                                :name 'sys.int::%coerce-to-callable
-                                                               :arguments (list (function-form form)))))))
+                                                               :arguments (list (ast-function-form form)))))))
     (when (not fn-tag)
       (return-from cg-multiple-value-call nil))
     (let ((value-tag (let ((*for-value* :multiple))
@@ -996,13 +981,13 @@ Returns an appropriate tag."
   (cond
     ((null *for-value*)
      ;; Not for value
-     (cg-form (make-instance 'ast-progn :forms (list (value-form form)
-                                                     (body form)))))
+     (cg-form (make-instance 'ast-progn :forms (list (ast-value-form form)
+                                                     (ast-body form)))))
     (t (let ((tag (let ((*for-value* (case *for-value*
                                        (:predicate t)
                                        (:tail :multiple)
                                        (t *for-value*))))
-                    (cg-form (value-form form))))
+                    (cg-form (ast-value-form form))))
              (sv-save-area (allocate-control-stack-slots 1 t))
              (saved-stack-pointer (allocate-control-stack-slots 1))
              (save-done (gensym "VALUES-SAVE-DONE"))
@@ -1072,7 +1057,7 @@ Returns an appropriate tag."
            (emit-gc-info)
            (add-dx-root sv-save-area))
          (let ((*for-value* nil))
-           (when (not (cg-form (body form)))
+           (when (not (cg-form (ast-body form)))
              ;; No return.
              (setf *load-list* (delete tag *load-list*))
              (return-from cg-multiple-value-prog1 'nil)))
@@ -1095,8 +1080,8 @@ Returns an appropriate tag."
          tag))))
 
 (defun cg-progn (form)
-  (if (forms form)
-      (do ((i (forms form) (rest i)))
+  (if (ast-forms form)
+      (do ((i (ast-forms form) (rest i)))
 	  ((endp (rest i))
 	   (cg-form (first i)))
 	(let* ((*for-value* nil)
@@ -1106,21 +1091,21 @@ Returns an appropriate tag."
       (cg-form (make-instance 'ast-quote :value 'nil))))
 
 (defun cg-quote (form)
-  `(quote ,(value form)))
+  `(quote ,(ast-value form)))
 
 (defun cg-return-from (form)
-  (let* ((local-info (assoc (target form) *rename-list*))
-         (*for-value* (block-information-return-mode (target form)))
+  (let* ((local-info (assoc (ast-target form) *rename-list*))
+         (*for-value* (block-information-return-mode (ast-target form)))
          (target-tag (when (not local-info)
                        (let ((*for-value* t))
-                         (cg-form (info form)))))
-         (tag (cg-form (value form))))
+                         (cg-form (ast-info form)))))
+         (tag (cg-form (ast-value form))))
     (unless tag (return-from cg-return-from nil))
     (cond ((member *for-value* '(:multiple :tail))
            (load-multiple-values tag))
           (*for-value*
            (load-in-r8 tag t)))
-    (incf (block-information-count (target form)))
+    (incf (block-information-count (ast-target form)))
     (smash-r8)
     (cond (local-info ;; Local jump.
            (emit `(sys.lap-x86:jmp ,(second local-info))))
@@ -1137,8 +1122,8 @@ Returns an appropriate tag."
 	(return i)))))
 
 (defun cg-setq (form)
-  (let ((var (setq-variable form))
-	(val (value form)))
+  (let ((var (ast-setq-variable form))
+	(val (ast-value form)))
     (assert (localp var))
     ;; Copy var if there are unsatisfied tags on the load list.
     (dolist (l *load-list*)
@@ -1172,16 +1157,16 @@ Returns an appropriate tag."
 	(*rename-list* *rename-list*)
 	(need-exit-label nil)
         (exit-label (gensym "tagbody-exit"))
-        (escapes (not (tagbody-localp (info form))))
+        (escapes (not (tagbody-localp (ast-info form))))
         (jump-table (gensym))
         (tag-labels (mapcar (lambda (tag)
                               (declare (ignore tag))
                               (gensym))
-                            (tagbody-information-go-tags (info form))))
+                            (tagbody-information-go-tags (ast-info form))))
         (thunk-labels (mapcar (lambda (tag)
                                 (declare (ignore tag))
                                 (gensym))
-                              (tagbody-information-go-tags (info form))))
+                              (tagbody-information-go-tags (ast-info form))))
         (*active-nl-exits* (list* '() *active-nl-exits*)))
     (when escapes
       (smash-r8)
@@ -1198,13 +1183,13 @@ Returns an appropriate tag."
               ;; Save in the environment.
               `(sys.lap-x86:lea64 :rax ,(control-stack-slot-ea (+ control-info 3)))
               `(sys.lap-x86:mov64 (:stack ,slot) :rax))
-        (setf (aref *stack-values* slot) (cons (info form) :home))))
+        (setf (aref *stack-values* slot) (cons (ast-info form) :home))))
     (setf stack-slots (set-up-for-branch))
     (mapcar (lambda (tag label)
               (push (list tag label) *rename-list*))
-            (tagbody-information-go-tags (info form)) tag-labels)
+            (tagbody-information-go-tags (ast-info form)) tag-labels)
     (loop
-       for (go-tag stmt) in (statements form)
+       for (go-tag stmt) in (ast-statements form)
        do
          (smash-r8)
          (setf *stack-values* (copy-stack-values stack-slots))
@@ -1229,7 +1214,7 @@ Returns an appropriate tag."
           (t nil))))
 
 (defun cg-the (form)
-  (cg-form (value form)))
+  (cg-form (ast-value form)))
 
 (defun value-location (tag &optional kill)
   (when kill
@@ -1483,7 +1468,7 @@ Returns an appropriate tag."
            tag))))
 
 (defun cg-null/not (form)
-  (let* ((tag (cg-form (first (arguments form))))
+  (let* ((tag (cg-form (first (ast-arguments form))))
          (loc (when (and tag (not (keywordp tag)))
                 (value-location tag t))))
     (cond ((null tag) nil)
@@ -1501,35 +1486,35 @@ Returns an appropriate tag."
 (defun cg-builtin (fn form)
   (let ((args '()))
     (let ((*for-value* t))
-      (dolist (f (arguments form))
+      (dolist (f (ast-arguments form))
         (push (cg-form f) args)
         (when (null (first args))
           ;; Non-local control transfer, don't actually need those results now.
           (dolist (i (rest args))
             (setf *load-list* (delete i *load-list*)))
           (return-from cg-builtin nil))))
-    (comment (name form))
+    (comment (ast-name form))
     (apply fn (nreverse args))))
 
 (defun cg-funcall (form)
-  (let* ((fn-tag (let ((*for-value* t)) (cg-form (if (typep (first (arguments form)) 'lambda-information)
-                                                     (first (arguments form))
+  (let* ((fn-tag (let ((*for-value* t)) (cg-form (if (typep (first (ast-arguments form)) 'lambda-information)
+                                                     (first (ast-arguments form))
                                                      (make-instance 'ast-call
                                                                     :name 'sys.int::%coerce-to-callable
-                                                                    :arguments (list (first (arguments form)))))))))
-    (cond ((prep-arguments-for-call (rest (arguments form)))
+                                                                    :arguments (list (first (ast-arguments form)))))))))
+    (cond ((prep-arguments-for-call (rest (ast-arguments form)))
            (comment 'funcall)
            (load-in-reg :rbx fn-tag t)
            (smash-r8)
-           (load-constant :rcx (length (rest (arguments form))))
-           (cond ((can-tail-call (rest (arguments form)))
+           (load-constant :rcx (length (rest (ast-arguments form))))
+           (cond ((can-tail-call (rest (ast-arguments form)))
                   (emit-tail-call (object-ea :rbx :slot 0)))
                  (t (emit `(sys.lap-x86:call ,(object-ea :rbx :slot 0)))))
            (if (member *for-value* '(:multiple :tail))
                (emit-gc-info :multiple-values 0)
                (emit-gc-info))
-           (flush-arguments-from-stack (rest (arguments form)))
-           (cond ((can-tail-call (rest (arguments form))) nil)
+           (flush-arguments-from-stack (rest (ast-arguments form)))
+           (cond ((can-tail-call (rest (ast-arguments form))) nil)
                  ((member *for-value* '(:multiple :tail))
                   :multiple)
                  (t (setf *r8-value* (list (gensym))))))
@@ -1537,40 +1522,40 @@ Returns an appropriate tag."
            (setf *load-list* (delete fn-tag *load-list*))))))
 
 (defun cg-call (form)
-  (when (prep-arguments-for-call (arguments form))
-    (comment (name form))
-    (emit `(sys.lap-x86:mov64 :r13 (:function ,(name form))))
+  (when (prep-arguments-for-call (ast-arguments form))
+    (comment (ast-name form))
+    (emit `(sys.lap-x86:mov64 :r13 (:function ,(ast-name form))))
     (smash-r8)
-    (load-constant :rcx (length (arguments form)))
-    (cond ((can-tail-call (arguments form))
+    (load-constant :rcx (length (ast-arguments form)))
+    (cond ((can-tail-call (ast-arguments form))
            (emit-tail-call (object-ea :r13 :slot sys.int::+fref-entry-point+))
            nil)
           (t (emit `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+)))
              (if (member *for-value* '(:multiple :tail))
                  (emit-gc-info :multiple-values 0)
                  (emit-gc-info))
-             (flush-arguments-from-stack (arguments form))
+             (flush-arguments-from-stack (ast-arguments form))
              (cond ((member *for-value* '(:multiple :tail))
                     :multiple)
                    (t (setf *r8-value* (list (gensym)))))))))
 
 ;; ### TCE here
 (defun cg-function-form (form)
-  (let ((fn (when (not *suppress-builtins*)
-              (match-builtin (name form) (length (arguments form))))))
-    (cond ((eql (name form) 'sys.c::make-dx-simple-vector)
+  (let ((fn (when (not sys.c::*suppress-builtins*)
+              (match-builtin (ast-name form) (length (ast-arguments form))))))
+    (cond ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
            (cg-make-dx-simple-vector form))
           ((and (eql *for-value* :predicate)
-                (member (name form) '(null not))
-                (= (length (arguments form)) 1))
+                (member (ast-name form) '(null not))
+                (= (length (ast-arguments form)) 1))
            (cg-null/not form))
           (fn
            (cg-builtin fn form))
-	  ((and (eql (name form) 'funcall)
-                (arguments form))
-           (cg-funcall form))
-          ((eql (name form) 'values)
-           (cg-values (arguments form)))
+	  ((and (eql (ast-name form) 'funcall)
+            (ast-arguments form))
+       (cg-funcall form))
+      ((eql (ast-name form) 'values)
+       (cg-values (ast-arguments form)))
 	  (t (cg-call form)))))
 
 (defun can-tail-call (args)
@@ -1609,8 +1594,8 @@ Returns an appropriate tag."
 	  `(sys.lap-x86:jnz ,type-error-label))))
 
 (defun cg-jump-table (form)
-  (let* ((value (value form))
-         (jumps (targets form))
+  (let* ((value (ast-value form))
+         (jumps (ast-targets form))
          (tag (let ((*for-value* t))
                 (cg-form value)))
          (jump-table (gensym "jump-table")))
@@ -1619,7 +1604,7 @@ Returns an appropriate tag."
     (emit-trailer (jump-table nil)
       (dolist (j jumps)
         (assert (typep j 'ast-go))
-        (let ((go-tag (assoc (target j) *rename-list*)))
+        (let ((go-tag (assoc (ast-target j) *rename-list*)))
           (assert go-tag () "GO tag not local")
           (emit `(:d64/le (- ,(second go-tag) ,jump-table))))))
     ;; Jump.

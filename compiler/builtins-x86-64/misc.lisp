@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2015 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 ;;; EQ and EQL.
 

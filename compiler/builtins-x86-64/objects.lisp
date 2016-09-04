@@ -3,7 +3,7 @@
 
 ;;;; Builtin functions for examining objects.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 ;;; Examining the object header.
 

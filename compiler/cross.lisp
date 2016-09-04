@@ -63,15 +63,16 @@
 
 ;;; Watch out, package exports below here must be kept in sync with package.lisp
 
-(defpackage :system.compiler
-  (:nicknames :sys.c)
-  (:export :compile
-           :compiler-macro-function
-           :*macroexpand-hook*
-           :macroexpand
-           :macroexpand-1
-           :macro-function
-           :constantp
+(defpackage :mezzano.compiler
+  (:nicknames :sys.c :system.compiler)
+  (:export #:compile
+           #:compiler-macro-function
+           #:*macroexpand-hook*
+           #:macroexpand
+           #:macroexpand-1
+           #:macro-function
+           #:constantp
+           #:fixnump
 
            #:quoted-form-p
            #:lambda-information
@@ -91,12 +92,73 @@
            #:lambda-information-plist
            #:lexical-variable
            #:lexical-variable-p
+           #:lexical-variable-name
+           #:lexical-variable-definition-point
+           #:lexical-variable-ignore
+           #:lexical-variable-dynamic-extent
+           #:lexical-variable-use-count
+           #:lexical-variable-write-count
+           #:lexical-variable-used-in
+           #:lexical-variable-plist
+           #:localp
+           #:special-variable
+           #:block-information
            #:block-information-env-var
            #:block-information-count
            #:block-information-return-mode
+           #:tagbody-information
            #:tagbody-information-go-tags
-           #:go-tag-p)
+           #:go-tag
+           #:go-tag-p
+           #:go-tag-name
+           #:go-tag-tagbody
+           #:go-tag-use-count
+           #:go-tag-used-in
+
+           #:ast-block
+           #:ast-function
+           #:ast-go
+           #:ast-if
+           #:ast-let
+           #:ast-multiple-value-bind
+           #:ast-multiple-value-call
+           #:ast-multiple-value-prog1
+           #:ast-progn
+           #:ast-quote
+           #:ast-return-from
+           #:ast-setq
+           #:ast-tagbody
+           #:ast-the
+           #:ast-unwind-protect
+           #:ast-call
+           #:ast-jump-table
+
+           #:ast-info
+           #:ast-body
+           #:ast-name
+           #:ast-target
+           #:ast-go-info
+           #:ast-test
+           #:ast-if-then
+           #:ast-if-else
+           #:ast-bindings
+           #:ast-value-form
+           #:ast-function-form
+           #:ast-forms
+           #:ast-value
+           #:ast-setq-variable
+           #:ast-statements
+           #:ast-the-type
+           #:ast-protected-form
+           #:ast-cleanup-function
+           #:ast-arguments
+           #:ast-targets)
   (:use :cross-cl))
+
+(defpackage :mezzano.compiler.codegen.x86-64
+  (:use :cross-cl :mezzano.compiler)
+  (:export #:codegen-lambda
+           #:generate-builtin-functions))
 
 (in-package :system.compiler)
 

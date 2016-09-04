@@ -793,7 +793,7 @@
          (let* ((name (second (second form)))
                 (lambda (third form))
                 (*load-time-value-hook* 'cross-load-time-value)
-                (fn (compile-lambda lambda env)))
+                (fn (compile-lambda lambda env *target-architecture*)))
            (declare (special *load-time-value-hook*))
            #+nil(add-to-llf sys.int::+llf-defun+ name fn)
            (add-to-llf sys.int::+llf-setf-fdefinition+ fn name)))
@@ -835,7 +835,8 @@
                                                                              (princ-to-string *compile-file-pathname*))
                                                                       ,sys.int::*top-level-form-number*)))
                                          (progn ,form))
-                                      env)))
+                                      env
+                                      *target-architecture*)))
              (add-to-llf sys.int::+llf-invoke+ fn)))))
 
 (defun cross-compile-file (input-file &key
@@ -957,14 +958,15 @@ files will be compiled correctly.")
 (defun set-up-cross-compiler ()
   (mapc 'load-for-cross-compiler *cross-source-files*))
 
-(defun save-compiler-builtins (path)
+(defun save-compiler-builtins (path target-architecture)
   (with-open-file (*output-fasl* path
                    :element-type '(unsigned-byte 8)
                    :if-exists :supersede
                    :direction :output)
     (format t ";; Writing compiler builtins to ~A.~%" path)
     (write-llf-header *output-fasl* path)
-    (let* ((builtins (generate-builtin-functions))
+    (let* ((builtins (ecase target-architecture
+                       (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions))))
            (*readtable* (copy-readtable *cross-readtable*))
            (*output-map* (make-hash-table))
            (*pending-llf-commands* nil)

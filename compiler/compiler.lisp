@@ -5,6 +5,17 @@
 
 (defvar *should-inline-functions* t)
 
+(defparameter *perform-tce* nil
+  "When true, attempt to eliminate tail calls.")
+
+(defparameter *suppress-builtins* nil
+  "When T, the built-in functions will not be used and full calls will
+be generated instead.")
+
+(defparameter *enable-branch-tensioner* t)
+(defparameter *enable-stack-alignment-checking* nil)
+(defparameter *trace-asm* nil)
+
 (defvar *jump-table-size-min* 4)
 (defvar *jump-table-size-max* 64)
 
@@ -26,8 +37,14 @@ A list of any declaration-specifiers."
     (dolist (decl (cdar itr))
       (push decl declares))))
 
-(defun compile-lambda (lambda &optional env)
-  (codegen-lambda (compile-lambda-1 lambda env)))
+(defun compile-lambda (lambda &optional env target-architecture)
+  (codegen-lambda (compile-lambda-1 lambda env) target-architecture))
+
+(defun codegen-lambda (lambda &optional target-architecture)
+  (ecase (or target-architecture
+             #+x86-64 :x86-64)
+    (:x86-64
+     (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))))
 
 ;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-1 (lambda &optional env)
@@ -107,3 +124,6 @@ A list of any declaration-specifiers."
       (detect-uses form)
       (when (eql *change-count* 0)
 	(return form)))))
+
+(defun fixnump (object)
+  (typep object '(signed-byte 63)))

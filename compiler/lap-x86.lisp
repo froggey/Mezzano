@@ -21,7 +21,7 @@
 (defmacro define-instruction (name lambda-list &body body)
   (let ((insn (gensym)))
     `(add-instruction ',name #'(lambda (,insn)
-                                 #+lisp-os (declare (system:lambda-name (instruction ,name)))
+                                 #+mezzano (declare (system:lambda-name (instruction ,name)))
 				 (destructuring-bind ,lambda-list (rest ,insn)
 				   (block instruction
 				     ,@body

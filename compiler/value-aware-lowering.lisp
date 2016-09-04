@@ -6,6 +6,8 @@
 ;;; Lower forms based on the number of values they're expected to generated.
 ;;; Either no value (for effect, not 0 values), one value or mulitple (including 0) values.
 
+(defvar *rename-list*)
+
 (defun value-aware-lowering (lambda)
   (let ((*rename-list* '()))
     (value-aware-lowering-1 lambda :single)))

@@ -62,6 +62,11 @@
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (lexical-variable-name object))))
 
+(defun localp (var)
+  (or (null (lexical-variable-used-in var))
+      (and (null (cdr (lexical-variable-used-in var)))
+           (eq (car (lexical-variable-used-in var)) (lexical-variable-definition-point var)))))
+
 ;;; A special variable, only used in bindings.
 (defclass special-variable ()
   ((%name :initarg :name :accessor name)))
@@ -108,24 +113,24 @@
   (typep object 'go-tag))
 
 (defclass ast-block ()
-  ((%info :initarg :info :accessor info)
-   (%body :initarg :body :accessor body)))
+  ((%info :initarg :info :accessor info :accessor ast-info)
+   (%body :initarg :body :accessor body :accessor ast-body)))
 
 (defclass ast-function ()
-  ((%name :initarg :name :accessor name)))
+  ((%name :initarg :name :accessor name :accessor ast-name)))
 
 (defmethod print-object ((object ast-function) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (name object))))
 
 (defclass ast-go ()
-  ((%target :initarg :target :accessor target)
-   (%info :initarg :info :accessor info)))
+  ((%target :initarg :target :accessor target :accessor ast-target)
+   (%info :initarg :info :accessor info :accessor ast-info)))
 
 (defclass ast-if ()
-  ((%test :initarg :test :accessor test)
-   (%then :initarg :then :accessor if-then)
-   (%else :initarg :else :accessor if-else)))
+  ((%test :initarg :test :accessor test :accessor ast-test)
+   (%then :initarg :then :accessor if-then :accessor ast-if-then)
+   (%else :initarg :else :accessor if-else :accessor ast-if-else)))
 
 (defclass ast-let ()
   ;; BINDINGS is a list of (variable init-form), where
@@ -133,72 +138,72 @@
   ;; Init-forms are evaluated in list order.
   ;; Lexical bindings occur immediately
   ;; Special bindings occur once all init-forms have been evaulated.
-  ((%bindings :initarg :bindings :accessor bindings)
-   (%body :initarg :body :accessor body)))
+  ((%bindings :initarg :bindings :accessor bindings :accessor ast-bindings)
+   (%body :initarg :body :accessor body :accessor ast-body)))
 
 (defclass ast-multiple-value-bind ()
   ;; BINDING is a list of variables, which can be either LEXICAL-VARIABLEs
   ;; or SPECIAL-VARIABLES.
   ;; Bindings occur after VALUE-FORM has been evaulated.
-  ((%bindings :initarg :bindings :accessor bindings)
-   (%value-form :initarg :value-form :accessor value-form)
-   (%body :initarg :body :accessor body)))
+  ((%bindings :initarg :bindings :accessor bindings :accessor ast-bindings)
+   (%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)
+   (%body :initarg :body :accessor body :accessor ast-body)))
 
 (defclass ast-multiple-value-call ()
-  ((%function-form :initarg :function-form :accessor function-form)
-   (%value-form :initarg :value-form :accessor value-form)))
+  ((%function-form :initarg :function-form :accessor function-form :accessor ast-function-form)
+   (%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)))
 
 (defclass ast-multiple-value-prog1 ()
-  ((%value-form :initarg :value-form :accessor value-form)
-   (%body :initarg :body :accessor body)))
+  ((%value-form :initarg :value-form :accessor value-form :accessor ast-value-form)
+   (%body :initarg :body :accessor body :accessor ast-body)))
 
 (defclass ast-progn ()
-  ((%forms :initarg :forms :accessor forms)))
+  ((%forms :initarg :forms :accessor forms :accessor ast-forms)))
 
 (defclass ast-quote ()
-  ((%value :initarg :value :accessor value)))
+  ((%value :initarg :value :accessor value :accessor ast-value)))
 
 (defmethod print-object ((object ast-quote) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (value object))))
 
 (defclass ast-return-from ()
-  ((%target :initarg :target :accessor target)
-   (%value :initarg :value :accessor value)
-   (%info :initarg :info :accessor info)))
+  ((%target :initarg :target :accessor target :accessor ast-target)
+   (%value :initarg :value :accessor value :accessor ast-value)
+   (%info :initarg :info :accessor info :accessor ast-info)))
 
 (defclass ast-setq ()
-  ((%variable :initarg :variable :accessor setq-variable)
-   (%value :initarg :value :accessor value)))
+  ((%variable :initarg :variable :accessor setq-variable :accessor ast-setq-variable)
+   (%value :initarg :value :accessor value :accessor ast-value)))
 
 (defclass ast-tagbody ()
-  ((%info :initarg :info :accessor info)
+  ((%info :initarg :info :accessor info :accessor ast-info)
    ;; A list of (go-tag form).
    ;; Form that do not end in a control transfer will cause the
    ;; tagbody to return.
    ;; Only the first statement is directly reachable, other
    ;; statements can only be reached via GO forms.
-   (%statements :initarg :statements :accessor statements)))
+   (%statements :initarg :statements :accessor statements :accessor ast-statements)))
 
 (defclass ast-the ()
-  ((%the-type :initarg :type :accessor the-type)
-   (%value :initarg :value :accessor value)))
+  ((%the-type :initarg :type :accessor the-type :accessor ast-the-type)
+   (%value :initarg :value :accessor value :accessor ast-value)))
 
 (defclass ast-unwind-protect ()
-  ((%protected-form :initarg :protected-form :accessor protected-form)
-   (%cleanup-function :initarg :cleanup-function :accessor cleanup-function)))
+  ((%protected-form :initarg :protected-form :accessor protected-form :accessor ast-protected-form)
+   (%cleanup-function :initarg :cleanup-function :accessor cleanup-function :accessor ast-cleanup-function)))
 
 (defclass ast-call ()
-  ((%name :initarg :name :accessor name)
-   (%arguments :initarg :arguments :accessor arguments)))
+  ((%name :initarg :name :accessor name :accessor ast-name)
+   (%arguments :initarg :arguments :accessor arguments :accessor ast-arguments)))
 
 (defmethod print-object ((object ast-call) stream)
   (print-unreadable-object (object stream :type t :identity t)
     (format stream "~S" (name object))))
 
 (defclass ast-jump-table ()
-  ((%value :initarg :value :accessor value)
-   (%targets :initarg :targets :accessor targets)))
+  ((%value :initarg :value :accessor value :accessor ast-value)
+   (%targets :initarg :targets :accessor targets :accessor ast-targets)))
 
 (defmethod print-object ((object go-tag) stream)
   (print-unreadable-object (object stream :type t :identity t)

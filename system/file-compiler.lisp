@@ -516,7 +516,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
 (defmacro with-compilation-unit ((&key override) &body body)
   `(progn ,override ,@body))
 
-(defun sys.c::save-compiler-builtins (output-file)
+(defun sys.c::save-compiler-builtins (output-file target-architecture)
   (with-open-file (output-stream output-file
                                  :element-type '(unsigned-byte 8)
                                  :if-exists :supersede
@@ -526,7 +526,8 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     (let* ((*llf-forms* nil)
            (omap (make-hash-table)))
       (loop
-         for (name lambda) in (sys.c::generate-builtin-functions)
+         for (name lambda) in (ecase target-architecture
+                                (:x86-64 (mezzano.compiler.codegen.x86-64:generate-builtin-functions)))
          for form = `(sys.int::%defun ',name ,lambda)
          do
            (let ((*print-length* 3)

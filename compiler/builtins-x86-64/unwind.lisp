@@ -4,7 +4,7 @@
 ;;;; Builtin functions for dealing with binding, unbinding and unwinding.
 ;;;; Everything to do with the special stack.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 ;;; Touching the special stack directly.
 

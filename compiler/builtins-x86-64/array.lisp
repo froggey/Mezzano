@@ -4,7 +4,7 @@
 ;;;; Builtin functions for dealing with arrays.
 ;;;; Builtins for accessing array elements are in memory.lisp.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 (defbuiltin sys.int::%simple-1d-array-p (object) ()
   (let ((false-out (gensym))

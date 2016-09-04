@@ -3,7 +3,7 @@
 
 ;;;; Builtin functions for dealing with characters.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 (define-tag-type-predicate characterp sys.int::+tag-character+)
 

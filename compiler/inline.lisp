@@ -98,7 +98,7 @@
     (when (and inlinep
                ;; Don't inline builtin functions.
                ;; There may be inlinable definitions available, but they're for the new compiler.
-               (not (gethash name *builtins*)))
+               #+(or)(not (gethash name *builtins*)))
       (cond (expansion
              (ast `(call funcall ,(pass1-lambda expansion nil) ,@arg-list)))
             ((fboundp name)

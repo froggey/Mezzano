@@ -1,7 +1,7 @@
 ;;;; Copyright (c) 2011-2016 Henry Harrington <henry.harrington@gmail.com>
 ;;;; This code is licensed under the MIT license.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 ;;;; This pass works on a LAP program.
 ;;;; It removes unused labels, tensions branches to unconditional branches,

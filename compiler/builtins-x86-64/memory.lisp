@@ -3,7 +3,7 @@
 
 ;;;; Builtin functions for accessing memory.
 
-(in-package :sys.c)
+(in-package :mezzano.compiler.codegen.x86-64)
 
 ;;; Direct access to memory.
 ;;; (MEMREF-type base offset) directly accesses memory at BASE + OFFSET * type-width.
