@@ -657,7 +657,10 @@
       ;; NIL.
       (setf (ub64ref/le header 56) (make-value (symbol-address "NIL" "COMMON-LISP")
                                                sys.int::+tag-object+))
-      ;; 64-96 free.
+      ;; Architecture.
+      (setf (ub32ref/le header 64) (ecase sys.c::*target-architecture*
+                                     (:x86-64 sys.int::+llf-arch-x86-64+)))
+      ;; 65-96 free.
       ;; Top-level block map.
       (setf (ub64ref/le header 96) (/ bml4-block #x1000))
       ;; Free block list.
