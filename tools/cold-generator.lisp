@@ -1265,8 +1265,10 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files header-path image-size map-file-name)
-  (let* ((*wired-area-bump* +wired-area-base+)
+(defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64))
+  (let* ((sys.c::*target-architecture* architecture)
+         (sys.int::*features* (list* sys.c::*target-architecture* sys.int::*features*))
+         (*wired-area-bump* +wired-area-base+)
          (*wired-area-data* (make-array #x1000 :element-type '(unsigned-byte 8) :adjustable t))
          (*wired-area-store* nil)
          (*pinned-area-bump* +pinned-area-base+)
@@ -1966,6 +1968,12 @@ Tag with +TAG-OBJECT+."
         (assert (eql version sys.int::*llf-version*)
                 ()
                 "Bad LLF version ~D, wanted version ~D." version sys.int::*llf-version*))
+      (let ((arch (case (load-integer s)
+                    (#.sys.int::+llf-arch-x86-64+ :x86-64)
+                    (t :unknown))))
+        (assert (eql arch sys.c::*target-architecture*) ()
+                "LLF compiled for wrong architecture ~S. Wanted ~S."
+                arch sys.c::*target-architecture*))
       ;; Read forms.
       (load-llf s))))
 

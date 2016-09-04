@@ -48,6 +48,11 @@
     (#.+llf-double-float+ 'double-float)
     (#.+llf-typed-array+ 'typed-array)))
 
+(defun llf-architecture-name (id)
+  (case id
+    (#.+llf-arch-x86-64+ :x86-64)
+    (t :unknown)))
+
 (defun check-llf-header (stream)
   (assert (and (eql (%read-byte stream) #x4C)
                (eql (%read-byte stream) #x4C)
@@ -60,7 +65,12 @@
     (assert (eql version *llf-version*)
             ()
             "Bad LLF version ~D, wanted version ~D, while loading ~S."
-            version *llf-version* stream)))
+            version *llf-version* stream))
+  (let ((arch (llf-architecture-name (load-integer stream))))
+    (assert (eql arch
+                 #+x86-64 :x86-64) ()
+            "LLF compiled for wrong architecture ~S. Wanted ~S."
+            arch (current-architecture))))
 
 (defun load-integer (stream)
   (let ((value 0) (shift 0))

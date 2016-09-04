@@ -210,7 +210,14 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *print-escape* t
         *print-readably* nil
         *print-safe* nil)
-  (setf *features* '(:package-local-nicknames :unicode :little-endian :x86-64 :mezzano :ieee-floating-point :ansi-cl :common-lisp)
+  (setf *features* '(:package-local-nicknames
+                     :unicode
+                     :little-endian
+                     #+x86-64 :x86-64
+                     :mezzano
+                     :ieee-floating-point
+                     :ansi-cl
+                     :common-lisp)
         *macroexpand-hook* 'funcall
         most-positive-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1)) 1)
         most-negative-fixnum #.(- (expt 2 (- 64 +n-fixnum-bits+ 1))))

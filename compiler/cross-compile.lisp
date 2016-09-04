@@ -9,6 +9,8 @@
 
 (defvar sys.int::*top-level-form-number* nil)
 
+(defvar *target-architecture*)
+
 (defvar *system-macros* (make-hash-table :test 'eq))
 (defvar *system-compiler-macros* (make-hash-table :test 'equal))
 (defvar *system-symbol-macros* (make-hash-table :test 'eq))
@@ -568,7 +570,10 @@
   (declare (ignore input-file))
   ;; TODO: write the source file name out as well.
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream)
-  (save-integer sys.int::*llf-version* output-stream))
+  (save-integer sys.int::*llf-version* output-stream)
+  (save-integer (ecase *target-architecture*
+                  (:x86-64 sys.int::+llf-arch-x86-64+))
+                output-stream))
 
 (defun save-integer (integer stream)
   (let ((negativep (minusp integer)))
