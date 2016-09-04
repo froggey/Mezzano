@@ -51,6 +51,7 @@
 (defun llf-architecture-name (id)
   (case id
     (#.+llf-arch-x86-64+ :x86-64)
+    (#.+llf-arch-arm64+ :arm64)
     (t :unknown)))
 
 (defun check-llf-header (stream)
@@ -68,7 +69,8 @@
             version *llf-version* stream))
   (let ((arch (llf-architecture-name (load-integer stream))))
     (assert (eql arch
-                 #+x86-64 :x86-64) ()
+                 #+x86-64 :x86-64
+                 #+arm64 :arm64) ()
             "LLF compiled for wrong architecture ~S. Wanted ~S."
             arch (current-architecture))))
 

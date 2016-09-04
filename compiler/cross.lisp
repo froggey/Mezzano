@@ -436,6 +436,12 @@
   (:export #:assemble
            #:*function-reference-resolver*))
 
+(defpackage :mezzano.lap.arm64
+  (:documentation "arm64 assembler for LAP.")
+  (:use :cross-cl)
+  (:export #:assemble
+           #:*function-reference-resolver*))
+
 (in-package :sys.c)
 
 (defstruct (byte

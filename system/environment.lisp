@@ -99,7 +99,9 @@ A list of two elements, the short & long name." )
 
 ;; (instance)
 (defun machine-instance () *machine-info*)
-(defun machine-type () "x86-64")
+(defun machine-type ()
+  #+x86-64 "x86-64"
+  #+arm64 "arm64")
 (defun machine-version ()
   (multiple-value-bind (cpuid-max vendor-1 vendor-3 vendor-2)
       (cpuid 0)

@@ -20,6 +20,12 @@
            #:*funcallable-instance-trampoline*
            #:create-low-level-interrupt-support))
 
+(defpackage :cold-generator.arm64
+  (:use :cl :cold-generator)
+  (:export #:*undefined-function-thunk*
+           #:*closure-trampoline*
+           #:*funcallable-instance-trampoline*))
+
 (in-package :cold-generator)
 
 (defparameter *supervisor-source-files*
@@ -112,6 +118,7 @@
     "compiler/package.lisp"
     "compiler/lap.lisp"
     "compiler/lap-x86.lisp"
+    "compiler/lap-arm64.lisp"
     "compiler/compiler.lisp"
     "compiler/environment.lisp"
     "compiler/global-environment.lisp"
@@ -337,7 +344,10 @@
   (ecase sys.c::*target-architecture*
     (:x86-64
      (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
-       (apply #'sys.lap-x86:assemble code-list args)))))
+       (apply #'sys.lap-x86:assemble code-list args)))
+    (:arm64
+     (let ((mezzano.lap.arm64:*function-reference-resolver* #'sys.c::resolve-fref))
+       (apply #'mezzano.lap.arm64:assemble code-list args)))))
 
 (defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t) (name 'sys.int::support-function))
   "Compile a list of LAP code as a function. Constants must only be symbols."
@@ -507,15 +517,18 @@
   (format t "UBV at word ~X~%" *unbound-value-address*)
   ;; Create trampoline functions.
   (setf *undefined-function-address* (compile-lap-function (ecase sys.c::*target-architecture*
-                                                             (:x86-64 cold-generator.x86-64:*undefined-function-thunk*))
+                                                             (:x86-64 cold-generator.x86-64:*undefined-function-thunk*)
+                                                             (:arm64 cold-generator.arm64:*undefined-function-thunk*))
                                                            :area :wired
                                                            :name 'sys.int::%%undefined-function-trampoline)
         *closure-trampoline-address* (compile-lap-function (ecase sys.c::*target-architecture*
-                                                             (:x86-64 cold-generator.x86-64:*closure-trampoline*))
+                                                             (:x86-64 cold-generator.x86-64:*closure-trampoline*)
+                                                             (:arm64 cold-generator.arm64:*closure-trampoline*))
                                                            :area :wired
                                                            :name 'sys.int::%%closure-trampoline)
         *f-i-trampoline-address* (compile-lap-function (ecase sys.c::*target-architecture*
-                                                         (:x86-64 cold-generator.x86-64:*funcallable-instance-trampoline*))
+                                                         (:x86-64 cold-generator.x86-64:*funcallable-instance-trampoline*)
+                                                         (:arm64 cold-generator.arm64:*funcallable-instance-trampoline*))
                                                        :area :wired
                                                        :name 'sys.int::%%funcallable-instance-trampoline))
   (format t "UDF at word ~X~%" *undefined-function-address*)
@@ -659,7 +672,8 @@
                                                sys.int::+tag-object+))
       ;; Architecture.
       (setf (ub32ref/le header 64) (ecase sys.c::*target-architecture*
-                                     (:x86-64 sys.int::+llf-arch-x86-64+)))
+                                     (:x86-64 sys.int::+llf-arch-x86-64+)
+                                     (:arm64 sys.int::+llf-arch-arm64+)))
       ;; 65-96 free.
       ;; Top-level block map.
       (setf (ub64ref/le header 96) (/ bml4-block #x1000))
@@ -1114,7 +1128,8 @@
     (create-support-objects)
     (ecase sys.c::*target-architecture*
       (:x86-64
-       (cold-generator.x86-64:create-low-level-interrupt-support)))
+       (cold-generator.x86-64:create-low-level-interrupt-support))
+      (:arm64))
     (setf (cold-symbol-value 'sys.int::*exception-stack-base*) (make-fixnum (stack-base pf-exception-stack))
           (cold-symbol-value 'sys.int::*exception-stack-size*) (make-fixnum (stack-size pf-exception-stack)))
     (setf (cold-symbol-value 'sys.int::*irq-stack-base*) (make-fixnum (stack-base irq-stack))
@@ -1778,6 +1793,7 @@ Tag with +TAG-OBJECT+."
                 "Bad LLF version ~D, wanted version ~D." version sys.int::*llf-version*))
       (let ((arch (case (load-integer s)
                     (#.sys.int::+llf-arch-x86-64+ :x86-64)
+                    (#.sys.int::+llf-arch-arm64+ :arm64)
                     (t :unknown))))
         (assert (eql arch sys.c::*target-architecture*) ()
                 "LLF compiled for wrong architecture ~S. Wanted ~S."

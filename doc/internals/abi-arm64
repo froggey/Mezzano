@@ -1,0 +1,31 @@
+x0   First argument (value)
+x1   Second argument (value)
+x2   Third argument (value)
+x3   Fourth argument (value)
+x4   Fifth argument (value)
+x5   Argument count (integer)
+x6   Closure environment (value)
+x7   Fref (value)
+x8   Unused
+x9   Temporary (integer)
+x10  Temporary (integer)
+x11  Temporary (integer)
+x12  Temporary (integer)
+x13  Unused
+x14  Unused
+x15  Unused
+x16  Unused
+x17  Unused
+x18  Unused
+x18  Unused
+x20  Unused
+x21  Unused
+x22  Unused
+x23  Unused
+x24  Unused
+x25  Unused
+x26  NIL
+x27  Current CPU (value-ish)
+x28  Current thread (value-ish)
+x29  Frame pointer (integer)
+x30  Link register (integer)

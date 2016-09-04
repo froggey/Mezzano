@@ -140,6 +140,7 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream) ; LLF\x01
   (save-integer *llf-version* output-stream)
   (save-integer #+x86-64 +llf-arch-x86-64+
+                #+arm64 +llf-arch-arm64+
                 output-stream))
 
 (defun save-integer (integer stream)

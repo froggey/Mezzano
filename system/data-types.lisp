@@ -234,6 +234,7 @@ reserved on the disk, but no specific block has been allocated.")
 (defparameter *llf-version* 14)
 
 (defconstant +llf-arch-x86-64+ 1)
+(defconstant +llf-arch-arm64+ 2)
 
 (defconstant +llf-end-of-load+ #xFF)
 (defconstant +llf-backlink+ #x01)

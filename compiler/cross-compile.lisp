@@ -577,7 +577,8 @@
   (write-sequence #(#x4C #x4C #x46 #x01) output-stream)
   (save-integer sys.int::*llf-version* output-stream)
   (save-integer (ecase *target-architecture*
-                  (:x86-64 sys.int::+llf-arch-x86-64+))
+                  (:x86-64 sys.int::+llf-arch-x86-64+)
+                  (:arm64 sys.int::+llf-arch-arm64+))
                 output-stream))
 
 (defun save-integer (integer stream)

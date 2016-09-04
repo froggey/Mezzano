@@ -214,6 +214,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
                      :unicode
                      :little-endian
                      #+x86-64 :x86-64
+                     #+arm64 :arm64
                      :mezzano
                      :ieee-floating-point
                      :ansi-cl

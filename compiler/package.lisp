@@ -287,3 +287,9 @@
   (:use :cl :sys.lap)
   (:export #:assemble
            #:*function-reference-resolver*))
+
+(defpackage :mezzano.lap.arm64
+  (:documentation "arm64 assembler for LAP.")
+  (:use :cl)
+  (:export #:assemble
+           #:*function-reference-resolver*))
