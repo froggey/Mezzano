@@ -282,6 +282,46 @@
 (set-macro-character #\` 'read-backquote nil *cross-readtable*)
 (set-macro-character #\, 'read-comma nil *cross-readtable*)
 
+(defun eval-feature-test (test)
+  "Evaluate the feature expression TEST."
+  (etypecase test
+    (symbol (member test sys.int::*features*))
+    (cons (case (car test)
+            (:not (when (or (null (cdr test)) (cddr test))
+                    (error "Invalid feature expression ~S" test))
+                  (not (eval-feature-test (cadr test))))
+            (:and (dolist (subexpr (cdr test) t)
+                    (when (not (eval-feature-test subexpr))
+                      (return nil))))
+            (:or (dolist (subexpr (cdr test) nil)
+                   (when (eval-feature-test subexpr)
+                     (return t))))
+            (t (error "Invalid feature expression ~S" test))))))
+
+(defun read-features (stream suppress-if-false)
+  "Common function to implement #+ and #-."
+  (let* ((test (let ((*package* (find-package "KEYWORD")))
+                 (read stream t nil t)))
+         (*read-suppress* (or *read-suppress*
+                              (if suppress-if-false
+                                  (not (eval-feature-test test))
+                                  (eval-feature-test test))))
+         (value (read stream t nil t)))
+    (if *read-suppress*
+        (values)
+        value)))
+
+(defun read-feature-plus (stream ch p)
+  (declare (ignore ch p))
+  (read-features stream t))
+
+(defun read-feature-minus (stream ch p)
+  (declare (ignore ch p))
+  (read-features stream nil))
+
+(set-dispatch-macro-character #\# #\+ 'read-feature-plus *cross-readtable*)
+(set-dispatch-macro-character #\# #\- 'read-feature-minus *cross-readtable*)
+
 (defmethod lookup-variable-in-environment (symbol (environment null))
   (multiple-value-bind (expansion expandedp)
       (gethash symbol *system-symbol-macros*)
