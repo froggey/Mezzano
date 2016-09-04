@@ -48,4 +48,5 @@
                (:file "compiler/builtins/unwind")
                (:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
-               (:file "tools/cold-generator")))
+               (:file "tools/cold-generator")
+               (:file "tools/cold-generator-x86-64")))
