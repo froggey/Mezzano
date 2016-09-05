@@ -188,6 +188,8 @@ Returns two values, the packet data and the receiving NIC."
       (push-wired action *deferred-boot-actions*)
       (funcall action)))
 
+(sys.int::defglobal *post-boot-worker-thread*)
+
 (defun post-boot-worker ()
   (loop
      ;; Run deferred boot actions first.

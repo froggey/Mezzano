@@ -528,18 +528,6 @@
       (cons item list)))
 
 (defun subst-if (new predicate tree &key key)
-  (setf test (or test #'eql))
-  (cond ((funcall test old tree)
-         new)
-        ((atom tree) tree)
-        (t (let ((a (subst new old (car tree) :test test))
-                 (d (subst new old (cdr tree) :test test)))
-             (if (and (funcall test a (car tree))
-                      (funcall test d (cdr tree)))
-                 tree
-                 (cons a d))))))
-
-(defun subst-if (new predicate tree &key key)
   (setf key (or key #'identity))
   (cond ((funcall predicate (funcall key tree))
          new)

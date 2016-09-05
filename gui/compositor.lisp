@@ -355,7 +355,7 @@ A passive drag sends no drag events to the window.")
 
 (defun global-mouse-state ()
   "Fetch the current mouse state."
-  (values *mouse-button-state* *mouse-x* *mouse-y*))
+  (values *mouse-buttons* *mouse-x* *mouse-y*))
 
 ;;;; Window creation event.
 ;;;; From clients to the compositor.

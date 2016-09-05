@@ -144,7 +144,7 @@ Make sure there is a virtio-net NIC attached.~%")
 (sys.int::cal "sys:source;file;http.lisp")
 ;; If the desktop image was removed above, then remove the :IMAGE argument
 ;; from here.
-(setf sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
+(defvar sys.int::*desktop* (eval (read-from-string "(mezzano.gui.desktop:spawn :image \"LOCAL:>Desktop.jpeg\")")))
 
 (defvar sys.int::*init-file-path* "SYS:HOME;INIT.LISP")
 

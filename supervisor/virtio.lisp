@@ -48,6 +48,8 @@
 (defconstant +virtio-ring-desc-f-indirect+ 2
   "Buffer contains a list of buffer descriptors.")
 
+(defconstant +virtio-ring-avail-f-no-interrupt+ 1)
+
 (defconstant +virtio-ring-desc-address-offset+ 0)
 (defconstant +virtio-ring-desc-length-offset+ 8)
 (defconstant +virtio-ring-desc-flags-offset+ 12)

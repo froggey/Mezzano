@@ -120,13 +120,13 @@
   (let ((data (assoc tag (slot-value environment '%blocks))))
     (if data
         (second data)
-        (lookup-block-in-environment symbol nil))))
+        (lookup-block-in-environment tag nil))))
 
 (defmethod lookup-go-tag-in-environment (tag (environment lexical-environment))
   (let ((data (assoc tag (slot-value environment '%go-tags))))
     (if data
         (second data)
-        (lookup-go-tag-in-environment symbol nil))))
+        (lookup-go-tag-in-environment tag nil))))
 
 (defmethod environment-macro-definitions-only ((environment lexical-environment))
   (extend-environment

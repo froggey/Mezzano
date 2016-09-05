@@ -428,7 +428,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
   (let ((ta (abs a))
         (tb (abs b))
         (tq 1)
-        (q 0))
+        (q 0)
+        (n nil))
     ;; Check for the easy case. |a| < |b| => 0, a
     (when (< ta tb)
       (return-from %%bignum-truncate
@@ -1429,8 +1430,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun sin (x)
   (etypecase x
     (complex
-     (let ((real (realpart number))
-           (imag (imagpart number)))
+     (let ((real (realpart x))
+           (imag (imagpart x)))
        (complex (* (sin real) (cosh imag))
                 (* (cos real) (sinh imag)))))
     (double-float
@@ -1441,8 +1442,8 @@ Implements the dumb mp_div algorithm from BigNum Math."
 (defun cos (x)
   (etypecase x
     (complex
-     (let ((real (realpart number))
-           (imag (imagpart number)))
+     (let ((real (realpart x))
+           (imag (imagpart x)))
        (complex (* (cos real) (cosh imag))
                 (- (* (sin real) (sinh imag))))))
     (double-float

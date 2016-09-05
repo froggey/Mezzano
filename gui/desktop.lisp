@@ -241,7 +241,7 @@
            (loop
               (sys.int::log-and-ignore-errors
                (dispatch-event desktop (mezzano.supervisor:fifo-pop fifo)))))
-      (comp:close-window notification-window)
+      (comp:close-window (notification-window desktop))
       (comp:close-window (window desktop)))))
 
 (defun spawn (&key (colour #xFF011172) image)

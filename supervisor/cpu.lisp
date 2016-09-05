@@ -12,6 +12,10 @@
 (sys.int::defglobal sys.int::*bsp-wired-stack-base*)
 (sys.int::defglobal sys.int::*bsp-wired-stack-size*)
 (sys.int::defglobal sys.int::*bsp-info-vector*)
+(sys.int::defglobal sys.int::*exception-stack-base*)
+(sys.int::defglobal sys.int::*exception-stack-size*)
+(sys.int::defglobal sys.int::*irq-stack-base*)
+(sys.int::defglobal sys.int::*irq-stack-size*)
 
 (defun make-idt-entry (&key (offset 0) (segment #x0008)
                          (present t) (dpl 0) (ist nil)

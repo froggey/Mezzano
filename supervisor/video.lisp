@@ -216,7 +216,7 @@ An integer, measured in internal time units.")
   (let ((setter (intern (format nil "SET-~A-LIGHT" name)))
         (light-sym (intern (format nil "*LIGHT-~A*" name))))
     `(progn
-       (setf ,light-sym (make-light :name ',name :index ',position :colour ',colour :state nil))
+       (defparameter ,light-sym (make-light :name ',name :index ',position :colour ',colour :state nil))
        (push-wired ,light-sym *lights*)
        (defun ,setter (state)
          (safe-without-interrupts (state)

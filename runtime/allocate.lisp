@@ -3,6 +3,8 @@
 
 (in-package :mezzano.runtime)
 
+(sys.int::defglobal *paranoid-allocation*)
+
 (sys.int::defglobal sys.int::*wired-area-bump*)
 (sys.int::defglobal sys.int::*wired-area-freelist*)
 (sys.int::defglobal sys.int::*pinned-area-bump*)

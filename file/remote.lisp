@@ -321,7 +321,7 @@
                  (sys.net:buffered-format con "(~S ~S)" (abort-action stream) (path stream))
                  (let ((x (read-preserving-whitespace con)))
                    (unless (eql x :ok)
-                     (error "Error: ~A ~S." path x))
+                     (error "Error: ~A ~S." (path stream) x))
                    x))))))
   t)
 

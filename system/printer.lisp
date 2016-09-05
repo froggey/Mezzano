@@ -66,7 +66,7 @@
          (write-string "#<Bignum" stream)
          (dotimes (i (%n-bignum-fragments x))
            (format stream " ~16,'0X"
-                   (%bignum-fragment bignum (- (%n-bignum-fragments x) i 1))))
+                   (%bignum-fragment x (- (%n-bignum-fragments x) i 1))))
          (write-char #\> stream))
         ((= x 0)
          (write-char #\0 stream))

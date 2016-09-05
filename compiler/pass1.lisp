@@ -67,7 +67,7 @@
 
 (defun make-variable (name declares)
   (if (or (sys.int::variable-information name)
-	  (declared-as-p 'special name declares))
+          (declared-as-p 'special name declares))
       (make-instance 'special-variable :name name)
       (make-instance 'lexical-variable
                      :name name

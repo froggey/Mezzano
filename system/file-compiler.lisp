@@ -402,7 +402,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
     (or (fastload-form form omap nil)
         (add-to-llf +llf-invoke+
-                    (sys.c::compile-lambda `(lambda () (setq ,ltv-sym ,form))
+                    (sys.c::compile-lambda `(lambda ()
+                                              (declare (special ,ltv-sym))
+                                              (setq ,ltv-sym ,form))
                                            nil)))
     `(symbol-value ',ltv-sym)))
 

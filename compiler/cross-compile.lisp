@@ -779,7 +779,10 @@
 (defun cross-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
   (let ((ltv-sym (gensym "LOAD-TIME-VALUE-CELL")))
-    (x-compile `(setq ,ltv-sym ,form) nil)
+    (x-compile `(locally
+                    (declare (special ,ltv-sym))
+                  (setq ,ltv-sym ,form))
+               nil)
     `(symbol-value ',ltv-sym)))
 
 (defun x-compile (form env)

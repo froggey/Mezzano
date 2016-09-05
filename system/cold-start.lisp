@@ -184,6 +184,8 @@
 (defun find-package-or-die (name)
   t)
 
+(defvar *warm-llf-files*)
+
 (defun initialize-lisp ()
   "A grab-bag of things that must be done before Lisp will work properly.
 Cold-generator sets up just enough stuff for functions to be called, for
@@ -195,8 +197,6 @@ structures to exist, and for memory to be allocated, but not much beyond that."
         *standard-output* *cold-stream*
         *standard-input* *cold-stream*
         *debug-io* *cold-stream*
-        *early-initialize-hook* '()
-        *initialize-hook* '()
         * nil
         ** nil
         *** nil

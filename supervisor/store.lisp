@@ -12,6 +12,8 @@
 
 (in-package :mezzano.supervisor)
 
+(sys.int::defglobal *verbose-store*)
+
 ;;; In-memory freelist linked list
 (sys.int::defglobal *store-freelist-head*)
 (sys.int::defglobal *store-freelist-tail*)

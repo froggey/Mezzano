@@ -158,7 +158,7 @@ The file will only be recompiled if the source is newer than the output file, or
 (defun %define-symbol-macro (name expansion)
   (check-type name symbol)
   (when (not (member (symbol-mode name) '(nil :symbol-macro)))
-    (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode form)))
+    (cerror "Redefine as a symbol-macro" "Symbol ~S already defined as a ~A" name (symbol-mode name)))
   (setf (symbol-mode name) :symbol-macro)
   (setf (gethash name *symbol-macro-expansions*) expansion)
   name)
