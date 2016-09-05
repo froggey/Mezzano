@@ -102,6 +102,12 @@
   (:export #:codegen-lambda
            #:generate-builtin-functions))
 
+(defpackage :mezzano.compiler.codegen.arm64
+  (:use :cl :mezzano.compiler)
+  (:local-nicknames (:lap :mezzano.lap.arm64))
+  (:export #:codegen-lambda
+           #:generate-builtin-functions))
+
 (defpackage :system
   (:export :dotted-list-length
            :parse-ordinary-lambda-list

@@ -42,9 +42,12 @@ A list of any declaration-specifiers."
 
 (defun codegen-lambda (lambda &optional target-architecture)
   (ecase (or target-architecture
-             #+x86-64 :x86-64)
+             #+x86-64 :x86-64
+             #+arm64 :arm64)
     (:x86-64
-     (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))))
+     (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))
+    (:arm64
+     (mezzano.compiler.codegen.arm64:codegen-lambda lambda))))
 
 ;; Parse lambda and optimize, but do not do codegen.
 (defun compile-lambda-1 (lambda &optional env)

@@ -160,6 +160,12 @@
   (:export #:codegen-lambda
            #:generate-builtin-functions))
 
+(defpackage :mezzano.compiler.codegen.arm64
+  (:use :cross-cl :mezzano.compiler)
+  (:local-nicknames (:lap :mezzano.lap.arm64))
+  (:export #:codegen-lambda
+           #:generate-builtin-functions))
+
 (in-package :system.compiler)
 
 (defpackage :system

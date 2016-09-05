@@ -47,6 +47,8 @@
                (:file "compiler/builtins-x86-64/numbers")
                (:file "compiler/builtins-x86-64/objects")
                (:file "compiler/builtins-x86-64/unwind")
+               (:file "compiler/codegen-arm64")
+               (:file "compiler/builtins-arm64/builtins")
                (:file "tools/build-unicode")
                (:file "tools/build-pci-ids")
                (:file "tools/cold-generator")

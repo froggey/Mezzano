@@ -143,6 +143,8 @@
     "compiler/builtins-x86-64/objects.lisp"
     "compiler/builtins-x86-64/unwind.lisp"
     "compiler/branch-tension.lisp"
+    "compiler/codegen-arm64.lisp"
+    "compiler/builtins-arm64/builtins.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"
