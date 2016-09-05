@@ -329,7 +329,9 @@
       (gethash symbol *system-symbol-macros*)
     (if expandedp
         (make-instance 'symbol-macro :name symbol :expansion expansion)
-        (make-instance 'special-variable :name symbol))))
+        (make-instance 'special-variable
+                       :name symbol
+                       :implicitly-declared (not (sys.int::variable-information symbol))))))
 
 (defmethod lookup-function-in-environment (name (environment null))
   (make-instance 'top-level-function :name name))

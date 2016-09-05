@@ -69,7 +69,9 @@
 
 ;;; A special variable, only used in bindings.
 (defclass special-variable ()
-  ((%name :initarg :name :accessor name)))
+  ((%name :initarg :name :accessor name)
+   (%implicitly-declared :initarg :implicitly-declared :accessor special-variable-implicitly-declared))
+  (:default-initargs :implicitly-declared nil))
 
 (defmethod print-object ((object special-variable) stream)
   (print-unreadable-object (object stream :type t :identity t)

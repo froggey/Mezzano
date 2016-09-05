@@ -169,6 +169,11 @@
              (error "Symbol-macro not allowed here."))
            (list symbol (symbol-macro-expansion var)))
           (t
+           (when (and (typep var 'special-variable)
+                      (special-variable-implicitly-declared var))
+             (warn 'sys.int::simple-style-warning
+                   :format-control "Undefined variable ~S."
+                   :format-arguments (list (name var))))
            var))))
 
 (defun find-function (name env)
