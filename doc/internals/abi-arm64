@@ -1,16 +1,16 @@
-x0   First argument (value)
-x1   Second argument (value)
-x2   Third argument (value)
-x3   Fourth argument (value)
-x4   Fifth argument (value)
-x5   Argument count (integer)
-x6   Closure environment (value)
-x7   Fref (value)
+x0   First argument, r8 (value)
+x1   Second argument, r9 (value)
+x2   Third argument, r10 (value)
+x3   Fourth argument, r11 (value)
+x4   Fifth argument, r12 (value)
+x5   Argument count, rcx (integer)
+x6   Closure environment, rbx (value)
+x7   Fref, r13 (value)
 x8   Unused
-x9   Temporary (integer)
-x10  Temporary (integer)
-x11  Temporary (integer)
-x12  Temporary (integer)
+x9   Temporary, rax (integer)
+x10  Temporary, rdx (integer)
+x11  Temporary, rsi (integer)
+x12  Temporary, rdi (integer)
 x13  Unused
 x14  Unused
 x15  Unused
