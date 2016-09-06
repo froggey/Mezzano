@@ -102,6 +102,12 @@
   (:export #:codegen-lambda
            #:generate-builtin-functions))
 
+(defpackage :mezzano.lap.arm64
+  (:documentation "arm64 assembler for LAP.")
+  (:use :cl)
+  (:export #:assemble
+           #:*function-reference-resolver*))
+
 (defpackage :mezzano.compiler.codegen.arm64
   (:use :cl :mezzano.compiler)
   (:local-nicknames (:lap :mezzano.lap.arm64))
@@ -291,11 +297,5 @@
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
   (:use :cl :sys.lap)
-  (:export #:assemble
-           #:*function-reference-resolver*))
-
-(defpackage :mezzano.lap.arm64
-  (:documentation "arm64 assembler for LAP.")
-  (:use :cl)
   (:export #:assemble
            #:*function-reference-resolver*))
