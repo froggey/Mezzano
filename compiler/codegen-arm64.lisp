@@ -15,6 +15,7 @@
 (defvar *current-lambda-name* nil)
 (defvar *gc-info-fixups* nil)
 (defvar *active-nl-exits* nil)
+(defvar *literal-pool*)
 
 (defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
 
@@ -75,9 +76,12 @@
                               '(:unboxed . :home))
                           *stack-values*))))
 
+(defun kill-value (tag)
+  (setf *load-list* (delete tag *load-list*)))
+
 (defun value-location (tag &optional kill)
   (when kill
-    (setf *load-list* (delete tag *load-list*)))
+    (kill-value tag))
   (cond ((eq (car tag) 'quote)
          (values (if (and (consp *x0-value*)
                           (eq (car *x0-value*) 'quote)
@@ -148,6 +152,29 @@
                      (when (eq best tag)
                        (return nil)))))))))
 
+(defun cg-go (form)
+  (let ((tag (assoc (ast-target form) *rename-list*)))
+    (smash-x0)
+    (cond (tag ;; Local jump.
+           (emit `(lap:b ,(second tag))))
+          (t ;; Non-local exit.
+           (let ((tagbody-tag (let ((*for-value* t))
+                                (cg-form (ast-info form)))))
+             (load-in-reg :x9 tagbody-tag t)
+             ;; RAX holds the tagbody info.
+             (emit
+              ;; Get X0 as well.
+              `(lap:orr :x0 :xzr :xzr)
+              ;; GO GO GO!
+              `(lap:ldr :x10 (:x9 0))
+              `(lap:ldr :x11 (:x10 ,(* (position (ast-target form)
+                                                 (tagbody-information-go-tags
+                                                  (go-tag-tagbody (ast-target form))))
+                                       8)))
+              `(lap:add :x10 :x10 :x11)
+              `(lap:br :x10)))))
+    'nil))
+
 (defun branch-to (label) (declare (ignore label)))
 (defun emit-label (label)
   (emit label))
@@ -216,14 +243,26 @@
     (setf *x0-value* nil)))
 
 (defun load-literal (register value)
-  (cond ((zerop value)
-         (emit `(lap:orr ,register :wzr 0)))
+  (cond ((keywordp value)
+         (let ((pos (position value *literal-pool*)))
+           (when (not pos)
+             (setf pos (vector-push-extend value *literal-pool*)))
+           (emit `(:comment :literal ,value))
+           (emit `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))
+        ((zerop value)
+         (emit `(lap:orr ,register :xzr :xzr)))
+        ((<= 0 value 65535)
+         (emit `(lap:movz ,register ,value)))
         (t
-         (emit `(lap:ldr ,register (:literal ,value))))))
+         (let ((pos (position value *literal-pool*)))
+           (when (not pos)
+             (setf pos (vector-push-extend value *literal-pool*)))
+           (emit `(:comment :literal ,value))
+           (emit `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))))
 
 (defun load-constant (register value)
   (cond ((eq value 'nil)
-         (emit `(lap:orr ,register :wzr :x26)))
+         (emit `(lap:orr ,register :xzr :x26)))
         ((fixnump value)
          (load-literal register (fixnum-to-raw value)))
         ((characterp value)
@@ -233,7 +272,7 @@
 (defun load-multiple-values (tag)
   (cond ((eql tag :multiple))
         (t (load-in-x0 tag t)
-           (emit `(lap:ldr :x5 (:literal ,(fixnum-to-raw 1)))))))
+           (load-literal :x5 (fixnum-to-raw 1)))))
 
 (defun load-in-x0 (tag &optional kill)
   (multiple-value-bind (loc true-tag)
@@ -246,7 +285,7 @@
          (emit `(lap:ldr :x0 (:stack ,(second loc))))))
       (setf *x0-value* true-tag))
     (when kill
-      (setf *load-list* (delete tag *load-list*)))))
+      (kill-value tag))))
 
 (defun load-in-reg (reg tag &optional kill)
   (if (eql reg :x0)
@@ -254,12 +293,12 @@
       (let ((loc (value-location tag nil)))
         (unless (eql loc reg)
           (if (eql loc :x0)
-              (emit `(lap:orr ,reg :wzr :x0))
+              (emit `(lap:orr ,reg :xzr :x0))
               (ecase (first loc)
                 ((quote) (load-constant reg (second loc)))
                 ((:stack) (emit `(lap:ldr ,reg (:stack ,(second loc))))))))
         (when kill
-          (setf *load-list* (delete tag *load-list*))))))
+          (kill-value tag)))))
 
 (defun add-dx-root (stack-slot)
   (do ((i *active-nl-exits* (cdr i)))
@@ -284,7 +323,8 @@
          (*trailers* '())
          (arg-registers '(:x0 :x1 :x2 :x3 :x4))
          (*gc-info-fixups* '())
-         (*active-nl-exits* '()))
+         (*active-nl-exits* '())
+         (*literal-pool* (make-array 0 :adjustable t :fill-pointer 0)))
     ;; Check some assertions.
     ;; No keyword arguments, no special arguments, no non-constant
     ;; &optional init-forms and no non-local arguments.
@@ -371,7 +411,11 @@
               `(lap:ret))))
     (let* ((final-code (nconc (generate-entry-code lambda)
                               (nreverse *code-accum*)
-                              (apply #'nconc *trailers*)))
+                              (apply #'nconc *trailers*)
+                              (list* 'arm-literal-pool
+                                     (loop
+                                        for val across *literal-pool*
+                                        collect `(:d64/le ,val)))))
            (homes (loop for (var . loc) across *stack-values*
                      for i from 0
                      when (and (lexical-variable-p var)
@@ -407,4 +451,970 @@
                (namestring *compile-file-pathname*))
              sys.int::*top-level-form-number*
              (lambda-information-lambda-list lambda)
-             (lambda-information-docstring lambda))))))
+             (lambda-information-docstring lambda))
+       nil
+       :arm64))))
+
+(defun emit-gc-info (&rest extra-stuff)
+  (let ((thing (list* :gc :frame extra-stuff)))
+    (push thing *gc-info-fixups*)
+    (emit thing)))
+
+(defun generate-entry-code (lambda)
+  (let ((entry-label (gensym "ENTRY"))
+        (invalid-arguments-label (gensym "BADARGS")))
+    (emit-trailer (invalid-arguments-label nil)
+      (emit `(:gc :frame)
+            `(lap:orr :x5 :xzr :xzr)
+            `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error))
+            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
+            `(lap:blr :x9)
+            `(lap:hlt 0)))
+    (nconc
+     (list entry-label
+           ;; Create control stack frame.
+           ;; FIXME: Not quite right. ARM calls start with no return address
+           ;; pushed! must modify no-frame layout meaning to assume ra.
+           `(:gc :no-frame :incoming-arguments :rcx)
+           `(lap:stp :x29 :x30 (:pre :sp -16))
+           `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
+           `(lap:add :x29 :sp :xzr)
+           `(:gc :frame :incoming-arguments :rcx))
+     ;; Emit the argument count test.
+     (cond ((lambda-information-rest-arg lambda)
+            ;; If there are no required parameters, then don't generate a lower-bound check.
+            (when (lambda-information-required-args lambda)
+              ;; Minimum number of arguments.
+              (list `(lap:subs :xzr :x5 ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+                    `(lap:b.lt ,invalid-arguments-label))))
+           ((and (lambda-information-required-args lambda)
+                 (lambda-information-optional-args lambda))
+            ;; A range.
+            (list `(lap:sub :x9 :x5 ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+                  `(lap:subs :xzr :x9 ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
+                  `(lap:b.hi ,invalid-arguments-label)))
+           ((lambda-information-optional-args lambda)
+            ;; Maximum number of arguments.
+            (list `(lap:subs :xzr :x5 ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
+                  `(lap:b.hi ,invalid-arguments-label)))
+           ((lambda-information-required-args lambda)
+            ;; Exact number of arguments.
+            (list `(lap:subs :xzr :x5 ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+                  `(lap:b.ne ,invalid-arguments-label)))
+           ;; No arguments
+           (t (list `(lap:cbnz :x5 ,invalid-arguments-label))))
+     (let ((n-slots (length *stack-values*)))
+       (when (oddp n-slots) (incf n-slots))
+       ;; Adjust stack.
+       (list `(lap:sub :sp :sp ,(* n-slots 8))))
+     ;; Flush stack slots.
+     (loop
+        for value across *stack-values*
+        for i from 0
+        unless (equal value '(:unboxed . :home))
+        collect `(lap:str :x26 (:stack ,i)))
+     (list `(:gc :frame :incoming-arguments :rcx
+                 :layout ,(coerce (loop for value across *stack-values*
+                                     collect (if (equal value '(:unboxed . :home))
+                                                 0
+                                                 1))
+                                  'bit-vector))))))
+
+(defun emit-dx-rest-list (lambda arg-registers)
+  (let* ((regular-argument-count (+ (length (lambda-information-required-args lambda))
+                                    (length (lambda-information-optional-args lambda))))
+         (rest-clear-loop-head (gensym "REST-CLEAR-LOOP-HEAD"))
+         (rest-loop-head (gensym "REST-LOOP-HEAD"))
+         (rest-loop-end (gensym "REST-LOOP-END"))
+         (rest-list-done (gensym "REST-LIST-DONE"))
+         (control-slots (allocate-control-stack-slots 2 t))
+         ;; Number of arguments processed and total number of arguments.
+         (saved-argument-count (+ control-slots 0))
+         (rest-dx-root (+ control-slots 1)))
+    ;; Assemble the rest list into X7.
+    ;; X5 holds the argument count.
+    ;; X6 and X7 are free. Argument registers may or may not be free
+    ;; depending on the number of required/optional arguments.
+    ;; Number of supplied arguments.
+    (emit `(lap:str :x5 ,(control-stack-slot-ea saved-argument-count)))
+    ;; Tell the GC to used the number of arguments saved on the stack. X5 will
+    ;; be used later.
+    (emit-gc-info :incoming-arguments saved-argument-count)
+    ;; The cons cells are allocated in one single chunk.
+    (emit `(lap:orr :x7 :xzr :x26))
+    ;; Remove required/optional arguments from the count.
+    ;; If negative or zero, the &REST list is empty.
+    (cond ((zerop regular-argument-count)
+           (emit `(lap:cbz :x5 ,rest-list-done)))
+          (t
+           (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw regular-argument-count)))
+           (emit `(lap:b.le ,rest-list-done))))
+    ;; Save the length, and double it. Each cons takes two words.
+    (emit `(lap:add :x10 :xzr :x5 :lsl 1))
+    ;; Add a header word and word of padding so it can be treated like a simple-vector.
+    (emit `(lap:add :x10 :x10 ,(fixnum-to-raw 2)))
+    ;; Allocate on the stack, converting fixnum to raw integer * 8.
+    (emit `(lap:sub :sp :sp :x10 :lsl ,(- 3 sys.int::+n-fixnum-bits+)))
+    ;; Generate the simple-vector header. simple-vector tag is zero, doesn't need to be set here.
+    ;; *2 as conses are 2 words and +1 for padding word at the start.
+    (emit `(lap:add :x10 :x5 :x5)
+          `(lap:add :x10 :x10 ,(fixnum-to-raw 1)))
+    (emit `(lap:str :x10 (:sp)))
+    ;; Clear the padding slot.
+    (emit `(lap:str :xzr (:sp 8)))
+    ;; For each cons, clear the car and set the cdr to the next cons.
+    (emit `(lap:add :x12 :sp 16))
+    (emit `(lap:orr :x10 :xzr :x5))
+    (emit rest-clear-loop-head)
+    (emit `(lap:add :x9 :x12 ,(+ 16 sys.int::+tag-cons+)))
+    (emit `(lap:str :xzr (:post :x12 8))) ; car
+    (emit `(lap:str :x9 (:post :x12 8))) ; cdr
+    (emit `(lap:subs :x10 :x10 ,(fixnum-to-raw 1)))
+    (emit `(lap:b.hi ,rest-clear-loop-head))
+    ;; Set the cdr of the final cons to NIL.
+    (emit `(lap:str :x26 (:x12 -8)))
+    ;; Create the DX root object for the vector.
+    (emit `(lap:add :x9 :sp ,sys.int::+tag-dx-root-object+))
+    (emit `(lap:str :x9 ,(control-stack-slot-ea rest-dx-root)))
+    ;; It's now safe to write values into the list/vector.
+    (emit `(lap:add :x12 :sp 16))
+    ;; Add register arguments to the list.
+    (loop
+       for reg in arg-registers
+       do (emit `(lap:str ,reg (:post :x12 16))
+                `(lap:subs :x5 :x5 ,(fixnum-to-raw 1))
+                `(lap:b.ne ,rest-loop-end)))
+    ;; Now add the stack arguments.
+    ;; Skip past required/optional arguments on the stack, the saved frame pointer and the return address.
+    (emit `(lap:add :x11 :x29 ,(* (+ (max 0 (- regular-argument-count 5)) 2) 8)))
+    (emit rest-loop-head)
+    ;; Load from stack.
+    (emit `(lap:ldr :x0 (:post :x11 8)))
+    ;; Store into current car.
+    (emit `(lap:str :x0 (:post :x12 16)))
+    ;; Stop when no more arguments.
+    (emit `(lap:subs :x5 :x5 ,(fixnum-to-raw 1)))
+    (emit `(lap:b.eq ,rest-loop-head))
+    (emit rest-loop-end)
+    ;; There were &REST arguments, create the cons.
+    (emit `(lap:add :x7 :sp ,(+ 16 sys.int::+tag-cons+)))
+    ;; Code above jumps directly here with NIL in R13 when there are no arguments.
+    (emit rest-list-done)))
+
+(defun emit-rest-list (lambda arg-registers)
+  (let* ((rest-arg (lambda-information-rest-arg lambda))
+         (dx-rest (lexical-variable-dynamic-extent rest-arg)))
+    (emit-dx-rest-list lambda arg-registers)
+    ;; The rest list has been created in R13.
+    (when (not dx-rest)
+      ;; Call COPY-LIST to convert the dx list into a heap list.
+      (emit `(lap:orr :x0 :xzr :x7)
+            `(lap:ldr :x7 (:function copy-list))
+            `(lap:orr :x5 :xzr ,(fixnum-to-raw 1))
+            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
+            `(lap:blr :x9)
+            `(lap:orr :x7 :xzr :x0)))
+    (let ((ofs (find-stack-slot)))
+      (setf (aref *stack-values* ofs) (cons rest-arg :home))
+      (emit `(lap:str :x7 (:stack ,ofs))))))
+
+(defun cg-form (form)
+  (flet ((save-tag (tag)
+           (when (and tag *for-value* (not (keywordp tag)))
+             (push tag *load-list*))
+           tag))
+    (etypecase form
+      (ast-block (save-tag (cg-block form)))
+      (ast-function (save-tag (cg-function form)))
+      (ast-go (cg-go form))
+      (ast-if (save-tag (cg-if form)))
+      (ast-let (cg-let form))
+      (ast-multiple-value-bind (save-tag (cg-multiple-value-bind form)))
+      (ast-multiple-value-call (save-tag (cg-multiple-value-call form)))
+      (ast-multiple-value-prog1 (save-tag (cg-multiple-value-prog1 form)))
+      (ast-progn (cg-progn form))
+      (ast-quote (cg-quote form))
+      (ast-return-from (cg-return-from form))
+      (ast-setq (cg-setq form))
+      (ast-tagbody (cg-tagbody form))
+      (ast-the (cg-the form))
+      (ast-call (save-tag (cg-function-form form)))
+      (ast-jump-table (cg-jump-table form))
+      (lexical-variable
+       (save-tag (cg-variable form)))
+      (lambda-information
+       (let ((tag (cg-lambda form)))
+         (when (and (consp tag)
+                    (symbolp (car tag))
+                    (null (cdr tag))
+                    (not (eql 'quote (car tag))))
+           (save-tag tag))
+         tag)))))
+
+(defun cg-make-dx-simple-vector (form)
+  (destructuring-bind (size)
+      (ast-arguments form)
+    (assert (and (quoted-form-p size)
+                 (fixnump (ast-value size)))
+            (size)
+            "Size of dx simple-vector must be known at cg time.")
+    (let ((words (1+ (ast-value size))))
+      (when (oddp words)
+        (incf words))
+      (smash-x0)
+      (let ((slots (allocate-control-stack-slots words t)))
+        ;; Set the header.
+        (load-literal :x9 (ash (ast-value size) sys.int::+object-data-shift+))
+        (emit `(lap:str :x9 ,(control-stack-slot-ea (+ slots words -1))))
+        ;; Generate pointer.
+        (emit `(lap:sub :x8 :x29 ,(- (+ (control-stack-frame-offset (+ slots words -1))
+                                        sys.int::+tag-object+)))))))
+  (setf *x0-value* (list (gensym))))
+
+(defun emit-nlx-thunk (thunk-name target-label multiple-values-active)
+  (emit-trailer (thunk-name nil)
+    (if multiple-values-active
+        (emit-gc-info :block-or-tagbody-thunk :rax :multiple-values 0)
+        (emit-gc-info :block-or-tagbody-thunk :rax))
+    (emit `(lap:ldr :x10 (:x9 16))
+          `(lap:add :sp :x10 :xzr)
+          `(lap:ldr :x29 (:x9 24)))
+    (dolist (slot (first *active-nl-exits*))
+      (emit `(lap:str :x26 (:stack ,slot))))
+    (emit `(lap:b ,target-label))))
+
+(defun cg-block (form)
+  (let* ((info (ast-info form))
+         (exit-label (gensym "block"))
+         (thunk-label (gensym "block-thunk"))
+         (escapes (block-information-env-var info))
+         (*for-value* *for-value*)
+         (*active-nl-exits* (list* '() *active-nl-exits*)))
+    ;; Allowing predicate values here is too complicated.
+    (when (eql *for-value* :predicate)
+      (setf *for-value* t))
+    ;; Disable tail calls when the BLOCK escapes.
+    ;; TODO: When tailcalling, configure the escaping block so
+    ;; control returns to the caller.
+    (when (and escapes (eql *for-value* :tail))
+      (setf *for-value* :multiple))
+    (setf (block-information-return-mode info) *for-value*
+          (block-information-count info) 0)
+    (when escapes
+      (smash-x0)
+      (let ((slot (find-stack-slot))
+            (control-info (allocate-control-stack-slots 4)))
+        (setf (aref *stack-values* slot) (cons info :home))
+        ;; Construct jump info.
+        (emit `(lap:adr :x9 ,thunk-label)
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 3)))
+              `(lap:ldr :x9 (:x28 ,+binding-stack-gs-offset+))
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 2)))
+              `(lap:add :x9 :sp :xzr)
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 1)))
+              `(lap:str :x29 ,(control-stack-slot-ea (+ control-info 0)))
+              ;; Save pointer to info
+              `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3))))
+              `(lap:str :x9 (:stack ,slot)))))
+    (prog1
+        (let* ((*rename-list* (cons (list info exit-label) *rename-list*))
+               (stack-slots (set-up-for-branch))
+               (tag (cg-form (ast-body form))))
+          (cond ((and *for-value* tag (/= (block-information-count info) 0))
+                 ;; Returning a value, exit is reached normally and there were return-from forms reached.
+                 ;; Unify the results, so :MULTIPLE is always returned.
+                 (let ((return-mode nil))
+                   (ecase *for-value*
+                     ((:multiple :tail)
+                      (unless (eql tag :multiple)
+                        (load-multiple-values tag)
+                        (smash-x0))
+                      (setf return-mode :multiple))
+                     (t (load-in-x0 tag t)
+                        (smash-x0)
+                        (setf return-mode (list (gensym)))))
+                   (emit exit-label)
+                   (when (member *for-value* '(:multiple :tail))
+                     (emit-gc-info :multiple-values 0))
+                   (setf *stack-values* (copy-stack-values stack-slots)
+                         *x0-value* return-mode)))
+                ((and *for-value* tag)
+                 ;; Returning a value, exit is reached normally, but no return-from forms were reached.
+                 tag)
+                ((and *for-value* (/= (block-information-count info) 0))
+                 ;; Returning a value, exit is not reached normally, but there were return-from forms reached.
+                 (smash-x0)
+                 (emit exit-label)
+                 (when (member *for-value* '(:multiple :tail))
+                   (emit-gc-info :multiple-values 0))
+                 (setf *stack-values* (copy-stack-values stack-slots)
+                       *x0-value* (if (member *for-value* '(:multiple :tail))
+                                      :multiple
+                                      (list (gensym)))))
+                ((/= (block-information-count info) 0)
+                 ;; Not returning a value, but there were return-from forms reached.
+                 (smash-x0)
+                 (emit exit-label)
+                 (setf *stack-values* (copy-stack-values stack-slots)
+                       *x0-value* (list (gensym))))
+                ;; No value returned, no return-from forms reached.
+                (t nil)))
+      (when escapes
+        (emit-nlx-thunk thunk-label exit-label (member *for-value* '(:multiple :tail)))))))
+
+(defun cg-function (form)
+  (let ((name (ast-name form))
+        (undefined (gensym "function-undefined"))
+        (resume (gensym "function-resume")))
+    (smash-x0)
+    (emit-trailer (undefined)
+      ;; When the function is undefined, fall back on FDEFINITION.
+      (load-constant :x5 1)
+      (load-constant :x0 name)
+      (emit `(lap:ldr :x7 (:function fdefinition))
+            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
+            `(lap:blr :x9)
+            `(lap:b ,resume)))
+    (emit `(lap:ldr :x0 (:function ,name))
+          `(lap:ldr :x0 ,(object-ea :x0 :slot sys.int::+fref-function+)))
+    (load-literal :x9 :undefined-function)
+    (emit `(lap:subs :xzr :x0 :x9)
+          `(lap:b.eq ,undefined)
+          resume)
+    (setf *x0-value* (list (gensym)))))
+
+;;; (predicate inverse jump-instruction cmov-instruction)
+(defstruct predicate-instruction
+  inverse jump-instruction cmov-instruction)
+(defparameter *predicate-instructions-1*
+  '((:eq  :ne lap:b.eq lap:csel.eq)
+    (:ne  :eq lap:b.ne lap:csel.ne)
+    (:cs  :cc lap:b.cs lap:csel.cs)
+    (:cc  :cs lap:b.cc lap:csel.cc)
+    (:mi  :pl lap:b.mi lap:csel.mi)
+    (:pl  :mi lap:b.pl lap:csel.pl)
+    (:vs  :vc lap:b.vs lap:csel.vs)
+    (:vc  :vs lap:b.vc lap:csel.vc)
+    (:hi  :ls lap:b.hi lap:csel.hi)
+    (:ls  :hi lap:b.ls lap:csel.ls)
+    (:ge  :lt lap:b.ge lap:csel.ge)
+    (:lt  :ge lap:b.lt lap:csel.lt)
+    (:gt  :le lap:b.gt lap:csel.gt)
+    (:le  :ge lap:b.le lap:csel.le)))
+(defparameter *predicate-instructions*
+  (let ((ht (make-hash-table :test 'eq)))
+    (mapc (lambda (i)
+            (setf (gethash (first i) ht)
+                  (make-predicate-instruction
+                   :inverse (second i)
+                   :jump-instruction (third i)
+                   :cmov-instruction (fourth i))))
+          *predicate-instructions-1*)
+    ht))
+
+(defun predicate-info (pred)
+  (or (gethash pred *predicate-instructions*)
+      (error "Unknown predicate ~S." pred)))
+
+(defun invert-predicate (pred)
+  (predicate-instruction-inverse (predicate-info pred)))
+
+(defun load-predicate (pred)
+  (smash-x0)
+  (emit `(lap:ldr :x0 (:constant t))
+        `(,(predicate-instruction-cmov-instruction (predicate-info pred))
+           :x0 :x0 :x26)))
+
+(defun predicate-result (pred)
+  (cond ((eql *for-value* :predicate)
+         pred)
+        (t (load-predicate pred)
+           (setf *x0-value* (list (gensym))))))
+
+(defun cg-if (form)
+  (let* ((else-label (gensym))
+         (end-label (gensym))
+         (test-tag (let ((*for-value* :predicate))
+                     (cg-form (ast-test form))))
+         (branch-count 0)
+         (stack-slots (set-up-for-branch)))
+    (when (null test-tag)
+      (return-from cg-if))
+    (when (not (keywordp test-tag))
+      (kill-value test-tag))
+    (cond ((keywordp test-tag)) ; Nothing for predicates.
+          (t (load-in-x0 test-tag)
+             (emit `(lap:subs :xzr :x0 :x26))))
+    (let ((x0-at-cond *x0-value*)
+          (stack-at-cond (make-array (length *stack-values*) :initial-contents *stack-values*)))
+      ;; This is a little dangerous and relies on SET-UP-FOR-BRANCH not
+      ;; changing the flags.
+      (cond ((keywordp test-tag)
+             ;; Invert the sense.
+             (emit `(,(predicate-instruction-jump-instruction
+                       (predicate-info (invert-predicate test-tag))) ,else-label)))
+            (t (emit `(lap:b.eq ,else-label))))
+      (branch-to else-label)
+      (let ((tag (cg-form (ast-if-then form))))
+        (when tag
+          (when *for-value*
+            (case *for-value*
+              ((:multiple :tail)
+               (load-multiple-values tag))
+              (:predicate (if (keywordp tag)
+                              (load-predicate tag)
+                              (load-in-x0 tag t)))
+              (t (load-in-x0 tag t))))
+          (emit `(lap:b ,end-label))
+          (incf branch-count)
+          (branch-to end-label)))
+      (setf *x0-value* x0-at-cond
+            *stack-values* (copy-stack-values stack-at-cond))
+      (emit-label else-label)
+      (emit-gc-info)
+      (let ((tag (cg-form (ast-if-else form))))
+        (when tag
+          (when *for-value*
+            (case *for-value*
+              ((:multiple :tail)
+               (load-multiple-values tag))
+              (:predicate (if (keywordp tag)
+                              (load-predicate tag)
+                              (load-in-x0 tag t)))
+              (t (load-in-x0 tag t))))
+          (incf branch-count)
+          (branch-to end-label)))
+      (emit-label end-label)
+      (setf *stack-values* (copy-stack-values stack-slots))
+      (unless (zerop branch-count)
+        (cond ((member *for-value* '(:multiple :tail))
+               (emit-gc-info :multiple-values 0)
+               (setf *x0-value* :multiple))
+              (t (emit-gc-info)
+                 (setf *x0-value* (list (gensym)))))))))
+
+(defun cg-let (form)
+  (let* ((bindings (ast-bindings form))
+         (variables (mapcar 'first bindings))
+         (body (ast-body form)))
+    ;; Ensure there are no non-local variables or special bindings.
+    (assert (every (lambda (x)
+                     (and (lexical-variable-p x)
+                          (localp x)))
+                   variables))
+    (dolist (b bindings)
+      (let* ((var (first b))
+             (init-form (second b)))
+        (cond ((zerop (lexical-variable-use-count var))
+               (let ((*for-value* nil))
+                 (cg-form init-form)))
+              (t
+               (let ((slot (find-stack-slot)))
+                 (setf (aref *stack-values* slot) (cons var :home))
+                 (let* ((*for-value* t)
+                        (tag (cg-form init-form)))
+                   (load-in-x0 tag t)
+                   (setf *x0-value* (cons var :dup))
+                   (emit `(lap:str :x0 (:stack ,slot)))))))))
+    (cg-form body)))
+
+(defun gensym-many (things)
+  (loop for x in things collect (gensym)))
+
+(defun cg-multiple-value-bind (form)
+  (let ((variables (ast-bindings form))
+        (value-form (ast-value-form form))
+        (body (ast-body form)))
+    ;; Ensure there are no non-local variables or special bindings.
+    (assert (every (lambda (x)
+                     (and (lexical-variable-p x)
+                          (localp x)))
+                   variables))
+    ;; Initialize local variables to NIL.
+    (dolist (var variables)
+      (when (not (zerop (lexical-variable-use-count var)))
+        (let ((slot (find-stack-slot)))
+          (setf (aref *stack-values* slot) (cons var :home))
+          (emit `(lap:str :x26 (:stack ,slot))))))
+    ;; Compile the value-form.
+    (let ((value-tag (let ((*for-value* :multiple))
+                       (cg-form value-form))))
+      (load-multiple-values value-tag))
+    ;; Bind variables.
+    (let* ((jump-targets (gensym-many variables))
+           (no-vals-label (gensym))
+           (var-count (length variables))
+           (value-locations (nreverse (subseq '(:x0 :x1 :x2 :x3 :x4) 0 (min 5 var-count)))))
+      (dotimes (i (- var-count 5))
+        (push i value-locations))
+      (dotimes (i var-count)
+        (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw (- var-count i)))
+              `(lap:b.hi ,(nth i jump-targets))))
+      (emit `(lap:b ,no-vals-label))
+      (loop
+         for var in (reverse variables)
+         for label in jump-targets
+         do
+           (emit label)
+           (cond ((zerop (lexical-variable-use-count var))
+                  (pop value-locations))
+                 (t (let ((register (cond ((integerp (first value-locations))
+                                           (emit `(lap:ldr :x7 (:x28 ,(+ (- 8 sys.int::+tag-object+)
+                                                                         (* (+ #+(or)sys.int::+stack-group-offset-mv-slots+
+                                                                               32 ; fixme. should be +thread-mv-slots-start+
+                                                                               (pop value-locations))
+                                                                            8)))))
+                                           :x7)
+                                          (t (pop value-locations)))))
+                      (emit `(lap:str ,register (:stack ,(position (cons var :home)
+                                                                   *stack-values*
+                                                                   :test 'equal))))))))
+      (emit no-vals-label))
+    (emit-gc-info)
+    (cg-form body)))
+
+(defun cg-multiple-value-prog1 (form)
+  (cond
+    ((null *for-value*)
+     ;; Not for value
+     (cg-form (make-instance 'ast-progn :forms (list (ast-value-form form)
+                                                     (ast-body form)))))
+    (t (let ((tag (let ((*for-value* (case *for-value*
+                                       (:predicate t)
+                                       (:tail :multiple)
+                                       (t *for-value*))))
+                    (cg-form (ast-value-form form))))
+             (sv-save-area (allocate-control-stack-slots 1 t))
+             (saved-stack-pointer (allocate-control-stack-slots 1))
+             (save-done (gensym "VALUES-SAVE-DONE"))
+             (save-loop-head (gensym "VALUES-SAVE-LOOP")))
+         (smash-x0)
+         (when (eql tag :multiple)
+           ;; Allocate an appropriately sized DX simple vector.
+           ;; Add one for the header, then round the count up to an even number.
+           (emit `(lap:add :x9 :x5 ,(fixnum-to-raw 2)))
+           (emit `(lap:and :x9 :x9 ,(fixnum-to-raw (lognot 1))))
+           ;; Save SP.
+           (emit `(lap:add :x10 :sp :xzr))
+           (emit `(lap:str :x10 (:stack ,saved-stack-pointer)))
+           ;; Adjust RSP. rax to raw * 8.
+           (emit `(lap:add :x9 :xzr :x9 :lsl ,(- 3 sys.int::+n-fixnum-bits+)))
+           (emit `(lap:sub :sp :sp :x9))
+           ;; Write the simple-vector header.
+           (emit `(lap:add :x9 :xzr :x5 :lsl ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
+           (emit `(lap:str :x9 (:sp)))
+           ;; Clear the SV body. Don't modify RCX, needed for MV GC info.
+           (let ((clear-loop-head (gensym "MVP1-CLEAR-LOOP"))
+                 (clear-loop-end (gensym "MVP1-CLEAR-LOOP-END")))
+             (emit `(lap:orr :x10 :xzr :x5))
+             (emit `(lap:cbz :x10 ,clear-loop-end))
+             (emit `(lap:add :x11 :sp 8))
+             (emit clear-loop-head)
+             (emit `(lap:str :xzr (:post :x11 8)))
+             (emit `(lap:sub :x10 :x10 ,(fixnum-to-raw 1)))
+             (emit `(lap:cbnz :x10 ,clear-loop-head))
+             (emit clear-loop-end))
+           ;; Create & save the DX root value.
+           (emit `(lap:add :x9 :sp ,sys.int::+tag-dx-root-object+))
+           (emit `(lap:str :x9 (:stack ,sv-save-area)))
+           ;; Save MV registers.
+           (loop
+              for reg in '(:x0 :x1 :x2 :x3 :x4)
+              for offset from 0
+              do
+                (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw offset)))
+                (emit `(lap:b.le ,save-done))
+                ;; 1+ to skip header.
+                (emit `(lap:str ,reg (:sp ,(* (1+ offset) 8)))))
+           ;; Save values in the MV area.
+           ;; Number of values remaining.
+           (emit `(lap:subs :x9 :x5 ,(fixnum-to-raw 5)))
+           (emit `(lap:b.le ,save-done))
+           ;; Save into the simple-vector.
+           (emit `(lap:add :x12 :sp ,(* 6 8))) ; skip header and registers.
+           ;; Load from the MV area.
+           (emit `(lap:add :x11 :x28 ,(+ (- 8 sys.int::+tag-object+)
+                                         ;; fixme. should be +thread-mv-slots-start+
+                                         (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8))))
+           ;; Save the values into a simple-vector.
+           (emit save-loop-head)
+           (emit `(lap:ldr :x6 (:post :x11 8)))
+           (emit `(lap:str :x6 (:post :x12 8)))
+           (emit `(lap:subs :x9 :x9 ,(fixnum-to-raw 1)))
+           (emit `(lap:b.ne ,save-loop-head))
+           ;; Finished saving values. Turn MV GC mode off.
+           (emit save-done)
+           (emit-gc-info)
+           (add-dx-root sv-save-area))
+         (let ((*for-value* nil))
+           (when (not (cg-form (ast-body form)))
+             ;; No return.
+             (kill-value tag)
+             (return-from cg-multiple-value-prog1 'nil)))
+         (smash-x0)
+         ;; Drop the tag from the load-list to prevent duplicates caused by cg-form
+         (kill-value tag)
+         (when (eql tag :multiple)
+           ;; Create a normal object from the saved dx root.
+           (emit `(lap:ldr :x9 (:stack ,sv-save-area)))
+           (emit `(lap:add :x0 :x9 ,(- sys.int::+tag-object+
+                                       sys.int::+tag-dx-root-object+)))
+           ;; Call helper.
+           (emit `(lap:add :x5 :xzr ,(fixnum-to-raw 1)))
+           (emit `(lap:ldr :x7 (:function sys.int::values-simple-vector)))
+           (emit `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+)))
+           (emit `(lap:blr :x9))
+           (emit-gc-info :multiple-values 0)
+           ;; Kill the dx root and restore the old stack pointer.
+           (emit `(lap:str :x26 (:stack ,sv-save-area)))
+           (emit `(lap:ldr :x9 (:stack ,saved-stack-pointer)))
+           (emit `(lap:add :sp :x9 :xzr)))
+         tag))))
+
+(defun cg-progn (form)
+  (if (ast-forms form)
+      (do ((i (ast-forms form) (rest i)))
+          ((endp (rest i))
+           (cg-form (first i)))
+        (let* ((*for-value* nil)
+               (tag (cg-form (first i))))
+          (when (null tag)
+            (return-from cg-progn 'nil))))
+      (cg-form (make-instance 'ast-quote :value 'nil))))
+
+(defun cg-quote (form)
+  `(quote ,(ast-value form)))
+
+(defun cg-return-from (form)
+  (let* ((local-info (assoc (ast-target form) *rename-list*))
+         (*for-value* (block-information-return-mode (ast-target form)))
+         (target-tag (when (not local-info)
+                       (let ((*for-value* t))
+                         (cg-form (ast-info form)))))
+         (tag (cg-form (ast-value form))))
+    (unless tag (return-from cg-return-from nil))
+    (cond ((member *for-value* '(:multiple :tail))
+           (load-multiple-values tag))
+          (*for-value*
+           (load-in-x0 tag t)))
+    (incf (block-information-count (ast-target form)))
+    (smash-x0)
+    (cond (local-info ;; Local jump.
+           (emit `(lap:b ,(second local-info))))
+          (t ;; Non-local exit.
+           (load-in-reg :x9 target-tag t)
+           (emit `(lap:ldr :x10 (:x9))
+                 `(lap:br :x10))))
+    'nil))
+
+(defun find-variable-home (var)
+  (dotimes (i (length *stack-values*)
+            (error "No home for ~S?" var))
+    (let ((x (aref *stack-values* i)))
+      (when (and (consp x) (eq (car x) var) (eq (cdr x) :home))
+        (return i)))))
+
+(defun cg-setq (form)
+  (let ((var (ast-setq-variable form))
+        (val (ast-value form)))
+    (assert (localp var))
+    ;; Copy var if there are unsatisfied tags on the load list.
+    (dolist (l *load-list*)
+      (when (and (consp l) (eq (car l) var))
+        ;; Don't save if there is something satisfying this already.
+        (multiple-value-bind (loc true-tag)
+            (value-location l)
+          (declare (ignore loc))
+          (unless (tag-saved-on-stack-p true-tag)
+            (load-in-x0 l nil)
+            (smash-x0 t)))))
+    (let ((tag (let ((*for-value* t))
+                 (cg-form val)))
+          (home (find-variable-home var)))
+      (when (null tag)
+        (return-from cg-setq))
+      (load-in-x0 tag t)
+      (emit `(lap:str :x0 (:stack ,home)))
+      (setf *x0-value* (cons var :dup))
+      (cons var (incf *run-counter* 2)))))
+
+(defun tagbody-localp (info)
+  (dolist (tag (tagbody-information-go-tags info) t)
+    (unless (or (null (go-tag-used-in tag))
+                (and (null (cdr (go-tag-used-in tag)))
+                     (eq (car (go-tag-used-in tag)) (lexical-variable-definition-point info))))
+      (return nil))))
+
+(defun cg-tagbody (form)
+  (let ((*for-value* nil)
+        (stack-slots nil)
+        (*rename-list* *rename-list*)
+        (need-exit-label nil)
+        (exit-label (gensym "tagbody-exit"))
+        (escapes (not (tagbody-localp (ast-info form))))
+        (jump-table (gensym))
+        (tag-labels (mapcar (lambda (tag)
+                              (declare (ignore tag))
+                              (gensym))
+                            (tagbody-information-go-tags (ast-info form))))
+        (thunk-labels (mapcar (lambda (tag)
+                                (declare (ignore tag))
+                                (gensym))
+                              (tagbody-information-go-tags (ast-info form))))
+        (*active-nl-exits* (list* '() *active-nl-exits*)))
+    (when escapes
+      (smash-x0)
+      (let ((slot (find-stack-slot))
+            (control-info (allocate-control-stack-slots 4)))
+        ;; Construct jump info.
+        (emit `(lap:adr :x9 ,jump-table)
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 3)))
+              `(lap:ldr :x9 (:x28 ,+binding-stack-gs-offset+))
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 2)))
+              `(lap:add :x9 :sp :xzr)
+              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 1)))
+              `(lap:str :x29 ,(control-stack-slot-ea (+ control-info 0)))
+              ;; Save in the environment.
+              `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3))))
+              `(lap:str :x9 (:stack ,slot)))
+        (setf (aref *stack-values* slot) (cons (ast-info form) :home))))
+    (setf stack-slots (set-up-for-branch))
+    (mapcar (lambda (tag label)
+              (push (list tag label) *rename-list*))
+            (tagbody-information-go-tags (ast-info form)) tag-labels)
+    (loop
+       for (go-tag stmt) in (ast-statements form)
+       do
+         (smash-x0)
+         (setf *stack-values* (copy-stack-values stack-slots))
+         (emit (second (assoc go-tag *rename-list*)))
+         (when (cg-form stmt)
+           (setf need-exit-label t)
+           (emit `(lap:b ,exit-label))))
+    (when escapes
+      ;; Emit the jump-table.
+      ;; TODO: Prune local labels out.
+      (emit-trailer (jump-table nil)
+        (dolist (i thunk-labels)
+          (emit `(:d64/le (- ,i ,jump-table)))))
+      ;; And the all the thunks.
+      (loop
+         for thunk in thunk-labels
+         for label in tag-labels
+         do
+           (emit-nlx-thunk thunk label nil)))
+    (cond (need-exit-label
+           (emit exit-label)
+           ''nil)
+          (t nil))))
+
+(defun cg-the (form)
+  (cg-form (ast-value form)))
+
+(defun flush-arguments-from-stack (arg-forms)
+  (let ((stack-count (max 0 (- (length arg-forms) 5))))
+    (when (plusp stack-count)
+      (when (oddp stack-count) (incf stack-count))
+      (emit `(lap:add :sp :sp ,(* stack-count 8))))))
+
+(defun prep-arguments-for-call (arg-forms)
+  (when arg-forms
+    (let ((args '())
+          (arg-count 0))
+      (let ((*for-value* t))
+        (dolist (f arg-forms)
+          (push (cg-form f) args)
+          (incf arg-count)
+          (when (null (first args))
+            ;; Non-local control transfer, don't actually need those results now.
+            (dolist (i (rest args))
+              (kill-value i))
+            (return-from prep-arguments-for-call nil))))
+      (setf args (nreverse args))
+      (let ((stack-count (- arg-count 5)))
+        (when (plusp stack-count)
+          (when (oddp stack-count)
+            (incf stack-count))
+          (emit `(lap:sub :sp :sp ,(* stack-count 8)))
+          ;; Load values on the stack.
+          ;; Use x7 here to preserve whatever is in x0.
+          ;; Must load first values first, so the GC can track properly.
+          (loop
+             for i from 0
+             for j in (nthcdr 5 args)
+             do
+               (load-in-reg :x7 j t)
+               (emit `(lap:str :x7 (:sp ,(* i 8))))
+               (emit-gc-info :pushed-values (1+ i)))))
+      ;; Load other values in registers.
+      (when (> arg-count 4)
+        (load-in-reg :x4 (nth 4 args) t))
+      (when (> arg-count 3)
+        (load-in-reg :x3 (nth 3 args) t))
+      (when (> arg-count 2)
+        (load-in-reg :x2 (nth 2 args) t))
+      (when (> arg-count 1)
+        (load-in-reg :x1 (nth 1 args) t))
+      (when (> arg-count 0)
+        (load-in-x0 (nth 0 args) t))))
+  t)
+
+;; Compile a VALUES form.
+(defun cg-values (forms)
+  (cond ((null forms)
+         ;; No values.
+         (cond ((member *for-value* '(:multiple :tail))
+                ;; X0 must hold NIL.
+                (load-in-x0 ''nil)
+                (emit `(lap:orr :x5 :xzr :xzr))
+                :multiple)
+               (t (cg-form (make-instance 'ast-quote :value 'nil)))))
+        ((null (rest forms))
+         ;; Single value.
+         (let ((*for-value* t))
+           (cg-form (first forms))))
+        ((member *for-value* '(:multiple :tail))
+         ;; Multiple-values and compiling for multiple values.
+         (let ((args '())
+               (arg-count 0))
+           ;; Compile arguments.
+           (let ((*for-value* t))
+             (dolist (f forms)
+               (push (cg-form f) args)
+               (incf arg-count)
+               (when (null (first args))
+                 ;; Non-local control transfer, don't actually need those results now.
+                 (dolist (i (rest args))
+                   (kill-value i))
+                 (return-from cg-values nil))))
+           (comment 'values)
+           (setf args (nreverse args))
+           ;; Load the first values in registers.
+           (when (> arg-count 4)
+             (load-in-reg :x4 (nth 4 args) t))
+           (when (> arg-count 3)
+             (load-in-reg :x3 (nth 3 args) t))
+           (when (> arg-count 2)
+             (load-in-reg :x2 (nth 2 args) t))
+           (when (> arg-count 1)
+             (load-in-reg :x1 (nth 1 args) t))
+           (when (> arg-count 0)
+             (load-in-x0 (nth 0 args) t))
+           ;; Only the register values.
+           (load-constant :x5 (min (length args) 5))
+           ;; Now add MVs to the stack one by one.
+           (loop for i from 0
+              for value in (nthcdr 5 args) do
+                (load-in-reg :x7 value t)
+                (emit `(lap:str :x7 (:x28 ,(+ (- 8 sys.int::+tag-object+)
+                                              ;; fixme. should be +thread-mv-slots-start+
+                                              (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)
+                                              (* i 8)))))
+                (emit-gc-info :multiple-values 1)
+                (emit `(lap:add :x5 :x5 ,(fixnum-to-raw 1)))
+                (emit-gc-info :multiple-values 0))
+           :multiple))
+        (t ;; VALUES behaves like PROG1 when not compiling for multiple values.
+         (let ((tag (cg-form (first forms))))
+           (unless tag (return-from cg-values nil))
+           (let ((*for-value* nil))
+             (dolist (f (rest forms))
+               (when (not (cg-form f))
+                 (kill-value tag)
+                 (return-from cg-values nil))))
+           tag))))
+
+(defun cg-builtin (fn form)
+  (let ((args '()))
+    (let ((*for-value* t))
+      (dolist (f (ast-arguments form))
+        (push (cg-form f) args)
+        (when (null (first args))
+          ;; Non-local control transfer, don't actually need those results now.
+          (dolist (i (rest args))
+            (kill-value i))
+          (return-from cg-builtin nil))))
+    (comment (ast-name form))
+    (apply fn (nreverse args))))
+
+(defun cg-funcall (form)
+  (let* ((fn-tag (let ((*for-value* t))
+                   (cg-form (if (typep (first (ast-arguments form)) 'lambda-information)
+                                (first (ast-arguments form))
+                                (make-instance 'ast-call
+                                               :name 'sys.int::%coerce-to-callable
+                                               :arguments (list (first (ast-arguments form)))))))))
+    (cond ((prep-arguments-for-call (rest (ast-arguments form)))
+           (comment 'funcall)
+           (load-in-reg :x6 fn-tag t)
+           (smash-x0)
+           (load-constant :x5 (length (rest (ast-arguments form))))
+           (cond ((can-tail-call (rest (ast-arguments form)))
+                  (emit-tail-call (object-ea :x6 :slot 0)))
+                 (t
+                  (emit `(lap:ldr :x9 ,(object-ea :x6 :slot 0))
+                        `(lap:blr :x9))))
+           (if (member *for-value* '(:multiple :tail))
+               (emit-gc-info :multiple-values 0)
+               (emit-gc-info))
+           (flush-arguments-from-stack (rest (ast-arguments form)))
+           (cond ((can-tail-call (rest (ast-arguments form))) nil)
+                 ((member *for-value* '(:multiple :tail))
+                  :multiple)
+                 (t (setf *x0-value* (list (gensym))))))
+          (t ;; Flush the unused function.
+           (kill-value fn-tag)))))
+
+(defun cg-call (form)
+  (when (prep-arguments-for-call (ast-arguments form))
+    (comment (ast-name form))
+    (emit `(lap:ldr :x7 (:function ,(ast-name form))))
+    (smash-x0)
+    (load-constant :x5 (length (ast-arguments form)))
+    (cond ((can-tail-call (ast-arguments form))
+           (emit-tail-call (object-ea :x7 :slot sys.int::+fref-entry-point+))
+           nil)
+          (t
+           (emit `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
+                 `(lap:blr :x9))
+           (if (member *for-value* '(:multiple :tail))
+               (emit-gc-info :multiple-values 0)
+               (emit-gc-info))
+           (flush-arguments-from-stack (ast-arguments form))
+           (cond ((member *for-value* '(:multiple :tail))
+                  :multiple)
+                 (t (setf *x0-value* (list (gensym)))))))))
+
+(defun cg-function-form (form)
+  (let ((fn (when (not sys.c::*suppress-builtins*)
+              (match-builtin (ast-name form) (length (ast-arguments form))))))
+    (cond ((eql (ast-name form) 'sys.c::make-dx-simple-vector)
+           (cg-make-dx-simple-vector form))
+          (fn
+           (cg-builtin fn form))
+          ((and (eql (ast-name form) 'funcall)
+                (ast-arguments form))
+           (cg-funcall form))
+          ((eql (ast-name form) 'values)
+           (cg-values (ast-arguments form)))
+          (t (cg-call form)))))
+
+(defun can-tail-call (args)
+  (and (eql *for-value* :tail)
+       (<= (length args) 5)))
+
+(defun emit-tail-call (where)
+  (emit `(lap:add :sp :x30 0))
+  (emit `(:gc :frame :multiple-values 0))
+  (emit `(lap:ldp :x29 :x30 (:post :sp 16)))
+  ;; Tail calls can only be performed when there are no arguments on the stack.
+  ;; So :GC :NO-FRAME is fine here.
+  (emit `(:gc :no-frame))
+  (emit `(lap:br ,where)))
+
+(defun cg-variable (form)
+  (assert (localp form))
+  (cons form (incf *run-counter*)))
+
+(defun cg-lambda (form)
+  (list 'quote (codegen-lambda form)))
