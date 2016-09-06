@@ -549,19 +549,22 @@
   (alexandria:ensure-gethash name *fref-table*
                              (make-cross-fref name)))
 
-(defun sys.int::assemble-lap (code &optional name debug-info)
+(defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
+  (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
-        (declare (special sys.lap-x86:*function-reference-resolver*)) ; blech.
-        (sys.lap-x86:assemble code
-          :base-address 16
-          :initial-symbols '((nil . :fixup)
-                             (t . :fixup)
-                             (:unbound-value . :fixup)
-                             (:undefined-function . :fixup)
-                             (:closure-trampoline . :fixup)
-                             (:funcallable-instance-trampoline . :fixup))
-          :info (list name debug-info)))
+      (ecase architecture
+        (:x86-64
+         (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
+           (declare (special sys.lap-x86:*function-reference-resolver*)) ; blech.
+           (sys.lap-x86:assemble code
+             :base-address 16
+             :initial-symbols '((nil . :fixup)
+                                (t . :fixup)
+                                (:unbound-value . :fixup)
+                                (:undefined-function . :fixup)
+                                (:closure-trampoline . :fixup)
+                                (:funcallable-instance-trampoline . :fixup))
+             :info (list name debug-info)))))
     (declare (ignore symbols))
     (make-cross-function :mc mc
                          :constants constants
@@ -824,7 +827,9 @@
                                   (princ-to-string *compile-file-pathname*))
                                 sys.int::*top-level-form-number*
                                 lambda-list
-                                docstring))
+                                docstring)
+                          nil
+                          *target-architecture*)
                          name))))
         ;; And (quote form)
         ((and (consp form)

@@ -444,7 +444,9 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                                   (princ-to-string *compile-file-pathname*))
                                 sys.int::*top-level-form-number*
                                 lambda-list
-                                docstring))
+                                docstring)
+                          nil
+                          #+x86-64 :x86-64)
                          name)))
          t)
         ((and (listp form)
@@ -553,16 +555,18 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
       (write-byte +llf-end-of-load+ output-stream))
     (values (truename output-stream) nil nil)))
 
-(defun assemble-lap (code &optional name debug-info wired)
+(defun assemble-lap (code &optional name debug-info wired architecture)
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (sys.lap-x86:assemble code
-        :base-address 16
-        :initial-symbols '((nil . :fixup)
-                           (t . :fixup)
-                           (:unbound-value . :fixup)
-                           (:undefined-function . :fixup)
-                           (:closure-trampoline . :fixup)
-                           (:funcallable-instance-trampoline . :fixup))
-        :info (list name debug-info))
+      (ecase architecture
+        (:x86-64
+         (sys.lap-x86:assemble code
+           :base-address 16
+           :initial-symbols '((nil . :fixup)
+                              (t . :fixup)
+                              (:unbound-value . :fixup)
+                              (:undefined-function . :fixup)
+                              (:closure-trampoline . :fixup)
+                              (:funcallable-instance-trampoline . :fixup))
+           :info (list name debug-info))))
     (declare (ignore symbols))
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))

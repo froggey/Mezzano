@@ -217,7 +217,9 @@
                (namestring *compile-file-pathname*))
              sys.int::*top-level-form-number*
              (lambda-information-lambda-list lambda)
-             (lambda-information-docstring lambda))))))
+             (lambda-information-docstring lambda))
+       nil
+       :x86-64))))
 
 (defun emit-gc-info (&rest extra-stuff)
   (let ((thing (list* :gc :frame extra-stuff)))
