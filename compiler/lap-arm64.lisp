@@ -64,6 +64,9 @@
     (:xzr :xzr)
     (:pc :pc)))
 
+(defun check-register-class (register &rest classes)
+  (assert (member (register-class register) classes)))
+
 (defun register-number (register &optional restrict-to)
   (when restrict-to
     (assert (member (register-class register) restrict-to)))
@@ -275,15 +278,17 @@
 
 (define-instruction str (reg value)
   (let* ((class (register-class reg))
-         (size-bit (ecase class
-                     (:gpr-64 +ldst-size-64-bit+)
-                     (:gpr-32 +ldst-size-32-bit+))))
+         (is-64-bit (member class '(:gpr-64 :xzr)))
+         (size-bit (if is-64-bit
+                       +ldst-size-64-bit+
+                       +ldst-size-32-bit+)))
+    (check-register-class reg :gpr-64 :gpr-32 :xzr :wzr)
     (multiple-value-bind (mode base offset)
         (parse-address value)
       (ecase mode
         (:base-plus-immediate
          (let ((imm-value (or (resolve-immediate offset) 0)))
-           (cond ((and (eql class :gpr-32)
+           (cond ((and (not is-64-bit)
                        (<= 0 imm-value 16380)
                        (zerop (logand imm-value #b11)))
                   ;; STR (immediate, unsigned offset).
@@ -293,7 +298,7 @@
                                             (ash (register-number base) +rn-shift+)
                                             (ash (register-number reg) +rt-shift+)))
                   (return-from instruction t))
-                 ((and (eql class :gpr-64)
+                 ((and is-64-bit
                        (<= 0 imm-value 32760)
                        (zerop (logand imm-value #b111)))
                   ;; STR (immediate, unsigned offset).
@@ -341,6 +346,17 @@
                                        (ash (register-number reg) +rt-shift+)))
              (return-from instruction t))))))))
 
+(define-instruction adr (reg address)
+  (let ((imm-value (- (or (resolve-immediate address) (current-address))
+                      (current-address))))
+    (check-register-class reg :gpr-64 :xzr)
+    (assert (<= -1048576 imm-value 1048575))
+    (emit-instruction (logior #x10000000
+                              (ash (ldb (byte 19 2) imm-value) 5)
+                              (ash (ldb (byte 2 0) imm-value) 29)
+                              (ash (register-number reg) +rd-shift+)))
+    (return-from instruction t)))
+
 (defun emit-ldstp-instruction (load-bit r1 r2 address)
   (multiple-value-bind (mode base offset)
       (parse-address address)
@@ -384,12 +400,15 @@
   (when (emit-ldstp-instruction #x00000000 r1 r2 address)
     (return-from instruction t)))
 
-(defun emit-addsub-instruction (name opcode s-bit dst lhs rhs extend amount)
-  (declare (ignore name))
+(defun emit-addsub-instruction (opcode s-bit dst lhs rhs extend amount)
   (let* ((dst-class (register-class dst))
-         (is-64-bit (member dst-class '(:gpr-64 :sp)))
+         (is-64-bit (member dst-class (if s-bit
+                                          '(:gpr-64 :xzr)
+                                          '(:gpr-64 :sp))))
          (opc (logior (ash opcode 30)
-                      (ash s-bit 29)
+                      (if s-bit
+                          #x20000000
+                          #x00000000)
                       (if is-64-bit
                           #x80000000
                           #x00000000)))
@@ -397,12 +416,14 @@
          (rhs-class (register-class rhs))
          (sp-involved (or (member dst-class '(:sp :wsp))
                           (member lhs-class '(:sp :wsp)))))
-    (assert (member dst-class '(:gpr-64 :gpr-32 :sp :wsp)))
-    (assert (member lhs-class (if is-64-bit
-                                  '(:gpr-64 :sp)
-                                  '(:gpr-32 :wsp))))
+    (if s-bit
+        (check-register-class dst :gpr-64 :gpr-32 :xzr :wzr)
+        (check-register-class dst :gpr-64 :gpr-32 :sp :wsp))
     (cond ((null rhs-class)
            ;; Add (immediate)
+           (if is-64-bit
+               (check-register-class lhs :gpr-64 :sp)
+               (check-register-class lhs :gpr-32 :wsp))
            (when (null extend)
              (setf extend :lsl))
            (when (null amount)
@@ -425,6 +446,9 @@
                (member extend '(:uxtb :uxth :uxtw :uxtx
                                 :sxtb :sxth :sxtw :sxtx)))
            ;; Add (extended register)
+           (if is-64-bit
+               (check-register-class lhs :gpr-64 :sp)
+               (check-register-class lhs :gpr-32 :wsp))
            (when sp-involved
              (assert (member extend '(:uxtb :uxth :uxtw :uxtx
                                       :sxtb :sxth :sxtw :sxtx
@@ -437,11 +461,11 @@
                               :uxtx
                               :uxtw)))
            (cond ((not is-64-bit)
-                  (assert (member rhs-class '(:gpr-32 :wzr))))
+                  (check-register-class rhs :gpr-32 :wzr))
                  ((member extend '(:uxtx :sxtx))
-                  (assert (member rhs-class '(:gpr-64 :xzr))))
+                  (check-register-class rhs :gpr-64 :xzr))
                  (t
-                  (assert (member rhs-class '(:gpr-32 :wzr)))))
+                  (check-register-class rhs :gpr-32 :wzr)))
            (emit-instruction (logior #x0b200000
                                      opc
                                      (ash (ecase extend
@@ -462,15 +486,18 @@
           ((and (not sp-involved)
                 (member extend '(nil :lsl :lsr :asr)))
            ;; Add (shifted register)
+           (if is-64-bit
+               (check-register-class lhs :gpr-64 :xzr)
+               (check-register-class lhs :gpr-32 :wzr))
            (when (null extend)
              (setf extend :lsl
                    amount 0))
            (cond (is-64-bit
                   (assert (<= 0 amount 63))
-                  (assert (member rhs-class '(:gpr-64 :xzr))))
+                  (check-register-class rhs :gpr-64 :xzr))
                  (t
                   (assert (<= 0 amount 31))
-                  (assert (member rhs-class '(:gpr-32 :wzr)))))
+                  (check-register-class rhs :gpr-32 :wzr)))
            (emit-instruction (logior #x0b000000
                                      opc
                                      (ash (ecase extend
@@ -486,13 +513,13 @@
 
 (defmacro define-addsub-instruction (name op sflag)
   `(define-instruction ,name (dst lhs rhs &optional extend amount)
-     (when (emit-addsub-instruction ',name ',op ',sflag dst lhs rhs extend amount)
+     (when (emit-addsub-instruction ',op ',sflag dst lhs rhs extend amount)
        (return-from instruction t))))
 
-(define-addsub-instruction add  0 0)
-(define-addsub-instruction adds 0 1)
-(define-addsub-instruction sub  1 0)
-(define-addsub-instruction subs 1 1)
+(define-addsub-instruction add  0 nil)
+(define-addsub-instruction adds 0 t)
+(define-addsub-instruction sub  1 nil)
+(define-addsub-instruction subs 1 t)
 
 (defun shifted-mask-p (value)
   (let ((v (logior value (1- value))))
@@ -520,22 +547,19 @@
             (ash (logand (- 64 shift) #x3f) 6)
             (1- width))))
 
-(defun emit-logical-instruction (name opcode negate-bit dst lhs rhs shift amount)
-  (declare (ignore name))
+(defun emit-logical-instruction (opcode negate-bit dst lhs rhs shift amount)
   (let* ((dst-class (register-class dst))
          (is-64-bit (member dst-class '(:gpr-64 :sp :xzr)))
          (sf (if is-64-bit
                  #x80000000
                  #x00000000))
-         (lhs-class (register-class lhs))
-         (rhs-class (register-class rhs))
          (sp-involved (member dst-class '(:sp :wsp))))
-    (assert (member dst-class '(:gpr-64 :gpr-32 :sp :wsp :xzr :wzr)))
-    (assert (member lhs-class (if is-64-bit
-                                  '(:gpr-64 :xzr)
-                                  '(:gpr-32 :wzr))))
+    (check-register-class dst :gpr-64 :gpr-32 :sp :wsp :xzr :wzr)
+    (if is-64-bit
+        (check-register-class lhs :gpr-64 :xzr)
+        (check-register-class :gpr-32 :wzr))
     (cond ((and (not negate-bit)
-                (null rhs-class)
+                (null (register-class rhs))
                 (null shift)
                 (null amount)
                 (not (member dst-class '(:xzr :wzr))))
@@ -556,10 +580,10 @@
                    amount 0))
            (cond (is-64-bit
                   (assert (<= 0 amount 63))
-                  (assert (member rhs-class '(:gpr-64 :xzr))))
+                  (check-register-class rhs :gpr-64 :xzr))
                  (t
                   (assert (<= 0 amount 31))
-                  (assert (member rhs-class '(:gpr-32 :wzr)))))
+                  (check-register-class rhs :gpr-32 :wzr)))
            (emit-instruction (logior #x02a00000
                                      (ash opcode 29)
                                      sf
@@ -581,10 +605,10 @@
 (defmacro define-logical-instruction (name inverted-name opcode)
   `(progn
      (define-instruction ,name (dst lhs rhs &optional shift amount)
-       (when (emit-logical-instruction ',name ',opcode nil dst lhs rhs shift amount)
+       (when (emit-logical-instruction ',opcode nil dst lhs rhs shift amount)
          (return-from instruction t)))
      (define-instruction ,inverted-name (dst lhs rhs &optional shift amount)
-       (when (emit-logical-instruction ',inverted-name ',opcode t dst lhs rhs shift amount)
+       (when (emit-logical-instruction ',opcode t dst lhs rhs shift amount)
          (return-from instruction t)))))
 
 (define-logical-instruction and bic #b00)
@@ -592,8 +616,7 @@
 (define-logical-instruction eor eon #b10)
 (define-logical-instruction ands bics #b11)
 
-(defun emit-conditional-branch (name condition target)
-  (declare (ignore name))
+(defun emit-conditional-branch (condition target)
   (let ((imm-value (- (or (resolve-immediate target) (current-address))
                       (current-address))))
     (assert (not (logtest imm-value #b11)))
@@ -605,7 +628,7 @@
 
 (defmacro define-conditional-branch (name condition)
   `(define-instruction ,name (target)
-     (when (emit-conditional-branch ',name ',condition target)
+     (when (emit-conditional-branch ',condition target)
        (return-from instruction t))))
 
 (define-conditional-branch b.eq #b0000)
@@ -635,8 +658,138 @@
                               (ldb (byte 19 2) imm-value)))
     (return-from instruction t)))
 
+(define-instruction br (target)
+  (check-register-class reg :gpr-64)
+  (emit-instruction (logior #xd61f0000
+                            (ash (register-number target) +rn-shift+)))
+  (return-from instruction t))
+
+(define-instruction blr (target)
+  (check-register-class reg :gpr-64)
+  (emit-instruction (logior #xd63f0000
+                            (ash (register-number target) +rn-shift+)))
+  (return-from instruction t))
+
 (define-instruction ret (&optional (reg :x30))
-  (assert (member (register-class reg) '(:gpr-64)))
+  (check-register-class reg :gpr-64)
   (emit-instruction (logior #xd65f0000
                             (ash (register-number reg) +rn-shift+)))
   (return-from instruction t))
+
+(define-instruction cbz (reg target)
+  (check-register-class reg :gpr-64 :gpr-32)
+  (let ((imm-value (- (or (resolve-immediate target) (current-address))
+                      (current-address))))
+    (assert (not (logtest imm-value #b11)))
+    (assert (<= -134217728 imm-value 134217727))
+    (emit-instruction (logior #x34000000
+                              (if (eql (register-class reg) :gpr-64)
+                                  #x80000000
+                                  #x00000000)
+                              (ash (ldb (byte 19 2) imm-value) 5)
+                              (ash (register-number reg) +rt-shift+)))
+    (return-from instruction t)))
+
+(define-instruction cbnz (reg target)
+  (check-register-class reg :gpr-64 :gpr-32)
+  (let ((imm-value (- (or (resolve-immediate target) (current-address))
+                      (current-address))))
+    (assert (not (logtest imm-value #b11)))
+    (assert (<= -134217728 imm-value 134217727))
+    (emit-instruction (logior #x35000000
+                              (if (eql (register-class reg) :gpr-64)
+                                  #x80000000
+                                  #x00000000)
+                              (ash (ldb (byte 19 2) imm-value) 5)
+                              (ash (register-number reg) +rt-shift+)))
+    (return-from instruction t)))
+
+(define-instruction tbnz (reg bit target)
+  (check-register-class reg :gpr-64 :gpr-32)
+  (let ((is-64-bit (eql (register-class reg) :gpr-64))
+        (imm-value (- (or (resolve-immediate target) (current-address))
+                      (current-address))))
+    (assert (not (logtest imm-value #b11)))
+    (assert (<= -32767 imm-value 32767))
+    (if is-64-bit
+        (assert (<= 0 bit 63))
+        (assert (<= 0 bit 31)))
+    (emit-instruction (logior #x37000000
+                              (ash (ldb (byte 1 5) bit) 31)
+                              (ash (ldb (byte 5 0) bit) 19)
+                              (ash (ldb (byte 14 2) imm-value) 5)
+                              (ash (register-number reg) +rt-shift+)))
+    (return-from instruction t)))
+
+(defun emit-conditional-select (condition dst true false)
+  (check-register-class dst :gpr-64 :gpr-32)
+  (let ((is-64-bit (eql (register-class dst) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class true :gpr-64 :xzr)
+           (check-register-class false :gpr-64 :xzr))
+          (t
+           (check-register-class true :gpr-32 :wzr)
+           (check-register-class false :gpr-32 :wzr)))
+    (emit-instruction (logior #x1A800000
+                              (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              (ash condition 12)
+                              (ash false +rm-shift+)
+                              (ash true +rn-shift+)
+                              (ash dst +rd-shift+))))
+  t)
+
+(defmacro define-conditional-select (name condition)
+  `(define-instruction ,name (dst true false)
+     (when (emit-conditional-select ',condition dst true false)
+       (return-from instruction t))))
+
+(define-conditional-select csel.eq #b0000)
+(define-conditional-select csel.ne #b0001)
+(define-conditional-select csel.cs #b0010)
+(define-conditional-select csel.hs #b0010)
+(define-conditional-select csel.cc #b0011)
+(define-conditional-select csel.lo #b0011)
+(define-conditional-select csel.mi #b0100)
+(define-conditional-select csel.pl #b0101)
+(define-conditional-select csel.vs #b0110)
+(define-conditional-select csel.vc #b0111)
+(define-conditional-select csel.hi #b1000)
+(define-conditional-select csel.ls #b1001)
+(define-conditional-select csel.ge #b1010)
+(define-conditional-select csel.lt #b1011)
+(define-conditional-select csel.gt #b1100)
+(define-conditional-select csel.le #b1101)
+(define-conditional-select csel.al #b1110)
+
+(define-instruction brk (imm)
+  (let ((imm-value (or (resolve-immediate imm) 0)))
+    (assert (<= 0 imm-value 65535))
+    (emit-instruction (logior #xd4200000
+                              (ash imm-value 5)))
+    (return-from instruction t)))
+
+(define-instruction hlt (imm)
+  (let ((imm-value (or (resolve-immediate imm) 0)))
+    (assert (<= 0 imm-value 65535))
+    (emit-instruction (logior #xd4400000
+                              (ash imm-value 5)))
+    (return-from instruction t)))
+
+(define-instruction movz (dst value &optional (shift 0))
+  (check-register-class dst :gpr-64 :gpr-32)
+  (let ((is-64-bit (eql (register-class dst) :gpr-64))
+        (imm-value (or (resolve-immediate value) 0)))
+    (assert (<= 0 imm-value 65535))
+    (if is-64-bit
+        (assert (member shift '(0 16 32 48)))
+        (assert (member shift '(0 16))))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x52800000
+                              (ash (truncate shift 16) 21)
+                              (ash (ldb (byte 16 0) imm-value) 5)
+                              (ash (register-number dst) +rd-shift+)))
+    (return-from instruction t)))
