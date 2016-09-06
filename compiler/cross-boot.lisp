@@ -190,8 +190,6 @@
                                     ((:shadows shadow-list))
                                     ((:shadowing-imports shadowing-import-list))
                                     ((:local-nicknames package-local-nicknames)))
-  (when package-local-nicknames
-    (error "Package local nicknames not supported in cross-build."))
   (eval `(cl:defpackage ,name
            (:nicknames ,@nicknames)
            ,@(mapcar (lambda (symbol)
@@ -210,7 +208,12 @@
                                       (find-package :cl))
                                  :cross-cl
                                  package))
-                           use-list))))
+                           use-list))
+           (:local-nicknames ,@(loop
+                                  for (nickname real-name) in package-local-nicknames
+                                    collect (list nickname (if (eql (find-package real-name) (find-package :cl))
+                                                               :cross-cl
+                                                               real-name))))))
   #+nil(let ((p (or (find-package name)
 	       (make-package name :nicknames nicknames))))
     (use-package use-list p)
