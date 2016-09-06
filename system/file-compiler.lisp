@@ -568,6 +568,16 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                               (:undefined-function . :fixup)
                               (:closure-trampoline . :fixup)
                               (:funcallable-instance-trampoline . :fixup))
+           :info (list name debug-info)))
+        (:arm64
+         (mezzano.lap.arm64:assemble code
+           :base-address 16
+           :initial-symbols '((nil . :fixup)
+                              (t . :fixup)
+                              (:unbound-value . :fixup)
+                              (:undefined-function . :fixup)
+                              (:closure-trampoline . :fixup)
+                              (:funcallable-instance-trampoline . :fixup))
            :info (list name debug-info))))
     (declare (ignore symbols))
     (make-function-with-fixups sys.int::+object-tag-function+ mc fixups constants gc-data wired)))

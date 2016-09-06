@@ -564,6 +564,18 @@
                                 (:undefined-function . :fixup)
                                 (:closure-trampoline . :fixup)
                                 (:funcallable-instance-trampoline . :fixup))
+             :info (list name debug-info))))
+        (:arm64
+         (let ((mezzano.lap.arm64:*function-reference-resolver* #'resolve-fref))
+           (declare (special mezzano.lap.arm64:*function-reference-resolver*)) ; blech.
+           (mezzano.lap.arm64:assemble code
+             :base-address 16
+             :initial-symbols '((nil . :fixup)
+                                (t . :fixup)
+                                (:unbound-value . :fixup)
+                                (:undefined-function . :fixup)
+                                (:closure-trampoline . :fixup)
+                                (:funcallable-instance-trampoline . :fixup))
              :info (list name debug-info)))))
     (declare (ignore symbols))
     (make-cross-function :mc mc
