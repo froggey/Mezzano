@@ -584,7 +584,7 @@
                  (t
                   (assert (<= 0 amount 31))
                   (check-register-class rhs :gpr-32 :wzr)))
-           (emit-instruction (logior #x02a00000
+           (emit-instruction (logior #x0a000000
                                      (ash opcode 29)
                                      sf
                                      (if negate-bit
@@ -659,13 +659,13 @@
     (return-from instruction t)))
 
 (define-instruction br (target)
-  (check-register-class reg :gpr-64)
+  (check-register-class target :gpr-64)
   (emit-instruction (logior #xd61f0000
                             (ash (register-number target) +rn-shift+)))
   (return-from instruction t))
 
 (define-instruction blr (target)
-  (check-register-class reg :gpr-64)
+  (check-register-class target :gpr-64)
   (emit-instruction (logior #xd63f0000
                             (ash (register-number target) +rn-shift+)))
   (return-from instruction t))
@@ -792,4 +792,48 @@
                               (ash (truncate shift 16) 21)
                               (ash (ldb (byte 16 0) imm-value) 5)
                               (ash (register-number dst) +rd-shift+)))
+    (return-from instruction t)))
+
+;; Returns op0, op1, crn, crm, op2.
+(defun decode-msr-name (name)
+  (ecase name
+    (:nzcv
+     (values #b11 #b011 #b0100 #b0010 #b000))))
+
+(define-instruction msr (name reg)
+  (check-register-class reg :gpr-64)
+  (multiple-value-bind (op0 op1 crn crm op2)
+      (decode-msr-name name)
+    (check-type op0 (unsigned-byte 2))
+    (check-type op1 (unsigned-byte 3))
+    (check-type crn (unsigned-byte 4))
+    (check-type crm (unsigned-byte 4))
+    (check-type op2 (unsigned-byte 3))
+    (assert (logtest op0 #b10))
+    (emit-instruction (logior #xD5100000
+                              (ash (- op0 2) 19)
+                              (ash op1 16)
+                              (ash crn 12)
+                              (ash crm 8)
+                              (ash op2 5)
+                              (ash (register-number reg) +rt-shift+)))
+    (return-from instruction t)))
+
+(define-instruction lslv (dst lhs rhs)
+  (let ((is-64-bit (eql (register-class dst) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class dst :gpr-64)
+           (check-register-class lhs :gpr-64)
+           (check-register-class rhs :gpr-64))
+          (t
+           (check-register-class dst :gpr-32)
+           (check-register-class lhs :gpr-32)
+           (check-register-class rhs :gpr-32)))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x1AC02000
+                              (ash (register-number dst) +rd-shift+)
+                              (ash (register-number lhs) +rn-shift+)
+                              (ash (register-number rhs) +rm-shift+)))
     (return-from instruction t)))
