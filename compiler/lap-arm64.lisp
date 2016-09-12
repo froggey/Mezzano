@@ -107,9 +107,6 @@
 (defun parse-address (address)
   (assert (consp address))
   (case (first address)
-    (:stack
-     ;; Transform (:stack n) into (:x28 (- (* (1+ n) 8))).
-     (values :base-plus-immediate :x28 (- (* (1+ (second address)) 8))))
     (:constant
      (values :pc :pc
              `(:constant-address ,(second address))))
@@ -536,6 +533,8 @@
     count))
 
 (defun encode-bit-mask (imm reg-size)
+  (when (minusp imm)
+    (setf imm (ldb (byte reg-size 0) imm)))
   ;; Not all zeros or all ones, and within range.
   (assert (< 0 imm (1- (ash 1 reg-size))))
   ;; Must be a single contiguous run of bits.

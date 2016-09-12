@@ -26,16 +26,6 @@
 (defun comment (&rest stuff)
   (emit `(:comment ,@stuff)))
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun object-ea (base &key (slot 0) index)
-    (append
-     (when base
-       (list base))
-     (when index
-       (list index))
-     (list (+ (- sys.int::+tag-object+) 8 (* slot 8)))))
-  )
-
 (defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)
   `(push (let ((*code-accum* '()))
            ,(when name
@@ -58,10 +48,6 @@
 (defun control-stack-frame-offset (slot)
   "Convert a control stack slot number to an offset."
   (- (* (1+ slot) 8)))
-
-(defun control-stack-slot-ea (slot)
-  "Return an effective address for a control stack slot."
-  `(:stack ,slot))
 
 ;;; TODO: This should work on a stack-like system so that slots can be
 ;;; reused when the allocation is no longer needed.
@@ -229,6 +215,41 @@
       (setf (aref *stack-values* i) nil)
       (return i))))
 
+(defun code-for-reg-immediate-mem-op (inst reg base offset &optional temp)
+  (when (not temp)
+    (setf temp :x8))
+  (cond ((or (<= -256 offset 255)
+             (and (<= 0 offset 16380)
+                  (zerop (logand offset #b111))))
+         (list `(,inst ,reg (,base ,offset))))
+        (t
+         (append (load-literal temp offset)
+                 (list `(,inst ,reg (,base ,temp)))))))
+
+(defun emit-object-op (inst reg base slot)
+  (apply #'emit (code-for-reg-immediate-mem-op
+                 inst reg base (+ (- sys.int::+tag-object+) 8 (* slot 8)))))
+
+(defun emit-object-load (reg base &key (slot 0) index)
+  (assert (not index)) ; todo
+  (emit-object-op 'lap:ldr reg base slot))
+
+(defun emit-object-store (reg base &key (slot 0) index)
+  (assert (not index)) ; todo
+  (emit-object-op 'lap:str reg base slot))
+
+(defun code-for-stack-op (inst reg slot &optional temp)
+  (code-for-reg-immediate-mem-op inst reg :x29 (control-stack-frame-offset slot) temp))
+
+(defun emit-stack-op (inst reg slot &optional temp)
+  (apply #'emit (code-for-stack-op inst reg slot temp)))
+
+(defun emit-stack-load (reg slot &optional temp)
+  (emit-stack-op 'lap:ldr reg slot temp))
+
+(defun emit-stack-store (reg slot &optional temp)
+  (emit-stack-op 'lap:str reg slot temp))
+
 (defun smash-x0 (&optional do-not-kill-x0)
   "Check if the value in X0 is on the load-list and flush it to the stack if it is."
   ;; Avoid flushing if it's already on the stack.
@@ -238,7 +259,7 @@
              (not (tag-saved-on-stack-p *x0-value*)))
     (let ((slot (find-stack-slot)))
       (setf (aref *stack-values* slot) *x0-value*)
-      (emit `(lap:str :x0 (:stack ,slot)))))
+      (emit-stack-store :x0 slot)))
   (unless do-not-kill-x0
     (setf *x0-value* nil)))
 
@@ -282,7 +303,7 @@
       (ecase (first loc)
         ((quote) (load-constant :x0 (second loc)))
         ((:stack)
-         (emit `(lap:ldr :x0 (:stack ,(second loc))))))
+         (emit-stack-load :x0 (second loc))))
       (setf *x0-value* true-tag))
     (when kill
       (kill-value tag))))
@@ -295,8 +316,10 @@
           (if (eql loc :x0)
               (emit `(lap:orr ,reg :xzr :x0))
               (ecase (first loc)
-                ((quote) (load-constant reg (second loc)))
-                ((:stack) (emit `(lap:ldr ,reg (:stack ,(second loc))))))))
+                ((quote)
+                 (load-constant reg (second loc)))
+                ((:stack)
+                 (emit-stack-load reg (second loc))))))
         (when kill
           (kill-value tag)))))
 
@@ -348,18 +371,19 @@
           (setf (aref *stack-values* ofs) (cons env-arg :home))
           (when (not (getf (lambda-information-plist lambda) 'sys.c::unwind-protect-cleanup))
             ;; Read environment pointer from closure object.
-            (emit `(lap:ldr :x6 ,(object-ea :x6 :slot 2))))
-          (emit `(lap:str :x6 (:stack ,ofs))))))
+            (emit-object-load :x6 :x6 :slot 2))
+          (emit-stack-store :x6 ofs))))
     ;; Compile argument setup code.
     (let ((current-arg-index 0))
       (dolist (arg (lambda-information-required-args lambda))
-        (incf current-arg-index)
         (let ((ofs (find-stack-slot)))
           (setf (aref *stack-values* ofs) (cons arg :home))
-          (if arg-registers
-              (emit `(lap:str ,(pop arg-registers) (:stack ,ofs)))
-              (emit `(lap:ldr :x0 (:x29 ,(* (+ (- current-arg-index 6) 2) 8)))
-                    `(lap:str :x0 (:stack ,ofs))))))
+          (cond (arg-registers
+                 (emit-stack-store (pop arg-registers) ofs))
+                (t
+                 (emit `(lap:ldr :x0 (:x29 ,(* (+ (- current-arg-index 5) 2) 8))))
+                 (emit-stack-store :x0 ofs))))
+        (incf current-arg-index))
       (dolist (arg (lambda-information-optional-args lambda))
         (let ((mid-label (gensym))
               (end-label (gensym))
@@ -374,22 +398,23 @@
           (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw current-arg-index))
                 `(lap:b.le ,mid-label))
           ;; Argument supplied, stash wherever.
-          (if arg-registers
-              (emit `(lap:str ,(pop arg-registers) (:stack ,var-ofs)))
-              (emit `(lap:ldr :x0 (:x29 ,(* (+ (- current-arg-index 5) 2) 8)))
-                    `(lap:str :x0 (:stack ,var-ofs))))
+          (cond (arg-registers
+                 (emit-stack-store (pop arg-registers) var-ofs))
+                (t
+                 (emit `(lap:ldr :x0 (:x29 ,(* (+ (- current-arg-index 5) 2) 8))))
+                 (emit-stack-store :x0 var-ofs)))
           (when sup-ofs
-            (emit `(lap:ldr :x0 (:constant t))
-                  `(lap:str :x0 (:stack ,sup-ofs))))
+            (emit `(lap:ldr :x0 (:constant t)))
+            (emit-stack-store :x0 sup-ofs))
           (emit `(lap:b ,end-label)
                 mid-label)
           ;; Argument not supplied. Init-form is a quoted constant.
           (let ((tag `',(ast-value (second arg))))
             (load-in-x0 tag t)
             (setf *x0-value* nil)
-            (emit `(lap:str :x0 (:stack ,var-ofs)))
+            (emit-stack-store :x0 var-ofs)
             (when sup-ofs
-              (emit `(lap:str :x29 (:stack ,sup-ofs)))))
+              (emit-stack-store :x29 sup-ofs)))
           (emit end-label)
           (incf current-arg-index))))
     ;; Deal with &REST late to avoid excess register spilling.
@@ -466,9 +491,9 @@
     (emit-trailer (invalid-arguments-label nil)
       (emit `(:gc :frame)
             `(lap:orr :x5 :xzr :xzr)
-            `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error))
-            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
-            `(lap:blr :x9)
+            `(lap:ldr :x7 (:function sys.int::raise-invalid-argument-error)))
+      (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+      (emit `(lap:blr :x9)
             `(lap:hlt 0)))
     (nconc
      (list entry-label
@@ -512,7 +537,7 @@
         for value across *stack-values*
         for i from 0
         unless (equal value '(:unboxed . :home))
-        collect `(lap:str :x26 (:stack ,i)))
+        append (code-for-stack-op 'lap:str :x26 i))
      (list `(:gc :frame :incoming-arguments :rcx
                  :layout ,(coerce (loop for value across *stack-values*
                                      collect (if (equal value '(:unboxed . :home))
@@ -536,7 +561,7 @@
     ;; X6 and X7 are free. Argument registers may or may not be free
     ;; depending on the number of required/optional arguments.
     ;; Number of supplied arguments.
-    (emit `(lap:str :x5 ,(control-stack-slot-ea saved-argument-count)))
+    (emit-stack-store :x5 saved-argument-count)
     ;; Tell the GC to used the number of arguments saved on the stack. X5 will
     ;; be used later.
     (emit-gc-info :incoming-arguments saved-argument-count)
@@ -575,7 +600,7 @@
     (emit `(lap:str :x26 (:x12 -8)))
     ;; Create the DX root object for the vector.
     (emit `(lap:add :x9 :sp ,sys.int::+tag-dx-root-object+))
-    (emit `(lap:str :x9 ,(control-stack-slot-ea rest-dx-root)))
+    (emit-stack-store :x9 rest-dx-root)
     ;; It's now safe to write values into the list/vector.
     (emit `(lap:add :x12 :sp 16))
     ;; Add register arguments to the list.
@@ -610,13 +635,13 @@
       ;; Call COPY-LIST to convert the dx list into a heap list.
       (emit `(lap:orr :x0 :xzr :x7)
             `(lap:ldr :x7 (:function copy-list))
-            `(lap:orr :x5 :xzr ,(fixnum-to-raw 1))
-            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
-            `(lap:blr :x9)
+            `(lap:orr :x5 :xzr ,(fixnum-to-raw 1)))
+      (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+      (emit `(lap:blr :x9)
             `(lap:orr :x7 :xzr :x0)))
     (let ((ofs (find-stack-slot)))
       (setf (aref *stack-values* ofs) (cons rest-arg :home))
-      (emit `(lap:str :x7 (:stack ,ofs))))))
+      (emit-stack-store :x7 ofs))))
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
@@ -665,7 +690,7 @@
       (let ((slots (allocate-control-stack-slots words t)))
         ;; Set the header.
         (load-literal :x9 (ash (ast-value size) sys.int::+object-data-shift+))
-        (emit `(lap:str :x9 ,(control-stack-slot-ea (+ slots words -1))))
+        (emit-stack-store :x9 (+ slots words -1))
         ;; Generate pointer.
         (emit `(lap:sub :x8 :x29 ,(- (+ (control-stack-frame-offset (+ slots words -1))
                                         sys.int::+tag-object+)))))))
@@ -680,7 +705,7 @@
           `(lap:add :sp :x10 :xzr)
           `(lap:ldr :x29 (:x9 24)))
     (dolist (slot (first *active-nl-exits*))
-      (emit `(lap:str :x26 (:stack ,slot))))
+      (emit-stack-store :x26 slot))
     (emit `(lap:b ,target-label))))
 
 (defun cg-block (form)
@@ -706,16 +731,16 @@
             (control-info (allocate-control-stack-slots 4)))
         (setf (aref *stack-values* slot) (cons info :home))
         ;; Construct jump info.
-        (emit `(lap:adr :x9 ,thunk-label)
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 3)))
-              `(lap:ldr :x9 (:x28 ,+binding-stack-gs-offset+))
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 2)))
-              `(lap:add :x9 :sp :xzr)
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 1)))
-              `(lap:str :x29 ,(control-stack-slot-ea (+ control-info 0)))
-              ;; Save pointer to info
-              `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3))))
-              `(lap:str :x9 (:stack ,slot)))))
+        (emit `(lap:adr :x9 ,thunk-label))
+        (emit-stack-store :x9 (+ control-info 3))
+        (emit-object-load :x9 :x28 :slot 6) ;; ### special-stack-pointer
+        (emit-stack-store :x9 (+ control-info 2))
+        (emit `(lap:add :x9 :sp :xzr))
+        (emit-stack-store :x9 (+ control-info 1))
+        (emit-stack-store :x29 (+ control-info 0))
+        ;; Save pointer to info
+        (emit `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3)))))
+        (emit-stack-store :x9 slot)))
     (prog1
         (let* ((*rename-list* (cons (list info exit-label) *rename-list*))
                (stack-slots (set-up-for-branch))
@@ -771,12 +796,12 @@
       ;; When the function is undefined, fall back on FDEFINITION.
       (load-constant :x5 1)
       (load-constant :x0 name)
-      (emit `(lap:ldr :x7 (:function fdefinition))
-            `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
-            `(lap:blr :x9)
+      (emit `(lap:ldr :x7 (:function fdefinition)))
+      (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+      (emit `(lap:blr :x9)
             `(lap:b ,resume)))
-    (emit `(lap:ldr :x0 (:function ,name))
-          `(lap:ldr :x0 ,(object-ea :x0 :slot sys.int::+fref-function+)))
+    (emit `(lap:ldr :x0 (:function ,name)))
+    (emit-object-load :x0 :x0 :slot sys.int::+fref-function+)
     (load-literal :x9 :undefined-function)
     (emit `(lap:subs :xzr :x0 :x9)
           `(lap:b.eq ,undefined)
@@ -915,7 +940,7 @@
                         (tag (cg-form init-form)))
                    (load-in-x0 tag t)
                    (setf *x0-value* (cons var :dup))
-                   (emit `(lap:str :x0 (:stack ,slot)))))))))
+                   (emit-stack-store :x0 slot)))))))
     (cg-form body)))
 
 (defun gensym-many (things)
@@ -935,7 +960,7 @@
       (when (not (zerop (lexical-variable-use-count var)))
         (let ((slot (find-stack-slot)))
           (setf (aref *stack-values* slot) (cons var :home))
-          (emit `(lap:str :x26 (:stack ,slot))))))
+          (emit-stack-store :x26 slot))))
     ;; Compile the value-form.
     (let ((value-tag (let ((*for-value* :multiple))
                        (cg-form value-form))))
@@ -959,19 +984,93 @@
            (cond ((zerop (lexical-variable-use-count var))
                   (pop value-locations))
                  (t (let ((register (cond ((integerp (first value-locations))
-                                           (emit `(lap:ldr :x7 (:x28 ,(+ (- 8 sys.int::+tag-object+)
-                                                                         (* (+ #+(or)sys.int::+stack-group-offset-mv-slots+
-                                                                               32 ; fixme. should be +thread-mv-slots-start+
-                                                                               (pop value-locations))
-                                                                            8)))))
+                                           (emit-object-load :x7 :x28
+                                                             :slot (+ #+(or)sys.int::+stack-group-offset-mv-slots+
+                                                                      32 ; fixme. should be +thread-mv-slots-start+
+                                                                      (pop value-locations)))
                                            :x7)
                                           (t (pop value-locations)))))
-                      (emit `(lap:str ,register (:stack ,(position (cons var :home)
-                                                                   *stack-values*
-                                                                   :test 'equal))))))))
+                      (emit-stack-store register
+                                        (position (cons var :home)
+                                                  *stack-values*
+                                                  :test 'equal))))))
       (emit no-vals-label))
     (emit-gc-info)
     (cg-form body)))
+
+(defun emit-funcall-common ()
+  "Emit the common code for funcall, argument registers must
+be set up and the function must be in RBX.
+Returns an appropriate tag."
+  (emit-object-load :x9 :x6 :slot sys.int::+function-entry-point+)
+  (emit `(lap:blr :x9))
+  (cond ((member *for-value* '(:multiple :tail))
+         (emit-gc-info :multiple-values 0)
+         :multiple)
+        (t (emit-gc-info)
+           (setf *x0-value* (list (gensym))))))
+
+(defun cg-multiple-value-call (form)
+  (let ((value-form (ast-value-form form))
+        (fn-tag (let ((*for-value* t))
+                  (cg-form (make-instance 'ast-call
+                                          :name 'sys.int::%coerce-to-callable
+                                          :arguments (list (ast-function-form form)))))))
+    (when (not fn-tag)
+      (return-from cg-multiple-value-call nil))
+    (let ((value-tag (let ((*for-value* :multiple))
+                       (cg-form value-form))))
+      (case value-tag
+        ((nil)
+         (return-from cg-multiple-value-call nil))
+        ((:multiple)
+         (let ((stack-pointer-save-area (allocate-control-stack-slots 1)))
+           (emit `(lap:add :x9 :sp 0))
+           (emit-stack-store :x9 stack-pointer-save-area)
+           ;; Copy values in the sg-mv area to the stack. RCX holds the number of values to copy +5
+           (let ((loop-head (gensym))
+                 (loop-exit (gensym))
+                 (clear-loop-head (gensym)))
+             ;; X9 = n values to copy (count * 8).
+             (emit `(lap:add :x9 :xzr :x5 :lsl ,(1- (integer-length (/ 8 (ash 1 sys.int::+n-fixnum-bits+)))))
+                   `(lap:subs :x9 :x9 (* 5 8))
+                   `(lap:b.le ,loop-exit)
+                   `(lap:and :x10 :x9 ,(lognot 15))
+                   `(lap:sub :sp :sp :x10)
+                   ;; Clear stack slots.
+                   `(lap:add :x10 :sp :x9)
+                   clear-loop-head
+                   `(lap:str :xzr (:x10 -8))
+                   `(lap:subs :x10 :x10 8)
+                   `(lap:b.ne ,clear-loop-head)
+                   ;; Copy values.
+                   `(lap:add :x12 :sp :xzr)
+                   `(lap:movz :x11 ,(+ (- 8 sys.int::+tag-object+)
+                                       ;; fixme. should be +thread-mv-slots-start+
+                                       (* 32 8))))
+             ;; Switch to the right GC mode.
+             (emit-gc-info :pushed-values -5 :pushed-values-register :rcx :multiple-values 0)
+             (emit loop-head
+                   `(lap:ldr :x6 (:x28 :x11))
+                   `(lap:str :x6 (:x12))
+                   `(lap:add :x12 :x12 8)
+                   `(lap:add :x11 :x11 8)
+                   `(lap:subs :x9 :x9 8)
+                   `(lap:b.cc ,loop-head)
+                   loop-exit)
+             ;; All done with the MV area.
+             (emit-gc-info :pushed-values -5 :pushed-values-register :rcx))
+           (smash-x0)
+           (load-in-reg :x6 fn-tag t)
+           (prog1
+               (emit-funcall-common)
+             (emit-stack-load :x9 stack-pointer-save-area)
+             (emit `(lap:add :sp :x9 0)))))
+        (t ;; Single value.
+         (load-in-reg :x6 fn-tag t)
+         (load-constant :x5 1)
+         (load-in-reg :x0 value-tag t)
+         (emit-funcall-common))))))
 
 (defun cg-multiple-value-prog1 (form)
   (cond
@@ -996,7 +1095,7 @@
            (emit `(lap:and :x9 :x9 ,(fixnum-to-raw (lognot 1))))
            ;; Save SP.
            (emit `(lap:add :x10 :sp :xzr))
-           (emit `(lap:str :x10 (:stack ,saved-stack-pointer)))
+           (emit-stack-store :x10 saved-stack-pointer)
            ;; Adjust RSP. rax to raw * 8.
            (emit `(lap:add :x9 :xzr :x9 :lsl ,(- 3 sys.int::+n-fixnum-bits+)))
            (emit `(lap:sub :sp :sp :x9))
@@ -1016,7 +1115,7 @@
              (emit clear-loop-end))
            ;; Create & save the DX root value.
            (emit `(lap:add :x9 :sp ,sys.int::+tag-dx-root-object+))
-           (emit `(lap:str :x9 (:stack ,sv-save-area)))
+           (emit-stack-store :x9 sv-save-area)
            ;; Save MV registers.
            (loop
               for reg in '(:x0 :x1 :x2 :x3 :x4)
@@ -1056,18 +1155,18 @@
          (kill-value tag)
          (when (eql tag :multiple)
            ;; Create a normal object from the saved dx root.
-           (emit `(lap:ldr :x9 (:stack ,sv-save-area)))
+           (emit-stack-load :x9 sv-save-area)
            (emit `(lap:add :x0 :x9 ,(- sys.int::+tag-object+
                                        sys.int::+tag-dx-root-object+)))
            ;; Call helper.
-           (emit `(lap:add :x5 :xzr ,(fixnum-to-raw 1)))
+           (load-literal :x5 (fixnum-to-raw 1))
            (emit `(lap:ldr :x7 (:function sys.int::values-simple-vector)))
-           (emit `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+)))
+           (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
            (emit `(lap:blr :x9))
            (emit-gc-info :multiple-values 0)
            ;; Kill the dx root and restore the old stack pointer.
-           (emit `(lap:str :x26 (:stack ,sv-save-area)))
-           (emit `(lap:ldr :x9 (:stack ,saved-stack-pointer)))
+           (emit-stack-store :x26 sv-save-area)
+           (emit-stack-load :x9 saved-stack-pointer)
            (emit `(lap:add :sp :x9 :xzr)))
          tag))))
 
@@ -1134,7 +1233,7 @@
       (when (null tag)
         (return-from cg-setq))
       (load-in-x0 tag t)
-      (emit `(lap:str :x0 (:stack ,home)))
+      (emit-stack-store :x0 home)
       (setf *x0-value* (cons var :dup))
       (cons var (incf *run-counter* 2)))))
 
@@ -1167,16 +1266,16 @@
       (let ((slot (find-stack-slot))
             (control-info (allocate-control-stack-slots 4)))
         ;; Construct jump info.
-        (emit `(lap:adr :x9 ,jump-table)
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 3)))
-              `(lap:ldr :x9 (:x28 ,+binding-stack-gs-offset+))
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 2)))
-              `(lap:add :x9 :sp :xzr)
-              `(lap:str :x9 ,(control-stack-slot-ea (+ control-info 1)))
-              `(lap:str :x29 ,(control-stack-slot-ea (+ control-info 0)))
-              ;; Save in the environment.
-              `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3))))
-              `(lap:str :x9 (:stack ,slot)))
+        (emit `(lap:adr :x9 ,jump-table))
+        (emit-stack-store :x9 (+ control-info 3))
+        (emit-object-load :x9 :x28 :slot 6) ;; ### special-stack-pointer
+        (emit-stack-store :x9 (+ control-info 2))
+        (emit `(lap:add :x9 :sp :xzr))
+        (emit-stack-store :x9 (+ control-info 1))
+        (emit-stack-store :x29 (+ control-info 0))
+        ;; Save in the environment.
+        (emit `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3)))))
+        (emit-stack-store :x9 slot)
         (setf (aref *stack-values* slot) (cons (ast-info form) :home))))
     (setf stack-slots (set-up-for-branch))
     (mapcar (lambda (tag label)
@@ -1306,10 +1405,8 @@
            (loop for i from 0
               for value in (nthcdr 5 args) do
                 (load-in-reg :x7 value t)
-                (emit `(lap:str :x7 (:x28 ,(+ (- 8 sys.int::+tag-object+)
-                                              ;; fixme. should be +thread-mv-slots-start+
-                                              (* #+(or)sys.int::+stack-group-offset-mv-slots+ 32 8)
-                                              (* i 8)))))
+                ;; fixme. should be +thread-mv-slots-start+
+                (emit-object-store :x7 :x28 :slot (+ 32 i))
                 (emit-gc-info :multiple-values 1)
                 (emit `(lap:add :x5 :x5 ,(fixnum-to-raw 1)))
                 (emit-gc-info :multiple-values 0))
@@ -1350,10 +1447,10 @@
            (smash-x0)
            (load-constant :x5 (length (rest (ast-arguments form))))
            (cond ((can-tail-call (rest (ast-arguments form)))
-                  (emit-tail-call (object-ea :x6 :slot 0)))
+                  (emit-tail-call :x6 0))
                  (t
-                  (emit `(lap:ldr :x9 ,(object-ea :x6 :slot 0))
-                        `(lap:blr :x9))))
+                  (emit-object-load :x9 :x6 :slot 0)
+                  (emit `(lap:blr :x9))))
            (if (member *for-value* '(:multiple :tail))
                (emit-gc-info :multiple-values 0)
                (emit-gc-info))
@@ -1372,11 +1469,11 @@
     (smash-x0)
     (load-constant :x5 (length (ast-arguments form)))
     (cond ((can-tail-call (ast-arguments form))
-           (emit-tail-call (object-ea :x7 :slot sys.int::+fref-entry-point+))
+           (emit-tail-call :x7 sys.int::+fref-entry-point+)
            nil)
           (t
-           (emit `(lap:ldr :x9 ,(object-ea :x7 :slot sys.int::+fref-entry-point+))
-                 `(lap:blr :x9))
+           (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+           (emit `(lap:blr :x9))
            (if (member *for-value* '(:multiple :tail))
                (emit-gc-info :multiple-values 0)
                (emit-gc-info))
@@ -1403,14 +1500,15 @@
   (and (eql *for-value* :tail)
        (<= (length args) 5)))
 
-(defun emit-tail-call (where)
+(defun emit-tail-call (where where-slot)
   (emit `(lap:add :sp :x30 0))
   (emit `(:gc :frame :multiple-values 0))
   (emit `(lap:ldp :x29 :x30 (:post :sp 16)))
   ;; Tail calls can only be performed when there are no arguments on the stack.
   ;; So :GC :NO-FRAME is fine here.
   (emit `(:gc :no-frame))
-  (emit `(lap:br ,where)))
+  (emit-object-load :x8 where :slot where-slot)
+  (emit `(lap:br :x8)))
 
 (defun cg-variable (form)
   (assert (localp form))
@@ -1418,3 +1516,27 @@
 
 (defun cg-lambda (form)
   (list 'quote (codegen-lambda form)))
+
+(defun cg-jump-table (form)
+  (let* ((value (ast-value form))
+         (jumps (ast-targets form))
+         (tag (let ((*for-value* t))
+                (cg-form value)))
+         (jump-table (gensym "jump-table")))
+    ;; Build the jump table.
+    ;; Every jump entry must be a local GO with no special bindings.
+    (emit-trailer (jump-table nil)
+      (dolist (j jumps)
+        (assert (typep j 'ast-go))
+        (let ((go-tag (assoc (ast-target j) *rename-list*)))
+          (assert go-tag () "GO tag not local")
+          (emit `(:d64/le (- ,(second go-tag) ,jump-table))))))
+    ;; Jump.
+    (load-in-x0 tag t)
+    (smash-x0)
+    (emit `(lap:adr :x9 ,jump-table))
+    (emit `(lap:add :x0 :xzr :x0 :lsl ,(1- (integer-length (/ 8 (ash 1 sys.int::+n-fixnum-bits+))))))
+    (emit `(lap:ldr :x10 (:x9 :x0)))
+    (emit `(lap:add :x9 :x9 :x10))
+    (emit `(lap:br :x9))
+    nil))
