@@ -30,8 +30,8 @@
 
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
-    "supervisor/cpu.lisp"
-    "supervisor/interrupts.lisp"
+    ((:x86-64) "supervisor/cpu.lisp")
+    ((:x86-64) "supervisor/interrupts.lisp")
     "supervisor/debug.lisp"
     "supervisor/serial.lisp"
     "supervisor/disk.lisp"
@@ -1286,7 +1286,12 @@
                        header-path)))))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
-  (mapc (lambda (f) (load-source-file f set-fdefinitions wired)) files))
+  (dolist (f files)
+    (cond ((consp f)
+           (when (member sys.c::*target-architecture* (first f))
+             (load-source-file (second f) set-fdefinitions wired)))
+          (t
+           (load-source-file f set-fdefinitions wired)))))
 
 (defvar *load-should-set-fdefinitions*)
 
