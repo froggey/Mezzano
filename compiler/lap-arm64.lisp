@@ -184,6 +184,7 @@
 (defconstant +rd-shift+ 0)
 (defconstant +rt-shift+ 0)
 (defconstant +rn-shift+ 5)
+(defconstant +ra-shift+ 10)
 (defconstant +rt2-shift+ 10)
 (defconstant +rm-shift+ 16)
 
@@ -342,6 +343,202 @@
                                        (ash (register-number base) +rn-shift+)
                                        (ash (register-number reg) +rt-shift+)))
              (return-from instruction t))))))))
+
+(define-instruction ldrb (reg value)
+  (check-register-class reg :gpr-32)
+  (multiple-value-bind (mode base offset)
+      (parse-address value)
+    (ecase mode
+      (:base-plus-immediate
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (cond ((and (<= 0 imm-value 16380)
+                     (zerop (logand imm-value #b11)))
+                ;; LDR (immediate, unsigned offset).
+                (emit-instruction (logior #x39400000
+                                          (ash (ash imm-value -2) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t))
+               ((<= -256 imm-value 255)
+                ;; LDUR.
+                (emit-instruction (logior #x38400000
+                                          (ash (ldb (byte 9 0) imm-value) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t)))))
+      ((:base-plus-index64
+        :base-plus-scaled-index64)
+       (emit-instruction (logior #x38600800
+                                 (ash (register-number offset) +rm-shift+)
+                                 (encode-index-option mode)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number reg) +rt-shift+)))
+       (return-from instruction t))
+      (:pre
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; LDR (immediate, pre-index).
+           (emit-instruction (logior #x38400C00
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t))))
+      (:post
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; LDR (immediate, post-index).
+           (emit-instruction (logior #x38400400
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t)))))))
+
+(define-instruction strb (reg value)
+  (check-register-class reg :gpr-32 :wzr)
+  (multiple-value-bind (mode base offset)
+      (parse-address value)
+    (ecase mode
+      (:base-plus-immediate
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (cond ((and (<= 0 imm-value 16380)
+                     (zerop (logand imm-value #b11)))
+                ;; STR (immediate, unsigned offset).
+                (emit-instruction (logior #x39000000
+                                          (ash (ash imm-value -2) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t))
+               ((<= -256 imm-value 255)
+                ;; STUR.
+                (emit-instruction (logior #x38000000
+                                          (ash (ldb (byte 9 0) imm-value) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t)))))
+      ((:base-plus-index64
+        :base-plus-scaled-index64)
+       (emit-instruction (logior #x38200800
+                                 (ash (register-number offset) +rm-shift+)
+                                 (encode-index-option mode)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number reg) +rt-shift+)))
+       (return-from instruction t))
+      (:pre
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; STR (immediate, pre-index).
+           (emit-instruction (logior #x38000C00
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t))))
+      (:post
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; STR (immediate, pre-index).
+           (emit-instruction (logior #x38000400
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t)))))))
+
+(define-instruction ldrh (reg value)
+  (check-register-class reg :gpr-32)
+  (multiple-value-bind (mode base offset)
+      (parse-address value)
+    (ecase mode
+      (:base-plus-immediate
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (cond ((and (<= 0 imm-value 16380)
+                     (zerop (logand imm-value #b11)))
+                ;; LDR (immediate, unsigned offset).
+                (emit-instruction (logior #x79400000
+                                          (ash (ash imm-value -2) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t))
+               ((<= -256 imm-value 255)
+                ;; LDUR.
+                (emit-instruction (logior #x78400000
+                                          (ash (ldb (byte 9 0) imm-value) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t)))))
+      ((:base-plus-index64
+        :base-plus-scaled-index64)
+       (emit-instruction (logior #x78600800
+                                 (ash (register-number offset) +rm-shift+)
+                                 (encode-index-option mode)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number reg) +rt-shift+)))
+       (return-from instruction t))
+      (:pre
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; LDR (immediate, pre-index).
+           (emit-instruction (logior #x78400C00
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t))))
+      (:post
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; LDR (immediate, post-index).
+           (emit-instruction (logior #x78400400
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t)))))))
+
+(define-instruction strh (reg value)
+  (check-register-class reg :gpr-32 :wzr)
+  (multiple-value-bind (mode base offset)
+      (parse-address value)
+    (ecase mode
+      (:base-plus-immediate
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (cond ((and (<= 0 imm-value 16380)
+                     (zerop (logand imm-value #b11)))
+                ;; STR (immediate, unsigned offset).
+                (emit-instruction (logior #x79000000
+                                          (ash (ash imm-value -2) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t))
+               ((<= -256 imm-value 255)
+                ;; STUR.
+                (emit-instruction (logior #x78000000
+                                          (ash (ldb (byte 9 0) imm-value) 12)
+                                          (ash (register-number base) +rn-shift+)
+                                          (ash (register-number reg) +rt-shift+)))
+                (return-from instruction t)))))
+      ((:base-plus-index64
+        :base-plus-scaled-index64)
+       (emit-instruction (logior #x78200800
+                                 (ash (register-number offset) +rm-shift+)
+                                 (encode-index-option mode)
+                                 (ash (register-number base) +rn-shift+)
+                                 (ash (register-number reg) +rt-shift+)))
+       (return-from instruction t))
+      (:pre
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; STR (immediate, pre-index).
+           (emit-instruction (logior #x78000C00
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t))))
+      (:post
+       (let ((imm-value (or (resolve-immediate offset) 0)))
+         (when (<= -256 imm-value 255)
+           ;; STR (immediate, pre-index).
+           (emit-instruction (logior #x78000400
+                                     (ash (ldb (byte 9 0) imm-value) 12)
+                                     (ash (register-number base) +rn-shift+)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t)))))))
 
 (define-instruction adr (reg address)
   (let ((imm-value (- (or (resolve-immediate address) (current-address))
@@ -518,6 +715,27 @@
 (define-addsub-instruction sub  1 nil)
 (define-addsub-instruction subs 1 t)
 
+(define-instruction adc (dst lhs rhs)
+  (let* ((dst-class (register-class dst))
+         (is-64-bit (member dst-class '(:gpr-64 :xzr)))
+         (sf (if is-64-bit
+                 #x80000000
+                 #x00000000)))
+    (cond (is-64-bit
+           (check-register-class dst :gpr-64 :xzr)
+           (check-register-class lhs :gpr-64 :xzr)
+           (check-register-class rhs :gpr-64 :xzr))
+          (t
+           (check-register-class dst :gpr-32 :wzr)
+           (check-register-class lhs :gpr-32 :wzr)
+           (check-register-class rhs :gpr-32 :wzr)))
+    (emit-instruction (logior sf
+                              #x1A000000
+                                     (ash (register-number rhs) +rm-shift+)
+                                     (ash (register-number lhs) +rn-shift+)
+                                     (ash (register-number dst) +rd-shift+)))
+    (return-from instruction t)))
+
 (defun shifted-mask-p (value)
   (let ((v (logior value (1- value))))
     (zerop (logand (1+ v) v))))
@@ -561,11 +779,12 @@
                 (null (register-class rhs))
                 (null shift)
                 (null amount)
-                (not (member dst-class '(:xzr :wzr))))
+                (or (eql opcode #b11) ; ANDS
+                    (not (member dst-class '(:xzr :wzr)))))
            ;; Orr (immediate)
            (let* ((imm-value (or (resolve-immediate rhs) 0))
                   (encoded-bitmask (encode-bit-mask imm-value (if is-64-bit 64 32))))
-             (emit-instruction (logior #x32000000
+             (emit-instruction (logior #x12000000
                                        (ash opcode 29)
                                        sf
                                        (ash encoded-bitmask 10)
@@ -654,7 +873,7 @@
     (assert (not (logtest imm-value #b11)))
     (assert (<= -134217728 imm-value 134217727))
     (emit-instruction (logior #x14000000
-                              (ldb (byte 19 2) imm-value)))
+                              (ldb (byte 26 2) imm-value)))
     (return-from instruction t)))
 
 (define-instruction br (target)
@@ -734,9 +953,9 @@
                                   #x80000000
                                   #x00000000)
                               (ash condition 12)
-                              (ash false +rm-shift+)
-                              (ash true +rn-shift+)
-                              (ash dst +rd-shift+))))
+                              (ash (register-number false) +rm-shift+)
+                              (ash (register-number true) +rn-shift+)
+                              (ash (register-number dst) +rd-shift+))))
   t)
 
 (defmacro define-conditional-select (name condition)
@@ -818,7 +1037,7 @@
                               (ash (register-number reg) +rt-shift+)))
     (return-from instruction t)))
 
-(define-instruction lslv (dst lhs rhs)
+(defun emit-shift-variable (op2 dst lhs rhs)
   (let ((is-64-bit (eql (register-class dst) :gpr-64)))
     (cond (is-64-bit
            (check-register-class dst :gpr-64)
@@ -832,7 +1051,68 @@
                                   #x80000000
                                   #x00000000)
                               #x1AC02000
+                              (ash op2 10)
                               (ash (register-number dst) +rd-shift+)
                               (ash (register-number lhs) +rn-shift+)
+                              (ash (register-number rhs) +rm-shift+)))
+    t))
+
+(defmacro define-shift-variable (name opcode)
+  `(define-instruction ,name (dst lhs rhs)
+     (when (emit-shift-variable ',opcode dst lhs rhs)
+       (return-from instruction t))))
+
+(define-shift-variable lslv #b00)
+(define-shift-variable lsrv #b01)
+(define-shift-variable asrv #b10)
+(define-shift-variable rorv #b11)
+
+(defun emit-divide (op2 dst lhs rhs)
+  (let ((is-64-bit (eql (register-class dst) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class dst :gpr-64)
+           (check-register-class lhs :gpr-64)
+           (check-register-class rhs :gpr-64))
+          (t
+           (check-register-class dst :gpr-32)
+           (check-register-class lhs :gpr-32)
+           (check-register-class rhs :gpr-32)))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x1AC00800
+                              (ash op2 10)
+                              (ash (register-number dst) +rd-shift+)
+                              (ash (register-number lhs) +rn-shift+)
+                              (ash (register-number rhs) +rm-shift+)))
+    t))
+
+(defmacro define-divide (name opcode)
+  `(define-instruction ,name (dst lhs rhs)
+     (when (emit-divide ',opcode dst lhs rhs)
+       (return-from instruction t))))
+
+(define-divide udiv 1)
+(define-divide sdiv 1)
+
+(define-instruction msub (dst lhs mhs rhs)
+  (let ((is-64-bit (eql (register-class dst) :gpr-64)))
+    (cond (is-64-bit
+           (check-register-class dst :gpr-64)
+           (check-register-class lhs :gpr-64)
+           (check-register-class mhs :gpr-64)
+           (check-register-class rhs :gpr-64))
+          (t
+           (check-register-class dst :gpr-32)
+           (check-register-class lhs :gpr-32)
+           (check-register-class mhs :gpr-32)
+           (check-register-class rhs :gpr-32)))
+    (emit-instruction (logior (if is-64-bit
+                                  #x80000000
+                                  #x00000000)
+                              #x1B008000
+                              (ash (register-number dst) +rd-shift+)
+                              (ash (register-number lhs) +ra-shift+)
+                              (ash (register-number mhs) +rn-shift+)
                               (ash (register-number rhs) +rm-shift+)))
     (return-from instruction t)))
