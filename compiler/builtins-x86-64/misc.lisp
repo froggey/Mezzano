@@ -3,7 +3,7 @@
 
 (in-package :mezzano.compiler.codegen.x86-64)
 
-;;; EQ and EQL.
+;;; EQ.
 
 (defbuiltin eq (x y) ()
   ;; Ensure constants are on the right-hand side.

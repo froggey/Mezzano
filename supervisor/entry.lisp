@@ -214,14 +214,14 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-debug-log)
     (initialize-debug-uart #x09000000)
     ;(initialize-debug-serial serial-port-io-base 4 38400)
-    (initialize-initial-thread)
+    ;(initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
           *deferred-boot-actions* '()
           *paging-disk* nil)
     (initialize-physical-allocator)
-    (initialize-early-video)
+    ;(initialize-early-video)
     (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)

@@ -17,8 +17,6 @@
 (defvar *active-nl-exits* nil)
 (defvar *literal-pool*)
 
-(defconstant +binding-stack-gs-offset+ (- (* 7 8) sys.int::+tag-object+))
-
 (defun emit (&rest instructions)
   (dolist (i instructions)
     (push i *code-accum*)))
@@ -217,25 +215,26 @@
 
 (defun code-for-reg-immediate-mem-op (inst reg base offset &optional temp)
   (when (not temp)
-    (setf temp :x8))
+    (setf temp :x12))
   (cond ((or (<= -256 offset 255)
              (and (<= 0 offset 16380)
                   (zerop (logand offset #b111))))
          (list `(,inst ,reg (,base ,offset))))
         (t
-         (append (load-literal temp offset)
+         (append (code-for-load-literal temp offset)
                  (list `(,inst ,reg (,base ,temp)))))))
 
-(defun emit-object-op (inst reg base slot)
-  (apply #'emit (code-for-reg-immediate-mem-op
-                 inst reg base (+ (- sys.int::+tag-object+) 8 (* slot 8)))))
+(defun object-slot-displacement (slot &optional scale)
+  (+ (- sys.int::+tag-object+) 8 (* slot (or scale 8))))
 
-(defun emit-object-load (reg base &key (slot 0) index)
-  (assert (not index)) ; todo
+(defun emit-object-op (inst reg base slot &optional scale)
+  (apply #'emit (code-for-reg-immediate-mem-op
+                 inst reg base (object-slot-displacement slot scale))))
+
+(defun emit-object-load (reg base &key (slot 0))
   (emit-object-op 'lap:ldr reg base slot))
 
-(defun emit-object-store (reg base &key (slot 0) index)
-  (assert (not index)) ; todo
+(defun emit-object-store (reg base &key (slot 0))
   (emit-object-op 'lap:str reg base slot))
 
 (defun code-for-stack-op (inst reg slot &optional temp)
@@ -263,23 +262,26 @@
   (unless do-not-kill-x0
     (setf *x0-value* nil)))
 
-(defun load-literal (register value)
+(defun code-for-load-literal (register value)
   (cond ((keywordp value)
          (let ((pos (position value *literal-pool*)))
            (when (not pos)
              (setf pos (vector-push-extend value *literal-pool*)))
-           (emit `(:comment :literal ,value))
-           (emit `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))
+           (list `(:comment :literal ,value)
+                 `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))
         ((zerop value)
-         (emit `(lap:orr ,register :xzr :xzr)))
+         (list `(lap:orr ,register :xzr :xzr)))
         ((<= 0 value 65535)
-         (emit `(lap:movz ,register ,value)))
+         (list `(lap:movz ,register ,value)))
         (t
          (let ((pos (position value *literal-pool*)))
            (when (not pos)
              (setf pos (vector-push-extend value *literal-pool*)))
-           (emit `(:comment :literal ,value))
-           (emit `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))))
+           (list `(:comment :literal ,value)
+                 `(lap:ldr ,register (:pc (+ arm-literal-pool ,(* pos 8)))))))))
+
+(defun load-literal (register value)
+  (apply #'emit (code-for-load-literal register value)))
 
 (defun load-constant (register value)
   (cond ((eq value 'nil)
@@ -429,7 +431,7 @@
                       (cg-form (lambda-information-body lambda)))))
       (when code-tag
         (load-multiple-values code-tag)
-        (emit `(lap:add :sp :x30 0)
+        (emit `(lap:add :sp :x29 0)
               `(:gc :frame :multiple-values 0)
               `(lap:ldp :x29 :x30 (:post :sp 16))
               `(:gc :no-frame :multiple-values 0)
@@ -692,7 +694,7 @@
         (load-literal :x9 (ash (ast-value size) sys.int::+object-data-shift+))
         (emit-stack-store :x9 (+ slots words -1))
         ;; Generate pointer.
-        (emit `(lap:sub :x8 :x29 ,(- (+ (control-stack-frame-offset (+ slots words -1))
+        (emit `(lap:sub :x0 :x29 ,(- (+ (control-stack-frame-offset (+ slots words -1))
                                         sys.int::+tag-object+)))))))
   (setf *x0-value* (list (gensym))))
 
@@ -974,7 +976,7 @@
         (push i value-locations))
       (dotimes (i var-count)
         (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw (- var-count i)))
-              `(lap:b.hi ,(nth i jump-targets))))
+              `(lap:b.cs ,(nth i jump-targets))))
       (emit `(lap:b ,no-vals-label))
       (loop
          for var in (reverse variables)
@@ -1501,14 +1503,14 @@ Returns an appropriate tag."
        (<= (length args) 5)))
 
 (defun emit-tail-call (where where-slot)
-  (emit `(lap:add :sp :x30 0))
+  (emit `(lap:add :sp :x29 0))
   (emit `(:gc :frame :multiple-values 0))
   (emit `(lap:ldp :x29 :x30 (:post :sp 16)))
   ;; Tail calls can only be performed when there are no arguments on the stack.
   ;; So :GC :NO-FRAME is fine here.
   (emit `(:gc :no-frame))
-  (emit-object-load :x8 where :slot where-slot)
-  (emit `(lap:br :x8)))
+  (emit-object-load :x9 where :slot where-slot)
+  (emit `(lap:br :x9)))
 
 (defun cg-variable (form)
   (assert (localp form))

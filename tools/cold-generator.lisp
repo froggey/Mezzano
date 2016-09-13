@@ -53,13 +53,14 @@
     "supervisor/support.lisp"
     "supervisor/rtl8168.lisp"
     "supervisor/acpi.lisp"
-    ;"runtime/runtime.lisp"
-    ;"runtime/allocate.lisp"
+    "runtime/runtime.lisp"
+    "runtime/allocate.lisp"
     ;"runtime/numbers.lisp"
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
-    "runtime/symbol.lisp"))
+    "runtime/symbol.lisp"
+    "runtime/runtime2.lisp"))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
@@ -146,6 +147,12 @@
     "compiler/branch-tension.lisp"
     "compiler/codegen-arm64.lisp"
     "compiler/builtins-arm64/builtins.lisp"
+    "compiler/builtins-arm64/cons.lisp"
+    "compiler/builtins-arm64/memory.lisp"
+    "compiler/builtins-arm64/misc.lisp"
+    "compiler/builtins-arm64/numbers.lisp"
+    "compiler/builtins-arm64/objects.lisp"
+    "compiler/builtins-arm64/unwind.lisp"
     "compiler/lower-environment.lisp"
     "compiler/lower-special-bindings.lisp"
     "compiler/value-aware-lowering.lisp"

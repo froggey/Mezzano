@@ -310,6 +310,7 @@
     (:wired
      (%cons-in-wired-area car cdr))))
 
+#+x86-64
 (sys.int::define-lap-function cons ((car cdr))
   ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
   ;; This is not even remotely SMP safe.
@@ -503,6 +504,7 @@
       (setf (symbol-plist new-sym) (copy-list (symbol-plist symbol))))
     new-sym))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%make-bignum-128-rdx-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
@@ -521,6 +523,7 @@
   (:gc :no-frame)
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%make-bignum-64-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
@@ -548,6 +551,7 @@
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%make-double-float-rax ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)
