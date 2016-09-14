@@ -114,6 +114,14 @@
      (values :pc :pc
              `(:constant-address ,(funcall *function-reference-resolver*
                                            (second address)))))
+    (:object
+     (destructuring-bind (base &optional (slot 0))
+         (rest address)
+       (values :base-plus-immediate
+               base
+               ;; subtract +tag-object+, skip object header.
+               ;; Return an expression, so slot goes through symbol resolution, etc.
+               `(+ (- #b1001) 8 (* ,slot 8)))))
     (:pc
      (assert (and (rest address)
                   (endp (cddr address))))
