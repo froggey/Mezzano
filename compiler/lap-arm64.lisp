@@ -840,7 +840,7 @@
     (assert (not (logtest imm-value #b11)))
     (assert (<= -1048576 imm-value 1048575))
     (emit-instruction (logior #x54000000
-                              (ash (ldb (byte 26 2) imm-value) 5)
+                              (ash (ldb (byte 19 2) imm-value) 5)
                               condition))
     t))
 
