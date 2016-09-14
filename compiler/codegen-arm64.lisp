@@ -610,7 +610,7 @@
        for reg in arg-registers
        do (emit `(lap:str ,reg (:post :x12 16))
                 `(lap:subs :x5 :x5 ,(fixnum-to-raw 1))
-                `(lap:b.ne ,rest-loop-end)))
+                `(lap:b.eq ,rest-loop-end)))
     ;; Now add the stack arguments.
     ;; Skip past required/optional arguments on the stack, the saved frame pointer and the return address.
     (emit `(lap:add :x11 :x29 ,(* (+ (max 0 (- regular-argument-count 5)) 2) 8)))
@@ -621,7 +621,7 @@
     (emit `(lap:str :x0 (:post :x12 16)))
     ;; Stop when no more arguments.
     (emit `(lap:subs :x5 :x5 ,(fixnum-to-raw 1)))
-    (emit `(lap:b.eq ,rest-loop-head))
+    (emit `(lap:b.ne ,rest-loop-head))
     (emit rest-loop-end)
     ;; There were &REST arguments, create the cons.
     (emit `(lap:add :x7 :sp ,(+ 16 sys.int::+tag-cons+)))
