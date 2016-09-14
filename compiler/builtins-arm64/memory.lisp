@@ -5,6 +5,67 @@
 
 (in-package :mezzano.compiler.codegen.arm64)
 
+;;; Direct access to memory.
+;;; (MEMREF-type base offset) directly accesses memory at BASE + OFFSET * type-width.
+;;; Valid types are: (un)signed-byte-{8,16,32,64} and t.
+;;; MEMREF-T reads or writes a Lisp object.
+
+(defmacro define-u-b-memref (name width read-op write-op)
+  `(progn
+     (defbuiltin ,name (base offset) ()
+       (load-in-reg :x1 base t)
+       (fixnum-check :x1)
+       (load-in-reg :x0 offset t)
+       (fixnum-check :x0)
+       (smash-x0)
+       ;; BASE to raw integer.
+       (emit '(lap:add :x9 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+))
+       ;; Convert OFFST to unboxed integer and scale appropriately.
+       ,(ecase width
+          (1
+           `(emit `(lap:add :x10 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)))
+          (2
+           `(emit `(lap:add :x10 :xzr :x0)))
+          (4
+           `(emit `(lap:add :x10 :xzr :x0 :lsl 1))))
+       ;; Read
+       (emit '(,read-op :w9 (:x9 :x10)))
+       ;; Convert to fixnum.
+       (emit '(lap:add :x0 :xzr :x9 :lsl ,sys.int::+n-fixnum-bits+))
+       (setf *x0-value* (list (gensym))))
+     (defbuiltin (setf ,name) (new-value base offset) ()
+       (let ((type-error-label (gensym)))
+         (emit-trailer (type-error-label)
+           (raise-type-error :x0 '(unsigned-byte ,(* width 8))))
+         (load-in-reg :x1 base t)
+         (fixnum-check :x1)
+         (load-in-reg :x2 offset t)
+         (fixnum-check :x2)
+         (load-in-x0 new-value t)
+         (emit `(lap:ands :xzr :x0 ,',sys.int::+fixnum-tag-mask+)
+               `(lap:b.ne ,type-error-label)
+               `(lap:ands :xzr :x0 ,',(ash (lognot (1- (ash 1 (* width 8)))) sys.int::+n-fixnum-bits+))
+               `(lap:b.ne ,type-error-label)
+               ;; Convert to raw integer.
+               `(lap:add :x9 :xzr :x0 :lsr ,',sys.int::+n-fixnum-bits+))
+         ;; BASE to raw integer.
+         (emit '(lap:add :x11 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+))
+         ;; Convert OFFST to unboxed integer and scale appropriately.
+         ,(ecase width
+            (1
+             `(emit `(lap:add :x10 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
+            (2
+             `(emit `(lap:add :x10 :xzr :x2)))
+            (4
+             `(emit `(lap:add :x10 :xzr :x2 :lsl 1))))
+         ;; Write
+         (emit '(,write-op :w9 (:x10 :x11)))
+         *x0-value*))))
+
+(define-u-b-memref sys.int::memref-unsigned-byte-8  1 lap:ldrb lap:strb)
+(define-u-b-memref sys.int::memref-unsigned-byte-16 2 lap:ldrh lap:strh)
+(define-u-b-memref sys.int::memref-unsigned-byte-32 4 lap:ldr  lap:str)
+
 ;;; Access to slots in homogeneous objects.
 ;;; (%OBJECT-REF-type object slot) accesses the value in OBJECT at SLOT.
 ;;; Slots are stored linearly after the object's header and are assumed to all be the same size.
