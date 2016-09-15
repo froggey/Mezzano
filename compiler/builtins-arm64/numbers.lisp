@@ -73,7 +73,7 @@
                    `(lap:b ,done-label)))
            ;; A64 masks the shift count to 6 bits, test if all the bits were shifted out.
            (emit `(lap:subs :xzr :x10 ,(fixnum-to-raw 64))
-                 `(lap:b.cc ,sign-extend))
+                 `(lap:b.cs ,sign-extend))
            ;; Unbox count.
            (emit `(lap:add :x10 :xzr :x10 :asr 1))
            ;; Shift, mask & produce result.
