@@ -219,7 +219,8 @@ Returns two values, the packet data and the receiving NIC."
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
           *deferred-boot-actions* '()
-          *paging-disk* nil)
+          *paging-disk* nil
+          *page-fault-hook* nil)
     (initialize-physical-allocator)
     ;(initialize-early-video)
     (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
