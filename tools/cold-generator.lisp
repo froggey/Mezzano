@@ -58,7 +58,7 @@
     "supervisor/acpi.lisp"
     "runtime/runtime.lisp"
     "runtime/allocate.lisp"
-    ;"runtime/numbers.lisp"
+    "runtime/numbers.lisp"
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"

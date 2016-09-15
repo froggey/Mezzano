@@ -31,6 +31,7 @@
   (or (realp object)
       (complexp object)))
 
+#+x86-64
 (sys.int::define-lap-function %%coerce-fixnum-to-single-float ()
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
@@ -41,6 +42,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function %%coerce-double-float-to-single-float ()
   (sys.lap-x86:cvtsd2ss64 :xmm0 (:object :r8 0))
   (sys.lap-x86:movd :eax :xmm0)
@@ -49,6 +51,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function %%coerce-fixnum-to-double-float ()
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:sar64 :rax #.sys.int::+n-fixnum-bits+)
@@ -57,6 +60,7 @@
   (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-double-float-rax))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
+#+x86-64
 (sys.int::define-lap-function %%coerce-single-float-to-double-float ()
   (sys.lap-x86:mov64 :rax :r8)
   (sys.lap-x86:shr64 :rax 32)
@@ -96,6 +100,7 @@
      (/ (float (numerator number) prototype)
         (float (denominator number) prototype)))))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-< ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -113,6 +118,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-< ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:ucomisd :xmm0 (:object :r9 0))
@@ -149,6 +155,7 @@
 (defun sys.int::generic-<= (x y)
   (not (sys.int::generic-< y x)))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-= ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -168,6 +175,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-= ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:ucomisd :xmm0 (:object :r9 0))
@@ -197,6 +205,7 @@
        (sys.int::%%single-float-= x* y*)))
     (t (sys.int::full-= x y))))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%truncate-single-float ()
   ;; Unbox the float.
   (sys.lap-x86:mov64 :rax :r8)
@@ -210,6 +219,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%truncate-double-float ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   ;; Convert to unboxed integer.
@@ -306,6 +316,7 @@
     (declare (ignore quot))
     rem))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-/ ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -324,6 +335,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-/ ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:divsd :xmm0 (:object :r9 0))
@@ -341,6 +353,7 @@
          (sys.int::%%single-float-/ (float x) (float y)))
         (t (sys.int::full-/ x y))))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-+ ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -359,6 +372,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-+ ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:addsd :xmm0 (:object :r9 0))
@@ -383,6 +397,7 @@
            (sys.int::%%single-float-+ x* y*)))
         (t (sys.int::full-+ x y))))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-- ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -401,6 +416,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-- ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:subsd :xmm0 (:object :r9 0))
@@ -425,6 +441,7 @@
            (sys.int::%%single-float-- x* y*)))
         (t (sys.int::full-- x y))))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%single-float-* ()
   ;; Unbox the floats.
   (sys.lap-x86:mov64 :rax :r8)
@@ -443,6 +460,7 @@
   (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret))
 
+#+x86-64
 (sys.int::define-lap-function sys.int::%%double-float-* ()
   (sys.lap-x86:movq :xmm0 (:object :r8 0))
   (sys.lap-x86:mulsd :xmm0 (:object :r9 0))
