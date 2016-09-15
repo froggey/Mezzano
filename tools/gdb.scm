@@ -1,0 +1,162 @@
+(use-modules ((gdb) #:renamer (symbol-prefix-proc 'gdb:)))
+(use-modules (ice-9 format))
+
+(gdb:execute "display/i $pc")
+
+(define (read-value-type address type)
+  (let* ((ulong (gdb:arch-ulong-type (gdb:current-arch)))
+         (vaddr (gdb:make-value address #:type ulong))
+         (ptr (gdb:value-cast vaddr (gdb:type-pointer type))))
+    (call-with-current-continuation
+     (lambda (exit)
+       (catch 'gdb:memory-error
+              (lambda ()
+                (gdb:value->integer (gdb:value-dereference ptr)))
+              (lambda (key . args)
+                (exit #f)))))))
+
+(define (read-value address)
+  (read-value-type address (gdb:arch-ulong-type (gdb:current-arch))))
+
+(define (1d-aref value index)
+  (case (object-tag value)
+    ((#f) => #f)
+    ((#b000000) (oref-t value index))
+    ((#b000101) ; ub8
+     (read-value-type (+ (- value 9) 8 index)
+                      (gdb:arch-uchar-type (gdb:current-arch))))))
+
+(define (read-string string-value)
+  (let ((length (fixnum->integer (oref-t string-value 3)))
+        (storage (oref-t string-value 0))
+        (chars '()))
+    (do ((i 0 (1+ i)))
+        ((>= i length))
+      (let ((ch (1d-aref storage i)))
+        (set! chars (cons (integer->char ch) chars))))
+    (reverse-list->string chars)))
+
+(define (nil-value)
+  #x200009)
+
+(define (value-fixnum? value)
+  (and value
+       (not (logbit? 0 value))))
+
+(define (fixnum->integer value)
+  (logior (ash value -1)
+          (if (logbit? 63 value)
+              (ash -1 63)
+              0)))
+
+(define (value-tag value)
+  (logand value #b1111))
+
+(define (value-cons? value)
+  (and value
+       (eq? (value-tag value) 3)))
+
+(define (value-car value)
+  (read-value (- value 3)))
+
+(define (value-cdr value)
+  (read-value (+ (- value 3) 8)))
+
+(define (oref-t value index)
+  (read-value (+ (- value 9)
+                 (* (1+ index) 8))))
+
+(define (object-tag value)
+  (logand (ash (oref-t value -1) -2)
+          #b111111))
+
+(define (object-header-data value)
+  (ash (oref-t value -1) -8))
+
+(define (value-symbol-name value)
+  (oref-t value 0))
+
+(define (display-value-1 value depth-limit)
+  (cond ((not value)
+         (format #t "#<unreadable-value>"))
+        ((< depth-limit 0)
+         (format #t "#<truncated-value {~x}>" value))
+        ((value-fixnum? value)
+         (format #t "#<fixnum ~a>" (fixnum->integer value)))
+        ((eq? (value-tag value) #b0001)
+         (format #t "#<dx-root {~x}>" value))
+        ((eq? (value-tag value) #b0011)
+         (display "(")
+         (display-value-1 (value-car value) (1- depth-limit))
+         (do ((i (value-cdr value)
+                 (value-cdr i)))
+             ((or (< depth-limit 0)
+                  (not (value-cons? i)))
+              (cond ((< depth-limit 0)
+                     (display " . #<truncated>"))
+                    ((not (eq? i (nil-value)))
+                     (display " . ")
+                     (display-value-1 i (1- depth-limit))))
+              (display ")"))
+           (display " ")
+           (display (value-car i))
+           (set! depth-limit (1- depth-limit))))
+        ((eq? (value-tag value) #b0101)
+         (format #t "#<tag-5 {~x}>" value))
+        ((eq? (value-tag value) #b0111)
+         (format #t "#<byte-specifier {~x}>" value))
+        ((eq? (value-tag value) #b1001)
+         (case (object-tag value)
+           ((#f) (format #t "#<unreadable-object {~x}>" value))
+           ((#b110000)
+            ;; Symbol.
+            (display-value-1 (value-symbol-name value)
+                             (1- depth-limit)))
+           ((#b011100 #b011101)
+            ;; Strings.
+            (display (read-string value)))
+           (else
+            (format #t "#<object-~b {~x}>" (object-tag value) value))))
+        ((eq? (value-tag value) #b1011)
+         (format #t "#<character {~x}>" value))
+        ((eq? (value-tag value) #b1101)
+         (format #t "#<single-float {~x}>" value))
+        ((eq? (value-tag value) #b1111)
+         (format #t "#<gc-forward {~x}>" value))))
+
+(define (display-value value)
+  (display-value-1 value 10))
+
+(define (print-line . args)
+  (if (pair? args)
+      (begin
+        (display-value (car args))
+        (apply print-line (cdr args)))
+      (newline)))
+
+(define (function-pool-object value index)
+  (let* ((address (logand value -16))
+         (mc-size (* (logand (ash (object-header-data value) -8)
+                          #xFFFF)
+                     16)))
+    (read-value (+ address mc-size (* index 8)))))
+
+(define (function-name value)
+  (function-pool-object value 0))
+
+(define (pc-to-function pc)
+  ;; Walk backwards looking for an object header with a function type and
+  ;; an appropriate entry point.
+  (let ((address (logand pc -16)))
+    (while #t
+      (let ((potential-header-type (logand (ash (read-value address) -2) #b111111)))
+        (when (and
+               (eq? potential-header-type #b111100)
+               ;; Currently the entry point of every non-closure function
+               ;; points to the base-address + 16.
+               (eq? (+ address 16) (read-value (+ address 8))))
+          (break (+ address 9)))
+        (set! address (- address 16))))))
+
+(define (where)
+  (print-line (function-name (pc-to-function (gdb:value->integer (gdb:frame-read-register (gdb:newest-frame) "pc"))))))
