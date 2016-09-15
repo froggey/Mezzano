@@ -39,6 +39,8 @@
     "supervisor/ata.lisp"
     "supervisor/ahci.lisp"
     ;"supervisor/thread.lisp"
+    "supervisor/x86-64/thread.lisp"
+    "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
