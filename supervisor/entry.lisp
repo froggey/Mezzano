@@ -213,8 +213,9 @@ Returns two values, the packet data and the receiving NIC."
     ;(initialize-boot-cpu)
     (initialize-debug-log)
     (initialize-debug-uart #x09000000)
+    (debug-write-line "Hello, ARM64 World!")
     ;(initialize-debug-serial serial-port-io-base 4 38400)
-    ;(initialize-initial-thread)
+    (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil
           mezzano.runtime::*paranoid-allocation* nil
@@ -231,13 +232,14 @@ Returns two values, the packet data and the receiving NIC."
             *pseudo-atomic* nil
             sys.int::*known-finalizers* nil))
     (setf *boot-id* (sys.int::cons-in-area nil nil :wired))
-    (initialize-interrupts)
-    (initialize-i8259)
+    ;(initialize-interrupts)
+    ;(initialize-i8259)
     (initialize-threads)
     (initialize-disk)
     (initialize-pager)
     (initialize-snapshot)
-    (sys.int::%sti)
+    (%enable-interrupts)
+    ;;(debug-set-output-pseudostream #'debug-video-stream)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
     (initialize-acpi)

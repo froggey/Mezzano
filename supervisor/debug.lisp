@@ -266,7 +266,7 @@
         (dump-thread thread (thread-frame-pointer thread))))))
 
 (defun panic-1 (things extra)
-  (sys.int::%cli)
+  (%disable-interrupts)
   (when (and (boundp '*panic-in-progress*)
              *panic-in-progress*)
     (loop (sys.int::%hlt)))

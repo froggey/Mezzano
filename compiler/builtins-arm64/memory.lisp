@@ -66,6 +66,74 @@
 (define-u-b-memref sys.int::memref-unsigned-byte-16 2 lap:ldrh lap:strh)
 (define-u-b-memref sys.int::memref-unsigned-byte-32 4 lap:ldr  lap:str)
 
+(defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
+  (load-in-reg :x0 base t)
+  (fixnum-check :x0)
+  (load-in-reg :x1 offset t)
+  (fixnum-check :x1)
+  (smash-x0)
+  ;; Convert to raw integers.
+  (emit `(lap:add :x9 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)
+        `(lap:add :x5 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+))
+  ;; Read.
+  (emit `(lap:ldr :x10 (:x9 :x5 :scale)))
+  (box-unsigned-byte-64-x10)
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
+  (let ((type-error-label (gensym))
+        (bignum-path (gensym "mr-ub64-bignum"))
+        (len-2-bignum (gensym "mr-ub64-len-2-bignum"))
+        (value-extracted (gensym "mr-ub64-value-extracted")))
+    (emit-trailer (bignum-path)
+      ;; Check for bignumness.
+      (emit `(lap:and :x11 :x0 #b1111)
+            `(lap:subs :xzr :x11 ,sys.int::+tag-object+)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x11 :x0 :slot -1)
+      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                      sys.int::+object-type-shift+))
+            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+                                       sys.int::+object-type-shift+))
+            `(lap:b.ne ,type-error-label)
+            `(lap:add :x11 :xzr :x11 :lsr 8)
+            ;; X11 = bignum length.
+            `(lap:subs :xzr :x11 2)
+            `(lap:b.eq ,len-2-bignum)
+            ;; Not length 2, must be length 1.
+            `(lap:subs :xzr :x11 1)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x10 :x0 :slot 0)
+            ;; And the sign bit must be clear.
+      (emit `(lap:ands :xzr :x10 :x10)
+            `(lap:b.mi ,type-error-label)
+            `(lap:b ,value-extracted))
+            ;; Length 2 bignums must have the high word be 0.
+      (emit len-2-bignum)
+      (emit-object-load :x11 :x0 :slot 1)
+      (emit `(lap:cbnz :x11 ,type-error-label))
+      (emit-object-load :x10 :x0 :slot 0)
+      (emit `(lap:b ,value-extracted)
+            type-error-label)
+      (raise-type-error :x0 '(unsigned-byte 64)))
+    (load-in-reg :x2 base t)
+    (fixnum-check :x2)
+    (load-in-reg :x1 offset t)
+    (fixnum-check :x1)
+    (load-in-x0 new-value t)
+    (emit `(lap:add :x9 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)
+          `(lap:add :x5 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+)
+          `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,bignum-path)
+          `(lap:subs :xzr :x0 0)
+          `(lap:b.lt ,type-error-label)
+          ;; Convert to raw integer.
+          `(lap:add :x10 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)
+          value-extracted
+          ;; Write.
+          `(lap:str :x10 (:x9 :x5 :scale)))
+    *x0-value*))
+
 (defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym)))

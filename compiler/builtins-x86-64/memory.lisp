@@ -658,7 +658,7 @@
 ;; Additionally returns the old value of SLOT as the second value.
 ;; (defun cas (object offset old new)
 ;;   (let ((slot-value (%object-ref-t object slot)))
-;;     (values (cond ((eql slot-value old)
+;;     (values (cond ((eq slot-value old)
 ;;                    (setf (%object-ref-t object slot) new)
 ;;                    t)
 ;;                   (t nil))
@@ -701,8 +701,8 @@
 ;; (defun dcas (object offset old-1 old-2 new-1 new-2)
 ;;   (let ((slot-value-1 (%object-ref-t object slot))
 ;;         (slot-value-2 (%object-ref-t object (1+ slot))))
-;;     (values (cond ((and (eql slot-value-1 old-1)
-;;                         (eql slot-value-2 old-2))
+;;     (values (cond ((and (eq slot-value-1 old-1)
+;;                         (eq slot-value-2 old-2))
 ;;                    (setf (%object-ref-t object slot) new-1
 ;;                          (%object-ref-t object (1+ slot)) new-2)
 ;;                    t)

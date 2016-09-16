@@ -7,6 +7,3 @@
   (mezzano.lap.arm64:orr :x0 :xzr :x28)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
-
-(defun sys.int::%interrupt-state ()
-  nil)
