@@ -219,7 +219,7 @@
                   ;; LDR (immediate, unsigned offset).
                   (emit-instruction (logior #xB9400000
                                             size-bit
-                                            (ash (ash imm-value -2) 12)
+                                            (ash (ash imm-value -2) 10)
                                             (ash (register-number base) +rn-shift+)
                                             (ash (register-number reg) +rt-shift+)))
                   (return-from instruction t))
@@ -229,7 +229,7 @@
                   ;; LDR (immediate, unsigned offset).
                   (emit-instruction (logior #xB9400000
                                             size-bit
-                                            (ash (ash imm-value -3) 12)
+                                            (ash (ash imm-value -3) 10)
                                             (ash (register-number base) +rn-shift+)
                                             (ash (register-number reg) +rt-shift+)))
                   (return-from instruction t))
@@ -300,7 +300,7 @@
                   ;; STR (immediate, unsigned offset).
                   (emit-instruction (logior #xB9000000
                                             size-bit
-                                            (ash (ash imm-value -2) 12)
+                                            (ash (ash imm-value -2) 10)
                                             (ash (register-number base) +rn-shift+)
                                             (ash (register-number reg) +rt-shift+)))
                   (return-from instruction t))
@@ -310,7 +310,7 @@
                   ;; STR (immediate, unsigned offset).
                   (emit-instruction (logior #xB9000000
                                             size-bit
-                                            (ash (ash imm-value -3) 12)
+                                            (ash (ash imm-value -3) 10)
                                             (ash (register-number base) +rn-shift+)
                                             (ash (register-number reg) +rt-shift+)))
                   (return-from instruction t))
@@ -363,7 +363,7 @@
                      (zerop (logand imm-value #b11)))
                 ;; LDR (immediate, unsigned offset).
                 (emit-instruction (logior #x39400000
-                                          (ash (ash imm-value -2) 12)
+                                          (ash (ash imm-value -2) 10)
                                           (ash (register-number base) +rn-shift+)
                                           (ash (register-number reg) +rt-shift+)))
                 (return-from instruction t))
@@ -412,7 +412,7 @@
                      (zerop (logand imm-value #b11)))
                 ;; STR (immediate, unsigned offset).
                 (emit-instruction (logior #x39000000
-                                          (ash (ash imm-value -2) 12)
+                                          (ash (ash imm-value -2) 10)
                                           (ash (register-number base) +rn-shift+)
                                           (ash (register-number reg) +rt-shift+)))
                 (return-from instruction t))
@@ -461,7 +461,7 @@
                      (zerop (logand imm-value #b11)))
                 ;; LDR (immediate, unsigned offset).
                 (emit-instruction (logior #x79400000
-                                          (ash (ash imm-value -2) 12)
+                                          (ash (ash imm-value -2) 10)
                                           (ash (register-number base) +rn-shift+)
                                           (ash (register-number reg) +rt-shift+)))
                 (return-from instruction t))
@@ -510,7 +510,7 @@
                      (zerop (logand imm-value #b11)))
                 ;; STR (immediate, unsigned offset).
                 (emit-instruction (logior #x79000000
-                                          (ash (ash imm-value -2) 12)
+                                          (ash (ash imm-value -2) 10)
                                           (ash (register-number base) +rn-shift+)
                                           (ash (register-number reg) +rt-shift+)))
                 (return-from instruction t))
