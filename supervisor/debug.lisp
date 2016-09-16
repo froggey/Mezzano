@@ -257,12 +257,13 @@
 (defun debug-dump-threads ()
   (dump-run-queues)
   (dump-thread (current-thread) (sys.int::read-frame-pointer))
-  (do ((thread *all-threads*
-               (thread-global-next thread)))
-      ((null thread))
-    (when (not (eql thread (current-thread)))
-      (debug-print-line "----------")
-      (dump-thread thread (thread-frame-pointer thread)))))
+  (when (boundp '*all-threads*)
+    (do ((thread *all-threads*
+                 (thread-global-next thread)))
+        ((null thread))
+      (when (not (eql thread (current-thread)))
+        (debug-print-line "----------")
+        (dump-thread thread (thread-frame-pointer thread))))))
 
 (defun panic-1 (things extra)
   (sys.int::%cli)
