@@ -32,6 +32,7 @@
   '("supervisor/entry.lisp"
     ;"supervisor/cpu.lisp"
     ;"supervisor/interrupts.lisp"
+    ;"supervisor/x86-64/interrupts.lisp"
     "supervisor/debug.lisp"
     ;"supervisor/serial.lisp"
     "supervisor/uart.lisp"
