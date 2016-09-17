@@ -16,5 +16,12 @@
 (defun %enable-interrupts ()
   (panic "not implemented"))
 
-(defun %call-on-wired-stack-without-interrupts (function unused &optional arg1 arg2 arg3)
-  (funcall function 'sp 'fp arg1 arg2 arg3))
+(defun %call-on-wired-stack-without-interrupts (function unused &optional (arg1 nil arg1p) (arg2 nil arg2p) (arg3 nil arg3p))
+  (cond (arg3p
+         (funcall function 'sp 'fp arg1 arg2 arg3))
+        (arg2p
+         (funcall function 'sp 'fp arg1 arg2))
+        (arg1p
+         (funcall function 'sp 'fp arg1))
+        (t
+         (funcall function 'sp 'fp))))
