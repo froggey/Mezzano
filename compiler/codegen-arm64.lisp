@@ -416,7 +416,7 @@
             (setf *x0-value* nil)
             (emit-stack-store :x0 var-ofs)
             (when sup-ofs
-              (emit-stack-store :x29 sup-ofs)))
+              (emit-stack-store :x26 sup-ofs)))
           (emit end-label)
           (incf current-arg-index))))
     ;; Deal with &REST late to avoid excess register spilling.
@@ -574,7 +574,7 @@
     (cond ((zerop regular-argument-count)
            (emit `(lap:cbz :x5 ,rest-list-done)))
           (t
-           (emit `(lap:subs :xzr :x5 ,(fixnum-to-raw regular-argument-count)))
+           (emit `(lap:subs :x5 :x5 ,(fixnum-to-raw regular-argument-count)))
            (emit `(lap:b.le ,rest-list-done))))
     ;; Save the length, and double it. Each cons takes two words.
     (emit `(lap:add :x10 :xzr :x5 :lsl 1))

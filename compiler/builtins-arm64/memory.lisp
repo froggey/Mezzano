@@ -273,6 +273,85 @@
 (define-u-b-object-ref sys.int::%object-ref-unsigned-byte-16 2 lap:ldrh lap:strh)
 (define-u-b-object-ref sys.int::%object-ref-unsigned-byte-32 4 lap:ldr  lap:str)
 
+(defbuiltin sys.int::%object-ref-unsigned-byte-64 (object offset) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, and scale appropriately (* 8).
+      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+    (load-in-reg :x0 object t)
+    ;; Read.
+    (cond (constant-offset
+           (emit-object-load :x10 :x0 :slot constant-offset))
+          (t
+           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:ldr :x10 (:x0 :x12)))))
+    (box-unsigned-byte-64-x10)
+    (setf *x0-value* (list (gensym)))))
+
+(defbuiltin (setf sys.int::%object-ref-unsigned-byte-64) (new-value object offset) ()
+  (let ((type-error-label (gensym))
+        (bignum-path (gensym "alr-ub64-bignum"))
+        (len-2-bignum (gensym "alr-ub64-len-2-bignum"))
+        (value-extracted (gensym "alr-ub64-value-extracted"))
+        (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset))))
+    (emit-trailer (bignum-path)
+      ;; Check for bignumness.
+      (emit `(lap:and :x11 :x0 #b1111)
+            `(lap:subs :xzr :x11 ,sys.int::+tag-object+)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x11 :x0 :slot -1)
+      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                      sys.int::+object-type-shift+))
+            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+                                       sys.int::+object-type-shift+))
+            `(lap:b.ne ,type-error-label)
+            `(lap:add :x11 :xzr :x11 :lsr 8)
+            ;; X11 = bignum length.
+            `(lap:subs :xzr :x11 2)
+            `(lap:b.eq ,len-2-bignum)
+            ;; Not length 2, must be length 1.
+            `(lap:subs :xzr :x11 1)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x10 :x0 :slot 0)
+            ;; And the sign bit must be clear.
+      (emit `(lap:ands :xzr :x10 :x10)
+            `(lap:b.mi ,type-error-label)
+            `(lap:b ,value-extracted))
+            ;; Length 2 bignums must have the high word be 0.
+      (emit len-2-bignum)
+      (emit-object-load :x11 :x0 :slot 1)
+      (emit `(lap:cbnz :x11 ,type-error-label))
+      (emit-object-load :x10 :x0 :slot 0)
+      (emit `(lap:b ,value-extracted)
+            type-error-label)
+      (raise-type-error :x0 '(unsigned-byte 64)))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, and scale appropriately (* 8).
+      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+    (load-in-reg :x1 object t)
+    (load-in-x0 new-value t)
+    (emit `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,bignum-path)
+          ;; Make sure it is non-negative.
+          `(lap:subs :xzr :x0 0)
+          `(lap:b.lt ,type-error-label)
+          ;; Convert to raw integer.
+          `(lap:add :x10 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)
+          value-extracted)
+    ;; Write.
+    (cond (constant-offset
+           (emit-object-store :x10 :x1 :slot constant-offset))
+          (t
+           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:str :x10 (:x1 :x12)))))
+    *x0-value*))
+
 (defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym))
@@ -343,10 +422,10 @@
           value-extracted)
     ;; Write.
     (cond (constant-offset
-           (emit-object-store :x10 :x0 :slot constant-offset))
+           (emit-object-store :x10 :x1 :slot constant-offset))
           (t
            (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:str :x10 (:x0 :x12)))))
+                 `(lap:str :x10 (:x1 :x12)))))
     *x0-value*))
 
 (defbuiltin sys.int::%object-ref-t (object offset) ()
