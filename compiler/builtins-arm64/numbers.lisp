@@ -222,3 +222,14 @@
   (load-in-reg :x0 x t)
   (emit `(lap:subs :xzr :x0 :x1))
   (predicate-result :lt))
+
+;;; Single floats.
+
+(defbuiltin mezzano.runtime::%%coerce-fixnum-to-single-float (value) ()
+  (load-in-reg :x0 value)
+  (emit `(lap:add :x9 :xzr :x0 :lsr ,sys.int::+n-fixnum-bits+)
+        `(lap:scvtf :s0 :x9)
+        `(lap:fmov :w9 :s0)
+        `(lap:add :x0 :xzr :x9 :lsl 32)
+        `(lap:add :x0 :x0 ,sys.int::+tag-single-float+))
+  (setf *x0-value* (list (gensym))))
