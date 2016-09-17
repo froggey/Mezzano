@@ -31,6 +31,7 @@
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
     ;"supervisor/cpu.lisp"
+    "supervisor/arm64/cpu.lisp"
     "supervisor/interrupts.lisp"
     ;"supervisor/x86-64/interrupts.lisp"
     "supervisor/arm64/interrupts.lisp"

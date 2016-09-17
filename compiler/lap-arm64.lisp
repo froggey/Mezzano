@@ -1024,19 +1024,66 @@
 (defun decode-msr-name (name)
   (ecase name
     (:nzcv
-     (values #b11 #b011 #b0100 #b0010 #b000))))
+     (values #b11 #b011 #b0100 #b0010 #b000))
+    (:spsel
+     (values #b11 #b000 #b0100 #b0010 #b000))
+    (:sp-el0
+     (values #b11 #b000 #b0100 #b0001 #b000))
+    (:elr-el1
+     (values #b11 #b000 #b0100 #b0000 #b001))
+    (:spsr-el1
+     (values #b11 #b000 #b0100 #b0000 #b000))
+    (:vbar-el1
+     (values #b11 #b000 #b1100 #b0000 #b000))
+    (:daif
+     (values #b11 #b011 #b0100 #b0010 #b001))))
 
 (define-instruction msr (name reg)
-  (check-register-class reg :gpr-64)
+  (cond ((and (member name '(:spsel :daifset :daifclr))
+              (null (register-class reg)))
+         ;; Immediate.
+         (multiple-value-bind (op1 op2)
+             (ecase name
+               (:spsel (values #b000 #b101))
+               (:daifset (values #b011 #b110))
+               (:daifclr (values #b011 #b111)))
+           (let ((imm-value (or (resolve-immediate reg) 0)))
+             (assert (<= 0 imm-value 15))
+             (emit-instruction (logior #xD500401F
+                                       (ash op1 16)
+                                       (ash op2 5)
+                                       (ash imm-value 8)))
+             (return-from instruction t))))
+        (t
+         (multiple-value-bind (op0 op1 crn crm op2)
+             (decode-msr-name name)
+           (check-register-class reg :gpr-64)
+           (check-type op0 (unsigned-byte 2))
+           (check-type op1 (unsigned-byte 3))
+           (check-type crn (unsigned-byte 4))
+           (check-type crm (unsigned-byte 4))
+           (check-type op2 (unsigned-byte 3))
+           (assert (logtest op0 #b10))
+           (emit-instruction (logior #xD5100000
+                                     (ash (- op0 2) 19)
+                                     (ash op1 16)
+                                     (ash crn 12)
+                                     (ash crm 8)
+                                     (ash op2 5)
+                                     (ash (register-number reg) +rt-shift+)))
+           (return-from instruction t)))))
+
+(define-instruction mrs (reg name)
   (multiple-value-bind (op0 op1 crn crm op2)
       (decode-msr-name name)
+    (check-register-class reg :gpr-64)
     (check-type op0 (unsigned-byte 2))
     (check-type op1 (unsigned-byte 3))
     (check-type crn (unsigned-byte 4))
     (check-type crm (unsigned-byte 4))
     (check-type op2 (unsigned-byte 3))
     (assert (logtest op0 #b10))
-    (emit-instruction (logior #xD5100000
+    (emit-instruction (logior #xD5300000
                               (ash (- op0 2) 19)
                               (ash op1 16)
                               (ash crn 12)

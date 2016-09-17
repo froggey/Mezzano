@@ -210,7 +210,7 @@ Returns two values, the packet data and the receiving NIC."
   (let ((first-run-p nil)
         ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
         (serial-port-io-base #x3F8))
-    ;(initialize-boot-cpu)
+    (initialize-boot-cpu)
     (initialize-debug-log)
     (initialize-debug-uart #x09000000)
     (debug-write-line "Hello, ARM64 World!")

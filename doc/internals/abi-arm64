@@ -11,8 +11,8 @@ x9   Temporary, rax (integer)
 x10  Temporary, rdx (integer)
 x11  Temporary, rsi (integer)
 x12  Temporary, rdi (integer)
-x13  Unused
-x14  Unused
+x13  Unused, r14
+x14  Unused, r15
 x15  Unused
 x16  Unused
 x17  Unused
