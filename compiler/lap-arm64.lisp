@@ -1102,6 +1102,10 @@
                               (ash (register-number reg) +rt-shift+)))
     (return-from instruction t)))
 
+(define-instruction isb ()
+  (emit-instruction #xD5033FDF)
+  (return-from instruction t))
+
 (defun emit-shift-variable (op2 dst lhs rhs)
   (let ((is-64-bit (eql (register-class dst) :gpr-64)))
     (cond (is-64-bit

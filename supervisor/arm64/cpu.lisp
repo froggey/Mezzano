@@ -60,6 +60,7 @@
   ;; Set VBAR_EL1.
   (mezzano.lap.arm64:add :x9 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+)
   (mezzano.lap.arm64:msr :vbar-el1 :x9)
+  (mezzano.lap.arm64:isb)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function local-cpu-info (())
