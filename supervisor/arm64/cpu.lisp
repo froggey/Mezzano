@@ -73,7 +73,7 @@
   ;; +40 pad (ss on x86-64)
   ;; +32 sp (not set)
   ;; +24 cspr (not set)
-  ;; +16 pad (cs on x86-64)
+  ;; +16 x30 (cs on x86-64)
   ;; +8 pc (not set)
   ;; +0 x29 (frame pointer)
   ;; x29 contains function to branch to.
@@ -94,6 +94,8 @@
   ;; Read & save SPSR_EL1
   (mezzano.lap.arm64:mrs :x9 :spsr-el1)
   (mezzano.lap.arm64:str :x9 (:sp #x88))
+  ;; Save x30.
+  (mezzano.lap.arm64:str :x30 (:sp #x80))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
@@ -117,7 +119,7 @@
   ;; +40 pad (ss on x86-64)
   ;; +32 sp (not set)
   ;; +24 cspr (not set)
-  ;; +16 pad (cs on x86-64)
+  ;; +16 x30 (cs on x86-64)
   ;; +8 pc (not set)
   ;; +0 x29 (frame pointer)
   ;; x29 contains function to branch to.
@@ -138,6 +140,8 @@
   ;; Read & save SPSR_EL1
   (mezzano.lap.arm64:mrs :x9 :spsr-el1)
   (mezzano.lap.arm64:str :x9 (:sp #x88))
+  ;; Save x30.
+  (mezzano.lap.arm64:str :x30 (:sp #x80))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
