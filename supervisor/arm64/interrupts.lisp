@@ -62,14 +62,35 @@
   (declare (ignore interrupt-frame info))
   (panic "Unhandled " name " interrupt."))
 
-(defun %synchronous-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "synchronous"))
+(defun %synchronous-el0-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "synchronous-el0"))
 
-(defun %irq-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "irq"))
+(defun %irq-el0-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "irq-el0"))
 
-(defun %fiq-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "fiq"))
+(defun %fiq-el0-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "fiq-el0"))
 
-(defun %serror-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "serror"))
+(defun %serror-el0-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "serror-el0"))
+
+(defun %synchronous-elx-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "synchronous-elx"))
+
+(defun %irq-elx-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "irq-elx"))
+
+(defun %fiq-elx-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "fiq-elx"))
+
+(defun %serror-elx-handler (interrupt-frame info)
+  (unhandled-interrupt interrupt-frame info "serror-elx"))
+
+(defun platform-mask-irq (vector)
+  (gic-mask-interrupt vector))
+
+(defun platform-unmask-irq (vector)
+  (gic-unmask-interrupt vector))
+
+(defun platform-attach-irq (vector handler)
+  (gic-hook-interrupt vector handler))
