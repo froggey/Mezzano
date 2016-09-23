@@ -32,19 +32,19 @@
 
 (defun calibrate-tsc-1 ()
   "Return the number of cycles per second, approximately."
-  (let ((initial-time *run-time*)
+  (let ((initial-time (get-internal-run-time))
         (start-time nil)
         (end-time nil)
         (start-cycle nil)
         (end-cycle nil))
     ;; Wait for the start of this tick.
     (loop
-       (setf start-time *run-time*)
+       (setf start-time (get-internal-run-time))
        (when (not (eq start-time initial-time))
          (return)))
     (setf start-cycle (sys.int::tsc))
     (loop
-       (setf end-time *run-time*)
+       (setf end-time (get-internal-run-time))
        (when (not (eq end-time start-time))
          (return)))
     (setf end-cycle (sys.int::tsc))
