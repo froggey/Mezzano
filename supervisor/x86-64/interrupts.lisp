@@ -281,7 +281,7 @@ If clear, the fault occured in supervisor mode.")
             (setf (sys.int::io-port/8 #xA1) (ldb (byte 8 8) *i8259-shadow-mask*)))))))
 
 (defun i8259-hook-irq (irq handler)
-  (check-type handler (or null function symbol))
+  (check-type handler (or function symbol))
   (push-wired handler (svref *i8259-handlers* irq)))
 
 (defun initialize-i8259 ()
@@ -311,6 +311,15 @@ If clear, the fault occured in supervisor mode.")
   (setf *i8259-shadow-mask* #xFFFF)
   ;; Unmask the cascade IRQ, required for the 2nd chip to function.
   (i8259-unmask-irq 2))
+
+(defun platform-mask-irq (vector)
+  (i8259-mask-irq vector))
+
+(defun platform-unmask-irq (vector)
+  (i8259-unmask-irq vector))
+
+(defun platform-attach-irq (vector handler)
+  (i8259-hook-irq vector handler))
 
 ;;; Introspection.
 

@@ -747,5 +747,3 @@
                 (t (debug-print-line "No device present on port. TFD:" tfd " SSTS:" sata-sts))))))
     (ahci-dump-global-registers ahci)
     ))
-
-(defun initialize-ahci ())
