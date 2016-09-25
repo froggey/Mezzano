@@ -3,7 +3,123 @@
 
 (in-package :mezzano.supervisor)
 
+
+(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
+  ;; Save return address.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
+  (mezzano.lap.arm64:str :x30 (:x28 :x9))
+  ;; Save frame pointer.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
+  (mezzano.lap.arm64:str :x2 (:x28 :x9))
+  ;; Save fpu state. TODO
+  ;; Save stack pointer.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rsp+))
+  (mezzano.lap.arm64:str :x1 (:x28 :x9))
+  ;; Only partial state was saved.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-full-save-p+))
+  (mezzano.lap.arm64:str :x26 (:x28 :x9))
+  ;; Jump to common function.
+  (mezzano.lap.arm64:orr :x1 :xzr :x3)
+  (mezzano.lap.arm64:ldr :x7 (:function %%switch-to-thread-common))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))
+
+;; (current-thread new-thread)
+(sys.int::define-lap-function %%switch-to-thread-common ()
+  ;; Old thread's state has been saved, restore the new-thread's state.
+  ;; Switch threads.
+  (mezzano.lap.arm64:orr :x28 :xzr :x1)
+  ;; Restore fpu state. TODO
+  ;; Drop the locks on both threads. Must be done before touching the thread stack.
+  (mezzano.lap.arm64:ldr :x2 (:constant :unlocked))
+  (mezzano.lap.arm64:subs :xzr :x1 :x0)
+  (mezzano.lap.arm64:b.eq SWITCH-TO-SAME-THREAD)
+  (mezzano.lap.arm64:str :x2 (:object :x1 #.+thread-lock+))
+  SWITCH-TO-SAME-THREAD
+  (mezzano.lap.arm64:str :x2 (:object :x0 #.+thread-lock+))
+  ;; Switch back to SP_EL0, restoring the original value of SP_EL1.
+  (mezzano.lap.arm64:add :sp :x27 0)
+  (mezzano.lap.arm64:msr :spsel 0)
+  ;; Check if the thread is in the interrupt save area.
+  (mezzano.lap.arm64:ldr :x2 (:object :x28 #.+thread-full-save-p+))
+  (mezzano.lap.arm64:subs :xzr :x2 :x26)
+  (mezzano.lap.arm64:b.ne FULL-RESTORE)
+  ;; Restore stack pointer.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rsp+))
+  (mezzano.lap.arm64:ldr :x9 (:x28 :x9))
+  (mezzano.lap.arm64:add :sp :x9 0)
+  ;; Restore frame pointer.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
+  (mezzano.lap.arm64:ldr :x29 (:x28 :x9))
+  ;; Restore return address.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
+  (mezzano.lap.arm64:ldr :x30 (:x28 :x9))
+  ;; Reenable interrupts. Must be done before touching the thread stack.
+  (mezzano.lap.arm64:msr :daifclr #b1111)
+  (:gc :no-frame)
+  ;; Check for pending footholds.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-pending-footholds+))
+  (mezzano.lap.arm64:ldr :x2 (:x28 :x9))
+  (mezzano.lap.arm64:subs :xzr :x2 :x26)
+  (mezzano.lap.arm64:b.ne RUN-FOOTHOLDS)
+  ;; No value return.
+  NORMAL-RETURN
+  (mezzano.lap.arm64:orr :x5 :xzr :xzr)
+  (mezzano.lap.arm64:orr :x0 :x26 :xzr)
+  ;; Return.
+  (mezzano.lap.arm64:ret)
+  RUN-FOOTHOLDS
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-inhibit-footholds+))
+  (mezzano.lap.arm64:ldr :x2 (:x28 :x9))
+  (mezzano.lap.arm64:subs :xzr :x2 :xzr)
+  (mezzano.lap.arm64:b.ne NORMAL-RETURN)
+  ;; Jump to the support function to run the footholds.
+  ;; FIXME: This should be an atomic swap.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-pending-footholds+))
+  (mezzano.lap.arm64:ldr :x0 (:x28 :x9))
+  (mezzano.lap.arm64:str :x26 (:x28 :x9))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ldr :x7 (:function %run-thread-footholds))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9)
+  ;; Returning to an interrupted thread. Restore saved registers and stuff.
+  ;; TODO: How to deal with footholds here? The stack might be paged out here.
+  FULL-RESTORE
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rsp+))
+  (mezzano.lap.arm64:ldr :x9 (:x28 :x9))
+  (mezzano.lap.arm64:add :sp :x9 :xzr)
+  ;; Set up for exception return.
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-cs+))
+  (mezzano.lap.arm64:ldr :x30 (:x28 :x9))
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
+  (mezzano.lap.arm64:ldr :x29 (:x28 :x9))
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rflags+))
+  (mezzano.lap.arm64:ldr :x9 (:x28 :x9))
+  (mezzano.lap.arm64:msr :spsr-el1 :x9)
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
+  (mezzano.lap.arm64:ldr :x9 (:x28 :x9))
+  (mezzano.lap.arm64:msr :elr-el1 :x9)
+  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-interrupt-save-area+))
+  (mezzano.lap.arm64:add :x9 :x28 :x9)
+  (mezzano.lap.arm64:ldp :x14 :x13 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x7 :x4 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x3 :x2 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x1 :x0 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x12 :x11 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x6 :x10 (:post :x9 16))
+  (mezzano.lap.arm64:ldp :x5 :x9 (:x9))
+  (mezzano.lap.arm64:eret))
+
 (sys.int::define-lap-function current-thread (())
   (mezzano.lap.arm64:orr :x0 :xzr :x28)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
   (mezzano.lap.arm64:ret))
+
+(defun arch-initialize-thread-state (thread stack-pointer)
+  (setf (thread-state-rsp thread) stack-pointer
+        ;; Unused.
+        (thread-state-ss thread) 0
+        ;; Start with interrupts unmasked, EL1, SP_EL0.
+        (thread-state-rflags thread) #x00000004
+        ;; x30
+        (thread-state-cs thread) 0))

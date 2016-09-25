@@ -4,9 +4,12 @@
 (in-package :mezzano.supervisor)
 
 (defun initialize-boot-cpu ()
-  (let* ((addr (align-up (- (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
-                            sys.int::+tag-object+)
-                         1024)))
+  (let* ((addr (align-up (+ (sys.int::lisp-object-address sys.int::*bsp-info-vector*)
+                            (- sys.int::+tag-object+)
+                            8
+                            (* 1 8))
+                         1024))
+         (sp-el1 (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)))
     (flet ((gen-vector (offset common entry)
              (let ((base (+ addr offset))
                    (common-entry (sys.int::%object-ref-signed-byte-64
@@ -44,9 +47,7 @@
       ;; We're always running in EL1, so these are not used.
       (dotimes (i 8)
         (gen-invalid (+ #x400 (* i #x80)))))
-    (%load-cpu-bits (+ sys.int::*bsp-wired-stack-base* sys.int::*bsp-wired-stack-size*)
-                    'bsp
-                    addr)))
+    (%load-cpu-bits sp-el1 (ash sp-el1 -1) addr)))
 
 (sys.int::define-lap-function %load-cpu-bits ((sp-el1 cpu-data vbar-el1))
   ;; Switch to SP_EL1.

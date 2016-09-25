@@ -44,7 +44,14 @@
 
 (defun resolve-immediate (value)
   "Convert an immediate value to an integer."
-  (sys.lap:resolve-immediate value))
+  (cond ((and (consp value)
+              (eql (first value) :object-literal))
+         (let ((slot (second value)))
+           ;; subtract +tag-object+, skip object header.
+           ;; Return an expression, so slot goes through symbol resolution, etc.
+           (+ (- #b1001) 8 (* (sys.lap:resolve-immediate slot) 8))))
+        (t
+         (sys.lap:resolve-immediate value))))
 
 (defun register-class (register)
   (case register
@@ -1108,6 +1115,10 @@
 
 (define-instruction isb ()
   (emit-instruction #xD5033FDF)
+  (return-from instruction t))
+
+(define-instruction eret ()
+  (emit-instruction #xD69F03E0)
   (return-from instruction t))
 
 (defun emit-shift-variable (op2 dst lhs rhs)
