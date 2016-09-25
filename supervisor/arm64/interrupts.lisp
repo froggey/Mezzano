@@ -3,6 +3,29 @@
 
 (in-package :mezzano.supervisor)
 
+(sys.int::define-lap-function ensure-on-wired-stack ()
+  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
+  (:gc :no-frame :layout #*0)
+  (mezzano.lap.arm64:add :x29 :sp :xzr)
+  (:gc :frame)
+  (mezzano.lap.arm64:add :x9 :sp 0)
+  (mezzano.lap.arm64:orr :x5 :xzr #x200000000000)
+  (mezzano.lap.arm64:sub :x9 :x9 :x5)
+  (mezzano.lap.arm64:orr :x5 :xzr #x8000000000)
+  (mezzano.lap.arm64:subs :xzr :x9 :x5)
+  (mezzano.lap.arm64:b.hs BAD)
+  (mezzano.lap.arm64:orr :x5 :xzr :xzr)
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame)
+  (mezzano.lap.arm64:ret)
+  BAD
+  (mezzano.lap.arm64:ldr :x0 (:constant "Not on wired stack."))
+  (mezzano.lap.arm64:ldr :x7 (:function panic))
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:blr :x9)
+  (mezzano.lap.arm64:hlt 0))
+
 (sys.int::define-lap-function sys.int::%interrupt-state (())
   (mezzano.lap.arm64:mrs :x9 :daif)
   (mezzano.lap.arm64:ldr :x0 (:constant t))
@@ -18,6 +41,13 @@
 (sys.int::define-lap-function %enable-interrupts (())
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
+
+(defun sys.int::%save-irq-state ()
+  (sys.int::%interrupt-state))
+
+(defun sys.int::%restore-irq-state (state)
+  (when state
+    (%enable-interrupts)))
 
 (sys.int::define-lap-function %call-on-wired-stack-without-interrupts ((function unused &optional arg1 arg2 arg3))
   ;; Argument setup.
@@ -136,7 +166,7 @@
        (unhandled-interrupt interrupt-frame "synchronous-el0")))))
 
 (defun %irq-el0-handler (interrupt-frame)
-  (unhandled-interrupt interrupt-frame "irq-el0"))
+  (gic-handle-interrupt interrupt-frame))
 
 (defun %fiq-el0-handler (interrupt-frame)
   (unhandled-interrupt interrupt-frame "fiq-el0"))
