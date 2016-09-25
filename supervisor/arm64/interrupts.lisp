@@ -58,33 +58,111 @@
   ;; Done, return.
   (mezzano.lap.arm64:ret))
 
-(defun unhandled-interrupt (interrupt-frame info name)
-  (declare (ignore interrupt-frame info))
-  (panic "Unhandled " name " interrupt."))
+(sys.int::define-lap-function %read-esr-el1 (())
+  (mezzano.lap.arm64:mrs :x0 :esr-el1)
+  (mezzano.lap.arm64:add :x0 :xzr :x0 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:ret))
 
-(defun %synchronous-el0-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "synchronous-el0"))
+(sys.int::define-lap-function %read-far-el1 (())
+  (mezzano.lap.arm64:mrs :x0 :far-el1)
+  (mezzano.lap.arm64:add :x0 :xzr :x0 :lsl #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:ret))
 
-(defun %irq-el0-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "irq-el0"))
+(defun unhandled-interrupt (interrupt-frame name)
+  (panic "Unhandled " name " interrupt."
+         " SPSR: " (interrupt-frame-raw-register interrupt-frame :rflags)
+         " PC: " (interrupt-frame-raw-register interrupt-frame :rip)
+         " x30: " (interrupt-frame-raw-register interrupt-frame :cs)
+         " SP: " (interrupt-frame-raw-register interrupt-frame :rsp)
+         " ESR: " (%read-esr-el1)
+         " FAR: " (%read-far-el1)))
 
-(defun %fiq-el0-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "fiq-el0"))
+(defun %page-fault-handler (interrupt-frame fault-addr reason)
+  (when (and (boundp '*page-fault-hook*)
+             *page-fault-hook*)
+    ;; FIXME: This doesn't work when the hook was bound in SP_EL0,
+    ;; it doesn't switch back to EL0, which will leave SP_EL1 pointing at the EL0
+    ;; stack. Even if it did switch back to SP_EL0 it would also need to restore
+    ;; the original SP_EL1.
+    (funcall *page-fault-hook* interrupt-frame reason fault-addr))
+  (cond ((not *paging-disk*)
+         (unhandled-interrupt interrupt-frame "early-page-fault"))
+        ((logtest #x3C0 (interrupt-frame-raw-register interrupt-frame :rflags))
+         ;; IRQs must be enabled when a page fault occurs.
+         (unhandled-interrupt interrupt-frame "page-fault-no-irqs"))
+        ((or (<= 0 fault-addr (1- (* 2 1024 1024 1024)))
+             (<= (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                 fault-addr
+                 (+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+)
+                    (* 512 1024 1024 1024))))
+         ;; Pages below 2G are wired and should never be unmapped or protected.
+         ;; Same for pages in the wired stack area.
+         (unhandled-interrupt interrupt-frame "wired-page-fault"))
+        ((eql reason :write-to-ro)
+         ;; Copy on write page, might not return.
+         (snapshot-clone-cow-page-via-page-fault interrupt-frame fault-addr))
+        ((eql reason :not-present)
+         ;; Non-present page. Try to load it from the store.
+         ;; Might not return.
+         (wait-for-page-via-interrupt interrupt-frame fault-addr))
+        (t
+         (unhandled-interrupt interrupt-frame "page-fault"))))
 
-(defun %serror-el0-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "serror-el0"))
+(defun %instruction-abort-handler (interrupt-frame fault-addr esr)
+  (let ((status (ldb (byte 5 0) esr)))
+    (case status
+      (#x05 ;; EL1 translation fault (page not mapped).
+       (%page-fault-handler interrupt-frame fault-addr :not-present))
+      (t
+       (unhandled-interrupt interrupt-frame "instruction-abort")))))
 
-(defun %synchronous-elx-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "synchronous-elx"))
+(defun %data-abort-handler (interrupt-frame fault-addr esr)
+  (let ((status (ldb (byte 5 0) esr)))
+    (case status
+      (#x05 ;; EL1 translation fault (page not mapped).
+       (%page-fault-handler interrupt-frame fault-addr :not-present))
+      (t
+       (unhandled-interrupt interrupt-frame "data-abort")))))
 
-(defun %irq-elx-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "irq-elx"))
+(defun %synchronous-el0-handler (interrupt-frame)
+  (let* ((esr (%read-esr-el1))
+         (class (ldb (byte 6 26) esr)))
+    (case class
+      (#x21
+       (%instruction-abort-handler interrupt-frame (%read-far-el1) esr))
+      (#x25
+       (%data-abort-handler interrupt-frame (%read-far-el1) esr))
+      (t
+       (unhandled-interrupt interrupt-frame "synchronous-el0")))))
 
-(defun %fiq-elx-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "fiq-elx"))
+(defun %irq-el0-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "irq-el0"))
 
-(defun %serror-elx-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "serror-elx"))
+(defun %fiq-el0-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "fiq-el0"))
+
+(defun %serror-el0-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "serror-el0"))
+
+(defun %synchronous-elx-handler (interrupt-frame)
+  (let* ((esr (%read-esr-el1))
+         (class (ldb (byte 6 26) esr)))
+    (case class
+      (#x21
+       (%instruction-abort-handler interrupt-frame (%read-far-el1) esr))
+      (#x25
+       (%data-abort-handler interrupt-frame (%read-far-el1) esr))
+      (t
+       (unhandled-interrupt interrupt-frame "synchronous-elx")))))
+
+(defun %irq-elx-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "irq-elx"))
+
+(defun %fiq-elx-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "fiq-elx"))
+
+(defun %serror-elx-handler (interrupt-frame)
+  (unhandled-interrupt interrupt-frame "serror-elx"))
 
 (defun platform-mask-irq (vector)
   (gic-mask-interrupt vector))

@@ -74,7 +74,7 @@
   ;; Stack looks like:
   ;; +40 pad (ss on x86-64)
   ;; +32 sp (not set)
-  ;; +24 cspr (not set)
+  ;; +24 spsr (not set)
   ;; +16 x30 (cs on x86-64)
   ;; +8 pc (not set)
   ;; +0 x29 (frame pointer)
@@ -100,7 +100,7 @@
   (mezzano.lap.arm64:str :x30 (:sp #x80))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
-  (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; 1 arg.
   ;; Build frame.
   (mezzano.lap.arm64:add :x29 :sp #x70)
   ;; Build interrupt frame object.
@@ -120,7 +120,7 @@
   ;; Stack looks like:
   ;; +40 pad (ss on x86-64)
   ;; +32 sp (not set)
-  ;; +24 cspr (not set)
+  ;; +24 spsr (not set)
   ;; +16 x30 (cs on x86-64)
   ;; +8 pc (not set)
   ;; +0 x29 (frame pointer)
@@ -146,7 +146,7 @@
   (mezzano.lap.arm64:str :x30 (:sp #x80))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
-  (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
+  (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; 1 arg.
   ;; Build frame.
   (mezzano.lap.arm64:add :x29 :sp #x68)
   ;; Build interrupt frame object.
