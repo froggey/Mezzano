@@ -1041,6 +1041,10 @@
      (values #b11 #b000 #b0100 #b0001 #b000))
     (:elr-el1
      (values #b11 #b000 #b0100 #b0000 #b001))
+    (:esr-el1
+     (values #b11 #b000 #b0101 #b0010 #b000))
+    (:far-el1
+     (values #b11 #b000 #b0110 #b0000 #b000))
     (:spsr-el1
      (values #b11 #b000 #b0100 #b0000 #b000))
     (:vbar-el1
