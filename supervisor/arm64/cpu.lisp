@@ -115,7 +115,30 @@
   ;; Call handler.
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
   (mezzano.lap.arm64:blr :x9)
-  (mezzano.lap.arm64:hlt 3))
+  ;; Drop the frame.
+  (mezzano.lap.arm64:add :sp :sp 16)
+  ;; Restore x30.
+  (mezzano.lap.arm64:ldr :x30 (:sp #x80))
+  ;; Restore SPSR_EL1
+  (mezzano.lap.arm64:ldr :x9 (:sp #x88))
+  (mezzano.lap.arm64:msr :spsr-el1 :x9)
+  ;; Restore ELR_EL1
+  (mezzano.lap.arm64:ldr :x9 (:sp #x78))
+  (mezzano.lap.arm64:msr :elr-el1 :x9)
+  ;; Restore SP_EL0
+  (mezzano.lap.arm64:ldr :x9 (:sp #x90))
+  (mezzano.lap.arm64:msr :sp-el0 :x9)
+  ;; Restore registers.
+  (mezzano.lap.arm64:ldp :x14 :x13 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x7 :x4 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x3 :x2 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x1 :x0 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x12 :x11 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x6 :x10 (:post :sp 16))
+  (mezzano.lap.arm64:ldp :x5 :x9 (:post :sp 16))
+  (mezzano.lap.arm64:ldr :x29 (:sp))
+  (mezzano.lap.arm64:add :sp :sp #x30)
+  (mezzano.lap.arm64:eret))
 
 (sys.int::define-lap-function %elx-common ()
   ;; Stack looks like:
