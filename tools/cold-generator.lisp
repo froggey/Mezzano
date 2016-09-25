@@ -54,6 +54,8 @@
     ;"supervisor/video.lisp"
     "supervisor/pci.lisp"
     "supervisor/virtio.lisp"
+    "supervisor/virtio-pci.lisp"
+    "supervisor/virtio-mmio.lisp"
     "supervisor/virtio-net.lisp"
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"

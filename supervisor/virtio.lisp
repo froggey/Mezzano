@@ -89,6 +89,52 @@
 (defun virtio-virtqueue (device virtqueue)
   (svref (virtio-device-virtqueues device) virtqueue))
 
+(defun virtio-device-specific-header/8 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (virtio-mmio-device-specific-header/8 device offset)
+      (virtio-pci-device-specific-header/8 device offset)))
+
+(defun (setf virtio-device-specific-header/8) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (setf (virtio-mmio-device-specific-header/8 device offset) value)
+      (setf (virtio-pci-device-specific-header/8 device offset) value)))
+
+(defun virtio-device-specific-header/16 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (virtio-mmio-device-specific-header/16 device offset)
+      (virtio-pci-device-specific-header/16 device offset)))
+
+(defun (setf virtio-device-specific-header/16) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (setf (virtio-mmio-device-specific-header/16 device offset) value)
+      (setf (virtio-pci-device-specific-header/16 device offset) value)))
+
+(defun virtio-device-specific-header/32 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (virtio-mmio-device-specific-header/32 device offset)
+      (virtio-pci-device-specific-header/32 device offset)))
+
+(defun (setf virtio-device-specific-header/32) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (if (virtio-device-mmio device)
+      (setf (virtio-mmio-device-specific-header/32 device offset) value)
+      (setf (virtio-pci-device-specific-header/32 device offset) value)))
+
+(defun virtio-device-specific-header/64 (device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (logior (virtio-device-specific-header/32 device offset)
+          (ash (virtio-device-specific-header/32 device (+ offset 4)) 32)))
+
+(defun (setf virtio-device-specific-header/64) (value device offset)
+  "Access the device-specific portion of the header, skpping the MSI-X fields if required."
+  (setf (virtio-device-specific-header/32 device offset) (ldb (byte 32 0) value)
+        (virtio-device-specific-header/32 device (+ offset 4)) (ldb (byte 32 32) value)))
+
 ;;; Accessors for the virtqueue descriptors.
 (macrolet ((def (name offset accessor)
              `(progn
@@ -224,7 +270,9 @@
 
 (defun virtio-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
-  (virtio-pci-kick dev vq-id))
+  (if (virtio-device-mmio dev)
+      (virtio-mmio-kick dev vq-id)
+      (virtio-pci-kick dev vq-id)))
 
 (defun virtio-ring-disable-interrupts (vq)
   (setf (virtio-ring-avail-flags vq) (logior (virtio-ring-avail-flags vq)
@@ -252,9 +300,16 @@
   (case did
     (#.+virtio-dev-id-net+
      (virtio-net-register dev))
+    (#.+virtio-dev-id-block+
+     (virtio-block-register dev))
     (t
      (debug-print-line "Unknown virtio device type " did)
      (setf (virtio-device-status dev) +virtio-status-failed+))))
+
+(defun virtio-isr-status (device)
+  (if (virtio-device-mmio device)
+      (virtio-mmio-interrupt-status device)
+      (virtio-pci-isr-status device)))
 
 (defun virtio-device-irq (device)
   (if (virtio-device-mmio device)
@@ -268,3 +323,8 @@
   (if value
       (platform-mask-irq (virtio-device-irq device))
       (platform-unmask-irq (virtio-device-irq device))))
+
+(defun virtio-configure-virtqueues (device n-queues)
+  (if (virtio-device-mmio device)
+      (virtio-mmio-configure-virtqueues device n-queues)
+      (virtio-pci-configure-virtqueues device n-queues)))

@@ -287,14 +287,13 @@ and then some alignment.")
   ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
   (debug-print-line "Detected virtio net device " device)
-  (let ((nic (make-virtio-net :virtio-device device
-                              :boot-id *boot-id*)))
-    (setf (virtio-net-irq-handler-function nic) (lambda (interrupt-frame irq)
-                                                  (declare (ignore interrupt-frame irq))
-                                                  (virtio-net-irq-handler nic)))
-    (virtio-attach-irq device (lambda (interrupt-frame irq)
-                                (declare (ignore interrupt-frame irq))
-                                (virtio-net-irq-handler nic)))
+  (let* ((nic (make-virtio-net :virtio-device device
+                               :boot-id *boot-id*))
+         (irq-handler (lambda (interrupt-frame irq)
+                        (declare (ignore interrupt-frame irq))
+                        (virtio-net-irq-handler nic))))
+    (setf (virtio-net-irq-handler-function nic) irq-handler)
+    (virtio-attach-irq device irq-handler)
     (add-deferred-boot-action
      (lambda ()
        (setf (virtio-net-worker-thread nic)
