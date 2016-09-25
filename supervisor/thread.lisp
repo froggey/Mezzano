@@ -387,16 +387,9 @@ Interrupts must be off, the current thread must be locked."
     ;; Set up the initial register state.
     (let ((stack-pointer (+ (stack-base stack) (stack-size stack)))
           (trampoline #'thread-entry-trampoline))
-      ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
-      (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
+      (arch-initialize-thread-state thread stack-pointer)
       ;; Initialize state save area.
-      (setf (thread-state-ss thread) 0
-            (thread-state-rsp thread) stack-pointer
-            (thread-state-rbp thread) 0
-            ;; Start with interrupts enabled.
-            (thread-state-rflags thread) #x202
-            ;; Kernel code segment (defined in cpu.lisp).
-            (thread-state-cs thread) 8
+      (setf (thread-state-rbp thread) 0
             ;; Trampoline entry point.
             (thread-state-rip thread) (sys.int::%object-ref-signed-byte-64 trampoline 0)
             (thread-state-rax thread) 0
@@ -512,16 +505,9 @@ Interrupts must be off, the current thread must be locked."
   (let ((stack-pointer (+ (stack-base (thread-stack thread))
                           (stack-size (thread-stack thread))))
         (function (sys.int::%coerce-to-callable entry-point)))
-    ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
-    (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
     ;; Initialize state save area.
-    (setf (thread-state-ss thread) 0
-          (thread-state-rsp thread) stack-pointer
-          (thread-state-rbp thread) 0
-          ;; Start with interrupts enabled.
-          (thread-state-rflags thread) #x202
-          ;; Kernel code segment (defined in cpu.lisp).
-          (thread-state-cs thread) 8
+    (arch-initialize-thread-state thread stack-pointer)
+    (setf (thread-state-rbp thread) 0
           ;; Entry point.
           (thread-state-rip thread) (sys.int::%object-ref-signed-byte-64 function 0)
           (thread-state-rax thread) 0

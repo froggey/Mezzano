@@ -139,3 +139,13 @@
   (sys.lap-x86:xor32 :ecx :ecx)
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
+
+(defun arch-initialize-thread-state (thread stack-pointer)
+  ;; Push a fake return address on the stack, this keeps the stack aligned correctly.
+  (setf (sys.int::memref-unsigned-byte-64 (decf stack-pointer 8) 0) 0)
+  (setf (thread-state-rsp thread) stack-pointer
+        (thread-state-ss thread) 0
+        ;; Start with interrupts enabled.
+        (thread-state-rflags thread) #x202
+        ;; Kernel code segment (defined in cpu.lisp).
+        (thread-state-cs thread) 8))
