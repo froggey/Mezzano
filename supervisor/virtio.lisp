@@ -317,7 +317,14 @@
       (virtio-pci-device-irq device)))
 
 (defun virtio-attach-irq (device handler)
-  (platform-attach-irq (virtio-device-irq device) handler))
+  (declare (sys.c::closure-allocation :wired))
+  (platform-attach-irq (virtio-device-irq device)
+                       (lambda (interrupt-frame irq)
+                         (let ((status (virtio-isr-status device)))
+                           (when (logbitp 0 status)
+                             (funcall handler interrupt-frame irq))
+                           (when (virtio-device-mmio device)
+                             (setf (virtio-mmio-interrupt-ack device) status))))))
 
 (defun (setf virtio-irq-mask) (value device)
   (if value

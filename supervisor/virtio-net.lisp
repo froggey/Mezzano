@@ -196,8 +196,7 @@ and then some alignment.")
        (virtio-net-transmit-real nic (pop (virtio-net-real-tx-pending nic))))))
 
 (defun virtio-net-irq-handler (nic)
-  (when (logbitp 0 (virtio-isr-status (virtio-net-virtio-device nic)))
-    (latch-trigger (virtio-net-irq-latch nic))))
+  (latch-trigger (virtio-net-irq-latch nic)))
 
 (defun virtio-net-transmit (nic packet)
   (let* ((len (loop for elt in packet
