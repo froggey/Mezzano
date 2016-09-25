@@ -106,7 +106,7 @@
     (load-literal :x10 #x00000002)
     (emit `(lap:str :w10 (:x9 4)))
     ;; Entry point is CODE's entry point.
-    (emit-object-load :x5 :x9 :slot 0)
+    (emit-object-load :x5 :x1 :slot 0)
     (emit `(lap:str :x5 (:x9 8)))
     ;; Clear constant pool.
     (emit `(lap:str :x26 (:x9 16))
