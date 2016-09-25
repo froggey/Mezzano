@@ -42,6 +42,9 @@
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
 
+(defun %wait-for-interrupt ()
+  (%enable-interrupts))
+
 (defun sys.int::%save-irq-state ()
   (sys.int::%interrupt-state))
 

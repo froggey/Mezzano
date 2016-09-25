@@ -470,7 +470,7 @@ Interrupts must be off, the current thread must be locked."
 ;; FIXME: SMP-safety.
 (defun idle-thread ()
   (loop
-     (sys.int::%cli)
+     (%disable-interrupts)
      ;; Look for a thread to switch to.
      (let ((next (with-symbol-spinlock (*global-thread-lock*)
                    (cond (*world-stopper*
@@ -493,7 +493,7 @@ Interrupts must be off, the current thread must be locked."
                 ;; GUI screen updates.
                 (clear-light *light-run*)))
              (t ;; Wait for an interrupt.
-              (sys.int::%stihlt))))))
+              (%wait-for-interrupt))))))
 
 (defun reset-ephemeral-thread (thread entry-point state priority)
   ;; Threads created by the cold-generator have conses instead of real stack

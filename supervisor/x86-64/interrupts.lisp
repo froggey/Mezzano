@@ -35,6 +35,10 @@
 (defun %enable-interrupts ()
   (sys.int::%sti))
 
+(declaim (inline %wait-for-interrupt))
+(defun %wait-for-interrupt ()
+  (sys.int::%stihlt))
+
 ;; Call FUNCTION on the wired stack with interrupts disabled.
 ;; FUNCTION must be a function, not a function designator.
 ;; UNUSED should be NIL.
