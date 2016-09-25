@@ -257,6 +257,15 @@
                 nil)))
     id))
 
+(defun virtio-ring-free-descriptor (vq id)
+  (let ((next (virtqueue-next-free-descriptor vq)))
+    (cond (next
+           (setf (virtio-ring-desc-flags vq id) (ash 1 +virtio-ring-desc-f-next+)
+                 (virtio-ring-desc-next vq id) next))
+          (t
+           (setf (virtio-ring-desc-flags vq id) 0)))
+    (setf (virtqueue-next-free-descriptor vq) id)))
+
 (defun virtio-ring-add-to-avail-ring (vq desc)
   "Add a descriptor to the available ring."
   ;; Update the available ring.
