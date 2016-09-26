@@ -54,22 +54,18 @@
     (%enable-interrupts)))
 
 (sys.int::define-lap-function %call-on-wired-stack-without-interrupts ((function unused &optional arg1 arg2 arg3))
+  ;; Build a frame and save the old stack pointer.
+  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
+  (:gc :no-frame :layout #*0)
+  (mezzano.lap.arm64:add :x29 :sp :xzr)
+  (:gc :frame)
   ;; Argument setup.
   (mezzano.lap.arm64:orr :x6 :xzr :x0) ; function
   (mezzano.lap.arm64:add :x0 :sp 0) ; sp
   (mezzano.lap.arm64:orr :x1 :xzr :x29) ; fp
   ;; Test if interrupts are enabled.
   (mezzano.lap.arm64:mrs :x9 :daif)
-  (mezzano.lap.arm64:cbz :x9 INTERRUPTS-ENABLED)
-  ;; Interrupts are already disabled, tail-call to the function.
-  (mezzano.lap.arm64:ldr :x9 (:object :x6 0))
-  (mezzano.lap.arm64:br :x9)
-  INTERRUPTS-ENABLED
-  ;; Build a frame and save the old stack pointer.
-  (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
-  (:gc :no-frame :layout #*0)
-  (mezzano.lap.arm64:add :x29 :sp :xzr)
-  (:gc :frame)
+  (mezzano.lap.arm64:cbnz :x9 INTERRUPTS-DISABLED)
   ;; Disable interrupts after setting up the frame, not before.
   ;; Modifying the normal stack may cause page-faults which can't
   ;; occur with interrupts disabled.
@@ -90,6 +86,14 @@
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (:gc :no-frame :multiple-values 0)
   ;; Done, return.
+  (mezzano.lap.arm64:ret)
+  INTERRUPTS-DISABLED
+  ;; Call function, arguments were setup above.
+  (mezzano.lap.arm64:ldr :x9 (:object :x6 0))
+  (mezzano.lap.arm64:blr :x9)
+  ;; Restore frame and return.
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame :multiple-values 0)
   (mezzano.lap.arm64:ret))
 
 (sys.int::define-lap-function %read-esr-el1 (())

@@ -5,9 +5,6 @@
 
 
 (sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
-  ;; Save return address.
-  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
-  (mezzano.lap.arm64:str :x30 (:x28 :x9))
   ;; Save frame pointer.
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
   (mezzano.lap.arm64:str :x2 (:x28 :x9))
@@ -51,9 +48,6 @@
   ;; Restore frame pointer.
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
   (mezzano.lap.arm64:ldr :x29 (:x28 :x9))
-  ;; Restore return address.
-  (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rip+))
-  (mezzano.lap.arm64:ldr :x30 (:x28 :x9))
   ;; Reenable interrupts. Must be done before touching the thread stack.
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (:gc :no-frame)
@@ -67,6 +61,7 @@
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
   (mezzano.lap.arm64:orr :x0 :x26 :xzr)
   ;; Return.
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (mezzano.lap.arm64:ret)
   RUN-FOOTHOLDS
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-inhibit-footholds+))
