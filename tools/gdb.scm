@@ -246,3 +246,6 @@
 
 (define (where)
   (print-line (function-name (pc-to-function (gdb:value->integer (gdb:frame-read-register (gdb:newest-frame) "pc"))))))
+
+(define (whereis addr)
+  (print-line (function-name (pc-to-function addr))))
