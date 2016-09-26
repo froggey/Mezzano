@@ -388,7 +388,7 @@ Returns 4 values:
        (take-snapshot))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
-     (sys.int::%cli)
+     (%disable-interrupts)
      (%lock-thread sys.int::*snapshot-thread*)
      (setf *snapshot-in-progress* nil)
      (setf (thread-state sys.int::*snapshot-thread*) :sleeping

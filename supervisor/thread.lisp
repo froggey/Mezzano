@@ -618,7 +618,7 @@ Interrupts must be off, the current thread must be locked."
   ;; This is required by INITIALIZE-INITIAL-THREAD.
   (let ((thread (current-thread)))
     (setf *world-stopper* nil)
-    (sys.int::%cli)
+    (%disable-interrupts)
     (%lock-thread thread)
     (setf (thread-wait-item thread) "The start of a new world"
           (thread-state thread) :sleeping)

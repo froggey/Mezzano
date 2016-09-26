@@ -753,7 +753,7 @@ It will put the thread to sleep, while it waits for the page."
                   (thread-wait-item sys.int::*pager-thread*) '*pager-waiting-threads*)
             (%run-on-wired-stack-without-interrupts (sp fp)
              (%reschedule-via-wired-stack sp fp))
-            (sys.int::%cli)
+            (%disable-interrupts)
             (acquire-place-spinlock (sys.int::symbol-global-value '*pager-lock*)))))
      (cond ((eql (thread-state *pager-current-thread*) :pager-request)
             (handle-pager-request))
