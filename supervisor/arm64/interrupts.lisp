@@ -44,6 +44,7 @@
 
 (sys.int::define-lap-function %wait-for-interrupt (())
   (mezzano.lap.arm64:wfi)
+  (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
 
 (defun sys.int::%save-irq-state ()
