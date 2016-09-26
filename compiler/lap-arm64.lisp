@@ -1121,6 +1121,18 @@
   (emit-instruction #xD69F03E0)
   (return-from instruction t))
 
+(defmacro define-hint-instruction (name op)
+  `(define-instruction ,name ()
+     (emit-instruction (logior #xD503201F
+                               (ash ',op 5)))
+     (return-from instruction t)))
+(define-hint-instruction nop 0)
+(define-hint-instruction yield 1)
+(define-hint-instruction wfe 2)
+(define-hint-instruction wfi 3)
+(define-hint-instruction sev 4)
+(define-hint-instruction sevl 5)
+
 (defun emit-shift-variable (op2 dst lhs rhs)
   (let ((is-64-bit (eql (register-class dst) :gpr-64)))
     (cond (is-64-bit
