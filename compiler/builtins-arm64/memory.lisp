@@ -159,6 +159,46 @@
           resume)
     (setf *x0-value* (list (gensym)))))
 
+(defbuiltin (setf sys.int::memref-signed-byte-64) (new-value base offset) ()
+  (let ((type-error-label (gensym))
+        (bignum-path (gensym "mr-sb64-bignum"))
+        (value-extracted (gensym "mr-sb64-value-extracted")))
+    (emit-trailer (bignum-path)
+      ;; Check for bignumness.
+      (emit `(lap:and :x9 :x0 #b1111)
+            `(lap:subs :xzr :x9 ,sys.int::+tag-object+)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x11 :x0 :slot -1)
+      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                      sys.int::+object-type-shift+))
+            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+                                       sys.int::+object-type-shift+))
+            `(lap:b.ne ,type-error-label)
+            `(lap:add :x11 :xzr :x11 :lsr 8)
+            ;; Must be length 1.
+            `(lap:subs :xzr :x11 1)
+            `(lap:b.ne ,type-error-label))
+      (emit-object-load :x10 :x0 :slot 0)
+      (emit `(lap:b ,value-extracted)
+            type-error-label)
+      (raise-type-error :x0 '(signed-byte 64)))
+    (load-in-reg :x2 base t)
+    (fixnum-check :x2)
+    (load-in-reg :x1 offset t)
+    (fixnum-check :x1)
+    (load-in-x0 new-value t)
+    (emit `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,bignum-path)
+          ;; Convert to raw integer.
+          `(lap:add :x10 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)
+          value-extracted)
+    ;; Convert base/offset to unboxed integers.
+    (emit `(lap:add :x12 :xzr :x1 :lsl 2)
+          `(lap:add :x11 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+))
+    ;; Write.
+    (emit `(lap:str :x10 (:x11 :x12)))
+    *x0-value*))
+
 (defbuiltin sys.int::memref-t (base offset) ()
   (load-in-reg :x1 base t)
   (fixnum-check :x1)
