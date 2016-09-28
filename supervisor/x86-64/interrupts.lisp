@@ -39,6 +39,9 @@
 (defun %wait-for-interrupt ()
   (sys.int::%stihlt))
 
+(defun %arch-panic-stop ()
+  (sys.int::%hlt))
+
 ;; Call FUNCTION on the wired stack with interrupts disabled.
 ;; FUNCTION must be a function, not a function designator.
 ;; UNUSED should be NIL.

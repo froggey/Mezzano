@@ -269,7 +269,7 @@
   (%disable-interrupts)
   (when (and (boundp '*panic-in-progress*)
              *panic-in-progress*)
-    #+(or)(loop #+(or)(sys.int::%hlt)))
+    (loop (%arch-panic-stop)))
   ;; Stop the world, just in case printing the backtrace requires paging stuff in.
   (setf *world-stopper* (current-thread)
         *panic-in-progress* t)
@@ -280,7 +280,7 @@
   (when extra
     (funcall extra))
   (debug-dump-threads)
-  (loop #+(or)(sys.int::%hlt)))
+  (loop (%arch-panic-stop)))
 
 (defmacro ensure (condition &rest things)
   "A simple supervisor-safe ASSERT-like macro."

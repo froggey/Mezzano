@@ -47,6 +47,10 @@
   (mezzano.lap.arm64:msr :daifclr #b1111)
   (mezzano.lap.arm64:ret))
 
+(sys.int::define-lap-function %arch-panic-stop (())
+  (mezzano.lap.arm64:wfi)
+  (mezzano.lap.arm64:ret))
+
 (defun sys.int::%save-irq-state ()
   (sys.int::%interrupt-state))
 
