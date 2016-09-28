@@ -154,7 +154,7 @@
 (defun %instruction-abort-handler (interrupt-frame fault-addr esr)
   (let ((status (ldb (byte 5 0) esr)))
     (case status
-      (#x05 ;; EL1 translation fault (page not mapped).
+      ((#x04 #x05 #x06 #x07) ;; Translation fault (page not mapped).
        (%page-fault-handler interrupt-frame fault-addr :not-present))
       (t
        (unhandled-interrupt interrupt-frame "instruction-abort")))))
@@ -162,7 +162,7 @@
 (defun %data-abort-handler (interrupt-frame fault-addr esr)
   (let ((status (ldb (byte 5 0) esr)))
     (case status
-      (#x05 ;; EL1 translation fault (page not mapped).
+      ((#x04 #x05 #x06 #x07) ;; Translation fault (page not mapped).
        (%page-fault-handler interrupt-frame fault-addr :not-present))
       (t
        (unhandled-interrupt interrupt-frame "data-abort")))))

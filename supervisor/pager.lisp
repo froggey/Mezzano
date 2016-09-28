@@ -27,44 +27,16 @@
 
 (sys.int::defglobal *store-fudge-factor*)
 
-(defconstant +page-table-present+        #x001)
-(defconstant +page-table-write+          #x002)
-(defconstant +page-table-user+           #x004)
-(defconstant +page-table-write-through+  #x008)
-(defconstant +page-table-cache-disabled+ #x010)
-(defconstant +page-table-accessed+       #x020)
-(defconstant +page-table-dirty+          #x040)
-(defconstant +page-table-page-size+      #x080)
-(defconstant +page-table-global+         #x100)
-(defconstant +page-table-copy-on-write+  #x400)
-(defconstant +page-table-address-mask+   #x000FFFFFFFFFF000)
-
 (defun pager-log (&rest things)
   (declare (dynamic-extent things))
   (when *pager-noisy*
     (debug-print-line-1 things)))
 
-(declaim (inline flush-tlb))
-(defun flush-tlb ()
-  ;; Reloading CR3 on x86oids causes all TLBs to be marked invalid.
-  (setf (sys.int::%cr3) (sys.int::%cr3)))
-
 (declaim (inline page-table-entry (setf page-table-entry)))
-(defun page-table-entry (page-table index)
+(defun page-table-entry (page-table &optional (index 0))
   (sys.int::memref-unsigned-byte-64 page-table index))
-(defun (setf page-table-entry) (value page-table index)
+(defun (setf page-table-entry) (value page-table &optional (index 0))
   (setf (sys.int::memref-unsigned-byte-64 page-table index) value))
-
-(declaim (inline page-present-p))
-(defun page-present-p (page-table index)
-  (logtest +page-table-present+
-           (page-table-entry page-table index)))
-
-(declaim (inline address-l4-bits address-l3-bits address-l2-bits address-l1-bits))
-(defun address-l4-bits (address) (ldb (byte 9 39) address))
-(defun address-l3-bits (address) (ldb (byte 9 30) address))
-(defun address-l2-bits (address) (ldb (byte 9 21) address))
-(defun address-l1-bits (address) (ldb (byte 9 12) address))
 
 (declaim (inline zeroize-page zeroize-physical-page))
 (defun zeroize-page (addr)
@@ -209,27 +181,6 @@ the data. Free the page with FREE-PAGE when done."
              (return))
         ;; Release the pages.
         (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))))
-
-(defun descend-page-table (page-table index allocate)
-  (if (not (page-present-p page-table index))
-      (when allocate
-        ;; No PT. Allocate one.
-        (let* ((frame (pager-allocate-page :page-table))
-               (addr (convert-to-pmap-address (ash frame 12))))
-          (zeroize-page addr)
-          (setf (page-table-entry page-table index) (logior (ash frame 12)
-                                                            +page-table-present+
-                                                            +page-table-write+))
-          addr))
-      (convert-to-pmap-address (logand (page-table-entry page-table index)
-                                       +page-table-address-mask+))))
-
-(defun get-pte-for-address (address &optional (allocate t))
-  (let* ((cr3 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF))))
-         (pdp            (descend-page-table cr3  (address-l4-bits address) allocate))
-         (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
-         (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
-    (and pt (+ pt (* 8 (address-l1-bits address))))))
 
 (defun block-info-for-virtual-address-1 (address &optional allocate)
   "Return the address (access with (memref-ub64 X 0)) of the block map entry for ADDRESS.
@@ -558,8 +509,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       #+(or)(debug-print-line "WFP " address " block " block-info)
       ;; Examine the page table, if there's a present entry then the page
       ;; was mapped while acquiring the VM lock. Just return.
-      (when (page-present-p pte 0)
-        (when (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
+      (when (page-present-p pte)
+        (when (page-copy-on-write-p pte)
           (pager-log "Copying page " address " in WFP.")
           (snapshot-clone-cow-page (pager-allocate-page) address))
         #+(or)(debug-print-line "WFP " address " block " block-info " already mapped " (page-table-entry pte 0))
@@ -578,7 +529,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
              (is-zero-page nil))
         (setf (physical-page-frame-block-id frame) (block-info-block-id block-info)
               (physical-page-virtual-address frame) (logand address (lognot (1- +4k-page-size+))))
-        (when (not *page-replacement-list-head*)
+        (when t;(not *page-replacement-list-head*)
           (pager-log "addr " address " vaddr " (physical-page-virtual-address frame) " frame " frame " pteA " (get-pte-for-address address #+(or)(physical-page-virtual-address frame) nil) " pteB " (get-pte-for-address (physical-page-virtual-address frame) nil)))
         (append-to-page-replacement-list frame)
         (cond ((block-info-zero-fill-p block-info)
@@ -599,18 +550,15 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                     addr)
                (unless (disk-await-request *pager-disk-request*)
                  (panic "Unable to read page from disk"))))
-        (setf (page-table-entry pte 0) (logior (ash frame 12)
-                                               +page-table-present+
-                                               (if (block-info-writable-p block-info)
-                                                   +page-table-write+
-                                                 0)))
-        (sys.int::%invlpg address)
+        (setf (page-table-entry pte) (make-pte frame
+                                               :writable (block-info-writable-p block-info)))
+        (flush-tlb-single address)
         (when is-zero-page
           ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
           ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
           ;; This sets the dirty bits in the page tables properly.
           (setf (sys.int::memref-unsigned-byte-8 address 0) 0))
-        #+(or)(debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
+        (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
 
 ;; Fast path, called from the page-fault handler.
@@ -645,12 +593,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (set-address-flags fault-address (logand block-info
                                                        sys.int::+block-map-flag-mask+
                                                        (lognot sys.int::+block-map-zero-fill+)))
-              (setf (page-table-entry pte 0) (logior (ash frame 12)
-                                                     +page-table-present+
-                                                     (if (block-info-writable-p block-info)
-                                                         +page-table-write+
-                                                         0)))
-              (sys.int::%invlpg fault-address)
+              (setf (page-table-entry pte 0) (make-pte frame (block-info-writable-p block-info)))
+              (flush-tlb-single fault-address)
               ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
               ;; This sets the dirty bits in the page tables properly.

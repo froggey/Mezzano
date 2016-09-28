@@ -50,6 +50,7 @@
     "supervisor/snapshot.lisp"
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
+    "supervisor/arm64/pager.lisp"
     "supervisor/time.lisp"
     "supervisor/ps2.lisp"
     ;"supervisor/video.lisp"

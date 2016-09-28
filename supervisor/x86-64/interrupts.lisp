@@ -27,15 +27,12 @@
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
 
-(declaim (inline %disable-interrupts))
 (defun %disable-interrupts ()
   (sys.int::%cli))
 
-(declaim (inline %enable-interrupts))
 (defun %enable-interrupts ()
   (sys.int::%sti))
 
-(declaim (inline %wait-for-interrupt))
 (defun %wait-for-interrupt ()
   (sys.int::%stihlt))
 
