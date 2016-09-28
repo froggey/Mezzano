@@ -3,8 +3,17 @@
 
 (in-package :mezzano.supervisor)
 
+(sys.int::define-lap-function %%return-to-same-thread ()
+  (mezzano.lap.arm64:add :sp :x0 0)
+  (mezzano.lap.arm64:orr :x29 :xzr :x1)
+  (mezzano.lap.arm64:orr :x5 :xzr :xzr)
+  (mezzano.lap.arm64:orr :x0 :x26 :xzr)
+  (mezzano.lap.arm64:msr :daifclr #b1111)
+  (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
+  (:gc :no-frame)
+  (mezzano.lap.arm64:ret))
 
-(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ()
+(sys.int::define-lap-function %%switch-to-thread-via-wired-stack ((current-thread sp fp new-thread))
   ;; Save frame pointer.
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-state-rbp+))
   (mezzano.lap.arm64:str :x2 (:x28 :x9))
@@ -21,8 +30,7 @@
   (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
   (mezzano.lap.arm64:br :x9))
 
-;; (current-thread new-thread)
-(sys.int::define-lap-function %%switch-to-thread-common ()
+(sys.int::define-lap-function %%switch-to-thread-common ((current-thread new-thread))
   ;; Old thread's state has been saved, restore the new-thread's state.
   ;; Switch threads.
   (mezzano.lap.arm64:orr :x28 :xzr :x1)
@@ -104,6 +112,45 @@
   (mezzano.lap.arm64:ldp :x6 :x10 (:post :x9 16))
   (mezzano.lap.arm64:ldp :x5 :x9 (:x9))
   (mezzano.lap.arm64:eret))
+
+;;; Interrupts must be off, current & next must be locked.
+(sys.int::define-lap-function %%switch-to-thread-via-interrupt ((current-thread interrupt-frame next-thread))
+  (:gc :no-frame)
+  ;; Save fpu state. TODO
+  ;; Copy the interrupt frame over to the save area.
+  (mezzano.lap.arm64:ldr :x11 (:object :x1 0))
+  (mezzano.lap.arm64:add :x11 :xzr :x11 :asr #.sys.int::+n-fixnum-bits+)
+  (mezzano.lap.arm64:sub :x11 :x11 #.(* 14 8)) ; 14 registers below the pointer, 6 above.
+  (mezzano.lap.arm64:add :x12 :x0 (:object-literal #.+thread-interrupt-save-area+))
+  ;; 20 values to copy. Work in pairs.
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  (mezzano.lap.arm64:ldp :x9 :x10 (:post :x11 16))
+  (mezzano.lap.arm64:stp :x9 :x10 (:post :x12 16))
+  ;; Full state was saved.
+  (mezzano.lap.arm64:ldr :x9 (:constant t))
+  (mezzano.lap.arm64:str :x9 (:object :x28 #.+thread-full-save-p+))
+  ;; Jump to common function.
+  (mezzano.lap.arm64:orr :x1 :xzr :x2)
+  (mezzano.lap.arm64:ldr :x7 (:function %%switch-to-thread-common))
+  (mezzano.lap.arm64:ldr :x9 (:object :x7 #.sys.int::+fref-entry-point+))
+  (mezzano.lap.arm64:br :x9))
 
 (sys.int::define-lap-function current-thread (())
   (mezzano.lap.arm64:orr :x0 :xzr :x28)
