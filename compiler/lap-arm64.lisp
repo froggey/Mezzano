@@ -1056,6 +1056,12 @@
      (values #b11 #b000 #b0100 #b0000 #b000))
     (:vbar-el1
      (values #b11 #b000 #b1100 #b0000 #b000))
+    (:ttbr0-el1
+     (values #b11 #b000 #b0010 #b0000 #b000))
+    (:ttbr1-el1
+     (values #b11 #b000 #b0010 #b0000 #b001))
+    (:tcr-el1
+     (values #b11 #b000 #b0010 #b0000 #b010))
     (:daif
      (values #b11 #b011 #b0100 #b0010 #b001))))
 
@@ -1119,6 +1125,42 @@
 
 (define-instruction eret ()
   (emit-instruction #xD69F03E0)
+  (return-from instruction t))
+
+(define-instruction tlbi (op &optional reg)
+  (multiple-value-bind (op1 crn crm op2 allow-reg)
+      (ecase op
+        ;; Invalidate all entries.
+        (:vmalle1   (values 0 8 7 0 nil))
+        ;; Invalidate by virtual address and ASID.
+        (:vae1      (values 0 8 7 1 t))
+        ;; Invalidate by ASID.
+        (:aside1    (values 0 8 7 2 t))
+        ;; Invalidate by virtual address across all ASIDs.
+        (:vaae1     (values 0 8 7 3 t))
+        ;; Invalidate by virtual address and ASID, last level.
+        (:vale1     (values 0 8 7 5 t))
+        ;; Invalidate by virtual address across all ASIDs, last level.
+        (:vaale1    (values 0 8 7 7 t))
+        ;; Same as above, but executed on all PEs in the same IS domain.
+        (:vmalle1is (values 0 8 3 0 nil))
+        (:vae1is    (values 0 8 3 1 t))
+        (:aside1is  (values 0 8 3 2 t))
+        (:vaae1is   (values 0 8 3 3 t))
+        (:vale1is   (values 0 8 3 5 t))
+        (:vaale1is  (values 0 8 3 7 t)))
+    (cond (allow-reg
+           (check-register-class reg :gpr-64))
+          (t
+           (assert (null reg))))
+    (emit-instruction (logior #xD5080000
+                              (ash op1 16)
+                              (ash crn 12)
+                              (ash crm 8)
+                              (ash op2 5)
+                              (if reg
+                                  (register-number reg)
+                                  #b11111))))
   (return-from instruction t))
 
 (defmacro define-hint-instruction (name op)
