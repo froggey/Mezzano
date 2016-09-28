@@ -315,6 +315,21 @@
      (debug-print-line "Unknown virtio device type " did)
      (setf (virtio-device-status dev) +virtio-status-failed+))))
 
+(defun virtio-device-features (device)
+  (if (virtio-device-mmio device)
+      (virtio-mmio-host-features device)
+      (virtio-pci-device-features device)))
+
+(defun virtio-guest-features (device)
+  (if (virtio-device-mmio device)
+      (virtio-mmio-guest-features device)
+      (virtio-pci-guest-features device)))
+
+(defun (setf virtio-guest-features) (value device)
+  (if (virtio-device-mmio device)
+      (setf (virtio-mmio-guest-features device) value)
+      (setf (virtio-pci-guest-features device) value)))
+
 (defun virtio-isr-status (device)
   (if (virtio-device-mmio device)
       (virtio-mmio-interrupt-status device)
