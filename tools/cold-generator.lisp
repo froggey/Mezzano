@@ -82,7 +82,7 @@
     "system/array.lisp"
     "system/printer.lisp"
     ;"system/stuff.lisp"
-    ;"system/runtime-support.lisp"
+    "system/runtime-support.lisp"
     "system/type.lisp"
     "system/setf.lisp"
     "system/cas.lisp"

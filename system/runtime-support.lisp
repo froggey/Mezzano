@@ -83,6 +83,7 @@
 ;;; The function must be a function, but type-checking
 ;;; will be performed on the argument list.
 ;;; FIXME: should enforce CALL-ARGUMENTS-LIMIT.
+#+x86-64
 (define-lap-function %apply ()
   (sys.lap-x86:push :rbp)
   (:gc :no-frame :layout #*0)

@@ -385,6 +385,10 @@
   (sys.lap-x86:mov64 :r13 (:function slow-cons))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
+#-x86-64
+(defun cons (car cdr)
+  (slow-cons car cdr))
+
 (defun slow-cons (car cdr)
   (when sys.int::*gc-in-progress*
     (mezzano.supervisor:panic "Allocating during GC!"))
