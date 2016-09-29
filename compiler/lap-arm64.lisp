@@ -1334,3 +1334,28 @@
                                 (ash opc 3)
                                 (ash (register-number lhs) +rn-shift+)))
       (return-from instruction t))))
+
+(defmacro define-3op-float (name opcode)
+  `(define-instruction ,name (dst lhs rhs)
+     (let ((is-64-bit (eql (register-class dst) :fp-64)))
+       (cond (is-64-bit
+              (check-register-class dst :fp-64)
+              (check-register-class lhs :fp-64)
+              (check-register-class rhs :fp-64))
+             (t
+              (check-register-class dst :fp-32)
+              (check-register-class lhs :fp-32)
+              (check-register-class rhs :fp-32)))
+       (emit-instruction (logior (if is-64-bit
+                                     #x00400000
+                                     #x00000000)
+                                 ',opcode
+                                 (ash (register-number dst) +rd-shift+)
+                                 (ash (register-number lhs) +rn-shift+)
+                                 (ash (register-number rhs) +rm-shift+)))
+       (return-from instruction t))))
+
+(define-3op-float fadd #x1E202800)
+(define-3op-float fsub #x1E203800)
+(define-3op-float fmul #x1E200800)
+(define-3op-float fdiv #x1E201800)
