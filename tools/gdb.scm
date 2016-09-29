@@ -249,3 +249,15 @@
 
 (define (whereis addr)
   (print-line (function-name (pc-to-function addr))))
+
+(define (unwind)
+  (define (frob addr)
+    (format #t "~8,'0X ~A~%" addr (rlookup addr)))
+  (frob (gdb:value->integer (gdb:frame-read-register (gdb:newest-frame) "pc")))
+  (frob (gdb:value->integer (gdb:frame-read-register (gdb:newest-frame) "x30")))
+  (do ((fp (gdb:value->integer (gdb:frame-read-register (gdb:newest-frame) "x29"))
+           (read-value fp)))
+      ((or (not fp)
+           (= fp 0)))
+    (format #t "~8',0X " fp)
+    (frob (read-value (+ fp 8)))))
