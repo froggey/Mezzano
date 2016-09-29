@@ -69,6 +69,7 @@
     "runtime/runtime-arm64.lisp"
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
+    "runtime/float-arm64.lisp"
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
