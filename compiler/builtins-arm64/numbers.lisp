@@ -179,7 +179,7 @@
     ;; Convert X0 to raw integer, leaving X1 as a fixnum.
     ;; This will cause the result to be a fixnum.
     (emit `(lap:add :x9 :xzr :x0 :asr 1)
-          `(lap:smaddl :x0 :xzr :x9 :x1)
+          `(lap:madd :x0 :xzr :x9 :x1)
           resume)
     (setf *x0-value* (list (gensym)))))
 
