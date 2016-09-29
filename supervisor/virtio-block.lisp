@@ -37,7 +37,6 @@
          (req-desc (virtio-ring-alloc-descriptor vq))
          (buf-desc (virtio-ring-alloc-descriptor vq))
          (stat-desc (virtio-ring-alloc-descriptor vq)))
-    (debug-print-line "dev:" dev " lba:" lba " count:" count " mem-addr:" mem-addr " rw:" rw " req:" req " reqd:" req-desc " bufd:" buf-desc " statd:" stat-desc)
     ;; Set up the block request.
     (setf (sys.int::memref-unsigned-byte-32 (+ req +virtio-block-req-type+) 0)
           (ecase rw
@@ -80,7 +79,6 @@
     (virtio-ring-free-descriptor vq stat-desc)
     ;; Check status.
     (let ((status (sys.int::memref-unsigned-byte-8 (+ req +virtio-block-req-status+) 0)))
-      (debug-print-line "complete status:" status)
       (values (eql status +virtio-block-s-ok+)
               (case status
                 (#.+virtio-block-s-ok+ :no-error)
