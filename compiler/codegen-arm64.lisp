@@ -743,7 +743,7 @@
         (emit-stack-store :x29 (+ control-info 0))
         ;; Save pointer to info
         (load-literal :x9 (control-stack-frame-offset (+ control-info 3)))
-        (emit `(lap:sub :x9 :x29 :x9))
+        (emit `(lap:add :x9 :x29 :x9))
         (emit-stack-store :x9 slot)))
     (prog1
         (let* ((*rename-list* (cons (list info exit-label) *rename-list*))
