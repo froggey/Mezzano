@@ -105,8 +105,7 @@
 (defpackage :mezzano.lap.arm64
   (:documentation "arm64 assembler for LAP.")
   (:use :cl)
-  (:export #:assemble
-           #:*function-reference-resolver*))
+  (:export #:assemble))
 
 (defpackage :mezzano.compiler.codegen.arm64
   (:use :cl :mezzano.compiler)
@@ -291,11 +290,15 @@
 (defpackage :sys.lap
   (:documentation "The system assembler.")
   (:use :cl)
-  (:export :perform-assembly :emit :immediatep :resolve-immediate :*current-address*
-           :note-fixup))
+  (:export #:perform-assembly
+           #:emit
+           #:immediatep
+           #:resolve-immediate
+           #:*current-address*
+           #:note-fixup
+           #:*function-reference-resolver*))
 
 (defpackage :sys.lap-x86
   (:documentation "x86 assembler for LAP.")
   (:use :cl :sys.lap)
-  (:export #:assemble
-           #:*function-reference-resolver*))
+  (:export #:assemble))

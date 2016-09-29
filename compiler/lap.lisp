@@ -3,6 +3,9 @@
 
 (in-package :sys.lap)
 
+(defvar *function-reference-resolver* nil
+  "Function used to convert :function memory references into constants.")
+
 (defvar *current-address* nil
   "Address of the current instruction.")
 (defvar *machine-code* nil

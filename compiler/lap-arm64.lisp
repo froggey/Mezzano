@@ -4,7 +4,6 @@
 (in-package :mezzano.lap.arm64)
 
 (defparameter *instruction-assemblers* (make-hash-table))
-(defvar *function-reference-resolver*)
 
 (defun current-address ()
   sys.lap:*current-address*)
@@ -129,7 +128,7 @@
              `(:constant-address ,(second address))))
     (:function
      (values :pc :pc
-             `(:constant-address ,(funcall *function-reference-resolver*
+             `(:constant-address ,(funcall sys.lap:*function-reference-resolver*
                                            (second address)))))
     (:object
      (destructuring-bind (base &optional (slot 0))

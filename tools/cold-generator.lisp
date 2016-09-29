@@ -366,12 +366,11 @@
     (ub64ref/le data-vector (* offset 8))))
 
 (defun assemble (code-list &rest args)
-  (ecase sys.c::*target-architecture*
-    (:x86-64
-     (let ((sys.lap-x86:*function-reference-resolver* #'sys.c::resolve-fref))
-       (apply #'sys.lap-x86:assemble code-list args)))
-    (:arm64
-     (let ((mezzano.lap.arm64:*function-reference-resolver* #'sys.c::resolve-fref))
+  (let ((sys.lap:*function-reference-resolver* #'sys.c::resolve-fref))
+    (ecase sys.c::*target-architecture*
+      (:x86-64
+       (apply #'sys.lap-x86:assemble code-list args))
+      (:arm64
        (apply #'mezzano.lap.arm64:assemble code-list args)))))
 
 (defun compile-lap-function (code &key (area *default-pinned-allocation-area*) extra-symbols constant-values (position-independent t) (name 'sys.int::support-function))

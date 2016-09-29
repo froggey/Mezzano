@@ -560,10 +560,10 @@
 (defun sys.int::assemble-lap (code &optional name debug-info wired architecture)
   (declare (ignore wired))
   (multiple-value-bind (mc constants fixups symbols gc-data)
-      (ecase architecture
-        (:x86-64
-         (let ((sys.lap-x86:*function-reference-resolver* #'resolve-fref))
-           (declare (special sys.lap-x86:*function-reference-resolver*)) ; blech.
+      (let ((sys.lap:*function-reference-resolver* #'resolve-fref))
+        (declare (special sys.lap:*function-reference-resolver*)) ; blech.
+        (ecase architecture
+          (:x86-64
            (sys.lap-x86:assemble code
              :base-address 16
              :initial-symbols '((nil . :fixup)
@@ -572,10 +572,8 @@
                                 (:undefined-function . :fixup)
                                 (:closure-trampoline . :fixup)
                                 (:funcallable-instance-trampoline . :fixup))
-             :info (list name debug-info))))
-        (:arm64
-         (let ((mezzano.lap.arm64:*function-reference-resolver* #'resolve-fref))
-           (declare (special mezzano.lap.arm64:*function-reference-resolver*)) ; blech.
+             :info (list name debug-info)))
+          (:arm64
            (mezzano.lap.arm64:assemble code
              :base-address 16
              :initial-symbols '((nil . :fixup)

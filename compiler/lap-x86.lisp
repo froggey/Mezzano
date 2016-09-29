@@ -6,7 +6,6 @@
 (defparameter *instruction-assemblers* (make-hash-table))
 (defvar *cpu-mode* nil "The CPU mode to assemble for.")
 (defvar *fixup-target*)
-(defvar *function-reference-resolver*)
 
 (defconstant +operand-size-override+ #x66
   "The operand size override prefix.")
@@ -384,7 +383,7 @@ Remaining values describe the effective address: base index scale disp rip-relat
 	((and (= (length form) 2)
 	      (eql (first form) :function))
 	 ;; Transform (:function foo) into (:rip (:constant-address (fref foo)))
-	 (values nil nil nil nil (list :constant-address (funcall *function-reference-resolver* (second form))) t))
+	 (values nil nil nil nil (list :constant-address (funcall sys.lap:*function-reference-resolver* (second form))) t))
 	((and (= (length form) 2)
 	      (eql (first form) :stack)
 	      (integerp (second form)))
