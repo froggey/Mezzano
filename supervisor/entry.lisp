@@ -236,7 +236,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-threads)
     (initialize-disk)
     (initialize-pager)
-    ;(initialize-snapshot)
+    (initialize-snapshot)
     (%enable-interrupts)
     ;;(debug-set-output-pseudostream #'debug-video-stream)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
