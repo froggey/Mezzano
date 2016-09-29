@@ -3,7 +3,7 @@
 
 (in-package :sys.int)
 
-(setf sys.lap-x86:*function-reference-resolver* #'function-reference)
+(setf sys.lap:*function-reference-resolver* #'function-reference)
 
 (defun inline-info-location-for-name (name)
   (if (symbolp name)
