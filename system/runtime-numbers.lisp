@@ -590,6 +590,27 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (real
      (%%single-float-sqrt (float number 0.0f0)))))
 
+(macrolet ((def (name bignum-name)
+             `(defun ,name (x y)
+                (cond ((and (fixnump x)
+                            (fixnump y))
+                       (error "FIXNUM/FIXNUM case hit ~S." ',name))
+                      ((and (fixnump x)
+                            (bignump y))
+                       (,bignum-name (%make-bignum-from-fixnum x) y))
+                      ((and (bignump x)
+                            (fixnump y))
+                       (,bignum-name x (%make-bignum-from-fixnum y)))
+                      ((and (bignump x)
+                            (bignump y))
+                       (,bignum-name x y))
+                      (t (check-type x integer)
+                         (check-type y integer)
+                         (error "Argument combination not supported."))))))
+  (def generic-logand %%bignum-logand)
+  (def generic-logior %%bignum-logior)
+  (def generic-logxor %%bignum-logxor))
+
 (defun generic-lognot (integer)
   (logxor integer -1))
 

@@ -320,101 +320,84 @@
   (sys.lap-x86:mov64 :rcx (:r9 #.(+ (- +tag-object+) 8)))
   (sys.lap-x86:jmp perform-multiply))
 
-(macrolet ((def (name bignum-name op)
-             `(progn
-                (define-lap-function ,bignum-name ()
-                  (sys.lap-x86:push :rbp)
-                  (:gc :no-frame :layout #*0)
-                  (sys.lap-x86:mov64 :rbp :rsp)
-                  (:gc :frame)
-                  ;; Save objects.
-                  (sys.lap-x86:push :r8)
-                  (:gc :frame :layout #*1)
-                  (sys.lap-x86:push :r9)
-                  (:gc :frame :layout #*11)
-                  ;; Read lengths.
-                  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
-                  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-object+)))
-                  (sys.lap-x86:shr64 :rax #.+object-data-shift+)
-                  (sys.lap-x86:shr64 :rdx #.+object-data-shift+)
-                  ;; Allocate a new bignum large enough to hold the result.
-                  (sys.lap-x86:cmp32 :eax :edx)
-                  (sys.lap-x86:cmov32na :eax :edx)
-                  (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
-                  (sys.lap-x86:lea64 :r8 ((:rax #.(ash 1 +n-fixnum-bits+)))) ; fixnumize
-                  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
-                  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-                  (sys.lap-x86:mov64 :r10 :r8)
-                  ;; Reread lengths.
-                  (sys.lap-x86:mov64 :r9 (:stack 1))
-                  (sys.lap-x86:mov64 :r8 (:stack 0))
-                  (:gc :frame)
-                  (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
-                  (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-object+)))
-                  (sys.lap-x86:shr64 :rax #.+object-data-shift+)
-                  (sys.lap-x86:shr64 :rdx #.+object-data-shift+)
-                  ;; X in r8. Y in r9. Result in r10.
-                  ;; Pick the longest length.
-                  (sys.lap-x86:mov64 :rcx :rax)
-                  (sys.lap-x86:cmp64 :rax :rdx)
-                  (sys.lap-x86:cmov64ng :rcx :rdx)
-                  (sys.lap-x86:xor64 :rbx :rbx) ; offset
-                  (sys.lap-x86:shl64 :rax 3)
-                  (sys.lap-x86:shl64 :rdx 3)
-                  loop
-                  (sys.lap-x86:cmp64 :rbx :rax)
-                  (sys.lap-x86:jae sx-left)
-                  (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-object+) 8) :rbx))
-                  sx-left-resume
-                  (sys.lap-x86:cmp64 :rbx :rdx)
-                  (sys.lap-x86:jae sx-right)
-                  (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-object+) 8) :rbx))
-                  sx-right-resume
-                  (sys.lap-x86:add64 :rbx 8)
-                  (sys.lap-x86:sub64 :rcx 1)
-                  (sys.lap-x86:jz last)
-                  (,op :rsi :rdi)
-                  (sys.lap-x86:mov64 (:r10 #.(- +tag-object+) :rbx) :rsi)
-                  (sys.lap-x86:jmp loop)
-                  last
-                  (,op :rsi :rdi)
-                  (sys.lap-x86:mov64 (:r10 #.(- +tag-object+) :rbx) :rsi)
-                  (sys.lap-x86:mov64 :r8 :r10)
-                  (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
-                  (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
-                  (sys.lap-x86:leave)
-                  (:gc :no-frame)
-                  (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-                  (:gc :frame)
-                  sx-left
-                  ;; Sign extend the left argument.
-                  ;; Previous value is not in RSI. Pull from the last word in the bignum.
-                  (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-object+) :rax))
-                  (sys.lap-x86:sar64 :rsi 63)
-                  (sys.lap-x86:jmp sx-left-resume)
-                  sx-right
-                  ;; Sign extend the right argument (previous value in RDI).
-                  (sys.lap-x86:sar64 :rdi 63)
-                  (sys.lap-x86:jmp sx-right-resume))
-                (defun ,name (x y)
-                  (cond ((and (fixnump x)
-                              (fixnump y))
-                         (error "FIXNUM/FIXNUM case hit ~S." ',name))
-                        ((and (fixnump x)
-                              (bignump y))
-                         (,bignum-name (%make-bignum-from-fixnum x) y))
-                        ((and (bignump x)
-                              (fixnump y))
-                         (,bignum-name x (%make-bignum-from-fixnum y)))
-                        ((and (bignump x)
-                              (bignump y))
-                         (,bignum-name x y))
-                        (t (check-type x integer)
-                           (check-type y integer)
-                           (error "Argument combination not supported.")))))))
-  (def generic-logand %%bignum-logand sys.lap-x86:and64)
-  (def generic-logior %%bignum-logior sys.lap-x86:or64)
-  (def generic-logxor %%bignum-logxor sys.lap-x86:xor64))
+(macrolet ((def (bignum-name op)
+             `(define-lap-function ,bignum-name ()
+                (sys.lap-x86:push :rbp)
+                (:gc :no-frame :layout #*0)
+                (sys.lap-x86:mov64 :rbp :rsp)
+                (:gc :frame)
+                ;; Save objects.
+                (sys.lap-x86:push :r8)
+                (:gc :frame :layout #*1)
+                (sys.lap-x86:push :r9)
+                (:gc :frame :layout #*11)
+                ;; Read lengths.
+                (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
+                (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-object+)))
+                (sys.lap-x86:shr64 :rax #.+object-data-shift+)
+                (sys.lap-x86:shr64 :rdx #.+object-data-shift+)
+                ;; Allocate a new bignum large enough to hold the result.
+                (sys.lap-x86:cmp32 :eax :edx)
+                (sys.lap-x86:cmov32na :eax :edx)
+                (sys.lap-x86:mov64 :rcx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+                (sys.lap-x86:lea64 :r8 ((:rax #.(ash 1 +n-fixnum-bits+)))) ; fixnumize
+                (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
+                (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+                (sys.lap-x86:mov64 :r10 :r8)
+                ;; Reread lengths.
+                (sys.lap-x86:mov64 :r9 (:stack 1))
+                (sys.lap-x86:mov64 :r8 (:stack 0))
+                (:gc :frame)
+                (sys.lap-x86:mov64 :rax (:r8 #.(- +tag-object+)))
+                (sys.lap-x86:mov64 :rdx (:r9 #.(- +tag-object+)))
+                (sys.lap-x86:shr64 :rax #.+object-data-shift+)
+                (sys.lap-x86:shr64 :rdx #.+object-data-shift+)
+                ;; X in r8. Y in r9. Result in r10.
+                ;; Pick the longest length.
+                (sys.lap-x86:mov64 :rcx :rax)
+                (sys.lap-x86:cmp64 :rax :rdx)
+                (sys.lap-x86:cmov64ng :rcx :rdx)
+                (sys.lap-x86:xor64 :rbx :rbx) ; offset
+                (sys.lap-x86:shl64 :rax 3)
+                (sys.lap-x86:shl64 :rdx 3)
+                loop
+                (sys.lap-x86:cmp64 :rbx :rax)
+                (sys.lap-x86:jae sx-left)
+                (sys.lap-x86:mov64 :rsi (:r8 #.(+ (- +tag-object+) 8) :rbx))
+                sx-left-resume
+                (sys.lap-x86:cmp64 :rbx :rdx)
+                (sys.lap-x86:jae sx-right)
+                (sys.lap-x86:mov64 :rdi (:r9 #.(+ (- +tag-object+) 8) :rbx))
+                sx-right-resume
+                (sys.lap-x86:add64 :rbx 8)
+                (sys.lap-x86:sub64 :rcx 1)
+                (sys.lap-x86:jz last)
+                (,op :rsi :rdi)
+                (sys.lap-x86:mov64 (:r10 #.(- +tag-object+) :rbx) :rsi)
+                (sys.lap-x86:jmp loop)
+                last
+                (,op :rsi :rdi)
+                (sys.lap-x86:mov64 (:r10 #.(- +tag-object+) :rbx) :rsi)
+                (sys.lap-x86:mov64 :r8 :r10)
+                (sys.lap-x86:mov32 :ecx #.(ash 1 +n-fixnum-bits+))
+                (sys.lap-x86:mov64 :r13 (:function %%canonicalize-bignum))
+                (sys.lap-x86:leave)
+                (:gc :no-frame)
+                (sys.lap-x86:jmp (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
+                (:gc :frame)
+                sx-left
+                ;; Sign extend the left argument.
+                ;; Previous value is not in RSI. Pull from the last word in the bignum.
+                (sys.lap-x86:mov64 :rsi (:r8 #.(- +tag-object+) :rax))
+                (sys.lap-x86:sar64 :rsi 63)
+                (sys.lap-x86:jmp sx-left-resume)
+                sx-right
+                ;; Sign extend the right argument (previous value in RDI).
+                (sys.lap-x86:sar64 :rdi 63)
+                (sys.lap-x86:jmp sx-right-resume))))
+  (def %%bignum-logand sys.lap-x86:and64)
+  (def %%bignum-logior sys.lap-x86:or64)
+  (def %%bignum-logxor sys.lap-x86:xor64))
 
 (define-lap-function %%bignum-left-shift ()
   (sys.lap-x86:push :rbp)
