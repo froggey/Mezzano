@@ -126,7 +126,7 @@
                                y-sign-extension)))))
     result))
 
-(defun %%bignum-+ (x y)
+(defun %%bignum-+/- (x y op)
   (let* ((carry 0)
          (overflow nil)
          (size nil)
@@ -134,7 +134,7 @@
                                     (lambda (len-x len-y)
                                       (setf size (1+ (max len-x len-y))))
                                     (lambda (a b)
-                                      (let ((result (+ a b carry)))
+                                      (let ((result (funcall op a b carry)))
                                         (setf overflow (logtest (logand (logxor result a)
                                                                         (logxor result b))
                                                                #x80000000))
@@ -145,40 +145,68 @@
                         carry)
                        (t
                         ;; Otherwise, sign-extend the second-last fragment out.
-                        (ash (%object-ref-unsigned-byte-32 result (- size 3)) -31))))
+                        (ash (%object-ref-unsigned-byte-32 result (- (* size 2) 3)) -31))))
            (sign-bits (if (eql sign 0)
                           #x00000000
                           #xFFFFFFFF)))
       (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
             (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
-      (%%canonicalize-bignum result))))
+      (values (%%canonicalize-bignum result)
+              overflow
+              sign))))
+
+(defun %%bignum-+ (x y)
+  (values (%%bignum-+/- x y (lambda (a b cin) (+ a b cin)))))
 
 (defun %%bignum-- (x y)
-  (let* ((carry 0)
-         (overflow nil)
-         (size nil)
-         (result (operate-on-bignum x y
-                                    (lambda (len-x len-y)
-                                      (setf size (1+ (max len-x len-y))))
-                                    (lambda (a b)
-                                      (let ((result (- a (+ b carry))))
-                                        (setf overflow (logtest (logand (logxor result a)
-                                                                        (logxor result b))
-                                                               #x80000000))
-                                        (setf carry (ldb (byte 1 32) result))
-                                        (logand result #xFFFFFFFF))))))
-    (let* ((sign (cond (overflow
-                        ;; On overflow, extend the carry bit out and populate the last fragment with that.
-                        carry)
-                       (t
-                        ;; Otherwise, sign-extend the second-last fragment out.
-                        (ash (%object-ref-unsigned-byte-32 result (- size 3)) -31))))
-           (sign-bits (if (eql sign 0)
-                          #x00000000
-                          #xFFFFFFFF)))
-      (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
-            (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
-      (%%canonicalize-bignum result))))
+  (values (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))))
+
+(defun %%bignum-< (x y)
+  (let* ((len-x (%n-bignum-fragments x))
+         (len-y (%n-bignum-fragments y))
+         (sign-x (ash (%object-ref-unsigned-byte-32 x (- (* len-x 2) 1)) -31))
+         (sign-y (ash (%object-ref-unsigned-byte-32 y (- (* len-y 2) 1)) -31)))
+    ;; Check sign bits. If they differ, then one is obviously less than the other.
+    (when (not (zerop (logxor sign-x sign-y)))
+      (return-from %%bignum-<
+        (not (zerop sign-x))))
+    ;; Same sign, check lengths.
+    (when (not (eql len-x len-y))
+      (cond ((zerop sign-x)
+             ;; Non-negative.
+             (return-from %%bignum-< (< len-x len-y)))
+            (t
+             ;; Negative.
+             (return-from %%bignum-< (< len-y len-x)))))
+    ;; Same length, same sign. Subtract them and examine the result.
+    (multiple-value-bind (val overflow sign)
+        (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))
+      (declare (ignore val))
+      ;; overflow xor sign.
+      (if overflow
+          (zerop sign)
+          (not (zerop sign))))))
+
+(defun %%bignum-= (x y)
+  (let* ((len-x (%n-bignum-fragments x))
+         (len-y (%n-bignum-fragments y))
+         (sign-x (ash (%object-ref-unsigned-byte-32 x (- (* len-x 2) 1)) -31))
+         (sign-y (ash (%object-ref-unsigned-byte-32 y (- (* len-y 2) 1)) -31)))
+    ;; Check sign bits. If they differ, then one is obviously less than the other.
+    (when (not (zerop (logxor sign-x sign-y)))
+      (return-from %%bignum-= nil))
+    ;; Same sign, check lengths.
+    (when (not (eql len-x len-y))
+      (return-from %%bignum-= nil))
+    ;; Same length, same sign. Compare fragment-by-fragment.
+    (operate-on-bignum x y
+                       (lambda (len-x len-y)
+                         (max len-x len-y))
+                       (lambda (a b)
+                         (when (not (eql a b))
+                           (return-from %%bignum-= nil))
+                         0))
+    t))
 
 (defun %%bignum-logand (x y)
   (%%canonicalize-bignum
