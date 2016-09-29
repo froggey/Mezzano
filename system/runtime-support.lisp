@@ -283,7 +283,9 @@
 (defun %defconstant (name value &optional docstring)
   (cond ((boundp name)
          (let ((old-value (symbol-value name)))
-           (when (not (funcall *defconstant-redefinition-comparator*
+           (when (not (funcall (or (and (boundp '*defconstant-redefinition-comparator*)
+                                        *defconstant-redefinition-comparator*)
+                                   #'eql)
                                old-value value))
              (when *incompatible-constant-redefinition-is-an-error*
                (cerror "Redefine the constant"
