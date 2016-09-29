@@ -7,7 +7,7 @@
 (defvar *hash-table-tombstone* (list "hash-table tombstone"))
 
 (defstruct (hash-table
-	     (:constructor %make-hash-table))
+             (:constructor %make-hash-table))
   (test 'eql :type (member eq eql equal equalp) :read-only t)
   (hash-function nil :read-only t)
   (count 0)
@@ -48,9 +48,9 @@
 (defun make-hash-table (&key (test 'eql) (size 101) (rehash-size 2.5) (rehash-threshold 0.5))
   ;; Canonicalize and check the test function
   (cond ((eql test #'eq) (setf test 'eq))
-	((eql test #'eql) (setf test 'eql))
-	((eql test #'equal) (setf test 'equal))
-	((eql test #'equalp) (setf test 'equalp)))
+        ((eql test #'eql) (setf test 'eql))
+        ((eql test #'equal) (setf test 'equal))
+        ((eql test #'equalp) (setf test 'equalp)))
   (check-type test (member eq eql equal equalp))
   (check-type size (integer 0) "a non-negative integer")
   (check-type rehash-size (or (integer 1 *) (float (1.0) *)))
@@ -133,20 +133,20 @@
         (storage (hash-table-storage hash-table))
         (unbound-marker *hash-table-unbound-value*)
         (tombstone *hash-table-tombstone*)
-	;; This hash implementation is inspired by the Python dict implementation.
-	(slot (logand hash #xffffffff) (logand #xffffffff (+ (* slot 5) perturb 1)))
-	(perturb hash (ash perturb -5)))
+        ;; This hash implementation is inspired by the Python dict implementation.
+        (slot (logand hash #xffffffff) (logand #xffffffff (+ (* slot 5) perturb 1)))
+        (perturb hash (ash perturb -5)))
        (nil)
     (let* ((offset (rem slot size))
            (slot-key (svref storage (ash offset 1)))) ; hash-table-key-at
       (when (and (null free-slot) (or (eq slot-key unbound-marker)
-				      (eq slot-key tombstone)))
-	(setf free-slot offset))
+                                      (eq slot-key tombstone)))
+        (setf free-slot offset))
       (when (eq slot-key unbound-marker)
-	;; Unbound value marks the end of this run.
+        ;; Unbound value marks the end of this run.
         (return (values nil free-slot)))
       (when (funcall test key slot-key)
-	(return (values offset free-slot))))))
+        (return (values offset free-slot))))))
 
 (defun find-hash-table-slot (key hash-table)
   "Locate the slot matching KEY. Returns NIL if KEY is not in HASH-TABLE.
@@ -169,26 +169,26 @@ is below the rehash-threshold."
                           (ceiling (* (hash-table-size hash-table) (hash-table-rehash-size hash-table)))
                           (+ (hash-table-size hash-table) (hash-table-rehash-size hash-table)))
                       (hash-table-size hash-table)))
-	(old-size (hash-table-size hash-table))
-	(old-storage (hash-table-storage hash-table)))
+        (old-size (hash-table-size hash-table))
+        (old-storage (hash-table-storage hash-table)))
     (setf (hash-table-storage hash-table) (make-array (* new-size 2)
-						      :initial-element *hash-table-unbound-value*)
-	  (hash-table-count hash-table) 0
-	  (hash-table-used hash-table) 0
-	  (hash-table-storage-epoch hash-table) *gc-epoch*)
+                                                      :initial-element *hash-table-unbound-value*)
+          (hash-table-count hash-table) 0
+          (hash-table-used hash-table) 0
+          (hash-table-storage-epoch hash-table) *gc-epoch*)
     (dotimes (i old-size hash-table)
       (let ((key (svref old-storage (* i 2)))
-	    (value (svref old-storage (1+ (* i 2)))))
-	(unless (or (eq key *hash-table-unbound-value*)
-		    (eq value *hash-table-tombstone*))
-	  (multiple-value-bind (slot free-slot)
-	      (find-hash-table-slot-1 key hash-table)
-	    (when slot
-	      (error "Duplicate key ~S in hash-table?" key))
-	    (incf (hash-table-used hash-table))
-	    (incf (hash-table-count hash-table))
-	    (setf (hash-table-key-at hash-table free-slot) key
-		  (hash-table-value-at hash-table free-slot) value)))))))
+            (value (svref old-storage (1+ (* i 2)))))
+        (unless (or (eq key *hash-table-unbound-value*)
+                    (eq value *hash-table-tombstone*))
+          (multiple-value-bind (slot free-slot)
+              (find-hash-table-slot-1 key hash-table)
+            (when slot
+              (error "Duplicate key ~S in hash-table?" key))
+            (incf (hash-table-used hash-table))
+            (incf (hash-table-count hash-table))
+            (setf (hash-table-key-at hash-table free-slot) key
+                  (hash-table-value-at hash-table free-slot) value)))))))
 
 (defun make-hash-table-iterator (hash-table)
   (declare (type hash-table hash-table))
@@ -198,25 +198,25 @@ is below the rehash-threshold."
   (let ((ht (car iterator)))
     (do () ((>= (cdr iterator) (hash-table-size ht)))
       (let ((key (hash-table-key-at ht (cdr iterator)))
-	    (value (hash-table-value-at ht (cdr iterator))))
-	;; Increment the key until a non-unbound/-tombstone key is found.
-	(incf (cdr iterator))
-	(unless (or (eq key *hash-table-unbound-value*)
-		    (eq key *hash-table-tombstone*))
-	  (return (values t key value)))))))
+            (value (hash-table-value-at ht (cdr iterator))))
+        ;; Increment the key until a non-unbound/-tombstone key is found.
+        (incf (cdr iterator))
+        (unless (or (eq key *hash-table-unbound-value*)
+                    (eq key *hash-table-tombstone*))
+          (return (values t key value)))))))
 
 (defmacro with-hash-table-iterator ((name hash-table) &body body)
   (let ((sym (gensym (symbol-name name))))
     `(let ((,sym (make-hash-table-iterator ,hash-table)))
        (macrolet ((,name () '(hash-table-iterator-next ,sym)))
-	 ,@body))))
+         ,@body))))
 
 (defun maphash (function hash-table)
   (with-hash-table-iterator (next-entry hash-table)
     (do () (nil)
       (multiple-value-bind (more key value) (next-entry)
-	(unless more (return nil))
-	(funcall function key value)))))
+        (unless more (return nil))
+        (funcall function key value)))))
 
 (defun eq-hash (object)
   (lisp-object-address object))
