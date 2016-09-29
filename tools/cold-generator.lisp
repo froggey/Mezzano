@@ -90,7 +90,7 @@
     "system/cas.lisp"
     "system/string.lisp"
     "system/hash-table.lisp"
-    ;"system/runtime-numbers.lisp"
+    "system/runtime-numbers.lisp"
     "system/numbers.lisp"
     "system/data-types.lisp"
     "system/gc.lisp"
