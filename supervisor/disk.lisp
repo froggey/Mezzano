@@ -171,6 +171,7 @@
                         " " (disk-request-lba request)
                         " " (disk-request-n-sectors request)
                         " " buffer))
+    #+(or)
     (case direction
       (:read (set-disk-read-light t))
       (:write (set-disk-write-light t)))
@@ -223,6 +224,7 @@
                                 (ceiling (* (disk-request-n-sectors request)
                                             (disk-sector-size disk))
                                          +4k-page-size+)))
+      #+(or)
       (case direction
         (:read (set-disk-read-light nil))
         (:write (set-disk-write-light nil)))

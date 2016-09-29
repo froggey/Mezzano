@@ -384,7 +384,7 @@ Returns 4 values:
 
 (defun snapshot-thread ()
   (loop
-     (when (zerop *snapshot-inhibit*)
+     #+(or)(when (zerop *snapshot-inhibit*)
        (take-snapshot))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.

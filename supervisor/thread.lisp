@@ -481,6 +481,7 @@ Interrupts must be off, the current thread must be locked."
                          (t
                           (pop-run-queue))))))
        (cond (next
+              #+(or)
               (set-run-light t)
               ;; Switch to thread.
               (%lock-thread sys.int::*bsp-idle-thread*)
@@ -488,6 +489,7 @@ Interrupts must be off, the current thread must be locked."
               (setf (thread-state next) :active)
               (%run-on-wired-stack-without-interrupts (sp fp next)
                 (%%switch-to-thread-via-wired-stack sys.int::*bsp-idle-thread* sp fp next))
+              #+(or)
               (when (boundp '*light-run*)
                 ;; Clear the run light immediately so it doesn't stay on between
                 ;; GUI screen updates.

@@ -558,6 +558,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
           ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
           ;; This sets the dirty bits in the page tables properly.
           (setf (sys.int::memref-unsigned-byte-8 address 0) 0))
+        #+(or)
         (debug-print-line "WFP " address " block " block-info " mapped to " (page-table-entry pte 0)))))
   t)
 
@@ -687,8 +688,10 @@ It will put the thread to sleep, while it waits for the page."
             (when *pager-waiting-threads*
               (setf *pager-current-thread* *pager-waiting-threads*
                     *pager-waiting-threads* (thread-%next *pager-current-thread*))
+              #+(or)
               (set-paging-light t)
               (return))
+            #+(or)
             (set-paging-light nil)
             ;; Manually sleep, don't use condition variables or similar within ephemeral threads.
             (%lock-thread sys.int::*pager-thread*)
