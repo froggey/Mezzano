@@ -1290,7 +1290,7 @@
                (values #b0 #b00 #b00 #b111))
               ((and (eql lhs-class :gpr-32)
                     (eql rhs-class :fp-32))
-               (values #b0 #b00 #b00 #b111))
+               (values #b0 #b00 #b00 #b110))
               ((and (eql lhs-class :fp-64)
                     (eql rhs-class :gpr-64))
                (values #b1 #b01 #b00 #b111))
