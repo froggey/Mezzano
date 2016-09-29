@@ -185,7 +185,7 @@
                      (display-value-1 i (1- depth-limit))))
               (display ")"))
            (display " ")
-           (display (value-car i))
+           (display-value-1 (value-car i) (1- depth-limit))
            (set! depth-limit (1- depth-limit))))
         ((eq? (value-tag value) #b0101)
          (format #t "#<tag-5 {~x}>" value))
