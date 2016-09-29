@@ -169,9 +169,9 @@
             `(lap:subs :xzr :x9 ,sys.int::+tag-object+)
             `(lap:b.ne ,type-error-label))
       (emit-object-load :x11 :x0 :slot -1)
-      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+      (emit `(lap:and :x9 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
                                       sys.int::+object-type-shift+))
-            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+            `(lap:subs :xzr :x9 ,(ash sys.int::+object-tag-bignum+
                                        sys.int::+object-type-shift+))
             `(lap:b.ne ,type-error-label)
             `(lap:add :x11 :xzr :x11 :lsr 8)
@@ -193,10 +193,10 @@
           `(lap:add :x10 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+)
           value-extracted)
     ;; Convert base/offset to unboxed integers.
-    (emit `(lap:add :x12 :xzr :x1 :lsl 2)
+    (emit `(lap:add :x9 :xzr :x1 :lsl 2)
           `(lap:add :x11 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+))
     ;; Write.
-    (emit `(lap:str :x10 (:x11 :x12)))
+    (emit `(lap:str :x10 (:x11 :x9)))
     *x0-value*))
 
 (defbuiltin sys.int::memref-t (base offset) ()
@@ -246,11 +246,11 @@
            ;; Convert to unboxed integer and scale appropriately.
            ,(ecase width
               (1
-               `(emit `(lap:add :x12 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
+               `(emit `(lap:add :x10 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
               (2
-               `(emit `(lap:add :x12 :xzr :x2)))
+               `(emit `(lap:add :x10 :xzr :x2)))
               (4
-               `(emit `(lap:add :x12 :xzr :x2 :lsl 1)))))
+               `(emit `(lap:add :x10 :xzr :x2 :lsl 1)))))
          (load-in-reg :x1 object t)
          (smash-x0)
          ;; Read.
@@ -261,11 +261,11 @@
                                   (zerop (logand disp #b111))))
                          (emit `(,',read-op :w9 (:x1 ,disp))))
                         (t
-                         (load-literal :x12 disp)
-                         (emit `(,',read-op :w9 (:x1 :x12)))))))
+                         (load-literal :x10 disp)
+                         (emit `(,',read-op :w9 (:x1 :x10)))))))
                (t
-                (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+)))))
-                (emit `(,',read-op :w9 (:x1 :x12)))))
+                (emit `(lap:sub :x10 :x10 ,(- (+ 8 (- sys.int::+tag-object+)))))
+                (emit `(,',read-op :w9 (:x1 :x10)))))
          ;; Convert to fixnum.
          (emit `(lap:add :x0 :xzr :x9 :lsl ,sys.int::+n-fixnum-bits+))
          (setf *x0-value* (list (gensym)))))
@@ -281,11 +281,11 @@
            ;; Convert to unboxed integer and scale appropriately.
            ,(ecase width
               (1
-               `(emit `(lap:add :x12 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
+               `(emit `(lap:add :x10 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
               (2
-               `(emit `(lap:add :x12 :xzr :x2)))
+               `(emit `(lap:add :x10 :xzr :x2)))
               (4
-               `(emit `(lap:add :x12 :xzr :x2 :lsl 1)))))
+               `(emit `(lap:add :x10 :xzr :x2 :lsl 1)))))
          (load-in-reg :x1 object t)
          (load-in-x0 new-value t)
          (emit `(lap:ands :xzr :x0 ,',sys.int::+fixnum-tag-mask+)
@@ -302,11 +302,11 @@
                                   (zerop (logand disp #b111))))
                          (emit `(,',write-op :w9 (:x1 ,disp))))
                         (t
-                         (load-literal :x12 disp)
-                         (emit `(,',write-op :w9 (:x1 :x12)))))))
+                         (load-literal :x10 disp)
+                         (emit `(,',write-op :w9 (:x1 :x10)))))))
                (t
-                (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+)))))
-                (emit `(,',write-op :w9 (:x1 :x12)))))
+                (emit `(lap:sub :x10 :x10 ,(- (+ 8 (- sys.int::+tag-object+)))))
+                (emit `(,',write-op :w9 (:x1 :x10)))))
          *x0-value*))))
 
 (define-u-b-object-ref sys.int::%object-ref-unsigned-byte-8  1 lap:ldrb lap:strb)
@@ -320,14 +320,14 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer, and scale appropriately (* 8).
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x9 :xzr :x2 :lsl 2)))
     (load-in-reg :x0 object t)
     ;; Read.
     (cond (constant-offset
            (emit-object-load :x10 :x0 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:ldr :x10 (:x0 :x12)))))
+           (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:ldr :x10 (:x0 :x9)))))
     (box-unsigned-byte-64-x10)
     (setf *x0-value* (list (gensym)))))
 
@@ -344,9 +344,9 @@
             `(lap:subs :xzr :x11 ,sys.int::+tag-object+)
             `(lap:b.ne ,type-error-label))
       (emit-object-load :x11 :x0 :slot -1)
-      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+      (emit `(lap:and :x9 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
                                       sys.int::+object-type-shift+))
-            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+            `(lap:subs :xzr :x9 ,(ash sys.int::+object-tag-bignum+
                                        sys.int::+object-type-shift+))
             `(lap:b.ne ,type-error-label)
             `(lap:add :x11 :xzr :x11 :lsr 8)
@@ -373,7 +373,7 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer, and scale appropriately (* 8).
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x9 :xzr :x2 :lsl 2)))
     (load-in-reg :x1 object t)
     (load-in-x0 new-value t)
     (emit `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
@@ -388,8 +388,8 @@
     (cond (constant-offset
            (emit-object-store :x10 :x1 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:str :x10 (:x1 :x12)))))
+           (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:str :x10 (:x1 :x9)))))
     *x0-value*))
 
 (defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
@@ -407,15 +407,15 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer, and scale appropriately (* 8).
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x9 :xzr :x2 :lsl 2)))
     (load-in-reg :x0 object t)
     (smash-x0)
     ;; Read.
     (cond (constant-offset
            (emit-object-load :x10 :x0 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:ldr :x10 (:x0 :x12)))))
+           (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:ldr :x10 (:x0 :x9)))))
     ;; Convert to fixnum & check for signed overflow.
     ;; Assumes fixnum size of 1!
     (emit `(lap:adds :x0 :x10 :x10)
@@ -435,9 +435,9 @@
             `(lap:subs :xzr :x9 ,sys.int::+tag-object+)
             `(lap:b.ne ,type-error-label))
       (emit-object-load :x11 :x0 :slot -1)
-      (emit `(lap:and :x12 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
+      (emit `(lap:and :x9 :x11 ,(ash (1- (ash 1 sys.int::+object-type-size+))
                                       sys.int::+object-type-shift+))
-            `(lap:subs :xzr :x12 ,(ash sys.int::+object-tag-bignum+
+            `(lap:subs :xzr :x9 ,(ash sys.int::+object-tag-bignum+
                                        sys.int::+object-type-shift+))
             `(lap:b.ne ,type-error-label)
             `(lap:add :x11 :xzr :x11 :lsr 8)
@@ -452,7 +452,7 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer, and scale appropriately (* 8).
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x9 :xzr :x2 :lsl 2)))
     (load-in-reg :x1 object t)
     (load-in-x0 new-value t)
     (emit `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
@@ -464,8 +464,8 @@
     (cond (constant-offset
            (emit-object-store :x10 :x1 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:str :x10 (:x1 :x12)))))
+           (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:str :x10 (:x1 :x9)))))
     *x0-value*))
 
 (defbuiltin sys.int::%object-ref-t (object offset) ()
@@ -475,15 +475,15 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer, and scale appropriately (* 8).
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x11 :xzr :x2 :lsl 2)))
     (load-in-reg :x0 object t)
     (smash-x0)
     ;; Read.
     (cond (constant-offset
            (emit-object-load :x0 :x0 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:ldr :x0 (:x0 :x12)))))
+           (emit `(lap:sub :x11 :x11 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:ldr :x0 (:x0 :x11)))))
     (setf *x0-value* (list (gensym)))))
 
 (defbuiltin (setf sys.int::%object-ref-t) (new-value object offset) ()
@@ -493,13 +493,13 @@
       (load-in-reg :x2 offset t)
       (fixnum-check :x2)
       ;; Convert to unboxed integer.
-      (emit `(lap:add :x12 :xzr :x2 :lsl 2)))
+      (emit `(lap:add :x9 :xzr :x2 :lsl 2)))
     (load-in-reg :x1 object t)
     (load-in-reg :x0 new-value t)
     ;; Write.
     (cond (constant-offset
            (emit-object-store :x0 :x1 :slot constant-offset))
           (t
-           (emit `(lap:sub :x12 :x12 ,(- (+ 8 (- sys.int::+tag-object+))))
-                 `(lap:str :x0 (:x1 :x12)))))
+           (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
+                 `(lap:str :x0 (:x1 :x9)))))
     *x0-value*))
