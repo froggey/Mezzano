@@ -17,8 +17,8 @@
 
 (sys.int::defglobal *wired-allocator-lock*)
 (sys.int::defglobal *allocator-lock*)
-(sys.int::defglobal *general-area-expansion-granularity* (* 4 1024 1024))
-(sys.int::defglobal *cons-area-expansion-granularity* (* 4 1024 1024))
+(sys.int::defglobal *general-area-expansion-granularity*)
+(sys.int::defglobal *cons-area-expansion-granularity*)
 
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
@@ -65,7 +65,9 @@
         sys.int::*general-area-limit* (logand (+ sys.int::*general-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         sys.int::*cons-area-limit* (logand (+ sys.int::*cons-area-bump* #x1FFFFF) (lognot #x1FFFFF))
         *enable-allocation-profiling* nil
-        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")))
+        *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
+        *general-area-expansion-granularity* (* 128 1024 1024)
+        *cons-area-expansion-granularity* (* 128 1024 1024)))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
