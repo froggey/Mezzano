@@ -56,7 +56,15 @@
               (listp (third form)))
          ;; Don't expand DEFINE-LAP-FUNCTION.
          (values form nil))
-        (t (macroexpand form env))))
+        (t
+         ;; Preserve the above behaviour when recursively macroexpanding.
+         (multiple-value-bind (expansion expandedp)
+             (macroexpand-1 form env)
+           (cond (expandedp
+                  (values (macroexpand-top-level-form expansion env)
+                          t))
+                 (t
+                  (values expansion nil)))))))
 
 (defun handle-top-level-form (form load-fn eval-fn &optional (mode :not-compile-time) env)
   "Handle top-level forms. If the form should be evaluated at compile-time
