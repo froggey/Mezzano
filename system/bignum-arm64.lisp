@@ -38,10 +38,14 @@
     (let ((sbit (bignum-sign-32 bignum)))
       ;; Now loop, until there are either no more redundant sign-extension fragments or until the length is zero.
       (loop
-         (when (zerop len)
-           (return))
          (when (not (and (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 1)) sbit)
                          (eql (%object-ref-unsigned-byte-32 bignum (- (* len 2) 2)) sbit)))
+           (return))
+         (when (not (zerop (logand #x80000000
+                                   (logxor (%object-ref-unsigned-byte-32 bignum (- (* len 2) 3))
+                                           sbit))))
+           (return))
+         (when (eql len 1)
            (return))
          (decf len))
       (cond ((eql len 0)
@@ -65,20 +69,17 @@
                  (setf (%object-ref-unsigned-byte-32 new (* i 2))
                        (%object-ref-unsigned-byte-32 bignum (* i 2)))
                  (setf (%object-ref-unsigned-byte-32 new (1+ (* i 2)))
-                       (%object-ref-unsigned-byte-32 bignum (1+ (* i 2)))))))))))
+                       (%object-ref-unsigned-byte-32 bignum (1+ (* i 2)))))
+               new))))))
 
 (defun operate-on-bignum (x y length-fn operation)
   (let* ((len-x (%n-bignum-fragments x))
          (len-y (%n-bignum-fragments y))
          (result (%make-bignum-of-length (funcall length-fn len-x len-y))))
-    ;; Make sure that Y is at least as large as X.
-    (when (> len-x len-y)
-      (rotatef x y)
-      (rotatef len-x len-y))
     ;; Fragments are 64-bits wide, but the compiler will generate more bignums
     ;; trying to read a full 64-bit fragment. Operate on 32-bit pairs instead.
     (loop
-       for i below len-x
+       for i below (min len-x len-y)
        for lo from 0 by 2
        for hi = (1+ lo)
        do
@@ -90,21 +91,39 @@
                (funcall operation
                         (%object-ref-unsigned-byte-32 x hi)
                         (%object-ref-unsigned-byte-32 y hi))))
-    ;; Deal with the length mismatch, sign extending X to match Y.
-    (loop
-       with x-sign-extension = (bignum-sign-32 x)
-       for i below (- len-y len-x)
-       for lo from (* len-x 2) by 2
-       for hi = (1+ lo)
-       do
-         (setf (%object-ref-unsigned-byte-32 result lo)
-               (funcall operation
-                        x-sign-extension
-                        (%object-ref-unsigned-byte-32 y lo)))
-         (setf (%object-ref-unsigned-byte-32 result hi)
-               (funcall operation
-                        x-sign-extension
-                        (%object-ref-unsigned-byte-32 y hi))))
+    ;; Preserve operand order!
+    (cond ((< len-x len-y)
+           ;; Deal with the length mismatch, sign extending X to match Y.
+           (loop
+              with x-sign-extension = (bignum-sign-32 x)
+              for i below (- len-y len-x)
+              for lo from (* len-x 2) by 2
+              for hi = (1+ lo)
+              do
+                (setf (%object-ref-unsigned-byte-32 result lo)
+                      (funcall operation
+                               x-sign-extension
+                               (%object-ref-unsigned-byte-32 y lo)))
+                (setf (%object-ref-unsigned-byte-32 result hi)
+                      (funcall operation
+                               x-sign-extension
+                               (%object-ref-unsigned-byte-32 y hi)))))
+          ((< len-y len-x)
+           ;; Deal with the length mismatch, sign extending Y to match X.
+           (loop
+              with y-sign-extension = (bignum-sign-32 y)
+              for i below (- len-x len-y)
+              for lo from (* len-y 2) by 2
+              for hi = (1+ lo)
+              do
+                (setf (%object-ref-unsigned-byte-32 result lo)
+                      (funcall operation
+                               (%object-ref-unsigned-byte-32 x lo)
+                               y-sign-extension))
+                (setf (%object-ref-unsigned-byte-32 result hi)
+                      (funcall operation
+                               (%object-ref-unsigned-byte-32 x hi)
+                               y-sign-extension)))))
     result))
 
 (defun %%bignum-+ (x y)
@@ -119,7 +138,7 @@
                                         (setf overflow (logtest (logand (logxor result a)
                                                                         (logxor result b))
                                                                #x80000000))
-                                        (setf carry (ash result -32))
+                                        (setf carry (ldb (byte 1 32) result))
                                         (logand result #xFFFFFFFF))))))
     (let* ((sign (cond (overflow
                         ;; On overflow, extend the carry bit out and populate the last fragment with that.
@@ -130,8 +149,35 @@
            (sign-bits (if (eql sign 0)
                           #x00000000
                           #xFFFFFFFF)))
-      (setf (%object-ref-unsigned-byte-32 result (- size 2)) sign-bits
-            (%object-ref-unsigned-byte-32 result (- size 1)) sign-bits)
+      (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
+            (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
+      (%%canonicalize-bignum result))))
+
+(defun %%bignum-- (x y)
+  (let* ((carry 0)
+         (overflow nil)
+         (size nil)
+         (result (operate-on-bignum x y
+                                    (lambda (len-x len-y)
+                                      (setf size (1+ (max len-x len-y))))
+                                    (lambda (a b)
+                                      (let ((result (- a (+ b carry))))
+                                        (setf overflow (logtest (logand (logxor result a)
+                                                                        (logxor result b))
+                                                               #x80000000))
+                                        (setf carry (ldb (byte 1 32) result))
+                                        (logand result #xFFFFFFFF))))))
+    (let* ((sign (cond (overflow
+                        ;; On overflow, extend the carry bit out and populate the last fragment with that.
+                        carry)
+                       (t
+                        ;; Otherwise, sign-extend the second-last fragment out.
+                        (ash (%object-ref-unsigned-byte-32 result (- size 3)) -31))))
+           (sign-bits (if (eql sign 0)
+                          #x00000000
+                          #xFFFFFFFF)))
+      (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
+            (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
       (%%canonicalize-bignum result))))
 
 (defun %%bignum-logand (x y)
