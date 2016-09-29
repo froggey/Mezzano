@@ -55,7 +55,7 @@ Make sure there is a virtio-net NIC attached.~%")
     (cond ((mezzano.network.ip:ping-host sys.int::*file-server-host-ip* :quiet t)
            (format t "OK!~%"))
           (t
-           (format t "Failed! No responses received!~%"))))
+           (format t "Failed! No responses received! This may not be reliable.~%"))))
   ;; Try basic access to the file server. Just enough to talk to it.
   (format t "Testing access to file server... ")
   (finish-output)
@@ -71,7 +71,7 @@ Make sure there is a virtio-net NIC attached.~%")
            (format t "OK!~%")
            (format t "Has address ~A.~%" goog))
           (t
-           (format t "Failed! Unable to resolve!~%")))))
+           (format t "Failed! Unable to resolve! This may not be reliable.~%")))))
 
 (sys.int::check-connectivity)
 
