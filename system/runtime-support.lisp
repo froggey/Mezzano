@@ -62,7 +62,7 @@
 (define-compiler-macro apply (&whole whole function arg &rest more-args)
   (if more-args
       whole
-      `(%apply (%coerce-to-callable ,function) ,arg)))
+      `(mezzano.runtime::%apply (%coerce-to-callable ,function) ,arg)))
 
 (defun apply (function arg &rest more-args)
   (declare (dynamic-extent more-args))
@@ -76,7 +76,7 @@
               ((null (cddr i))
                (setf (cdr i) (cadr i))
                (%apply function arg-list))))
-        (t (runtime.support::%apply function arg))))
+        (t (mezzano.runtime::%apply function arg))))
 
 (defun funcall (function &rest arguments)
   (declare (dynamic-extent arguments))
