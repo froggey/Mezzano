@@ -602,3 +602,38 @@
   return-zero
   (sys.lap-x86:xor32 :r8d :r8d)
   (sys.lap-x86:jmp do-return))
+
+(define-lap-function %%make-bignum-128-rdx-rax ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  (sys.lap-x86:push :rdx)
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:mov64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:mov64 :r13 (:function %make-bignum-of-length))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:pop (:object :r8 0))
+  (sys.lap-x86:pop (:object :r8 1))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function sys.int::%%make-bignum-64-rax ()
+  (sys.lap-x86:push :rbp)
+  (:gc :no-frame :layout #*0)
+  (sys.lap-x86:mov64 :rbp :rsp)
+  (:gc :frame)
+  (sys.lap-x86:push 0)
+  (sys.lap-x86:push :rax)
+  (sys.lap-x86:mov64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r8 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:mov64 :r13 (:function sys.int::%make-bignum-of-length))
+  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
+  (sys.lap-x86:pop (:object :r8 0))
+  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:leave)
+  (:gc :no-frame)
+  (sys.lap-x86:ret))

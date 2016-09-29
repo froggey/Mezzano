@@ -510,43 +510,6 @@
       (setf (symbol-plist new-sym) (copy-list (symbol-plist symbol))))
     new-sym))
 
-#+x86-64
-(sys.int::define-lap-function sys.int::%%make-bignum-128-rdx-rax ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:push :rdx)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:pop (:r8 #.(+ (- sys.int::+tag-object+) 8)))
-  (sys.lap-x86:pop (:r8 #.(+ (- sys.int::+tag-object+) 16)))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
-
-#+x86-64
-(sys.int::define-lap-function sys.int::%%make-bignum-64-rax ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r8 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:mov64 :r13 (:function sys.int::%make-bignum-of-length))
-  (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
-  (sys.lap-x86:pop (:r8 #.(+ (- sys.int::+tag-object+) 8)))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
-
 ;;; This is used by the bignum code so that bignums and fixnums don't have
 ;;; to be directly compared.
 (defun sys.int::%make-bignum-from-fixnum (n)
@@ -556,35 +519,6 @@
 
 (defun sys.int::%make-bignum-of-length (words &optional area)
   (%allocate-object sys.int::+object-tag-bignum+ words words area))
-
-#+x86-64
-(sys.int::define-lap-function sys.int::%%make-double-float-rax ()
-  (sys.lap-x86:push :rbp)
-  (:gc :no-frame :layout #*0)
-  (sys.lap-x86:mov64 :rbp :rsp)
-  (:gc :frame)
-  (sys.lap-x86:push 0)
-  (sys.lap-x86:push :rax)
-  (sys.lap-x86:mov64 :rcx #.(ash 4 sys.int::+n-fixnum-bits+)) ; fixnum 4
-  ;; Tag.
-  (sys.lap-x86:mov64 :r8 #.(ash sys.int::+object-tag-double-float+
-                                sys.int::+n-fixnum-bits+))
-  ;; Header data.
-  (sys.lap-x86:xor64 :r9 :r9)
-  ;; Words.
-  (sys.lap-x86:mov64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  ;; Area
-  (sys.lap-x86:mov64 :r11 nil) ; fixnum 1
-  (sys.lap-x86:mov64 :r13 (:function %allocate-object))
-  ;; Allocate object.
-  (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
-  ;; Set data.
-  (sys.lap-x86:pop (:object :r8 0))
-  ;; Single-value return.
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
-  (sys.lap-x86:leave)
-  (:gc :no-frame)
-  (sys.lap-x86:ret))
 
 (defun sys.int::allocate-std-instance (class slots layout &optional area)
   (let ((value (%allocate-object sys.int::+object-tag-std-instance+ 3 3 area)))
