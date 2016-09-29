@@ -75,7 +75,7 @@
                (i arg-list (cdr i)))
               ((null (cddr i))
                (setf (cdr i) (cadr i))
-               (%apply function arg-list))))
+               (mezzano.runtime::%apply function arg-list))))
         (t (mezzano.runtime::%apply function arg))))
 
 (defun funcall (function &rest arguments)
