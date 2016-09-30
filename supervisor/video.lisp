@@ -166,8 +166,9 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (when (and (boundp '*current-framebuffer*)
              *current-framebuffer*)
     (let ((fb-addr (framebuffer-base-address *current-framebuffer*)))
-      (dotimes (i (framebuffer-width *current-framebuffer*))
-        (setf (physical-memref-unsigned-byte-32 fb-addr i) #xFFFF0000)))))
+      (%%bitset-row (convert-to-pmap-address fb-addr)
+                    #xFFFF0000
+                    (framebuffer-width *current-framebuffer*)))))
 
 (defstruct (light
              (:area :wired))
@@ -207,8 +208,9 @@ An integer, measured in internal time units.")
           (colour (if (light-state light)
                       (light-colour light)
                       0)))
-      (dotimes (i 32)
-        (setf (physical-memref-unsigned-byte-32 fb-addr i) colour)))))
+      (%%bitset-row (convert-to-pmap-address fb-addr)
+                    colour
+                    32))))
 
 (defun clear-light (light)
   (setf (light-state light) nil)
@@ -220,8 +222,9 @@ An integer, measured in internal time units.")
                              (framebuffer-pitch *current-framebuffer*))
                           0)
                       (* (light-index light) 32 4))))
-      (dotimes (i 32)
-        (setf (physical-memref-unsigned-byte-32 fb-addr i) 0)))))
+      (%%bitset-row (convert-to-pmap-address fb-addr)
+                    #xFF000000
+                    32))))
 
 (defmacro deflight (name colour position)
   (let ((setter (intern (format nil "SET-~A-LIGHT" name)))
