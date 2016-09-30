@@ -223,7 +223,7 @@ Returns two values, the packet data and the receiving NIC."
           *paging-disk* nil
           *page-fault-hook* nil)
     (initialize-physical-allocator)
-    ;(initialize-early-video)
+    (initialize-early-video)
     (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
@@ -243,7 +243,7 @@ Returns two values, the packet data and the receiving NIC."
     (debug-write-line "Hello, Debug World!")
     (initialize-net)
     (initialize-ata)
-    ;(initialize-video)
+    (initialize-video)
     (initialize-platform)
     (detect-disk-partitions)
     (detect-paging-disk)

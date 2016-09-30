@@ -127,8 +127,8 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
           (incf from-base from-pitch))))
     t))
 
-;; (to-base from-base ncols)
-(sys.int::define-lap-function %%bitblt-row ()
+#+x86-64
+(sys.int::define-lap-function %%bitblt-row ((to-base from-base ncols))
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rsi :r9) ; from-storage
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -139,8 +139,14 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
 
-;; (to-base colour ncols)
-(sys.int::define-lap-function %%bitset-row ()
+#-x86-64
+(defun %%bitblt-row (to-base from-base ncols)
+  (dotimes (i ncols)
+    (setf (sys.int::memref-unsigned-byte-32 to-base i)
+          (sys.int::memref-unsigned-byte-32 from-base i))))
+
+#+x86-64
+(sys.int::define-lap-function %%bitset-row ((to-base colour ncols))
   (sys.lap-x86:mov64 :rdi :r8) ; to-storage
   (sys.lap-x86:mov64 :rax :r9) ; colour
   (sys.lap-x86:mov64 :rcx :r10) ; ncols
@@ -150,6 +156,11 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:rep)
   (sys.lap-x86:stos32)
   (sys.lap-x86:ret))
+
+#-x86-64
+(defun %%bitset-row (to-base colour ncols)
+  (dotimes (i ncols)
+    (setf (sys.int::memref-unsigned-byte-32 to-base i) colour)))
 
 (defun set-panic-light ()
   (when (and (boundp '*current-framebuffer*)

@@ -274,7 +274,7 @@
   (setf *world-stopper* (current-thread)
         *panic-in-progress* t)
   (debug-force-output)
-  ;(set-panic-light)
+  (set-panic-light)
   ;(disable-page-fault-ist)
   (debug-print-line-1 things)
   (when extra
