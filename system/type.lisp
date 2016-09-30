@@ -7,9 +7,9 @@
 
 (defmacro deftype (name lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
-	(env (gensym "ENV")))
+        (env (gensym "ENV")))
     (multiple-value-bind (new-lambda-list env-binding)
-	(fix-lambda-list-environment lambda-list)
+        (fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
          (%deftype ',name
                    (lambda (,whole ,env)
@@ -21,7 +21,7 @@
                                                           (list `(,env-binding ,env)))
                                                         :default-value ''*
                                                         :permit-docstring t)))
-	 ',name))))
+         ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %deftype (name expander)
@@ -39,17 +39,17 @@
 
 (deftype unsigned-byte (&optional s)
   (cond ((eql s '*)
-	 `(integer 0))
-	(t (unless (and (integerp s) (plusp s))
-	     (error 'type-error :expected-type '(integer 1) :datum s))
-	   `(integer 0 ,(1- (expt 2 s))))))
+         `(integer 0))
+        (t (unless (and (integerp s) (plusp s))
+             (error 'type-error :expected-type '(integer 1) :datum s))
+           `(integer 0 ,(1- (expt 2 s))))))
 
 (deftype signed-byte (&optional s)
   (cond ((eql s '*)
-	 'integer)
-	(t (unless (and (integerp s) (plusp s))
-	     (error 'type-error :expected-type '(integer 1) :datum s))
-	   `(integer ,(- (expt 2 (1- s))) ,(1- (expt 2 (1- s)))))))
+         'integer)
+        (t (unless (and (integerp s) (plusp s))
+             (error 'type-error :expected-type '(integer 1) :datum s))
+           `(integer ,(- (expt 2 (1- s))) ,(1- (expt 2 (1- s)))))))
 
 (deftype mod (n)
   (unless (and (integerp n) (plusp n))
@@ -85,42 +85,42 @@
                  (listp type)))
     (return-from typeexpand-1 (values type nil)))
   (let ((expander (get (if (symbolp type)
-			   type
-			   (first type))
-		       'type-expander)))
+                           type
+                           (first type))
+                       'type-expander)))
     (cond (expander
-	   (when (symbolp type)
-	     (setf type (list type)))
-	   (values (funcall expander type environment) t))
-	  (t (values type nil)))))
+           (when (symbolp type)
+             (setf type (list type)))
+           (values (funcall expander type environment) t))
+          (t (values type nil)))))
 
 (defun typeexpand (type &optional environment)
   (do ((have-expanded nil)) (nil)
     (multiple-value-bind (expansion expanded-p)
-	(typeexpand-1 type environment)
+        (typeexpand-1 type environment)
       (unless expanded-p
-	(return (values expansion have-expanded)))
+        (return (values expansion have-expanded)))
       (setf have-expanded t
-	    type expansion))))
+            type expansion))))
 )
 
 (defun canonicalize-real-type (type name)
   (if (consp type)
       (destructuring-bind (&optional (min '*) (max '*))
-	  (cdr type)
-	(when (consp min)
-	  (when (rest min)
-	    (error "Bad ~S type: ~S." name type))
-	  (setf min (1- (first min))))
-	(unless (or (eql min '*) (typep min name))
-	  (error "Bad ~S type: ~S." name type))
-	(when (consp max)
-	  (when (rest max)
-	    (error "Bad ~S type: ~S." name type))
-	  (setf max (1- (first max))))
-	(unless (or (eql max '*) (typep min name))
-	  (error "Bad ~S type: ~S." name type))
-	(values min max))
+          (cdr type)
+        (when (consp min)
+          (when (rest min)
+            (error "Bad ~S type: ~S." name type))
+          (setf min (1- (first min))))
+        (unless (or (eql min '*) (typep min name))
+          (error "Bad ~S type: ~S." name type))
+        (when (consp max)
+          (when (rest max)
+            (error "Bad ~S type: ~S." name type))
+          (setf max (1- (first max))))
+        (unless (or (eql max '*) (typep min name))
+          (error "Bad ~S type: ~S." name type))
+        (values min max))
       (values '* '*)))
 
 (defun satisfies-type-p (object type)
@@ -140,40 +140,40 @@
   (multiple-value-bind (min max)
       (canonicalize-real-type type 'integer)
     (and (integerp object)
-	 (or (eql min '*)
-	     (>= object min))
-	 (or (eql max '*)
-	     (<= object max)))))
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
 (%define-compound-type 'integer 'integer-type-p)
 
 (defun rational-type-p (object type)
   (multiple-value-bind (min max)
       (canonicalize-real-type type 'rational)
     (and (rationalp object)
-	 (or (eql min '*)
-	     (>= object min))
-	 (or (eql max '*)
-	     (<= object max)))))
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
 (%define-compound-type 'rational 'rational-type-p)
 
 (defun real-type-p (object type)
   (multiple-value-bind (min max)
       (canonicalize-real-type type 'real)
     (and (realp object)
-	 (or (eql min '*)
-	     (>= object min))
-	 (or (eql max '*)
-	     (<= object max)))))
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
 (%define-compound-type 'real 'real-type-p)
 
 (defun float-type-p (object type)
   (multiple-value-bind (min max)
       (canonicalize-real-type type 'float)
     (and (floatp object)
-	 (or (eql min '*)
-	     (>= object min))
-	 (or (eql max '*)
-	     (<= object max)))))
+         (or (eql min '*)
+             (>= object min))
+         (or (eql max '*)
+             (<= object max)))))
 (%define-compound-type 'float 'float-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -224,10 +224,10 @@
     (when (eql cdr-type '*)
       (setf cdr-type 't))
     (and (consp object)
-	 (or (eql car-type 't)
-	     (typep (car object) car-type))
-	 (or (eql cdr-type 't)
-	     (typep (cdr object) cdr-type)))))
+         (or (eql car-type 't)
+             (typep (car object) car-type))
+         (or (eql cdr-type 't)
+             (typep (cdr object) cdr-type)))))
 (%define-compound-type 'cons 'cons-type-p)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -384,26 +384,26 @@
       (when other-class
         (return-from subtypep (subclassp type-1 other-class)))))
   (let ((t1 (typeexpand type-1 environment))
-	(t2 (typeexpand type-2 environment)))
+        (t2 (typeexpand type-2 environment)))
     (cond ((equal t1 t2) (values t t))
-	  ((eql t1 'nil) (values t t))
-	  ((eql t2 'nil) (values nil t))
-	  ((and (or (real-subtype-p t2)
-		    (and (consp t2)
-			 (real-subtype-p (car t2))))
-		(or (real-subtype-p t1)
-		    (and (consp t1)
-			 (real-subtype-p (car t1))))
+          ((eql t1 'nil) (values t t))
+          ((eql t2 'nil) (values nil t))
+          ((and (or (real-subtype-p t2)
+                    (and (consp t2)
+                         (real-subtype-p (car t2))))
+                (or (real-subtype-p t1)
+                    (and (consp t1)
+                         (real-subtype-p (car t1))))
                 (numeric-subtypep (if (consp t1) (car t1) t1) (if (consp t2) (car t2) t2)))
-	   (multiple-value-bind (min-1 max-1)
-	       (canonicalize-real-type t1 (if (consp t1) (car t1) t1))
-	     (multiple-value-bind (min-2 max-2)
-		 (canonicalize-real-type t2 (if (consp t2) (car t2) t2))
-	       (values (and (or (eql min-2 '*)
-				(and (not (eql min-1 '*)) (<= min-2 min-1)))
-			    (or (eql max-2 '*)
-				(and (not (eql max-1 '*)) (>= max-2 max-1))))
-		       t))))
+           (multiple-value-bind (min-1 max-1)
+               (canonicalize-real-type t1 (if (consp t1) (car t1) t1))
+             (multiple-value-bind (min-2 max-2)
+                 (canonicalize-real-type t2 (if (consp t2) (car t2) t2))
+               (values (and (or (eql min-2 '*)
+                                (and (not (eql min-1 '*)) (<= min-2 min-1)))
+                            (or (eql max-2 '*)
+                                (and (not (eql max-1 '*)) (>= max-2 max-1))))
+                       t))))
           ((and (or (number-subtype-p t2)
                     (and (consp t2)
                          (number-subtype-p (first t2))))
@@ -412,12 +412,12 @@
                          (number-subtype-p (first t1))))
                 (numeric-subtypep (if (consp t1) (first t1) t1) (if (consp t2) (first t2) t2)))
            (values t t))
-	  ((eql t2 'character)
-	   (values (or (eql t1 'standard-char)
-		       (eql t1 'character))
-		   t))
-	  ((eql t2 't)
-	   (values t t))
+          ((eql t2 'character)
+           (values (or (eql t1 'standard-char)
+                       (eql t1 'character))
+                   t))
+          ((eql t2 't)
+           (values t t))
           ((and (or (and (consp t1) (member (first t1) '(array simple-array)))
                     (member t1 '(array simple-array)))
                 (or (and (consp t2) (member (first t2) '(array simple-array)))
@@ -487,7 +487,7 @@
                 (symbolp t2)
                 (find-class t2 nil))
            (subclassp (find-class t1 nil) (find-class t2 nil)))
-	  (t
+          (t
            (values nil t)))))
 
 (defun subclassp (class-1 class-2)
@@ -504,14 +504,14 @@
     (return-from typep
       (member type-specifier (mezzano.clos:class-precedence-list (class-of object)))))
   (let ((type-symbol (cond ((symbolp type-specifier)
-			    type-specifier)
-			   ((and (consp type-specifier)
-				 (null (rest type-specifier)))
-			    (first type-specifier)))))
+                            type-specifier)
+                           ((and (consp type-specifier)
+                                 (null (rest type-specifier)))
+                            (first type-specifier)))))
     (when type-symbol
       (let ((test (get type-symbol 'type-symbol)))
-	(when test
-	  (return-from typep (funcall test object))))))
+        (when test
+          (return-from typep (funcall test object))))))
   (when (symbolp type-specifier)
     (let ((struct-type (get type-specifier 'structure-type)))
       (when struct-type
@@ -528,9 +528,9 @@
         (when (and class (member class (mezzano.clos:class-precedence-list (class-of object))))
           (return-from typep t)))))
   (let ((compound-test (get (if (symbolp type-specifier)
-				type-specifier
-				(first type-specifier))
-			    'compound-type)))
+                                type-specifier
+                                (first type-specifier))
+                            'compound-type)))
     (when compound-test
       (return-from typep (funcall compound-test object type-specifier))))
   (multiple-value-bind (expansion expanded-p)
@@ -540,20 +540,20 @@
 
 (defun check-type-error (place value typespec string)
   (restart-case (if string
-		    (error 'simple-type-error
-			   :expected-type typespec
-			   :datum value
-			   :format-control "The value of ~S is ~S, which is not ~A."
-			   :format-arguments (list place value string))
-		    (error 'simple-type-error
-			   :expected-type typespec
-			   :datum value
-			   :format-control "The value of ~S is ~S, which is not of type ~S."
-			   :format-arguments (list place value typespec)))
+                    (error 'simple-type-error
+                           :expected-type typespec
+                           :datum value
+                           :format-control "The value of ~S is ~S, which is not ~A."
+                           :format-arguments (list place value string))
+                    (error 'simple-type-error
+                           :expected-type typespec
+                           :datum value
+                           :format-control "The value of ~S is ~S, which is not of type ~S."
+                           :format-arguments (list place value typespec)))
     (store-value (v)
       :interactive (lambda ()
-		     (format t "Enter a new value (evaluated): ")
-		     (list (eval (read))))
+                     (format t "Enter a new value (evaluated): ")
+                     (list (eval (read))))
       :report (lambda (s) (format s "Input a new value for ~S." place))
       v)))
 
@@ -561,11 +561,10 @@
   (let ((value (gensym)))
     ;; FIXME: Place evaluation.
     `(do ((,value ,place ,place))
-	 ((typep ,value ',typespec))
+         ((typep ,value ',typespec))
        (setf ,place (check-type-error ',place ,value ',typespec ,string)))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-
 (defun compile-typep-expression (object type-specifier)
   (let ((type-symbol (cond ((symbolp type-specifier)
                             type-specifier)
@@ -575,8 +574,8 @@
                             (first type-specifier)))))
     (when type-symbol
       (let ((test (get type-symbol 'type-symbol)))
-	(when test
-	  (return-from compile-typep-expression
+        (when test
+          (return-from compile-typep-expression
             `(funcall ',test ,object))))))
   (when (and (listp type-specifier)
              (symbolp (first type-specifier)))
@@ -592,7 +591,6 @@
       (typeexpand-1 type-specifier)
     (when expanded-p
       (compile-typep-expression object expansion))))
-
 )
 
 (define-compiler-macro typep (&whole whole object type-specifier &optional environment)

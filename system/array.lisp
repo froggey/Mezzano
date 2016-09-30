@@ -237,13 +237,13 @@
     array))
 
 (defun make-array (dimensions &key
-		   (element-type t)
-		   (initial-element nil initial-element-p)
-		   (initial-contents nil initial-contents-p)
-		   adjustable
-		   fill-pointer
-		   displaced-to displaced-index-offset
-                   area)
+                                (element-type t)
+                                (initial-element nil initial-element-p)
+                                (initial-contents nil initial-contents-p)
+                                adjustable
+                                fill-pointer
+                                displaced-to displaced-index-offset
+                                area)
   ;; n => (n)
   (when (not (listp dimensions))
     (setf dimensions (list dimensions)))
