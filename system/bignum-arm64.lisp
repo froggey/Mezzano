@@ -139,7 +139,7 @@
                                                                         (logxor result b))
                                                                #x80000000))
                                         (setf carry (ldb (byte 1 32) result))
-                                        (logand result #xFFFFFFFF))))))
+                                        (ldb (byte 32 0) result))))))
     (let* ((sign (cond (overflow
                         ;; On overflow, extend the carry bit out and populate the last fragment with that.
                         (logxor carry-complement carry))
@@ -182,10 +182,10 @@
     (multiple-value-bind (val overflow sign)
         (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))) 1)
       (declare (ignore val))
-      ;; overflow xor sign.
-      (if overflow
-          (zerop sign)
-          (not (zerop sign))))))
+      (setf sign (logxor sign 1))
+      ;; overflow xor sign == 1.
+      (not (zerop (logxor (if overflow 1 0)
+                          sign))))))
 
 (defun %%bignum-= (x y)
   (let* ((len-x (%n-bignum-fragments x))
