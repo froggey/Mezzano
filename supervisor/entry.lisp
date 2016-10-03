@@ -241,6 +241,7 @@ Returns two values, the packet data and the receiving NIC."
     ;;(debug-set-output-pseudostream #'debug-video-stream)
     ;;(debug-set-output-pseudostream (lambda (op &optional arg) (declare (ignore op arg))))
     (debug-write-line "Hello, Debug World!")
+    (initialize-time)
     (initialize-net)
     (initialize-ata)
     (initialize-video)

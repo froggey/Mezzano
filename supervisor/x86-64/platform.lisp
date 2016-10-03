@@ -9,6 +9,6 @@
 
 (defun initialize-platform ()
   (initialize-acpi)
-  (initialize-time)
+  (initialize-platform-time)
   (initialize-ps/2)
   (initialize-pci))
