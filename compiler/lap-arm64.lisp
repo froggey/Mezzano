@@ -1062,7 +1062,27 @@
     (:tcr-el1
      (values #b11 #b000 #b0010 #b0000 #b010))
     (:daif
-     (values #b11 #b011 #b0100 #b0010 #b001))))
+     (values #b11 #b011 #b0100 #b0010 #b001))
+    (:cntfrq-el0
+     (values #b11 #b011 #b1110 #b0000 #b000))
+    (:cntkctl-el1
+     (values #b11 #b000 #b1110 #b0001 #b000))
+    (:cntp-ctl-el0
+     (values #b11 #b011 #b1110 #b0010 #b001))
+    (:cntp-cval-el0
+     (values #b11 #b011 #b1110 #b0010 #b010))
+    (:cntp-tval-el0
+     (values #b11 #b011 #b1110 #b0010 #b000))
+    (:cntpct-el0
+     (values #b11 #b011 #b1110 #b0000 #b001))
+    (:cntv-ctl-el0
+     (values #b11 #b011 #b1110 #b0011 #b001))
+    (:cntv-cval-el0
+     (values #b11 #b011 #b1110 #b0011 #b010))
+    (:cntv-tval-el0
+     (values #b11 #b011 #b1110 #b0011 #b000))
+    (:cntvct-el0
+     (values #b11 #b011 #b1110 #b0000 #b010))))
 
 (define-instruction msr (name reg)
   (cond ((and (member name '(:spsel :daifset :daifclr))

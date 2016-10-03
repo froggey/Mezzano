@@ -63,7 +63,7 @@
   (calibrate-tsc))
 
 (defun pit-irq-handler (interrupt-frame irq)
-  (declare (ignore interrupt-frame irq))
+  (declare (ignore irq))
   (beat-heartbeat *run-time-advance*)
   (profile-sample interrupt-frame))
 

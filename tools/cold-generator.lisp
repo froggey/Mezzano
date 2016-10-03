@@ -52,6 +52,7 @@
     "supervisor/pager.lisp"
     "supervisor/arm64/pager.lisp"
     "supervisor/time.lisp"
+    "supervisor/arm64/time.lisp"
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
