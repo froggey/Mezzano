@@ -113,6 +113,7 @@
             (setf (sys.int::memref-unsigned-byte-8 virt i) 0))
           ;; Write the address to the the queue address field.
           ;; This is a page number, not an actual address.
+          (setf (virtio-mmio-guest-page-size device) +4k-page-size+)
           (setf (virtio-mmio-queue-pfn device) frame)
           (let ((vq (make-virtqueue :index queue
                                     :virtual virt
