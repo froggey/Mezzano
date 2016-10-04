@@ -84,9 +84,10 @@
 
 (declaim (inline functionp))
 (defun functionp (object)
-  (<= sys.int::+first-function-object-tag+
-      (sys.int::%object-tag object)
-      sys.int::+last-function-object-tag+))
+  (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
+       (<= sys.int::+first-function-object-tag+
+           (sys.int::%object-tag object)
+           sys.int::+last-function-object-tag+)))
 
 (declaim (inline sys.int::%object-of-type-p))
 (defun sys.int::%object-of-type-p (object object-tag)
