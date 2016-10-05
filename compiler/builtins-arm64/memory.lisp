@@ -392,6 +392,86 @@
                  `(lap:str :x10 (:x1 :x9)))))
     *x0-value*))
 
+(defmacro define-s-b-object-ref (name width read-op write-op)
+  `(progn
+     (defbuiltin ,name (object offset) ()
+       (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
+         (unless constant-offset
+           (load-in-reg :x2 offset t)
+           (fixnum-check :x2)
+           ;; Convert to unboxed integer and scale appropriately.
+           ,(ecase width
+                   (1
+                    `(emit `(lap:add :x10 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
+                   (2
+                    `(emit `(lap:add :x10 :xzr :x2)))
+                   (4
+                    `(emit `(lap:add :x10 :xzr :x2 :lsl 1)))))
+         (load-in-reg :x1 object t)
+         (smash-x0)
+         ;; Read.
+         (cond (constant-offset
+                (let ((disp (object-slot-displacement constant-offset ',width)))
+                  (cond ((or (<= -256 disp 255)
+                             (and (<= 0 disp 16380)
+                                  (zerop (logand disp #b111))))
+                         (emit `(,',read-op :x9 (:x1 ,disp))))
+                        (t
+                         (load-literal :x10 disp)
+                         (emit `(,',read-op :x9 (:x1 :x10)))))))
+               (t
+                (emit `(lap:sub :x10 :x10 ,(- (+ 8 (- sys.int::+tag-object+)))))
+                (emit `(,',read-op :x9 (:x1 :x10)))))
+         ;; Convert to fixnum.
+         (emit `(lap:add :x0 :xzr :x9 :lsl ,sys.int::+n-fixnum-bits+))
+         (setf *x0-value* (list (gensym)))))
+     (defbuiltin (setf ,name) (new-value object offset) ()
+       (let ((type-error-label (gensym))
+             (constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                                   (second offset))))
+         (emit-trailer (type-error-label)
+           (raise-type-error :x0 '(signed-byte ,(* width 8))))
+         (unless constant-offset
+           (load-in-reg :x2 offset t)
+           (fixnum-check :x2)
+           ;; Convert to unboxed integer and scale appropriately.
+           ,(ecase width
+                   (1
+                    `(emit `(lap:add :x10 :xzr :x2 :asr ,sys.int::+n-fixnum-bits+)))
+                   (2
+                    `(emit `(lap:add :x10 :xzr :x2)))
+                   (4
+                    `(emit `(lap:add :x10 :xzr :x2 :lsl 1)))))
+         (load-in-reg :x1 object t)
+         (load-in-x0 new-value t)
+         (emit `(lap:ands :xzr :x0 ,',sys.int::+fixnum-tag-mask+)
+               `(lap:b.ne ,type-error-label)
+               ;; Convert to raw integer.
+               `(lap:add :x9 :xzr :x0 :lsr ,',sys.int::+n-fixnum-bits+))
+         (load-literal :x11 ,(ash 1 (1- (* width 8))))
+         (emit `(lap:add :x11 :x9 :x11)
+               `(lap:ands :xzr :x0 ,',(lognot (1- (ash 1 (* width 8)))))
+               `(lap:b.ne ,type-error-label))
+         ;; Write.
+         (cond (constant-offset
+                (let ((disp (object-slot-displacement constant-offset ',width)))
+                  (cond ((or (<= -256 disp 255)
+                             (and (<= 0 disp 16380)
+                                  (zerop (logand disp #b111))))
+                         (emit `(,',write-op :w9 (:x1 ,disp))))
+                        (t
+                         (load-literal :x10 disp)
+                         (emit `(,',write-op :w9 (:x1 :x10)))))))
+               (t
+                (emit `(lap:sub :x10 :x10 ,(- (+ 8 (- sys.int::+tag-object+)))))
+                (emit `(,',write-op :w9 (:x1 :x10)))))
+         *x0-value*))))
+
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-8  1 lap:ldrsb lap:strb)
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-16 2 lap:ldrsh lap:strh)
+(define-s-b-object-ref sys.int::%object-ref-signed-byte-32 4 lap:ldrsw lap:str)
+
 (defbuiltin sys.int::%object-ref-signed-byte-64 (object offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym))
