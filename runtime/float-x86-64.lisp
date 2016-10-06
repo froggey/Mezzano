@@ -270,7 +270,7 @@
   ;; Words.
   (sys.lap-x86:mov64 :r10 #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   ;; Area
-  (sys.lap-x86:mov64 :r11 nil) ; fixnum 1
+  (sys.lap-x86:mov64 :r11 nil)
   (sys.lap-x86:mov64 :r13 (:function %allocate-object))
   ;; Allocate object.
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
