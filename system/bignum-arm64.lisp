@@ -182,7 +182,8 @@
     (multiple-value-bind (val overflow sign)
         (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))) 1)
       (declare (ignore val))
-      (setf sign (logxor sign 1))
+      (when overflow
+        (setf sign (logxor sign 1)))
       ;; overflow xor sign == 1.
       (not (zerop (logxor (if overflow 1 0)
                           sign))))))
