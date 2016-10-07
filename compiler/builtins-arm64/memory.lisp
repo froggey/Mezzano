@@ -583,3 +583,202 @@
            (emit `(lap:sub :x9 :x9 ,(- (+ 8 (- sys.int::+tag-object+))))
                  `(lap:str :x0 (:x1 :x9)))))
     *x0-value*))
+
+;;; Atomic operations.
+;;; These functions index into the object like %OBJECT-REF-T.
+;;; There are no atomic functions that access memory like MEMREF.
+
+;; Add DELTA to the slot at SLOT in OBJECT.
+;; Returns the old value of the slot.
+;; DELTA and the value of the slot must both be fixnums.
+;; (defun fixnum-add (object slot delta)
+;;   (prog1 (%object-ref-t object slot)
+;;     (incf (%object-ref-t object slot) delta)))
+(defbuiltin sys.int::%atomic-fixnum-add-object (object offset delta) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset)))
+        (label (gensym "LOOP")))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, with tag adjustment.
+      (emit `(lap:add :x9 :xzr :x2 :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+            `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))))
+    (load-in-reg :x1 object t)
+    (load-in-reg :x0 delta t)
+    (fixnum-check :x0)
+    (smash-x0)
+    ;; Generate the address.
+    (when constant-offset
+      (load-literal :x9 (object-slot-displacement constant-offset)))
+    (emit `(lap:add :x9 :x9 :x1))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Add loop.
+    (emit label
+          ;; Load old value into X10
+          `(lap:ldaxr :x10 (:x9))
+          ;; Increment by delta. New value in X11.
+          `(lap:add :x11 :x10 :x0)
+          ;; Store linked new value, status in X11.
+          `(lap:stlxr :w11 :x11 (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x11 ,label))
+    ;; Finish up.
+    (emit-gc-info)
+    (emit `(lap:orr :x0 :xzr :x10))
+    (setf *x0-value* (list (gensym)))))
+
+;; Set the value in SLOT to NEW, and return the old value.
+;; (defun xchg (object slot new)
+;;   (prog1 (%object-ref-t object slot)
+;;     (setf (%object-ref-t object slot) new)))
+(defbuiltin sys.int::%xchg-object (object offset new) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset)))
+        (label (gensym "LOOP")))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, with tag adjustment.
+      (emit `(lap:add :x9 :xzr :x2 :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+            `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))))
+    (load-in-reg :x1 object t)
+    (load-in-reg :x0 new t)
+    (smash-x0)
+    ;; Generate the address.
+    (when constant-offset
+      (load-literal :x9 (object-slot-displacement constant-offset)))
+    (emit `(lap:add :x9 :x9 :x1))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    ;; Add loop.
+    (emit label
+          ;; Load old value into X2
+          `(lap:ldaxr :x2 (:x9))
+          ;; Store linked new value, status in X11.
+          `(lap:stlxr :w11 :x0 (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x11 ,label))
+    ;; Finish up.
+    (emit-gc-info)
+    (emit `(lap:orr :x0 :xzr :x2))
+    (setf *x0-value* (list (gensym)))))
+
+;; If the value in SLOT matches OLD, set it to NEW; otherwise do nothing.
+;; Returns true as the primary value if the slot was modified, false otherwise.
+;; Additionally returns the old value of SLOT as the second value.
+;; (defun cas (object offset old new)
+;;   (let ((slot-value (%object-ref-t object slot)))
+;;     (values (cond ((eq slot-value old)
+;;                    (setf (%object-ref-t object slot) new)
+;;                    t)
+;;                   (t nil))
+;;             slot-value)))
+(defbuiltin sys.int::%cas-object (object offset old new) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset)))
+        (loop-label (gensym "LOOP"))
+        (out-label (gensym "OUT")))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, with tag adjustment.
+      (emit `(lap:add :x9 :xzr :x2 :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+            `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))))
+    (load-in-reg :x1 object t)
+    (load-in-reg :x0 new t)
+    (load-in-reg :x2 old t)
+    (smash-x0)
+    ;; Generate the address.
+    (when constant-offset
+      (load-literal :x9 (object-slot-displacement constant-offset)))
+    (emit `(lap:add :x9 :x9 :x1))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    (emit `(lap:ldr :x4 (:constant t)))
+    (emit loop-label
+          ;; Load old value into X3
+          `(lap:ldaxr :x3 (:x9))
+          ;; Test against old value.
+          `(lap:subs :xzr :x2 :x3)
+          `(lap:csel.ne :x4 :x26 :x4)
+          `(lap:b.ne ,out-label)
+          ;; Store linked new value, status in X11.
+          `(lap:stlxr :w11 :x0 (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x11 ,loop-label))
+    ;; Finish up.
+    (emit-gc-info)
+    ;; Return success and the old value.
+    (emit out-label
+          `(lap:orr :x1 :xzr :x3)
+          `(lap:orr :x0 :xzr :x4))
+    (load-constant :x5 2)
+    :multiple))
+
+;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
+;; Returns the two old slot values and a success boolean.
+;; (defun dcas (object offset old-1 old-2 new-1 new-2)
+;;   (let ((slot-value-1 (%object-ref-t object slot))
+;;         (slot-value-2 (%object-ref-t object (1+ slot))))
+;;     (values (cond ((and (eq slot-value-1 old-1)
+;;                         (eq slot-value-2 old-2))
+;;                    (setf (%object-ref-t object slot) new-1
+;;                          (%object-ref-t object (1+ slot)) new-2)
+;;                    t)
+;;                   (t nil))
+;;             slot-value-1
+;;             slot-value-2)))
+(defbuiltin sys.int::%dcas-object (object offset old-1 old-2 new-1 new-2) ()
+  (let ((constant-offset (and (constant-type-p offset `(signed-byte ,(- 64 sys.int::+n-fixnum-bits+)))
+                              (second offset)))
+        (loop-label (gensym "LOOP"))
+        (differ-label (gensym "DIFFER"))
+        (out-label (gensym "OUT")))
+    (unless constant-offset
+      (load-in-reg :x2 offset t)
+      (fixnum-check :x2)
+      ;; Convert to unboxed integer, with tag adjustment.
+      (emit `(lap:add :x9 :xzr :x2 :lsl ,(- 3 sys.int::+n-fixnum-bits+))
+            `(lap:sub :x9 :x9 ,(- (object-slot-displacement 0)))))
+    (load-in-reg :x1 object t)
+    (load-in-reg :x0 new-1 t)
+    (load-in-reg :x2 new-2 t)
+    (load-in-reg :x3 old-1 t)
+    (load-in-reg :x4 old-2 t)
+    (smash-x0)
+    ;; Generate the address.
+    (when constant-offset
+      (load-literal :x9 (object-slot-displacement constant-offset)))
+    (emit `(lap:add :x9 :x9 :x1))
+    ;; Move to linked gc mode.
+    ;; x9 is interior pointer into x1.
+    (emit-gc-info :extra-registers :rax)
+    (emit loop-label
+          ;; Load old values into X6 and X7
+          `(lap:ldaxp :x6 :x7 (:x9))
+          ;; Test against old value.
+          `(lap:subs :xzr :x6 :x3)
+          `(lap:b.ne ,differ-label)
+          `(lap:subs :xzr :x7 :x4)
+          `(lap:b.ne ,differ-label)
+          ;; Store linked new value, status in X11.
+          `(lap:stlxp :w11 :x0 :x2 (:x9))
+          ;; Retry on failure.
+          `(lap:cbnz :x11 ,loop-label))
+    ;; Finish up.
+    (emit-gc-info)
+    ;; Return success and the old value.
+    (emit `(lap:ldr :x0 (:constant t))
+          `(lap:b ,out-label)
+          differ-label
+          `(lap:orr :x0 :xzr :x26)
+          out-label
+          `(lap:orr :x1 :xzr :x6)
+          `(lap:orr :x2 :xzr :x7))
+    (load-constant :x5 3)
+    :multiple))

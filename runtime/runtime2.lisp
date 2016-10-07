@@ -94,36 +94,6 @@
   (and (sys.int::%value-has-tag-p object sys.int::+tag-object+)
        (eq (sys.int::%object-tag object) object-tag)))
 
-(defun sys.int::%atomic-fixnum-add-object (object slot delta)
-  (prog1
-      (sys.int::%object-ref-t object slot)
-    (incf (sys.int::%object-ref-t object slot) delta)))
-
-(defun sys.int::%xchg-object (object slot new)
-  (prog1
-      (sys.int::%object-ref-t object slot)
-    (setf (sys.int::%object-ref-t object slot) new)))
-
-(defun sys.int::%cas-object (object slot old new)
-  (let ((slot-value (sys.int::%object-ref-t object slot)))
-    (values (cond ((eq slot-value old)
-                   (setf (sys.int::%object-ref-t object slot) new)
-                   t)
-                  (t nil))
-            slot-value)))
-
-(defun sys.int::%dcas-object (object slot old-1 old-2 new-1 new-2)
-  (let ((slot-value-1 (sys.int::%object-ref-t object slot))
-        (slot-value-2 (sys.int::%object-ref-t object (1+ slot))))
-    (values (cond ((and (eq slot-value-1 old-1)
-                        (eq slot-value-2 old-2))
-                   (setf (sys.int::%object-ref-t object slot) new-1
-                         (sys.int::%object-ref-t object (1+ slot)) new-2)
-                   t)
-                  (t nil))
-            slot-value-1
-            slot-value-2)))
-
 (defun sys.int::%copy-words (destination-address source-address count)
   (dotimes (i count)
     (setf (sys.int::memref-t destination-address i)
