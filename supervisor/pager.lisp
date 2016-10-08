@@ -330,7 +330,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                                  +page-table-write+
                                                  0)))
       ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
-      (sys.int::%invlpg address))))
+      (flush-tlb-single address))))
 
 (defun allocate-memory-range-in-pager (base length flags)
   (pager-log "Allocate range " base "-" (+ base length) "  " flags)
@@ -437,7 +437,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
         ;; Remove this page from the VM, but do not free it just yet.
         (remove-from-page-replacement-list candidate)
         (setf (sys.int::memref-unsigned-byte-64 pte-addr 0) 0)
-        (sys.int::%invlpg candidate-virtual)
+        (flush-tlb-single candidate-virtual)
         ;; Maybe write it back to disk.
         (when (logtest pte +page-table-dirty+)
           (when (not (block-info-committed-p bme))
