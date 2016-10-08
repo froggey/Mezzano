@@ -19,6 +19,8 @@
 (defconstant +arm64-tte-sh-inner-shareable+ 3)
 
 (defconstant +arm64-tte-copy-on-write+ #x0080000000000000)
+(defconstant +arm64-tte-writable+      #x0100000000000000)
+(defconstant +arm64-tte-dirty+         #x0200000000000000)
 (defconstant +arm64-tte-address-mask+  #x00007ffffffff000)
 
 (sys.int::define-lap-function %ttbr0 (())
@@ -45,7 +47,7 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
-(defun make-pte (frame &key writable (present t) block)
+(defun make-pte (frame &key writable (present t) block wired dirty)
   (logior (ash frame 12)
           (if present
               (logior +arm64-tte-present+
@@ -58,9 +60,15 @@
               0
               +arm64-tte-not-block+)
           (if writable
-              (dpb +arm64-tte-ap-prw-una+
-                   +arm64-tte-ap+
-                   0)
+              (logior +arm64-tte-writable+
+                      (if (or wired dirty)
+                          (logior (dpb +arm64-tte-ap-prw-una+
+                                       +arm64-tte-ap+
+                                       0)
+                                  +arm64-tte-dirty+)
+                          (dpb +arm64-tte-ap-pro-una+
+                               +arm64-tte-ap+
+                               0)))
               0)))
 
 (defun pte-physical-address (pte)

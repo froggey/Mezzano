@@ -164,6 +164,24 @@
     (case status
       ((#x04 #x05 #x06 #x07) ;; Translation fault (page not mapped).
        (%page-fault-handler interrupt-frame fault-addr :not-present))
+      ((#x0C #x0D #x0E #x0F) ;; Permission fault.
+       (let ((pte (get-pte-for-address fault-addr nil)))
+         (cond ((and (logtest esr #x40)
+                     pte
+                     (logtest (page-table-entry pte) +arm64-tte-writable+)
+                     (eql (ldb +arm64-tte-ap+ (page-table-entry pte))
+                          +arm64-tte-ap-pro-una+))
+                ;; Dirty bit emulation.
+                ;; Set the dirty bit and make the page writable again.
+                #+(or)
+                (debug-print-line "Dirty emulation for address " fault-addr)
+                (setf (page-table-entry pte) (logior (page-table-entry pte)
+                                                     +arm64-tte-dirty+))
+                (setf (ldb +arm64-tte-ap+ (page-table-entry pte))
+                      +arm64-tte-ap-prw-una+)
+                (flush-tlb-single fault-addr))
+               (t
+                (unhandled-interrupt interrupt-frame "data-abort")))))
       (t
        (unhandled-interrupt interrupt-frame "data-abort")))))
 

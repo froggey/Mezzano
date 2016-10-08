@@ -594,12 +594,13 @@ Returns NIL if the entry is missing and ALLOCATE is false."
               (set-address-flags fault-address (logand block-info
                                                        sys.int::+block-map-flag-mask+
                                                        (lognot sys.int::+block-map-zero-fill+)))
-              (setf (page-table-entry pte 0) (make-pte frame :writable (block-info-writable-p block-info)))
-              (flush-tlb-single fault-address)
               ;; Touch the page to make sure the snapshotter & swap code know to swap it out.
               ;; The zero fill flag in the block map was cleared, but the on-disk data doesn't reflect that.
               ;; This sets the dirty bits in the page tables properly.
-              (setf (sys.int::memref-unsigned-byte-8 fault-address 0) 0))
+              (setf (page-table-entry pte 0) (make-pte frame
+                                                       :writable (block-info-writable-p block-info)
+                                                       :dirty t))
+              (flush-tlb-single fault-address))
             t))))))
 
 (defun wait-for-page-via-interrupt (interrupt-frame address)
