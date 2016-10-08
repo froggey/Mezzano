@@ -228,7 +228,9 @@
            (return))
         (let ((return-address (if (thread-full-save-p thread)
                                   (thread-state-rip thread)
-                                  (sys.int::memref-signed-byte-64 (thread-state-rsp thread) 0))))
+                                  (sys.int::memref-signed-byte-64 (thread-state-rsp thread)
+                                                                  #-arm64 0
+                                                                  #+arm64 1))))
           (when (eql return-address 0)
             (return))
           (debug-write-string "             ")
