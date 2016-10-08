@@ -68,3 +68,7 @@
 (defun read-rtc-time ()
   (let ((seconds (+ *rtc-adjust* (truncate (%cntpct) *generic-timer-rate*))))
     (decode-universal-time seconds)))
+
+(defun sys.int::tsc ()
+  ;; This isn't the cycle counter, but it's close enough for now.
+  (%cntpct))
