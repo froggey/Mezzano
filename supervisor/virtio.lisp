@@ -277,6 +277,18 @@
   (setf (virtio-ring-avail-idx vq) (ldb (byte 16 0)
                                         (1+ (virtio-ring-avail-idx vq)))))
 
+(defun virtio-pop-used-ring (vq)
+  (cond ((eql (virtio-ring-used-idx vq)
+              (virtqueue-last-seen-used vq))
+         nil)
+        (t
+         (let* ((ring-entry (rem (virtqueue-last-seen-used vq)
+                                 (virtqueue-size vq)))
+                (desc (virtio-ring-used-elem-id vq ring-entry)))
+           (setf (virtqueue-last-seen-used vq)
+                 (ldb (byte 16 0) (1+ (virtqueue-last-seen-used vq))))
+           desc))))
+
 (defun virtio-kick (dev vq-id)
   "Notify the device that new buffers have been added to VQ-ID."
   (if (virtio-device-mmio dev)
@@ -311,6 +323,8 @@
      (virtio-net-register dev))
     (#.+virtio-dev-id-block+
      (virtio-block-register dev))
+    (#.+virtio-dev-id-input+
+     (virtio-input-register dev))
     (t
      (debug-print-line "Unknown virtio device type " did)
      (setf (virtio-device-status dev) +virtio-status-failed+))))

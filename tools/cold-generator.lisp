@@ -61,6 +61,7 @@
     "supervisor/virtio-mmio.lisp"
     "supervisor/virtio-net.lisp"
     "supervisor/virtio-block.lisp"
+    "supervisor/virtio-input.lisp"
     "supervisor/profiler.lisp"
     "supervisor/support.lisp"
     "supervisor/rtl8168.lisp"
