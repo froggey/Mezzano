@@ -513,7 +513,9 @@ This is required to make the GC interrupt safe."
               (scavenge-full-save-thread object))
              (t (let* ((stack-pointer (mezzano.supervisor:thread-stack-pointer object))
                        (frame-pointer (mezzano.supervisor:thread-frame-pointer object))
-                       (return-address (memref-unsigned-byte-64 stack-pointer 0)))
+                       (return-address (memref-unsigned-byte-64 stack-pointer
+                                                                #-arm64 0
+                                                                #+arm64 1)))
                   (scavenge-stack stack-pointer frame-pointer return-address))))))))
 
 (defun gc-info-for-function-offset (function offset)
