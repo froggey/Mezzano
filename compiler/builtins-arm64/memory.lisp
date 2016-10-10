@@ -714,11 +714,15 @@
     ;; Finish up.
     (emit-gc-info)
     ;; Return success and the old value.
-    (emit out-label
-          `(lap:orr :x1 :xzr :x3)
-          `(lap:orr :x0 :xzr :x4))
-    (load-constant :x5 2)
-    :multiple))
+    (emit out-label)
+    (cond ((member *for-value* '(:multiple :tail))
+           (emit `(lap:orr :x1 :xzr :x3)
+                 `(lap:orr :x0 :xzr :x4))
+           (load-constant :x5 2)
+           :multiple)
+          (t
+           (emit `(lap:orr :x0 :xzr :x4))
+           (setf *x0-value* (list (gensym)))))))
 
 ;; Similar to %CAS-OBJECT, but performs two CAS operations on adjacent slots.
 ;; Returns the two old slot values and a success boolean.
@@ -777,8 +781,11 @@
           `(lap:b ,out-label)
           differ-label
           `(lap:orr :x0 :xzr :x26)
-          out-label
-          `(lap:orr :x1 :xzr :x6)
-          `(lap:orr :x2 :xzr :x7))
-    (load-constant :x5 3)
-    :multiple))
+          out-label)
+    (cond ((member *for-value* '(:multiple :tail))
+           (emit `(lap:orr :x1 :xzr :x6)
+                 `(lap:orr :x2 :xzr :x7))
+           (load-constant :x5 3)
+           :multiple)
+          (t
+           (setf *x0-value* (list (gensym)))))))
