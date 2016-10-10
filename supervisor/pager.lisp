@@ -372,7 +372,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       ;; Update page tables and release pages if possible.
       (let ((pte (get-pte-for-address (+ base (* i #x1000)) nil)))
         (when (and pte (page-present-p pte 0))
-          (release-vm-page (ash (page-table-entry pte 0) -12))
+          (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
           (setf (page-table-entry pte 0) 0))))
     (flush-tlb)))
 
@@ -402,7 +402,7 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                      (block-info-zero-fill-p flags))
                  ;; Page going away, but it's ok. It'll be back, zero-filled.
                  #+(or)(debug-print-line "  flush page " (+ base (* i #x1000)) "  " (page-table-entry pte 0))
-                 (release-vm-page (ash (page-table-entry pte 0) -12))
+                 (release-vm-page (ash (pte-physical-address (page-table-entry pte 0)) -12))
                  (setf (page-table-entry pte 0) 0))
                 ((block-info-writable-p flags)
                  ;; Mark writable.
