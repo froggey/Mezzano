@@ -586,6 +586,7 @@
     ;; *2 as conses are 2 words and +1 for padding word at the start.
     (emit `(lap:add :x10 :x5 :x5)
           `(lap:add :x10 :x10 ,(fixnum-to-raw 1)))
+    (emit `(lap:add :x10 :xzr :x10 :lsl ,(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+)))
     (emit `(lap:str :x10 (:sp)))
     ;; Clear the padding slot.
     (emit `(lap:str :xzr (:sp 8)))
