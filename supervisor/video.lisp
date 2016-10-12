@@ -13,7 +13,8 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
   width
   height
   pitch
-  layout)
+  layout
+  damage-fn)
 
 (sys.int::defglobal *current-framebuffer* nil)
 (sys.int::defglobal *debug-video-x* 0)
@@ -36,16 +37,24 @@ Can be :TOP to position them at the top of the screen, :BOTTOM to position them 
         (pitch (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-pitch+) 0))
         (layout (ecase (sys.int::memref-t (+ *boot-information-page* +boot-information-framebuffer-layout+) 0)
                   (1 :x8r8g8b8))))
-    (debug-print-line "Framebuffer at " phys "  " width "x" height "  layout " layout "  pitch " pitch)
     (map-physical-memory (logand phys (lognot #xFFF))
                          (logand (+ (* height pitch) (logand phys #xFFF) #xFFF) (lognot #xFFF))
                          "System Framebuffer")
-    (setf *current-framebuffer* (make-framebuffer :base-address phys
-                                                  :width width
-                                                  :height height
-                                                  :pitch pitch
-                                                  :layout layout))
-    (set-run-light t)))
+    (video-set-framebuffer phys width height pitch layout nil)))
+
+(defun framebuffer-dummy-damage (x y w h in-unsafe-context-p)
+  (declare (ignore x y w h in-unsafe-context-p)))
+
+(defun video-set-framebuffer (phys width height pitch layout damage-fn)
+  (debug-print-line "Configured new framebuffer at " phys "  " width "x" height "  layout " layout "  pitch " pitch)
+  (setf *current-framebuffer* (make-framebuffer :base-address phys
+                                                :width width
+                                                :height height
+                                                :pitch pitch
+                                                :layout layout
+                                                :damage-fn (or damage-fn
+                                                               'framebuffer-dummy-damage)))
+  (set-run-light t))
 
 (defun current-framebuffer ()
   *current-framebuffer*)
@@ -125,6 +134,10 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
           (%%bitblt-row to-base from-base ncols)
           (incf to-base to-pitch)
           (incf from-base from-pitch))))
+    (funcall (framebuffer-damage-fn fb)
+             to-col to-row
+             ncols nrows
+             nil)
     t))
 
 #+x86-64
@@ -139,7 +152,21 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:movs32)
   (sys.lap-x86:ret))
 
-#-x86-64
+#+arm64
+(sys.int::define-lap-function %%bitblt-row ((to-base colour ncols))
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+) ; to-storage
+  (mezzano.lap.arm64:add :x11 :xzr :x1 :asr #.sys.int::+n-fixnum-bits+) ; from-storage
+  (mezzano.lap.arm64:add :x5 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+) ; ncols
+  (mezzano.lap.arm64:cbz :x5 OUT)
+  LOOP
+  (mezzano.lap.arm64:ldr :w9 (:post :x11 4))
+  (mezzano.lap.arm64:str :w9 (:post :x12 4))
+  (mezzano.lap.arm64:subs :x5 :x5 1)
+  (mezzano.lap.arm64:b.ne LOOP)
+  OUT
+  (mezzano.lap.arm64:ret))
+
+#-(or x86-64 arm64)
 (defun %%bitblt-row (to-base from-base ncols)
   (dotimes (i ncols)
     (setf (sys.int::memref-unsigned-byte-32 to-base i)
@@ -157,7 +184,20 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:stos32)
   (sys.lap-x86:ret))
 
-#-x86-64
+#+arm64
+(sys.int::define-lap-function %%bitset-row ((to-base colour ncols))
+  (mezzano.lap.arm64:add :x12 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+) ; to-storage
+  (mezzano.lap.arm64:add :x9 :xzr :x1 :asr #.sys.int::+n-fixnum-bits+) ; colour
+  (mezzano.lap.arm64:add :x5 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+) ; ncols
+  (mezzano.lap.arm64:cbz :x5 OUT)
+  LOOP
+  (mezzano.lap.arm64:str :w9 (:post :x12 4))
+  (mezzano.lap.arm64:subs :x5 :x5 1)
+  (mezzano.lap.arm64:b.ne LOOP)
+  OUT
+  (mezzano.lap.arm64:ret))
+
+#-(or x86-64 arm64)
 (defun %%bitset-row (to-base colour ncols)
   (dotimes (i ncols)
     (setf (sys.int::memref-unsigned-byte-32 to-base i) colour)))
@@ -168,7 +208,11 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
     (let ((fb-addr (framebuffer-base-address *current-framebuffer*)))
       (%%bitset-row (convert-to-pmap-address fb-addr)
                     #xFFFF0000
-                    (framebuffer-width *current-framebuffer*)))))
+                    (framebuffer-width *current-framebuffer*))
+      (funcall (framebuffer-damage-fn *current-framebuffer*)
+               0 0
+               (framebuffer-width *current-framebuffer*) 1
+               t))))
 
 (defstruct (light
              (:area :wired))
@@ -212,7 +256,11 @@ An integer, measured in internal time units.")
       (when (<= (+ light-offset 32) (framebuffer-width *current-framebuffer*))
         (%%bitset-row (convert-to-pmap-address fb-addr)
                       colour
-                      32)))))
+                      32)
+        (funcall (framebuffer-damage-fn *current-framebuffer*)
+                 0 0
+                 (framebuffer-width *current-framebuffer*) 1
+                 t)))))
 
 (defun clear-light (light)
   (setf (light-state light) nil)
@@ -228,7 +276,11 @@ An integer, measured in internal time units.")
       (when (<= (+ light-offset 32) (framebuffer-width *current-framebuffer*))
         (%%bitset-row (convert-to-pmap-address fb-addr)
                       #xFF000000
-                      32)))))
+                      32)
+        (funcall (framebuffer-damage-fn *current-framebuffer*)
+                 0 0
+                 (framebuffer-width *current-framebuffer*) 1
+                 t)))))
 
 (defmacro deflight (name colour position)
   (let ((setter (intern (format nil "SET-~A-LIGHT" name)))
