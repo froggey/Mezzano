@@ -153,7 +153,7 @@ If the framebuffer is invalid, the caller should fetch the current framebuffer a
   (sys.lap-x86:ret))
 
 #+arm64
-(sys.int::define-lap-function %%bitblt-row ((to-base colour ncols))
+(sys.int::define-lap-function %%bitblt-row ((to-base from-base ncols))
   (mezzano.lap.arm64:add :x12 :xzr :x0 :asr #.sys.int::+n-fixnum-bits+) ; to-storage
   (mezzano.lap.arm64:add :x11 :xzr :x1 :asr #.sys.int::+n-fixnum-bits+) ; from-storage
   (mezzano.lap.arm64:add :x5 :xzr :x2 :asr #.sys.int::+n-fixnum-bits+) ; ncols

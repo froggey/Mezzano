@@ -323,6 +323,8 @@
      (virtio-net-register dev))
     (#.+virtio-dev-id-block+
      (virtio-block-register dev))
+    (#.+virtio-dev-id-gpu+
+     (virtio-gpu-register dev))
     (#.+virtio-dev-id-input+
      (virtio-input-register dev))
     (t

@@ -173,19 +173,17 @@
           (virtio-ring-desc-flags vq rsp-desc) (ash 1 +virtio-ring-desc-f-write+)
           (virtio-ring-desc-next vq rsp-desc) 0)
     ;; Issue command & await completion.
-    (virtio-ring-add-to-avail-ring vq cmd-desc)
-    (virtio-kick dev +virtio-gpu-controlq+)
-    (cond (in-unsafe-context-p
-           ;; Spin waiting for the command to complete.
-           (loop
-              (let ((desc (virtio-pop-used-ring vq)))
-                (when desc
-                  (ensure (eql desc cmd-desc))
-                  (return)))))
-          (t
-           (latch-wait (virtio-gpu-irq-latch gpu))
-           (latch-reset (virtio-gpu-irq-latch gpu))
-           (ensure (eql (virtio-pop-used-ring vq) cmd-desc))))
+    (let ((last-used (virtio-ring-used-idx vq)))
+      (virtio-ring-add-to-avail-ring vq cmd-desc)
+      (virtio-kick dev +virtio-gpu-controlq+)
+      (cond (in-unsafe-context-p
+             ;; Spin waiting for the command to complete.
+             (loop
+                (when (not (eql last-used (virtio-ring-used-idx vq)))
+                  (return))))
+            (t
+             (latch-wait (virtio-gpu-irq-latch gpu))
+             (latch-reset (virtio-gpu-irq-latch gpu)))))
     ;; Release descriptors
     (virtio-ring-free-descriptor vq cmd-desc)
     (virtio-ring-free-descriptor vq rsp-desc)
