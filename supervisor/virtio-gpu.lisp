@@ -132,7 +132,10 @@
   irq-handler-function
   (irq-latch (make-latch "Virtio-Block IRQ Notifier"))
   request-phys
-  request-virt)
+  request-virt
+  scanout
+  width
+  height)
 
 (defun virtio-gpu-command-address (gpu &optional (offset 0))
   (+ (virtio-gpu-request-virt gpu)
@@ -295,7 +298,7 @@
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-y+) 0) y
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-width+) 0) w
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-height+) 0) h
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-offset+) 0) 0
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-offset+) 0) (* (+ x (* y (virtio-gpu-width gpu))) 4)
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-resource-id+) 0) +virtio-gpu-framebuffer-resource-id+)
   (virtio-gpu-issue-command gpu +virtio-gpu-transfer-to-host-2d-size+ 0 in-unsafe-context-p)
   (virtio-gpu-configure-command gpu
@@ -380,6 +383,9 @@
             (when (not successp)
               (debug-print-line "virtio-gpu: Unable to set scanout: " error)
             (return-from virtio-gpu-register nil)))
+          (setf (virtio-gpu-scanout gpu) pmode
+                (virtio-gpu-width gpu) width
+                (virtio-gpu-height gpu) height)
           (video-set-framebuffer framebuffer-phys width height
                                  (* width 4) :x8r8g8b8
                                  (lambda (x y w h in-unsafe-context-p)
