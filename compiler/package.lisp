@@ -265,6 +265,8 @@
            #:disk-request-complete-p
            #:start-profiling
            #:stop-profiling
+           #:*virtio-input-devices*
+           #:read-virtio-input-device
 
            #:pci-device-location
            #:pci-config/8

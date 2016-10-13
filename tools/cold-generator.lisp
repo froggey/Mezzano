@@ -190,6 +190,7 @@
     "gui/keymaps.lisp"
     "gui/compositor.lisp"
     ;"gui/input-drivers.lisp"
+    "gui/input-drivers-virtio.lisp"
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
     "net/package.lisp"

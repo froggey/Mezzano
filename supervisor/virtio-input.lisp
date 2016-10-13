@@ -32,18 +32,7 @@
 (defconstant +virtio-input-event-value+ 4)
 (defconstant +virtio-input-event-total-size+ 8)
 
-(defconstant +evdev-type-syn+ #x00)
-(defconstant +evdev-type-key+ #x01)
-(defconstant +evdev-type-rel+ #x02)
-(defconstant +evdev-type-abs+ #x03)
-(defconstant +evdev-type-msc+ #x04)
-(defconstant +evdev-type-sw+  #x05)
-(defconstant +evdev-type-led+ #x11)
-(defconstant +evdev-type-snd+ #x12)
-(defconstant +evdev-type-rep+ #x14)
-(defconstant +evdev-type-ff+  #x15)
-(defconstant +evdev-type-pwr+ #x16)
-(defconstant +evdev-type-ff-status+ #x17)
+(sys.int::defglobal *virtio-input-devices* '())
 
 (defstruct (virtio-input
              (:area :wired))
@@ -51,7 +40,8 @@
   irq-handler-function
   event-phys
   event-virt
-  (debug-dump-state 0))
+  (debug-dump-state 0)
+  (fifo (make-irq-fifo 50 :name "Virtio-Input fifo")))
 
 (defun virtio-input-event-processing (input)
   (let* ((dev (virtio-input-virtio-device input))
@@ -64,8 +54,8 @@
                 (type (physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-type+)))
                 (code (physical-memref-unsigned-byte-16 (+ phys-addr +virtio-input-event-code+)))
                 (value (physical-memref-unsigned-byte-32 (+ phys-addr +virtio-input-event-value+))))
-           (when (and (eql type +evdev-type-key+)
-                      ;; Key press.
+           ;; Check for magic key press.
+           (when (and (eql type #x01)
                       (eql value 1))
              (case (virtio-input-debug-dump-state input)
                ;; Start. Expect left-meta.
@@ -81,7 +71,12 @@
                         (t
                          (setf (virtio-input-debug-dump-state input) 0))))
                (t
-                (setf (virtio-input-debug-dump-state input) 0)))))
+                (setf (virtio-input-debug-dump-state input) 0))))
+           ;; Stuff the event into the fifo.
+           (let ((packed-value (logior (ash type 48)
+                                       (ash code 32)
+                                       value)))
+             (irq-fifo-push packed-value (virtio-input-fifo input))))
          ;; Re-add the descriptor to the avail ring.
          (virtio-ring-add-to-avail-ring vq desc)))
     (virtio-kick dev 0)))
@@ -141,5 +136,13 @@
                 (virtio-ring-desc-flags event-vq desc) (ash 1 +virtio-ring-desc-f-write+))
           (virtio-ring-add-to-avail-ring event-vq desc))))
     (virtio-kick device 0)
+    (when (not (boundp '*virtio-input-devices*))
+      (setf *virtio-input-devices* '()))
+    (push-wired input *virtio-input-devices*)))
 
-))
+(defun read-virtio-input-device (device &optional (wait-p t))
+  (let ((packed-value (irq-fifo-pop (virtio-input-fifo device) wait-p)))
+    (when packed-value
+      (values (ldb (byte 12 48) packed-value) ; type
+              (ldb (byte 16 32) packed-value) ; code
+              (ldb (byte 32 0) packed-value))))) ; value
