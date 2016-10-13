@@ -129,8 +129,6 @@
 (defstruct (virtio-gpu
              (:area :wired))
   virtio-device
-  irq-handler-function
-  (irq-latch (make-latch "Virtio-Block IRQ Notifier"))
   request-phys
   request-virt
   scanout
@@ -155,7 +153,7 @@
           (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-fence-id+) 0) fence-id
           (sys.int::memref-unsigned-byte-32 (+ addr +virtio-gpu-ctrl-hdr-ctx-id+) 0) ctx-id)))
 
-(defun virtio-gpu-issue-command (gpu command-length response-length &optional in-unsafe-context-p)
+(defun virtio-gpu-issue-command (gpu command-length response-length)
   (let* ((req-phys (virtio-gpu-request-phys gpu))
          (dev (virtio-gpu-virtio-device gpu))
          (vq (virtio-virtqueue dev +virtio-gpu-controlq+))
@@ -179,14 +177,10 @@
     (let ((last-used (virtio-ring-used-idx vq)))
       (virtio-ring-add-to-avail-ring vq cmd-desc)
       (virtio-kick dev +virtio-gpu-controlq+)
-      (cond (in-unsafe-context-p
-             ;; Spin waiting for the command to complete.
-             (loop
-                (when (not (eql last-used (virtio-ring-used-idx vq)))
-                  (return))))
-            (t
-             (latch-wait (virtio-gpu-irq-latch gpu))
-             (latch-reset (virtio-gpu-irq-latch gpu)))))
+      ;; Spin waiting for the command to complete.
+      (loop
+         (when (not (eql last-used (virtio-ring-used-idx vq)))
+           (return))))
     ;; Release descriptors
     (virtio-ring-free-descriptor vq cmd-desc)
     (virtio-ring-free-descriptor vq rsp-desc)
@@ -284,11 +278,7 @@
           (t
            (values nil resp-type)))))
 
-(defun virtio-gpu-irq-handler (gpu)
-  (latch-trigger (virtio-gpu-irq-latch gpu)))
-
-(defun virtio-gpu-dirty (gpu x y w h in-unsafe-context-p)
-  ;; Issue commands to update the framebuffer and to flush the scanout.
+(defun virtio-gpu-transfer-to-host-2d (gpu x y width height offset resource-id)
   (virtio-gpu-configure-command gpu
                                 +virtio-gpu-cmd-transfer-to-host-2d+
                                 0
@@ -296,11 +286,19 @@
                                 0)
   (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-x+) 0) x
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-y+) 0) y
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-width+) 0) w
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-height+) 0) h
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-offset+) 0) (* (+ x (* y (virtio-gpu-width gpu))) 4)
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-resource-id+) 0) +virtio-gpu-framebuffer-resource-id+)
-  (virtio-gpu-issue-command gpu +virtio-gpu-transfer-to-host-2d-size+ 0 in-unsafe-context-p)
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-width+) 0) width
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-height+) 0) height
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-offset+) 0) offset
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-transfer-to-host-2d-resource-id+) 0) resource-id)
+  (let ((resp-type (virtio-gpu-issue-command gpu
+                                             +virtio-gpu-transfer-to-host-2d-size+
+                                             0)))
+    (cond ((eql resp-type +virtio-gpu-resp-ok-nodata+)
+           (values t nil))
+          (t
+           (values nil resp-type)))))
+
+(defun virtio-gpu-resource-flush (gpu x y width height resource-id)
   (virtio-gpu-configure-command gpu
                                 +virtio-gpu-cmd-resource-flush+
                                 0
@@ -308,20 +306,37 @@
                                 0)
   (setf (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-x+) 0) x
         (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-y+) 0) y
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-width+) 0) w
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-height+) 0) h
-        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-resource-id+) 0) +virtio-gpu-framebuffer-resource-id+)
-  (virtio-gpu-issue-command gpu +virtio-gpu-resource-flush-size+ 0 in-unsafe-context-p))
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-width+) 0) width
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-height+) 0) height
+        (sys.int::memref-unsigned-byte-32 (virtio-gpu-command-address gpu +virtio-gpu-resource-flush-resource-id+) 0) resource-id)
+  (let ((resp-type (virtio-gpu-issue-command gpu +virtio-gpu-resource-flush-size+ 0)))
+    (cond ((eql resp-type +virtio-gpu-resp-ok-nodata+)
+           (values t nil))
+          (t
+           (values nil resp-type)))))
 
+(defun virtio-gpu-dirty (gpu x y w h in-unsafe-context-p)
+  (declare (ignore in-unsafe-context-p))
+  (let ((xy (logior (ash x 32) y))
+        (wh (logior (ash w 32) h)))
+    (safe-without-interrupts (gpu xy wh)
+      ;; Issue commands to update the framebuffer and to flush the scanout.
+      (let ((x (ldb (byte 32 32) xy))
+            (y (ldb (byte 32 0) xy))
+            (w (ldb (byte 32 32) wh))
+            (h (ldb (byte 32 0) wh)))
+        (virtio-gpu-transfer-to-host-2d gpu
+                                        x y w h
+                                        (* (+ x (* y (virtio-gpu-width gpu))) 4)
+                                        +virtio-gpu-framebuffer-resource-id+)
+        (virtio-gpu-resource-flush gpu
+                                   x y w h
+                                   +virtio-gpu-framebuffer-resource-id+)))))
 
 (defun virtio-gpu-register (device)
-  ;; Wired allocation required for the IRQ handler closure.
   (declare (sys.c::closure-allocation :wired))
   (debug-print-line "Detected virtio GPU device " device)
   (let* ((gpu (make-virtio-gpu :virtio-device device))
-         (irq-handler (lambda (interrupt-frame irq)
-                        (declare (ignore interrupt-frame irq))
-                        (virtio-gpu-irq-handler gpu)))
          ;; Allocate some memory for the request header & footer.
          (frame (or (allocate-physical-pages 1)
                     (panic "Unable to allocate memory for virtio gpu request")))
@@ -337,10 +352,6 @@
     (when (not (virtio-configure-virtqueues device 2))
       (setf (virtio-device-status device) +virtio-status-failed+)
       (return-from virtio-gpu-register nil))
-    ;; Enable IRQ handler.
-    (setf (virtio-gpu-irq-handler-function gpu) irq-handler)
-    (virtio-attach-irq device irq-handler)
-    (setf (virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.
     (setf (virtio-device-status device) (logior +virtio-status-acknowledge+
                                                 +virtio-status-driver+
