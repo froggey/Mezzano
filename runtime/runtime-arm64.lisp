@@ -3,6 +3,11 @@
 
 (in-package :mezzano.runtime)
 
+(defun values-list (values)
+  (sys.int::values-simple-vector
+   (make-array (length values)
+               :initial-contents values)))
+
 (sys.int::define-lap-function sys.int::values-simple-vector ((simple-vector))
   "Returns the elements of SIMPLE-VECTOR as multiple values."
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
