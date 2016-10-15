@@ -48,6 +48,7 @@
     "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
+    "supervisor/arm64/snapshot.lisp"
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
     "supervisor/arm64/pager.lisp"

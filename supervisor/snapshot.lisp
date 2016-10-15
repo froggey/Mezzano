@@ -63,7 +63,7 @@
      for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
      for pte = (or (get-pte-for-address wired-page nil)
                    (panic "No page table entry for wired-page " wired-page))
-     for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
+     for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
      for backing-frame = (physical-page-frame-next page-frame)
      for bme-addr = (or (block-info-for-virtual-address-1 wired-page nil)
                         (panic "No block map entry for wired-page " wired-page))
@@ -86,68 +86,18 @@
        for wired-page from #x200000 below sys.int::*wired-area-bump* by #x1000
        for pte = (or (get-pte-for-address wired-page nil)
                      (panic "No page table entry for " wired-page))
-       for page-frame = (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)
+       for page-frame = (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)
        for other-frame = (physical-page-frame-next page-frame)
        do
          (%fast-page-copy (convert-to-pmap-address (ash other-frame 12))
                           wired-page)
          (snapshot-add-to-writeback-list other-frame))))
 
-(defun snapshot-mark-cow-dirty-pages ()
-  ;; Mark all non-wired dirty pages as read-only and set their CoW bits.
-  (let ((pml4 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF)))))
-    (labels ((mark-level (pml index next-fn)
-               ;;(debug-print-line " PML " pml " index " index)
-               (let* ((entry (sys.int::memref-unsigned-byte-64 pml index))
-                      (next-pml (convert-to-pmap-address
-                                 (logand entry +page-table-address-mask+))))
-                 (when (and (logtest entry +page-table-present+)
-                            (logtest entry +page-table-accessed+))
-                   (dotimes (i 512)
-                     (funcall next-fn next-pml i))
-                   ;; Clear accessed bit.
-                   (setf (sys.int::memref-unsigned-byte-64 pml index)
-                         (logand entry (lognot +page-table-accessed+))))))
-             (mark-pml4e-cow (pml4e)
-               (mark-level pml4 pml4e #'mark-pml3e-cow))
-             (mark-pml3e-cow (pml3 pml3e)
-               (mark-level pml3 pml3e #'mark-pml2e-cow))
-             (mark-pml2e-cow (pml2 pml2e)
-               (mark-level pml2 pml2e #'mark-pml1e-cow))
-             (mark-pml1e-cow (pml1 pml1e)
-               (let ((entry (sys.int::memref-unsigned-byte-64 pml1 pml1e)))
-                 ;;(debug-print-line "    PML1e " pml1e "  " pml1 "  " entry)
-                 (when (logtest entry +page-table-copy-on-write+)
-                   (panic "Page table entry marked CoW when it shouldn't be."))
-                 (when (logtest entry +page-table-dirty+)
-                   (snapshot-add-writeback-frame (ash (sys.int::memref-unsigned-byte-64 pml1 pml1e) -12))
-                   ;; Clear dirty and writable bits, set copy-on-write bit.
-                   (setf (sys.int::memref-unsigned-byte-64 pml1 pml1e)
-                         (logand (logior entry
-                                         +page-table-copy-on-write+)
-                                 (lognot +page-table-write+)
-                                 (lognot +page-table-dirty+)))))))
-      (declare (dynamic-extent #'mark-level
-                               #'mark-pml4e-cow #'mark-pml3e-cow
-                               #'mark-pml2e-cow #'mark-pml1e-cow))
-      ;; Skip wired area, entry 0.
-      (loop for i from 1 below 64 ; pinned area to wired stack area.
-         do (mark-pml4e-cow i))
-      ;; Skip wired stack area, entry 64.
-      (loop for i from 65 below 256 ; stack area to end of persistent memory.
-         do (mark-pml4e-cow i))
-      ;; Cover the part of the pinned area that got missed as well.
-      (let ((pml3 (convert-to-pmap-address (logand (sys.int::memref-unsigned-byte-64 pml4 0) +page-table-address-mask+))))
-        ;; Skip first 2 entries, the wired area.
-        (loop for i from 2 below 512
-           do (mark-pml3e-cow pml3 i)))))
-  (flush-tlb))
-
 (defun snapshot-clone-cow-page (new-frame fault-addr)
   (let* ((pte (or (get-pte-for-address fault-addr nil)
                   (panic "No PTE for CoW address?")))
-         (old-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
-    (ensure (logtest (sys.int::memref-unsigned-byte-64 pte 0) +page-table-copy-on-write+)
+         (old-frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
+    (ensure (page-copy-on-write-p pte)
             "Copying non-CoW page?")
     (%fast-page-copy (convert-to-pmap-address (ash new-frame 12))
                      (logand fault-addr (lognot #xFFF)))
@@ -158,10 +108,9 @@
     (append-to-page-replacement-list new-frame)
     ;; Point the PTE at the new page, disable copy on write and reenable write access.
     (setf (sys.int::memref-unsigned-byte-64 pte 0)
-          (logior (ash new-frame 12)
-                  +page-table-write+
-                  +page-table-present+))
-    (sys.int::%invlpg fault-addr)
+          (make-pte new-frame
+                    :writable t))
+    (flush-tlb-single fault-addr)
     #+(or)(debug-print-line "Copied page " fault-addr)))
 
 (defun snapshot-clone-cow-page-via-page-fault (interrupt-frame fault-addr)
@@ -196,14 +145,15 @@ Returns 4 values:
            (%fast-page-copy (convert-to-pmap-address (ash *snapshot-bounce-buffer-page* 12))
                             (convert-to-pmap-address (ash frame 12)))
            ;; Allow access to the page again.
-           (let ((pte (or (get-pte-for-address address nil)
-                          (panic "No PTE for CoW address?"))))
+           (let* ((pte (or (get-pte-for-address address nil)
+                           (panic "No PTE for CoW address?")))
+                  (frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
              ;; Update PTE bits. Clear CoW bit, make writable.
              (setf (sys.int::memref-unsigned-byte-64 pte 0)
-                   (logior (logand (sys.int::memref-unsigned-byte-64 pte 0)
-                                   (lognot +page-table-copy-on-write+))
-                           +page-table-write+))
-             (sys.int::%invlpg address))
+                   (make-pte frame
+                             :writable t
+                             :dirty (page-dirty-p pte)))
+             (flush-tlb-single address))
            ;; Return page to normal use.
            (setf (physical-page-frame-type frame) :active)
            (append-to-page-replacement-list frame)
@@ -238,6 +188,7 @@ Returns 4 values:
        (when (not *snapshot-pending-writeback-pages*) (return))
        (multiple-value-bind (frame freep block-id address)
            (pop-pending-snapshot-page)
+         (declare (ignorable address))
          #+(or)(debug-print-line "Writing back page " frame "/" block-id "/" address)
          (or (snapshot-write-disk block-id (convert-to-pmap-address (ash frame 12)))
              (panic "Unable to write page to disk!"))
@@ -279,7 +230,7 @@ Returns 4 values:
               (let ((pte (get-pte-for-address address nil)))
                 (when (and pte
                            (page-present-p pte 0))
-                  (setf (physical-page-frame-block-id (ash (page-table-entry pte 0) -12)) new-block)))
+                  (setf (physical-page-frame-block-id (ash (pte-physical-address (page-table-entry pte 0)) -12)) new-block)))
               (setf entry (logior (ash new-block sys.int::+block-map-id-shift+)
                                   (logand entry sys.int::+block-map-flag-mask+))
                     (sys.int::memref-unsigned-byte-64 bml1 i) entry)))
@@ -384,7 +335,7 @@ Returns 4 values:
 
 (defun snapshot-thread ()
   (loop
-     #+(or)(when (zerop *snapshot-inhibit*)
+     (when (zerop *snapshot-inhibit*)
        (take-snapshot))
      ;; After taking a snapshot, clear *snapshot-in-progress*
      ;; and go back to sleep.
@@ -411,7 +362,7 @@ Returns 4 values:
                                                :type :wired-backing))
                (pte (or (get-pte-for-address wired-page nil)
                         (panic "No page table entry for wired page " wired-page)))
-               (page-frame (ash (sys.int::memref-unsigned-byte-64 pte 0) -12)))
+               (page-frame (ash (pte-physical-address (sys.int::memref-unsigned-byte-64 pte 0)) -12)))
           (setf (physical-page-frame-next page-frame) frame)
           (setf (physical-page-virtual-address frame) wired-page)))
   ;; ### same here.

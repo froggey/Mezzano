@@ -47,7 +47,7 @@
 (defun address-l2-bits (address) (ldb (byte 9 21) address))
 (defun address-l1-bits (address) (ldb (byte 9 12) address))
 
-(defun make-pte (frame &key writable (present t) block wired dirty)
+(defun make-pte (frame &key writable (present t) block wired dirty copy-on-write)
   (logior (ash frame 12)
           (if present
               (logior +arm64-tte-present+
@@ -69,6 +69,9 @@
                           (dpb +arm64-tte-ap-pro-una+
                                +arm64-tte-ap+
                                0)))
+              0)
+          (if copy-on-write
+              +arm64-tte-copy-on-write+
               0)))
 
 (defun pte-physical-address (pte)
@@ -80,6 +83,10 @@
 
 (defun page-copy-on-write-p (page-table &optional (index 0))
   (logtest +arm64-tte-copy-on-write+
+           (page-table-entry page-table index)))
+
+(defun page-dirty-p (page-table &optional (index 0))
+  (logtest +arm64-tte-dirty+
            (page-table-entry page-table index)))
 
 (defun descend-page-table (page-table index allocate)

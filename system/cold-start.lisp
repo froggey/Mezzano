@@ -273,7 +273,7 @@ structures to exist, and for memory to be allocated, but not much beyond that."
   (gc)
   (room)
   (write-line "Cold load complete.")
-  ;(mezzano.supervisor:snapshot)
+  (mezzano.supervisor:snapshot)
   (write-line "Loading warm modules.")
   (dotimes (i (length *warm-llf-files*))
     (write-string "Loading ")
