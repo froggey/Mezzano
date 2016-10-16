@@ -54,8 +54,9 @@
     (debug-print-line "Timer frequency: " timer-rate " Hz")
     (setf *generic-timer-rate* timer-rate)
     (setf *generic-timer-reset-value* (truncate timer-rate tick-rate))
-    (setf *run-time-advance* (truncate (* tick-rate
-                                          internal-time-units-per-second)))
+    (setf *run-time-advance* (truncate internal-time-units-per-second tick-rate))
+    (debug-print-line "Timer reset: " *generic-timer-reset-value*)
+    (debug-print-line "Timer advance: " *run-time-advance*)
     (platform-attach-irq irq 'generic-timer-irq-handler)
     (platform-unmask-irq irq)
     (when (not (boundp '*rtc-adjust*))
