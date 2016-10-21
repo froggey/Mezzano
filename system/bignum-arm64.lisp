@@ -3,7 +3,7 @@
 
 (in-package :sys.int)
 
-(sys.int::define-lap-function sys.int::%%make-bignum-64-r10 ()
+(sys.int::define-lap-function sys.int::%%make-bignum-64-x10 ()
   (mezzano.lap.arm64:stp :x29 :x30 (:pre :sp -16))
   (:gc :no-frame :incoming-arguments :rcx :layout #*0)
   (mezzano.lap.arm64:add :x29 :sp :xzr)
