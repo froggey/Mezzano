@@ -341,7 +341,7 @@
 
 (defun sys.int::assert-error (test-form datum &rest arguments)
   (declare (dynamic-extent arguments))
-  (panic "Assert error " datum " " arguments))
+  (panic "Assert error " test-form " " datum " " arguments))
 
 (defun sys.int::raise-undefined-function (fref)
   (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))

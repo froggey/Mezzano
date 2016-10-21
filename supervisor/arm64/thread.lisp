@@ -67,15 +67,14 @@
   ;; No value return.
   NORMAL-RETURN
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
-  (mezzano.lap.arm64:orr :x0 :x26 :xzr)
+  (mezzano.lap.arm64:orr :x0 :xzr :x26)
   ;; Return.
   (mezzano.lap.arm64:ldp :x29 :x30 (:post :sp 16))
   (mezzano.lap.arm64:ret)
   RUN-FOOTHOLDS
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-inhibit-footholds+))
   (mezzano.lap.arm64:ldr :x2 (:x28 :x9))
-  (mezzano.lap.arm64:subs :xzr :x2 :xzr)
-  (mezzano.lap.arm64:b.ne NORMAL-RETURN)
+  (mezzano.lap.arm64:cbnz :x2 NORMAL-RETURN)
   ;; Jump to the support function to run the footholds.
   ;; FIXME: This should be an atomic swap.
   (mezzano.lap.arm64:movz :x9 (:object-literal #.+thread-pending-footholds+))

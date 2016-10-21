@@ -126,7 +126,7 @@
                                y-sign-extension)))))
     result))
 
-(defun %%bignum-+/- (x y op carry-complement)
+(defun %%bignum-+/- (x y op)
   (let* ((carry 0)
          (overflow nil)
          (size nil)
@@ -142,7 +142,7 @@
                                         (ldb (byte 32 0) result))))))
     (let* ((sign (cond (overflow
                         ;; On overflow, extend the carry bit out and populate the last fragment with that.
-                        (logxor carry-complement carry))
+                        carry)
                        (t
                         ;; Otherwise, sign-extend the second-last fragment out.
                         (ash (%object-ref-unsigned-byte-32 result (- (* size 2) 3)) -31))))
@@ -180,7 +180,7 @@
              (return-from %%bignum-< (< len-y len-x)))))
     ;; Same length, same sign. Subtract them and examine the result.
     (multiple-value-bind (val overflow sign)
-        (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))) 1)
+        (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))
       (declare (ignore val))
       (when overflow
         (setf sign (logxor sign 1)))
