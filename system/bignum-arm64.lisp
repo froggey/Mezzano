@@ -151,15 +151,15 @@
                           #xFFFFFFFF)))
       (setf (%object-ref-unsigned-byte-32 result (- (* size 2) 2)) sign-bits
             (%object-ref-unsigned-byte-32 result (- (* size 2) 1)) sign-bits)
-      (values (%%canonicalize-bignum result)
+      (values result
               overflow
               sign))))
 
 (defun %%bignum-+ (x y)
-  (values (%%bignum-+/- x y (lambda (a b cin) (+ a b cin)) 0)))
+  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (+ a b cin)))))
 
 (defun %%bignum-- (x y)
-  (values (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))) 1)))
+  (%%canonicalize-bignum (%%bignum-+/- x y (lambda (a b cin) (- a (+ b cin))))))
 
 (defun %%bignum-< (x y)
   (let* ((len-x (%n-bignum-fragments x))
@@ -231,3 +231,21 @@
                         (max len-x len-y))
                       (lambda (a b)
                         (logxor a b)))))
+
+(defun %%bignum-right-shift (bignum count)
+  (assert (<= count 32))
+  (let* ((len (%n-bignum-fragments bignum))
+         (result (%make-bignum-of-length len))
+         (last-word (bignum-sign-32 bignum)))
+    (dotimes (i (* len 2))
+      (let ((word (%object-ref-unsigned-byte-32 bignum (1- (- len i)))))
+        (setf (%object-ref-unsigned-byte-32 result (1- (- len i)))
+              (logior (ash (ldb (byte count 0) last-word) (- 32 count))
+                      (ldb (byte (- 32 count) count) word)))
+        (setf last-word word)))
+    (%%canonicalize-bignum result)))
+
+(defun %%bignum-left-shift (bignum count)
+  (dotimes (i count
+            bignum)
+    (setf bignum (+ bignum bignum))))
