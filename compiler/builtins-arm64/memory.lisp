@@ -66,6 +66,57 @@
 (define-u-b-memref sys.int::memref-unsigned-byte-16 2 lap:ldrh lap:strh)
 (define-u-b-memref sys.int::memref-unsigned-byte-32 4 lap:ldr  lap:str)
 
+(defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
+  (let ((overflow-label (gensym))
+        (resume (gensym)))
+    (emit-trailer (overflow-label)
+      (emit `(lap:ldr :x7 (:function sys.int::%%make-bignum-64-x10)))
+      (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+      (emit `(lap:blr :x9)
+            `(lap:b ,resume)))
+    (load-in-reg :x0 base t)
+    (fixnum-check :x0)
+    (load-in-reg :x1 offset t)
+    (fixnum-check :x1)
+    (smash-x0)
+    ;; Convert to raw integers, scaling offset.
+    (emit `(lap:add :x10 :xzr :x1 :lsl 2))
+    (emit `(lap:add :x9 :xzr :x0 :asr ,sys.int::+n-fixnum-bits+))
+    ;; Read.
+    (emit `(lap:ldr :x10 (:x10 :x9))
+          ;; Convert to fixnum & check for signed overflow.
+          ;; Assumes fixnum size of 1!
+          `(lap:adds :x0 :x10 :x10)
+          `(lap:b.vs ,overflow-label)
+          resume)
+    (setf *x0-value* (list (gensym)))))
+
+(defbuiltin sys.int::memref-t (base offset) ()
+  (load-in-reg :x1 base t)
+  (fixnum-check :x1)
+  (load-in-reg :x0 offset t)
+  (fixnum-check :x0)
+  (smash-x0)
+  ;; Convert to raw integers, scaling offset.
+  (emit `(lap:add :x10 :xzr :x0 :lsl 2))
+  (emit `(lap:add :x9 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+))
+  ;; Read.
+  (emit `(lap:ldr :x0 (:x9 :x10)))
+  (setf *x0-value* (list (gensym))))
+
+(defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
+  (load-in-reg :x1 base t)
+  (fixnum-check :x1)
+  ;; Convert to raw integers, scaling offset.
+  (emit `(lap:add :x9 :xzr :x1 :asr ,sys.int::+n-fixnum-bits+))
+  (load-in-reg :x1 offset t)
+  (fixnum-check :x1)
+  (emit `(lap:add :x10 :xzr :x1 :lsl 2))
+  (load-in-x0 new-value t)
+   ;; Write.
+  (emit `(lap:str :x0 (:x9 :x10)))
+  *x0-value*)
+
 ;;; Access to slots in homogeneous objects.
 ;;; (%OBJECT-REF-type object slot) accesses the value in OBJECT at SLOT.
 ;;; Slots are stored linearly after the object's header and are assumed to all be the same size.

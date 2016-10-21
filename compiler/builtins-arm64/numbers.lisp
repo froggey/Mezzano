@@ -93,7 +93,7 @@
     (emit-trailer (ovfl)
       ;; Recover the full value using the carry bit.
       (emit `(lap:adc :x9 :xzr :xzr)
-            `(lap:add :x1 :xzr :x9 :lsl 63)
+            `(lap:add :x9 :xzr :x9 :lsl 63)
             `(lap:add :x10 :x9 :x0 :lsr 1))
       ;; Call assembly helper function.
       (emit `(lap:ldr :x7 (:function sys.int::%%make-bignum-64-x10)))
@@ -127,6 +127,59 @@
                    `(lap:b.ne ,full-add))
              (emit `(lap:adds :x0 :x0 :x1))))
     (emit `(lap:b.vs ,ovfl)
+          resume)
+    (setf *x0-value* (list (gensym)))))
+
+(defbuiltin sys.int::binary-- (x y) ()
+  (let ((ovfl (gensym "-ovfl"))
+        (resume (gensym "-resume"))
+        (full-sub (gensym "-full")))
+    (emit-trailer (ovfl)
+      ;; Recover the full value using the carry bit.
+      (emit `(lap:adc :x9 :xzr :xzr)
+            `(lap:eor :x9 :x9 #x1)
+            `(lap:add :x9 :xzr :x9 :lsl 63)
+            `(lap:add :x10 :x9 :x0 :lsr 1))
+      ;; Call assembly helper function.
+      (emit `(lap:ldr :x7 (:function sys.int::%%make-bignum-64-x10)))
+      (emit-object-load :x9 :x7 :slot sys.int::+fref-entry-point+)
+      (emit `(lap:blr :x9)
+            `(lap:b ,resume)))
+    (emit-trailer (full-sub)
+      (call-support-function 'sys.int::generic-- 2)
+      (emit `(lap:b ,resume)))
+    (load-in-reg :x0 x t)
+    (load-in-reg :x1 y t)
+    (smash-x0)
+    (emit `(lap:ands :xzr :x1 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,full-sub)
+          `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,full-sub))
+    (emit `(lap:subs :x0 :x0 :x1)
+          `(lap:b.vs ,ovfl)
+          resume)
+    (setf *x0-value* (list (gensym)))))
+
+;; TODO: Overflow.
+;; overflow occurs if bits 127-63 of a signed 64*64=128bit multiply are not all
+;; ones or all zeros.
+(defbuiltin sys.int::binary-* (x y) ()
+  (let ((resume (gensym "*resume"))
+        (full-mul (gensym "*full")))
+    (emit-trailer (full-mul)
+      (call-support-function 'sys.int::generic-* 2)
+      (emit `(lap:b ,resume)))
+    (load-in-reg :x1 y t)
+    (load-in-reg :x0 x t)
+    (smash-x0)
+    (emit `(lap:ands :xzr :x1 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,full-mul)
+          `(lap:ands :xzr :x0 ,sys.int::+fixnum-tag-mask+)
+          `(lap:b.ne ,full-mul))
+    ;; Convert X0 to raw integer, leaving X1 as a fixnum.
+    ;; This will cause the result to be a fixnum.
+    (emit `(lap:add :x9 :xzr :x0 :asr 1)
+          `(lap:smaddl :x0 :xzr :x9 :x1)
           resume)
     (setf *x0-value* (list (gensym)))))
 

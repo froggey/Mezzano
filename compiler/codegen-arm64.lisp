@@ -694,8 +694,9 @@
         (load-literal :x9 (ash (ast-value size) sys.int::+object-data-shift+))
         (emit-stack-store :x9 (+ slots words -1))
         ;; Generate pointer.
-        (emit `(lap:sub :x0 :x29 ,(- (+ (control-stack-frame-offset (+ slots words -1))
-                                        sys.int::+tag-object+)))))))
+        (load-literal :x9 (+ (control-stack-frame-offset (+ slots words -1))
+                             sys.int::+tag-object+))
+        (emit `(lap:add :x0 :x29 :x9)))))
   (setf *x0-value* (list (gensym))))
 
 (defun emit-nlx-thunk (thunk-name target-label multiple-values-active)
@@ -741,7 +742,8 @@
         (emit-stack-store :x9 (+ control-info 1))
         (emit-stack-store :x29 (+ control-info 0))
         ;; Save pointer to info
-        (emit `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3)))))
+        (load-literal :x9 (control-stack-frame-offset (+ control-info 3)))
+        (emit `(lap:sub :x9 :x29 :x9))
         (emit-stack-store :x9 slot)))
     (prog1
         (let* ((*rename-list* (cons (list info exit-label) *rename-list*))
@@ -1276,7 +1278,8 @@ Returns an appropriate tag."
         (emit-stack-store :x9 (+ control-info 1))
         (emit-stack-store :x29 (+ control-info 0))
         ;; Save in the environment.
-        (emit `(lap:sub :x9 :x29 ,(- (control-stack-frame-offset (+ control-info 3)))))
+        (load-literal :x9 (control-stack-frame-offset (+ control-info 3)))
+        (emit `(lap:add :x9 :x29 :x9))
         (emit-stack-store :x9 slot)
         (setf (aref *stack-values* slot) (cons (ast-info form) :home))))
     (setf stack-slots (set-up-for-branch))

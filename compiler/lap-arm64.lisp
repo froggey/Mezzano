@@ -1107,14 +1107,14 @@
   (let ((is-64-bit (eql (register-class dst) :gpr-64)))
     (cond (is-64-bit
            (check-register-class dst :gpr-64)
-           (check-register-class lhs :gpr-64)
-           (check-register-class mhs :gpr-64)
-           (check-register-class rhs :gpr-64))
+           (check-register-class lhs :gpr-64 :xzr)
+           (check-register-class mhs :gpr-64 :xzr)
+           (check-register-class rhs :gpr-64 :xzr))
           (t
            (check-register-class dst :gpr-32)
-           (check-register-class lhs :gpr-32)
-           (check-register-class mhs :gpr-32)
-           (check-register-class rhs :gpr-32)))
+           (check-register-class lhs :gpr-32 :wzr)
+           (check-register-class mhs :gpr-32 :wzr)
+           (check-register-class rhs :gpr-32 :wzr)))
     (emit-instruction (logior (if is-64-bit
                                   #x80000000
                                   #x00000000)
@@ -1124,3 +1124,15 @@
                               (ash (register-number mhs) +rn-shift+)
                               (ash (register-number rhs) +rm-shift+)))
     (return-from instruction t)))
+
+(define-instruction smaddl (dst lhs mhs rhs)
+  (check-register-class dst :gpr-64)
+  (check-register-class lhs :gpr-64 :xzr)
+  (check-register-class mhs :gpr-64 :xzr)
+  (check-register-class rhs :gpr-64 :xzr)
+  (emit-instruction (logior #x9B200000
+                            (ash (register-number dst) +rd-shift+)
+                            (ash (register-number lhs) +ra-shift+)
+                            (ash (register-number mhs) +rn-shift+)
+                            (ash (register-number rhs) +rm-shift+)))
+  (return-from instruction t))
