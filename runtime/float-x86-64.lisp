@@ -232,7 +232,6 @@
   (sys.lap-x86:mov64 :r13 (:function sys.int::%%make-double-float-rax))
   (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
 
-
 (define-lap-function sys.int::%%single-float-sqrt ()
   ;; Unbox the float.
   (sys.lap-x86:mov64 :rax :r8)
