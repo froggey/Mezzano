@@ -86,18 +86,18 @@
   (mezzano.lap.arm64:stp :x14 :x13 (:pre :sp -16))
   ;; Read & save SP_EL0
   (mezzano.lap.arm64:mrs :x9 :sp-el0)
-  (mezzano.lap.arm64:str :x9 (:sp #x-90))
+  (mezzano.lap.arm64:str :x9 (:sp #x90))
   ;; Read & save ELR_EL1
   (mezzano.lap.arm64:mrs :x9 :elr-el1)
-  (mezzano.lap.arm64:str :x9 (:sp #x-78))
+  (mezzano.lap.arm64:str :x9 (:sp #x78))
   ;; Read & save SPSR_EL1
   (mezzano.lap.arm64:mrs :x9 :spsr-el1)
-  (mezzano.lap.arm64:str :x9 (:sp #x-88))
+  (mezzano.lap.arm64:str :x9 (:sp #x88))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
   ;; Build frame.
-  (mezzano.lap.arm64:add :x29 :sp #x68)
+  (mezzano.lap.arm64:add :x29 :sp #x70)
   ;; Build interrupt frame object.
   (mezzano.lap.arm64:sub :sp :sp 16)
   (mezzano.lap.arm64:movz :x9 #.(ash sys.int::+object-tag-interrupt-frame+ sys.int::+object-type-shift+))
@@ -130,13 +130,13 @@
   (mezzano.lap.arm64:stp :x14 :x13 (:pre :sp -16))
   ;; Read & save SP.
   (mezzano.lap.arm64:add :x9 :sp 0)
-  (mezzano.lap.arm64:str :x9 (:sp #x-90))
+  (mezzano.lap.arm64:str :x9 (:sp #x90))
   ;; Read & save ELR_EL1
   (mezzano.lap.arm64:mrs :x9 :elr-el1)
-  (mezzano.lap.arm64:str :x9 (:sp #x-78))
+  (mezzano.lap.arm64:str :x9 (:sp #x78))
   ;; Read & save SPSR_EL1
   (mezzano.lap.arm64:mrs :x9 :spsr-el1)
-  (mezzano.lap.arm64:str :x9 (:sp #x-88))
+  (mezzano.lap.arm64:str :x9 (:sp #x88))
   ;; Set up for call to handler.
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 2 sys.int::+n-fixnum-bits+)) ; 2 args
