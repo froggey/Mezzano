@@ -180,6 +180,8 @@
                 (setf (ldb +arm64-tte-ap+ (page-table-entry pte))
                       +arm64-tte-ap-prw-una+)
                 (flush-tlb-single fault-addr))
+               ((logtest esr #x40)
+                (%page-fault-handler interrupt-frame fault-addr :write-to-ro))
                (t
                 (unhandled-interrupt interrupt-frame "data-abort")))))
       (t

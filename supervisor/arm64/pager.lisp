@@ -69,7 +69,9 @@
                           (dpb +arm64-tte-ap-pro-una+
                                +arm64-tte-ap+
                                0)))
-              0)
+              (dpb +arm64-tte-ap-pro-una+
+                   +arm64-tte-ap+
+                   0))
           (if copy-on-write
               +arm64-tte-copy-on-write+
               0)))
