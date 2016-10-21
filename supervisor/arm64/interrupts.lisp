@@ -11,5 +11,10 @@
 (defun sys.int::%interrupt-state ()
   nil)
 
+(defun %disable-interrupts ())
+
+(defun %enable-interrupts ()
+  (panic "not implemented"))
+
 (defun %call-on-wired-stack-without-interrupts (function unused &optional arg1 arg2 arg3)
   (funcall function 'sp 'fp arg1 arg2 arg3))
