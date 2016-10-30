@@ -10,7 +10,7 @@
 (defvar *load-truename* nil)
 
 (defvar *modules* '())
-(defvar *require-hooks* '())
+(defvar *module-provider-functions* '())
 
 (defvar *noisy-load* nil)
 (defvar *load-wired* nil "When true, allocate objects in the wired area.")
@@ -406,7 +406,7 @@
             (dolist (pathname pathname-list)
               (load pathname))
             (load pathname-list))
-        (dolist (hook *require-hooks*
+        (dolist (hook *module-provider-functions*
                  (error "Unable to REQUIRE module ~A." module-name))
           (when (funcall hook module-name)
             (return)))))
