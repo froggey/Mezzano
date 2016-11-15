@@ -38,19 +38,22 @@ A list of any declaration-specifiers."
       (push decl declares))))
 
 (defun compile-lambda (lambda &optional env target-architecture)
-  (codegen-lambda (compile-lambda-1 lambda env) target-architecture))
+  (codegen-lambda (compile-lambda-1 lambda env target-architecture) target-architecture))
+
+(defun default-architecture (architecture)
+  (or architecture
+      #+x86-64 :x86-64
+      #+arm64 :arm64))
 
 (defun codegen-lambda (lambda &optional target-architecture)
-  (ecase (or target-architecture
-             #+x86-64 :x86-64
-             #+arm64 :arm64)
+  (ecase (default-architecture target-architecture)
     (:x86-64
      (mezzano.compiler.codegen.x86-64:codegen-lambda lambda))
     (:arm64
      (mezzano.compiler.codegen.arm64:codegen-lambda lambda))))
 
 ;; Parse lambda and optimize, but do not do codegen.
-(defun compile-lambda-1 (lambda &optional env)
+(defun compile-lambda-1 (lambda &optional env target-architecture)
   (detect-uses
    (simplify
     (detect-uses
@@ -66,7 +69,8 @@ A list of any declaration-specifiers."
            (lower-arguments
             (detect-uses
              (run-optimizers
-              (pass1-lambda lambda env))))))))))))))
+              (pass1-lambda lambda env)
+              (default-architecture target-architecture))))))))))))))
 
 (defun eval-load-time-value (form read-only-p)
   (declare (ignore read-only-p))
@@ -107,14 +111,14 @@ A list of any declaration-specifiers."
              *change-count*)
     (incf *change-count*)))
 
-(defun run-optimizers (form)
+(defun run-optimizers (form target-architecture)
   (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
 			      :format-control "Possible optimizer infinite loop."
 			      :format-arguments '())
 			form))
     (let ((*change-count* 0))
       ;; Must be run before lift.
-      (setf form (inline-functions (detect-uses form)))
+      (setf form (inline-functions (detect-uses form) target-architecture))
       (setf form (lambda-lift (detect-uses form)))
       ;; Key arg conversion must be performed after lambda-lifting, so as not to
       ;; complicate the lift code.
