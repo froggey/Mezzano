@@ -2,7 +2,7 @@
 ;;;; This code is licensed under the MIT license.
 
 (defpackage :mezzano.file-system
-  (:use #:cl)
+  (:use :cl)
   (:export #:find-host
            #:list-all-hosts
            #:logical-host
@@ -23,7 +23,8 @@
            #:expunge-directory-using-host
            #:file-stream-pathname
            #:simple-file-error
-           #:stream-truename))
+           #:stream-truename
+           #:truename-using-host))
 
 (in-package :mezzano.file-system)
 
@@ -220,14 +221,21 @@
 
 (defgeneric stream-truename (stream))
 
+(defgeneric truename-using-host (host pathname))
+
+(defmethod truename-using-host (host pathname)
+  (or (probe-file pathname)
+      (error 'simple-file-error
+             :pathname pathname
+             :format-control "No such file.")))
+
 (defun truename (pathname)
   (cond
     ((typep pathname 'file-stream)
      (stream-truename pathname))
-    (t (or (probe-file pathname)
-           (error 'simple-file-error
-                  :pathname pathname
-                  :format-control "No such file.")))))
+    (t
+     (let ((p (translate-logical-pathname (merge-pathnames pathname))))
+       (truename-using-host (pathname-host p) p)))))
 
 (defun merge-pathnames (pathname &optional
                         (default-pathname *default-pathname-defaults*)
