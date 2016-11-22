@@ -16,6 +16,8 @@
 (sys.int::defglobal *world-stopper*)
 (sys.int::defglobal *pseudo-atomic-thread-count*)
 
+(sys.int::defglobal *default-stack-size*)
+
 (defvar *pseudo-atomic* nil)
 
 (defstruct (run-queue
@@ -346,7 +348,7 @@ Interrupts must be off, the current thread must be locked."
 
 ;;; Stuff.
 
-(defun make-thread (function &key name initial-bindings (stack-size (* 256 1024)) (priority :normal))
+(defun make-thread (function &key name initial-bindings (stack-size *default-stack-size*) (priority :normal))
   (declare (sys.c::closure-allocation :wired))
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :normal :low))
@@ -590,7 +592,8 @@ Interrupts must be off, the current thread must be locked."
           (thread-global-next sys.int::*pager-thread*) sys.int::*disk-io-thread*
           (thread-global-prev sys.int::*pager-thread*) sys.int::*snapshot-thread*
           (thread-global-next sys.int::*disk-io-thread*) nil
-          (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*))
+          (thread-global-prev sys.int::*disk-io-thread*) sys.int::*pager-thread*)
+    (setf *default-stack-size* (* 256 1024)))
   (reset-ephemeral-thread sys.int::*bsp-idle-thread* #'idle-thread :sleeping nil)
   (reset-ephemeral-thread sys.int::*snapshot-thread* #'snapshot-thread :sleeping :supervisor)
   (reset-ephemeral-thread sys.int::*pager-thread* #'pager-thread :runnable :supervisor)
