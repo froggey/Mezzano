@@ -687,7 +687,7 @@ at least MIN-EXTENSION if required."
 (defmacro define-bit-function (name operator)
   `(defun ,name (bit-array1 bit-array2 &optional opt-arg)
      (assert (equal (array-dimensions bit-array1) (array-dimensions bit-array2)))
-     (let ((result-array (ecase opt-arg
+     (let ((result-array (etypecase opt-arg
                            ((array bit) opt-arg)
                            ((eql t) bit-array1)
                            ((eql nil) (make-array (array-dimensions bit-array1)
