@@ -15,7 +15,7 @@
           (pathname-directory base))))
 
 (defun guess-element-type-from-extension (type-name)
-  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf" "ttf") :test #'string-equal)
+  (if (member type-name '("jpeg" "jpg" "png" "gif" "pdf" "ttf" "gz") :test #'string-equal)
       '(unsigned-byte 8)
       'character))
 
