@@ -207,14 +207,10 @@ Returns two values, the packet data and the receiving NIC."
         (%reschedule-via-wired-stack sp fp)))))
 
 (defun sys.int::bootloader-entry-point (boot-information-page)
-  (let ((first-run-p nil)
-        ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
-        (serial-port-io-base #x3F8))
+  (let ((first-run-p nil))
     (initialize-boot-cpu)
     (initialize-debug-log)
-    (initialize-debug-uart #x09000000)
-    (debug-write-line "Hello, ARM64 World!")
-    ;(initialize-debug-serial serial-port-io-base 4 38400)
+    (initialize-platform-early-console boot-information-page)
     (initialize-initial-thread)
     (setf *boot-information-page* boot-information-page
           *cold-unread-char* nil

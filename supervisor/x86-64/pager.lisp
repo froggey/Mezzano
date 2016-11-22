@@ -22,8 +22,16 @@
 (defun flush-tlb-single (address)
   (sys.int::%invlpg address))
 
-(defun page-present-p (page-table index)
+(defun page-present-p (page-table &optional (index 0))
   (logtest +x86-64-pte-present+
+           (page-table-entry page-table index)))
+
+(defun page-copy-on-write-p (page-table &optional (index 0))
+  (logtest +x86-64-pte-copy-on-write+
+           (page-table-entry page-table index)))
+
+(defun page-dirty-p (page-table &optional (index 0))
+  (logtest +x86-64-pte-dirty+
            (page-table-entry page-table index)))
 
 (defun address-l4-bits (address) (ldb (byte 9 39) address))
@@ -39,11 +47,12 @@
                (addr (convert-to-pmap-address (ash frame 12))))
           (zeroize-page addr)
           (setf (page-table-entry page-table index) (logior (ash frame 12)
-                                                            +page-table-present+
-                                                            +page-table-write+))
+                                                            +x86-64-pte-present+
+                                                            +x86-64-pte-accessed+
+                                                            +x86-64-pte-write+))
           addr))
       (convert-to-pmap-address (logand (page-table-entry page-table index)
-                                       +page-table-address-mask+))))
+                                       +x86-64-pte-address-mask+))))
 
 (defun get-pte-for-address (address &optional (allocate t))
   (let* ((cr3 (convert-to-pmap-address (logand (sys.int::%cr3) (lognot #xFFF))))
@@ -51,3 +60,23 @@
          (pdir (and pdp  (descend-page-table pdp  (address-l3-bits address) allocate)))
          (pt   (and pdir (descend-page-table pdir (address-l2-bits address) allocate))))
     (and pt (+ pt (* 8 (address-l1-bits address))))))
+
+(defun pte-physical-address (pte)
+  (logand pte +x86-64-pte-address-mask+))
+
+(defun make-pte (frame &key writable (present t) wired dirty copy-on-write)
+  (declare (ignore wired))
+  (logior (ash frame 12)
+          (if present
+              +x86-64-pte-present+
+              0)
+          (if writable
+              +x86-64-pte-write+
+              0)
+          (if dirty
+              (logior +x86-64-pte-dirty+
+                      +x86-64-pte-accessed+)
+              0)
+          (if copy-on-write
+              +x86-64-pte-copy-on-write+
+              0)))

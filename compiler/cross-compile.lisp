@@ -941,52 +941,6 @@
            (x-compile-top-level form nil :not-compile-time))))
   t)
 
-(defparameter *cross-source-files*
-  '("system/basic-macros.lisp"
-    "system/defmacro.lisp"
-    "system/backquote.lisp"
-    "system/setf.lisp"
-    "system/cas.lisp"
-    "system/defstruct.lisp"
-    "system/cons-compiler-macros.lisp"
-    "system/condition.lisp"
-    "system/restarts.lisp"
-    "system/error.lisp"
-    "system/type.lisp"
-    "system/array.lisp"
-    "system/sequence.lisp"
-    "system/hash-table.lisp"
-    "system/packages.lisp"
-    "system/stream.lisp"
-    "system/reader.lisp"
-    "system/printer.lisp"
-    "system/numbers.lisp"
-    "system/character.lisp"
-    "system/clos/package.lisp"
-    "system/clos/macros.lisp"
-    "system/clos/closette.lisp"
-    "system/data-types.lisp"
-    "system/gc.lisp"
-    "system/cold-start.lisp"
-    "system/early-cons.lisp"
-    "system/runtime-numbers.lisp"
-    "supervisor/cpu.lisp"
-    "supervisor/thread.lisp"
-    "supervisor/interrupts.lisp"
-    "supervisor/entry.lisp"
-    "supervisor/physical.lisp"
-    "supervisor/support.lisp"
-    "runtime/struct.lisp"
-    "runtime/array.lisp"
-    "runtime/symbol.lisp"
-    "system/stuff.lisp"
-)
-  "These files are loaded into the compiler environment so other source
-files will be compiled correctly.")
-
-(defun set-up-cross-compiler ()
-  (mapc 'load-for-cross-compiler *cross-source-files*))
-
 (defun save-compiler-builtins (path target-architecture)
   (with-open-file (*output-fasl* path
                    :element-type '(unsigned-byte 8)

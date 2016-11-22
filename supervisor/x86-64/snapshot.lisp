@@ -10,14 +10,14 @@
                ;;(debug-print-line " PML " pml " index " index)
                (let* ((entry (sys.int::memref-unsigned-byte-64 pml index))
                       (next-pml (convert-to-pmap-address
-                                 (logand entry +page-table-address-mask+))))
-                 (when (and (logtest entry +page-table-present+)
-                            (logtest entry +page-table-accessed+))
+                                 (logand entry +x86-64-pte-address-mask+))))
+                 (when (and (logtest entry +x86-64-pte-present+)
+                            (logtest entry +x86-64-pte-accessed+))
                    (dotimes (i 512)
                      (funcall next-fn next-pml i))
                    ;; Clear accessed bit.
                    (setf (sys.int::memref-unsigned-byte-64 pml index)
-                         (logand entry (lognot +page-table-accessed+))))))
+                         (logand entry (lognot +x86-64-pte-accessed+))))))
              (mark-pml4e-cow (pml4e)
                (mark-level pml4 pml4e #'mark-pml3e-cow))
              (mark-pml3e-cow (pml3 pml3e)
@@ -27,16 +27,16 @@
              (mark-pml1e-cow (pml1 pml1e)
                (let ((entry (sys.int::memref-unsigned-byte-64 pml1 pml1e)))
                  ;;(debug-print-line "    PML1e " pml1e "  " pml1 "  " entry)
-                 (when (logtest entry +page-table-copy-on-write+)
+                 (when (logtest entry +x86-64-pte-copy-on-write+)
                    (panic "Page table entry marked CoW when it shouldn't be."))
-                 (when (logtest entry +page-table-dirty+)
+                 (when (logtest entry +x86-64-pte-dirty+)
                    (snapshot-add-writeback-frame (ash (sys.int::memref-unsigned-byte-64 pml1 pml1e) -12))
                    ;; Clear dirty and writable bits, set copy-on-write bit.
                    (setf (sys.int::memref-unsigned-byte-64 pml1 pml1e)
                          (logand (logior entry
-                                         +page-table-copy-on-write+)
-                                 (lognot +page-table-write+)
-                                 (lognot +page-table-dirty+)))))))
+                                         +x86-64-pte-copy-on-write+)
+                                 (lognot +x86-64-pte-write+)
+                                 (lognot +x86-64-pte-dirty+)))))))
       (declare (dynamic-extent #'mark-level
                                #'mark-pml4e-cow #'mark-pml3e-cow
                                #'mark-pml2e-cow #'mark-pml1e-cow))
@@ -47,7 +47,7 @@
       (loop for i from 65 below 256 ; stack area to end of persistent memory.
          do (mark-pml4e-cow i))
       ;; Cover the part of the pinned area that got missed as well.
-      (let ((pml3 (convert-to-pmap-address (logand (sys.int::memref-unsigned-byte-64 pml4 0) +page-table-address-mask+))))
+      (let ((pml3 (convert-to-pmap-address (logand (sys.int::memref-unsigned-byte-64 pml4 0) +x86-64-pte-address-mask+))))
         ;; Skip first 2 entries, the wired area.
         (loop for i from 2 below 512
            do (mark-pml3e-cow pml3 i)))))

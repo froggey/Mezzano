@@ -3,6 +3,10 @@
 
 (in-package :mezzano.supervisor)
 
+(defun initialize-platform-early-console (boot-information-page)
+  (declare (ignore boot-information-page))
+  (initialize-debug-uart #x09000000))
+
 (defun initialize-early-platform ()
   (initialize-gic #x08000000 #x08010000))
 

@@ -21,11 +21,17 @@
   (:gc :no-frame)
   (sys.lap-x86:ret)
   BAD
-  (sys.lap-x86:mov64 :r8 (:constant "Not on wired stack."))
-  (sys.lap-x86:mov64 :r13 (:function panic))
-  (sys.lap-x86:mov32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:mov64 :r13 (:function panic-not-on-wired-stack))
+  (sys.lap-x86:mov32 :ecx #.(ash 0 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:call (:object :r13 #.sys.int::+fref-entry-point+))
   (sys.lap-x86:ud2))
+
+(defun panic-not-on-wired-stack ()
+  (%call-on-wired-stack-without-interrupts
+    (lambda (sp fp)
+      (declare (ignore sp fp))
+      (panic "Not on wired stack."))
+    nil))
 
 (defun %disable-interrupts ()
   (sys.int::%cli))
@@ -172,11 +178,10 @@ If clear, the fault occured in supervisor mode.")
 
 (defun sys.int::%page-fault-handler (interrupt-frame info)
   (let* ((fault-addr (sys.int::%cr2)))
-    (when (and (sys.int::symbol-global-boundp '*page-fault-hook*)
-               (sys.int::symbol-global-value '*page-fault-hook*))
-      (funcall (sys.int::symbol-global-value '*page-fault-hook*)
-               interrupt-frame info fault-addr))
-    (cond ((not (sys.int::symbol-global-value '*paging-disk*))
+    (when (and (boundp '*page-fault-hook*)
+               *page-fault-hook*)
+      (funcall *page-fault-hook* interrupt-frame info fault-addr))
+    (cond ((not *paging-disk*)
            (fatal-page-fault interrupt-frame info "Early page fault" fault-addr))
           ((not (logtest #x200 (interrupt-frame-raw-register interrupt-frame :rflags)))
            ;; IRQs must be enabled when a page fault occurs.
@@ -215,7 +220,7 @@ If clear, the fault occured in supervisor mode.")
   (unhandled-interrupt interrupt-frame info "simd exception"))
 
 (defun sys.int::%user-interrupt-handler (interrupt-frame info)
-  (let ((handler (svref (sys.int::symbol-global-value '*user-interrupt-handlers*) info)))
+  (let ((handler (svref *user-interrupt-handlers* info)))
     (if handler
         (funcall handler interrupt-frame info)
         (unhandled-interrupt interrupt-frame info "user"))))
@@ -245,7 +250,7 @@ If clear, the fault occured in supervisor mode.")
 
 (defun i8259-mask-irq (irq)
   (check-type irq (integer 0 15))
-  (without-interrupts
+  (safe-without-interrupts (irq)
     (with-symbol-spinlock (*i8259-spinlock*)
       (when (not (logbitp irq *i8259-shadow-mask*))
         ;; Currently unmasked, mask it.
@@ -256,7 +261,7 @@ If clear, the fault occured in supervisor mode.")
 
 (defun i8259-unmask-irq (irq)
   (check-type irq (integer 0 15))
-  (without-interrupts
+  (safe-without-interrupts (irq)
     (with-symbol-spinlock (*i8259-spinlock*)
       (when (logbitp irq *i8259-shadow-mask*)
         ;; Currently masked, unmask it.

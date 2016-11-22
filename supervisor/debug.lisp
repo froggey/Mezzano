@@ -277,7 +277,8 @@
         *panic-in-progress* t)
   (debug-force-output)
   (set-panic-light)
-  ;(disable-page-fault-ist)
+  #+x86-64
+  (disable-page-fault-ist)
   (debug-print-line-1 things)
   (when extra
     (funcall extra))

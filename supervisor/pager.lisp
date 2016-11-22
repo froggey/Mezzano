@@ -324,11 +324,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (set-address-flags address (logand block-info
                                          sys.int::+block-map-flag-mask+
                                          (lognot sys.int::+block-map-zero-fill+)))
-      (setf (page-table-entry pte 0) (logior (ash frame 12)
-                                             +page-table-present+
-                                             (if (block-info-writable-p block-info)
-                                                 +page-table-write+
-                                                 0)))
+      (setf (page-table-entry pte 0) (make-pte frame
+                                               :writable (block-info-writable-p block-info)))
       ;; Don't need to dirty the page like in W-F-P, the snapshotter takes all wired pages.
       (flush-tlb-single address))))
 
@@ -424,22 +421,22 @@ Returns NIL if the entry is missing and ALLOCATE is false."
       (let* ((candidate *page-replacement-list-head*)
              (candidate-virtual (physical-page-virtual-address candidate))
              (pte-addr (get-pte-for-address candidate-virtual nil))
-             (pte (sys.int::memref-unsigned-byte-64 pte-addr 0))
+             (dirty-p (page-dirty-p pte-addr))
              (bme-addr (block-info-for-virtual-address-1 candidate-virtual nil))
              (bme (sys.int::memref-unsigned-byte-64 bme-addr 0)))
         (ensure (eql (physical-page-frame-type candidate) :active)
                 "Page-out candidate has type " (physical-page-frame-type candidate) ", wanted :ACTIVE.")
         #+(or)(debug-print-line "Candidate " candidate ":" candidate-virtual
-                          "  pte " pte
+                          "  dirty-p " dirty-p
                           "  type " (physical-page-frame-type candidate)
                           "  block " (physical-page-frame-block-id candidate)
                           "  bme " bme)
         ;; Remove this page from the VM, but do not free it just yet.
         (remove-from-page-replacement-list candidate)
-        (setf (sys.int::memref-unsigned-byte-64 pte-addr 0) 0)
+        (setf (page-table-entry pte-addr) (make-pte 0 :present nil))
         (flush-tlb-single candidate-virtual)
         ;; Maybe write it back to disk.
-        (when (logtest pte +page-table-dirty+)
+        (when dirty-p
           (when (not (block-info-committed-p bme))
             #+(or)(debug-print-line "Candidate is dirty but part of on-disk snapshot, allocating new block.")
             (let ((new-block (or (store-alloc 1)
@@ -637,9 +634,9 @@ It will put the thread to sleep, while it waits for the page."
     (dotimes (i (truncate size #x1000))
       (let ((pte (get-pte-for-address (convert-to-pmap-address (+ base (* i #x1000))))))
         (when (not (page-present-p pte 0))
-          (setf (page-table-entry pte 0) (logior (+ base (* i #x1000))
-                                                 +page-table-present+
-                                                 +page-table-write+)))))))
+          (setf (page-table-entry pte 0) (make-pte (+ (truncate base #x1000) i)
+                                                   :writable t
+                                                   :wired t)))))))
 
 (defun initialize-pager ()
   (when (not (boundp '*pager-waiting-threads*))

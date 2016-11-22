@@ -313,12 +313,12 @@
   ;; Typecheck list, part 2. consp
   (sys.lap-x86:mov8 :al :r13l)
   (sys.lap-x86:and8 :al #b1111)
-  (sys.lap-x86:cmp8 :al #.+tag-cons+)
+  (sys.lap-x86:cmp8 :al #.sys.int::+tag-cons+)
   (sys.lap-x86:jne list-type-error)
   ;; Push car & increment arg count
   (sys.lap-x86:push (:car :r13))
   (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (:gc :frame :pushed-values-register :rcx)
   ;; Advance.
   (sys.lap-x86:mov64 :r13 (:cdr :r13))
@@ -333,19 +333,19 @@
   (sys.lap-x86:jnz stack-aligned)
   ;; Don't push anything extra if there are 5 or fewer args.
   ;; They will all be popped off.
-  (sys.lap-x86:cmp32 :ecx #.(ash 5 +n-fixnum-bits+)) ; fixnum 5
+  (sys.lap-x86:cmp32 :ecx #.(ash 5 sys.int::+n-fixnum-bits+)) ; fixnum 5
   (sys.lap-x86:jbe stack-aligned)
   ;; Reversing will put this at the end of the stack, out of the way.
   (sys.lap-x86:push 0)
   (:gc :frame :pushed-values-register :rcx :pushed-values 1)
-  (sys.lap-x86:add32 :ecx #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:add32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   (:gc :frame :pushed-values-register :rcx)
-  (sys.lap-x86:add32 :edi #.(ash 1 +n-fixnum-bits+)) ; fixnum 1
+  (sys.lap-x86:add32 :edi #.(ash 1 sys.int::+n-fixnum-bits+)) ; fixnum 1
   stack-aligned
   ;; RCX = n arguments. (fixnum)
   ;; RDX = left offset, RAX = right offset.
-  (sys.lap-x86:lea32 :eax (:ecx #.(ash -1 +n-fixnum-bits+)))
-  (sys.lap-x86:shr32 :eax #.+n-fixnum-bits+)
+  (sys.lap-x86:lea32 :eax (:ecx #.(ash -1 sys.int::+n-fixnum-bits+)))
+  (sys.lap-x86:shr32 :eax #.sys.int::+n-fixnum-bits+)
   (sys.lap-x86:shl32 :eax 3) ; * 8
   (sys.lap-x86:xor32 :edx :edx)
   (sys.lap-x86:jmp reverse-test)
@@ -368,26 +368,26 @@
   ;; Always at least one argument by this point.
   (sys.lap-x86:pop :r8)
   (:gc :frame :pushed-values-register :rcx :pushed-values -1)
-  (sys.lap-x86:cmp32 :ecx #.(ash 1 +n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r9)
   (:gc :frame :pushed-values-register :rcx :pushed-values -2)
-  (sys.lap-x86:cmp32 :ecx #.(ash 2 +n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r10)
   (:gc :frame :pushed-values-register :rcx :pushed-values -3)
-  (sys.lap-x86:cmp32 :ecx #.(ash 3 +n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash 3 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r11)
   (:gc :frame :pushed-values-register :rcx :pushed-values -4)
-  (sys.lap-x86:cmp32 :ecx #.(ash 4 +n-fixnum-bits+))
+  (sys.lap-x86:cmp32 :ecx #.(ash 4 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:je do-call)
   (sys.lap-x86:pop :r12)
   (:gc :frame :pushed-values-register :rcx :pushed-values -5)
   ;; Everything is ready. Call the function!
   do-call
   ;; If there are 5 or fewer arguments (ie, only register args) the function can be tail-called to.
-  (sys.lap-x86:cmp64 :rcx #.(ash 5 +n-fixnum-bits+))
+  (sys.lap-x86:cmp64 :rcx #.(ash 5 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jbe do-tail-call)
   (sys.lap-x86:call (:rbx #.(+ (- sys.int::+tag-object+) 8)))
   (:gc :frame)
@@ -408,8 +408,8 @@
   ;; The list unpacking loop has been pushing values one by one.
   (sys.lap-x86:and64 :rsp #.(lognot 15))
   (sys.lap-x86:mov64 :r8 :r9)
-  (sys.lap-x86:mov64 :r9 (:constant proper-list))
-  (sys.lap-x86:mov64 :r13 (:function raise-type-error))
-  (sys.lap-x86:mov32 :ecx #.(ash 2 +n-fixnum-bits+)) ; fixnum 2
+  (sys.lap-x86:mov64 :r9 (:constant sys.int::proper-list))
+  (sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
+  (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))

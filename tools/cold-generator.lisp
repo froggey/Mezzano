@@ -11,7 +11,8 @@
            #:function-reference
            #:symbol-address
            #:cold-symbol-value
-           #:compile-lap-function))
+           #:compile-lap-function
+           #:set-up-cross-compiler))
 
 (defpackage :cold-generator.x86-64
   (:use :cl :cold-generator)
@@ -30,30 +31,33 @@
 
 (defparameter *supervisor-source-files*
   '("supervisor/entry.lisp"
-    ;"supervisor/cpu.lisp"
-    "supervisor/arm64/cpu.lisp"
+    ("supervisor/x86-64/cpu.lisp" :x86-64)
+    ("supervisor/arm64/cpu.lisp" :arm64)
     "supervisor/interrupts.lisp"
-    ;"supervisor/x86-64/interrupts.lisp"
-    "supervisor/arm64/interrupts.lisp"
-    "supervisor/arm64/gic.lisp"
+    ("supervisor/x86-64/interrupts.lisp" :x86-64)
+    ("supervisor/arm64/interrupts.lisp" :arm64)
+    ("supervisor/arm64/gic.lisp" :arm64)
     "supervisor/debug.lisp"
-    ;"supervisor/serial.lisp"
-    "supervisor/uart.lisp"
+    ("supervisor/serial.lisp" :x86-64)
+    ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
     "supervisor/ata.lisp"
     "supervisor/ahci.lisp"
     "supervisor/thread.lisp"
-    ;"supervisor/x86-64/thread.lisp"
-    "supervisor/arm64/thread.lisp"
+    ("supervisor/x86-64/thread.lisp" :x86-64)
+    ("supervisor/arm64/thread.lisp" :arm64)
     "supervisor/sync.lisp"
     "supervisor/physical.lisp"
     "supervisor/snapshot.lisp"
-    "supervisor/arm64/snapshot.lisp"
+    ("supervisor/x86-64/snapshot.lisp" :x86-64)
+    ("supervisor/arm64/snapshot.lisp" :arm64)
     "supervisor/store.lisp"
     "supervisor/pager.lisp"
-    "supervisor/arm64/pager.lisp"
+    ("supervisor/x86-64/pager.lisp" :x86-64)
+    ("supervisor/arm64/pager.lisp" :arm64)
     "supervisor/time.lisp"
-    "supervisor/arm64/time.lisp"
+    ("supervisor/x86-64/time.lisp" :x86-64)
+    ("supervisor/arm64/time.lisp" :arm64)
     "supervisor/ps2.lisp"
     "supervisor/video.lisp"
     "supervisor/pci.lisp"
@@ -68,17 +72,20 @@
     "supervisor/support.lisp"
     "supervisor/rtl8168.lisp"
     "supervisor/acpi.lisp"
-    "supervisor/arm64/platform.lisp"
+    ("supervisor/x86-64/platform.lisp" :x86-64)
+    ("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
-    "runtime/runtime-arm64.lisp"
+    ("runtime/runtime-x86-64.lisp" :x86-64)
+    ("runtime/runtime-arm64.lisp" :arm64)
     "runtime/allocate.lisp"
     "runtime/numbers.lisp"
-    "runtime/float-arm64.lisp"
+    ("runtime/float-x86-64.lisp" :x86-64)
+    ("runtime/float-arm64.lisp" :arm64)
     "runtime/string.lisp"
     "runtime/array.lisp"
     "runtime/struct.lisp"
     "runtime/symbol.lisp"
-    "runtime/runtime2.lisp"))
+    ("runtime/runtime2.lisp" :arm64)))
 
 (defparameter *source-files*
   '("system/cold-start.lisp"
@@ -96,7 +103,8 @@
     "system/string.lisp"
     "system/hash-table.lisp"
     "system/runtime-numbers.lisp"
-    "system/bignum-arm64.lisp"
+    ("system/bignum-x86-64.lisp" :x86-64)
+    ("system/bignum-arm64.lisp" :arm64)
     "system/numbers.lisp"
     "system/data-types.lisp"
     "system/gc.lisp"
@@ -185,13 +193,13 @@
     "gui/package.lisp"
     "gui/colour.lisp"
     "gui/surface.lisp"
-    ;"gui/blit-x86-64.lisp"
     "gui/blit.lisp"
-    "gui/blit-generic.lisp"
+    ("gui/blit-x86-64.lisp" :x86-64)
+    ("gui/blit-generic.lisp" :arm64)
     "gui/keymaps.lisp"
     "gui/compositor.lisp"
-    ;"gui/input-drivers.lisp"
-    "gui/input-drivers-virtio.lisp"
+    ("gui/input-drivers.lisp" :x86-64)
+    ("gui/input-drivers-virtio.lisp" :arm64)
     "system/unifont.lisp"
     "gui/basic-repl.lisp"
     "net/package.lisp"
@@ -1200,7 +1208,14 @@
             (cold-symbol-value 'sys.int::*unicode-name-trie*) (save-object name-trie :pinned)))
     ;; Bake the compiled warm source files in.
     (let ((warm-files (make-array 10 :adjustable t :fill-pointer 0)))
-      (dolist (file *warm-source-files*)
+      (dolist (file (mapcar (lambda (x)
+                              (if (consp x)
+                                  (first x)
+                                  x))
+                            (remove-if-not (lambda (x)
+                                             (or (not (consp x))
+                                                 (member sys.c::*target-architecture* (rest x))))
+                                           *warm-source-files*)))
         (let ((llf-path (merge-pathnames (make-pathname :type "llf" :defaults file))))
           (when (or (not (probe-file llf-path))
                     (<= (file-write-date llf-path) (file-write-date file)))
@@ -1317,8 +1332,8 @@
 (defun load-source-files (files set-fdefinitions &optional wired)
   (dolist (f files)
     (cond ((consp f)
-           (when (member sys.c::*target-architecture* (first f))
-             (load-source-file (second f) set-fdefinitions wired)))
+           (when (member sys.c::*target-architecture* (rest f))
+             (load-source-file (first f) set-fdefinitions wired)))
           (t
            (load-source-file f set-fdefinitions wired)))))
 
@@ -1873,3 +1888,60 @@ Tag with +TAG-OBJECT+."
             (truncate (+ byte-offset byte) 8)
           (setf (ldb (byte 8 (* byten 8)) (word (+ address word)))
                 (ldb (byte 8 (* byte 8)) value)))))))
+
+(defparameter *cross-source-files*
+  '("system/basic-macros.lisp"
+    "system/defmacro.lisp"
+    "system/backquote.lisp"
+    "system/setf.lisp"
+    "system/cas.lisp"
+    "system/defstruct.lisp"
+    "system/cons-compiler-macros.lisp"
+    "system/condition.lisp"
+    "system/restarts.lisp"
+    "system/error.lisp"
+    "system/type.lisp"
+    "system/array.lisp"
+    "system/sequence.lisp"
+    "system/hash-table.lisp"
+    "system/packages.lisp"
+    "system/stream.lisp"
+    "system/reader.lisp"
+    "system/printer.lisp"
+    "system/numbers.lisp"
+    "system/character.lisp"
+    "system/clos/package.lisp"
+    "system/clos/macros.lisp"
+    "system/clos/closette.lisp"
+    "system/data-types.lisp"
+    "system/gc.lisp"
+    "system/cold-start.lisp"
+    "system/early-cons.lisp"
+    "system/runtime-numbers.lisp"
+    "supervisor/x86-64/cpu.lisp"
+    "supervisor/arm64/cpu.lisp"
+    "supervisor/thread.lisp"
+    "supervisor/interrupts.lisp"
+    "supervisor/entry.lisp"
+    "supervisor/physical.lisp"
+    "supervisor/support.lisp"
+    "runtime/struct.lisp"
+    "runtime/array.lisp"
+    "runtime/symbol.lisp"
+    "system/stuff.lisp"
+)
+  "These files are loaded into the compiler environment so other source
+files will be compiled correctly.")
+
+(defun set-up-cross-compiler ()
+  (with-compilation-unit ()
+    (flet ((load-files (file-list)
+             (dolist (f file-list)
+               (cond ((consp f)
+                      (sys.c::load-for-cross-compiler (first f)))
+                     (t
+                      (sys.c::load-for-cross-compiler f))))))
+      (load-files *cross-source-files*)
+      (load-files *supervisor-source-files*)
+      (load-files *source-files*)
+      (load-files *warm-source-files*))))

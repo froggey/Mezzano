@@ -3,6 +3,12 @@
 
 (in-package :mezzano.supervisor)
 
+(defun initialize-platform-early-console (boot-information-page)
+  (declare (ignore boot-information-page))
+  ;; TODO: This (along with the other serial settings) should be provided by the bootloader.
+  (let ((serial-port-io-base #x3F8))
+    (initialize-debug-serial serial-port-io-base 4 38400)))
+
 (defun initialize-early-platform ()
   (initialize-interrupts)
   (initialize-i8259))
