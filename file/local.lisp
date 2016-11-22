@@ -627,6 +627,21 @@
                                             position-spec)))
         (t (stream-position stream))))
 
+(defmethod sys.gray:stream-line-column ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-line-length ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-clear-output ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-finish-output ((stream local-stream))
+  nil)
+
+(defmethod sys.gray:stream-force-output ((stream local-stream))
+  nil)
+
 (defmethod close ((stream local-stream) &key abort &allow-other-keys)
   (when (and (not abort)
              (superseded-file stream))
