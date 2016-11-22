@@ -590,6 +590,9 @@ Implements the dumb mp_div algorithm from BigNum Math."
     (real
      (%%single-float-sqrt (float number 0.0f0)))))
 
+(defun isqrt (number)
+  (values (floor (sqrt number))))
+
 (macrolet ((def (name bignum-name)
              `(defun ,name (x y)
                 (cond ((and (fixnump x)
