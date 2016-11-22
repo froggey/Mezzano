@@ -152,6 +152,7 @@ of statements opens a new contour."
   ;; Inner environments must be DX, and every variable in this environment
   ;; must only be accessed by DX lambdas.
   (when (and *allow-dx-environment*
+             (not *perform-tce*)
              (every (lambda (var)
                       (every (lambda (l)
                                (or (eql (lexical-variable-definition-point var) l)
@@ -551,7 +552,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
              (endp (gethash form *free-variables*)))
          (let ((*environment* '()))
            (lower-env-lambda form)))
-        ((getf (lambda-information-plist form) 'declared-dynamic-extent)
+        ((and (getf (lambda-information-plist form) 'declared-dynamic-extent)
+              (not *perform-tce*))
          (ast `(call sys.c::make-dx-closure
                      ,(lower-env-lambda form)
                      ,(second (first *environment-chain*)))))
