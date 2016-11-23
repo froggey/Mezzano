@@ -208,6 +208,9 @@ This is required to make the GC interrupt safe."
 (defun scavenge-regular-stack-frame (frame-pointer stack-pointer framep
                                      layout-address layout-length
                                      incoming-arguments pushed-values)
+  (when (and framep
+             (zerop frame-pointer))
+    (mezzano.supervisor:panic "Zero frame-pointer in framed function."))
   ;; Scan stack slots.
   (dotimes (slot layout-length)
     (multiple-value-bind (offset bit)
@@ -345,15 +348,19 @@ This is required to make the GC interrupt safe."
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
-         ;; Stop after seeing a zerop frame pointer.
-         (when (eql frame-pointer 0)
-           (when *gc-debug-scavenge-stack* (gc-log "Done scav stack."))
-           (return))
-         (when (not framep) ; ???
-           (mezzano.supervisor:panic "No frame, but no end in sight?"))
-         (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
-                stack-pointer (+ frame-pointer 16)
-                frame-pointer (memref-unsigned-byte-64 frame-pointer 0))))))
+         (cond (framep
+                (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
+                       stack-pointer (+ frame-pointer 16)
+                       frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))
+               (t
+                ;; No frame, carefully pick out the new values.
+                (gc-log "Unwinding through no-frame function")
+                ;; Frame pointer remains unchanged.
+                ;; Return address should be above the layout variables.
+                (setf return-address (memref-unsigned-byte-64 stack-pointer layout-length))
+                ;; Stack pointer needs the return address popped off,
+                ;; and any layout variables.
+                (setf stack-pointer (+ stack-pointer (* (1+ layout-length) 8)))))))))
 
 (defun scavenge-thread-data-registers (thread)
   (scavengef (mezzano.supervisor:thread-state-r8-value thread))
@@ -367,7 +374,7 @@ This is required to make the GC interrupt safe."
 (defun scavenge-full-save-thread (thread)
   ;; Thread has stopped due to an interrupt.
   ;; Examine it, then perform normal stack scavenging.
-  (when *gc-debug-scavenge-stack* (gc-log "Scav full-save thread..."))
+  (when *gc-debug-scavenge-stack* (gc-log "Scav full-save thread..." thread))
   (let* ((return-address (mezzano.supervisor:thread-state-rip thread))
          (frame-pointer (mezzano.supervisor:thread-frame-pointer thread))
          (stack-pointer (mezzano.supervisor:thread-stack-pointer thread))
