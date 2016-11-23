@@ -482,10 +482,16 @@ A passive drag sends no drag events to the window.")
 
 ;;;; Internal redisplay timer event.
 
-(defclass redisplay-time-event () ())
+(defclass redisplay-time-event ()
+  ((%fullp :initarg :full :reader redisplay-time-event-fullp))
+  (:default-initargs :full nil))
 
 (defmethod process-event ((event redisplay-time-event))
-  (recompose-windows))
+  (recompose-windows (redisplay-time-event-fullp event)))
+
+(defun force-redisplay (&optional full)
+  (mezzano.supervisor:fifo-push (make-instance 'redisplay-time-event :full full)
+                                *event-queue*))
 
 ;;;; Notifications.
 
