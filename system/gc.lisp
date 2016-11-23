@@ -75,6 +75,23 @@
   (when *gc-enable-logging*
     (apply 'mezzano.supervisor:debug-print-line things)))
 
+;; The background gc thread runs the GC when physical memory usage exceeds some
+;; threshold. The idea is to prevent swapping, with the assumption that a GC
+;; cycle will be faster than thrashing.
+(defvar *gc-poll-interval* 0.1)
+(defvar *auto-gc-thread* (mezzano.supervisor:make-thread #'auto-gc-worker :name "Background GC"))
+(defvar *gc-memory-use-threshold* 0.1)
+
+(defun maybe-gc ()
+  (multiple-value-bind (free total)
+      (mezzano.supervisor:physical-memory-statistics)
+    (when (< (/ (float free) total) *gc-memory-use-threshold*)
+      (gc))))
+
+(defun auto-gc-worker ()
+  (loop
+     (sleep *gc-poll-interval*)
+     (maybe-gc)))
 
 (defvar *gc-lock* (mezzano.supervisor:make-mutex "Garbage Collector Lock"))
 (defvar *gc-cvar* (mezzano.supervisor:make-condition-variable "Garbage Collector Cvar"))
