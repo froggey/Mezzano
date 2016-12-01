@@ -113,18 +113,94 @@
 
 (defun detect-disk-partitions ()
   (dolist (disk (all-disks))
-    (let* ((sector-size (disk-sector-size disk))
-           (page (allocate-physical-pages (ceiling sector-size +4k-page-size+)
-                                          :mandatory-p "DETECT-DISK disk buffer"))
-           (page-addr (convert-to-pmap-address (* page +4k-page-size+))))
-      (when (not (disk-read disk 0 (ceiling +4k-page-size+ sector-size) page-addr))
+    ;; Search for a GPT, then a PC MBR.
+    (when (not (detect-gpt-parition-table disk))
+      (detect-mbr-partition-table disk))))
+
+(defun check-gpt-header-signature (page-addr)
+  (loop
+     for i from 0
+     for m in '(#x45 #x46 #x49 #x20 #x50 #x41 #x52 #x54)
+     when (not (eql (sys.int::memref-unsigned-byte-8 (+ page-addr i) 0) m))
+     do (return nil)
+     finally (return t)))
+
+(defmacro with-pages ((virtual-address n-pages &rest options) &body body)
+  (let ((n-pages-sym (gensym "N-PAGES"))
+        (page (gensym "PAGE")))
+    `(let* ((,n-pages-sym ,n-pages)
+            (,page (allocate-physical-pages ,n-pages-sym ,@options))
+            (,virtual-address (when ,page
+                                (convert-to-pmap-address (* ,page +4k-page-size+)))))
+       (unwind-protect
+            (progn ,@body)
+         (when ,page
+           (release-physical-pages ,page ,n-pages-sym))))))
+
+(defun process-gpt-partition-table-entry (disk offset i entry-size sector-buffer)
+  (let ((sector-size (disk-sector-size disk)))
+    (multiple-value-bind (sector-index byte-offset)
+        (truncate (* i entry-size) sector-size)
+      (when (not (disk-read disk (+ offset sector-index) 1 sector-buffer))
+        (panic "Unable to read GPT entry block " (+ offset sector-index) " on disk " disk))
+      (let* ((base (+ sector-buffer byte-offset))
+             (first-lba (sys.int::memref-unsigned-byte-64 (+ base #x20) 0))
+             (last-lba (sys.int::memref-unsigned-byte-64 (+ base #x28) 0))
+             (size (- (1+ last-lba) first-lba)))
+        (when (loop
+                 for i from 0 below 16
+                 when (not (eql (sys.int::memref-unsigned-byte-8 (+ base i) 0) 0))
+                 do (return t)
+                 finally (return nil))
+          (debug-print-line "Detected partition " i " on disk " disk ". Start: " first-lba " size: " size)
+          (register-disk (make-partition :disk disk
+                                         :offset first-lba
+                                         :id i)
+                         size
+                         sector-size
+                         (disk-max-transfer disk)
+                         'read-disk-partition
+                         'write-disk-partition))))))
+
+(defun detect-gpt-parition-table (disk)
+  (let* ((sector-size (disk-sector-size disk))
+         (pages-per-sector (ceiling sector-size +4k-page-size+))
+         (found-table-p nil))
+    (with-pages (page-addr pages-per-sector
+                           :mandatory-p "DETECT-DISK disk buffer")
+      ;; GPT is stored on LBA 1, protective MBR on LBA 0.
+      (when (not (disk-read disk 1 1 page-addr))
+        (panic "Unable to read second block on disk " disk))
+      (when (and (>= sector-size 512)
+                 (check-gpt-header-signature page-addr))
+        ;; Found, scan partitions.
+        ;; FIXME: Deal with GPT tables that exceed the sector size.
+        ;; FIXME: Little-endian reads.
+        ;; FIXME: Verify the CRC & other fields.
+        (setf found-table-p t)
+        (debug-print-line "Detected GPT on disk " disk)
+        (let ((offset (sys.int::memref-unsigned-byte-64 (+ page-addr #x48) 0))
+              (num-entries (sys.int::memref-unsigned-byte-32 (+ page-addr #x50) 0))
+              (entry-size (sys.int::memref-unsigned-byte-32 (+ page-addr #x54) 0)))
+          (dotimes (i num-entries)
+            (process-gpt-partition-table-entry
+             disk offset i entry-size page-addr))))
+      found-table-p)))
+
+(defun detect-mbr-partition-table (disk)
+  (let* ((sector-size (disk-sector-size disk))
+         (pages-per-sector (ceiling sector-size +4k-page-size+))
+         (found-table-p nil))
+    (with-pages (page-addr pages-per-sector
+                           :mandatory-p "DETECT-DISK disk buffer")
+      (when (not (disk-read disk 0 1 page-addr))
         (panic "Unable to read first block on disk " disk))
-      ;; Look for a PC partition table.
-      ;; TODO: GPT detection must be done this, as it contains a protective MBR/partition table.
       (when (and (>= sector-size 512)
                  (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FE) #x55)
                  (eql (sys.int::memref-unsigned-byte-8 page-addr #x1FF) #xAA))
         ;; Found, scan partitions.
+        (setf found-table-p t)
+        (debug-print-line "Detected MBR style parition table on disk " disk)
         ;; TODO: Extended partitions.
         ;; TODO: Explict little endian reads.
         (dotimes (i 4)
@@ -142,8 +218,7 @@
                              (disk-max-transfer disk)
                              'read-disk-partition
                              'write-disk-partition)))))
-      ;; Release the pages.
-      (release-physical-pages page (ceiling sector-size +4k-page-size+)))))
+      found-table-p)))
 
 (defun pop-disk-request ()
   (loop
