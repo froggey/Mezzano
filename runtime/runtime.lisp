@@ -95,7 +95,8 @@ Arguments to FUNCTION:
  multiple-values
  incoming-arguments
  block-or-tagbody-thunk
- extra-registers"
+ extra-registers
+ restart"
   (check-type function function)
   (let* ((fn-address (logand (lisp-object-address function-to-inspect) -16))
          (header-data (%object-header-data function-to-inspect))
@@ -205,7 +206,9 @@ Arguments to FUNCTION:
                          (0 nil)
                          (1 :rax)
                          (2 :rax-rcx)
-                         (3 :rax-rcx-rdx))))))))
+                         (3 :rax-rcx-rdx))
+                       ;; Restart
+                       (logtest flags-and-pvr #b10000000)))))))
 
 #+x86-64
 (define-lap-function %copy-words ((destination-address source-address count))

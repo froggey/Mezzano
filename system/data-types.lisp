@@ -231,7 +231,7 @@ Internal to the pager, should not be used by other code.")
   "When stored in the ID field, this value indicates that space has been
 reserved on the disk, but no specific block has been allocated.")
 
-(defparameter *llf-version* 14)
+(defparameter *llf-version* 15)
 
 (defconstant +llf-arch-x86-64+ 1)
 (defconstant +llf-arch-arm64+ 2)

@@ -179,7 +179,7 @@ a vector of constants and an alist of symbols & addresses."
   (push (cons name *current-address*) *fixups*))
 
 (defun emit-gc (&rest args)
-  (destructuring-bind (frame-mode &key (layout #*) (pushed-values 0) incoming-arguments interrupt multiple-values pushed-values-register block-or-tagbody-thunk extra-registers)
+  (destructuring-bind (frame-mode &key (layout #*) (pushed-values 0) incoming-arguments interrupt multiple-values pushed-values-register block-or-tagbody-thunk extra-registers restart)
       args
     (check-type frame-mode (member :frame :no-frame))
     (check-type layout bit-vector)
@@ -211,6 +211,8 @@ a vector of constants and an alist of symbols & addresses."
         (setf (getf gc-keys :pushed-values) pushed-values))
       (when (not (zerop (length layout)))
         (setf (getf gc-keys :layout) layout))
+      (when restart
+        (setf (getf gc-keys :restart) t))
       ;; Most recent takes priority.
       (if (eql (first (first *gc-data*)) *current-address*)
           (setf (first *gc-data*) (list* *current-address*
@@ -250,7 +252,8 @@ a vector of constants and an alist of symbols & addresses."
                                multiple-values
                                pushed-values-register
                                block-or-tagbody-thunk
-                               extra-registers)
+                               extra-registers
+                               restart)
       info
     (let ((bytes (make-array 10 :element-type '(unsigned-byte 8) :adjustable t :fill-pointer 0)))
       (append-vu32 address bytes)
@@ -280,7 +283,11 @@ a vector of constants and an alist of symbols & addresses."
                                     ((nil) 0)
                                     ((:rax)         #b00100000)
                                     ((:rax-rcx)     #b01000000)
-                                    ((:rax-rcx-rdx) #b01100000)))
+                                    ((:rax-rcx-rdx) #b01100000))
+                                  (cond
+                                    (restart
+                                     #b10000000)
+                                    (t 0)))
                           bytes)
       (vector-push-extend (logior (or multiple-values #b1111)
                                   (ash (cond ((keywordp incoming-arguments)

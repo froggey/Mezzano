@@ -520,7 +520,8 @@ VALUE may be nil to make the fref unbound."
               pushed-values pushed-values-register
               layout-address layout-length
               multiple-values incoming-arguments
-              block-or-tagbody-thunk extra-registers)
+              block-or-tagbody-thunk extra-registers
+              restart)
        (let ((layout (make-array 32 :element-type 'bit :adjustable t :fill-pointer 0)))
          ;; Consume layout bits.
          (dotimes (i (ceiling layout-length 8))
@@ -546,6 +547,8 @@ VALUE may be nil to make the fref unbound."
              (setf (getf entry :pushed-values) pushed-values))
            (when interruptp
              (setf (getf entry :interrupt) t))
+           (when restart
+             (setf (getf entry :restart) t))
            (push (list* offset
                         (if framep :frame :no-frame)
                         entry)

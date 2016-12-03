@@ -279,8 +279,10 @@ This is required to make the GC interrupt safe."
 (defun debug-stack-frame (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
-                          block-or-tagbody-thunk extra-registers)
+                          block-or-tagbody-thunk extra-registers
+                          restart offset)
   (when *gc-debug-scavenge-stack*
+    (gc-log "offset: " offset)
     (if framep
         (gc-log "frame")
         (gc-log "no-frame"))
@@ -302,7 +304,10 @@ This is required to make the GC interrupt safe."
         (gc-log "no-btt"))
     (if extra-registers
         (gc-log "xr: " extra-registers)
-        (gc-log "no-xr"))))
+        (gc-log "no-xr"))
+    (if restart
+        (gc-log "restart")
+        (gc-log "no-restart"))))
 
 (defun scavenge-stack (stack-pointer frame-pointer return-address)
   (when *gc-debug-scavenge-stack* (gc-log "Scav stack..."))
@@ -324,7 +329,8 @@ This is required to make the GC interrupt safe."
        (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                                     layout-address layout-length
                                     multiple-values incoming-arguments
-                                    block-or-tagbody-thunk extra-registers)
+                                    block-or-tagbody-thunk extra-registers
+                                    entry-offset restart)
            (gc-info-for-function-offset fn fn-offset)
          (when *gc-debug-metadata*
            (flet ((bad-metadata (message)
@@ -338,7 +344,8 @@ This is required to make the GC interrupt safe."
                       (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                          layout-address layout-length
                                          multiple-values incoming-arguments
-                                         block-or-tagbody-thunk extra-registers))
+                                         block-or-tagbody-thunk extra-registers
+                                         entry-offset restart))
                     (mezzano.supervisor:panic "Bad GC metadata: " message)))
              (declare (dynamic-extent #'bad-metadata))
              ;; Validate metadata.
@@ -361,7 +368,9 @@ This is required to make the GC interrupt safe."
              (when (eql incoming-arguments :rcx)
                (bad-metadata ":INCOMING-ARGUMENTS :RCX seen outside full-save'd function."))
              (when extra-registers
-               (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))))
+               (bad-metadata ":EXTRA-REGISTERS seen outside full-save'd function."))
+             (when restart
+               (bad-metadata ":RESTART seen outside full-save'd function."))))
          (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                        layout-address layout-length
                                        incoming-arguments pushed-values)
@@ -409,7 +418,8 @@ This is required to make the GC interrupt safe."
     (multiple-value-bind (framep interruptp pushed-values pushed-values-register
                           layout-address layout-length
                           multiple-values incoming-arguments
-                          block-or-tagbody-thunk extra-registers)
+                          block-or-tagbody-thunk extra-registers
+                          entry-offset restart)
         (gc-info-for-function-offset fn fn-offset)
       (when *gc-debug-metadata*
         (flet ((bad-metadata (message)
@@ -423,7 +433,8 @@ This is required to make the GC interrupt safe."
                    (debug-stack-frame framep interruptp pushed-values pushed-values-register
                                       layout-address layout-length
                                       multiple-values incoming-arguments
-                                      block-or-tagbody-thunk extra-registers))
+                                      block-or-tagbody-thunk extra-registers
+                                      entry-offset restart))
                  (mezzano.supervisor:panic "Bad GC metadata: " message)))
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
@@ -469,6 +480,8 @@ This is required to make the GC interrupt safe."
          frame-pointer stack-pointer framep
          layout-length
          (mezzano.supervisor::thread-state-rcx-value thread)))
+      (when restart
+        (setf (mezzano.supervisor:thread-state-rip thread) (+ fn-address entry-offset)))
       (scavenge-regular-stack-frame frame-pointer stack-pointer framep
                                     layout-address layout-length
                                     incoming-arguments
@@ -555,14 +568,17 @@ This is required to make the GC interrupt safe."
         ;; Stuff can override if needed.
         (incoming-arguments :rcx)
         (block-or-tagbody-thunk nil)
-        (extra-registers nil))
+        (extra-registers nil)
+        (this-offset 0)
+        (restart nil))
     (block nil
       (flet ((f (entry-offset
                  entry-framep entry-interruptp
                  entry-pushed-values entry-pushed-values-register
                  entry-layout-address entry-layout-length
                  entry-multiple-values entry-incoming-arguments
-                 entry-block-or-tagbody-thunk entry-extra-registers)
+                 entry-block-or-tagbody-thunk entry-extra-registers
+                 entry-restart)
                (when (< offset entry-offset)
                  ;; This metadata entry is past the offset, return the previous values.
                  (return))
@@ -575,17 +591,20 @@ This is required to make the GC interrupt safe."
                      multiple-values entry-multiple-values
                      incoming-arguments entry-incoming-arguments
                      block-or-tagbody-thunk entry-block-or-tagbody-thunk
-                     extra-registers entry-extra-registers)))
+                     extra-registers entry-extra-registers
+                     this-offset entry-offset
+                     restart entry-restart)))
         (declare (dynamic-extent #'f))
         (map-function-gc-metadata #'f function)))
     (debug-stack-frame framep interruptp pushed-values pushed-values-register
                        layout-address layout-length
                        multiple-values incoming-arguments
-                       block-or-tagbody-thunk extra-registers)
+                       block-or-tagbody-thunk extra-registers
+                       this-offset restart)
     (values framep interruptp pushed-values pushed-values-register
             layout-address layout-length multiple-values
             incoming-arguments block-or-tagbody-thunk
-            extra-registers)))
+            extra-registers this-offset restart)))
 
 (defun scan-object-1 (object)
   ;; Dispatch again based on the type.
