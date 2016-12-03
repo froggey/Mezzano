@@ -220,7 +220,100 @@
           (cdr object) cdr)
     object))
 
+;; This relies on memory being initialized to zero, so it looks like
+;; many simple vectors of length 0.
+#+x86-64
+(sys.int::define-lap-function %allocate-from-general-area ((tag data words))
+  ;; Attempt to quickly allocate from the general area. Will call
+  ;; %SLOW-ALLOCATE-FROM-GENERAL-AREA if things get too hairy.
+  ;; This is not even remotely SMP safe.
+  ;; R8 = tag; R9 = data; R10 = words
+  ;; Check argument count.
+  (sys.lap-x86:cmp64 :rcx #.(ash 3 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:jne SLOW-PATH-INTERRUPTS-ENABLED)
+  ;; Assemble the final header value in RDI.
+  (sys.lap-x86:mov64 :rdi :r9)
+  (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:lea64 :rdi (:rdi (:r8 #.(ash 1 (- sys.int::+object-type-shift+ sys.int::+n-fixnum-bits+)))))
+  ;; If a garbage collection occurs, it must rewind IP back here.
+  (:gc :no-frame :restart t)
+  ;; Big hammer, disable interrupts. Faster than taking locks & stuff.
+  (sys.lap-x86:cli)
+  ;; Check *ENABLE-ALLOCATION-PROFILING*
+  ;; FIXME: This only tests the global value.
+  (sys.lap-x86:mov64 :rax (:constant *enable-allocation-profiling*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Check *GC-IN-PROGRESS*.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*gc-in-progress*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 (:object :rax #.sys.int::+symbol-value-cell-value+) nil)
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Grovel directly in the allocator mutex to make sure that it isn't held.
+  (sys.lap-x86:mov64 :rax (:constant *allocator-lock*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:mov64 :rbx (:constant :unlocked))
+  (sys.lap-x86:cmp64 (:object :rax 6) :rbx) ; mutex-state
+  (sys.lap-x86:jne SLOW-PATH)
+  ;; Fetch current bump pointer.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*general-area-bump*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rbx (:object :rax #.sys.int::+symbol-value-cell-value+))
+  ;; + words * 8.
+  ;; Keep the old bump pointer, that's the address of the new object.
+  (sys.lap-x86:lea64 :rsi (:rbx (:r10 8)))
+  ;; Test against limit.
+  (sys.lap-x86:mov64 :rdx (:constant sys.int::*general-area-limit*))
+  (sys.lap-x86:mov64 :rdx (:object :rdx #.sys.int::+symbol-value+))
+  (sys.lap-x86:cmp64 :rsi (:object :rdx #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:ja SLOW-PATH)
+  ;; Enough space.
+  ;; Update the bump pointer.
+  (sys.lap-x86:mov64 (:object :rax #.sys.int::+symbol-value-cell-value+) :rsi)
+  ;; Generate the object.
+  ;; Unfixnumize address.
+  (sys.lap-x86:shr64 :rbx #.sys.int::+n-fixnum-bits+)
+  ;; Set address bits and the tag bits.
+  (sys.lap-x86:mov64 :rax #.(logior (ash sys.int::+address-tag-general+ sys.int::+address-tag-shift+)
+                                    sys.int::+tag-object+))
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; Set mark bit.
+  (sys.lap-x86:mov64 :rax (:constant sys.int::*dynamic-mark-bit*))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value+))
+  (sys.lap-x86:mov64 :rax (:object :rax #.sys.int::+symbol-value-cell-value+))
+  (sys.lap-x86:shr64 :rax #.sys.int::+n-fixnum-bits+)
+  (sys.lap-x86:or64 :rbx :rax)
+  ;; RBX now points to a 0-element simple-vector, followed by however much empty space is required.
+  ;; The gc metadata at this point has :restart t, so if a GC occurs after reenabling interrupts but before
+  ;; writing the final header, this process will be restarted from the beginning.
+  ;; This is required as the GC will only copy 2 words, leaving the rest of the memory in an invalid state.
+  ;; The general area cannot be accessed with interrupts disabled as this may trigger paging, so the header
+  ;; must be written back after interrupts are enabled, giving a small window for a possible GC to occur.
+  ;; It is safe to turn interrupts on again.
+  (sys.lap-x86:sti)
+  ;; Write back the header.
+  ;; This must be done in a single write so the GC always sees a correct header.
+  (sys.lap-x86:mov64 (:object :rbx -1) :rdi)
+  ;; Leave restart region.
+  (:gc :no-frame)
+  ;; Done. Return everything.
+  (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
+  (sys.lap-x86:ret)
+  SLOW-PATH
+  (sys.lap-x86:sti)
+  SLOW-PATH-INTERRUPTS-ENABLED
+  ;; Tail call into %SLOW-ALLOCATE-FROM-GENERAL-AREA.
+  (sys.lap-x86:mov64 :r13 (:function %slow-allocate-from-general-area))
+  (sys.lap-x86:jmp (:object :r13 #.sys.int::+fref-entry-point+)))
+
+#-x86-64
 (defun %allocate-from-general-area (tag data words)
+  (%slow-allocate-from-general-area tag data words))
+
+(defun %slow-allocate-from-general-area (tag data words)
   (log-allocation-profile-entry)
   (let ((gc-count 0))
     (tagbody
@@ -239,7 +332,7 @@
                   (incf sys.int::*general-area-bump* (* words 8))
                   ;; Write array header.
                   (set-allocated-object-header addr tag data 0)
-                  (return-from %allocate-from-general-area
+                  (return-from %slow-allocate-from-general-area
                     (sys.int::%%assemble-value addr sys.int::+tag-object+)))
               EXPAND-AREA
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
