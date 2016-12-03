@@ -29,14 +29,10 @@
 (defun (setf find-class) (new-value symbol &optional (errorp t) environment)
   (setf (gethash symbol *class-table*) new-value))
 
-(defvar *next-class-hash-value* 1)
+(sys.int::defglobal *next-class-hash-value* 1)
 
 (defun next-class-hash-value ()
-  (let ((cell (mezzano.runtime::symbol-global-value-cell
-               '*next-class-hash-value*)))
-    (sys.int::%atomic-fixnum-add-object cell
-                                        sys.int::+symbol-value-cell-value+
-                                        1)))
+  (sys.int::%atomic-fixnum-add-symbol '*next-class-hash-value* 1))
 
 (defparameter *secret-unbound-value* (list "slot unbound"))
 

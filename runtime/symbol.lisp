@@ -185,3 +185,8 @@
           ((:symbol-macro) sys.int::+symbol-mode-symbol-macro+)
           ((:global) sys.int::+symbol-mode-global+)))
   value)
+
+(defun sys.int::%atomic-fixnum-add-symbol (symbol value)
+  (sys.int::%atomic-fixnum-add-object (symbol-value-cell symbol)
+                                      sys.int::+symbol-value-cell-value+
+                                      value))
