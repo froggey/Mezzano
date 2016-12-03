@@ -264,7 +264,8 @@
                 (next-method-p ()
                   (not (null next-emfun))))
            (apply (lambda ,(kludge-arglist lambda-list)
-                    (declare ,@declares)
+                    (declare (ignorable ,@(getf (analyze-lambda-list lambda-list) :required-names))
+                             ,@declares)
                     ,form)
                   args))))))
 
