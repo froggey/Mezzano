@@ -20,6 +20,11 @@
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
 
+(sys.int::defglobal *general-fast-path-hits*)
+(sys.int::defglobal *general-allocation-count*)
+(sys.int::defglobal *cons-fast-path-hits*)
+(sys.int::defglobal *cons-allocation-count*)
+
 (defvar *maximum-allocation-attempts* 5
   "GC this many times before giving up on an allocation.")
 
@@ -67,7 +72,11 @@
         *enable-allocation-profiling* nil
         *allocator-lock* (mezzano.supervisor:make-mutex "Allocator")
         *general-area-expansion-granularity* (* 128 1024 1024)
-        *cons-area-expansion-granularity* (* 128 1024 1024)))
+        *cons-area-expansion-granularity* (* 128 1024 1024)
+        *general-fast-path-hits* 0
+        *general-allocation-count* 0
+        *cons-fast-path-hits* 0
+        *cons-allocation-count* 0))
 
 (defun verify-freelist (start base end)
   (do ((freelist start (freelist-entry-next freelist))
@@ -231,6 +240,10 @@
   ;; Check argument count.
   (sys.lap-x86:cmp64 :rcx #.(ash 3 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:jne SLOW-PATH-INTERRUPTS-ENABLED)
+  ;; Update allocation meter.
+  (sys.lap-x86:mov64 :rbx (:constant *general-allocation-count*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Assemble the final header value in RDI.
   (sys.lap-x86:mov64 :rdi :r9)
   (sys.lap-x86:shl64 :rdi #.(- sys.int::+object-data-shift+ sys.int::+n-fixnum-bits+))
@@ -300,6 +313,9 @@
   (:gc :no-frame)
   ;; Done. Return everything.
   (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov64 :rbx (:constant *general-fast-path-hits*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   SLOW-PATH
@@ -311,6 +327,7 @@
 
 #-x86-64
 (defun %allocate-from-general-area (tag data words)
+  (sys.int::%atomic-fixnum-add-symbol '*general-allocation-count* 1)
   (%slow-allocate-from-general-area tag data words))
 
 (defun %slow-allocate-from-general-area (tag data words)
@@ -410,6 +427,10 @@
   ;; Attempt to quickly allocate a cons. Will call SLOW-CONS if things get too hairy.
   ;; This is not even remotely SMP safe.
   ;; R8 = car; R9 = cdr
+  ;; Update allocation meter.
+  (sys.lap-x86:mov64 :rbx (:constant *cons-allocation-count*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   ;; Big hammer, disable interrupts. Faster than taking locks & stuff.
   (sys.lap-x86:cli)
   ;; Check argument count.
@@ -472,6 +493,9 @@
   (sys.lap-x86:mov64 (:cdr :rbx) :r9)
   ;; Done. Return everything.
   (sys.lap-x86:mov64 :r8 :rbx)
+  (sys.lap-x86:mov64 :rbx (:constant *cons-fast-path-hits*))
+  (sys.lap-x86:mov64 :rbx (:object :rbx #.sys.int::+symbol-value+))
+  (sys.lap-x86:add64 (:object :rbx #.sys.int::+symbol-value-cell-value+) #.(ash 1 sys.int::+n-fixnum-bits+))
   (sys.lap-x86:mov32 :ecx #.(ash 1 #.sys.int::+n-fixnum-bits+))
   (sys.lap-x86:ret)
   SLOW-PATH
@@ -482,6 +506,7 @@
 
 #-x86-64
 (defun cons (car cdr)
+  (sys.int::%atomic-fixnum-add-symbol '*cons-allocation-count* 1)
   (slow-cons car cdr))
 
 (defun slow-cons (car cdr)
