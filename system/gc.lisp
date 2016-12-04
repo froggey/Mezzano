@@ -609,7 +609,9 @@ This is required to make the GC interrupt safe."
 (defun scan-object-1 (object)
   ;; Dispatch again based on the type.
   (case (%object-tag object)
-    (#.+object-tag-array-t+
+    ((#.+object-tag-array-t+
+      #.+object-tag-closure+
+      #.+object-tag-funcallable-instance+)
      ;; simple-vector
      ;; 1+ to account for the header word.
      (scan-generic object (1+ (%object-header-data object))))
@@ -630,9 +632,7 @@ This is required to make the GC interrupt safe."
      (scan-generic object 4))
     (#.+object-tag-function-reference+
      (scan-generic object 4))
-    ((#.+object-tag-function+
-      #.+object-tag-closure+
-      #.+object-tag-funcallable-instance+)
+    (#.+object-tag-function+
      (scan-function object))
     ;; Things that don't need to be scanned.
     ((#.+object-tag-array-fixnum+
@@ -768,7 +768,9 @@ a pointer to the new object. Leaves a forwarding pointer in place."
        (case (%object-tag object)
          ((#.+object-tag-array-t+
            #.+object-tag-array-fixnum+
-           #.+object-tag-structure-object+)
+           #.+object-tag-structure-object+
+           #.+object-tag-closure+
+           #.+object-tag-funcallable-instance+)
           ;; simple-vector, std-instance or structure-object.
           ;; 1+ to account for the header word.
           (1+ length))
@@ -831,9 +833,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
           4)
          (#.+object-tag-function-reference+
           4)
-         ((#.+object-tag-function+
-           #.+object-tag-closure+
-           #.+object-tag-funcallable-instance+)
+         (#.+object-tag-function+
           ;; The size of a function is the sum of the MC, the GC info and the constant pool.
           (ceiling (+ (* (ldb (byte 16 8) length) 16)  ; mc size
                       (* (ldb (byte 16 24) length) 8)  ; pool size

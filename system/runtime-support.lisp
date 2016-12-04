@@ -157,7 +157,7 @@
 
 (defun %closure-length (closure)
   (assert (%object-of-type-p closure +object-tag-closure+))
-  (1- (function-pool-size closure)))
+  (- (%object-header-data closure) 2))
 
 (defun %closure-value (closure index)
   (assert (%object-of-type-p closure +object-tag-closure+))

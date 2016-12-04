@@ -591,7 +591,7 @@
 (defun sys.int::make-closure (function environment &optional area)
   "Allocate a closure object."
   (check-type function function)
-  (let* ((closure (%allocate-object sys.int::+object-tag-closure+ #x2000100 3 area))
+  (let* ((closure (%allocate-object sys.int::+object-tag-closure+ 3 3 area))
          (entry-point (sys.int::%object-ref-unsigned-byte-64
                        function
                        sys.int::+function-entry-point+)))
@@ -697,10 +697,7 @@
   "Allocate a funcallable instance."
   (check-type function function)
   (let* ((object (%allocate-object sys.int::+object-tag-funcallable-instance+
-                                   ;; MC size (1 2-word units, header + entry-point)
-                                   ;; constant pool size (4 entries)
-                                   ;; GC info size (0 octets)
-                                   #x00000004000100
+                                   5
                                    5
                                    area))
          (entry-point (sys.int::%object-ref-unsigned-byte-64

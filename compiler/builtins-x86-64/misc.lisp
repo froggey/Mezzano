@@ -384,8 +384,8 @@
     (load-in-reg :r9 code t)
     (load-in-reg :r10 env t)
     (emit `(sys.lap-x86:lea64 :rax (:stack ,(+ slots 4 -1)))
-          ;; Function tag, flags and MC size.
-          `(sys.lap-x86:mov32 (:rax) ,(logior #x00010000
+          ;; Closure tag and size.
+          `(sys.lap-x86:mov32 (:rax) ,(logior (ash 3 sys.int::+object-data-shift+)
                                               (ash sys.int::+object-tag-closure+
                                                    sys.int::+object-type-shift+)))
           ;; Constant pool size and slot count.

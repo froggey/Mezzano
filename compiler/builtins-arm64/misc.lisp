@@ -98,7 +98,7 @@
     (load-literal :x9 (control-stack-frame-offset (+ slots 4 -1)))
     (emit `(lap:add :x9 :x29 :x9))
     ;; Function tag, flags and MC size.
-    (load-literal :x10 (logior #x00010000
+    (load-literal :x10 (logior (ash 3 sys.int::+object-data-shift+)
                                (ash sys.int::+object-tag-closure+
                                     sys.int::+object-type-shift+)))
     (emit `(lap:str :w10 (:x9)))
