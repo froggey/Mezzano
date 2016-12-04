@@ -231,6 +231,11 @@ thread states & call-stacks."
                            (gethash function thread-samples) entry))
                    entry)))
              (add-sample (thread function directp previous)
+               (when (eql function 0)
+                 ;(warn "Ignoring zero function. bug?")
+                 (return-from add-sample))
+               (when (eql previous 0)
+                 (error "zero previous?"))
                (let* ((fn (car function))
                       (entry (entry-for thread fn)))
                  (cond (directp
