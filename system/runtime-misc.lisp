@@ -23,7 +23,7 @@
 
 (defgeneric make-load-form (object &optional environment))
 
-(defun raise-undefined-function (invoked-through &rest args)
+(defun raise-undefined-function (&rest args &fref invoked-through)
   (setf invoked-through (function-reference-name invoked-through))
   ;; Allow restarting.
   ;; FIXME: Restarting doesn't actually work, as args are lost by the undefined function thunk.

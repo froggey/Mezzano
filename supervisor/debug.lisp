@@ -344,7 +344,8 @@
   (declare (dynamic-extent arguments))
   (panic "Assert error " test-form " " datum " " arguments))
 
-(defun sys.int::raise-undefined-function (fref)
+(defun sys.int::raise-undefined-function (&rest args sys.int::&fref fref)
+  (declare (ignore args))
   (let ((name (sys.int::%object-ref-t fref sys.int::+fref-name+)))
     (cond ((consp name)
            (panic "Undefined function (" (symbol-name (car name)) " " (symbol-name (car (cdr name))) ")"))

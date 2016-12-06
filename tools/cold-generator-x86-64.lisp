@@ -3,17 +3,11 @@
 
 (in-package :cold-generator.x86-64)
 
-;; FIXME! Save args.
 (defparameter *undefined-function-thunk*
-  `(;; Pass invoked-through as the first argument.
-    (sys.lap-x86:mov64 :r8 :r13)
-    (sys.lap-x86:mov32 :ecx ,(ash 1 sys.int::+n-fixnum-bits+))
-    ;; Tail call through to RAISE-UNDEFINED-FUNCTION and let that
-    ;; handle the heavy work.
-    (sys.lap-x86:mov64 :r13 (:function sys.int::raise-undefined-function))
-    (sys.lap-x86:jmp (:r13 ,(+ (- sys.int::+tag-object+)
-                               8
-                               (* sys.int::+fref-entry-point+ 8)))))
+  `(;; Call helper using the function calling convention, leaving fref intact.
+    (sys.lap-x86:mov64 :rbx (:function sys.int::raise-undefined-function))
+    (sys.lap-x86:mov64 :rbx (:object :rbx ,sys.int::+fref-function+))
+    (sys.lap-x86:jmp (:object :rbx ,sys.int::+function-entry-point+)))
   "Code for the undefined function thunk.")
 
 (defparameter *closure-trampoline*

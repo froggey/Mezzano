@@ -3,15 +3,11 @@
 
 (in-package :cold-generator.arm64)
 
-;; FIXME! Save args.
 (defparameter *undefined-function-thunk*
-  `(;; Pass invoked-through as the first argument.
-    (mezzano.lap.arm64:orr :x0 :xzr :x7)
-    (mezzano.lap.arm64:movz :x5 ,(ash 1 sys.int::+n-fixnum-bits+))
-    ;; Tail call through to RAISE-UNDEFINED-FUNCTION and let that
-    ;; handle the heavy work.
-    (mezzano.lap.arm64:ldr :x7 (:function sys.int::raise-undefined-function))
-    (mezzano.lap.arm64:ldr :x9 (:object :x7 ,sys.int::+fref-entry-point+))
+  `(;; Call helper using the function calling convention, leaving fref intact.
+    (mezzano.lap.arm64:ldr :x6 (:function sys.int::raise-undefined-function))
+    (mezzano.lap.arm64:ldr :x6 (:object :x6 ,sys.int::+fref-function+))
+    (mezzano.lap.arm64:ldr :x9 (:object :x6 ,sys.int::+function-entry-point+))
     (mezzano.lap.arm64:br :x9))
   "Code for the undefined function thunk.")
 
