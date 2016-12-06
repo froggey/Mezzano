@@ -32,15 +32,15 @@
 
 (defmethod ll-form ((form ast-if))
   (setf (test form) (ll-form (test form))
-	(if-then form) (ll-form (if-then form))
-	(if-else form) (ll-form (if-else form)))
+        (if-then form) (ll-form (if-then form))
+        (if-else form) (ll-form (if-else form)))
   form)
 
 (defmethod ll-form ((form ast-let))
   ;; Patch up definition points after a lambda has been lifted.
   (dolist (binding (bindings form))
     (when (and (lexical-variable-p (first binding))
-	       (not (eql (lexical-variable-definition-point (first binding)) *current-lambda*)))
+               (not (eql (lexical-variable-definition-point (first binding)) *current-lambda*)))
       (change-made)
       (setf (lexical-variable-definition-point (first binding)) *current-lambda*))
     (setf (second binding) (ll-form (second binding))))
@@ -51,7 +51,7 @@
   ;; Patch up definition points after a lambda has been lifted.
   (dolist (var (bindings form))
     (when (and (lexical-variable-p var)
-	       (not (eql (lexical-variable-definition-point var) *current-lambda*)))
+               (not (eql (lexical-variable-definition-point var) *current-lambda*)))
       (change-made)
       (setf (lexical-variable-definition-point var) *current-lambda*)))
   (setf (value-form form) (ll-form (value-form form))
@@ -67,6 +67,8 @@
                 (lambda-information-rest-arg fn)
                 (not (lambda-information-enable-keys fn))
                 (not (lambda-information-environment-arg fn))
+                (not (lambda-information-fref-arg fn))
+                (not (lambda-information-closure-arg fn))
                 (every (lambda (x)
                          (and (typep (second x) 'ast-quote)
                               (eql (value (second x)) 'nil) ; An init-form of NIL.
@@ -176,26 +178,26 @@
     (unless (arguments-match-lambda-list lambda arg-list)
       ;; Bail out.
       (warn 'simple-warning
-	    :format-control "Not inlining ~S, arguments do not match."
-	    :format-arguments (list name))
+            :format-control "Not inlining ~S, arguments do not match."
+            :format-arguments (list name))
       (return-from lift-lambda))
     (change-made)
     ;; Fix argument definition points.
     (dolist (arg required-args)
       (when (lexical-variable-p arg)
-	(setf (lexical-variable-definition-point arg) *current-lambda*)))
+        (setf (lexical-variable-definition-point arg) *current-lambda*)))
     (dolist (arg optional-args)
       (when (lexical-variable-p (first arg))
-	(setf (lexical-variable-definition-point (first arg)) *current-lambda*))
+        (setf (lexical-variable-definition-point (first arg)) *current-lambda*))
       (when (lexical-variable-p (third arg))
-	(setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
+        (setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
     (when (lexical-variable-p rest-arg)
       (setf (lexical-variable-definition-point rest-arg) *current-lambda*))
     (dolist (arg key-args)
       (when (lexical-variable-p (second (first arg)))
-	(setf (lexical-variable-definition-point (second (first arg))) *current-lambda*))
+        (setf (lexical-variable-definition-point (second (first arg))) *current-lambda*))
       (when (lexical-variable-p (third arg))
-	(setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
+        (setf (lexical-variable-definition-point (third arg)) *current-lambda*)))
     (let* ((argument-vars (mapcar (lambda (x)
                                     (declare (ignore x))
                                     (make-instance 'lexical-variable

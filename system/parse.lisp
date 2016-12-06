@@ -172,31 +172,31 @@ The docstring, if permitted and present; otherwise NIL."
        (docstring nil)
        (itr forms (cdr itr)))
       ((or (null itr)
-	   ;; A string at the end of forms must always be treated
-	   ;; as a body form, not a docstring.
-	   ;; A string seen when permit-docstring is false also
-	   ;; finishes parsing.
-	   (and (stringp (car itr)) (or (not permit-docstring)
-					(null (cdr itr))))
-	   ;; Stop when (car itr) is not a string and is not a declare form.
-	   (not (or (stringp (car itr))
-		    (and (consp (car itr))
-			 (eq 'declare (caar itr))))))
+           ;; A string at the end of forms must always be treated
+           ;; as a body form, not a docstring.
+           ;; A string seen when permit-docstring is false also
+           ;; finishes parsing.
+           (and (stringp (car itr)) (or (not permit-docstring)
+                                        (null (cdr itr))))
+           ;; Stop when (car itr) is not a string and is not a declare form.
+           (not (or (stringp (car itr))
+                    (and (consp (car itr))
+                         (eq 'declare (caar itr))))))
        (values itr (nreverse declares) docstring))
     (if (stringp (car itr))
-	(unless docstring
-	  (setf docstring (car itr)))
-	;; Dump the bodies of each declare form into a single list.
-	(dolist (decl (cdar itr))
-	  (push decl declares)))))
+        (unless docstring
+          (setf docstring (car itr)))
+        ;; Dump the bodies of each declare form into a single list.
+        (dolist (decl (cdar itr))
+          (push decl declares)))))
 
 (defun parse-let-binding (binding)
   (etypecase binding
     (symbol (values binding nil))
     (cons (destructuring-bind (name &optional init-form)
-	      binding
+              binding
             (check-type name symbol)
-	    (values name init-form)))))
+            (values name init-form)))))
 
 (defun parse-flet-binding (binding)
   (destructuring-bind (name lambda-list &body body)
@@ -207,9 +207,9 @@ The docstring, if permitted and present; otherwise NIL."
   (let (compile load eval)
     (dolist (s situation)
       (ecase s
-	((:compile-toplevel compile) (setf compile t))
-	((:load-toplevel load) (setf load t))
-	((:execute eval) (setf eval t))))
+        ((:compile-toplevel compile) (setf compile t))
+        ((:load-toplevel load) (setf load t))
+        ((:execute eval) (setf eval t))))
     (values compile load eval)))
 
 (defun parse-lambda (form)
