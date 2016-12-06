@@ -35,6 +35,12 @@
     (assert (or (null (lambda-information-rest-arg lambda))
                 (lexical-variable-p (lambda-information-rest-arg lambda)))
             (lambda) "Special rest argument did not get lowered!")
+    (assert (or (null (lambda-information-fref-arg lambda))
+                (lexical-variable-p (lambda-information-fref-arg lambda)))
+            (lambda) "Special fref argument did not get lowered!")
+    (assert (or (null (lambda-information-closure-arg lambda))
+                (lexical-variable-p (lambda-information-closure-arg lambda)))
+            (lambda) "Special closure argument did not get lowered!")
     (setf (lambda-information-body lambda)
           (lsb-form (lambda-information-body lambda)))
     (when (and *verify-special-stack*

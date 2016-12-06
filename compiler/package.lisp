@@ -31,6 +31,8 @@
            #:lambda-information-allow-other-keys
            #:lambda-information-environment-arg
            #:lambda-information-environment-layout
+           #:lambda-information-fref-arg
+           #:lambda-information-closure-arg
            #:lambda-information-plist
            #:lexical-variable
            #:lexical-variable-p

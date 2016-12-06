@@ -176,7 +176,7 @@
 (defconstant sys.int::most-positive-fixnum (- (expt 2 62) 1))
 (defconstant sys.int::most-negative-fixnum (- (expt 2 62)))
 (alexandria:define-constant sys.int::lambda-list-keywords
-    '(&allow-other-keys &aux &body &environment &key &optional &rest &whole)
+    '(&allow-other-keys &aux &body &environment &key &optional &rest &whole sys.int::&fref sys.int::&closure)
   :test 'equal)
 (defvar sys.int::*features* '(:unicode :little-endian :mezzano :ieee-floating-point :ansi-cl :common-lisp))
 

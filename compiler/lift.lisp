@@ -134,10 +134,6 @@
   (let ((arg-count (length arg-list))
         (req-count (length (lambda-information-required-args lambda)))
         (opt-count (length (lambda-information-optional-args lambda))))
-    (when (and (lambda-information-rest-arg lambda)
-               (typep (lambda-information-rest-arg lambda) 'lexical-variable)
-               (lexical-variable-dynamic-extent (lambda-information-rest-arg lambda)))
-      (return-from arguments-match-lambda-list nil))
     (cond ((lambda-information-enable-keys lambda)
            (let ((keywords (mapcar 'caar (lambda-information-key-args lambda))))
              (when (and (>= arg-count req-count)
@@ -154,15 +150,26 @@
 
 (defun lift-lambda (lambda arg-list)
   (let ((name (or (lambda-information-name lambda) 'lambda))
-	(required-args (lambda-information-required-args lambda))
-	(optional-args (lambda-information-optional-args lambda))
-	(rest-arg (lambda-information-rest-arg lambda))
+        (required-args (lambda-information-required-args lambda))
+        (optional-args (lambda-information-optional-args lambda))
+        (rest-arg (lambda-information-rest-arg lambda))
         (key-args (lambda-information-key-args lambda)))
     (when (getf (lambda-information-plist lambda) 'notinline)
+      (return-from lift-lambda))
+    (when (or (lambda-information-fref-arg lambda)
+              (lambda-information-closure-arg lambda))
       (return-from lift-lambda))
     (when (lambda-information-environment-arg lambda)
       (warn 'sys.int::simple-style-warning
             :format-control "Not inlining ~S, has environment arg."
+            :format-arguments (list name))
+      (return-from lift-lambda))
+    (when (and rest-arg
+               (typep rest-arg 'lexical-variable)
+               (lexical-variable-dynamic-extent rest-arg))
+      ;; Not implemented yet.
+      (warn 'sys.int::simple-style-warning
+            :format-control "Not inlining ~S, has dynamic-extent &REST arg."
             :format-arguments (list name))
       (return-from lift-lambda))
     ;; Attempt to match the argument list with the function's lambda list.

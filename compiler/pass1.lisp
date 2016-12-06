@@ -80,8 +80,8 @@
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
-    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-	(sys.int::parse-ordinary-lambda-list lambda-list)
+    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg)
+        (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((info (make-instance 'lambda-information
                                   :name (or name
                                             `(lambda :in ,(or (and (boundp '*current-lambda*)
@@ -126,7 +126,11 @@
                                        (let ((var (first binding))
                                              (init-form (pass1-form (second binding) env)))
                                          (list (add-var var) init-form)))
-                                     aux)))
+                                     aux))
+          (when fref-arg
+            (setf (lambda-information-fref-arg info) (add-var fref-arg)))
+          (when closure-arg
+            (setf (lambda-information-closure-arg info) (add-var closure-arg))))
 	;; Add declarations to the environment.
 	(let* ((env (extend-environment env
                                         :variables (mapcar (lambda (x)
@@ -157,6 +161,10 @@
 	  (when (lexical-variable-p (third opt))
 	    (check-variable-usage (third opt))))
 	info))))
+        (when (lexical-variable-p (lambda-information-fref-arg info))
+          (check-variable-usage (lambda-information-fref-arg info)))
+        (when (lexical-variable-p (lambda-information-closure-arg info))
+          (check-variable-usage (lambda-information-closure-arg info)))
 
 (defun pass1-implicit-progn (forms env)
   (mapcar (lambda (x) (pass1-form x env)) forms))

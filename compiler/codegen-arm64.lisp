@@ -366,6 +366,21 @@
                    (lambda-information-optional-args lambda)))
     (assert (or (null (lambda-information-rest-arg lambda))
                 (lexical-variable-p (lambda-information-rest-arg lambda))))
+    (assert (or (null (lambda-information-fref-arg lambda))
+                (lexical-variable-p (lambda-information-fref-arg lambda))))
+    (assert (or (null (lambda-information-closure-arg lambda))
+                (lexical-variable-p (lambda-information-closure-arg lambda))))
+    ;; Stash :x6 (closure) and :x7 (fref) away.
+    (let ((fref-arg (lambda-information-fref-arg lambda)))
+      (when fref-arg
+        (let ((ofs (find-stack-slot)))
+          (setf (aref *stack-values* ofs) (cons fref-arg :home))
+          (emit-stack-store :x7 ofs))))
+    (let ((closure-arg (lambda-information-closure-arg lambda)))
+      (when closure-arg
+        (let ((ofs (find-stack-slot)))
+          (setf (aref *stack-values* ofs) (cons closure-arg :home))
+          (emit-stack-store :x6 ofs))))
     ;; Free up :x6 quickly.
     (let ((env-arg (lambda-information-environment-arg lambda)))
       (when env-arg

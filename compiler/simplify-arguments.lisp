@@ -136,6 +136,18 @@ Must be run after keywords have been lowered."
           (push (list (lambda-information-rest-arg form) new-rest)
                 extra-bindings)
           (setf (lambda-information-rest-arg form) new-rest)))
+      (when (and (lambda-information-fref-arg form)
+                 (typep (lambda-information-fref-arg form) 'special-variable))
+        (let ((new-fref (new-var (string (name (lambda-information-fref-arg form))))))
+          (push (list (lambda-information-fref-arg form) new-fref)
+                extra-bindings)
+          (setf (lambda-information-fref-arg form) new-fref)))
+      (when (and (lambda-information-closure-arg form)
+                 (typep (lambda-information-closure-arg form) 'special-variable))
+        (let ((new-closure (new-var (string (name (lambda-information-closure-arg form))))))
+          (push (list (lambda-information-closure-arg form) new-closure)
+                extra-bindings)
+          (setf (lambda-information-closure-arg form) new-closure)))
       (when extra-bindings
         ;; Bindings were added.
         (setf (lambda-information-body form)
