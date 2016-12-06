@@ -149,3 +149,52 @@
         (thread-state-rflags thread) #x202
         ;; Kernel code segment (defined in cpu.lisp).
         (thread-state-cs thread) 8))
+
+(sys.int::define-lap-function %%full-save-return-thunk (())
+  (sys.lap-x86:ret))
+
+(defun convert-thread-to-full-save (thread)
+  (when (not (thread-full-save-p thread))
+    (setf (thread-state-rcx-value thread) 0
+          (thread-state-rbx-value thread) nil
+          (thread-state-r8-value thread) nil
+          (thread-state-r9-value thread) nil
+          (thread-state-r10-value thread) nil
+          (thread-state-r11-value thread) nil
+          (thread-state-r12-value thread) nil
+          (thread-state-r13-value thread) nil
+          (thread-state-rip thread) (sys.int::%object-ref-unsigned-byte-64
+                                     #'%%full-save-return-thunk
+                                     sys.int::+function-entry-point+)
+          (thread-state-cs thread) #x08
+          (thread-state-ss thread) #x00
+          (thread-state-rflags thread) #x202
+          (thread-full-save-p thread) t)))
+
+(defun stop-thread-for-single-step (interrupt-frame)
+  (let ((self (current-thread)))
+    (%lock-thread self)
+    (setf (thread-state self) :stopped
+          (thread-wait-item self) :single-step-trap))
+    (%reschedule-via-interrupt interrupt-frame))
+
+(defun single-step-thread (thread)
+  (check-type thread thread)
+  (assert (eql (thread-state thread) :stopped))
+  ;; If the thread is not in the full-save state, then convert it.
+  (convert-thread-to-full-save thread)
+  ;; Set the single-step bit in rflags.
+  (setf (thread-state-rflags thread) (logior (thread-state-rflags thread)
+                                             (ash 1 8)))
+  ;; Resume the thread & wait for it to stop.
+  (resume-thread thread :single-step)
+  ;; FIXME: this will need to lock the thread before reading the state
+  ;; or on SMP it will wake before the saved state is written.
+  (loop
+     (when (eql (thread-state thread) :stopped)
+       (return))
+     (thread-yield))
+  ;; Clear the single-step bit.
+  (setf (thread-state-rflags thread) (logand (thread-state-rflags thread)
+                                             (lognot (ash 1 8))))
+  (values))

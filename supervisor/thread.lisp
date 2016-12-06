@@ -75,7 +75,7 @@
   ;;   :dead      - the thread has exited or been killed and cannot run.
   ;;   :waiting-for-page - the thread is waiting for memory to be paged in.
   ;;   :pager-request - the thread is waiting for a pager RPC call to complete.
-  (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request))
+  (field state                    1 :type (member :active :runnable :sleeping :dead :waiting-for-page :pager-request :stopped))
   ;; Spinlock protecting access to the thread.
   (field lock                     2)
   ;; Stack object for the stack.
@@ -106,9 +106,8 @@
   ;; This only contains live (not state = :dead) threads.
   (field global-next             14)
   (field global-prev             15)
-  ;; Thread's priority, can be either :normal or :low.
-  ;; The pager, disk io, and thread currently stopping the world all
-  ;; have higher-than-:normal priority, no matter what the priority field contains.
+  ;; Thread's priority, can be :supervisor, :normal or :low.
+  ;; Threads at :supervisor have priority over all other threads.
   (field priority                16 :type (member :low :normal :supervisor))
   ;; Arguments passed to the pager when performing an RPC.
   (field pager-argument-1        17)
@@ -447,24 +446,28 @@ Interrupts must be off, the current thread must be locked."
 ;; It sets up the top-level catch for 'terminate-thread, and deals with cleaning
 ;; up when the thread exits (either by normal return or by a throw to terminate-thread).
 (defun thread-entry-trampoline (function)
-  (let ((self (current-thread)))
-    (unwind-protect
-         (catch 'terminate-thread
-           (decf (thread-inhibit-footholds self))
-           (funcall function))
-      ;; Cleanup, terminate the thread.
-      (%run-on-wired-stack-without-interrupts (sp fp self)
-       (%lock-thread self)
-       (setf (thread-state self) :dead)
-       ;; Remove thread from the global list.
-       (with-symbol-spinlock (*global-thread-lock*)
-         (when (thread-global-next self)
-           (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
-         (when (thread-global-prev self)
-           (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
-         (when (eql self *all-threads*)
-           (setf *all-threads* (thread-global-next self))))
-       (%reschedule-via-wired-stack sp fp)))))
+  (unwind-protect
+       (catch 'terminate-thread
+         (decf (thread-inhibit-footholds (current-thread)))
+         (funcall function))
+    ;; Cleanup, terminate the thread.
+    (thread-final-cleanup)))
+
+;; This is seperate from thread-entry-trampoline so steppers can detect it.
+(defun thread-final-cleanup ()
+  (%run-on-wired-stack-without-interrupts (sp fp)
+    (let ((self (current-thread)))
+      (%lock-thread self)
+      (setf (thread-state self) :dead)
+      ;; Remove thread from the global list.
+      (with-symbol-spinlock (*global-thread-lock*)
+        (when (thread-global-next self)
+          (setf (thread-global-prev (thread-global-next self)) (thread-global-prev self)))
+        (when (thread-global-prev self)
+          (setf (thread-global-next (thread-global-prev self)) (thread-global-next self)))
+        (when (eql self *all-threads*)
+          (setf *all-threads* (thread-global-next self))))
+      (%reschedule-via-wired-stack sp fp))))
 
 ;; The idle thread is not a true thread. It does not appear in all-threads, nor in any run-queue.
 ;; When the machine boots, one idle thread is created for each core. When a core is idle, the
@@ -681,6 +684,40 @@ Interrupts must be off, the current thread must be locked."
        (when (sys.int::%cas-object thread +thread-pending-footholds+
                                    old (cons function old))
          (return)))))
+
+(defun stop-current-thread ()
+  (%run-on-wired-stack-without-interrupts (sp fp)
+   (let ((current (current-thread)))
+     (%lock-thread current)
+     (setf (thread-state current) :stopped)
+     (%reschedule-via-wired-stack sp fp))))
+
+(defun stop-thread (thread)
+  "Stop a thread, waiting for it to enter the stopped state."
+  (check-type thread thread)
+  (assert (not (eql thread (current-thread))))
+  (establish-thread-foothold thread
+                             (lambda ()
+                               (%run-on-wired-stack-without-interrupts (sp fp)
+                                (let ((self (current-thread)))
+                                  (%lock-thread self)
+                                  (setf (thread-wait-item self) :stopped
+                                        (thread-state self) :stopped)
+                                  (%reschedule-via-wired-stack sp fp)))))
+  (loop
+     (when (eql (thread-state thread) :stopped)
+       (return))
+     (thread-yield))
+  (values))
+
+(defun resume-thread (thread &optional why)
+  "Resume a stopped thread."
+  (check-type thread thread)
+  (assert (eql (thread-state thread) :stopped))
+  (safe-without-interrupts (thread why)
+    (thread-wait-item thread) why
+    (wake-thread thread))
+  (values))
 
 ;;; Stopping the world.
 ;;; WITH-WORLD-STOPPED and WITH-PSEUDO-ATOMIC work together as a sort-of global

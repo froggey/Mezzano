@@ -79,7 +79,8 @@ thread's stack if this function is called from normal code."
                    (memref-unsigned-byte-32 (+ address 8) 0))
               (eql (logand (ash (+ address 16) -32) #xFFFFFFFF)
                    (memref-unsigned-byte-32 (+ address 12) 0)))
-         (return (%%assemble-value address sys.int::+tag-object+)))
+         (return (values (%%assemble-value address sys.int::+tag-object+)
+                         (- return-address address))))
        (decf address 16)))
 
 (defun map-function-gc-metadata (function function-to-inspect)

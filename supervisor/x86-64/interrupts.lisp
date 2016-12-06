@@ -122,7 +122,14 @@
   (unhandled-interrupt interrupt-frame info "divide error"))
 
 (defun sys.int::%debug-exception-handler (interrupt-frame info)
-  (unhandled-interrupt interrupt-frame info "debug exception"))
+  (let ((status (sys.int::%dr6)))
+    (setf (sys.int::%dr6) 0)
+    (cond ((logbitp 14 status)
+           ;; Single-step trap.
+           ;; Stop the thread and save the state.
+           (stop-thread-for-single-step interrupt-frame))
+          (t
+           (unhandled-interrupt interrupt-frame info "debug exception")))))
 
 (defun sys.int::%nonmaskable-interrupt-handler (interrupt-frame info)
   (unhandled-interrupt interrupt-frame info "nonmaskable"))
