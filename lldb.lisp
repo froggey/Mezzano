@@ -1,8 +1,5 @@
 (in-package :sys.int)
 
-(defparameter *step-special-functions*
-  '(cons cons-in-area mezzano.runtime::%allocate-object mezzano.supervisor:thread-yield))
-
 (defun fetch-thread-function-arguments (thread)
   (let ((count (mezzano.supervisor:thread-state-rcx-value thread))
         (reg-vals (list (mezzano.supervisor:thread-state-r8-value thread)
@@ -28,6 +25,17 @@
       (push (%object-ref-t thread (+ mezzano.supervisor::+thread-mv-slots-start+ i)) vals))
     (subseq (reverse vals) 0 count)))
 
+(defparameter *step-special-functions*
+  '(cons cons-in-area
+    mezzano.runtime::%allocate-object
+    mezzano.supervisor::%call-on-wired-stack-without-interrupts))
+
+(defun single-step-wrapper (&rest args &closure call-me)
+  (declare (dynamic-extent args))
+  (unwind-protect
+       (apply call-me args)
+    (mezzano.supervisor::stop-current-thread)))
+
 (defun safe-single-step-thread (thread)
   (check-type thread mezzano.supervisor:thread)
   (assert (eql (mezzano.supervisor:thread-state thread) :stopped))
@@ -35,13 +43,7 @@
   (mezzano.supervisor::convert-thread-to-full-save thread)
   (let* ((rip (mezzano.supervisor:thread-state-rip thread))
          (fn (return-address-to-function rip)))
-    (cond ((eql fn #'mezzano.supervisor::%call-on-wired-stack-without-interrupts)
-           (error "Cannot step into %CALL-ON-WIRED-STACK-WITHOUT-INTERRUPTS."))
-          ((eql fn #'mezzano.supervisor::thread-final-cleanup)
-           ;; Thread is in the process of dying.
-           ;; Let it run to completion instead of stepping.
-           (mezzano.supervisor::resume-thread thread))
-          ((member fn *step-special-functions* :key #'fdefinition)
+    (cond ((member fn *step-special-functions* :key #'fdefinition)
            (when (not (eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+)))
              (cerror "Step anyway"
                      "Cannot single-step function in the middle of special function ~S."
@@ -49,28 +51,15 @@
              (mezzano.supervisor::single-step-thread thread)
              (return-from safe-single-step-thread))
            (format t "Stepping over special function ~S.~%" fn)
-           ;; Execute the function in this thread's context.
-           (let* ((arguments (fetch-thread-function-arguments thread))
-                  (results (multiple-value-list (apply fn arguments)))
-                  (n-results (length results)))
-             ;; Messing with the MV area requires us to be PA, as value counts
-             ;; may not match up with number of actual live values.
-             (mezzano.supervisor:with-pseudo-atomic
-               ;; Set value count.
-               (setf (mezzano.supervisor:thread-state-rcx-value thread) n-results)
-               ;; Set return registers. This does the right thing (setting r8 to nil) when returning 0 values.
-               (setf (mezzano.supervisor:thread-state-r8-value thread) (first results)
-                     (mezzano.supervisor:thread-state-r9-value thread) (second results)
-                     (mezzano.supervisor:thread-state-r10-value thread) (third results)
-                     (mezzano.supervisor:thread-state-r11-value thread) (fourth results)
-                     (mezzano.supervisor:thread-state-r12-value thread) (fifth results))
-               ;; Set MV area values.
-               (dotimes (i (- n-results 5))
-                 (setf (%object-ref-t thread (+ mezzano.supervisor::+thread-mv-slots-start+ i))
-                       (nth (+ i 5) results)))
-               ;; Pop return address.
-               (setf (mezzano.supervisor:thread-state-rip thread) (memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))
-               (incf (mezzano.supervisor:thread-state-rsp thread) 8))))
+           ;; Point RIP at single-step-wrapper and RBX (&CLOSURE) at the function to wrap.
+           (setf (mezzano.supervisor:thread-state-rbx-value thread) fn
+                 (mezzano.supervisor:thread-state-rip thread) (%object-ref-unsigned-byte-64 #'single-step-wrapper +function-entry-point+))
+           (mezzano.supervisor::resume-thread thread)
+           ;; Wait for the thread to stop or die.
+           (loop
+              (when (member (mezzano.supervisor::thread-state thread) '(:stopped :dead))
+                (return))
+              (mezzano.supervisor::thread-yield)))
           (t
            (mezzano.supervisor::single-step-thread thread)))))
 
