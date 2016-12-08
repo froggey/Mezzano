@@ -28,7 +28,8 @@
 (defparameter *step-special-functions*
   '(cons cons-in-area
     mezzano.runtime::%allocate-object
-    mezzano.supervisor::%call-on-wired-stack-without-interrupts))
+    mezzano.supervisor::%call-on-wired-stack-without-interrupts
+    mezzano.supervisor::call-with-mutex))
 
 (defun single-step-wrapper (&rest args &closure call-me)
   (declare (dynamic-extent args))
@@ -115,8 +116,10 @@
          (format t " rip: ~8,'0X~%" (sys.int::memref-unsigned-byte-64 (mezzano.supervisor:thread-state-rsp thread) 0))))
   (values))
 
-(defun trace-execution (function)
-  (let* ((stopped nil)
+(defun trace-execution (function &key full-dump run-forever)
+  (check-type function function)
+  (let* ((next-stop-boundary 1000)
+         (stopped nil)
          (thread (mezzano.supervisor:make-thread
                   (lambda ()
                     (loop
@@ -128,24 +131,43 @@
          (prev-fn nil))
     (mezzano.supervisor::stop-thread thread)
     (setf stopped t)
-    (loop
-       (when (and (zerop (mod (incf instructions-stepped) 1000))
-                  (y-or-n-p "Thread has run for ~D instructions. Stop?" instructions-stepped))
-         (mezzano.supervisor:terminate-thread thread)
-         (mezzano.supervisor::resume-thread thread)
-         (return))
-       (when (eql (mezzano.supervisor:thread-state thread) :dead)
-         (format t "Thread has died.~%")
-         (return))
-       (dump-thread-state thread)
-       (safe-single-step-thread thread)
-       (let* ((rip (mezzano.supervisor:thread-state-rip thread))
-              (fn (return-address-to-function rip)))
-         (when (and prev-fn
-                    (not (eql fn prev-fn)))
-           (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
-                  (format t "Entered function ~S with arguments ~:S.~%" fn (fetch-thread-function-arguments thread)))
-                 (t
-                  (format t "Returning from function ~S to ~S with results ~:S.~%"
-                          prev-fn fn (fetch-thread-return-values thread)))))
-         (setf prev-fn fn)))))
+    (unwind-protect
+         (loop
+            (when (and (not run-forever)
+                       (zerop (mod (incf instructions-stepped) next-stop-boundary)))
+              (when (y-or-n-p "Thread has run for ~D instructions. Stop?" instructions-stepped)
+                (mezzano.supervisor:terminate-thread thread)
+                (mezzano.supervisor::resume-thread thread)
+                (return))
+              (setf next-stop-boundary (* next-stop-boundary 2)))
+            (when (eql (mezzano.supervisor:thread-state thread) :dead)
+              (format t "Thread has died.~%")
+              (return))
+            (when full-dump
+              (dump-thread-state thread))
+            (safe-single-step-thread thread)
+            (let ((rip (mezzano.supervisor:thread-state-rip thread)))
+              (multiple-value-bind (fn offset)
+                  (return-address-to-function rip)
+                (format t "~8,'0X: ~S + ~D~%" rip fn offset)
+                (when (and prev-fn
+                           (not (eql fn prev-fn)))
+                  (cond ((eql rip (%object-ref-unsigned-byte-64 fn +function-entry-point+))
+                         (format t "Entered function ~S with arguments ~:A.~%" fn
+                                 (mapcar #'print-safely-to-string
+                                         (fetch-thread-function-arguments thread))))
+                        (t
+                         (format t "Returning from function ~S to ~S with results ~:A.~%"
+                                 prev-fn fn
+                                 (mapcar #'print-safely-to-string
+                                         (fetch-thread-return-values thread))))))
+                (setf prev-fn fn))))
+      (mezzano.supervisor:terminate-thread thread))))
+
+(defun print-safely-to-string (obj)
+  (handler-case
+      (format nil "~S" obj)
+    (error ()
+      (with-output-to-string (s)
+        (print-unreadable-object (obj s :identity t)
+          (format s "unprintable object"))))))
