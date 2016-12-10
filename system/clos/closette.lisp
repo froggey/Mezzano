@@ -1666,25 +1666,6 @@ has only has class specializer."
 (defmethod compute-effective-method ((gf standard-generic-function) method-combination methods)
   (std-compute-effective-method gf method-combination methods))
 
-;;; describe-object is a handy tool for enquiring minds:
-
-(defgeneric describe-object (object stream))
-(defmethod describe-object ((object standard-object) stream)
-  (format stream "A Closette object~%~
-             Printed representation: ~S~%~
-             Class: ~S~%~
-             Structure~%"
-          object
-          (class-of object))
-  (dolist (sn (mapcar #'slot-definition-name
-                      (class-slots (class-of object))))
-    (if (slot-boundp object sn)
-        (format stream "    ~S <- ~S~%"
-                sn
-                (slot-value object sn))
-        (format stream "    ~S <- not bound~%" sn)))
-  (values))
-
 (format t "Closette is a Knights of the Lambda Calculus production.~%")
 
 ;;; Metaclasses.

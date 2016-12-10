@@ -3,7 +3,9 @@
 
 (in-package :sys.int)
 
-(defun describe-symbol (object stream)
+(defgeneric describe-object (object stream))
+
+(defmethod describe-object ((object symbol) stream)
   (format stream "~S is a symbol, with address ~X~%" object (lisp-object-address object))
   (if (symbol-package object)
       (format stream "  ~A is in the ~A package~%" object (package-name (symbol-package object))))
@@ -16,12 +18,12 @@
   (when (symbol-mode object)
     (format stream "  ~A is declared ~A~%" object (symbol-mode object))))
 
-(defun describe-byte-specifier (object stream)
+(defmethod describe-object ((object byte) stream)
   (format stream "~S is a ~S.~%" object (type-of object))
   (format stream "  It has size ~:D.~%" (byte-size object))
   (format stream "  It has position ~:D.~%" (byte-position object)))
 
-(defun describe-character (object stream)
+(defmethod describe-object ((object character) stream)
   (format stream "~S is a ~S.~%" object (type-of object))
   (format stream "  It has the char-code #x~4,'0X~%" (char-code object))
   (when (char-bit object :control)
@@ -33,17 +35,18 @@
   (when (char-bit object :hyper)
     (format stream "  It has the hyper bit set.~%")))
 
-(defun describe-single-float (object stream)
-  (format stream "~D is a single-precision floating-point number.~%" object)
-  (format stream "  It's representation is ~X.~%"
-          (%single-float-as-integer object)))
+(defmethod describe-object ((object float) stream)
+  (etypecase object
+    (single-float
+     (format stream "~D is a single-precision floating-point number.~%" object)
+     (format stream "  It's representation is ~X.~%"
+             (%single-float-as-integer object)))
+    (double-float
+     (format stream "~D is a double-precision floating-point number, with address ~X.~%" object (lisp-object-address object))
+     (format stream "  It's representation is ~X.~%"
+             (%double-float-as-integer object)))))
 
-(defun describe-double-float (object stream)
-  (format stream "~D is a double-precision floating-point number, with address ~X.~%" object (lisp-object-address object))
-  (format stream "  It's representation is ~X.~%"
-          (%double-float-as-integer object)))
-
-(defun describe-function (object stream)
+(defmethod describe-object ((object function) stream)
   (multiple-value-bind (lambda-expression closure-p name)
       (function-lambda-expression object)
     (format stream "~S is a ~A" object (if closure-p "closure" "function"))
@@ -51,7 +54,7 @@
       (format stream " named ~S" name))
     (format stream "~%")))
 
-(defun describe-array (object stream)
+(defmethod describe-object ((object array) stream)
   (format stream "~S is a~A array of ~S, with address ~X~%" object
           (if (typep object 'simple-array) " simple" "n")
           (array-element-type object)
@@ -61,26 +64,19 @@
       (format stream "  It has a fill-pointer of ~S.~%" (fill-pointer object)))
   (format stream "  It has dimensions ~S.~%" (array-dimensions object)))
 
-(defun describe-bignum (object stream)
-  (format stream "~S is a bignum, with address ~X~%"
-          object (lisp-object-address object))
-  (format stream "  It is ~D fragments long.~%" (%n-bignum-fragments object))
-  (dotimes (i (%n-bignum-fragments object))
-    (format stream "  ~D: ~16,'0X~%" i (%bignum-fragment object i))))
-
-(defun describe-complex (object stream)
+(defmethod describe-object ((object complex) stream)
   (format stream "~S is a complex number with an element-type of ~A, with address ~X~%"
           object (second (type-of object)) (lisp-object-address object))
   (format stream "  The real part is ~A~%" (realpart object))
   (format stream "  The imaginary part is ~A~%" (imagpart object)))
 
-(defun describe-ratio (object stream)
+(defmethod describe-object ((object ratio) stream)
   (format stream "~S is a ratio, with address ~X~%"
           object (lisp-object-address object))
   (format stream "  The numerator is ~A~%" (numerator object))
   (format stream "  The denominator is ~A~%" (denominator object)))
 
-(defun describe-structure (object stream)
+(defmethod describe-object ((object structure-object) stream)
   (format stream "~S is a structure of type ~:(~S~), with address ~X~%"
           object (type-of object) (lisp-object-address object))
   (let ((type (%struct-slot object 0)))
@@ -89,16 +85,16 @@
        for slot in (structure-slots type) do
          (let ((*print-level* 3)
                (*print-length* 5))
-           (format t "  ~S: ~S~%" (structure-slot-name slot) (%struct-slot object i))))))
+           (format stream "  ~S: ~S~%" (structure-slot-name slot) (%struct-slot object i))))))
 
-(defun describe-thread (object stream)
+(defmethod describe-object ((object mezzano.supervisor:thread) stream)
   (format stream "~S is a thread with address ~X~%"
           object (lisp-object-address object))
   (format stream "  It is named ~S~%" (mezzano.supervisor:thread-name object))
   (format stream "  It is in the ~S state~%" (mezzano.supervisor:thread-state object))
   (format stream "  It has priority ~S~%" (mezzano.supervisor:thread-priority object)))
 
-(defun describe-function-reference (object stream)
+(defmethod describe-object ((object function-reference) stream)
   (format stream "~S is a function reference named ~S, with address ~X~%"
           object (function-reference-name object) (lisp-object-address object))
   (cond ((function-reference-function object)
@@ -106,7 +102,7 @@
                  (function-reference-function object)))
         (t (format stream "  It is not bound.~%"))))
 
-(defun describe-weak-pointer (object stream)
+(defmethod describe-object ((object weak-pointer) stream)
   (format stream "~S is a weak pointer, with address ~X~%"
           object (lisp-object-address object))
   (multiple-value-bind (value livep)
@@ -115,60 +111,39 @@
         (format stream "  It points to the live value ~S.~%" value)
         (format stream "  It is dead.~%"))))
 
-(defun describe (object &optional (stream *standard-output*))
-  (case stream
-    ((nil) (setf stream *standard-output*))
-    ((t) (setf stream *terminal-io*)))
-  (if (fixnump object)
-      (format stream "~D is a fixnum.~%" object)
-      (case (logand (lisp-object-address object) 15)
-        ;; TODO: Identify proper/dotted/circular lists.
-        (#b0011 (format stream "~S is a list, with address ~X~%" object (lisp-object-address object)))
-        (#b1001
-         (let ((otag (%object-tag object)))
-           (cond ((or (<= otag +last-simple-1d-array-object-tag+)
-                      (<= +first-complex-array-object-tag+
-                          otag
-                          +last-complex-array-object-tag+))
-                  (describe-array object stream))
-                 (t (case otag
-                      (#.+object-tag-bignum+
-                       (describe-bignum object stream))
-                      ((#.+object-tag-complex-rational+
-                        #.+object-tag-complex-single-float+
-                        #.+object-tag-complex-double-float+
-                        #.+object-tag-complex-short-float+
-                        #.+object-tag-complex-long-float+)
-                       (describe-complex object stream))
-                      (#.+object-tag-ratio+
-                       (describe-ratio object stream))
-                      (#.+object-tag-double-float+
-                       (describe-double-float object stream))
-                      (#.+object-tag-symbol+
-                       (describe-symbol object stream))
-                      (#.+object-tag-structure-object+
-                       (if (bytep object)
-                           (describe-byte-specifier object stream)
-                           (describe-structure object stream)))
-                      ((#.+object-tag-std-instance+
-                        #.+object-tag-funcallable-instance+)
-                       (describe-object object stream))
-                      (#.+object-tag-thread+
-                       (describe-thread object stream))
-                      (#.+object-tag-unbound-value+
-                       (format stream "This is an unbound value marker.~%"))
-                      (#.+object-tag-function-reference+
-                       (describe-function-reference object stream))
-                      (#.+object-tag-weak-pointer+
-                       (describe-weak-pointer object stream))
-                      ((#.+object-tag-function+
-                        #.+object-tag-closure+)
-                       (describe-function object stream))
-                      (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object))))))))
-        (#b0111 (describe-byte-specifier object stream))
-        (#b1011 (describe-character object stream))
-        (#b1101 (describe-single-float object stream))
-        (#b1111 (format stream "This is a GC forwarding pointer, pointing to address ~X~%" (logand (lisp-object-address object)
-                                                                                                   (lognot #xF))))
-        (t (format stream "~S is an unknown/invalid object, with address ~X~%" object (lisp-object-address object)))))
+(defmethod describe-object ((object integer) stream)
+  (cond ((fixnump object)
+         (format stream "~D is a fixnum.~%" object))
+        (t
+         (format stream "~S is a bignum, with address ~X~%"
+                 object (lisp-object-address object))
+         (format stream "  It is ~D fragments long.~%" (%n-bignum-fragments object))
+         (dotimes (i (%n-bignum-fragments object))
+           (format stream "  ~D: ~16,'0X~%" i (%bignum-fragment object i))))))
+
+(defmethod describe-object ((object cons) stream)
+  ;; TODO: Identify proper/dotted/circular lists.
+  (format stream "~S is a list, with address ~X~%"
+          object (lisp-object-address object)))
+
+(defmethod describe-object ((object standard-object) stream)
+  (format stream "A Closette object~%~
+             Printed representation: ~S~%~
+             Class: ~S~%~
+             Structure~%"
+          object
+          (class-of object))
+  (dolist (sn (mapcar #'mezzano.clos:slot-definition-name
+                      (mezzano.clos:class-slots (class-of object))))
+    (if (slot-boundp object sn)
+        (format stream "    ~S <- ~S~%"
+                sn
+                (slot-value object sn))
+        (format stream "    ~S <- not bound~%" sn))))
+
+(defun describe (object &optional stream)
+  (describe-object object (case stream
+                            ((nil) *standard-output*)
+                            ((t) *terminal-io*)
+                            (otherwise stream)))
   (values))

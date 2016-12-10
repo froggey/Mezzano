@@ -117,7 +117,6 @@
     "system/defmacro.lisp"
     "system/basic-macros.lisp"
     "system/parse.lisp"
-    "system/describe.lisp"
     "system/load.lisp"
     "system/time.lisp"
 ))
@@ -132,6 +131,7 @@
     "system/clos/boot.lisp"
     "system/clos/closette.lisp"
     "system/clos/method-combination.lisp"
+    "system/describe.lisp"
     "system/runtime-misc.lisp"
     "system/condition.lisp"
     "system/restarts.lisp"
