@@ -256,6 +256,7 @@
            #:wait-for-heartbeat
            #:read-rtc-time
            #:all-disks
+           #:disk-writable-p
            #:disk-n-sectors
            #:disk-sector-size
            #:disk-read

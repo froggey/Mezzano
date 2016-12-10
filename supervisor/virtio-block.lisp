@@ -123,7 +123,7 @@
     ;; Read data from the config area.
     ;; TODO: Set the BLK-SIZE feature and use non-512 byte blocks.
     (let ((capacity (virtio-device-specific-header/64 device +virtio-block-capacity+)))
-      (register-disk blk capacity 512 256 'virtio-block-read 'virtio-block-write))
+      (register-disk blk t capacity 512 256 'virtio-block-read 'virtio-block-write))
     ;; Enable IRQ handler.
     (setf (virtio-irq-mask device) nil)
     ;; Configuration complete, go to OK mode.

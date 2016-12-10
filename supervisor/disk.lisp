@@ -5,6 +5,7 @@
 
 ;;; External API:
 ;;; ALL-DISKS - Return a list of all disks in the systems. List might not be fresh.
+;;; DISK-WRITABLE-P - Return true if a disk is writable.
 ;;; DISK-N-SECTORS - Number of sectors on the disk.
 ;;; DISK-SECTOR-SIZE - Size of a disk sector in octets.
 ;;; DISK-READ - Read sectors.
@@ -20,6 +21,7 @@
 (defstruct (disk
              (:area :wired))
   device
+  writable-p
   n-sectors
   sector-size
   max-transfer
@@ -59,17 +61,18 @@
   ;; is found, so no allocation outside the wired area.
   *disks*)
 
-(defun register-disk (device n-sectors sector-size max-transfer read-fn write-fn)
+(defun register-disk (device writable-p n-sectors sector-size max-transfer read-fn write-fn)
   (when (> sector-size +4k-page-size+)
     (debug-print-line "Ignoring device " device " with overly-large sector size " sector-size " (should be <= than 4k).")
     (return-from register-disk))
   (let ((disk (make-disk :device device
+                         :writable-p writable-p
                          :sector-size sector-size
                          :n-sectors n-sectors
                          :max-transfer max-transfer
                          :read-fn read-fn
                          :write-fn write-fn)))
-    (debug-print-line "Registered new disk " disk " sectors:" n-sectors)
+    (debug-print-line "Registered new " (if writable-p "R/W" "R/O") " disk " disk " sectors:" n-sectors)
     (setf *disks* (sys.int::cons-in-area disk *disks* :wired))))
 
 (defun initialize-disk ()
@@ -156,6 +159,7 @@
           (register-disk (make-partition :disk disk
                                          :offset first-lba
                                          :id i)
+                         (disk-writable-p disk)
                          size
                          sector-size
                          (disk-max-transfer disk)
@@ -213,6 +217,7 @@
               (register-disk (make-partition :disk disk
                                              :offset start-lba
                                              :id i)
+                             (disk-writable-p disk)
                              size
                              sector-size
                              (disk-max-transfer disk)
@@ -246,6 +251,10 @@
                         " " (disk-request-lba request)
                         " " (disk-request-n-sectors request)
                         " " buffer))
+    (when (and (not (disk-writable-p disk))
+               (eql direction :write))
+       (return-from process-one-disk-request
+         (values nil "Write to read-only disk.")))
     (case direction
       (:read (set-disk-read-light t))
       (:write (set-disk-write-light t)))

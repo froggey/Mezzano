@@ -201,7 +201,7 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
       (push-wired device *ata-devices*)
-      (register-disk device (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
+      (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
   (let ((controller (ata-device-controller device)))

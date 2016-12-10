@@ -501,7 +501,7 @@
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
       ;; FIXME: Can transfer more than 256 sectors at once...
-      (register-disk port-info sector-count sector-size 256 'ahci-read 'ahci-write))))
+      (register-disk port-info t sector-count sector-size 256 'ahci-read 'ahci-write))))
 
 (defun (setf ahci-fis) (value ahci port offset)
   "Write an octet into the command FIS for PORT."
