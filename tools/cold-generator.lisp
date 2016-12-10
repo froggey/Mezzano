@@ -43,6 +43,7 @@
     "supervisor/disk.lisp"
     "supervisor/ata.lisp"
     "supervisor/ahci.lisp"
+    "supervisor/cdrom.lisp"
     "supervisor/thread.lisp"
     ("supervisor/x86-64/thread.lisp" :x86-64)
     ("supervisor/arm64/thread.lisp" :arm64)
