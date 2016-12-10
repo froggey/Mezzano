@@ -286,7 +286,10 @@ Returns 4 values:
   (ash (snapshot-bml4 *bml4*) (- sys.int::+block-map-id-shift+)))
 
 (defun take-snapshot ()
-  (debug-write-line "Begin snapshot.")
+  (when *paging-read-only*
+    (debug-print-line "Not taking snapshot, running read-only.")
+    (return-from take-snapshot))
+  (debug-print-line "Begin snapshot.")
   ;; TODO: Ensure there is a free area of at least 64kb in the wired area.
   ;; That should be enough to boot the system.
   (set-snapshot-light t)

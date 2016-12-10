@@ -18,6 +18,7 @@
 (sys.int::defglobal *pager-disk-request*)
 
 (sys.int::defglobal *paging-disk*)
+(sys.int::defglobal *paging-read-only*)
 (sys.int::defglobal *bml4*)
 
 (sys.int::defglobal *page-replacement-list-head*)
@@ -138,13 +139,23 @@ the data. Free the page with FREE-PAGE when done."
 
 (defun initialize-paging-system (disk header)
   (setf *paging-disk* disk)
-  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+) 0))
+  (setf *paging-read-only* (not (disk-writable-p disk)))
+  (when *paging-read-only*
+    (debug-print-line "Running read-only."))
+  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+)))
   (initialize-store-freelist (truncate (* (disk-n-sectors *paging-disk*) (disk-sector-size *paging-disk*)) #x1000)
-                             (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+) 0))
+                             (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+)))
   (multiple-value-bind (free-blocks total-blocks)
       (store-statistics)
-    (setf *store-fudge-factor* (+ (- total-blocks free-blocks) 256))
-    (debug-print-line "Set fudge factor to " *store-fudge-factor*))
+    ;; This is a rough approximation of the total image size.
+    (let ((allocated-blocks (- total-blocks free-blocks)))
+      ;; When running read-only, we can only use main memory (minus the total used by the image).
+      (cond (*paging-read-only*
+             (setf *store-fudge-factor* (- (+ (truncate (physical-memory-statistics) 1.1)
+                                              allocated-blocks))))
+            (t
+             (setf *store-fudge-factor* (+ allocated-blocks 256))))))
+  (debug-print-line "Set fudge factor to " *store-fudge-factor*)
   (debug-print-line "Waking pager thread.")
   (setf (thread-state sys.int::*pager-thread*) :runnable)
   (push-run-queue sys.int::*pager-thread*))
@@ -209,22 +220,22 @@ Returns NIL if the entry is missing and ALLOCATE is false."
 (defun block-info-for-virtual-address (address)
   (let ((bme (block-info-for-virtual-address-1 address)))
     (cond ((or (null bme)
-               (zerop (block-info-block-id (sys.int::memref-unsigned-byte-64 bme 0))))
+               (zerop (block-info-block-id (sys.int::memref-unsigned-byte-64 bme))))
            nil)
-          (t (sys.int::memref-unsigned-byte-64 bme 0)))))
+          (t (sys.int::memref-unsigned-byte-64 bme)))))
 
 (defun allocate-new-block-for-virtual-address (address flags)
   (let ((new-block (if *pager-lazy-block-allocation-enabled*
                        sys.int::+block-map-id-lazy+
                        (or (store-alloc 1)
-                           (panic "Unabled to allocate new block!"))))
+                           (panic "Unable to allocate new block!"))))
         (bme (block-info-for-virtual-address-1 address t)))
     (when *pager-lazy-block-allocation-enabled*
       (incf *store-fudge-factor*))
     ;; Update the block info for this address.
-    (when (not (zerop (sys.int::memref-unsigned-byte-64 bme 0)))
+    (when (not (zerop (sys.int::memref-unsigned-byte-64 bme)))
       (panic "Block " address " entry not zero!"))
-    (setf (sys.int::memref-unsigned-byte-64 bme 0)
+    (setf (sys.int::memref-unsigned-byte-64 bme)
           (logior (ash new-block sys.int::+block-map-id-shift+)
                   sys.int::+block-map-committed+
                   flags))))
@@ -416,6 +427,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     (when (not frame)
       ;; TODO: Purge empty page table levels.
       #+(or)(debug-print-line "Pager out of memory, preparing to SWAP!")
+      (when *paging-read-only*
+        (panic "Out of memory when running read-only."))
       (when (not *page-replacement-list-head*)
         (panic "No pages available for page-out?"))
       (let* ((candidate *page-replacement-list-head*)
