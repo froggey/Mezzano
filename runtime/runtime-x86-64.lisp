@@ -413,3 +413,30 @@
   (sys.lap-x86:mov32 :ecx #.(ash 2 sys.int::+n-fixnum-bits+)) ; fixnum 2
   (sys.lap-x86:call (:r13 #.(+ (- sys.int::+tag-object+) 8 (* sys.int::+fref-entry-point+ 8))))
   (sys.lap-x86:ud2))
+
+(sys.int::define-lap-function sys.int::%copy-words ((destination-address source-address count))
+  "Copy COUNT words from SOURCE-ADDRESS to DESTINATION-ADDRESS.
+Source & destination must both be byte addresses."
+  (sys.lap-x86:mov64 :rdi :r8) ; Destination
+  (sys.lap-x86:mov64 :rsi :r9) ; Source
+  (sys.lap-x86:mov64 :rcx :r10) ; Count
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; Unbox destination
+  (sys.lap-x86:sar64 :rsi #.sys.int::+n-fixnum-bits+) ; Unbox source
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+) ; Unbox count
+  (sys.lap-x86:rep)
+  (sys.lap-x86:movs64)
+  (sys.lap-x86:ret))
+
+(sys.int::define-lap-function sys.int::%fill-words ((destination-address value count))
+  "Store VALUE into COUNT words starting at DESTINATION-ADDRESS.
+Destination must a be byte address.
+VALUE must be an immediate value (fixnum, character, single-float, NIL or T) or
+the GC must be deferred during FILL-WORDS."
+  (sys.lap-x86:mov64 :rdi :r8) ; Destination
+  (sys.lap-x86:mov64 :rax :r9) ; Value
+  (sys.lap-x86:mov64 :rcx :r10) ; Count
+  (sys.lap-x86:sar64 :rdi #.sys.int::+n-fixnum-bits+) ; Unbox destination
+  (sys.lap-x86:sar64 :rcx #.sys.int::+n-fixnum-bits+) ; Unbox count
+  (sys.lap-x86:rep)
+  (sys.lap-x86:stos64)
+  (sys.lap-x86:ret))
