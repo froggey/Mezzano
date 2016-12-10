@@ -211,3 +211,56 @@ Arguments to FUNCTION:
                        ;; Restart
                        (logtest flags-and-pvr #b10000000)))))))
 
+(declaim (inline memref-t (setf memref-t)))
+(defun memref-t (base &optional (index 0))
+  (%memref-t base index))
+(defun (setf memref-t) (value base &optional (index 0))
+  (setf (%memref-t base index) value))
+
+(declaim (inline memref-unsigned-byte-8 (setf memref-unsigned-byte-8)))
+(defun memref-unsigned-byte-8 (base &optional (index 0))
+  (%memref-unsigned-byte-8 base index))
+(defun (setf memref-unsigned-byte-8) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-8 base index) value))
+
+(declaim (inline memref-unsigned-byte-16 (setf memref-unsigned-byte-16)))
+(defun memref-unsigned-byte-16 (base &optional (index 0))
+  (%memref-unsigned-byte-16 base index))
+(defun (setf memref-unsigned-byte-16) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-16 base index) value))
+
+(declaim (inline memref-unsigned-byte-32 (setf memref-unsigned-byte-32)))
+(defun memref-unsigned-byte-32 (base &optional (index 0))
+  (%memref-unsigned-byte-32 base index))
+(defun (setf memref-unsigned-byte-32) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-32 base index) value))
+
+(declaim (inline memref-unsigned-byte-64 (setf memref-unsigned-byte-64)))
+(defun memref-unsigned-byte-64 (base &optional (index 0))
+  (%memref-unsigned-byte-64 base index))
+(defun (setf memref-unsigned-byte-64) (value base &optional (index 0))
+  (setf (%memref-unsigned-byte-64 base index) value))
+
+(declaim (inline memref-signed-byte-8 (setf memref-signed-byte-8)))
+(defun memref-signed-byte-8 (base &optional (index 0))
+  (%memref-signed-byte-8 base index))
+(defun (setf memref-signed-byte-8) (value base &optional (index 0))
+  (setf (%memref-signed-byte-8 base index) value))
+
+(declaim (inline memref-signed-byte-16 (setf memref-signed-byte-16)))
+(defun memref-signed-byte-16 (base &optional (index 0))
+  (%memref-signed-byte-16 base index))
+(defun (setf memref-signed-byte-16) (value base &optional (index 0))
+  (setf (%memref-signed-byte-16 base index) value))
+
+(declaim (inline memref-signed-byte-32 (setf memref-signed-byte-32)))
+(defun memref-signed-byte-32 (base &optional (index 0))
+  (%memref-signed-byte-32 base index))
+(defun (setf memref-signed-byte-32) (value base &optional (index 0))
+  (setf (%memref-signed-byte-32 base index) value))
+
+(declaim (inline memref-signed-byte-64 (setf memref-signed-byte-64)))
+(defun memref-signed-byte-64 (base &optional (index 0))
+  (%memref-signed-byte-64 base index))
+(defun (setf memref-signed-byte-64) (value base &optional (index 0))
+  (setf (%memref-signed-byte-64 base index) value))

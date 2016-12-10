@@ -62,11 +62,11 @@
          (emit '(,write-op :w9 (:x10 :x11)))
          *x0-value*))))
 
-(define-u-b-memref sys.int::memref-unsigned-byte-8  1 lap:ldrb lap:strb)
-(define-u-b-memref sys.int::memref-unsigned-byte-16 2 lap:ldrh lap:strh)
-(define-u-b-memref sys.int::memref-unsigned-byte-32 4 lap:ldr  lap:str)
+(define-u-b-memref sys.int::%memref-unsigned-byte-8  1 lap:ldrb lap:strb)
+(define-u-b-memref sys.int::%memref-unsigned-byte-16 2 lap:ldrh lap:strh)
+(define-u-b-memref sys.int::%memref-unsigned-byte-32 4 lap:ldr  lap:str)
 
-(defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
+(defbuiltin sys.int::%memref-unsigned-byte-64 (base offset) ()
   (load-in-reg :x0 base t)
   (fixnum-check :x0)
   (load-in-reg :x1 offset t)
@@ -80,7 +80,7 @@
   (box-unsigned-byte-64-x10)
   (setf *x0-value* (list (gensym))))
 
-(defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-unsigned-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "mr-ub64-bignum"))
         (len-2-bignum (gensym "mr-ub64-len-2-bignum"))
@@ -134,7 +134,7 @@
           `(lap:str :x10 (:x9 :x5 :scale)))
     *x0-value*))
 
-(defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
+(defbuiltin sys.int::%memref-signed-byte-64 (base offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym)))
     (emit-trailer (overflow-label)
@@ -159,7 +159,7 @@
           resume)
     (setf *x0-value* (list (gensym)))))
 
-(defbuiltin (setf sys.int::memref-signed-byte-64) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-signed-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "mr-sb64-bignum"))
         (value-extracted (gensym "mr-sb64-value-extracted")))
@@ -199,7 +199,7 @@
     (emit `(lap:str :x10 (:x11 :x9)))
     *x0-value*))
 
-(defbuiltin sys.int::memref-t (base offset) ()
+(defbuiltin sys.int::%memref-t (base offset) ()
   (load-in-reg :x1 base t)
   (fixnum-check :x1)
   (load-in-reg :x0 offset t)
@@ -212,7 +212,7 @@
   (emit `(lap:ldr :x0 (:x9 :x10)))
   (setf *x0-value* (list (gensym))))
 
-(defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-t) (new-value base offset) ()
   (load-in-reg :x1 base t)
   (fixnum-check :x1)
   ;; Convert to raw integers, scaling offset.

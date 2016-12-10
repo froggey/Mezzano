@@ -54,11 +54,11 @@
                '(,write-op (:rdx (:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-u-b-memref sys.int::memref-unsigned-byte-8 1 sys.lap-x86:movzx8 sys.lap-x86:mov8 :al)
-(define-u-b-memref sys.int::memref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
-(define-u-b-memref sys.int::memref-unsigned-byte-32 4 sys.lap-x86:mov32 sys.lap-x86:mov32 :eax)
+(define-u-b-memref sys.int::%memref-unsigned-byte-8 1 sys.lap-x86:movzx8 sys.lap-x86:mov8 :al)
+(define-u-b-memref sys.int::%memref-unsigned-byte-16 2 sys.lap-x86:movzx16 sys.lap-x86:mov16 :ax)
+(define-u-b-memref sys.int::%memref-unsigned-byte-32 4 sys.lap-x86:mov32 sys.lap-x86:mov32 :eax)
 
-(defbuiltin sys.int::memref-unsigned-byte-64 (base offset) ()
+(defbuiltin sys.int::%memref-unsigned-byte-64 (base offset) ()
   (load-in-reg :r8 base t)
   (fixnum-check :r8)
   (load-in-reg :r9 offset t)
@@ -74,7 +74,7 @@
   (box-unsigned-byte-64-rax)
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf sys.int::memref-unsigned-byte-64) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-unsigned-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "mr-ub64-bignum"))
         (len-2-bignum (gensym "mr-ub64-len-2-bignum"))
@@ -179,11 +179,11 @@
                '(,write-op (:rdx (:rcx ,width)) ,register))
          *r8-value*))))
 
-(define-s-b-memref sys.int::memref-signed-byte-8 1 sys.lap-x86:movsx8 sys.lap-x86:mov8 :al)
-(define-s-b-memref sys.int::memref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
-(define-s-b-memref sys.int::memref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
+(define-s-b-memref sys.int::%memref-signed-byte-8 1 sys.lap-x86:movsx8 sys.lap-x86:mov8 :al)
+(define-s-b-memref sys.int::%memref-signed-byte-16 2 sys.lap-x86:movsx16 sys.lap-x86:mov16 :ax)
+(define-s-b-memref sys.int::%memref-signed-byte-32 4 sys.lap-x86:movsx32 sys.lap-x86:mov32 :eax)
 
-(defbuiltin sys.int::memref-signed-byte-64 (base offset) ()
+(defbuiltin sys.int::%memref-signed-byte-64 (base offset) ()
   (let ((overflow-label (gensym))
         (resume (gensym)))
     (emit-trailer (overflow-label)
@@ -211,7 +211,7 @@
           resume)
     (setf *r8-value* (list (gensym)))))
 
-(defbuiltin (setf sys.int::memref-signed-byte-64) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-signed-byte-64) (new-value base offset) ()
   (let ((type-error-label (gensym))
         (bignum-path (gensym "mr-sb64-bignum"))
         (value-extracted (gensym "mr-sb64-value-extracted")))
@@ -253,7 +253,7 @@
 	  `(sys.lap-x86:mov64 (:rax (:rcx 8)) :rdx))
     *r8-value*))
 
-(defbuiltin sys.int::memref-t (base offset) ()
+(defbuiltin sys.int::%memref-t (base offset) ()
   (load-in-reg :r9 base t)
   (fixnum-check :r9)
   (emit `(sys.lap-x86:mov64 :rax :r9))
@@ -268,7 +268,7 @@
    `(sys.lap-x86:mov64 :r8 (:rax (:rcx 8))))
   (setf *r8-value* (list (gensym))))
 
-(defbuiltin (setf sys.int::memref-t) (new-value base offset) ()
+(defbuiltin (setf sys.int::%memref-t) (new-value base offset) ()
   (load-in-reg :r9 base t)
   (fixnum-check :r9)
   (emit `(sys.lap-x86:mov64 :rax :r9))
