@@ -654,6 +654,7 @@
       data)))
 
 (defun write-image (s entry-fref initial-thread image-size header-path)
+  (format t "Writing image file to ~A.~%" (namestring s))
   (let* ((image-header-data (when header-path
                               (load-image-header header-path)))
          (image-offset (if image-header-data
@@ -933,6 +934,7 @@
   (with-open-file (s pathname
                      :direction :output
                      :if-exists :supersede)
+    (format t "Writing map file to ~A.~%" (namestring s))
     (let ((*print-right-margin* 10000))
       (iter (for (addr name) in (sort (copy-list map) '< :key 'first))
             (format s "~X ~A~%" (* (+ addr 2) 8)
@@ -1232,6 +1234,7 @@
            (object (save-object pci-ids :static)))
       (setf (cold-symbol-value 'sys.int::*pci-ids*) object))
     ;; Poke a few symbols to ensure they exist. This avoids memory allocation after finalize-areas runs.
+    (format t "Final tweaks...~%")
     (mapc (lambda (sym) (symbol-address (string sym) (package-name (symbol-package sym))))
           '(sys.int::*initial-obarray* sys.int::*initial-keyword-obarray*
             sys.int::*initial-fref-obarray* sys.int::*initial-structure-obarray*
