@@ -76,19 +76,21 @@
     data))
 
 (defun decode-block-map-entry (entry)
-  (cond ((not (logbitp 0 entry))
-         (assert (eql entry 0)))
-        (t
-         (let ((writep (logbitp 1 entry))
-               (zero-fill-p (logbitp 2 entry))
-               (block-id (ldb (byte 54 8) entry)))
-           (assert (not (zerop block-id)))
-           (assert (zerop (logand entry (lognot #x3FFFFFFFFFFFFF07))))
-           (when (eql block-id (1- (ash 1 54)))
-             (setf block-id :lazy))
-           (list :block-id block-id
-                 :writep writep
-                 :zero-fill-p zero-fill-p)))))
+  (let ((block-id (ldb (byte 54 8) entry)))
+    (cond ((zerop block-id)
+           (assert (zerop entry))
+           '())
+          (t
+           (let ((presentp (logbitp 0 entry))
+                 (writep (logbitp 1 entry))
+                 (zero-fill-p (logbitp 2 entry)))
+             (assert (zerop (logand entry (lognot #x3FFFFFFFFFFFFF07))))
+             (when (eql block-id (1- (ash 1 54)))
+               (setf block-id :lazy))
+             (list :block-id block-id
+                   :presentp presentp
+                   :writep writep
+                   :zero-fill-p zero-fill-p))))))
 
 (defun read-block-map (stream offset bml4-block)
   (let ((block-map (make-hash-table)))
@@ -100,14 +102,13 @@
                     for i by 8 below 4096
                     for j from 0
                     for entry = (nibbles:ub64ref/le disk-block i)
-                    when (logbitp 0 entry)
+                    when (not (zerop (ldb (byte 54 8) entry)))
                     do
                       (funcall fn
                                entry
                                (logior address (ash j address-level-shift))))))
              (level-0 (block-id address)
-               (when (logbitp 0 block-id)
-                 (setf (gethash address block-map) (decode-block-map-entry block-id))))
+               (setf (gethash address block-map) (decode-block-map-entry block-id)))
              (level-1 (block-id address)
                (one-level (ldb (byte 54 8) block-id) #'level-0 address 12))
              (level-2 (block-id address)
@@ -119,14 +120,19 @@
 
 (defun encode-block-info (info)
   (cond (info
-         (logior #b0001
-                 (ash (getf info :block-id) 8)
-                 (if (getf info :writep)
-                     #b0010
-                     #b0000)
-                 (if (getf info :zero-fill-p)
-                     #b0100
-                     #b0000)))
+         (let ((block-id (getf info :block-id)))
+           (when (eql block-id :lazy)
+             (setf block-id (1- (ash 1 54))))
+           (logior (ash block-id 8)
+                   (if (getf info :presentp)
+                       #b0001
+                       #b0000)
+                   (if (getf info :writep)
+                       #b0010
+                       #b0000)
+                   (if (getf info :zero-fill-p)
+                       #b0100
+                       #b0000))))
         (t
          0)))
 
