@@ -141,6 +141,11 @@ Should be kept in sync with data-types.")
               (- total-page-frames n-free-page-frames) total-page-frames
               (truncate (* (- total-page-frames n-free-page-frames) 100)
                         total-page-frames))))
+  (when (eql verbosity t)
+    (format t "Paging disk is ~S.~%" mezzano.supervisor::*paging-disk*)
+    (format t "Fudge-factor is ~D.~%" mezzano.supervisor::*store-fudge-factor*)
+    (when mezzano.supervisor::*paging-read-only*
+      (format t "Running in read-only mode.~%")))
   (values))
 
 (defun %walk-pinned-area (base limit fn)
