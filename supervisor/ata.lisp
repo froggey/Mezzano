@@ -97,7 +97,12 @@
   controller
   channel
   cdb-size
-  cdb)
+  initialized-p)
+
+(defun ata-error (controller)
+  "Read the error register."
+  (sys.int::io-port/8 (+ (ata-controller-command controller)
+                         +ata-register-error+)))
 
 (defun ata-status (controller)
   "Read the status register."
@@ -205,9 +210,11 @@ Returns true when the bits are equal, false when the timeout expires or if the d
         (return-from ata-detect-packet-device))
       (let ((device (make-atapi-device :controller controller
                                        :channel channel
-                                       :cdb-size cdb-size)))
+                                       :cdb-size cdb-size
+                                       :initialized-p nil)))
         (push-wired device *atapi-devices*)
-        (cdrom-initialize-device device cdb-size 'ata-issue-packet-command)))))
+        (cdrom-initialize-device device cdb-size 'ata-issue-packet-command)
+        (setf (atapi-device-initialized-p device) t)))))
 
 (defun ata-detect-drive (controller channel)
   (let ((buf (sys.int::make-simple-vector 256 :wired)))
@@ -457,9 +464,9 @@ This is used to implement the INTRQ_Wait state."
 
 (defun ata-read-write (device lba count mem-addr what dma-fn pio-fn)
   (let ((controller (ata-device-controller device)))
-    (assert (>= lba 0))
-    (assert (>= count 0))
-    (assert (<= (+ lba count) (ata-device-sector-count device)))
+    (ensure (>= lba 0))
+    (ensure (>= count 0))
+    (ensure (<= (+ lba count) (ata-device-sector-count device)))
     (cond
       ((ata-device-lba48-capable device)
        (when (> count 65536)
@@ -475,11 +482,12 @@ This is used to implement the INTRQ_Wait state."
                 ;; 4GB limit.
                 (< mem-addr (+ +physical-map-base+ (* 4 1024 1024 1024))))
            (funcall dma-fn controller device lba count (- mem-addr +physical-map-base+)))
-          ((<= (* count (ata-device-block-size device)) +4k-page-size+)
+          ((eql (* count (ata-device-block-size device)) +4k-page-size+)
            ;; Transfer is small enough that the bounce page can be used.
            (let* ((bounce-frame (ata-controller-bounce-buffer controller))
                   (bounce-phys (ash bounce-frame 12))
                   (bounce-virt (convert-to-pmap-address bounce-phys)))
+             ;; FIXME: Don't copy a whole page
              (when (eql what :write)
                (%fast-page-copy bounce-virt mem-addr))
              (funcall dma-fn controller device lba count bounce-phys)
@@ -561,21 +569,24 @@ This is used to implement the INTRQ_Wait state."
   (ata-read-write device lba count mem-addr
                   :write #'ata-write-dma #'ata-write-pio))
 
-(defun ata-issue-packet-command (device cdb result-buffer result-len)
-  (ensure (eql (sys.int::simple-vector-length cdb)
-               (atapi-device-cdb-size device)))
-  (ensure (eql (rem result-len 4) 0))
+(defun ata-submit-packet-command (device cdb result-len dma dmadir)
   (let* ((controller (atapi-device-controller device))
          (command-base (ata-controller-command controller)))
     ;; Select the device.
     (when (not (ata-select-device controller (atapi-device-channel device)))
       (debug-print-line "Could not select ata device.")
-      (return-from ata-issue-packet-command nil))
+      (return-from ata-submit-packet-command nil))
     (latch-reset (ata-controller-irq-latch controller))
     ;; HI3: Write_parameters
     (flet ((wr (reg val)
              (setf (sys.int::io-port/8 (+ command-base reg)) val)))
       (declare (dynamic-extent #'wr))
+      (wr +ata-register-features+ (if dma
+                                      (logior #b0001
+                                              (ecase dmadir
+                                                (:device-to-host #b0100)
+                                                (:host-to-device #b0000)))
+                                      #b0000))
       ;; Set maximum transfer size.
       (cond ((eql result-len 0)
              ;; Some devices use 0 to mean some other value, use a tiny result instead.
@@ -586,63 +597,121 @@ This is used to implement the INTRQ_Wait state."
              (wr +ata-register-lba-mid+  (ldb (byte 8 0) result-len))
              (wr +ata-register-lba-high+ (ldb (byte 8 8) result-len))))
       ;; HI4: Write_command
-      (wr +ata-register-command+ +ata-command-packet+)
-      ;; Delay 400ns after writing command.
-      (ata-alt-status controller)
-      ;; HP0: Check_Status_A
-      (multiple-value-bind (drq timed-out)
-          (ata-check-status controller)
-        (when timed-out
-          ;; FIXME: Should reset the device here.
-          (debug-print-line "Device timeout during PACKET Check_Status_A.")
-          (return-from ata-issue-packet-command nil))
-        (when (not drq)
-          ;; FIXME: Should reset the device here.
-          (debug-print-line "Device error during PACKET Check_Status_A.")
-          (return-from ata-issue-packet-command nil)))
-      ;; HP1: Send_Packet
-      ;; Send the command a word at a time.
-      (loop
-         for i from 0 by 2 below (atapi-device-cdb-size device)
-         for lo = (svref cdb i)
-         for hi = (svref cdb (1+ i))
-         for word = (logior lo (ash hi 8))
-         do (setf (sys.int::io-port/16 (+ command-base +ata-register-data+)) word))
-      ;; HP3: INTRQ_wait
-      ;; FIXME: Controller interrupts aren't enabled until after disk detection.
-      #+(or)
-      (ata-intrq-wait controller)
-      ;; HP2: Check_Status_B
-      (multiple-value-bind (drq timed-out)
-          (ata-check-status controller)
-        (when timed-out
-          ;; FIXME: Should reset the device here.
-          (debug-print-line "Device timeout during PACKET Check_Status_B.")
-          (return-from ata-issue-packet-command nil))
-        (when (logtest +ata-err+ (ata-alt-status controller))
-          ;; FIXME: Should reset the device here.
-          (debug-print-line "Device error during PACKET Check_Status_B.")
-          (return-from ata-issue-packet-command nil))
-        (cond (drq
-               ;; Data ready for transfer.
-               ;; HP4: Transfer_Data
-               (let ((len (logior (sys.int::io-port/8 (+ command-base +ata-register-lba-mid+))
-                                  (ash (sys.int::io-port/8 (+ command-base +ata-register-lba-high+)) 8))))
-                 (loop
-                    for i from 0 by 2 below (min len result-len)
-                    do
-                      (setf (sys.int::memref-unsigned-byte-16 (+ result-buffer i))
-                            (sys.int::io-port/16 (+ (ata-controller-command controller)
-                                                    +ata-register-data+))))
-                 ;; Read any remaining data.
-                 (loop
-                    for i from 0 by 2 below (- len result-len)
-                    do (sys.int::io-port/16 (+ (ata-controller-command controller)
-                                               +ata-register-data+)))
-                 len))
-              (t
-               ;; No data to transfer.
-               0))))))
+      (wr +ata-register-command+ +ata-command-packet+))
+    ;; Delay 400ns after writing command.
+    (ata-alt-status controller)
+    ;; HP0: Check_Status_A
+    (multiple-value-bind (drq timed-out)
+        (ata-check-status controller)
+      (when timed-out
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device timeout during PACKET Check_Status_A.")
+        (return-from ata-submit-packet-command nil))
+      (when (not drq)
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device error " (ata-error controller) " during PACKET Check_Status_A.")
+        (return-from ata-submit-packet-command nil)))
+    ;; HP1: Send_Packet
+    ;; Send the command a word at a time.
+    (loop
+       for i from 0 by 2 below (atapi-device-cdb-size device)
+       for lo = (svref cdb i)
+       for hi = (svref cdb (1+ i))
+       for word = (logior lo (ash hi 8))
+       do (setf (sys.int::io-port/16 (+ command-base +ata-register-data+)) word)))
+  t)
+
+(defun ata-issue-pio-packet-command (device cdb result-buffer result-len)
+  (let* ((controller (atapi-device-controller device))
+         (command-base (ata-controller-command controller)))
+    (when (not (ata-submit-packet-command device cdb result-len nil nil))
+      (return-from ata-issue-pio-packet-command nil))
+    ;; HP3: INTRQ_wait
+    (when (atapi-device-initialized-p device)
+      (ata-intrq-wait controller))
+    ;; HP2: Check_Status_B
+    (multiple-value-bind (drq timed-out)
+        (ata-check-status controller)
+      (when timed-out
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device timeout during PACKET Check_Status_B.")
+        (return-from ata-issue-pio-packet-command nil))
+      (when (logtest +ata-err+ (ata-alt-status controller))
+        ;; FIXME: Should reset the device here.
+        (debug-print-line "Device error " (ata-error controller) " during PACKET Check_Status_B.")
+        (return-from ata-issue-pio-packet-command nil))
+      (cond (drq
+             ;; Data ready for transfer.
+             ;; HP4: Transfer_Data
+             (let ((len (logior (sys.int::io-port/8 (+ command-base +ata-register-lba-mid+))
+                                (ash (sys.int::io-port/8 (+ command-base +ata-register-lba-high+)) 8))))
+               (loop
+                  for i from 0 by 2 below (min len result-len)
+                  do
+                    (setf (sys.int::memref-unsigned-byte-16 (+ result-buffer i))
+                          (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                                  +ata-register-data+))))
+               ;; Read any remaining data.
+               (loop
+                  for i from 0 by 2 below (- len result-len)
+                  do (sys.int::io-port/16 (+ (ata-controller-command controller)
+                                             +ata-register-data+)))
+               len))
+            (t
+             ;; No data to transfer.
+             0)))))
+
+(defun ata-issue-dma-packet-command (device cdb result-buffer-phys result-len)
+  (let* ((controller (atapi-device-controller device))
+         (command-base (ata-controller-command controller)))
+    (ata-configure-prdt controller result-buffer-phys result-len :read)
+    (when (not (ata-submit-packet-command device cdb result-len t :device-to-host))
+      (return-from ata-issue-dma-packet-command nil))
+    ;; Start DMA.
+    (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) (logior +ata-bmr-command-start+
+                                                                                                      +ata-bmr-direction-read/write+))
+    ;; Wait for completion.
+    (ata-intrq-wait controller)
+    ;; FIXME: Should go to Check_Status_B here.
+    (let ((status (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+)))
+      ;; Stop the transfer.
+      (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-command+) +ata-bmr-direction-read/write+)
+      ;; Clear error bit.
+      (setf (pci-io-region/8 (ata-controller-bus-master-register controller) +ata-bmr-status+) (logior status +ata-bmr-status-error+ +ata-bmr-status-interrupt+))
+      (if (logtest status +ata-bmr-status-error+)
+          (values nil :device-error)
+          t))))
+
+(defun ata-issue-packet-command (device cdb result-buffer result-len)
+  (ensure (eql (sys.int::simple-vector-length cdb)
+               (atapi-device-cdb-size device)))
+  (ensure (eql (rem result-len 4) 0))
+  (cond ((not (atapi-device-initialized-p device))
+         (ata-issue-pio-packet-command device cdb result-buffer result-len))
+        ((or (null result-buffer)
+             (and (<= +physical-map-base+ result-buffer)
+                  ;; 4GB limit.
+                  (< result-buffer (+ +physical-map-base+ (* 4 1024 1024 1024)))))
+         (ata-issue-dma-packet-command device
+                                       cdb
+                                       (if result-buffer
+                                           (- result-buffer +physical-map-base+)
+                                           0)
+                                       result-len))
+        ((eql result-len +4k-page-size+)
+         ;; Transfer is small enough that the bounce page can be used.
+         (let* ((controller (atapi-device-controller device))
+                (bounce-frame (ata-controller-bounce-buffer controller))
+                (bounce-phys (ash bounce-frame 12))
+                (bounce-virt (convert-to-pmap-address bounce-phys)))
+           (ata-issue-dma-packet-command device
+                                         cdb
+                                         bounce-phys
+                                         result-len)
+           ;; FIXME: Don't copy a whole page.
+           (%fast-page-copy result-buffer bounce-virt)))
+        (t ;; Give up and do a slow PIO transfer.
+         (ata-issue-pio-packet-command device cdb result-buffer result-len))))
 
 (defun ata-irq-handler (interrupt-frame irq)
   (declare (ignore interrupt-frame))
