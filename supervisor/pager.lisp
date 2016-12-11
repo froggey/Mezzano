@@ -161,6 +161,15 @@ the data. Free the page with FREE-PAGE when done."
   (push-run-queue sys.int::*pager-thread*))
 
 (defun detect-paging-disk ()
+  (debug-print-line "Looking for paging disk with UUID "
+                    (boot-uuid 0) ":" (boot-uuid 1) ":"
+                    (boot-uuid 2) ":" (boot-uuid 3) ":"
+                    (boot-uuid 4) ":" (boot-uuid 5) ":"
+                    (boot-uuid 6) ":" (boot-uuid 7) ":"
+                    (boot-uuid 8) ":" (boot-uuid 9) ":"
+                    (boot-uuid 10) ":" (boot-uuid 11) ":"
+                    (boot-uuid 12) ":" (boot-uuid 13) ":"
+                    (boot-uuid 14) ":" (boot-uuid 15))
   (dolist (disk (all-disks))
     (let* ((sector-size (disk-sector-size disk))
            (page (allocate-physical-pages (ceiling (max +4k-page-size+ sector-size) +4k-page-size+)
@@ -171,25 +180,44 @@ the data. Free the page with FREE-PAGE when done."
         (panic "Unable to read first block on disk " disk))
       ;; Search for a Mezzano header here.
       (unwind-protect
-           (when (and
-                  (not *paging-disk*)
-                  ;; Match magic.
-                  (loop
-                     for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
-                     for offset from 0
-                     do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
-                          (return nil))
-                     finally (return t))
-                  ;; Match boot UUID.
-                  (loop
-                     for offset from 0 below 16
-                     do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
-                                        (boot-uuid offset)))
-                          (return nil))
-                     finally (return t)))
-             (debug-print-line "Found boot image on disk " disk "!")
-             (initialize-paging-system disk page-addr)
-             (return))
+           (flet ((check-magic ()
+                    (loop
+                       for byte in '(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
+                       for offset from 0
+                       do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr offset) byte))
+                            (return nil))
+                       finally (return t)))
+                  (check-uuid ()
+                    (loop
+                       for offset from 0 below 16
+                       do (when (not (eql (sys.int::memref-unsigned-byte-8 page-addr (+ 16 offset))
+                                          (boot-uuid offset)))
+                            (return nil))
+                       finally (return t))))
+             (declare (dynamic-extent #'check-magic #'check-uuid))
+             (when (check-magic)
+               (debug-print-line "Found image with UUID "
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 0)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 1)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 2)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 3)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 4)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 5)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 6)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 7)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 8)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 9)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 10)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 11)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 12)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 13)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 14)) ":"
+                                 (sys.int::memref-unsigned-byte-8 page-addr (+ 16 15))
+                                 " on disk " disk)
+               (when (check-uuid)
+                 (debug-print-line "Found boot image on disk " disk "!")
+                 (initialize-paging-system disk page-addr)
+                 (return))))
         ;; Release the pages.
         (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))))
 
