@@ -45,7 +45,8 @@
   (dolist (disk (all-disks))
     ;; Search for a GPT, then a PC MBR.
     (or (detect-gpt-partition-table disk)
-        (detect-mbr-partition-table disk))))
+        (detect-mbr-partition-table disk)
+        (detect-iso9660-partition-table disk))))
 
 (defun check-gpt-header-signature (page-addr)
   (loop
@@ -138,3 +139,72 @@
                              'read-disk-partition
                              'write-disk-partition)))))
       found-table-p)))
+
+(defun find-iso9660-primary-volume-descriptor (disk buffer)
+  (loop
+     ;; The Volume Descriptor Set starts on sector 16/offset 32kb.
+     ;; Limit to searching the first 128 entries.
+     for sector from #x10 below (+ #x10 128)
+     do
+       (when (not (disk-read disk sector 1 buffer))
+         (return nil))
+       ;; Check identifier 'CD001' and version
+       (when (not (and (eql (sys.int::memref-unsigned-byte-8 buffer 1) #x43)
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 2) #x44)
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 3) #x30)
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 4) #x30)
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 5) #x31)
+                       (eql (sys.int::memref-unsigned-byte-8 buffer 6) #x01)))
+         (return nil))
+       ;; Check type.
+       (case (sys.int::memref-unsigned-byte-8 buffer 0)
+         (#x01 ; Primary Volume Descriptor.
+          (return sector))
+         (#xFF ; Volume Descriptor Set Terminator.
+          (return nil)))))
+
+(defun detect-iso9660-partition-table (disk)
+  (let* ((sector-size (disk-sector-size disk))
+         (pages-per-sector (ceiling sector-size +4k-page-size+))
+         (found-table-p nil))
+    (when (not (eql sector-size 2048))
+      (return-from detect-iso9660-partition-table nil))
+    (with-pages (page-addr pages-per-sector
+                           :mandatory-p "DETECT-DISK disk buffer")
+      ;; Search for a primary volume descriptor.
+      (let ((primary-volume (find-iso9660-primary-volume-descriptor disk page-addr)))
+        (when (not primary-volume)
+          (return-from detect-iso9660-partition-table nil))
+        (debug-print-line "Detected ISO9660 primary volume descriptor at sector " primary-volume " on disk " disk)
+        ;; Treat every file in the root directory as a partition.
+        (let ((root-extent (memref-ub32/le (+ page-addr 156 2)))
+              (root-length (memref-ub32/le (+ page-addr 156 10)))
+              (n-entries 0))
+          (debug-print-line "Root directory at " root-extent "/" root-length)
+          (loop
+             for sector from 0 below (ceiling root-length 2048)
+             do
+               (when (not (disk-read disk (+ root-extent sector) 1 page-addr))
+                 (return nil))
+               (do ((offset 0))
+                   ((>= offset 2048))
+                 (let ((rec-len (sys.int::memref-unsigned-byte-8 (+ page-addr offset 0)))
+                       (extent (memref-ub32/le (+ page-addr offset 2)))
+                       (length (memref-ub32/le (+ page-addr offset 10)))
+                       (flags (sys.int::memref-unsigned-byte-8 (+ page-addr offset 25))))
+                   (when (zerop rec-len)
+                     ;; Reached last record.
+                     (return))
+                   (debug-print-line "Root entry at " extent "/" length " flags: " flags)
+                   (when (eql (logand flags #b11101111) #b00000000) ; Ignore the protection bit.
+                     ;; Valid file.
+                     (register-disk (make-partition :disk disk
+                                                    :offset extent
+                                                    :id (incf n-entries))
+                                    nil
+                                    (ceiling length 2048)
+                                    2048
+                                    (disk-max-transfer disk)
+                                    'read-disk-partition
+                                    'write-disk-partition))
+                   (incf offset rec-len)))))))))

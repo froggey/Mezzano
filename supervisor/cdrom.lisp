@@ -90,9 +90,7 @@
           (svref cdb 7) (ldb (byte 8 8) count)
           (svref cdb 8) (ldb (byte 8 0) count)
           (svref cdb 9) 0)
-    (debug-print-line "Issue CD read command " lba " " count)
     (let ((result (funcall command-fn device cdb mem-addr (* count 2048))))
-      (debug-print-line " Read result: " result)
       (if result
           t
           (values nil :device-error)))))
