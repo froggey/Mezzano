@@ -317,6 +317,8 @@
   received-fis
   command-table
   (irq-latch (make-latch "AHCI Port IRQ Notifier"))
+  atapi-p
+  cdb-size
   lba48-capable
   sector-size
   sector-count)
@@ -421,12 +423,41 @@
         1)
   (debug-print-line "Port reset complete."))
 
+(defun ahci-issue-packet-command (port-info cdb result-buffer result-len)
+  (ensure (ahci-port-atapi-p port-info))
+  ;; FIXME: Bounce buffer on non-64-bit capable HBAs
+  (cond (result-buffer
+         (setf result-buffer (- result-buffer +physical-map-base+)))
+        (t
+         (setf result-buffer 0)))
+  (let ((ahci (ahci-port-ahci port-info))
+        (port (ahci-port-id port-info)))
+    (ahci-setup-buffer ahci port result-buffer result-len nil t)
+    ;; Set registers in the FIS for an ATAPI command.
+    ;; DMA, device-to-host direction.
+    (setf (ahci-fis ahci port +sata-register-features+) #b0101)
+    (setf (ahci-fis ahci port +sata-register-lba-mid+) (ldb (byte 8 0) result-len)
+          (ahci-fis ahci port +sata-register-lba-high+) (ldb (byte 8 8) result-len))
+    ;; Fill the ACMD field.
+    (let* ((command-table (ahci-port-command-table port-info))
+           (ct (+ command-table +ahci-ct-ACMD+)))
+      (dotimes (i (ahci-port-cdb-size port-info))
+        (setf (physical-memref-unsigned-byte-8 ct i) (svref cdb i))))
+    (ahci-run-command ahci port +ata-command-packet+)
+    (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+           (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+      (cond ((logtest sts +ata-err+)
+             (debug-print-line "PACKET command failed. TFD: " tfd)
+             nil)
+            (t result-len)))))
+
 (defun ahci-rw-command (port-info lba count mem-addr command command-ext write)
+  (ensure (not (ahci-port-atapi-p port-info)))
   ;; FIXME: Bounce buffer on non-64-bit capable HBAs
   (setf mem-addr (- mem-addr +physical-map-base+))
   (let ((ahci (ahci-port-ahci port-info))
         (port (ahci-port-id port-info)))
-    (ahci-setup-buffer ahci port mem-addr (* count (ahci-port-sector-size port-info)) write)
+    (ahci-setup-buffer ahci port mem-addr (* count (ahci-port-sector-size port-info)) write nil)
     (cond ((ahci-port-lba48-capable port-info)
            (ahci-setup-lba48 ahci port lba count)
            (ahci-run-command ahci port command-ext))
@@ -458,17 +489,60 @@
                    +ata-command-write-dma-ext+
                    t))
 
+(defun ahci-detect-atapi-drive (ahci port)
+  ;; Issue IDENTIFY PACKET.
+  ;; Dump the IDENTIFY PACKET data just after the command table.
+  (let* ((port-info (ahci-port ahci port))
+         (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
+         (identify-data (convert-to-pmap-address identify-data-phys)))
+    (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
+    (ahci-dump-port-registers ahci port)
+    (ahci-run-command ahci port +ata-command-identify-packet+)
+    (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
+           (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
+      (when (logtest sts +ata-err+)
+        (debug-print-line "IDENTIFY PACKET aborted by device. TFD: " tfd)
+        (return-from ahci-detect-atapi-drive)))
+    ;; Done!
+    (debug-print-line "Command completed.")
+    (dump-mem identify-data-phys 32)
+    (let* ((general-config (memref-ub16/le identify-data 0))
+           (cdb-size (case (ldb (byte 2 0) general-config)
+                       (0 12)
+                       (1 16))))
+      (debug-print-line "PACKET device:")
+      (debug-print-line " General configuration: " general-config)
+      (debug-print-line " Specific configuration: " (memref-ub16/le identify-data 2))
+      (debug-print-line " Capabilities: " (memref-ub16/le identify-data 49) " " (memref-ub16/le identify-data 50))
+      (debug-print-line " Field validity: " (memref-ub16/le identify-data 53))
+      (debug-print-line " DMADIR: " (memref-ub16/le identify-data 62))
+      (debug-print-line " Multiword DMA transfer: " (memref-ub16/le identify-data 63))
+      (debug-print-line " PIO transfer mode supported: " (memref-ub16/le identify-data 64))
+      (debug-print-line " Features: " (memref-ub16/le identify-data 82) " " (memref-ub16/le identify-data 83) " " (memref-ub16/le identify-data 84) " " (memref-ub16/le identify-data 85) " " (memref-ub16/le identify-data 86) " " (memref-ub16/le identify-data 87))
+      (debug-print-line " Removable Media Notification: " (memref-ub16/le identify-data 127))
+      (when (or (not (logbitp 15 general-config))
+                (logbitp 14 general-config))
+        (debug-print-line "Device does not implement the PACKET command set.")
+        (return-from ahci-detect-atapi-drive))
+      (when (not (eql (ldb (byte 5 8) general-config) 5))
+        (debug-print-line "PACKET device is not a CD-ROM drive.")
+        (return-from ahci-detect-atapi-drive))
+      (when (not cdb-size)
+        (debug-print-line "PACKET device has unsupported CDB size " (ldb (byte 2 0) general-config))
+        (return-from ahci-detect-atapi-drive))
+      (setf (ahci-port-atapi-p port-info) t
+            (ahci-port-cdb-size port-info) cdb-size)
+      (cdrom-initialize-device port-info cdb-size 'ahci-issue-packet-command))))
+
 (defun ahci-detect-drive (ahci port)
   ;; Issue IDENTIFY.
   ;; Dump the IDENTIFY data just after the command table.
   (let* ((port-info (ahci-port ahci port))
          (identify-data-phys (+ (ahci-port-command-table port-info) #x100))
          (identify-data (convert-to-pmap-address identify-data-phys)))
-    (ahci-setup-buffer ahci port identify-data-phys 512 nil)
+    (ahci-setup-buffer ahci port identify-data-phys 512 nil nil)
     (ahci-dump-port-registers ahci port)
     (ahci-run-command ahci port +ata-command-identify+)
-    ;; ### Not sure if ATAPI devices still abort IDENTIFY. I guess they do.
-    ;; Check in vbox - easy.
     (let* ((tfd (ahci-port-register ahci port +ahci-register-PxTFD+))
            (sts (ldb (byte +ahci-PxTFD-STS-size+ +ahci-PxTFD-STS-position+) tfd)))
       (when (logtest sts +ata-err+)
@@ -477,23 +551,22 @@
     ;; Done!
     (debug-print-line "Command completed.")
     (dump-mem identify-data-phys 32)
-    ;; FIXME: These should be little-endian reads.
-    (let* ((supported-command-sets (sys.int::memref-unsigned-byte-16 identify-data 83))
+    (let* ((supported-command-sets (memref-ub16/le identify-data 83))
            (lba48-capable (logbitp 10 supported-command-sets))
-           (sector-size (if (and (logbitp 14 (sys.int::memref-unsigned-byte-16 identify-data 106))
-                                 (not (logbitp 13 (sys.int::memref-unsigned-byte-16 identify-data 106))))
+           (sector-size (if (and (logbitp 14 (memref-ub16/le identify-data 106))
+                                 (not (logbitp 13 (memref-ub16/le identify-data 106))))
                             ;; Data in logical sector size field valid.
-                            (logior (sys.int::memref-unsigned-byte-16 identify-data 117)
-                                    (ash (sys.int::memref-unsigned-byte-16 identify-data 118) 16))
-                            ;; Not valid, use 512. (TODO: PACKET devices? when was this field introduced?)
+                            (logior (memref-ub16/le identify-data 117)
+                                    (ash (memref-ub16/le identify-data 118) 16))
+                            ;; Not valid, use 512.
                             512))
            (sector-count (if lba48-capable
-                             (logior (sys.int::memref-unsigned-byte-16 identify-data 100)
-                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 101) 16)
-                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 102) 32)
-                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 103) 48))
-                             (logior (sys.int::memref-unsigned-byte-16 identify-data 60)
-                                     (ash (sys.int::memref-unsigned-byte-16 identify-data 61) 16)))))
+                             (logior (memref-ub16/le identify-data 100)
+                                     (ash (memref-ub16/le identify-data 101) 16)
+                                     (ash (memref-ub16/le identify-data 102) 32)
+                                     (ash (memref-ub16/le identify-data 103) 48))
+                             (logior (memref-ub16/le identify-data 60)
+                                     (ash (memref-ub16/le identify-data 61) 16)))))
       (setf (ahci-port-lba48-capable port-info) lba48-capable
             (ahci-port-sector-size port-info) sector-size
             (ahci-port-sector-count port-info) sector-count)
@@ -538,7 +611,7 @@
   ;; LBA bit.
   (setf (ahci-fis ahci port +sata-register-device+) +ata-lba+))
 
-(defun ahci-setup-buffer (ahci port buffer length write)
+(defun ahci-setup-buffer (ahci port buffer length write atapi)
   "Configure the DMA buffer for this command."
   (let* ((ct (ahci-port-command-table (ahci-port ahci port)))
          (cl (ahci-port-command-list (ahci-port ahci port))))
@@ -546,6 +619,9 @@
     (setf (ldb (byte 1 +ahci-ch-di-W+)
                (physical-memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+))
           (if write 1 0))
+    (setf (ldb (byte 1 +ahci-ch-di-A+)
+               (physical-memref-unsigned-byte-32 cl +ahci-ch-descriptor-information+))
+          (if atapi 1 0))
     ;; Point the PRDT 0 to the buffer.
     (setf (physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBA+) (ldb (byte 32 0) buffer)
           (physical-memref-unsigned-byte-32 (+ ct +ahci-ct-PRDT+) +ahci-PRDT-DBAU+) (ldb (byte 32 32) buffer))
@@ -629,8 +705,7 @@
       (setf (ldb (byte 1 +ahci-PxCMD-ST+) cmd) 1)
       (setf (ahci-port-register ahci port +ahci-register-PxCMD+) cmd))
     ;; Flush PxSERR.
-    (setf (ahci-port-register ahci port +ahci-register-PxSERR+)
-          (ahci-port-register ahci port +ahci-register-PxSERR+))
+    (setf (ahci-port-register ahci port +ahci-register-PxSERR+) #xFFFFFFFF)
     ;; Clear any outstanding interrupts on this port.
     (setf (ahci-port-register ahci port +ahci-register-PxIS+)
           (ahci-port-register ahci port +ahci-register-PxIS+))
@@ -743,7 +818,12 @@
                            +ahci-PxSSTS-DET-ready+))
                  ;; A device is attached and ready for use.
                  (debug-print-line "Initializing device on port " port)
-                 (ahci-detect-drive ahci port))
-                (t (debug-print-line "No device present on port. TFD:" tfd " SSTS:" sata-sts))))))
+                 (cond ((eql (ahci-port-register ahci port +ahci-register-PxSIG+)
+                             #xEB140101)
+                        (ahci-detect-atapi-drive ahci port))
+                       (t
+                        (ahci-detect-drive ahci port))))
+                (t
+                 (debug-print-line "No device present on port. TFD:" tfd " SSTS:" sata-sts))))))
     (ahci-dump-global-registers ahci)
     ))
