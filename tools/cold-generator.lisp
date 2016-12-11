@@ -41,6 +41,7 @@
     ("supervisor/serial.lisp" :x86-64)
     ("supervisor/uart.lisp" :arm64)
     "supervisor/disk.lisp"
+    "supervisor/partition.lisp"
     "supervisor/ata.lisp"
     "supervisor/ahci.lisp"
     "supervisor/cdrom.lisp"
