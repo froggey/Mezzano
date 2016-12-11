@@ -628,7 +628,6 @@ This is used to implement the INTRQ_Wait state."
                ;; HP4: Transfer_Data
                (let ((len (logior (sys.int::io-port/8 (+ command-base +ata-register-lba-mid+))
                                   (ash (sys.int::io-port/8 (+ command-base +ata-register-lba-high+)) 8))))
-                 (debug-print-line "HP4 " len " " result-len)
                  (loop
                     for i from 0 by 2 below (min len result-len)
                     do
