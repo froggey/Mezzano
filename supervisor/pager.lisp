@@ -139,7 +139,9 @@ the data. Free the page with FREE-PAGE when done."
 
 (defun initialize-paging-system (disk header)
   (setf *paging-disk* disk)
-  (setf *paging-read-only* (not (disk-writable-p disk)))
+  (setf *paging-read-only* (or (not (disk-writable-p disk))
+                               (logtest (sys.int::memref-t (+ *boot-information-page* +boot-information-options+))
+                                        +boot-option-force-read-only+)))
   (when *paging-read-only*
     (debug-print-line "Running read-only."))
   (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+)))

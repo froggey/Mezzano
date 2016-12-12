@@ -83,8 +83,11 @@
 (defconstant +boot-information-framebuffer-height+                (+ +boot-information-video+ 24))
 (defconstant +boot-information-framebuffer-layout+                (+ +boot-information-video+ 32))
 (defconstant +boot-information-acpi-rsdp+                         808)
+(defconstant +boot-information-options+                           816)
 (defconstant +boot-information-n-memory-map-entries+              824)
 (defconstant +boot-information-memory-map+                        832)
+
+(defconstant +boot-option-force-read-only+ #x01)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
