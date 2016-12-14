@@ -14,7 +14,6 @@
   (initialize-i8259))
 
 (defun initialize-platform ()
-  (initialize-acpi)
   (initialize-platform-time)
   (initialize-ps/2)
   (initialize-pci))

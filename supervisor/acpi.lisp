@@ -270,18 +270,26 @@
       (#x43495041 ;; APIC
        (read-acpi-madt-table address))
       (t
-       ;; Unknown table, just read the table.
+       ;; Unknown table, just read the table header.
        (let ((header (make-acpi-table-header :address address)))
          (read-acpi-table-header header)
          header)))))
 
+(defun acpi-rsdp-address ()
+  ;; Fetch the RSDP address from somewhere.
+  (let ((provided-rsdp (sys.int::memref-unsigned-byte-64
+                        (+ *boot-information-page* +boot-information-acpi-rsdp+))))
+    (or (if (zerop provided-rsdp)
+            nil
+            provided-rsdp)
+        ;; Search the EFI system table.
+        (efi-get-configuration-table #(#x30 #x2D #x9D #xEB #x88 #x2D #xD3 #x11
+                                       #x9A #x16 #x00 #x90 #x27 #x3F #xC1 #x4D)))))
+
 (defun initialize-acpi ()
   (setf *acpi* nil)
-  (let ((rsdp-address (sys.int::memref-unsigned-byte-64
-                       (+ *boot-information-page* +boot-information-acpi-rsdp+)
-                       0))
-        (extended-rsdp-p nil))
-    (when (zerop rsdp-address)
+  (let ((rsdp-address (acpi-rsdp-address)))
+    (when (not rsdp-address)
       (debug-print-line "No ACPI RSDP.")
       (return-from initialize-acpi))
     (let ((rsdp (acpi-parse-rsdp rsdp-address)))

@@ -86,6 +86,7 @@
 (defconstant +boot-information-options+                           816)
 (defconstant +boot-information-n-memory-map-entries+              824)
 (defconstant +boot-information-memory-map+                        832)
+(defconstant +boot-information-efi-system-table+                 1344)
 
 (defconstant +boot-option-force-read-only+ #x01)
 
@@ -244,6 +245,8 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-net)
     (initialize-ata)
     (initialize-video)
+    (initialize-efi)
+    (initialize-acpi)
     (initialize-platform)
     (detect-disk-partitions)
     (detect-paging-disk)

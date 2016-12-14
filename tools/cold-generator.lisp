@@ -74,6 +74,7 @@
     "supervisor/support.lisp"
     "supervisor/rtl8168.lisp"
     "supervisor/acpi.lisp"
+    "supervisor/efi.lisp"
     ("supervisor/x86-64/platform.lisp" :x86-64)
     ("supervisor/arm64/platform.lisp" :arm64)
     "runtime/runtime.lisp"
