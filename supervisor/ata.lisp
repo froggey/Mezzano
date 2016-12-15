@@ -70,9 +70,6 @@
 (defconstant +ata-command-identify-packet+ #xA1)
 (defconstant +ata-command-packet+ #xA0)
 
-(sys.int::defglobal *ata-devices*)
-(sys.int::defglobal *atapi-devices*)
-
 (defstruct (ata-controller
              (:area :wired))
   command
@@ -212,7 +209,6 @@ Returns true when the bits are equal, false when the timeout expires or if the d
                                        :channel channel
                                        :cdb-size cdb-size
                                        :initialized-p nil)))
-        (push-wired device *atapi-devices*)
         (cdrom-initialize-device device cdb-size 'ata-issue-packet-command)
         (setf (atapi-device-initialized-p device) t)))))
 
@@ -287,7 +283,6 @@ Returns true when the bits are equal, false when the timeout expires or if the d
       (debug-print-line "Features (83): " supported-command-sets)
       (debug-print-line "Sector size: " sector-size)
       (debug-print-line "Sector count: " sector-count)
-      (push-wired device *ata-devices*)
       (register-disk device t (ata-device-sector-count device) (ata-device-block-size device) 256 'ata-read 'ata-write))))
 
 (defun ata-issue-lba28-command (device lba count command)
@@ -713,24 +708,14 @@ This is used to implement the INTRQ_Wait state."
         (t ;; Give up and do a slow PIO transfer.
          (ata-issue-pio-packet-command device cdb result-buffer result-len))))
 
-(defun ata-irq-handler (interrupt-frame irq)
-  (declare (ignore interrupt-frame))
-  (dolist (drive *ata-devices*)
-    (let ((controller (ata-device-controller drive)))
-      (when (eql (ata-controller-irq controller) irq)
-        ;; Read the status register to clear the interrupt pending state.
-        (sys.int::io-port/8 (+ (ata-controller-command controller)
-                               +ata-register-status+))
-        (latch-trigger (ata-controller-irq-latch controller)))))
-  (dolist (drive *atapi-devices*)
-    (let ((controller (atapi-device-controller drive)))
-      (when (eql (ata-controller-irq controller) irq)
-        ;; Read the status register to clear the interrupt pending state.
-        (sys.int::io-port/8 (+ (ata-controller-command controller)
-                               +ata-register-status+))
-        (latch-trigger (ata-controller-irq-latch controller))))))
+(defun ata-irq-handler (controller)
+  ;; Read the status register to clear the interrupt pending state.
+  (sys.int::io-port/8 (+ (ata-controller-command controller)
+                         +ata-register-status+))
+  (latch-trigger (ata-controller-irq-latch controller)))
 
 (defun init-ata-controller (command-base control-base bus-master-register prdt-phys irq)
+  (declare (sys.c::closure-allocation :wired))
   (debug-print-line "New controller at " command-base " " control-base " " bus-master-register " " irq)
   (let* ((dma32-bounce-buffer (allocate-physical-pages 1
                                                        :mandatory-p "ATA DMA bounce buffer"
@@ -756,17 +741,15 @@ This is used to implement the INTRQ_Wait state."
       (return-from init-ata-controller))
     (debug-print-line "Probing ata controller.")
     ;; Attach interrupt handler.
-    (i8259-hook-irq irq 'ata-irq-handler) ; fixme: should clear pending irqs?
+    (i8259-hook-irq irq (lambda (interrupt-frame irq)
+                          (declare (ignore interrupt-frame irq))
+                          (ata-irq-handler controller)))
     (i8259-unmask-irq irq)
     ;; Probe drives.
     (ata-detect-drive controller :master)
     (ata-detect-drive controller :slave)
     ;; Enable controller interrupts.
     (setf (sys.int::io-port/8 (+ control-base +ata-register-device-control+)) 0)))
-
-(defun initialize-ata ()
-  (setf *ata-devices* '()
-        *atapi-devices* '()))
 
 (defun ata-pci-register (location)
   (let* ((prdt-page (allocate-physical-pages 1

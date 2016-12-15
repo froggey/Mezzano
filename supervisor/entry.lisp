@@ -243,7 +243,6 @@ Returns two values, the packet data and the receiving NIC."
     (debug-write-line "Hello, Debug World!")
     (initialize-time)
     (initialize-net)
-    (initialize-ata)
     (initialize-video)
     (initialize-efi)
     (initialize-acpi)
