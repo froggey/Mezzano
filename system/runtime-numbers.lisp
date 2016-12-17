@@ -1069,3 +1069,154 @@ Implements the dumb mp_div algorithm from BigNum Math."
          (float -1 float1)
          (float 1 float1))
      (abs float2)))
+
+(defun float-digits (f)
+  (check-type f float)
+  (etypecase f
+    (single-float +single-float-digits+)
+    (double-float +double-float-digits+)))
+
+(defun float-radix (x)
+  "Return (as an integer) the radix b of its floating-point argument."
+  (check-type x float)
+  2)
+
+(defun float-denormalized-p (x)
+  "Return true if the float X is denormalized."
+  (check-type x float)
+  (etypecase x
+    (single-float
+     (and (zerop (ldb +single-float-exponent-byte+ (%single-float-as-integer x)))
+          (not (zerop x))))
+    ((double-float)
+     (and (zerop (ldb +double-float-exponent-byte+
+                      (ash (%double-float-as-integer x) -32)))
+          (not (zerop x))))))
+
+(defun float-precision (f)
+  "Return a non-negative number of significant digits in its float argument.
+  Will be less than FLOAT-DIGITS if denormalized or zero."
+  (check-type f float)
+  (macrolet ((frob (digits bias decode)
+               `(cond ((zerop f) 0)
+                      ((float-denormalized-p f)
+                       (multiple-value-bind (ignore exp) (,decode f)
+                         (declare (ignore ignore))
+                         (the fixnum
+                                    (+ ,digits (1- ,digits) ,bias exp))))
+                      (t
+                       ,digits))))
+    (etypecase f
+      (single-float
+       (frob +single-float-digits+ +single-float-bias+
+         integer-decode-single-denorm))
+      (double-float
+       (frob +double-float-digits+ +double-float-bias+
+         integer-decode-double-denorm)))))
+
+(defun scale-float (float integer)
+  (* float (expt (float (float-radix float) float) integer)))
+
+;;; Handle the denormalized case of DECODE-SINGLE-FLOAT. We call
+;;; INTEGER-DECODE-SINGLE-DENORM and then make the result into a float.
+(defun decode-single-denorm (x)
+  (check-type x single-float)
+  (multiple-value-bind (sig exp sign)
+      (integer-decode-single-denorm x)
+    (values (%integer-as-single-float
+             (dpb sig +single-float-significand-byte+
+                  (dpb +single-float-bias+
+                       +single-float-exponent-byte+
+                       0)))
+            (+ exp +single-float-digits+)
+            (float sign x))))
+
+;;; Handle the single-float case of DECODE-FLOAT. If an infinity or NaN,
+;;; error. If a denorm, call d-s-DENORM to handle it.
+(defun decode-single-float (x)
+  (check-type x single-float)
+  (let* ((bits (%single-float-as-integer (abs x)))
+         (exp (ldb +single-float-exponent-byte+ bits))
+         (sign (float-sign x))
+         (biased (- exp +single-float-bias+)))
+    (unless (<= exp +single-float-normal-exponent-max+)
+      (error "can't decode NaN or infinity: ~S" x))
+    (cond ((zerop x)
+           (values 0.0f0 biased sign))
+          ((< exp +single-float-normal-exponent-min+)
+           (decode-single-denorm x))
+          (t
+           (values (%integer-as-single-float
+                    (dpb +single-float-bias+
+                         +single-float-exponent-byte+
+                         bits))
+                   biased sign)))))
+
+;;; like DECODE-SINGLE-DENORM, only doubly so
+(defun decode-double-denorm (x)
+  (check-type x double-float)
+  (multiple-value-bind (sig exp sign)
+      (integer-decode-double-denorm x)
+    (values (%integer-as-double-float
+             (logior
+              (ash (dpb (logand (ash sig -32)
+                                (lognot +double-float-hidden-bit+))
+                        +double-float-significand-byte+
+                        (dpb +double-float-bias+
+                             +double-float-exponent-byte+
+                             0))
+                   32)
+              (ldb (byte 32 0) sig)))
+            (+ exp +double-float-digits+)
+            (float sign x))))
+
+;;; like DECODE-SINGLE-FLOAT, only doubly so
+(defun decode-double-float (x)
+  (check-type x double-float)
+  (let* ((abs (abs x))
+         (hi (ldb (byte 32 32) (%double-float-as-integer abs)))
+         (lo (ldb (byte 32 0) (%double-float-as-integer abs)))
+         (exp (ldb +double-float-exponent-byte+ hi))
+         (sign (float-sign x))
+         (biased (- exp +double-float-bias+)))
+    (unless (<= exp +double-float-normal-exponent-max+)
+      (error "can't decode NaN or infinity: ~S" x))
+    (cond ((zerop x)
+           (values 0.0d0 biased sign))
+          ((< exp +double-float-normal-exponent-min+)
+           (decode-double-denorm x))
+          (t
+           (values (%integer-as-double-float
+                    (logior
+                     (ash (dpb +double-float-bias+
+                               +double-float-exponent-byte+ hi)
+                          32)
+                     lo))
+                   biased sign)))))
+
+;;; Dispatch to the appropriate type-specific function.
+(defun decode-float (f)
+  "Return three values:
+   1) a floating-point number representing the significand. This is always
+      between 0.5 (inclusive) and 1.0 (exclusive).
+   2) an integer representing the exponent.
+   3) -1.0 or 1.0 (i.e. the sign of the argument.)"
+  (check-type f float)
+  (etypecase f
+    (single-float
+     (decode-single-float f))
+    (double-float
+     (decode-double-float f))))
+
+(defun rational (number)
+  (check-type number real)
+  (etypecase number
+    (rational
+     number)
+    (float
+     (multiple-value-bind (significand exponent sign)
+         (integer-decode-float number)
+       (* significand (expt (float-radix number) exponent) sign)))))
+
+(defun rationalize (number)
+  (rational number))

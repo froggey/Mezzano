@@ -236,6 +236,18 @@
                                           integer))
   #-sbcl (error "Not supported on this platform."))
 
+(defun sys.int::%integer-as-double-float (integer)
+  (check-type integer (unsigned-byte 64))
+  #+sbcl
+  (let ((lo (ldb (byte 32 0) integer))
+        (hi (ldb (byte 32 32) integer)))
+    (sb-kernel:make-double-float
+     (if (logtest hi #x80000000)
+         (logior hi (lognot #x7FFFFFFF))
+         hi)
+     lo))
+  #-sbcl (error "Not supported on this platform."))
+
 (macrolet ((x (nib int)
              `(progn (defun ,int (vec index) (,nib vec index))
                      (defun (setf ,int) (val vec index) (setf (,nib vec index) val)))))

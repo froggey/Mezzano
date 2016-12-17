@@ -3,17 +3,25 @@
 
 (in-package :sys.int)
 
-(defconstant most-negative-short-float (%integer-as-single-float #xFF7FFFFF))
 (defconstant most-negative-single-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-negative-double-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-negative-long-float (%integer-as-single-float #xFF7FFFFF))
-(defconstant most-positive-short-float (%integer-as-single-float #x7F7FFFFF))
 (defconstant most-positive-single-float (%integer-as-single-float #x7F7FFFFF))
-(defconstant most-positive-double-float (%integer-as-single-float #x7F7FFFFF))
-(defconstant most-positive-long-float (%integer-as-single-float #x7F7FFFFF))
-
 (defconstant single-float-epsilon (%integer-as-single-float #x33800001))
 (defconstant single-float-negative-epsilon (%integer-as-single-float #x33000001))
+
+(defconstant most-negative-double-float (%integer-as-double-float #xFFEFFFFFFFFFFFFF))
+(defconstant most-positive-double-float (%integer-as-double-float #x7FEFFFFFFFFFFFFF))
+(defconstant double-float-epsilon (%integer-as-double-float #x3CA0000000000001))
+(defconstant double-float-negative-epsilon (%integer-as-double-float #x3C90000000000001))
+
+(defconstant most-negative-short-float most-negative-single-float)
+(defconstant most-positive-short-float most-positive-single-float)
+(defconstant short-float-epsilon single-float-epsilon)
+(defconstant short-float-negative-epsilon single-float-negative-epsilon)
+
+(defconstant long-float-epsilon double-float-epsilon)
+(defconstant long-float-negative-epsilon double-float-negative-epsilon)
+(defconstant most-negative-long-float most-negative-double-float)
+(defconstant most-positive-long-float most-positive-double-float)
 
 (defmacro define-commutative-arithmetic-operator (name base identity)
   `(progn (defun ,name (&rest numbers)
