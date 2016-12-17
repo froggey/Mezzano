@@ -284,8 +284,8 @@ Returns NIL if the function captures no variables."
   (let ((restart-count (length restarts)))
     (write-string "Available restarts:")(terpri)
     (do ((i 0 (1+ i))
-	 (r restarts (cdr r)))
-	((null r))
+         (r restarts (cdr r)))
+        ((null r))
       (format t "~S ~S: ~A~%" (- restart-count i 1) (restart-name (car r)) (car r)))))
 
 (defun map-backtrace (fn)

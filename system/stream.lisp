@@ -693,29 +693,29 @@ CASE may be one of:
     (:upcase (write-char (char-upcase character) (slot-value stream 'stream)))
     (:downcase (write-char (char-downcase character) (slot-value stream 'stream)))
     (:invert (write-char (if (upper-case-p character)
-			     (char-downcase character)
-			     (char-upcase character))
-			 (slot-value stream 'stream)))
+                             (char-downcase character)
+                             (char-upcase character))
+                         (slot-value stream 'stream)))
     (:titlecase
      (ecase (slot-value stream 'position)
        ((:initial :after-word)
-	(if (alphanumericp character)
-	    (progn
-	      (setf (slot-value stream 'position) :mid-word)
-	      (write-char (char-upcase character) (slot-value stream 'stream)))
-	    (write-char character (slot-value stream 'stream))))
+        (if (alphanumericp character)
+            (progn
+              (setf (slot-value stream 'position) :mid-word)
+              (write-char (char-upcase character) (slot-value stream 'stream)))
+            (write-char character (slot-value stream 'stream))))
        (:mid-word
-	(unless (alphanumericp character)
-	  (setf (slot-value stream 'position) :after-word))
-	(write-char (char-downcase character) (slot-value stream 'stream)))))
+        (unless (alphanumericp character)
+          (setf (slot-value stream 'position) :after-word))
+        (write-char (char-downcase character) (slot-value stream 'stream)))))
     (:sentencecase
      (if (eql (slot-value stream 'position) :initial)
-	 (if (alphanumericp character)
-	     (progn
-	       (setf (slot-value stream 'position) nil)
-	       (write-char (char-upcase character) (slot-value stream 'stream)))
-	     (write-char character (slot-value stream 'stream)))
-	 (write-char (char-downcase character) (slot-value stream 'stream))))))
+         (if (alphanumericp character)
+             (progn
+               (setf (slot-value stream 'position) nil)
+               (write-char (char-upcase character) (slot-value stream 'stream)))
+             (write-char character (slot-value stream 'stream)))
+         (write-char (char-downcase character) (slot-value stream 'stream))))))
 
 (defmethod sys.gray:stream-write-char ((stream case-correcting-stream) character)
   (case-correcting-write character stream))
@@ -727,35 +727,35 @@ CASE may be one of:
 
 (defmethod sys.gray:stream-read-char :around ((stream simple-edit-mixin))
   (let ((buffer (slot-value stream 'edit-buffer))
-	(offset (slot-value stream 'edit-offset)))
+        (offset (slot-value stream 'edit-offset)))
     (if (and buffer (< offset (fill-pointer buffer)))
-	(prog1 (aref buffer offset)
-	  (incf (slot-value stream 'edit-offset)))
-	(do () (nil)
-	  (let ((ch (call-next-method)))
-	    (when ch
-	      (cond ((or (graphic-char-p ch) (eql #\Newline ch))
-		     (when buffer
-		       (vector-push-extend ch buffer)
-		       (incf (slot-value stream 'edit-offset)))
-		     (return (write-char ch stream)))
-		    ((eql #\Backspace ch)
+        (prog1 (aref buffer offset)
+          (incf (slot-value stream 'edit-offset)))
+        (do () (nil)
+          (let ((ch (call-next-method)))
+            (when ch
+              (cond ((or (graphic-char-p ch) (eql #\Newline ch))
+                     (when buffer
+                       (vector-push-extend ch buffer)
+                       (incf (slot-value stream 'edit-offset)))
+                     (return (write-char ch stream)))
+                    ((eql #\Backspace ch)
                      (when (slot-value stream 'edit-handler)
                        (funcall (slot-value stream 'edit-handler) ch))))))))))
 
 (defmethod sys.gray:stream-clear-input :before ((stream simple-edit-mixin))
   (when (slot-value stream 'edit-buffer)
     (setf (fill-pointer (slot-value stream 'edit-buffer)) 0
-	  (slot-value stream 'edit-offset) 0)))
+          (slot-value stream 'edit-offset) 0)))
 
 (defmethod stream-with-edit ((stream simple-edit-mixin) fn)
   (let ((old-buffer (slot-value stream 'edit-buffer))
-	(old-offset (slot-value stream 'edit-offset))
-	(old-handler (slot-value stream 'edit-handler))
-	(buffer (make-array 100
-			    :element-type 'character
-			    :adjustable t
-			    :fill-pointer 0)))
+        (old-offset (slot-value stream 'edit-offset))
+        (old-handler (slot-value stream 'edit-handler))
+        (buffer (make-array 100
+                            :element-type 'character
+                            :adjustable t
+                            :fill-pointer 0)))
     (unwind-protect
          (multiple-value-bind (start-x start-y)
              (stream-cursor-pos stream)

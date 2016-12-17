@@ -57,11 +57,11 @@
 
 (defun transmit-ethernet-packet (interface destination ethertype packet)
   (let* ((ethernet-header (make-array 14 :element-type '(unsigned-byte 8)))
-	 (packet (cons ethernet-header packet))
-	 (source (ethernet-mac interface)))
+         (packet (cons ethernet-header packet))
+         (source (ethernet-mac interface)))
     (dotimes (i 6)
       (setf (aref ethernet-header i) (aref destination i)
-	    (aref ethernet-header (+ i 6)) (aref source i)))
+            (aref ethernet-header (+ i 6)) (aref source i)))
     (setf (ub16ref/be ethernet-header 12) ethertype)
     (cond ((equalp destination source)
            ;; Loopback, don't hit the wire.

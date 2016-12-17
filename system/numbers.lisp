@@ -169,7 +169,7 @@
     (dolist (rhs n)
       (check-type rhs number)
       (when (= lhs rhs)
-	(return-from /= nil)))))
+        (return-from /= nil)))))
 
 (define-compiler-macro /= (&whole whole number &rest more-numbers)
   (case (length more-numbers)

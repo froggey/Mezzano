@@ -29,9 +29,9 @@ A list of any declaration-specifiers."
   (do ((declares '())
        (itr forms (cdr itr)))
       ((or (null itr)
-	   ;; Stop when (car itr) is not a declare form.
-	   (not (and (consp (car itr))
-		     (eq 'declare (caar itr)))))
+           ;; Stop when (car itr) is not a declare form.
+           (not (and (consp (car itr))
+                     (eq 'declare (caar itr)))))
        (values itr (nreverse declares)))
     ;; Dump the bodies of each declare form into a single list.
     (dolist (decl (cdar itr))
@@ -113,9 +113,9 @@ A list of any declaration-specifiers."
 
 (defun run-optimizers (form target-architecture)
   (dotimes (i 20 (progn (warn 'sys.int::simple-style-warning
-			      :format-control "Possible optimizer infinite loop."
-			      :format-arguments '())
-			form))
+                              :format-control "Possible optimizer infinite loop."
+                              :format-arguments '())
+                        form))
     (let ((*change-count* 0))
       ;; Must be run before lift.
       (setf form (inline-functions (detect-uses form) target-architecture))
@@ -130,7 +130,7 @@ A list of any declaration-specifiers."
       (setf form (simplify-control-flow (detect-uses form)))
       (detect-uses form)
       (when (eql *change-count* 0)
-	(return form)))))
+        (return form)))))
 
 (defun fixnump (object)
   (typep object '(signed-byte 63)))

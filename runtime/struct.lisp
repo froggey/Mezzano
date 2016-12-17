@@ -54,8 +54,8 @@
 (defun sys.int::make-struct-definition (name slots parent area)
   (let ((x (sys.int::%make-struct 6 :wired)))
     (setf (sys.int::%struct-slot x 0) sys.int::*structure-type-type*
-	  (sys.int::%struct-slot x 1) name
-	  (sys.int::%struct-slot x 2) slots
+          (sys.int::%struct-slot x 1) name
+          (sys.int::%struct-slot x 2) slots
           (sys.int::%struct-slot x 3) parent
           (sys.int::%struct-slot x 4) area
           (sys.int::%struct-slot x 5) nil)

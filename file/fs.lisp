@@ -30,7 +30,7 @@
 
 (define-condition file-error (error)
   ((pathname :initarg :pathname
-	     :reader file-error-pathname)))
+             :reader file-error-pathname)))
 
 (define-condition simple-file-error (file-error simple-error)
   ())

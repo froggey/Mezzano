@@ -18,34 +18,34 @@
 (defmacro or (&rest forms)
   (if forms
       (if (rest forms)
-	  (let ((sym (gensym)))
-	    `(let ((,sym ,(first forms)))
-	       (if ,sym ,sym (or ,@(rest forms)))))
-	  ;; Preserve non-toplevelness.
-	  `(the t ,(first forms)))
+          (let ((sym (gensym)))
+            `(let ((,sym ,(first forms)))
+               (if ,sym ,sym (or ,@(rest forms)))))
+          ;; Preserve non-toplevelness.
+          `(the t ,(first forms)))
       'nil))
 
 (defmacro and (&rest forms)
   (if forms
       (if (rest forms)
-	  `(if ,(first forms)
-	       (and ,@(rest forms))
-	       'nil)
-	  ;; Preserve non-toplevelness.
-	  `(the t ,(first forms)))
+          `(if ,(first forms)
+               (and ,@(rest forms))
+               'nil)
+          ;; Preserve non-toplevelness.
+          `(the t ,(first forms)))
       't))
 
 (defmacro cond (&body clauses)
   (when clauses
     (let ((c (first clauses)))
       (unless (consp c)
-	(error "COND clause is not a list: ~S." c))
+        (error "COND clause is not a list: ~S." c))
       (if (rest c)
-	  `(if ,(first c)
-	       (progn ,@(rest c))
-	       (cond ,@(rest clauses)))
-	  `(or ,(first c)
-	       (cond ,@(rest clauses)))))))
+          `(if ,(first c)
+               (progn ,@(rest c))
+               (cond ,@(rest clauses)))
+          `(or ,(first c)
+               (cond ,@(rest clauses)))))))
 
 (defmacro psetq (&rest pairs)
   ;; Make sure all variables are symbols, then hand off to PSETF.
@@ -119,15 +119,15 @@
 (defmacro dotimes ((var count-form &optional result-form) &body body)
   (let ((count-val (gensym "COUNT")))
     `(do ((,count-val (the integer ,count-form))
-	  (,var 0 (1+ ,var)))
-	 ((>= ,var ,count-val) ,result-form)
+          (,var 0 (1+ ,var)))
+         ((>= ,var ,count-val) ,result-form)
        ,@body)))
 
 (defmacro multiple-value-bind (vars values-form &body body)
   (let ((ignore (gensym "IGNORE")))
     `(multiple-value-call #'(lambda (&optional ,@vars &rest ,ignore)
-			      (declare (ignore ,ignore))
-			      ,@body)
+                              (declare (ignore ,ignore))
+                              ,@body)
        ,values-form)))
 
 (defmacro multiple-value-list (value-form)
@@ -141,22 +141,22 @@
     `(let ((,test-key ,keyform))
        (declare (ignoreable ,test-key))
        (cond
-	 ,@(mapcar (lambda (clause)
-		     (declare (type cons clause))
-		     (let ((keys (car clause))
+         ,@(mapcar (lambda (clause)
+                     (declare (type cons clause))
+                     (let ((keys (car clause))
                            ;; Empty body should evaluate to nil.
-			   (body (or (cdr clause) '(nil))))
-		       (cond
-			 ((or (eq keys 't)
-			      (eq keys 'otherwise))
-			  `(t ,@body))
-			 ((listp keys)
-			  `((or ,@(mapcar (lambda (key)
-					    `(eql ',key ,test-key))
-					  keys))
-			    ,@body))
-			 (t `((eql ',keys ,test-key) ,@body)))))
-		   cases)))))
+                           (body (or (cdr clause) '(nil))))
+                       (cond
+                         ((or (eq keys 't)
+                              (eq keys 'otherwise))
+                          `(t ,@body))
+                         ((listp keys)
+                          `((or ,@(mapcar (lambda (key)
+                                            `(eql ',key ,test-key))
+                                          keys))
+                            ,@body))
+                         (t `((eql ',keys ,test-key) ,@body)))))
+                   cases)))))
 
 ;;; Generate a jump table for all-integer key sets.
 (define-compiler-macro case (&whole whole keyform &body cases)
@@ -215,26 +215,26 @@
 
 (defmacro ecase (keyform &body cases)
   (let ((test-key (gensym "CASE-KEY"))
-	(all-keys '()))
+        (all-keys '()))
     `(let ((,test-key ,keyform))
        (declare (ignoreable ,test-key))
        (cond
-	 ,@(mapcar (lambda (clause)
-		     (declare (type cons clause))
-		     (let ((keys (car clause))
+         ,@(mapcar (lambda (clause)
+                     (declare (type cons clause))
+                     (let ((keys (car clause))
                            ;; Empty body should evaluate to nil.
-			   (body (or (cdr clause) '(nil))))
-		       (cond
-			 ((listp keys)
-			  `((or ,@(mapcar (lambda (key)
-					    (push key all-keys)
-					    `(eql ',key ,test-key))
-					  keys))
-			    ,@body))
-			 (t (push keys all-keys)
-			    `((eql ',keys ,test-key) ,@body)))))
-		   cases)
-	 (t (error 'simple-type-error
+                           (body (or (cdr clause) '(nil))))
+                       (cond
+                         ((listp keys)
+                          `((or ,@(mapcar (lambda (key)
+                                            (push key all-keys)
+                                            `(eql ',key ,test-key))
+                                          keys))
+                            ,@body))
+                         (t (push keys all-keys)
+                            `((eql ',keys ,test-key) ,@body)))))
+                   cases)
+         (t (error 'simple-type-error
                    :expected-type '(member ,@all-keys)
                    :datum ,test-key
                    :format-control "~S fell through ECASE form"
@@ -340,29 +340,29 @@
     `(let ((,test-key ,keyform))
        (declare (ignoreable ,test-key))
        (cond
-	 ,@(mapcar (lambda (clause)
-		     (declare (type cons clause))
-		     (let ((keys (car clause))
-			   (body (cdr clause)))
-		       (cond
-			 ((or (eql keys 't)
-			      (eql keys 'otherwise))
-			  `(t nil ,@body))
-			 (t `((typep ,test-key ',keys) nil ,@body)))))
-		   cases)))))
+         ,@(mapcar (lambda (clause)
+                     (declare (type cons clause))
+                     (let ((keys (car clause))
+                           (body (cdr clause)))
+                       (cond
+                         ((or (eql keys 't)
+                              (eql keys 'otherwise))
+                          `(t nil ,@body))
+                         (t `((typep ,test-key ',keys) nil ,@body)))))
+                   cases)))))
 
 (defmacro etypecase (keyform &rest cases)
   (let ((test-key (gensym "CASE-KEY")))
     `(let ((,test-key ,keyform))
        (declare (ignoreable ,test-key))
        (cond
-	 ,@(mapcar (lambda (clause)
-		     (declare (type cons clause))
-		     (let ((key (car clause))
-			   (body (cdr clause)))
+         ,@(mapcar (lambda (clause)
+                     (declare (type cons clause))
+                     (let ((key (car clause))
+                           (body (cdr clause)))
                        `((typep ,test-key ',key) nil ,@body)))
-		   cases)
-	 (t (error 'simple-type-error
+                   cases)
+         (t (error 'simple-type-error
                    :expected-type '(or ,@(mapcar #'first cases))
                    :datum ,test-key
                    :format-control "~S fell through ETYPECASE form"
@@ -467,8 +467,8 @@
 
 (defmacro defun (&environment env name lambda-list &body body)
   (let ((base-name (if (consp name)
-		       (second name)
-		       name)))
+                       (second name)
+                       name)))
   (multiple-value-bind (body-forms declares docstring)
       (parse-declares body :permit-docstring t)
     (let ((the-lambda `(lambda ,lambda-list

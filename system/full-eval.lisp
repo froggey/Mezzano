@@ -93,13 +93,13 @@
         (forms (cddr lambda))
         (name 'interpreted-function))
     (multiple-value-bind (body declares docstring)
-	(sys.int::parse-declares forms :permit-docstring t)
+        (sys.int::parse-declares forms :permit-docstring t)
       (declare (ignore docstring))
       (dolist (i declares)
         (when (eql (first i) 'system:lambda-name)
           (setf name (second i))))
       (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux)
-	  (sys.int::parse-ordinary-lambda-list lambda-list)
+          (sys.int::parse-ordinary-lambda-list lambda-list)
         (flet ((interpret-function (&rest args)
                  (let ((env outer-env))
                    (flet ((bind-one (name value)
@@ -252,7 +252,7 @@
 
 (defun make-variable (name declares)
   (if (or (sys.int::variable-information name)
-	  (sys.c::declared-as-p 'special name declares))
+          (sys.c::declared-as-p 'special name declares))
       (make-instance 'sys.c::special-variable :name name)
       (make-instance 'lexical-variable
                      :name name)))
@@ -463,8 +463,8 @@
 (defun eval-in-lexenv (form &optional env)
   "3.1.2.1  Form evaluation"
   (cond ((symbolp form)
-	 (eval-symbol form env))
-	((consp form)
-	 (eval-cons form env))
-	;; 3.1.2.1.3  Self evaluating objects
-	(t form)))
+         (eval-symbol form env))
+        ((consp form)
+         (eval-cons form env))
+        ;; 3.1.2.1.3  Self evaluating objects
+        (t form)))

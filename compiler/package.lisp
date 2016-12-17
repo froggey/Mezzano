@@ -116,19 +116,19 @@
            #:generate-builtin-functions))
 
 (defpackage :system
-  (:export :dotted-list-length
-           :parse-ordinary-lambda-list
-           :lambda-name
-           :proclaimed-special-p
-           :symbol-macro-function
-           :variable-information
-           :symbol-mode
-           :io-port/8
-           :io-port/16
-           :io-port/32
-           :char-bit
-           :char-bits
-           :fixnump))
+  (:export #:dotted-list-length
+           #:parse-ordinary-lambda-list
+           #:lambda-name
+           #:proclaimed-special-p
+           #:symbol-macro-function
+           #:variable-information
+           #:symbol-mode
+           #:io-port/8
+           #:io-port/16
+           #:io-port/32
+           #:char-bit
+           #:char-bits
+           #:fixnump))
 
 (defpackage :system.internals
   (:nicknames :sys.int)

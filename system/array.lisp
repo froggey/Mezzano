@@ -181,15 +181,15 @@
   (case (array-rank array)
     (0 (setf (aref array) sequence))
     (1 (when (/= (array-dimension array 0) (length sequence))
-	 (error "Malformed :INITIAL-CONTENTS: Dimension of axis 0 is ~S but ~S is ~S long."
-		(array-dimension array 0) sequence (length sequence)))
+         (error "Malformed :INITIAL-CONTENTS: Dimension of axis 0 is ~S but ~S is ~S long."
+                (array-dimension array 0) sequence (length sequence)))
        (cond ((listp sequence)
-	      (let ((i 0))
-		(dolist (e sequence)
-		  (setf (aref array i) e)
-		  (incf i))))
-	     (t (dotimes (i (array-dimension array 0))
-		  (setf (aref array i) (aref sequence i))))))
+              (let ((i 0))
+                (dolist (e sequence)
+                  (setf (aref array i) e)
+                  (incf i))))
+             (t (dotimes (i (array-dimension array 0))
+                  (setf (aref array i) (aref sequence i))))))
     (t
      (labels ((frob (axis indices dims contents)
                 (cond ((null dims)
@@ -385,7 +385,7 @@
   (check-type array array)
   (cond ((%simple-1d-array-p array)
          1)
-	(t (%object-header-data array))))
+        (t (%object-header-data array))))
 
 (defun array-dimensions (array)
   (check-type array array)
@@ -443,20 +443,20 @@
 (defun array-row-major-index (array &rest subscripts)
   (declare (dynamic-extent subscripts))
   (apply #'+ (maplist (lambda (x y)
-			(unless (<= 0 (car x) (1- (car y)))
-			  (error "Subscript ~S is invalid for axis, should be non-negative and less than ~S."
-				 (car x) (car y)))
-			(* (car x) (apply #'* (cdr y))))
-		      subscripts
-		      (array-dimensions array))))
+                        (unless (<= 0 (car x) (1- (car y)))
+                          (error "Subscript ~S is invalid for axis, should be non-negative and less than ~S."
+                                 (car x) (car y)))
+                        (* (car x) (apply #'* (cdr y))))
+                      subscripts
+                      (array-dimensions array))))
 
 (defun check-vector-has-fill-pointer (vector)
   (unless (array-has-fill-pointer-p vector)
     (error 'simple-type-error
-	   :expected-type 'vector
-	   :datum vector
-	   :format-control "VECTOR ~S is not a VECTOR with a fill-pointer."
-	   :format-arguments (list vector))))
+           :expected-type 'vector
+           :datum vector
+           :format-control "VECTOR ~S is not a VECTOR with a fill-pointer."
+           :format-arguments (list vector))))
 
 (defun fill-pointer (vector)
   (check-vector-has-fill-pointer vector)
@@ -469,14 +469,14 @@
   (check-vector-has-fill-pointer vector)
   (unless (<= 0 new-value (array-dimension vector 0))
     (error "New fill-pointer ~S exceeds vector bounds. Should be non-negative and <=~S."
-	   new-value (array-dimension vector 0)))
+           new-value (array-dimension vector 0)))
   (setf (%complex-array-fill-pointer vector) new-value))
 
 (defun vector (&rest objects)
   (declare (dynamic-extent objects))
   (make-array (length objects)
-	      :element-type t
-	      :initial-contents objects))
+              :element-type t
+              :initial-contents objects))
 
 (defun %row-major-aref (array index)
   "ROW-MAJOR-AREF with no bounds check."

@@ -53,7 +53,7 @@ a vector of constants and an alist of symbols & addresses."
       ((and (eql prev-bytes-emitted *bytes-emitted*)
             (equalp prev-mc *machine-code*))
        (when *missing-symbols*
-	 (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
+         (error "Assembly failed. Missing symbols: ~S." *missing-symbols*))
        (setf *gc-data* (reverse *gc-data*))
        ;; Flush identical GC info entries.
        (setf *gc-data* (loop for entry in *gc-data*
@@ -62,50 +62,50 @@ a vector of constants and an alist of symbols & addresses."
                           collect entry
                           do (setf prev entry)))
        (values *machine-code*
-	       *constant-pool*
+               *constant-pool*
                *fixups*
-	       (let ((alist '()))
-		 (maphash (lambda (k v)
-			    (push (cons k v) alist))
-			  *symbol-table*)
-		 alist)
+               (let ((alist '()))
+                 (maphash (lambda (k v)
+                            (push (cons k v) alist))
+                          *symbol-table*)
+                 alist)
                (apply #'concatenate '(simple-array (unsigned-byte 8) (*))
                       (mapcar 'encode-gc-info *gc-data*))))
     (when (> attempt 50)
       (error "Internal assembler error. Code has not settled after 50 iterations."))
     (setf prev-bytes-emitted *bytes-emitted*
-	  *bytes-emitted* 0
+          *bytes-emitted* 0
           prev-mc *machine-code*
-	  *machine-code* (make-array 128
-				   :element-type '(unsigned-byte 8)
-				   :fill-pointer 0
-				   :adjustable t)
-	  *symbol-table* (let ((hash-table (make-hash-table)))
-			   (dolist (x initial-symbols)
-			     (setf (gethash (first x) hash-table) (rest x)))
-			   hash-table)
-	  *missing-symbols* '()
+          *machine-code* (make-array 128
+                                   :element-type '(unsigned-byte 8)
+                                   :fill-pointer 0
+                                   :adjustable t)
+          *symbol-table* (let ((hash-table (make-hash-table)))
+                           (dolist (x initial-symbols)
+                             (setf (gethash (first x) hash-table) (rest x)))
+                           hash-table)
+          *missing-symbols* '()
           *fixups* '()
           *gc-data* '())
     (dolist (i code-list)
       (etypecase i
-	(symbol (when (gethash i *symbol-table*)
-		  (cerror "Replace the existing symbol." "Duplicate symbol ~S." i))
-		(setf (gethash i *symbol-table*) *current-address*))
-	(cons (with-simple-restart (continue "Skip it.")
-		(if (keywordp (first i))
-		    (ecase (first i)
+        (symbol (when (gethash i *symbol-table*)
+                  (cerror "Replace the existing symbol." "Duplicate symbol ~S." i))
+                (setf (gethash i *symbol-table*) *current-address*))
+        (cons (with-simple-restart (continue "Skip it.")
+                (if (keywordp (first i))
+                    (ecase (first i)
                       (:comment)
-		      (:d8 (apply 'emit-d8 (rest i)))
-		      (:d16/le (apply 'emit-d16/le (rest i)))
-		      (:d32/le (apply 'emit-d32/le (rest i)))
-		      (:d64/le (apply 'emit-d64/le (rest i)))
+                      (:d8 (apply 'emit-d8 (rest i)))
+                      (:d16/le (apply 'emit-d16/le (rest i)))
+                      (:d32/le (apply 'emit-d32/le (rest i)))
+                      (:d64/le (apply 'emit-d64/le (rest i)))
                       (:gc (apply 'emit-gc (rest i))))
-		    (let ((handler (gethash (first i) instruction-set)))
-		      (if handler
-			  (unless (funcall handler i)
-			    (incf failed-instructions))
-			  (error "Unrecognized instruction ~S." (first i)))))))))))
+                    (let ((handler (gethash (first i) instruction-set)))
+                      (if handler
+                          (unless (funcall handler i)
+                            (incf failed-instructions))
+                          (error "Unrecognized instruction ~S." (first i)))))))))))
 
 (defun emit-d8 (&rest args)
   (dolist (a args)
@@ -116,7 +116,7 @@ a vector of constants and an alist of symbols & addresses."
     (setf a (or (resolve-immediate a) 0))
     (check-type a (unsigned-byte 16))
     (emit (ldb (byte 8 0) a)
-	  (ldb (byte 8 8) a))))
+          (ldb (byte 8 8) a))))
 
 (defun emit-d32/le (&rest args)
   (dolist (a args)
@@ -158,21 +158,21 @@ a vector of constants and an alist of symbols & addresses."
   "Convert an immediate value to an integer."
   (etypecase value
     (cons (cond ((keywordp (first value))
-		 (ecase (first value)
-		   (:constant-address
-		    (when *mc-end*
-		      (+ (* (ceiling *mc-end* 16) 16)
-			 (* (or (position (second value) *constant-pool*)
-				(vector-push-extend (second value) *constant-pool*)) 8))))))
-		(t (let ((args (mapcar #'resolve-immediate (rest value))))
-		     (unless (member nil args)
-		       (apply (first value) args))))))
+                 (ecase (first value)
+                   (:constant-address
+                    (when *mc-end*
+                      (+ (* (ceiling *mc-end* 16) 16)
+                         (* (or (position (second value) *constant-pool*)
+                                (vector-push-extend (second value) *constant-pool*)) 8))))))
+                (t (let ((args (mapcar #'resolve-immediate (rest value))))
+                     (unless (member nil args)
+                       (apply (first value) args))))))
     (symbol (let ((val (gethash value *symbol-table*))
-		  (old-val (gethash value *prev-symbol-table*)))
-	      (cond (val)
-		    (old-val)
-		    (t (pushnew value *missing-symbols*)
-		       nil))))
+                  (old-val (gethash value *prev-symbol-table*)))
+              (cond (val)
+                    (old-val)
+                    (t (pushnew value *missing-symbols*)
+                       nil))))
     (integer value)))
 
 (defun note-fixup (name)

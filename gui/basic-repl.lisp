@@ -138,7 +138,7 @@
       ((>= i end)
        (values initial-x initial-y))
     (let* ((ch (char string i))
-	   (width (sys.int::stream-character-width stream ch)))
+           (width (sys.int::stream-character-width stream ch)))
       (when (or (eql ch #\Newline)
                 (> (+ initial-x width) win-width))
         (setf initial-x 0

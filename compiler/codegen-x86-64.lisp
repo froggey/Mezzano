@@ -37,13 +37,13 @@
 
 (defmacro emit-trailer ((&optional name (default-gc-info t)) &body body)
   `(push (let ((*code-accum* '()))
-	   ,(when name
-		  `(emit ,name))
+           ,(when name
+                  `(emit ,name))
            ,@(when default-gc-info
                    (list '(emit-gc-info)))
-	   (progn ,@body)
-	   (nreverse *code-accum*))
-	 *trailers*))
+           (progn ,@body)
+           (nreverse *code-accum*))
+         *trailers*))
 
 (defun fixnum-to-raw (integer)
   (check-type integer (signed-byte 63))
@@ -243,7 +243,7 @@
 
 (defun generate-entry-code (lambda)
   (let ((entry-label (gensym "ENTRY"))
-	(invalid-arguments-label (gensym "BADARGS"))
+        (invalid-arguments-label (gensym "BADARGS"))
         (stack-alignment-error (gensym "STACK-ALIGNMENT")))
     (emit-trailer (invalid-arguments-label nil)
       (emit `(:gc :frame)
@@ -261,40 +261,40 @@
               `(sys.lap-x86:ud2))))
     (nconc
      (list entry-label
-	   ;; Create control stack frame.
+           ;; Create control stack frame.
            `(:gc :no-frame :incoming-arguments :rcx)
-	   `(sys.lap-x86:push :rbp)
+           `(sys.lap-x86:push :rbp)
            `(:gc :no-frame :incoming-arguments :rcx :layout #*0)
-	   `(sys.lap-x86:mov64 :rbp :rsp)
+           `(sys.lap-x86:mov64 :rbp :rsp)
            `(:gc :frame :incoming-arguments :rcx))
      (when sys.c::*enable-stack-alignment-checking*
        (list `(sys.lap-x86:test64 :rsp 8)
              `(sys.lap-x86:jnz ,stack-alignment-error)))
      ;; Emit the argument count test.
      (cond ((lambda-information-rest-arg lambda)
-	    ;; If there are no required parameters, then don't generate a lower-bound check.
-	    (when (lambda-information-required-args lambda)
-	      ;; Minimum number of arguments.
-	      (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
-		    `(sys.lap-x86:jl ,invalid-arguments-label))))
-	   ((and (lambda-information-required-args lambda)
-		 (lambda-information-optional-args lambda))
-	    ;; A range.
-	    (list `(sys.lap-x86:mov32 :eax :ecx)
+            ;; If there are no required parameters, then don't generate a lower-bound check.
+            (when (lambda-information-required-args lambda)
+              ;; Minimum number of arguments.
+              (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+                    `(sys.lap-x86:jl ,invalid-arguments-label))))
+           ((and (lambda-information-required-args lambda)
+                 (lambda-information-optional-args lambda))
+            ;; A range.
+            (list `(sys.lap-x86:mov32 :eax :ecx)
                   `(sys.lap-x86:sub32 :eax ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
-		  `(sys.lap-x86:cmp32 :eax ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
-		  `(sys.lap-x86:ja ,invalid-arguments-label)))
-	   ((lambda-information-optional-args lambda)
-	    ;; Maximum number of arguments.
-	    (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
-		  `(sys.lap-x86:ja ,invalid-arguments-label)))
-	   ((lambda-information-required-args lambda)
-	    ;; Exact number of arguments.
-	    (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
-		  `(sys.lap-x86:jne ,invalid-arguments-label)))
-	   ;; No arguments
-	   (t (list `(sys.lap-x86:test32 :ecx :ecx)
-		    `(sys.lap-x86:jnz ,invalid-arguments-label))))
+                  `(sys.lap-x86:cmp32 :eax ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
+                  `(sys.lap-x86:ja ,invalid-arguments-label)))
+           ((lambda-information-optional-args lambda)
+            ;; Maximum number of arguments.
+            (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-optional-args lambda))))
+                  `(sys.lap-x86:ja ,invalid-arguments-label)))
+           ((lambda-information-required-args lambda)
+            ;; Exact number of arguments.
+            (list `(sys.lap-x86:cmp32 :ecx ,(fixnum-to-raw (length (lambda-information-required-args lambda))))
+                  `(sys.lap-x86:jne ,invalid-arguments-label)))
+           ;; No arguments
+           (t (list `(sys.lap-x86:test32 :ecx :ecx)
+                    `(sys.lap-x86:jnz ,invalid-arguments-label))))
      (let ((n-slots (length *stack-values*)))
        (when (oddp n-slots) (incf n-slots))
        ;; Adjust stack.
@@ -493,9 +493,9 @@
 
 (defun cg-form (form)
   (flet ((save-tag (tag)
-	   (when (and tag *for-value* (not (keywordp tag)))
-	     (push tag *load-list*))
-	   tag))
+           (when (and tag *for-value* (not (keywordp tag)))
+             (push tag *load-list*))
+           tag))
     (etypecase form
       (ast-block (save-tag (cg-block form)))
       (ast-function (save-tag (cg-function form)))
@@ -682,29 +682,29 @@
   (dotimes (i (length *stack-values*) nil)
     (let ((x (aref *stack-values* i)))
       (when (or (eq tag x)
-		(and (consp tag) (consp x)
-		     (eql (car tag) (car x))
-		     (eql (cdr tag) (cdr x))))
-	(return t)))))
+                (and (consp tag) (consp x)
+                     (eql (car tag) (car x))
+                     (eql (cdr tag) (cdr x))))
+        (return t)))))
 
 (defun set-up-for-branch ()
   ;; Save variables on the load list that might be modified to the stack.
   (smash-r8)
   (dolist (l *load-list*)
     (when (and (consp l) (lexical-variable-p (car l))
-	       (not (eql (lexical-variable-write-count (car l)) 0)))
+               (not (eql (lexical-variable-write-count (car l)) 0)))
       ;; Don't save if there is something satisfying this already.
       (multiple-value-bind (loc true-tag)
-	  (value-location l)
-	(declare (ignore loc))
-	(unless (tag-saved-on-stack-p true-tag)
-	  (load-in-r8 l nil)
-	  (smash-r8 t)))))
+          (value-location l)
+        (declare (ignore loc))
+        (unless (tag-saved-on-stack-p true-tag)
+          (load-in-r8 l nil)
+          (smash-r8 t)))))
   (let ((new-values (make-array (length *stack-values*) :initial-contents *stack-values*)))
     ;; Now flush any values that aren't there to satisfy the load list.
     (dotimes (i (length new-values))
       (when (condemed-p (aref new-values i))
-	(setf (aref new-values i) nil)))
+        (setf (aref new-values i) nil)))
     new-values))
 
 (defun copy-stack-values (values)
@@ -785,22 +785,22 @@
 
 (defun cg-if (form)
   (let* ((else-label (gensym))
-	 (end-label (gensym))
-	 (test-tag (let ((*for-value* :predicate))
-		     (cg-form (ast-test form))))
-	 (branch-count 0)
-	 (stack-slots (set-up-for-branch))
-	 (loc (when (and test-tag (not (keywordp test-tag)))
+         (end-label (gensym))
+         (test-tag (let ((*for-value* :predicate))
+                     (cg-form (ast-test form))))
+         (branch-count 0)
+         (stack-slots (set-up-for-branch))
+         (loc (when (and test-tag (not (keywordp test-tag)))
                 (value-location test-tag t))))
     (when (null test-tag)
       (return-from cg-if))
     (cond ((keywordp test-tag)) ; Nothing for predicates.
           ((and (consp loc) (eq (first loc) :stack))
-	   (emit `(sys.lap-x86:cmp64 (:stack ,(second loc)) nil)))
-	  (t (load-in-r8 test-tag)
-	     (emit `(sys.lap-x86:cmp64 :r8 nil))))
+           (emit `(sys.lap-x86:cmp64 (:stack ,(second loc)) nil)))
+          (t (load-in-r8 test-tag)
+             (emit `(sys.lap-x86:cmp64 :r8 nil))))
     (let ((r8-at-cond *r8-value*)
-	  (stack-at-cond (make-array (length *stack-values*) :initial-contents *stack-values*)))
+          (stack-at-cond (make-array (length *stack-values*) :initial-contents *stack-values*)))
       ;; This is a little dangerous and relies on SET-UP-FOR-BRANCH not
       ;; changing the flags.
       (cond ((keywordp test-tag)
@@ -810,32 +810,32 @@
             (t (emit `(sys.lap-x86:je ,else-label))))
       (branch-to else-label)
       (let ((tag (cg-form (ast-if-then form))))
-	(when tag
-	  (when *for-value*
+        (when tag
+          (when *for-value*
             (case *for-value*
               ((:multiple :tail) (load-multiple-values tag))
               (:predicate (if (keywordp tag)
                               (load-predicate tag)
                               (load-in-r8 tag t)))
               (t (load-in-r8 tag t))))
-	  (emit `(sys.lap-x86:jmp ,end-label))
-	  (incf branch-count)
-	  (branch-to end-label)))
+          (emit `(sys.lap-x86:jmp ,end-label))
+          (incf branch-count)
+          (branch-to end-label)))
       (setf *r8-value* r8-at-cond
-	    *stack-values* (copy-stack-values stack-at-cond))
+            *stack-values* (copy-stack-values stack-at-cond))
       (emit-label else-label)
       (emit-gc-info)
       (let ((tag (cg-form (ast-if-else form))))
-	(when tag
-	  (when *for-value*
+        (when tag
+          (when *for-value*
             (case *for-value*
               ((:multiple :tail) (load-multiple-values tag))
               (:predicate (if (keywordp tag)
                               (load-predicate tag)
                               (load-in-r8 tag t)))
               (t (load-in-r8 tag t))))
-	  (incf branch-count)
-	  (branch-to end-label)))
+          (incf branch-count)
+          (branch-to end-label)))
       (emit-label end-label)
       (setf *stack-values* (copy-stack-values stack-slots))
       (unless (zerop branch-count)
@@ -1099,12 +1099,12 @@ Returns an appropriate tag."
 (defun cg-progn (form)
   (if (ast-forms form)
       (do ((i (ast-forms form) (rest i)))
-	  ((endp (rest i))
-	   (cg-form (first i)))
-	(let* ((*for-value* nil)
-	       (tag (cg-form (first i))))
-	  (when (null tag)
-	    (return-from cg-progn 'nil))))
+          ((endp (rest i))
+           (cg-form (first i)))
+        (let* ((*for-value* nil)
+               (tag (cg-form (first i))))
+          (when (null tag)
+            (return-from cg-progn 'nil))))
       (cg-form (make-instance 'ast-quote :value 'nil))))
 
 (defun cg-quote (form)
@@ -1133,14 +1133,14 @@ Returns an appropriate tag."
 
 (defun find-variable-home (var)
   (dotimes (i (length *stack-values*)
-	    (error "No home for ~S?" var))
+            (error "No home for ~S?" var))
     (let ((x (aref *stack-values* i)))
       (when (and (consp x) (eq (car x) var) (eq (cdr x) :home))
-	(return i)))))
+        (return i)))))
 
 (defun cg-setq (form)
   (let ((var (ast-setq-variable form))
-	(val (ast-value form)))
+        (val (ast-value form)))
     (assert (localp var))
     ;; Copy var if there are unsatisfied tags on the load list.
     (dolist (l *load-list*)
@@ -1164,15 +1164,15 @@ Returns an appropriate tag."
 (defun tagbody-localp (info)
   (dolist (tag (tagbody-information-go-tags info) t)
     (unless (or (null (go-tag-used-in tag))
-		(and (null (cdr (go-tag-used-in tag)))
-		     (eq (car (go-tag-used-in tag)) (lexical-variable-definition-point info))))
+                (and (null (cdr (go-tag-used-in tag)))
+                     (eq (car (go-tag-used-in tag)) (lexical-variable-definition-point info))))
       (return nil))))
 
 (defun cg-tagbody (form)
   (let ((*for-value* nil)
-	(stack-slots nil)
-	(*rename-list* *rename-list*)
-	(need-exit-label nil)
+        (stack-slots nil)
+        (*rename-list* *rename-list*)
+        (need-exit-label nil)
         (exit-label (gensym "tagbody-exit"))
         (escapes (not (tagbody-localp (ast-info form))))
         (jump-table (gensym))
@@ -1237,81 +1237,81 @@ Returns an appropriate tag."
   (when kill
     (setf *load-list* (delete tag *load-list*)))
   (cond ((eq (car tag) 'quote)
-	 (values (if (and (consp *r8-value*)
-			  (eq (car *r8-value*) 'quote)
-			  (eql (cadr tag) (cadr *r8-value*)))
-		     :r8
-		     tag)
-		 tag))
-	((null (cdr tag))
-	 (values (if (eq tag *r8-value*)
-		     :r8
-		     (dotimes (i (length *stack-values*)
-			       (error "Cannot find tag ~S." tag))
-		       (when (eq tag (aref *stack-values* i))
-			 (return (list :stack i)))))
-		 tag))
-	((lexical-variable-p (car tag))
-	 ;; Search for the lowest numbered time that is >= to the tag time.
-	 (let ((best (when (and (consp *r8-value*) (eq (car *r8-value*) (car tag))
-				(integerp (cdr *r8-value*)) (>= (cdr *r8-value*) (cdr tag)))
-		       *r8-value*))
-	       (best-loc :r8)
-	       (home-loc nil)
-	       (home nil))
-	   (dotimes (i (length *stack-values*))
-	     (let ((val (aref *stack-values* i)))
-	       (when (and (consp val) (eq (car val) (car tag)))
-		 (cond ((eq (cdr val) :home)
-			(setf home (cons (car val) *run-counter*)
-			      home-loc (list :stack i)))
-		       ((and (integerp (cdr val)) (>= (cdr val) (cdr tag))
-			     (or (null best)
-				 (< (cdr val) (cdr best))))
-			(setf best val
-			      best-loc (list :stack i)))))))
-	   (values (or (when best
-			 best-loc)
-		       ;; R8 might hold a duplicate (thanks to let or setq), use that instead of home.
-		       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
-			 :r8)
-		       home-loc
-		       (error "Cannot find tag ~S." tag))
-		   (or best
-		       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
-			 *r8-value*)
-		       home))))
-	(t (error "What kind of tag is this? ~S" tag))))
+         (values (if (and (consp *r8-value*)
+                          (eq (car *r8-value*) 'quote)
+                          (eql (cadr tag) (cadr *r8-value*)))
+                     :r8
+                     tag)
+                 tag))
+        ((null (cdr tag))
+         (values (if (eq tag *r8-value*)
+                     :r8
+                     (dotimes (i (length *stack-values*)
+                               (error "Cannot find tag ~S." tag))
+                       (when (eq tag (aref *stack-values* i))
+                         (return (list :stack i)))))
+                 tag))
+        ((lexical-variable-p (car tag))
+         ;; Search for the lowest numbered time that is >= to the tag time.
+         (let ((best (when (and (consp *r8-value*) (eq (car *r8-value*) (car tag))
+                                (integerp (cdr *r8-value*)) (>= (cdr *r8-value*) (cdr tag)))
+                       *r8-value*))
+               (best-loc :r8)
+               (home-loc nil)
+               (home nil))
+           (dotimes (i (length *stack-values*))
+             (let ((val (aref *stack-values* i)))
+               (when (and (consp val) (eq (car val) (car tag)))
+                 (cond ((eq (cdr val) :home)
+                        (setf home (cons (car val) *run-counter*)
+                              home-loc (list :stack i)))
+                       ((and (integerp (cdr val)) (>= (cdr val) (cdr tag))
+                             (or (null best)
+                                 (< (cdr val) (cdr best))))
+                        (setf best val
+                              best-loc (list :stack i)))))))
+           (values (or (when best
+                         best-loc)
+                       ;; R8 might hold a duplicate (thanks to let or setq), use that instead of home.
+                       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
+                         :r8)
+                       home-loc
+                       (error "Cannot find tag ~S." tag))
+                   (or best
+                       (when (and *r8-value* (consp *r8-value*) (eq (car *r8-value*) (car tag)) (eq (cdr *r8-value*) :dup))
+                         *r8-value*)
+                       home))))
+        (t (error "What kind of tag is this? ~S" tag))))
 
 (defun condemed-p (tag)
   (cond ((eq (cdr tag) :home)
-	 nil)
-	((eq (cdr tag) :dup)
-	 t)
-	(t (dolist (v *load-list* t)
-	     (when (eq (first tag) (first v))
-	       (if (null (rest tag))
-		   (return nil)
-		   ;; Figure out the best tag that satisfies this load.
-		   (let ((best (when (and (consp *r8-value*) (eq (car *r8-value*) (car tag))
-					  (integerp (cdr *r8-value*)) (>= (cdr *r8-value*) (cdr tag)))
-				 *r8-value*)))
-		     (dotimes (i (length *stack-values*))
-		       (let ((val (aref *stack-values* i)))
-			 (when (and (consp val) (eq (car val) (car v))
-				    (integerp (cdr val)) (>= (cdr val) (cdr v))
-				    (or (null best)
-					(< (cdr val) (cdr best))))
-			   (setf best val))))
-		     (when (eq best tag)
-		       (return nil)))))))))
+         nil)
+        ((eq (cdr tag) :dup)
+         t)
+        (t (dolist (v *load-list* t)
+             (when (eq (first tag) (first v))
+               (if (null (rest tag))
+                   (return nil)
+                   ;; Figure out the best tag that satisfies this load.
+                   (let ((best (when (and (consp *r8-value*) (eq (car *r8-value*) (car tag))
+                                          (integerp (cdr *r8-value*)) (>= (cdr *r8-value*) (cdr tag)))
+                                 *r8-value*)))
+                     (dotimes (i (length *stack-values*))
+                       (let ((val (aref *stack-values* i)))
+                         (when (and (consp val) (eq (car val) (car v))
+                                    (integerp (cdr val)) (>= (cdr val) (cdr v))
+                                    (or (null best)
+                                        (< (cdr val) (cdr best))))
+                           (setf best val))))
+                     (when (eq best tag)
+                       (return nil)))))))))
 
 (defun find-stack-slot ()
   ;; Find a free stack slot, or allocate a new one.
   (dotimes (i (length *stack-values*)
-	    (vector-push-extend nil *stack-values*))
+            (vector-push-extend nil *stack-values*))
     (when (or (null (aref *stack-values* i))
-	      (condemed-p (aref *stack-values* i)))
+              (condemed-p (aref *stack-values* i)))
       (setf (aref *stack-values* i) nil)
       (return i))))
 
@@ -1320,8 +1320,8 @@ Returns an appropriate tag."
   ;; Avoid flushing if it's already on the stack.
   (when (and *r8-value*
              (not (eql *r8-value* :multiple))
-	     (not (condemed-p *r8-value*))
-	     (not (tag-saved-on-stack-p *r8-value*)))
+             (not (condemed-p *r8-value*))
+             (not (tag-saved-on-stack-p *r8-value*)))
     (let ((slot (find-stack-slot)))
       (setf (aref *stack-values* slot) *r8-value*)
       (emit `(sys.lap-x86:mov64 (:stack ,slot) :r8))))
@@ -1330,16 +1330,16 @@ Returns an appropriate tag."
 
 (defun load-constant (register value)
   (cond ((eql value 0)
-	 (emit `(sys.lap-x86:xor64 ,register ,register)))
-	((eq value 'nil)
-	 (emit `(sys.lap-x86:mov64 ,register nil)))
-	((eq value 't)
-	 (emit `(sys.lap-x86:mov64 ,register t)))
-	((fixnump value)
-	 (emit `(sys.lap-x86:mov64 ,register ,(fixnum-to-raw value))))
-	((characterp value)
-	 (emit `(sys.lap-x86:mov64 ,register ,(character-to-raw value))))
-	(t (emit `(sys.lap-x86:mov64 ,register (:constant ,value))))))
+         (emit `(sys.lap-x86:xor64 ,register ,register)))
+        ((eq value 'nil)
+         (emit `(sys.lap-x86:mov64 ,register nil)))
+        ((eq value 't)
+         (emit `(sys.lap-x86:mov64 ,register t)))
+        ((fixnump value)
+         (emit `(sys.lap-x86:mov64 ,register ,(fixnum-to-raw value))))
+        ((characterp value)
+         (emit `(sys.lap-x86:mov64 ,register ,(character-to-raw value))))
+        (t (emit `(sys.lap-x86:mov64 ,register (:constant ,value))))))
 
 (defun load-multiple-values (tag)
   (cond ((eql tag :multiple))
@@ -1352,8 +1352,8 @@ Returns an appropriate tag."
     (unless (eq loc :r8)
       (smash-r8)
       (ecase (first loc)
-	((quote) (load-constant :r8 (second loc)))
-	((:stack) (emit `(sys.lap-x86:mov64 :r8 (:stack ,(second loc))))))
+        ((quote) (load-constant :r8 (second loc)))
+        ((:stack) (emit `(sys.lap-x86:mov64 :r8 (:stack ,(second loc))))))
       (setf *r8-value* true-tag))
     (when kill
       (setf *load-list* (delete tag *load-list*)))))
@@ -1362,14 +1362,14 @@ Returns an appropriate tag."
   (if (eql reg :r8)
       (load-in-r8 tag kill)
       (let ((loc (value-location tag nil)))
-	(unless (eql loc reg)
-	  (if (eql loc :r8)
-	      (emit `(sys.lap-x86:mov64 ,reg :r8))
-	      (ecase (first loc)
-		((quote) (load-constant reg (second loc)))
-		((:stack) (emit `(sys.lap-x86:mov64 ,reg (:stack ,(second loc))))))))
-	(when kill
-	  (setf *load-list* (delete tag *load-list*))))))
+        (unless (eql loc reg)
+          (if (eql loc :r8)
+              (emit `(sys.lap-x86:mov64 ,reg :r8))
+              (ecase (first loc)
+                ((quote) (load-constant reg (second loc)))
+                ((:stack) (emit `(sys.lap-x86:mov64 ,reg (:stack ,(second loc))))))))
+        (when kill
+          (setf *load-list* (delete tag *load-list*))))))
 
 (defun flush-arguments-from-stack (arg-forms)
   (let ((stack-count (max 0 (- (length arg-forms) 5))))
@@ -1380,24 +1380,24 @@ Returns an appropriate tag."
 (defun prep-arguments-for-call (arg-forms)
   (when arg-forms
     (let ((args '())
-	  (arg-count 0))
+          (arg-count 0))
       (let ((*for-value* t))
-	(dolist (f arg-forms)
-	  (push (cg-form f) args)
-	  (incf arg-count)
-	  (when (null (first args))
-	    ;; Non-local control transfer, don't actually need those results now.
-	    (dolist (i (rest args))
-	      (setf *load-list* (delete i *load-list*)))
-	    (return-from prep-arguments-for-call nil))))
+        (dolist (f arg-forms)
+          (push (cg-form f) args)
+          (incf arg-count)
+          (when (null (first args))
+            ;; Non-local control transfer, don't actually need those results now.
+            (dolist (i (rest args))
+              (setf *load-list* (delete i *load-list*)))
+            (return-from prep-arguments-for-call nil))))
       (setf args (nreverse args))
       (let ((stack-count (- arg-count 5)))
-	(when (plusp stack-count)
+        (when (plusp stack-count)
           (when (oddp stack-count)
             (incf stack-count))
           (emit `(sys.lap-x86:sub64 :rsp ,(* stack-count 8)))
-	  ;; Load values on the stack.
-	  ;; Use r13 here to preserve whatever is in r8.
+          ;; Load values on the stack.
+          ;; Use r13 here to preserve whatever is in r8.
           ;; Must load first values first, so the GC can track properly.
           (loop for i from 0
              for j in (nthcdr 5 args) do
@@ -1406,15 +1406,15 @@ Returns an appropriate tag."
                (emit-gc-info :pushed-values (1+ i)))))
       ;; Load other values in registers.
       (when (> arg-count 4)
-	(load-in-reg :r12 (nth 4 args) t))
+        (load-in-reg :r12 (nth 4 args) t))
       (when (> arg-count 3)
-	(load-in-reg :r11 (nth 3 args) t))
+        (load-in-reg :r11 (nth 3 args) t))
       (when (> arg-count 2)
-	(load-in-reg :r10 (nth 2 args) t))
+        (load-in-reg :r10 (nth 2 args) t))
       (when (> arg-count 1)
-	(load-in-reg :r9 (nth 1 args) t))
+        (load-in-reg :r9 (nth 1 args) t))
       (when (> arg-count 0)
-	(load-in-r8 (nth 0 args) t))))
+        (load-in-r8 (nth 0 args) t))))
   t)
 
 ;; Compile a VALUES form.
@@ -1568,12 +1568,12 @@ Returns an appropriate tag."
            (cg-null/not form))
           (fn
            (cg-builtin fn form))
-	  ((and (eql (ast-name form) 'funcall)
+          ((and (eql (ast-name form) 'funcall)
             (ast-arguments form))
        (cg-funcall form))
       ((eql (ast-name form) 'values)
        (cg-values (ast-arguments form)))
-	  (t (cg-call form)))))
+          (t (cg-call form)))))
 
 (defun can-tail-call (args)
   (and (eql *for-value* :tail)
@@ -1599,8 +1599,8 @@ Returns an appropriate tag."
   (load-constant :r9 typespec)
   (emit `(sys.lap-x86:mov64 :r13 (:function sys.int::raise-type-error))
         `(sys.lap-x86:mov32 :ecx ,(fixnum-to-raw 2))
-	`(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
-	`(sys.lap-x86:ud2))
+        `(sys.lap-x86:call ,(object-ea :r13 :slot sys.int::+fref-entry-point+))
+        `(sys.lap-x86:ud2))
   nil)
 
 (defun fixnum-check (reg &optional (typespec 'fixnum))
@@ -1608,7 +1608,7 @@ Returns an appropriate tag."
     (emit-trailer (type-error-label)
       (raise-type-error reg typespec))
     (emit `(sys.lap-x86:test64 ,reg ,sys.int::+fixnum-tag-mask+)
-	  `(sys.lap-x86:jnz ,type-error-label))))
+          `(sys.lap-x86:jnz ,type-error-label))))
 
 (defun cg-jump-table (form)
   (let* ((value (ast-value form))

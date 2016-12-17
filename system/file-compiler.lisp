@@ -82,22 +82,22 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
     ;; can be ignored.
     (when (consp expansion)
       (case (first expansion)
-	;; 3. If the form is a progn form, each of its body forms is sequentially
-	;;    processed as a top level form in the same processing mode.
-	((progn) (handle-top-level-implicit-progn (rest expansion) load-fn eval-fn mode env))
-	;; 4. If the form is a locally, macrolet, or symbol-macrolet, compile-file
-	;;    establishes the appropriate bindings and processes the body forms as
-	;;    top level forms with those bindings in effect in the same processing mode.
-	((locally)
+        ;; 3. If the form is a progn form, each of its body forms is sequentially
+        ;;    processed as a top level form in the same processing mode.
+        ((progn) (handle-top-level-implicit-progn (rest expansion) load-fn eval-fn mode env))
+        ;; 4. If the form is a locally, macrolet, or symbol-macrolet, compile-file
+        ;;    establishes the appropriate bindings and processes the body forms as
+        ;;    top level forms with those bindings in effect in the same processing mode.
+        ((locally)
          (handle-top-level-lms-body (rest expansion) load-fn eval-fn mode env))
-	((macrolet)
+        ((macrolet)
          (destructuring-bind (definitions &body body) (rest expansion)
            (handle-top-level-lms-body body load-fn eval-fn mode (make-macrolet-env definitions env))))
-	((symbol-macrolet)
+        ((symbol-macrolet)
          (destructuring-bind (definitions &body body) (rest expansion)
            (handle-top-level-lms-body body load-fn eval-fn mode (make-symbol-macrolet-env definitions env))))
-	;; 5. If the form is an eval-when form, it is handled according to figure 3-7.
-	((eval-when)
+        ;; 5. If the form is an eval-when form, it is handled according to figure 3-7.
+        ((eval-when)
          (destructuring-bind (situation &body body) (rest expansion)
            (multiple-value-bind (compile load eval)
                (parse-eval-when-situation situation)
@@ -120,14 +120,14 @@ NOTE: Non-compound forms (after macro-expansion) are ignored."
                     (and (not compile) (not load) (not eval)))
                 nil)
                (t (error "Impossible!"))))))
-	  ;; 6. Otherwise, the form is a top level form that is not one of the
-	  ;;    special cases. In compile-time-too mode, the compiler first
-	  ;;    evaluates the form in the evaluation environment and then minimally
-	  ;;    compiles it. In not-compile-time mode, the form is simply minimally
-	  ;;    compiled. All subforms are treated as non-top-level forms.
-	  (t (when (eql mode :compile-time-too)
-	       (funcall eval-fn expansion env))
-	     (funcall load-fn expansion env))))))
+        ;; 6. Otherwise, the form is a top level form that is not one of the
+        ;;    special cases. In compile-time-too mode, the compiler first
+        ;;    evaluates the form in the evaluation environment and then minimally
+        ;;    compiles it. In not-compile-time mode, the form is simply minimally
+        ;;    compiled. All subforms are treated as non-top-level forms.
+        (t (when (eql mode :compile-time-too)
+             (funcall eval-fn expansion env))
+           (funcall load-fn expansion env))))))
 
 (defvar *compile-verbose* t)
 (defvar *compile-print* t)

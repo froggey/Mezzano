@@ -213,16 +213,7 @@
                                   for (nickname real-name) in package-local-nicknames
                                     collect (list nickname (if (eql (find-package real-name) (find-package :cl))
                                                                :cross-cl
-                                                               real-name))))))
-  #+nil(let ((p (or (find-package name)
-	       (make-package name :nicknames nicknames))))
-    (use-package use-list p)
-    (import import-list p)
-    (dolist (s intern-list)
-      (intern s p))
-    (dolist (s export-list)
-      (export (list (intern (string s) p)) p))
-    p))
+                                                               real-name)))))))
 
 (defun sys.int::round-up (n boundary)
   (if (zerop (rem n boundary))

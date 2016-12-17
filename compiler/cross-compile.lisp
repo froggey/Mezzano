@@ -228,35 +228,35 @@
 (defun character-reader (stream ch p)
   (declare (ignore ch p))
   (let ((x (read-char stream t nil t))
-	(y (peek-char nil stream nil nil t)))
+        (y (peek-char nil stream nil nil t)))
     (if (or (eql nil y)
-	    (get-macro-character y)
-	    (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
-	;; Simple form: Single character followed by EOF or a non-constituent character.
-	;; Just return the character that was read.
-	x
-	;; Reading a character name, similar to read-token, but no special handling
-	;; is done for packages or numbers.
-	(let ((token (make-array 1
-				 :element-type 'character
-				 :initial-element x
-				 :adjustable t
-				 :fill-pointer t)))
-	  (do ((z (read-char stream nil nil t)
-		  (read-char stream nil nil t)))
-	      ((or (eql nil z)
-		   (when (or (get-macro-character z)
+            (get-macro-character y)
+            (member y '(#\Space #\Tab #\Newline) :test #'char-equal))
+        ;; Simple form: Single character followed by EOF or a non-constituent character.
+        ;; Just return the character that was read.
+        x
+        ;; Reading a character name, similar to read-token, but no special handling
+        ;; is done for packages or numbers.
+        (let ((token (make-array 1
+                                 :element-type 'character
+                                 :initial-element x
+                                 :adjustable t
+                                 :fill-pointer t)))
+          (do ((z (read-char stream nil nil t)
+                  (read-char stream nil nil t)))
+              ((or (eql nil z)
+                   (when (or (get-macro-character z)
                              (member z '(#\Space #\Tab #\Newline) :test #'char-equal))
-		     (unread-char z stream)
-		     t)))
-	    (vector-push-extend z token))
-	  ;; Finished reading the token, convert it to a character
-	  (let ((c (cross-name-char token)))
-	    (when (and (not c) (not *read-suppress*))
-	      (error 'simple-reader-error :stream stream
+                     (unread-char z stream)
+                     t)))
+            (vector-push-extend z token))
+          ;; Finished reading the token, convert it to a character
+          (let ((c (cross-name-char token)))
+            (when (and (not c) (not *read-suppress*))
+              (error 'simple-reader-error :stream stream
                      :format-control "Unrecognized character name ~S."
                      :format-arguments (list token)))
-	    c)))))
+            c)))))
 
 (defun cross-name-char (name)
   (or (loop for (code . names) in *char-name-alist*
@@ -275,9 +275,9 @@
   (declare (ignore first))
   (case (peek-char nil stream t)
     (#\@ (read-char stream t nil t)
-	 (list 'sys.int::bq-comma-atsign (read stream t nil t)))
+         (list 'sys.int::bq-comma-atsign (read stream t nil t)))
     (#\. (read-char stream t nil t)
-	 (list 'sys.int::bq-comma-dot (read stream t nil t)))
+         (list 'sys.int::bq-comma-dot (read stream t nil t)))
     (otherwise
      (list 'sys.int::bq-comma (read stream t nil t)))))
 

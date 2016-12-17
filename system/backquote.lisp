@@ -36,19 +36,19 @@
 ;;; It then optionally applies a code simplifier.
 
 ;; (set-macro-character #\$
-;;		     #'(lambda (stream char)
-;;			 (declare (ignore char))
-;;			 (list 'backquote (read stream t nil t))))
+;;                     #'(lambda (stream char)
+;;                         (declare (ignore char))
+;;                         (list 'backquote (read stream t nil t))))
 
 ;;(set-macro-character #\%
-;;		     #'(lambda (stream char)
-;;			 (declare (ignore char))
-;;			 (case (peek-char nil stream t nil t)
-;;			   (#\@ (read-char stream t nil t)
-;;				(list *comma-atsign* (read stream t nil t)))
-;;			   (#\. (read-char stream t nil t)
-;;				(list *comma-dot* (read stream t nil t)))
-;;			   (otherwise (list *comma* (read stream t nil t))))))
+;;                     #'(lambda (stream char)
+;;                         (declare (ignore char))
+;;                         (case (peek-char nil stream t nil t)
+;;                           (#\@ (read-char stream t nil t)
+;;                                (list *comma-atsign* (read stream t nil t)))
+;;                           (#\. (read-char stream t nil t)
+;;                                (list *comma-dot* (read stream t nil t)))
+;;                           (otherwise (list *comma* (read stream t nil t))))))
 
 ;;; If the value of *BQ-SIMPLIFY* is non-NIL, then BACKQUOTE
 ;;; processing applies the code simplifier.  If the value is NIL,
@@ -186,31 +186,31 @@
 (defun bq-simplify-args (x)
   (do ((args (reverse (cdr x)) (cdr args))
        (result
-	nil
-	(cond ((atom (car args))
-	       (bq-attach-append *bq-append* (car args) result))
-	      ((and (eq (caar args) *bq-list*)
-		    (notany #'bq-splicing-frob (cdar args)))
-	       (bq-attach-conses (cdar args) result))
-	      ((and (eq (caar args) *bq-list**)
-		    (notany #'bq-splicing-frob (cdar args)))
-	       (bq-attach-conses
-		(reverse (cdr (reverse (cdar args))))
-		(bq-attach-append *bq-append*
-				  (car (last (car args)))
-				  result)))
-	      ((and (eq (caar args) *bq-quote*)
-		    (consp (cadar args))
-		    (not (bq-frob (cadar args)))
-		    (null (cddar args)))
-	       (bq-attach-conses (list (list *bq-quote*
-					     (caadar args)))
-				 result))
-	      ((eq (caar args) *bq-clobberable*)
-	       (bq-attach-append *bq-nconc* (cadar args) result))
-	      (t (bq-attach-append *bq-append*
-				   (car args)
-				   result)))))
+        nil
+        (cond ((atom (car args))
+               (bq-attach-append *bq-append* (car args) result))
+              ((and (eq (caar args) *bq-list*)
+                    (notany #'bq-splicing-frob (cdar args)))
+               (bq-attach-conses (cdar args) result))
+              ((and (eq (caar args) *bq-list**)
+                    (notany #'bq-splicing-frob (cdar args)))
+               (bq-attach-conses
+                (reverse (cdr (reverse (cdar args))))
+                (bq-attach-append *bq-append*
+                                  (car (last (car args)))
+                                  result)))
+              ((and (eq (caar args) *bq-quote*)
+                    (consp (cadar args))
+                    (not (bq-frob (cadar args)))
+                    (null (cddar args)))
+               (bq-attach-conses (list (list *bq-quote*
+                                             (caadar args)))
+                                 result))
+              ((eq (caar args) *bq-clobberable*)
+               (bq-attach-append *bq-nconc* (cadar args) result))
+              (t (bq-attach-append *bq-append*
+                                   (car args)
+                                   result)))))
       ((null args) result)))
 
 (defun null-or-quoted (x)

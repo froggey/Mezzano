@@ -14,8 +14,8 @@
   "The keyword package.")
 
 (defstruct (package
-	     (:constructor %make-package (%name %nicknames))
-	     (:predicate packagep))
+             (:constructor %make-package (%name %nicknames))
+             (:predicate packagep))
   %name
   %nicknames
   %use-list
@@ -84,9 +84,9 @@
 (defun use-package (packages-to-use &optional (package *package*))
   (let ((p (find-package-or-die package)))
     (if (listp packages-to-use)
-	(dolist (use-package packages-to-use)
-	  (use-one-package (find-package-or-die use-package) p))
-	(use-one-package (find-package-or-die packages-to-use) p)))
+        (dolist (use-package packages-to-use)
+          (use-one-package (find-package-or-die use-package) p))
+        (use-one-package (find-package-or-die packages-to-use) p)))
   t)
 
 (defun make-package (package-name &key nicknames use)
@@ -96,8 +96,8 @@
     (when (find-global-package n)
       (error "A package named ~S already exists." n)))
   (let ((use-list (mapcar 'find-package use))
-	(package (%make-package (string package-name)
-				(mapcar (lambda (x) (string x)) nicknames))))
+        (package (%make-package (string package-name)
+                                (mapcar (lambda (x) (string x)) nicknames))))
     ;; Use packages.
     (use-package use-list package)
     ;; Install the package in the package registry.
@@ -112,11 +112,11 @@
     (multiple-value-bind (sym present-p)
         (gethash string (package-%internal-symbols p))
       (when present-p
-	(return-from find-symbol (values sym :internal))))
+        (return-from find-symbol (values sym :internal))))
     (multiple-value-bind (sym present-p)
         (gethash string (package-%external-symbols p))
       (when present-p
-	(return-from find-symbol (values sym :external))))
+        (return-from find-symbol (values sym :external))))
     (let ((pending (remove-duplicates (package-use-list p)))
           (visited '()))
       (loop
@@ -137,9 +137,9 @@
   (multiple-value-bind (existing-symbol existing-mode)
       (find-symbol (symbol-name symbol) package)
     (when (and existing-mode
-	       (not (eq existing-symbol symbol)))
+               (not (eq existing-symbol symbol)))
       (ecase existing-mode
-	(:inherited
+        (:inherited
          (restart-case
              (error "Newly imported symbol ~S conflicts with inherited symbol ~S." symbol existing-symbol)
            (shadow-symbol ()
@@ -148,7 +148,7 @@
            (dont-import ()
              :report "Leave the existing inherited symbol."
              (return-from import-one-symbol))))
-	((:internal :external)
+        ((:internal :external)
          (restart-case
              (error "Newly imported symbol ~S conflicts with present symbol ~S." symbol existing-symbol)
            (unintern-old-symbol ()
@@ -172,17 +172,17 @@
 (defun import (symbols &optional (package *package*))
   (let ((p (find-package-or-die package)))
     (if (listp symbols)
-	(dolist (s symbols)
-	  (import-one-symbol s p))
-	(import-one-symbol symbols p)))
+        (dolist (s symbols)
+          (import-one-symbol s p))
+        (import-one-symbol symbols p)))
   t)
 
 (defun export-one-symbol (symbol package)
   (dolist (q (package-used-by-list package))
     (multiple-value-bind (other-symbol status)
-	(find-symbol (symbol-name symbol) q)
+        (find-symbol (symbol-name symbol) q)
       (when (and (not (eq symbol other-symbol))
-		 status)
+                 status)
         (restart-case
             (error "Newly exported symbol ~S conflicts with symbol ~S in package ~S." symbol other-symbol q)
           (shadow-symbol ()
@@ -202,32 +202,32 @@
 (defun export (symbols &optional (package *package*))
   (let ((p (find-package-or-die package)))
     (if (listp symbols)
-	(dolist (s symbols)
-	  (export-one-symbol s p))
-	(export-one-symbol symbols p)))
+        (dolist (s symbols)
+          (export-one-symbol s p))
+        (export-one-symbol symbols p)))
   t)
 
 (defun unexport-one-symbol (symbol package)
   (let* ((name (symbol-name symbol)))
     (multiple-value-bind (sym mode)
-	(find-symbol name package)
+        (find-symbol name package)
       (case mode
-	(:external
-	 ;; Remove the symbol from the external symbols
-	 (remhash name (package-%external-symbols package))
-	 ;; And add to the internal-symbols list.
-	 (setf (gethash name (package-%internal-symbols package)) symbol))
-	((:internal :inherited))
-	(t
-	 (error "Cannot unexport unaccessable symbol ~S for package ~S." symbol package)))))
+        (:external
+         ;; Remove the symbol from the external symbols
+         (remhash name (package-%external-symbols package))
+         ;; And add to the internal-symbols list.
+         (setf (gethash name (package-%internal-symbols package)) symbol))
+        ((:internal :inherited))
+        (t
+         (error "Cannot unexport unaccessable symbol ~S for package ~S." symbol package)))))
   t)
 
 (defun unexport (symbols &optional (package *package*))
   (let ((p (find-package-or-die package)))
     (if (listp symbols)
-	(dolist (s symbols)
-	  (unexport-one-symbol s p))
-	(unexport-one-symbol symbols p)))
+        (dolist (s symbols)
+          (unexport-one-symbol s p))
+        (unexport-one-symbol symbols p)))
   t)
 
 (defun unintern (symbol &optional (package *package*))
@@ -441,67 +441,67 @@
 
 (defmacro defpackage (defined-package-name &rest options)
   (let ((nicknames '())
-	(documentation nil)
-	(use-list '())
-	(import-list '())
-	(export-list '())
-	(intern-list '())
+        (documentation nil)
+        (use-list '())
+        (import-list '())
+        (export-list '())
+        (intern-list '())
         (shadow-list '())
         (shadow-import-list '())
         (local-nicknames '()))
     (dolist (o options)
       (ecase (first o)
-	(:nicknames
-	 (dolist (n (rest o))
-	   (pushnew (string n) nicknames)))
-	(:documentation
-	 (when documentation
-	   (error "Multiple documentation options in DEFPACKAGE form."))
-	 (unless (or (eql 2 (length o))
-		     (not (stringp (second o))))
-	   (error "Invalid documentation option in DEFPACKAGE form."))
-	 (setf documentation (second o)))
-	(:use
-	 (dolist (u (rest o))
-	   (if (packagep u)
-	       (pushnew u use-list)
-	       (pushnew (string u) use-list))))
-	(:import-from
-	 (let ((package (find-package-or-die (second o))))
-	   (dolist (name (cddr o))
-	     (multiple-value-bind (symbol status)
-		 (find-symbol (string name) package)
-	       (unless status
-		 (error "No such symbol ~S in package ~S." (string name) package))
-	       (pushnew symbol import-list)))))
-	(:export
-	 (dolist (name (cdr o))
-	   (pushnew name export-list)))
-	(:intern
-	 (dolist (name (cdr o))
-	   (pushnew name intern-list)))
+        (:nicknames
+         (dolist (n (rest o))
+           (pushnew (string n) nicknames)))
+        (:documentation
+         (when documentation
+           (error "Multiple documentation options in DEFPACKAGE form."))
+         (unless (or (eql 2 (length o))
+                     (not (stringp (second o))))
+           (error "Invalid documentation option in DEFPACKAGE form."))
+         (setf documentation (second o)))
+        (:use
+         (dolist (u (rest o))
+           (if (packagep u)
+               (pushnew u use-list)
+               (pushnew (string u) use-list))))
+        (:import-from
+         (let ((package (find-package-or-die (second o))))
+           (dolist (name (cddr o))
+             (multiple-value-bind (symbol status)
+                 (find-symbol (string name) package)
+               (unless status
+                 (error "No such symbol ~S in package ~S." (string name) package))
+               (pushnew symbol import-list)))))
+        (:export
+         (dolist (name (cdr o))
+           (pushnew name export-list)))
+        (:intern
+         (dolist (name (cdr o))
+           (pushnew name intern-list)))
         (:shadow
          (dolist (name (cdr o))
-	   (pushnew name shadow-list)))
+           (pushnew name shadow-list)))
         (:shadowing-import-from
-	 (let ((package (find-package-or-die (second o))))
-	   (dolist (name (cddr o))
-	     (multiple-value-bind (symbol status)
-		 (find-symbol (string name) package)
-	       (unless status
-		 (error "No such symbol ~S in package ~S." (string name) package))
-	       (pushnew symbol shadow-import-list)))))
-	(:size)
+         (let ((package (find-package-or-die (second o))))
+           (dolist (name (cddr o))
+             (multiple-value-bind (symbol status)
+                 (find-symbol (string name) package)
+               (unless status
+                 (error "No such symbol ~S in package ~S." (string name) package))
+               (pushnew symbol shadow-import-list)))))
+        (:size)
         (:local-nicknames
          (setf local-nicknames (append local-nicknames (rest o))))))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(string defined-package-name)
-		    :nicknames ',nicknames
-		    :documentation ',documentation
-		    :uses ',use-list
-		    :imports ',import-list
-		    :exports ',export-list
-		    :interns ',intern-list
+                    :nicknames ',nicknames
+                    :documentation ',documentation
+                    :uses ',use-list
+                    :imports ',import-list
+                    :exports ',export-list
+                    :interns ',intern-list
                     :shadows ',shadow-list
                     :shadowing-imports ',shadow-import-list
                     :local-nicknames ',local-nicknames))))

@@ -320,7 +320,7 @@
               (consp (rest name))
               (null (rest (rest name)))
               (member (first name) '(setf cas))
-	      (symbolp (second name)))
+              (symbolp (second name)))
          (values (second name) (first name)))
         (t
          (error 'type-error

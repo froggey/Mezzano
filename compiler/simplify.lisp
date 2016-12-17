@@ -127,13 +127,13 @@
   (do ((nested-form (body form) (body form)))
       ((or (not (typep nested-form 'ast-let))
            (some (lambda (x) (typep x 'special-variable)) (mapcar 'first (bindings form)))
-	   (and (bindings nested-form)
+           (and (bindings nested-form)
                 (typep (first (first (bindings nested-form))) 'special-variable))))
     (change-made)
     (if (null (bindings nested-form))
-	(setf (body form) (body nested-form))
-	(setf (bindings form) (nconc (bindings form) (list (first (bindings nested-form))))
-	      (bindings nested-form) (rest (bindings nested-form)))))
+        (setf (body form) (body nested-form))
+        (setf (bindings form) (nconc (bindings form) (list (first (bindings nested-form))))
+              (bindings nested-form) (rest (bindings nested-form)))))
   ;; Remove unused values with no side-effects.
   (setf (bindings form) (remove-if (lambda (b)
                                      (let ((var (first b))
@@ -277,7 +277,7 @@
            (first new-forms))
           (t
            (setf (forms form) new-forms)
-	   form))))
+           form))))
 
 (defmethod simp-form ((form ast-quote))
   form)

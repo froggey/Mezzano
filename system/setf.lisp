@@ -12,7 +12,7 @@
           "SETF VALUES not supported here.")
   (if (consp place)
       (let ((expander (and (symbolp (car place))
-			   (get (car place) 'setf-expander)))
+                           (get (car place) 'setf-expander)))
             (update-fn (and (symbolp (car place))
                             (get (car place) 'setf-update-fn))))
         (cond
@@ -51,15 +51,15 @@
                              `(funcall #'(setf ,(car place)) ,store-sym ,@vars)
                              (list* (car place) vars))))))))
       (multiple-value-bind (expansion expanded-p)
-	  (macroexpand-1 place environment)
-	(if expanded-p
-	    ;; Expand symbol macros.
-	    (get-setf-expansion expansion environment)
-	    ;; Generate an expansion for a variable name place.
-	    (let ((store-sym (gensym "STORE")))
-	      (values '() '() (list store-sym)
-		      `(setq ,place ,store-sym)
-		      place))))))
+          (macroexpand-1 place environment)
+        (if expanded-p
+            ;; Expand symbol macros.
+            (get-setf-expansion expansion environment)
+            ;; Generate an expansion for a variable name place.
+            (let ((store-sym (gensym "STORE")))
+              (values '() '() (list store-sym)
+                      `(setq ,place ,store-sym)
+                      place))))))
 
 (defun expand-setf-values (place value env)
   "Expand a (setf (values foo...) bar) place."
@@ -92,16 +92,16 @@
 (defmacro setf (&environment env &rest forms)
   (when forms
     (do* ((i forms (cddr i))
-	  (code (cons 'progn nil))
-	  (tail code (cdr tail)))
-	 ((endp i)
-	  (if (cddr code)
-	      code
-	      (cadr code)))
+          (code (cons 'progn nil))
+          (tail code (cdr tail)))
+         ((endp i)
+          (if (cddr code)
+              code
+              (cadr code)))
       (when (endp (cdr i))
-	(error "Odd number of forms supplied to SETF."))
+        (error "Odd number of forms supplied to SETF."))
       (let ((place (car i))
-	    (value (cadr i)))
+            (value (cadr i)))
         (setf (cdr tail) (cons (cond ((and (consp place) (eql (first place) 'values))
                                       (expand-setf-values place value env))
                                      (t (expand-setf place value env)))
@@ -112,30 +112,30 @@
       (get-setf-expansion place env)
     (let ((item-sym (gensym)))
       `(let* ((,item-sym ,item)
-	      ,@(mapcar #'list vars vals)
-	      (,(car stores) (cons ,item-sym ,getter)))
-	 ,setter))))
+              ,@(mapcar #'list vars vals)
+              (,(car stores) (cons ,item-sym ,getter)))
+         ,setter))))
 
 (defmacro pop (&environment env place)
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (let ((item-sym (gensym)))
       `(let* (,@(mapcar #'list vars vals)
-	      (,item-sym ,getter)
-	      (,(car stores) (cdr ,item-sym)))
-	 (prog1 (car ,item-sym) ,setter)))))
+              (,item-sym ,getter)
+              (,(car stores) (cdr ,item-sym)))
+         (prog1 (car ,item-sym) ,setter)))))
 
 (defmacro pushnew (&environment env item place &key key test test-not)
   (multiple-value-bind (vars vals stores setter getter)
       (get-setf-expansion place env)
     (let ((item-sym (gensym))
-	  (list-sym (gensym))
-	  (key-sym (gensym)))
+          (list-sym (gensym))
+          (key-sym (gensym)))
       `(let* ((,item-sym ,item)
-	      ,@(mapcar #'list vars vals)
-	      (,list-sym ,getter)
+              ,@(mapcar #'list vars vals)
+              (,list-sym ,getter)
               (,key-sym ,(or key '#'identity)))
-	 (if (member (funcall ,key-sym ,item-sym) ,list-sym
+         (if (member (funcall ,key-sym ,item-sym) ,list-sym
                      :key ,key-sym
                      ,@(when test (list :test test))
                      ,@(when test-not (list :test-not test-not)))
@@ -151,12 +151,12 @@
     (let ((reference (gensym "PLACE"))
           (env (gensym)))
       `(defmacro ,name (&environment ,env ,reference ,@lambda-list)
-	 ,documentation
-	 (multiple-value-bind (dummies vals newvals setter getter)
-	     (get-setf-expansion ,reference ,env)
-	   (when (cdr newvals)
-	     (error "Can't expand this"))
-	   `(let* (,@(mapcar #'list dummies vals)
+         ,documentation
+         (multiple-value-bind (dummies vals newvals setter getter)
+             (get-setf-expansion ,reference ,env)
+           (when (cdr newvals)
+             (error "Can't expand this"))
+           `(let* (,@(mapcar #'list dummies vals)
                    (,(car newvals)
                     ,(list* ',function getter
                             ,@required
@@ -164,13 +164,13 @@
                             ,@(if rest
                                   (list rest)
                                   (list '())))))
-	      ,setter))))))
+              ,setter))))))
 
 (defmacro define-setf-expander (access-fn lambda-list &body body)
   (let ((whole (gensym "WHOLE"))
-	(env (gensym "ENV")))
+        (env (gensym "ENV")))
     (multiple-value-bind (new-lambda-list env-binding)
-	(fix-lambda-list-environment lambda-list)
+        (fix-lambda-list-environment lambda-list)
       `(eval-when (:compile-toplevel :load-toplevel :execute)
          (%define-setf-expander ',access-fn
                                 (lambda (,whole ,env)
@@ -181,7 +181,7 @@
                                                                      (when env-binding
                                                                        (list `(,env-binding ,env)))
                                                                      :permit-docstring t)))
-	 ',access-fn))))
+         ',access-fn))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
 (defun %define-setf-expander (access-fn expander)
@@ -199,9 +199,9 @@
       (error "Odd number of arguments to PSETF"))
     (let ((value (gensym)))
       `(let ((,value ,(cadr pairs)))
-	 (psetf ,@(cddr pairs))
-	 (setf ,(car pairs) ,value)
-	 nil))))
+         (psetf ,@(cddr pairs))
+         (setf ,(car pairs) ,value)
+         nil))))
 
 ;; FIXME...
 (defmacro rotatef (&rest places)

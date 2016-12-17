@@ -120,16 +120,16 @@
       (decf end)
       (incf total (ash (aref buffer end) 8)))
     (do ((i start (+ i 2)))
-	((>= i end))
+        ((>= i end))
       (incf total (ub16ref/be buffer i)))
     total))
 
 (defun compute-ip-checksum (buffer &optional (start 0) end (initial 0))
   (let ((total (compute-ip-partial-checksum buffer start end initial)))
     (do ()
-	((not (logtest total #xFFFF0000)))
+        ((not (logtest total #xFFFF0000)))
       (setf total (+ (logand total #xFFFF)
-		     (ash total -16))))
+                     (ash total -16))))
     (logand (lognot total) #xFFFF)))
 
 ;;; Other.

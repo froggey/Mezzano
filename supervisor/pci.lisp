@@ -54,12 +54,12 @@
 
 (defun make-pci-address (bus device function)
   (declare (type (integer 0 255) bus register)
-	   (type (integer 0 31) device)
-	   (type (integer 0 7) function))
+           (type (integer 0 31) device)
+           (type (integer 0 7) function))
   (logior #x80000000
-	  (ash bus 16)
-	  (ash device 11)
-	  (ash function 8)))
+          (ash bus 16)
+          (ash device 11)
+          (ash function 8)))
 
 (defun pci-set-config-address (address register)
   (setf (system:io-port/32 +pci-config-address+) (logior address

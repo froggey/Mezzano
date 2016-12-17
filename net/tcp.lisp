@@ -302,7 +302,7 @@
      length))
 
 (defun assemble-tcp4-packet (src-ip src-port dst-ip dst-port seq-num ack-num window payload
-			     &key (ack-p t) psh-p rst-p syn-p fin-p)
+                             &key (ack-p t) psh-p rst-p syn-p fin-p)
   "Build a full TCP & IP header."
   (mezzano.network.ip::assemble-ipv4-packet
    src-ip dst-ip mezzano.network.ip:+ip-protocol-tcp+
@@ -344,8 +344,8 @@
       (nil)
     (let ((port (+ (random 32768) 32768)))
       (unless (find port *allocated-tcp-ports*)
-	(push port *allocated-tcp-ports*)
-	(return port)))))
+        (push port *allocated-tcp-ports*)
+        (return port)))))
 
 (defun close-tcp-connection (connection)
   (with-tcp-connection-locked connection

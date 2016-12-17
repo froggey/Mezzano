@@ -29,11 +29,11 @@
 
 (defun transmit-udp4-packet (destination source-port destination-port packet)
   (let* ((header (make-array 8 :element-type '(unsigned-byte 8)))
-	 (packet (cons header packet)))
+         (packet (cons header packet)))
     (setf (ub16ref/be header 0) source-port
-	  (ub16ref/be header 2) destination-port
-	  (ub16ref/be header 4) (sys.net:packet-length packet)
-	  (ub16ref/be header 6) 0)
+          (ub16ref/be header 2) destination-port
+          (ub16ref/be header 4) (sys.net:packet-length packet)
+          (ub16ref/be header 6) 0)
     (mezzano.network.ip:transmit-ipv4-packet destination
                                              mezzano.network.ip:+ip-protocol-udp+ packet)))
 
@@ -65,7 +65,7 @@
 (defun udp4-connect (remote-host remote-port)
   (let* ((source-port (allocate-local-udp-port))
          (remote-address (sys.net:resolve-address remote-host))
-	 (connection (make-instance 'udp4-connection
+         (connection (make-instance 'udp4-connection
                                     :remote-address remote-address
                                     :remote-port remote-port
                                     :local-port source-port)))

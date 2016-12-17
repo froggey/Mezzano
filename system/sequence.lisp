@@ -12,14 +12,14 @@
 (defun length (sequence)
   (etypecase sequence
     (list (or (list-length sequence)
-	      (error 'simple-type-error
-		     :expected-type 'sequence
-		     :datum sequence
-		     :format-control "List ~S is circular."
-		     :format-arguments (list sequence))))
+              (error 'simple-type-error
+                     :expected-type 'sequence
+                     :datum sequence
+                     :format-control "List ~S is circular."
+                     :format-arguments (list sequence))))
     (vector (if (array-has-fill-pointer-p sequence)
-		(fill-pointer sequence)
-		(array-dimension sequence 0)))))
+                (fill-pointer sequence)
+                (array-dimension sequence 0)))))
 
 (defun elt (sequence index)
   (check-type sequence sequence)
@@ -89,12 +89,12 @@
     (setf sequence (reverse sequence)))
   (let ((n 0))
     (if (listp sequence)
-	(dolist (e sequence)
-	  (when (funcall predicate (funcall key e))
-	    (incf n)))
-	(dotimes (i (length sequence) nil)
-	  (when (funcall predicate (funcall key (elt sequence i)))
-	    (incf n))))
+        (dolist (e sequence)
+          (when (funcall predicate (funcall key e))
+            (incf n)))
+        (dotimes (i (length sequence) nil)
+          (when (funcall predicate (funcall key (elt sequence i)))
+            (incf n))))
     n))
 
 (defun count (item sequence &key key from-end (start 0) end test test-not)
@@ -117,11 +117,11 @@
     (setf sequence (reverse sequence)))
   (if (listp sequence)
       (dolist (e sequence)
-	(when (funcall predicate (funcall key e))
-	  (return e)))
+        (when (funcall predicate (funcall key e))
+          (return e)))
       (dotimes (i (length sequence) nil)
-	(when (funcall predicate (funcall key (elt sequence i)))
-	  (return (elt sequence i))))))
+        (when (funcall predicate (funcall key (elt sequence i)))
+          (return (elt sequence i))))))
 
 (defun find (item sequence &key key test test-not (start 0) end from-end)
   (when (and test test-not)
@@ -240,23 +240,23 @@
   ;; Seek in sequence
   (do () ((or (null sequence) (= 0 start)))
     (setf sequence (cdr sequence)
-	  start (1- start))
+          start (1- start))
     (when end (setf end (1- end))))
   ;; Extract the subsequence
   (do* ((list (cons nil nil))
-	(tail list)
-	(i sequence (cdr i)))
+        (tail list)
+        (i sequence (cdr i)))
        ((or (null i)
-	    (and end (= 0 end)))
-	(cdr list))
+            (and end (= 0 end)))
+        (cdr list))
     (setf (cdr tail) (cons (car i) nil)
-	  tail (cdr tail))
+          tail (cdr tail))
     (when end (setf end (1- end)))))
 
 (defun subseq-vector (sequence start end)
   (if end
       (when (> end (length sequence))
-	(error "Invalid bounding index designators ~S ~S for ~S." start end sequence))
+        (error "Invalid bounding index designators ~S ~S for ~S." start end sequence))
       (setf end (length sequence)))
   (when (or (> 0 start) (> start end))
     (error "Invalid bounding index designators ~S ~S for ~S." start end sequence))
@@ -316,20 +316,20 @@
     (cond
       ((subtypep true-result-type 'null)
        (if (= total-length 0)
-		  nil
-		  (error "Too many elements for result-type NULL.")))
+                  nil
+                  (error "Too many elements for result-type NULL.")))
       ((subtypep true-result-type 'list)
        (let* ((result (cons nil nil))
-	      (tail result))
-	 (dolist (seq sequences)
-	   (if (listp seq)
-	       (dolist (elt seq)
-		 (setf (cdr tail) (cons elt nil)
-		       tail (cdr tail)))
-	       (dotimes (i (length seq))
-		 (setf (cdr tail) (cons (aref seq i) nil)
-		       tail (cdr tail)))))
-	 (cdr result)))
+              (tail result))
+         (dolist (seq sequences)
+           (if (listp seq)
+               (dolist (elt seq)
+                 (setf (cdr tail) (cons elt nil)
+                       tail (cdr tail)))
+               (dotimes (i (length seq))
+                 (setf (cdr tail) (cons (aref seq i) nil)
+                       tail (cdr tail)))))
+         (cdr result)))
       ((subtypep true-result-type 'vector)
        (let* ((element-type (cond ((and (listp true-result-type)
                                         (member (first true-result-type) '(vector simple-array array))
@@ -612,14 +612,14 @@
   (let ((result '()))
     (dolist (e list-1)
       (when (not (member e list-2 :key key :test test :test-not test-not))
-	(setf result (cons e result))))
+        (setf result (cons e result))))
     result))
 
 (defun union (list-1 list-2 &key key test test-not)
   (let ((result (copy-list list-1)))
     (dolist (e list-2)
       (when (not (member e list-1 :key key :test test :test-not test-not))
-	(setf result (cons e result))))
+        (setf result (cons e result))))
     result))
 
 (defun intersection (list-1 list-2 &key key test test-not)
