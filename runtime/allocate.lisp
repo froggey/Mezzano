@@ -20,6 +20,8 @@
 (sys.int::defglobal *general-area-expansion-granularity*)
 (sys.int::defglobal *cons-area-expansion-granularity*)
 
+(defconstant +minimum-expansion-granularity+ (* 4 1024 1024))
+
 (sys.int::defglobal *general-fast-path-hits*)
 (sys.int::defglobal *general-allocation-count*)
 (sys.int::defglobal *cons-fast-path-hits*)
@@ -330,6 +332,58 @@
   (sys.int::%atomic-fixnum-add-symbol '*general-allocation-count* 1)
   (%slow-allocate-from-general-area tag data words))
 
+(defun expand-allocation-area-1 (name granularity limit-symbol address-tag)
+  (let ((current-limit (sys.int::symbol-global-value limit-symbol))
+        ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
+        (expansion (logand (truncate granularity 2) (lognot #xFFF))))
+    (when mezzano.supervisor::*pager-noisy*
+      (mezzano.supervisor:debug-print-line "Expanding " name " area by " expansion))
+    ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
+    (when (not (mezzano.supervisor:allocate-memory-range
+                (logior sys.int::*dynamic-mark-bit*
+                        (ash address-tag
+                             sys.int::+address-tag-shift+)
+                        current-limit)
+                expansion
+                (logior sys.int::+block-map-present+
+                        sys.int::+block-map-writable+
+                        sys.int::+block-map-zero-fill+)))
+      (when mezzano.supervisor::*pager-noisy*
+        (mezzano.supervisor:debug-print-line "A-M-R newspace failed."))
+      (return-from expand-allocation-area-1 nil))
+    (when (not (mezzano.supervisor:allocate-memory-range
+                (logior (logxor sys.int::*dynamic-mark-bit*
+                                (ash 1 sys.int::+address-newspace/oldspace-bit+))
+                        (ash address-tag
+                             sys.int::+address-tag-shift+)
+                        current-limit)
+                expansion
+                sys.int::+block-map-zero-fill+))
+      ;; Roll back newspace allocation.
+      (mezzano.supervisor:release-memory-range
+       (logior sys.int::*dynamic-mark-bit*
+               (ash address-tag
+                    sys.int::+address-tag-shift+)
+               current-limit)
+       expansion)
+      (when mezzano.supervisor::*pager-noisy*
+        (mezzano.supervisor:debug-print-line "A-M-R oldspace failed."))
+      (return-from expand-allocation-area-1 nil))
+    (setf (sys.int::symbol-global-value limit-symbol) (+ current-limit expansion)))
+  t)
+
+(defun expand-allocation-area (name granularity-symbol limit-symbol address-tag)
+  (let ((granularity (sys.int::symbol-global-value granularity-symbol)))
+    (cond ((expand-allocation-area-1 name granularity limit-symbol address-tag)
+           (setf (sys.int::symbol-global-value granularity-symbol) (* granularity 2))
+           t)
+          ((not (eql granularity +minimum-expansion-granularity+))
+           ;; Retry expanding with a minimal granularity.
+           (setf (sys.int::symbol-global-value granularity-symbol) +minimum-expansion-granularity+)
+           (expand-allocation-area-1 name +minimum-expansion-granularity+ limit-symbol address-tag))
+          (t
+           nil))))
+
 (defun %slow-allocate-from-general-area (tag data words)
   (log-allocation-profile-entry)
   (let ((gc-count 0))
@@ -353,42 +407,19 @@
                     (sys.int::%%assemble-value addr sys.int::+tag-object+)))
               EXPAND-AREA
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                ;; Cannot be done when pseudo-atomic.
-                ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
-                (let ((expansion (logand (truncate *general-area-expansion-granularity* 2) (lognot #xFFF))))
-                  (when mezzano.supervisor::*pager-noisy*
-                    (mezzano.supervisor:debug-print-line "Expanding general area by " expansion))
-                  ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
-                  (when (not (mezzano.supervisor:allocate-memory-range
-                              (logior sys.int::*dynamic-mark-bit*
-                                      (ash sys.int::+address-tag-general+
-                                           sys.int::+address-tag-shift+)
-                                      sys.int::*general-area-limit*)
-                              expansion
-                              (logior sys.int::+block-map-present+
-                                      sys.int::+block-map-writable+
-                                      sys.int::+block-map-zero-fill+)))
-                    (when mezzano.supervisor::*pager-noisy*
-                      (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC."))
-                    (go DO-GC))
-                  (when (not (mezzano.supervisor:allocate-memory-range
-                              (logior (logxor sys.int::*dynamic-mark-bit*
-                                              (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                                      (ash sys.int::+address-tag-general+
-                                           sys.int::+address-tag-shift+)
-                                      sys.int::*general-area-limit*)
-                              expansion
-                              sys.int::+block-map-zero-fill+))
-                    ;; Roll back newspace allocation.
-                    (mezzano.supervisor:release-memory-range
-                     (logior sys.int::*dynamic-mark-bit*
-                             (ash sys.int::+address-tag-general+
-                                  sys.int::+address-tag-shift+)
-                             sys.int::*general-area-limit*)
-                     expansion)
-                    (go DO-GC))
-                  (incf sys.int::*general-area-limit* expansion))
-                (go INNER-LOOP)))))
+                ;; Running the GC cannot be done when pseudo-atomic.
+                (cond ((expand-allocation-area "general"
+                                               '*general-area-expansion-granularity*
+                                               'sys.int::*general-area-limit*
+                                               sys.int::+address-tag-general+)
+                       ;; Successfully expanded the area. Retry the allocation.
+                       (go INNER-LOOP))
+                      (t
+                       ;; No memory do expand, bail out and run the GC.
+                       ;; This cannot be done when pseudo-atomic.
+                       (when mezzano.supervisor::*pager-noisy*
+                         (mezzano.supervisor:debug-print-line "General area expansion failed, performing GC."))
+                       (go DO-GC)))))))
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)
@@ -534,46 +565,19 @@
                   (return-from slow-cons val))
               EXPAND-AREA
                 ;; No memory. If there's memory available, then expand the area, otherwise run the GC.
-                ;; Cannot be done when pseudo-atomic.
-                ;; Divide granularity by two because this is a semispace area. Need twice as much memory.
-                (let ((expansion (logand (truncate *cons-area-expansion-granularity* 2) (lognot #xFFF))))
-                  (when mezzano.supervisor::*pager-noisy*
-                    (mezzano.supervisor::debug-print-line "Expanding cons area by " expansion))
-                  ;; Do new & oldspace allocations seperately, this interacts better with the freelist.
-                  ;; Allocate newspace.
-                  (when (not (mezzano.supervisor:allocate-memory-range
-                              (logior sys.int::*dynamic-mark-bit*
-                                      (ash sys.int::+address-tag-cons+
-                                           sys.int::+address-tag-shift+)
-                                      sys.int::*cons-area-limit*)
-                              expansion
-                              (logior sys.int::+block-map-present+
-                                      sys.int::+block-map-writable+
-                                      sys.int::+block-map-zero-fill+)))
-                    (when mezzano.supervisor::*pager-noisy*
-                      (mezzano.supervisor:debug-print-line "A-M-R newspace failed, no memory. Doing GC."))
-                    (go DO-GC))
-                  ;; Allocate oldspace.
-                  (when (not (mezzano.supervisor:allocate-memory-range
-                              (logior (logxor sys.int::*dynamic-mark-bit*
-                                              (ash 1 sys.int::+address-newspace/oldspace-bit+))
-                                      (ash sys.int::+address-tag-cons+
-                                           sys.int::+address-tag-shift+)
-                                      sys.int::*cons-area-limit*)
-                              expansion
-                              sys.int::+block-map-zero-fill+))
-                    (when mezzano.supervisor::*pager-noisy*
-                      (mezzano.supervisor:debug-print-line "A-M-R oldspace failed, no memory. Doing GC."))
-                    ;; Roll back newspace allocation.
-                    (mezzano.supervisor:release-memory-range
-                     (logior sys.int::*dynamic-mark-bit*
-                             (ash sys.int::+address-tag-cons+
-                                  sys.int::+address-tag-shift+)
-                             sys.int::*cons-area-limit*)
-                     expansion)
-                    (go DO-GC))
-                  (incf sys.int::*cons-area-limit* expansion))
-                (go INNER-LOOP)))))
+                ;; Running the GC cannot be done when pseudo-atomic.
+                (cond ((expand-allocation-area "cons"
+                                               '*cons-area-expansion-granularity*
+                                               'sys.int::*cons-area-limit*
+                                               sys.int::+address-tag-cons+)
+                       ;; Successfully expanded the area Retry the allocation.
+                       (go INNER-LOOP))
+                      (t
+                       ;; No memory do expand, bail out and run the GC.
+                       ;; This cannot be done when pseudo-atomic.
+                       (when mezzano.supervisor::*pager-noisy*
+                         (mezzano.supervisor:debug-print-line "Cons area expansion failed, performing GC."))
+                       (go DO-GC)))))))
      DO-GC
        ;; Must occur outside the locks.
        (when (> gc-count *maximum-allocation-attempts*)

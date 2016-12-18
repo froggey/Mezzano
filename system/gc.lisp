@@ -44,20 +44,23 @@
 ;; List of finalizers that should be run now.
 (defvar *pending-finalizers* nil)
 
+(defvar *gc-cycles* 0 "Number of collections performed.")
 (defvar *gc-epoch* 0)
 (defvar *gc-time* 0.0 "Time in seconds taken by the GC so far.")
 
 (defun gc-reset-stats ()
+  (setf *gc-cycles* 0)
   (setf *words-copied* 0
         *objects-copied* 0
         *old-objects-copied* 0)
   (fill *gc-transport-counts* 0)
   (fill *gc-transport-old-counts* 0)
   (fill *gc-transport-cycles* 0)
+  (setf *gc-words-freed* 0)
   (values))
 
 (defun gc-stats ()
-  (format t "Spent ~:D seconds in the GC.~%" *gc-time*)
+  (format t "Spent ~:D seconds in the GC over ~:D collections.~%" *gc-time* *gc-cycles*)
   (format t "  Copied ~:D objects, ~:D new, ~:D words.~%" *objects-copied* (- *objects-copied* *old-objects-copied*) *words-copied*)
   (format t "Transport stats:~%")
   (dotimes (i (min (length *gc-transport-cycles*)
@@ -1053,6 +1056,7 @@ a pointer to the new object. Leaves a forwarding pointer in place."
 (defun gc-cycle ()
   (mezzano.supervisor::set-gc-light t)
   (gc-log "GC in progress...")
+  (incf *gc-cycles*)
   ;; Reset the weak pointer worklist.
   (setf *weak-pointer-worklist* '())
   ;; Flip.
