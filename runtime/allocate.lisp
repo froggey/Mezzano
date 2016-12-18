@@ -15,6 +15,8 @@
 (sys.int::defglobal sys.int::*cons-area-limit*)
 (sys.int::defglobal sys.int::*stack-area-bump*)
 
+(sys.int::defglobal sys.int::*dynamic-mark-bit*)
+
 (sys.int::defglobal *wired-allocator-lock*)
 (sys.int::defglobal *allocator-lock*)
 (sys.int::defglobal *general-area-expansion-granularity*)

@@ -12,41 +12,41 @@
 
 (in-package :sys.int)
 
-(defvar *gc-debug-scavenge-stack* nil)
-(defvar *gc-debug-freelist-rebuild* nil)
-(defvar *gc-debug-metadata* t)
+(defglobal *gc-debug-scavenge-stack* nil)
+(defglobal *gc-debug-freelist-rebuild* nil)
+(defglobal *gc-debug-metadata* t)
 
-(defvar *gc-enable-logging* nil)
+(defglobal *gc-enable-logging* nil)
 
 ;;; GC Meters.
-(defvar *old-objects-copied* 0)
-(defvar *objects-copied* 0)
-(defvar *words-copied* 0)
-(defvar *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
-(defvar *gc-transport-old-counts* (make-array 64 :area :pinned :initial-element 0))
-(defvar *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
+(defglobal *old-objects-copied* 0)
+(defglobal *objects-copied* 0)
+(defglobal *words-copied* 0)
+(defglobal *gc-transport-counts* (make-array 64 :area :pinned :initial-element 0))
+(defglobal *gc-transport-old-counts* (make-array 64 :area :pinned :initial-element 0))
+(defglobal *gc-transport-cycles* (make-array 64 :area :pinned :initial-element 0))
 
-(defvar *gc-last-general-address* 0)
-(defvar *gc-last-cons-address* 0)
+(defglobal *gc-last-general-address* 0)
+(defglobal *gc-last-cons-address* 0)
 
-(defvar *gc-in-progress* nil)
+(defglobal *gc-in-progress* nil)
 
 ;; State of the dynamic pointer mark bit. This is part of the pointer, not part
 ;; of the object itself.
-(defvar *dynamic-mark-bit* 0)
+(defglobal *dynamic-mark-bit* 0)
 ;; State of the object header mark bit, used for pinned objects.
-(defvar *pinned-mark-bit* 0)
+(defglobal *pinned-mark-bit* 0)
 
 ;; List of weak pointers that need to be updated.
-(defvar *weak-pointer-worklist* nil)
+(defglobal *weak-pointer-worklist* nil)
 ;; List of finalizers that don't be need to be run yet.
-(defvar *known-finalizers* nil)
+(defglobal *known-finalizers* nil)
 ;; List of finalizers that should be run now.
-(defvar *pending-finalizers* nil)
+(defglobal *pending-finalizers* nil)
 
-(defvar *gc-cycles* 0 "Number of collections performed.")
-(defvar *gc-epoch* 0)
-(defvar *gc-time* 0.0 "Time in seconds taken by the GC so far.")
+(defglobal *gc-cycles* 0 "Number of collections performed.")
+(defglobal *gc-epoch* 0)
+(defglobal *gc-time* 0.0 "Time in seconds taken by the GC so far.")
 
 (defun gc-reset-stats ()
   (setf *gc-cycles* 0)
@@ -337,18 +337,18 @@ This is required to make the GC interrupt safe."
            (gc-info-for-function-offset fn fn-offset)
          (when *gc-debug-metadata*
            (flet ((bad-metadata (message)
-                    (let ((*gc-debug-scavenge-stack* t)
-                          (*gc-enable-logging* t))
-                      (gc-log "RA: " return-address)
-                      (gc-log "FP: " frame-pointer)
-                      (gc-log "SP: " stack-pointer)
-                      (gc-log "FNa: " fn-address)
-                      (gc-log "FNo: " fn-offset)
-                      (debug-stack-frame framep interruptp pushed-values pushed-values-register
-                                         layout-address layout-length
-                                         multiple-values incoming-arguments
-                                         block-or-tagbody-thunk extra-registers
-                                         entry-offset restart))
+                    (setf *gc-debug-scavenge-stack* t
+                          *gc-enable-logging* t)
+                    (gc-log "RA: " return-address)
+                    (gc-log "FP: " frame-pointer)
+                    (gc-log "SP: " stack-pointer)
+                    (gc-log "FNa: " fn-address)
+                    (gc-log "FNo: " fn-offset)
+                    (debug-stack-frame framep interruptp pushed-values pushed-values-register
+                                       layout-address layout-length
+                                       multiple-values incoming-arguments
+                                       block-or-tagbody-thunk extra-registers
+                                       entry-offset restart)
                     (mezzano.supervisor:panic "Bad GC metadata: " message)))
              (declare (dynamic-extent #'bad-metadata))
              ;; Validate metadata.
@@ -426,18 +426,18 @@ This is required to make the GC interrupt safe."
         (gc-info-for-function-offset fn fn-offset)
       (when *gc-debug-metadata*
         (flet ((bad-metadata (message)
-                 (let ((*gc-debug-scavenge-stack* t)
-                       (*gc-enable-logging* t))
-                   (gc-log "RA: " return-address)
-                   (gc-log "FP: " frame-pointer)
-                   (gc-log "SP: " stack-pointer)
-                   (gc-log "FNa: " fn-address)
-                   (gc-log "FNo: " fn-offset)
-                   (debug-stack-frame framep interruptp pushed-values pushed-values-register
-                                      layout-address layout-length
-                                      multiple-values incoming-arguments
-                                      block-or-tagbody-thunk extra-registers
-                                      entry-offset restart))
+                 (setf *gc-debug-scavenge-stack* t
+                       *gc-enable-logging* t)
+                 (gc-log "RA: " return-address)
+                 (gc-log "FP: " frame-pointer)
+                 (gc-log "SP: " stack-pointer)
+                 (gc-log "FNa: " fn-address)
+                 (gc-log "FNo: " fn-offset)
+                 (debug-stack-frame framep interruptp pushed-values pushed-values-register
+                                    layout-address layout-length
+                                    multiple-values incoming-arguments
+                                    block-or-tagbody-thunk extra-registers
+                                    entry-offset restart)
                  (mezzano.supervisor:panic "Bad GC metadata: " message)))
           (declare (dynamic-extent #'bad-metadata))
           ;; Validate metadata.
