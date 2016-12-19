@@ -33,6 +33,7 @@
            #:lambda-information-environment-layout
            #:lambda-information-fref-arg
            #:lambda-information-closure-arg
+           #:lambda-information-count-arg
            #:lambda-information-plist
            #:lexical-variable
            #:lexical-variable-p

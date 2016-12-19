@@ -148,6 +148,12 @@ Must be run after keywords have been lowered."
           (push (list (lambda-information-closure-arg form) new-closure)
                 extra-bindings)
           (setf (lambda-information-closure-arg form) new-closure)))
+      (when (and (lambda-information-count-arg form)
+                 (typep (lambda-information-count-arg form) 'special-variable))
+        (let ((new-count (new-var (string (name (lambda-information-count-arg form))))))
+          (push (list (lambda-information-count-arg form) new-count)
+                extra-bindings)
+          (setf (lambda-information-count-arg form) new-count)))
       (when extra-bindings
         ;; Bindings were added.
         (setf (lambda-information-body form)

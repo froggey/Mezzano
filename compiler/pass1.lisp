@@ -80,7 +80,7 @@
   "Perform macroexpansion, alpha-conversion, and canonicalization on LAMBDA."
   (multiple-value-bind (body lambda-list declares name docstring)
       (parse-lambda lambda)
-    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg)
+    (multiple-value-bind (required optional rest enable-keys keys allow-other-keys aux fref-arg closure-arg count-arg)
         (sys.int::parse-ordinary-lambda-list lambda-list)
       (let* ((info (make-instance 'lambda-information
                                   :name (or name
@@ -130,7 +130,9 @@
           (when fref-arg
             (setf (lambda-information-fref-arg info) (add-var fref-arg)))
           (when closure-arg
-            (setf (lambda-information-closure-arg info) (add-var closure-arg))))
+            (setf (lambda-information-closure-arg info) (add-var closure-arg)))
+          (when count-arg
+            (setf (lambda-information-count-arg info) (add-var count-arg))))
         ;; Add declarations to the environment.
         (let* ((env (extend-environment env
                                         :variables (mapcar (lambda (x)
@@ -164,6 +166,8 @@
           (check-variable-usage (lambda-information-fref-arg info)))
         (when (lexical-variable-p (lambda-information-closure-arg info))
           (check-variable-usage (lambda-information-closure-arg info)))
+        (when (lexical-variable-p (lambda-information-count-arg info))
+          (check-variable-usage (lambda-information-count-arg info)))
         info))))
 
 (defun pass1-implicit-progn (forms env)

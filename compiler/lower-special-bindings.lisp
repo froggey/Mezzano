@@ -41,6 +41,9 @@
     (assert (or (null (lambda-information-closure-arg lambda))
                 (lexical-variable-p (lambda-information-closure-arg lambda)))
             (lambda) "Special closure argument did not get lowered!")
+    (assert (or (null (lambda-information-count-arg lambda))
+                (lexical-variable-p (lambda-information-count-arg lambda)))
+            (lambda) "Special count argument did not get lowered!")
     (setf (lambda-information-body lambda)
           (lsb-form (lambda-information-body lambda)))
     (when (and *verify-special-stack*

@@ -20,6 +20,7 @@
    (%environment-layout :initarg :environment-layout :accessor lambda-information-environment-layout)
    (%fref-arg :initarg :fref-arg :accessor lambda-information-fref-arg)
    (%closure-arg :initarg :closure-arg :accessor lambda-information-closure-arg)
+   (%count-arg :initarg :count-arg :accessor lambda-information-count-arg)
    (%plist :initarg :plist :accessor lambda-information-plist))
   (:default-initargs :name nil
                      :docstring nil
@@ -35,6 +36,7 @@
                      :environment-layout nil
                      :fref-arg nil
                      :closure-arg nil
+                     :count-arg nil
                      :plist '()))
 
 (defun lambda-information-p (object)
@@ -417,6 +419,9 @@
     (when (lambda-information-closure-arg form)
       (setf (lambda-information-closure-arg info)
             (copy-variable (lambda-information-closure-arg form))))
+    (when (lambda-information-count-arg form)
+      (setf (lambda-information-count-arg info)
+            (copy-variable (lambda-information-count-arg form))))
     (setf (lambda-information-body info)
           (copy-form-1 (lambda-information-body form)))
     info))
@@ -547,6 +552,8 @@
       (reset-var (lambda-information-fref-arg form)))
     (when (lambda-information-closure-arg form)
       (reset-var (lambda-information-closure-arg form)))
+    (when (lambda-information-count-arg form)
+      (reset-var (lambda-information-count-arg form)))
     (detect-uses-1 (lambda-information-body form))))
 
 ;;; Pretty-printing.
@@ -643,5 +650,7 @@
                        (when (lambda-information-fref-arg form)
                          `(sys.int::&fref ,(unparse-compiler-form (lambda-information-fref-arg form))))
                        (when (lambda-information-closure-arg form)
-                         `(sys.int::&closure ,(unparse-compiler-form (lambda-information-closure-arg form)))))
+                         `(sys.int::&closure ,(unparse-compiler-form (lambda-information-closure-arg form))))
+                       (when (lambda-information-count-arg form)
+                         `(sys.int::&count ,(unparse-compiler-form (lambda-information-count-arg form)))))
         ,(unparse-compiler-form (lambda-information-body form))))))

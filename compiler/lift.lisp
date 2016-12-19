@@ -69,6 +69,7 @@
                 (not (lambda-information-environment-arg fn))
                 (not (lambda-information-fref-arg fn))
                 (not (lambda-information-closure-arg fn))
+                (not (lambda-information-count-arg fn))
                 (every (lambda (x)
                          (and (typep (second x) 'ast-quote)
                               (eql (value (second x)) 'nil) ; An init-form of NIL.
@@ -159,7 +160,8 @@
     (when (getf (lambda-information-plist lambda) 'notinline)
       (return-from lift-lambda))
     (when (or (lambda-information-fref-arg lambda)
-              (lambda-information-closure-arg lambda))
+              (lambda-information-closure-arg lambda)
+              (lambda-information-count-arg lambda))
       (return-from lift-lambda))
     (when (lambda-information-environment-arg lambda)
       (warn 'sys.int::simple-style-warning
