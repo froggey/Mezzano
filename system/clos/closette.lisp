@@ -1084,7 +1084,7 @@ has only has class specializer."
 ;;; compute-discriminating-function
 
 (defun compute-reader-discriminator (gf emf-table argument-offset)
-  (lambda (object) ;ehhh...
+  (lambda (object)
     (let* ((class (class-of object))
            (location (single-dispatch-emf-entry emf-table class)))
       (if location
@@ -1092,7 +1092,7 @@ has only has class specializer."
           (slow-single-dispatch-method-lookup* gf argument-offset (list object) :reader)))))
 
 (defun compute-writer-discriminator (gf emf-table argument-offset)
-  (lambda (new-value object) ;ehhh...
+  (lambda (new-value object)
     (let* ((class (class-of object))
            (location (single-dispatch-emf-entry emf-table class)))
       (if location
@@ -1104,7 +1104,7 @@ has only has class specializer."
     (let* ((class (class-of (nth argument-offset args)))
            (emfun (single-dispatch-emf-entry emf-table class)))
       (if emfun
-          (funcall emfun args)
+          (apply emfun args)
           (slow-single-dispatch-method-lookup gf args class)))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
@@ -1116,7 +1116,7 @@ has only has class specializer."
     (let* ((classes (mapcar #'class-of (subseq args 0 n-required-args)))
            (emfun (gethash classes emf-table nil)))
       (if emfun
-          (funcall emfun args)
+          (apply emfun args)
           (slow-method-lookup gf args classes)))))
 
 (defun slow-single-dispatch-method-lookup* (gf argument-offset args state)
@@ -1215,14 +1215,14 @@ has only has class specializer."
                              #'compute-effective-method-function)
                          gf applicable-methods))
                        (t
-                        (lambda (args)
+                        (lambda (&rest args)
                           (apply #'no-applicable-method gf args))))))
       ;; Cache is only valid for non-eql methods.
       (when validp
         (setf (gethash classes (classes-to-emf-table gf)) emfun)
         (dolist (class classes)
           (pushnew gf (class-dependents class))))
-      (funcall emfun args))))
+      (apply emfun args))))
 
 (defun slow-single-dispatch-method-lookup (gf args class)
   (let* ((classes (mapcar #'class-of
@@ -1234,11 +1234,11 @@ has only has class specializer."
     (let ((emfun (cond (applicable-methods
                         (std-compute-effective-method-function gf applicable-methods))
                        (t
-                        (lambda (args)
+                        (lambda (&rest args)
                           (apply #'no-applicable-method gf args))))))
       (setf (single-dispatch-emf-entry (classes-to-emf-table gf) class) emfun)
       (pushnew gf (class-dependents class))
-      (funcall emfun args))))
+      (apply emfun args))))
 
 ;;; compute-applicable-methods-using-classes
 
@@ -1337,7 +1337,7 @@ has only has class specializer."
       nil
       (let ((next-emfun (compute-primary-emfun (cdr methods)))
             (fn (method-function (car methods))))
-        #'(lambda (args)
+        #'(lambda (&rest args)
             (funcall fn args next-emfun)))))
 
 (defun std-compute-effective-method-function-with-standard-method-combination (gf methods)
@@ -1353,7 +1353,7 @@ has only has class specializer."
                        #'compute-effective-method-function)
                    gf (remove around methods)))
               (around-fn (method-function around)))
-          #'(lambda (args)
+          #'(lambda (&rest args)
               (funcall around-fn args next-emfun)))
         (let ((next-emfun (compute-primary-emfun (cdr primaries)))
               (primary (method-function (car primaries)))
@@ -1361,7 +1361,7 @@ has only has class specializer."
               (reverse-afters
                 (mapcar 'method-function (reverse (remove-if-not #'after-method-p methods)))))
           (cond ((and befores reverse-afters)
-                 (lambda (args)
+                 (lambda (&rest args)
                    (dolist (before befores)
                      (funcall before args nil))
                    (multiple-value-prog1
@@ -1369,23 +1369,23 @@ has only has class specializer."
                      (dolist (after reverse-afters)
                        (funcall after args nil)))))
                 (befores
-                 (lambda (args)
+                 (lambda (&rest args)
                    (dolist (before befores)
                      (funcall before args nil))
                    (funcall primary args next-emfun)))
                 (reverse-afters
-                 (lambda (args)
+                 (lambda (&rest args)
                    (multiple-value-prog1
                        (funcall primary args next-emfun)
                      (dolist (after reverse-afters)
                        (funcall after args nil)))))
-                (t (lambda (args)
+                (t (lambda (&rest args)
                      (funcall primary args next-emfun))))))))
 
 (defun generate-method-combination-effective-method (name effective-method-body)
   (let ((method-args (gensym "ARGS"))
         (next-emfun (gensym "NEXT-EMFUN")))
-    `(lambda (,method-args)
+    `(lambda (&rest ,method-args)
        (declare (system:lambda-name (effective-method ,@name)))
        (macrolet ((call-method (method &optional next-method-list)
                     (when (listp method)
@@ -1398,7 +1398,7 @@ has only has class specializer."
                            `(funcall ',(method-function method)
                                      ,',method-args
                                      ,(if next-method-list
-                                          `(lambda (,',method-args)
+                                          `(lambda (&rest ,',method-args)
                                              (call-method ,(first next-method-list)
                                                           ,(rest next-method-list)))
                                           nil)))))

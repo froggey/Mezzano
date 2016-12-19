@@ -260,7 +260,7 @@
          (flet ((call-next-method (&rest cnm-args)
                   (if (null next-emfun)
                       (error "No next method.")
-                      (funcall next-emfun (or cnm-args args))))
+                      (apply next-emfun (or cnm-args args))))
                 (next-method-p ()
                   (not (null next-emfun))))
            (apply (lambda ,(kludge-arglist lambda-list)
