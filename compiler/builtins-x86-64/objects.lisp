@@ -82,48 +82,52 @@
 ;;               (eql (%object-tag object) object-tag))
 ;;    (raise-type-error object expected-type)))
 (defbuiltin sys.int::%type-check (object object-tag expected-type) ()
-  (cond ((and (constant-type-p object-tag `(unsigned-byte ,sys.int::+object-type-size+))
-              (quoted-constant-p expected-type))
-         ;; Fast case where the tag & type are constants.
-         (let ((type-error-label (gensym)))
-           (emit-trailer (type-error-label)
-             (raise-type-error :r8 (second expected-type)))
-           (load-in-reg :r8 object t)
-           ;; Test tag = +tag-object+
-           (emit `(sys.lap-x86:mov8 :al :r8l)
-                 `(sys.lap-x86:and8 :al #b1111)
-                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-                 `(sys.lap-x86:jne ,type-error-label))
-           ;; Test object type.
-           (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
-                 `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+object-type-size+))
-                                              sys.int::+object-type-shift+))
-                 `(sys.lap-x86:cmp8 :al ,(ash (second object-tag)
-                                              sys.int::+object-type-shift+))
-                 `(sys.lap-x86:jne ,type-error-label))))
-        (t ;; Slow path.
-         (load-in-reg :r8 object t)
-         (load-in-reg :r10 object-tag t)
-         (let ((type-error-label (gensym)))
-           (emit-trailer (type-error-label)
-             (load-in-reg :r9 expected-type t)
-             (call-support-function 'sys.int::raise-type-error 2)
-             (emit `(sys.lap-x86:ud2)))
-           ;; Test tag = +tag-object+
-           (emit `(sys.lap-x86:mov8 :al :r8l)
-                 `(sys.lap-x86:and8 :al #b1111)
-                 `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
-                 `(sys.lap-x86:jne ,type-error-label))
-           ;; Test object type.
-           (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
-                 `(sys.lap-x86:and64 :rax ,(ash (1- (ash 1 sys.int::+object-type-size+))
+  (block nil
+    (cond ((and (constant-type-p object-tag `(unsigned-byte ,sys.int::+object-type-size+))
+                (quoted-constant-p expected-type))
+           (when (and (quoted-constant-p object)
+                      (typep (second object) (second expected-type)))
+             (return ''nil))
+           ;; Fast case where the tag & type are constants.
+           (let ((type-error-label (gensym)))
+             (emit-trailer (type-error-label)
+               (raise-type-error :r8 (second expected-type)))
+             (load-in-reg :r8 object t)
+             ;; Test tag = +tag-object+
+             (emit `(sys.lap-x86:mov8 :al :r8l)
+                   `(sys.lap-x86:and8 :al #b1111)
+                   `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                   `(sys.lap-x86:jne ,type-error-label))
+             ;; Test object type.
+             (emit `(sys.lap-x86:mov8 :al ,(object-ea :r8 :slot -1))
+                   `(sys.lap-x86:and8 :al ,(ash (1- (ash 1 sys.int::+object-type-size+))
                                                 sys.int::+object-type-shift+))
-                 ;; Convert type to fixnum.
-                 `(sys.lap-x86:shr64 :rax ,(- sys.int::+object-type-shift+
-                                            sys.int::+n-fixnum-bits+))
-                 `(sys.lap-x86:cmp64 :rax :r10)
-                 `(sys.lap-x86:jne ,type-error-label)))))
-  *r8-value*)
+                   `(sys.lap-x86:cmp8 :al ,(ash (second object-tag)
+                                                sys.int::+object-type-shift+))
+                   `(sys.lap-x86:jne ,type-error-label))))
+          (t ;; Slow path.
+           (load-in-reg :r8 object t)
+           (load-in-reg :r10 object-tag t)
+           (let ((type-error-label (gensym)))
+             (emit-trailer (type-error-label)
+               (load-in-reg :r9 expected-type t)
+               (call-support-function 'sys.int::raise-type-error 2)
+               (emit `(sys.lap-x86:ud2)))
+             ;; Test tag = +tag-object+
+             (emit `(sys.lap-x86:mov8 :al :r8l)
+                   `(sys.lap-x86:and8 :al #b1111)
+                   `(sys.lap-x86:cmp8 :al ,sys.int::+tag-object+)
+                   `(sys.lap-x86:jne ,type-error-label))
+             ;; Test object type.
+             (emit `(sys.lap-x86:mov64 :rax ,(object-ea :r8 :slot -1))
+                   `(sys.lap-x86:and64 :rax ,(ash (1- (ash 1 sys.int::+object-type-size+))
+                                                  sys.int::+object-type-shift+))
+                   ;; Convert type to fixnum.
+                   `(sys.lap-x86:shr64 :rax ,(- sys.int::+object-type-shift+
+                                                sys.int::+n-fixnum-bits+))
+                   `(sys.lap-x86:cmp64 :rax :r10)
+                   `(sys.lap-x86:jne ,type-error-label)))))
+    *r8-value*))
 
 ;;(defun bounds-check (object slot)
 ;;  (unless (fixnump slot)
