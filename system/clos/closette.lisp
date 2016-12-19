@@ -80,14 +80,14 @@
 ;;; standard-class must be determined without making any further slot
 ;;; references.
 
-(defvar *the-class-standard-class*)    ;standard-class's class metaobject
-(defvar *the-class-funcallable-standard-class*)
-(defvar *the-class-standard-direct-slot-definition*)
-(defvar *the-class-standard-effective-slot-definition*)
-(defvar *the-class-t*)
-(defvar *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
-(defvar *standard-class-slot-storage-layout-position*)
-(defvar *standard-class-hash-position*)
+(sys.int::defglobal *the-class-standard-class*)    ;standard-class's class metaobject
+(sys.int::defglobal *the-class-funcallable-standard-class*)
+(sys.int::defglobal *the-class-standard-direct-slot-definition*)
+(sys.int::defglobal *the-class-standard-effective-slot-definition*)
+(sys.int::defglobal *the-class-t*)
+(sys.int::defglobal *standard-class-effective-slots-position*) ; Position of the effective-slots slot in standard-class.
+(sys.int::defglobal *standard-class-slot-storage-layout-position*)
+(sys.int::defglobal *standard-class-hash-position*)
 
 (defun slot-location (class slot-name)
   (if (and (eq slot-name 'effective-slots)
@@ -668,7 +668,7 @@ Other arguments are included directly."
 ;;; Generic function metaobjects and standard-generic-function
 ;;;
 
-(defvar *the-class-standard-gf*) ;standard-generic-function's class metaobject
+(sys.int::defglobal *the-class-standard-gf*) ;standard-generic-function's class metaobject
 
 (defun generic-function-name (gf)
   (slot-value gf 'name))
@@ -736,7 +736,7 @@ Other arguments are included directly."
 ;;; Method metaobjects and standard-method
 ;;;
 
-(defvar *the-class-standard-method*)    ;standard-method's class metaobject
+(sys.int::defglobal *the-class-standard-method*)    ;standard-method's class metaobject
 
 (defun method-lambda-list (method) (slot-value method 'lambda-list))
 (defun (setf method-lambda-list) (new-value method)
@@ -1800,7 +1800,7 @@ has only has class specializer."
 
 ;;; eql specializers.
 
-(defvar *interned-eql-specializers* (make-hash-table))
+(sys.int::defglobal *interned-eql-specializers* (make-hash-table))
 
 (defclass eql-specializer (specializer)
   ((object :initarg :object :reader eql-specializer-object)))

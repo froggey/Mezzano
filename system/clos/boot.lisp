@@ -14,7 +14,7 @@
 ;;; Primordial class objects installed in the class table during boot will
 ;;; be converted in-place to real classes after boot.
 
-(defvar *class-table* (make-hash-table :test #'eq))
+(sys.int::defglobal *class-table* (make-hash-table :test #'eq))
 
 (defun find-class (symbol &optional (errorp t) environment)
   (let ((class (gethash symbol *class-table* nil)))
@@ -34,12 +34,12 @@
 (defun next-class-hash-value ()
   (sys.int::%atomic-fixnum-add-symbol '*next-class-hash-value* 1))
 
-(defparameter *secret-unbound-value* (list "slot unbound"))
+(sys.int::defglobal *secret-unbound-value* (list "slot unbound"))
 
 ;;; Primordial classes. These map from class names (not class objects!)
 ;;; to the argument list passed to ensure-class (plus a :name argument).
 
-(defvar *primordial-class-table* (make-hash-table))
+(sys.int::defglobal *primordial-class-table* (make-hash-table))
 
 (defun ensure-class (name
                      &rest all-keys
