@@ -440,7 +440,7 @@
                (code-char code-point))
           #\REPLACEMENT_CHARACTER))))
 
-(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream simple-file-character-stream) sequence &optional (start 0) end)
   (assert (member (direction stream) '(:input :io)))
   (cond ((stringp sequence)
          ;; This is slightly faster than going through method dispatch, but it's not great.
@@ -487,7 +487,7 @@
           (error "Read error! ~S" file-size))
         file-size))))
 
-(defmethod directory-using-host ((host simple-file-host) pathname)
+(defmethod directory-using-host ((host simple-file-host) pathname &key)
   (let ((path (unparse-simple-file-path pathname))
         (x nil))
     (with-connection (con host)

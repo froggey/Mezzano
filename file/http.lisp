@@ -333,7 +333,7 @@
 (defmethod sys.gray:stream-file-length ((stream http-character-stream))
   (length (stream-buffer stream)))
 
-(defmethod directory-using-host ((host http-host) pathname)
+(defmethod directory-using-host ((host http-host) pathname &key)
   (declare (ignore host pathname))
   '())
 

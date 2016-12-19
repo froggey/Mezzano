@@ -272,6 +272,8 @@
 ;;; N.B. The function kludge-arglist is used to pave over the differences
 ;;; between argument keyword compatibility for regular functions versus
 ;;; generic functions.
+;;; TODO: This needs to examine the generic function's lambda list to
+;;; determine if &allow-other-keys must be added.
 
 (defun kludge-arglist (lambda-list)
   (let* ((plist (analyze-lambda-list lambda-list))

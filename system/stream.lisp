@@ -311,7 +311,7 @@
                 (setf (aref sequence (+ start i)) elt)
                 (return (+ start i))))))))
 
-(defmethod sys.gray:stream-read-sequence ((stream stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream stream) sequence &optional start end)
   (generic-read-sequence sequence stream start end))
 
 (defun write-sequence (sequence stream &key (start 0) end)
@@ -326,7 +326,7 @@
         (dotimes (i n)
           (write-byte (aref sequence (+ start i)) stream)))))
 
-(defmethod sys.gray:stream-write-sequence ((stream stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream stream) sequence &optional start end)
   (generic-write-sequence sequence stream start end))
 
 (defun file-position (stream &optional (position-spec nil position-spec-p))
@@ -842,10 +842,10 @@ CASE may be one of:
 (defmethod sys.gray:stream-write-byte ((stream shadow-stream) byte)
   (write-byte byte (shadow-stream-primary stream)))
 
-(defmethod sys.gray:stream-read-sequence ((stream shadow-stream) sequence start end)
+(defmethod sys.gray:stream-read-sequence ((stream shadow-stream) sequence &optional start end)
   (read-sequence sequence (shadow-stream-primary stream) start end))
 
-(defmethod sys.gray:stream-write-sequence ((stream shadow-stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream shadow-stream) sequence &optional start end)
   (write-sequence sequence (shadow-stream-primary stream) start end))
 
 (defmethod sys.gray:stream-file-position ((stream shadow-stream) &optional (fp nil fpp))

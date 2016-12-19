@@ -584,7 +584,7 @@
                (incf (stream-position stream))))
             (t :eof)))))
 
-(defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence start end)
+(defmethod sys.gray:stream-write-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :output))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))
@@ -604,7 +604,7 @@
       (incf (stream-position stream) (- end start))
       (setf (getf (file-plist file) :write-time) (get-universal-time)))))
 
-#+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence start end)
+#+(or)(defmethod sys.gray:stream-read-sequence ((stream local-stream) sequence &optional (start 0) end)
   (check-type (direction stream) (member :io :input))
   (let ((file (local-stream-file stream)))
     (mezzano.supervisor:with-mutex ((file-lock file))

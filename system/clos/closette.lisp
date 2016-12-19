@@ -971,6 +971,32 @@ has only has class specializer."
     (setf (method-function method) function)
     method))
 
+(defun check-method-lambda-list-congruence (gf method)
+  "Ensure that the lambda lists of GF and METHOD are compatible."
+  (let ((gf-ll (analyze-lambda-list (generic-function-lambda-list gf)))
+        (method-ll (analyze-lambda-list (method-lambda-list method))))
+    (assert (eql (length (getf gf-ll :required-args))
+                 (length (getf method-ll :required-args)))
+            (gf method)
+            "Generic function ~S and method ~S have differing required arguments."
+            gf method)
+    (assert (eql (length (getf gf-ll :optional-args))
+                 (length (getf method-ll :optional-args)))
+            (gf method)
+            "Generic function ~S and method ~S have differing optional arguments."
+            gf method)
+    (let ((gf-accepts-key-or-rest (or (getf gf-ll :rest-var)
+                                      (member '&key (generic-function-lambda-list gf))))
+          (method-accepts-key-or-rest (or (getf method-ll :rest-var)
+                                          (member '&key (method-lambda-list method)))))
+      (assert (or (and gf-accepts-key-or-rest
+                       method-accepts-key-or-rest)
+                  (and (not gf-accepts-key-or-rest)
+                       (not method-accepts-key-or-rest)))
+              (gf method)
+            "Generic function ~S and method ~S differ in their acceptance of &KEY or &REST arguments."
+            gf method))))
+
 ;;; add-method
 
 ;;; N.B. This version first removes any existing method on the generic function
@@ -983,6 +1009,8 @@ has only has class specializer."
   (when (and (endp (generic-function-methods gf))
              (endp (generic-function-lambda-list gf)))
     (setf (generic-function-lambda-list gf) (method-lambda-list method)))
+  (check-method-lambda-list-congruence gf method)
+  (assert (not (method-generic-function method)))
   (let ((old-method
            (find-method gf (method-qualifiers method)
                            (method-specializers method) nil)))
@@ -1490,16 +1518,16 @@ has only has class specializer."
 (defmethod make-instance ((class symbol) &rest initargs)
   (apply #'make-instance (find-class class) initargs))
 
-(defgeneric initialize-instance (instance &key))
+(defgeneric initialize-instance (instance &key &allow-other-keys))
 (defmethod initialize-instance ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance t initargs))
 
-(defgeneric reinitialize-instance (instance &key))
+(defgeneric reinitialize-instance (instance &key &allow-other-keys))
 (defmethod reinitialize-instance
            ((instance standard-object) &rest initargs)
   (apply #'shared-initialize instance () initargs))
 
-(defgeneric shared-initialize (instance slot-names &key))
+(defgeneric shared-initialize (instance slot-names &key &allow-other-keys))
 (defmethod shared-initialize ((instance standard-object)
                               slot-names &rest all-keys)
   (dolist (slot (class-slots (class-of instance)))
@@ -1520,7 +1548,7 @@ has only has class specializer."
 
 ;;; change-class
 
-(defgeneric change-class (instance new-class &key))
+(defgeneric change-class (instance new-class &key &allow-other-keys))
 (defmethod change-class
            ((old-instance standard-object)
             (new-class standard-class)
@@ -1546,7 +1574,7 @@ has only has class specializer."
            ((instance standard-object) (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
 
-(defgeneric update-instance-for-different-class (old new &key))
+(defgeneric update-instance-for-different-class (old new &key &allow-other-keys))
 (defmethod update-instance-for-different-class
            ((old standard-object) (new standard-object) &rest initargs)
   (let ((added-slots
