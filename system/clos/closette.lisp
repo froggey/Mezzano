@@ -853,6 +853,17 @@ has only has class specializer."
             (generic-function-lambda-list gf))))
     (getf plist ':required-args)))
 
+(defun gf-optional-arglist (gf)
+  (let ((plist
+          (analyze-lambda-list
+            (generic-function-lambda-list gf))))
+    (getf plist ':optional-args)))
+
+(defun gf-rest-arg-p (gf)
+  (let ((ll (generic-function-lambda-list gf)))
+    (or (member '&rest ll)
+        (member '&key ll))))
+
 (defun finalize-generic-function (gf)
   (let* ((required-args (gf-required-arglist gf))
          (relevant-args (make-array (length required-args)
@@ -1100,12 +1111,51 @@ has only has class specializer."
           (slow-single-dispatch-method-lookup* gf argument-offset (list new-value object) :writer)))))
 
 (defun compute-1-effective-discriminator (gf emf-table argument-offset)
-  (lambda (&rest args)
-    (let* ((class (class-of (nth argument-offset args)))
-           (emfun (single-dispatch-emf-entry emf-table class)))
-      (if emfun
-          (apply emfun args)
-          (slow-single-dispatch-method-lookup gf args class)))))
+  ;; Generate specialized dispatch functions for various combinations of
+  ;; arguments.
+  (macrolet ((gen-one (index n-required restp)
+               (let ((req-args (loop
+                                  for i below n-required
+                                  collect (gensym)))
+                     (rest-arg (when restp
+                                 (gensym))))
+                 `(when (and (eql ',index argument-offset)
+                             (eql (length (gf-required-arglist gf)) ',n-required)
+                             (eql (length (gf-optional-arglist gf)) '0)
+                             (or (and ',restp (gf-rest-arg-p gf))
+                                 (and (not ',restp) (not (gf-rest-arg-p gf)))))
+                    (lambda (,@req-args ,@(if rest-arg
+                                              `(&rest ,rest-arg)
+                                              '()))
+                      (declare (system:lambda-name (1-effective-discriminator ,index ,n-required ,restp)))
+                      (let* ((class (class-of ,(nth index req-args)))
+                             (emfun (single-dispatch-emf-entry emf-table class)))
+                        (if emfun
+                            ,(if rest-arg
+                                 `(apply emfun ,@req-args ,rest-arg)
+                                 `(funcall emfun ,@req-args))
+                            (slow-single-dispatch-method-lookup
+                             gf
+                             ,(if rest-arg
+                                  `(list* ,@req-args ,rest-arg)
+                                  `(list ,@req-args))
+                             class)))))))
+             (gen-all ()
+               `(or
+                 ,@(loop
+                      for idx from 0 below 5
+                      appending
+                        (loop
+                           for req from 1 to 5
+                           collect `(gen-one ,idx ,req nil)
+                           collect `(gen-one ,idx ,req t))))))
+    (or (gen-all)
+        (lambda (&rest args)
+          (let* ((class (class-of (nth argument-offset args)))
+                 (emfun (single-dispatch-emf-entry emf-table class)))
+            (if emfun
+                (apply emfun args)
+                (slow-single-dispatch-method-lookup gf args class)))))))
 
 (defun compute-n-effective-discriminator (gf emf-table n-required-args)
   (lambda (&rest args)
