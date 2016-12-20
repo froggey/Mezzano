@@ -210,38 +210,43 @@
     (#.+object-tag-funcallable-instance+
      (funcallable-instance-debug-info function))))
 
+(declaim (inline funcallable-std-instance-p
+                 funcallable-std-instance-class (setf funcallable-std-instance-class)
+                 funcallable-std-instance-slots (setf funcallable-std-instance-slots)
+                 funcallable-std-instance-layout (setf funcallable-std-instance-layout)))
+
 (defun funcallable-std-instance-p (object)
   (%object-of-type-p object +object-tag-funcallable-instance+))
 
 (defun funcallable-std-instance-function (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-function+))
 (defun (setf funcallable-std-instance-function) (value funcallable-instance)
   (check-type value function)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   ;; TODO: If the function is an +OBJECT-TAG-FUNCTION+, then the entry point could point directly at it.
   ;; Same as in ALLOCATE-FUNCALLABLE-STD-INSTANCE.
   (setf (%object-ref-t funcallable-instance +funcallable-instance-function+) value))
 
 (defun funcallable-std-instance-class (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-class+))
 (defun (setf funcallable-std-instance-class) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-class+) value))
 
 (defun funcallable-std-instance-slots (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-slots+))
 (defun (setf funcallable-std-instance-slots) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-slots+) value))
 
 (defun funcallable-std-instance-layout (funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (%object-ref-t funcallable-instance +funcallable-instance-layout+))
 (defun (setf funcallable-std-instance-layout) (value funcallable-instance)
-  (assert (funcallable-std-instance-p funcallable-instance) (funcallable-instance))
+  (%type-check funcallable-instance +object-tag-funcallable-instance+ 'std-instance)
   (setf (%object-ref-t funcallable-instance +funcallable-instance-layout+) value))
 
 (defun compiled-function-p (object)
@@ -612,6 +617,11 @@ VALUE may be nil to make the fref unbound."
                                     nil
                                     #+x86-64 :x86-64))
        ',name)))
+
+(declaim (inline std-instance-p
+                 std-instance-class (setf std-instance-class)
+                 std-instance-slots (setf std-instance-slots)
+                 std-instance-layout (setf std-instance-layout)))
 
 (defun std-instance-p (object)
   (%object-of-type-p object +object-tag-std-instance+))
