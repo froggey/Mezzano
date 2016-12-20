@@ -1066,11 +1066,10 @@ has only has class specializer."
                              :lambda-list '(object)
                              :qualifiers ()
                              :specializers (list class)
-                             :function (lambda (args next-emfun)
-                                         (declare (ignore next-emfun))
-                                         (apply (lambda (object)
-                                                  (slot-value object slot-name))
-                                                args))
+                             :function (lambda (method next-emfun)
+                                         (declare (ignore method next-emfun))
+                                         (lambda (object)
+                                           (slot-value object slot-name)))
                              :slot-definition slot-name))
   (values))
 
@@ -1080,11 +1079,10 @@ has only has class specializer."
                              :lambda-list '(new-value object)
                              :qualifiers ()
                              :specializers (list (find-class 't) class)
-                             :function (lambda (args next-emfun)
-                                         (declare (ignore next-emfun))
-                                         (apply (lambda (new-value object)
-                                                  (setf (slot-value object slot-name) new-value))
-                                                args))
+                             :function (lambda (method next-emfun)
+                                         (declare (ignore method next-emfun))
+                                         (lambda (new-value object)
+                                           (setf (slot-value object slot-name) new-value)))
                              :slot-definition slot-name))
   (values))
 
@@ -1382,13 +1380,14 @@ has only has class specializer."
 
 ;;; compute an effective method function from a list of primary methods:
 
+(defun method-fast-function (method next-emfun)
+  (funcall (method-function method) method next-emfun))
+
 (defun compute-primary-emfun (methods)
   (if (null methods)
       nil
-      (let ((next-emfun (compute-primary-emfun (cdr methods)))
-            (fn (method-function (car methods))))
-        #'(lambda (&rest args)
-            (funcall fn args next-emfun)))))
+      (let ((next-emfun (compute-primary-emfun (cdr methods))))
+        (method-fast-function (car methods) next-emfun))))
 
 (defun std-compute-effective-method-function-with-standard-method-combination (gf methods)
   (let ((primaries (remove-if-not #'primary-method-p methods))
@@ -1401,36 +1400,37 @@ has only has class specializer."
                    (if (eq (class-of gf) *the-class-standard-gf*)
                        #'std-compute-effective-method-function
                        #'compute-effective-method-function)
-                   gf (remove around methods)))
-              (around-fn (method-function around)))
-          #'(lambda (&rest args)
-              (funcall around-fn args next-emfun)))
-        (let ((next-emfun (compute-primary-emfun (cdr primaries)))
-              (primary (method-function (car primaries)))
-              (befores (mapcar 'method-function (remove-if-not #'before-method-p methods)))
-              (reverse-afters
-                (mapcar 'method-function (reverse (remove-if-not #'after-method-p methods)))))
+                   gf (remove around methods))))
+          (method-fast-function around next-emfun))
+        (let ((primary (compute-primary-emfun primaries))
+              (befores (mapcar (lambda (m) (method-fast-function m nil))
+                               (remove-if-not #'before-method-p methods)))
+              (reverse-afters (mapcar (lambda (m) (method-fast-function m nil))
+                                      (reverse (remove-if-not #'after-method-p methods)))))
           (cond ((and befores reverse-afters)
                  (lambda (&rest args)
+                   (declare (dynamic-extent args))
                    (dolist (before befores)
-                     (funcall before args nil))
+                     (apply before args))
                    (multiple-value-prog1
-                       (funcall primary args next-emfun)
+                       (apply primary args)
                      (dolist (after reverse-afters)
-                       (funcall after args nil)))))
+                       (apply after args)))))
                 (befores
                  (lambda (&rest args)
+                   (declare (dynamic-extent args))
                    (dolist (before befores)
-                     (funcall before args nil))
-                   (funcall primary args next-emfun)))
+                     (apply before args))
+                   (apply primary args)))
                 (reverse-afters
                  (lambda (&rest args)
+                   (declare (dynamic-extent args))
                    (multiple-value-prog1
-                       (funcall primary args next-emfun)
+                       (apply primary args)
                      (dolist (after reverse-afters)
-                       (funcall after args nil)))))
-                (t (lambda (&rest args)
-                     (funcall primary args next-emfun))))))))
+                       (apply after args)))))
+                (t
+                 primary))))))
 
 (defun generate-method-combination-effective-method (name effective-method-body)
   (let ((method-args (gensym "ARGS"))
@@ -1445,13 +1445,13 @@ has only has class specializer."
                            (assert (eql (length method) 2))
                            (second method))
                           (t
-                           `(funcall ',(method-function method)
-                                     ,',method-args
-                                     ,(if next-method-list
-                                          `(lambda (&rest ,',method-args)
-                                             (call-method ,(first next-method-list)
-                                                          ,(rest next-method-list)))
-                                          nil)))))
+                           `(apply ',(method-fast-function method
+                                                           (if next-method-list
+                                                               `(lambda (&rest ,',method-args)
+                                                                  (call-method ,(first next-method-list)
+                                                                               ,(rest next-method-list)))
+                                                               nil))
+                                   ,',method-args))))
                   (make-method (form)
                     (error "MAKE-METHOD must be either the method argument or a next-method supplied to CALL-METHOD.")))
          ,effective-method-body))))
