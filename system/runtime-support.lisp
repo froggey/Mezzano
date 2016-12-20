@@ -140,12 +140,14 @@
   (copy-list-in-area list))
 
 ;;; Will be overriden later in the init process.
-(defun funcallable-instance-lambda-expression (function)
-  (values nil t nil))
-(defun funcallable-instance-debug-info (function)
-  nil)
-(defun funcallable-instance-compiled-function-p (function)
-  t)
+(when (not (fboundp 'funcallable-instance-lambda-expression))
+  (defun funcallable-instance-lambda-expression (function)
+    (values nil t nil))
+  (defun funcallable-instance-debug-info (function)
+    nil)
+  (defun funcallable-instance-compiled-function-p (function)
+    t)
+  )
 
 (defun closure-p (object)
   (%object-of-type-p object +object-tag-closure+))
