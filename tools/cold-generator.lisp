@@ -654,7 +654,7 @@
       (read-sequence data s)
       data)))
 
-(defun write-image (s entry-fref initial-thread image-size header-path)
+(defun write-image (s entry-fref initial-thread image-size header-path uuid)
   (format t "Writing image file to ~A.~%" (namestring s))
   (let* ((image-header-data (when header-path
                               (load-image-header header-path)))
@@ -693,11 +693,7 @@
       (replace header #(#x00 #x4D #x65 #x7A #x7A #x61 #x6E #x69 #x6E #x65 #x49 #x6D #x61 #x67 #x65 #x00)
                :start1 0)
       ;; UUID.
-      (dotimes (i 16)
-        (setf (aref header (+ 16 i)) (case i
-                                       (9 (logior #x40 (random 16)))
-                                       (7 (logior (random 64) #x80))
-                                       (t (random 256)))))
+      (replace header uuid :start1 16)
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
@@ -1117,7 +1113,30 @@
       (setf (stack-store stack) *store-bump*)
       (incf *store-bump* (stack-size stack)))))
 
-(defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64))
+(defun generate-uuid ()
+  (let ((uuid (make-array 16 :element-type '(unsigned-byte 8))))
+    (dotimes (i 16)
+      (setf (aref uuid i) (case i
+                            (9 (logior #x40 (random 16)))
+                            (7 (logior (random 64) #x80))
+                            (t (random 256)))))
+    uuid))
+
+(defun format-uuid (stream object &optional colon-p at-sign-p)
+  (declare (ignore colon-p at-sign-p))
+  ;; Printed UUIDs are super weird.
+  (format stream "~2,'0X~2,'0X~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X-~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X~2,'0X"
+          ;; Byteswapped.
+          (aref object 3) (aref object 2) (aref object 1) (aref object 0)
+          (aref object 5) (aref object 4)
+          (aref object 7) (aref object 6)
+          ;; Not byteswapped.
+          (aref object 8) (aref object 9)
+          (aref object 10) (aref object 11) (aref object 12) (aref object 13) (aref object 14) (aref object 15)))
+
+(defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64) uuid)
+  (when (not uuid)
+    (setf uuid (generate-uuid)))
   (let* ((sys.c::*target-architecture* architecture)
          (sys.int::*features* (list* sys.c::*target-architecture* sys.int::*features*))
          (*wired-area-bump* +wired-area-base+)
@@ -1305,13 +1324,15 @@
     (setf (cold-symbol-value 'sys.int::*structure-slot-type*) (make-value *structure-slot-definition-definition* sys.int::+tag-object+))
     (apply-fixups *pending-fixups*)
     (write-map-file (or map-file-name (format nil "~A.map" image-name)) *function-map*)
+    (format t "UUID ~/cold-generator::format-uuid/~%" uuid)
     (if (streamp image-name)
         (write-image image-name
                      (make-value (function-reference 'sys.int::bootloader-entry-point)
                                  sys.int::+tag-object+)
                      initial-thread
                      image-size
-                     header-path)
+                     header-path
+                     uuid)
         (with-open-file (s (make-pathname :type "image" :defaults image-name)
                            :direction :output
                            :element-type '(unsigned-byte 8)
@@ -1321,7 +1342,8 @@
                                    sys.int::+tag-object+)
                        initial-thread
                        image-size
-                       header-path)))))
+                       header-path
+                       uuid)))))
 
 (defun load-source-files (files set-fdefinitions &optional wired)
   (dolist (f files)
