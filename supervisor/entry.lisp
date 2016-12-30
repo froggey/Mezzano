@@ -95,6 +95,8 @@
 
 (defconstant +boot-option-force-read-only+ #x01)
 (defconstant +boot-option-freestanding+ #x02)
+(defconstant +boot-option-video-console+ #x04)
+(defconstant +boot-option-no-detect+ #x08)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
@@ -234,6 +236,8 @@ Returns two values, the packet data and the receiving NIC."
           *page-fault-hook* nil)
     (initialize-physical-allocator)
     (initialize-early-video)
+    (when (boot-option +boot-option-video-console+)
+      (debug-set-output-pseudostream #'debug-video-stream))
     (when (not (boundp 'mezzano.runtime::*active-catch-handlers*))
       (setf first-run-p t)
       (mezzano.runtime::first-run-initialize-allocator)
@@ -257,7 +261,8 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-efi)
     (initialize-acpi)
     (initialize-platform)
-    (detect-disk-partitions)
+    (when (not (boot-option +boot-option-no-detect+))
+      (detect-disk-partitions))
     (initialize-paging-system)
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")

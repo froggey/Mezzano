@@ -16,4 +16,6 @@
 (defun initialize-platform ()
   (initialize-platform-time)
   (initialize-ps/2)
-  (initialize-pci))
+  (initialize-pci)
+  (when (not (boot-option +boot-option-no-detect+))
+    (pci-detect)))

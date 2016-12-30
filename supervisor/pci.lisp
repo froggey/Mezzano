@@ -217,8 +217,10 @@
 
 (defun initialize-pci ()
   (setf *pci-config-lock* :unlocked)
+  (setf *pci-devices* '()))
+
+(defun pci-detect ()
   (setf (system:io-port/32 +pci-config-address+) #x80000000)
-  (setf *pci-devices* '())
   (when (eql (system:io-port/32 +pci-config-address+) #x80000000)
     (debug-print-line "Begin PCI scan.")
     (labels ((scan-bus (bus)
