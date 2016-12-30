@@ -218,18 +218,24 @@
 (defconstant +address-tag-general+      #b010)
 (defconstant +address-tag-cons+         #b011)
 
-(defconstant +block-map-present+ 1 "Entry is present. This entry may still have a block associated with it, even if it is not present.")
-(defconstant +block-map-writable+ 2 "Entry is writable.")
-(defconstant +block-map-zero-fill+ 4 "Entry should be zero-filled.")
-(defconstant +block-map-committed+ 8
+(defconstant +block-map-present+ #x01
+  "Entry is present. This entry may still have a block associated with it, even if it is not present.")
+(defconstant +block-map-writable+ #x02
+  "Entry is writable.")
+(defconstant +block-map-zero-fill+ #x04
+  "Entry should be zero-filled.")
+(defconstant +block-map-committed+ #x08
   "This block is owned by the currently running system, not by a previous snapshot and can be written to safely.
 Internal to the pager, should not be used by other code.")
+(defconstant +block-map-wired+ #x10
+  "Entry should be wired in memory.")
 (defconstant +block-map-flag-mask+ #xFF)
 (defconstant +block-map-id-shift+ 8)
 (defconstant +block-map-id-size+ 54) ; keep it a few bits smaller than 56 to avoid bignums.
 (defconstant +block-map-id-lazy+ (1- (ash 1 +block-map-id-size+))
   "When stored in the ID field, this value indicates that space has been
 reserved on the disk, but no specific block has been allocated.")
+(defconstant +block-map-id-not-allocated+ 0)
 
 (defparameter *llf-version* 16)
 

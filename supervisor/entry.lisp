@@ -36,7 +36,10 @@
          (when (allocate-memory-range addr size
                                       (logior sys.int::+block-map-present+
                                               sys.int::+block-map-writable+
-                                              sys.int::+block-map-zero-fill+))
+                                              sys.int::+block-map-zero-fill+
+                                              (if wired
+                                                  sys.int::+block-map-wired+
+                                                  0)))
            (return))
          (when (> i mezzano.runtime::*maximum-allocation-attempts*)
            (error 'storage-condition))
@@ -87,6 +90,8 @@
 (defconstant +boot-information-n-memory-map-entries+              824)
 (defconstant +boot-information-memory-map+                        832)
 (defconstant +boot-information-efi-system-table+                 1344)
+(defconstant +boot-information-fdt-address+                      1352)
+(defconstant +boot-information-block-map+                        1360)
 
 (defconstant +boot-option-force-read-only+ #x01)
 

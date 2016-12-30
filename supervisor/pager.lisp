@@ -108,32 +108,6 @@ the data. Free the page with FREE-PAGE when done."
       (panic "Unable to read page from disk"))
     page))
 
-(defun initialize-block-map (bml4-block)
-  (debug-print-line "Reading block map.")
-  (labels ((one-level (block-id fn)
-             ;; Process a non-leaf level of the block map.
-             ;; FN is called on each present block id to produce the next level.
-             ;; Generate a table of memory pointers to the next level.
-             (let ((memory-repr (allocate-page "Block Map")))
-               (zeroize-page memory-repr)
-               (with-disk-block (disk-repr block-id)
-                 (dotimes (i 512)
-                   (let ((entry (sys.int::memref-unsigned-byte-64 disk-repr i)))
-                     (when (block-info-present-p entry)
-                       (setf (sys.int::memref-signed-byte-64 memory-repr i)
-                             (funcall fn (block-info-block-id entry)))))))
-               memory-repr))
-           (level-1 (block-id)
-             (read-disk-block block-id))
-           (level-2 (block-id)
-             (one-level block-id #'level-1))
-           (level-3 (block-id)
-             (one-level block-id #'level-2))
-           (level-4 (block-id)
-             (one-level block-id #'level-3)))
-    (setf *bml4* (level-4 bml4-block))
-    (debug-print-line "BML4 at " *bml4*)))
-
 (defconstant +image-header-block-map+ 96)
 (defconstant +image-header-freelist+ 104)
 
@@ -144,7 +118,8 @@ the data. Free the page with FREE-PAGE when done."
                                         +boot-option-force-read-only+)))
   (when *paging-read-only*
     (debug-print-line "Running read-only."))
-  (initialize-block-map (sys.int::memref-unsigned-byte-64 (+ header +image-header-block-map+)))
+  (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
+  (debug-print-line "BML4 at " *bml4*)
   (initialize-store-freelist (truncate (* (disk-n-sectors *paging-disk*) (disk-sector-size *paging-disk*)) #x1000)
                              (sys.int::memref-unsigned-byte-64 (+ header +image-header-freelist+)))
   (multiple-value-bind (free-blocks total-blocks)
@@ -376,6 +351,10 @@ Returns NIL if the entry is missing and ALLOCATE is false."
     ;; This will require allocating new wired backing frames as well.
     (debug-print-line "TODO: Allocate pages in the wired area.")
     (return-from allocate-memory-range-in-pager nil))
+  (when (logtest flags sys.int::+block-map-wired+)
+    (ensure (or (< base #x80000000) ; wired area
+                (and (<= #x200000000000 base) ; wired stack area.
+                     (< base #x208000000000)))))
   (with-mutex (*vm-lock*)
     ;; Ensure there's enough fudged memory before allocating.
     (when (< (- *store-freelist-n-free-blocks* (truncate length +4k-page-size+)) *store-fudge-factor*)
@@ -387,7 +366,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
        (+ base (* i #x1000))
        flags))
     (when (and (<= #x200000000000 base) ; wired stack area.
-                   (< base #x208000000000))
+               (< base #x208000000000))
+      (ensure (logtest flags sys.int::+block-map-wired+))
       ;; Pages in the wired stack area don't require backing frames.
       (dotimes (i (truncate length #x1000))
         (map-new-wired-page (+ base (* i #x1000))))))

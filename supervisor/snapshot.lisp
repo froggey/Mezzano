@@ -244,8 +244,7 @@ Returns 4 values:
            (store-free bml1-disk 1)
            nil)
           (t (snapshot-write-disk bml1-disk bml1-memory)
-             (logior (ash bml1-disk sys.int::+block-map-id-shift+)
-                     sys.int::+block-map-present+)))))
+             (ash bml1-disk sys.int::+block-map-id-shift+)))))
 
 (defun snapshot-block-map-outer-level (bml next-fn address-part)
   (let ((bml-disk (or (store-alloc 1)
@@ -269,8 +268,7 @@ Returns 4 values:
                (store-free bml-disk 1)
                nil)
               (t (snapshot-write-disk bml-disk bml-memory)
-                 (logior (ash bml-disk sys.int::+block-map-id-shift+)
-                         sys.int::+block-map-present+)))
+                 (ash bml-disk sys.int::+block-map-id-shift+)))
       (free-page bml-memory))))
 
 (defun snapshot-bml2 (bml2 address-part)

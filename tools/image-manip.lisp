@@ -15,24 +15,15 @@
   (let ((major (nibbles:ub16ref/le header 32))
         (minor (nibbles:ub16ref/le header 34)))
     (when (not (and (eql major 0)
-                    (eql minor 22)))
+                    (eql minor 23)))
       (error "Image has unsupported protocol version ~D.~D.~%" major minor))
     (let* ((uuid (subseq header 16 32))
-           (n-extents (nibbles:ub32ref/le header 36))
            (entry-fref (nibbles:ub64ref/le header 40))
            (initial-thread (nibbles:ub64ref/le header 48))
            (nil-value (nibbles:ub64ref/le header 56))
            (architecture (nibbles:ub32ref/le header 64))
            (bml4 (nibbles:ub64ref/le header 96))
-           (freelist (nibbles:ub64ref/le header 104))
-           (extents (loop
-                       for i from 0 below n-extents
-                       for base = (+ 112 (* i 32))
-                       collect
-                         (list :address (nibbles:ub64ref/le header (+ base 0))
-                               :size (nibbles:ub64ref/le header (+ base 8))
-                               :flags (nibbles:ub64ref/le header (+ base 16))
-                               :extra (nibbles:ub64ref/le header (+ base 24))))))
+           (freelist (nibbles:ub64ref/le header 104)))
       (list :uuid uuid
             :major-version major
             :minor-version minor
@@ -44,8 +35,7 @@
                             (2 :arm64)
                             (t `(:unknown ,architecture)))
             :bml4 bml4
-            :freelist freelist
-            :extents extents))))
+            :freelist freelist))))
 
 (defun encode-architecture (arch)
   (ecase arch
@@ -58,21 +48,12 @@
     (replace data (getf header :uuid) :start1 16)
     (setf (nibbles:ub16ref/le data 32) (getf header :major-version)
           (nibbles:ub16ref/le data 34) (getf header :minor-version))
-    (setf (nibbles:ub32ref/le data 36) (length (getf header :extents)))
     (setf (nibbles:ub64ref/le data 40) (getf header :entry-fref))
     (setf (nibbles:ub64ref/le data 48) (getf header :initial-thread))
     (setf (nibbles:ub64ref/le data 56) (getf header :nil-value))
     (setf (nibbles:ub32ref/le data 64) (encode-architecture (getf header :architecture)))
     (setf (nibbles:ub64ref/le data 96) (getf header :bml4))
     (setf (nibbles:ub64ref/le data 104) (getf header :freelist))
-    (loop
-       for extent in (getf header :extents)
-       for base from 112 by 32
-       do
-         (setf (nibbles:ub64ref/le data (+ base 0)) (getf extent :address)
-               (nibbles:ub64ref/le data (+ base 8)) (getf extent :size)
-               (nibbles:ub64ref/le data (+ base 16)) (getf extent :flags)
-               (nibbles:ub64ref/le data (+ base 24)) (getf extent :extra)))
     data))
 
 (defun decode-block-map-entry (entry)
@@ -83,14 +64,16 @@
           (t
            (let ((presentp (logbitp 0 entry))
                  (writep (logbitp 1 entry))
-                 (zero-fill-p (logbitp 2 entry)))
-             (assert (zerop (logand entry (lognot #x3FFFFFFFFFFFFF07))))
+                 (zero-fill-p (logbitp 2 entry))
+                 (wiredp (logbitp 4 entry)))
+             (assert (zerop (logand entry (lognot #x3FFFFFFFFFFFFF17))))
              (when (eql block-id (1- (ash 1 54)))
                (setf block-id :lazy))
              (list :block-id block-id
                    :presentp presentp
                    :writep writep
-                   :zero-fill-p zero-fill-p))))))
+                   :zero-fill-p zero-fill-p
+                   :wiredp wiredp))))))
 
 (defun read-block-map (stream offset bml4-block)
   (let ((block-map (make-hash-table)))
@@ -125,14 +108,17 @@
              (setf block-id (1- (ash 1 54))))
            (logior (ash block-id 8)
                    (if (getf info :presentp)
-                       #b0001
-                       #b0000)
+                       #b00000001
+                       #b00000000)
                    (if (getf info :writep)
-                       #b0010
-                       #b0000)
+                       #b00000010
+                       #b00000000)
                    (if (getf info :zero-fill-p)
-                       #b0100
-                       #b0000))))
+                       #b00000100
+                       #b00000000)
+                   (if (getf info :wiredp)
+                       #b00010000
+                       #b00000000))))
         (t
          0)))
 
@@ -184,8 +170,7 @@
                      (cond ((integerp entry)
                             (setf (nibbles:ub64ref/le block-table (+ my-index (* i 8))) entry))
                            (entry
-                            (setf (nibbles:ub64ref/le block-table (+ my-index (* i 8))) (logior (ash (write-level entry) 8)
-                                                                                                #b0011))))))
+                            (setf (nibbles:ub64ref/le block-table (+ my-index (* i 8))) (ash (write-level entry) 8))))))
                  my-block)))
       (write-level bml4)
       block-table)))

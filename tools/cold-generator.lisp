@@ -641,9 +641,7 @@
            (let* ((next-block *store-bump*))
              (incf *store-bump* #x1000)
              (write-block-map s image-offset next-block e)
-             (setf (nibbles:ub64ref/le data (* i 8)) (logior (ash (/ next-block #x1000) sys.int::+block-map-id-shift+)
-                                                             sys.int::+block-map-present+
-                                                             sys.int::+block-map-writable+))))
+             (setf (nibbles:ub64ref/le data (* i 8)) (ash (/ next-block #x1000) sys.int::+block-map-id-shift+))))
           ((unsigned-byte 64)
            ;; Value.
            (setf (nibbles:ub64ref/le data (* i 8)) e)))))
@@ -703,9 +701,7 @@
       ;; Major version.
       (setf (ub16ref/le header 32) 0)
       ;; Minor version.
-      (setf (ub16ref/le header 34) 22)
-      ;; Number of extents.
-      (setf (ub32ref/le header 36) 2)
+      (setf (ub16ref/le header 34) 23)
       ;; Entry fref.
       (setf (ub64ref/le header 40) entry-fref)
       ;; Initial thread.
@@ -722,16 +718,6 @@
       (setf (ub64ref/le header 96) (/ bml4-block #x1000))
       ;; Free block list.
       (setf (ub64ref/le header 104) (/ free-block-list #x1000))
-      (flet ((extent (id virtual-base size flags &optional (extra 0))
-               (setf (ub64ref/le header (+ 112 (* id 32) 0)) virtual-base
-                     (ub64ref/le header (+ 112 (* id 32) 8)) size
-                     (ub64ref/le header (+ 112 (* id 32) 16)) flags
-                     (ub64ref/le header (+ 112 (* id 32) 24)) extra)))
-        (extent 0 +wired-area-base+ (- +wired-area-limit+ +wired-area-base+) 0)
-        (extent 1
-                (logior +wired-stack-area-base+ (ash sys.int::+address-tag-stack+ sys.int::+address-tag-shift+))
-                (- +wired-stack-area-limit+ +wired-stack-area-base+)
-                0))
       ;; Write it out.
       (write-sequence header s))
     ;; Write areas.
@@ -759,7 +745,8 @@
                              +wired-area-base+
                              (/ (- (align-up *wired-area-bump* #x200000) +wired-area-base+) #x1000)
                              (logior sys.int::+block-map-present+
-                                     sys.int::+block-map-writable+))
+                                     sys.int::+block-map-writable+
+                                     sys.int::+block-map-wired+))
     (add-region-to-block-map bml4
                              (/ *pinned-area-store* #x1000)
                              +pinned-area-base+
@@ -797,7 +784,8 @@
                                (/ (stack-size stack) #x1000)
                                (logior sys.int::+block-map-present+
                                        sys.int::+block-map-writable+
-                                       sys.int::+block-map-zero-fill+)))
+                                       sys.int::+block-map-zero-fill+
+                                       sys.int::+block-map-wired+)))
     ;; Now write it out.
     (write-block-map s image-offset bml4-block bml4)
     ;; Create the freelist.
