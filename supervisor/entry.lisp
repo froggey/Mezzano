@@ -94,11 +94,16 @@
 (defconstant +boot-information-block-map+                        1360)
 
 (defconstant +boot-option-force-read-only+ #x01)
+(defconstant +boot-option-freestanding+ #x02)
 
 (defun boot-uuid (offset)
   (check-type offset (integer 0 15))
   (sys.int::memref-unsigned-byte-8 (+ +boot-information-boot-uuid-offset+ *boot-information-page*)
                                    offset))
+
+(defun boot-option (option)
+  (logtest (sys.int::memref-t (+ *boot-information-page* +boot-information-options+))
+           option))
 
 (sys.int::defglobal *boot-hook-lock*)
 (sys.int::defglobal *boot-hooks*)
@@ -253,9 +258,7 @@ Returns two values, the packet data and the receiving NIC."
     (initialize-acpi)
     (initialize-platform)
     (detect-disk-partitions)
-    (detect-paging-disk)
-    (when (not *paging-disk*)
-      (panic "Could not find boot device. Sorry."))
+    (initialize-paging-system)
     (cond (first-run-p
            (setf *post-boot-worker-thread* (make-thread #'post-boot-worker :name "Post-boot worker thread")
                  *boot-hook-lock* (make-mutex "Boot Hook Lock")

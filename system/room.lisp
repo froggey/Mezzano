@@ -130,11 +130,12 @@ Should be kept in sync with data-types.")
     (format t "Total ~:D/~:D words used (~D%).~%"
             total-used total
             (truncate (* total-used 100) total))
-    (multiple-value-bind (n-free-blocks total-blocks)
-        (mezzano.supervisor:store-statistics)
-      (format t "~:D/~:D store blocks used (~D%).~%"
-              (- total-blocks n-free-blocks) total-blocks
-              (truncate (* (- total-blocks n-free-blocks) 100) total-blocks)))
+    (when (not (eql mezzano.supervisor::*paging-disk* :freestanding))
+      (multiple-value-bind (n-free-blocks total-blocks)
+          (mezzano.supervisor:store-statistics)
+        (format t "~:D/~:D store blocks used (~D%).~%"
+                (- total-blocks n-free-blocks) total-blocks
+                (truncate (* (- total-blocks n-free-blocks) 100) total-blocks))))
     (multiple-value-bind (n-free-page-frames total-page-frames)
         (mezzano.supervisor:physical-memory-statistics)
       (format t "~:D/~:D physical pages used (~D%).~%"

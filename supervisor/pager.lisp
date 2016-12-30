@@ -111,11 +111,31 @@ the data. Free the page with FREE-PAGE when done."
 (defconstant +image-header-block-map+ 96)
 (defconstant +image-header-freelist+ 104)
 
-(defun initialize-paging-system (disk header)
+(defun initialize-paging-system ()
+  (cond ((boot-option +boot-option-freestanding+)
+         (initialize-freestanding-paging-system))
+        (t
+         (detect-paging-disk)
+         (when (not *paging-disk*)
+           (panic "Could not find boot device. Sorry.")))))
+
+(defun initialize-freestanding-paging-system ()
+  (setf *paging-disk* :freestanding
+        *paging-read-only* t)
+  (debug-print-line "Running freestanding.")
+  (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
+  (debug-print-line "BML4 at " *bml4*)
+  (initialize-freestanding-store)
+  (setf *store-fudge-factor* (- (truncate (physical-memory-statistics) 1.1)))
+  (debug-print-line "Set fudge factor to " *store-fudge-factor*)
+  (debug-print-line "Waking pager thread.")
+  (setf (thread-state sys.int::*pager-thread*) :runnable)
+  (push-run-queue sys.int::*pager-thread*))
+
+(defun initialize-hosted-paging-system (disk header)
   (setf *paging-disk* disk)
   (setf *paging-read-only* (or (not (disk-writable-p disk))
-                               (logtest (sys.int::memref-t (+ *boot-information-page* +boot-information-options+))
-                                        +boot-option-force-read-only+)))
+                               (boot-option +boot-option-force-read-only+)))
   (when *paging-read-only*
     (debug-print-line "Running read-only."))
   (setf *bml4* (sys.int::memref-signed-byte-64 (+ *boot-information-page* +boot-information-block-map+)))
@@ -193,7 +213,7 @@ the data. Free the page with FREE-PAGE when done."
                                  " on disk " disk)
                (when (check-uuid)
                  (debug-print-line "Found boot image on disk " disk "!")
-                 (initialize-paging-system disk page-addr)
+                 (initialize-hosted-paging-system disk page-addr)
                  (return))))
         ;; Release the pages.
         (release-physical-pages page (ceiling (max +4k-page-size+ sector-size) +4k-page-size+))))))
@@ -561,6 +581,8 @@ Returns NIL if the entry is missing and ALLOCATE is false."
                                                   sys.int::+block-map-flag-mask+
                                                   (lognot sys.int::+block-map-zero-fill+))))
               (t ;; Block must be read from disk.
+               (when (eql *paging-disk* :freestanding)
+                 (panic "Unable to satisfy paging request for page " address " while running freestanding"))
                (disk-submit-request *pager-disk-request*
                                     *paging-disk*
                                     :read

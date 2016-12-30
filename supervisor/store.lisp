@@ -320,6 +320,21 @@
     (dump-store-freelist))
   (debug-print-line *store-freelist-n-free-blocks* "/" *store-freelist-total-blocks* " store blocks free at boot"))
 
+(defun initialize-freestanding-store ()
+  (when (not (boundp '*verbose-store*))
+    (setf *verbose-store* nil))
+  (setf *store-freelist-metadata-freelist* '()
+        *store-freelist-recursive-metadata-allocation* nil
+        *store-freelist-n-free-metadata* 0)
+  (store-refill-metadata)
+  (setf *store-freelist-head* nil
+        *store-freelist-tail* nil
+        *store-deferred-freelist-head* nil
+        *store-freelist-n-free-blocks* 0
+        *store-freelist-n-deferred-free-blocks* 0
+        ;; Prevent division by zero in ROOM.
+        *store-freelist-total-blocks* 1))
+
 (defun store-statistics ()
   "Return three values: The number of blocks free, the total number of blocks, and the number of deferred free blocks."
   ;; Disable interrupts to avoid smearing if a snapshot is taken between the two reads.
