@@ -53,14 +53,8 @@
 
 (defun reboot ()
   ;; FIXME: Need to sync disks and wait until snapshotting finishes.
-  ;; TODO: ACPI rebooting.
-  ;; Attempt one: pulse the reset line via the PS/2 controller.
-  (ps/2-input-wait)
-  (setf (system:io-port/8 +ps/2-control-port+) #xFE) ; Pulse output line 0 low.
-  ;; Attempt two: trash the IDT and trigger a page-fault to triple-fault the CPU.
-  (%lidt 0 0)
-  (sys.int::memref-unsigned-byte-8 0 0)
-  nil)
+  (platform-reboot)
+  (values))
 
 ;;; <<<<<<
 

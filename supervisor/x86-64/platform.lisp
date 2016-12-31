@@ -24,3 +24,25 @@
     (initialize-pci)
     (when (not (boot-option +boot-option-no-detect+))
       (pci-detect))))
+
+(defun platform-reboot ()
+  (let ((fadt (acpi-get-table 'acpi-fadt-table-p)))
+    (when fadt
+      ;; ACPI reset.
+      (let ((reset-address (acpi-fadt-table-reset-reg fadt))
+            (reset-value (acpi-fadt-table-reset-value fadt)))
+        (when (and reset-address
+                   reset-value
+                   (eql (acpi-generic-address-register-bit-width reset-address) 8)
+                   (eql (acpi-generic-address-register-bit-offset reset-address) 0))
+          (setf (acpi-generic-address reset-address) reset-value))))
+    (when (or (not fadt)
+              (logtest (acpi-fadt-table-iapc-boot-arch fadt)
+                       +acpi-iapc-boot-arch-8042+))
+      ;; Pulse the reset line via the PS/2 controller.
+      (ps/2-input-wait)
+      ;; Pulse output line 0 low.
+      (setf (system:io-port/8 +ps/2-control-port+) #xFE)))
+  ;; Give up. Trash the IDT and trigger a page-fault to triple-fault the CPU.
+  (%lidt 0 0)
+  (sys.int::memref-unsigned-byte-8 0 0))
