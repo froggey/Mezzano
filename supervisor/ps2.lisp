@@ -38,6 +38,7 @@
 (defconstant +ps/2-config-aux-clock+ (ash 1 5))
 (defconstant +ps/2-config-key-translation+ (ash 1 6))
 
+(sys.int::defglobal *ps/2-present*)
 (sys.int::defglobal *ps/2-key-fifo*)
 (sys.int::defglobal *ps/2-aux-fifo*)
 (sys.int::defglobal *ps/2-controller-lock*)
@@ -113,11 +114,18 @@
   (irq-fifo-pop *ps/2-aux-fifo* wait-p))
 
 (defun initialize-ps/2 ()
+  (setf *ps/2-present* nil)
   (setf *ps/2-debug-dump-state* 0)
   (when (not (boundp '*ps/2-controller-lock*))
     (setf *ps/2-controller-lock* :unlocked
           *ps/2-key-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 key fifo")
           *ps/2-aux-fifo* (make-irq-fifo 50 :element-type '(unsigned-byte 8) :name "PS/2 aux fifo")))
+  (irq-fifo-reset *ps/2-key-fifo*)
+  (irq-fifo-reset *ps/2-aux-fifo*))
+
+(defun probe-ps/2 ()
+  (debug-print-line "Probing PS/2")
+  (setf *ps/2-present* t)
   ;; Enable the aux port.
   (ps/2-input-wait)
   (setf (system:io-port/8 +ps/2-control-port+) +ps/2-enable-aux-port+)
