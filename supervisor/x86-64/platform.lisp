@@ -15,9 +15,17 @@
 
 (defun initialize-platform ()
   (let ((fadt (acpi-get-table 'acpi-fadt-table-p)))
+    (cond
+      (fadt
+       (debug-print-line "ACPI FADT version: " (acpi-table-header-revision fadt))
+       (when (> (acpi-table-header-revision fadt) 1)
+         (debug-print-line "ACPI IA-PC boot flags: " (acpi-fadt-table-iapc-boot-arch fadt))))
+      (t
+       (debug-print-line "No ACPI FADT table detected.")))
     (initialize-platform-time)
     (initialize-ps/2)
     (when (or (not fadt)
+              (<= (acpi-table-header-revision fadt) 1)
               (logtest (acpi-fadt-table-iapc-boot-arch fadt)
                        +acpi-iapc-boot-arch-8042+))
       (probe-ps/2))
