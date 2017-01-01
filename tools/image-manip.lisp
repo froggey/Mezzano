@@ -236,3 +236,8 @@
   (with-open-file (input-stream input-path :element-type '(unsigned-byte 8))
     (with-open-file (output-stream output-path :direction :output :element-type '(unsigned-byte 8) :if-exists :supersede)
       (apply #'flatten-image-stream input-stream output-stream args))))
+
+(defun image-uuid (image-path &key (offset 0))
+  (with-open-file (image image-path :element-type '(unsigned-byte 8))
+    (let* ((header (decode-image-header (read-image-header image offset))))
+      (getf header :uuid))))
