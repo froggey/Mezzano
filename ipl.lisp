@@ -118,7 +118,9 @@ Make sure there is a virtio-net NIC attached.~%")
 ;; TCE is required for Chipz's decompressor.
 (let ((sys.c::*perform-tce* t)
       ;; Prevent extremely excessive inlining.
-      (sys.c::*constprop-lambda-copy-limit* -1))
+      (sys.c::*constprop-lambda-copy-limit* -1)
+      ;; This inhibits TCE when enabled.
+      (sys.c::*verify-special-stack* nil))
   (require :chipz))
 (require :png-read)
 (require :cl-jpeg)
