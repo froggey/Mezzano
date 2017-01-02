@@ -62,6 +62,47 @@
                                    (+ address ,offset))))))
          table))))
 
+(defun acpi-checksum-range (start size)
+  (let ((sum 0))
+    (dotimes (i size)
+      (setf sum (ldb (byte 8 0) (+ sum (physical-memref-unsigned-byte-8 start i)))))
+    (zerop sum)))
+
+(defstruct (acpi-rsdp
+             (:area :wired))
+  oemid
+  revision
+  rsdt-address
+  xsdt-address)
+
+(defstruct (acpi-table-header
+             (:area :wired))
+  address
+  signature
+  length
+  revision
+  oemid
+  oem-table-id-low
+  oem-table-id-high
+  oem-revision
+  creator-id
+  creator-revision)
+
+(defstruct (acpi-generic-address
+             (:area :wired))
+  address-space-id
+  register-bit-width
+  register-bit-offset
+  access-size
+  address)
+
+(defstruct (acpi-madt-table
+             (:area :wired)
+             (:include acpi-table-header))
+  local-interrupt-controller-address
+  flags
+  controllers)
+
 (define-acpi-table (fadt "FACP")
     ((firmware-ctrl               36 :ub32/le)
      (dsdt                        40 :ub32/le)
@@ -123,47 +164,6 @@
 (defconstant +acpi-iapc-boot-arch-msi-not-supported+    #x0008)
 (defconstant +acpi-iapc-boot-arch-pcie-aspm-controls+   #x0010)
 (defconstant +acpi-iapc-boot-arch-cmos-rtc-not-present+ #x0020)
-
-(defun acpi-checksum-range (start size)
-  (let ((sum 0))
-    (dotimes (i size)
-      (setf sum (ldb (byte 8 0) (+ sum (physical-memref-unsigned-byte-8 start i)))))
-    (zerop sum)))
-
-(defstruct (acpi-rsdp
-             (:area :wired))
-  oemid
-  revision
-  rsdt-address
-  xsdt-address)
-
-(defstruct (acpi-table-header
-             (:area :wired))
-  address
-  signature
-  length
-  revision
-  oemid
-  oem-table-id-low
-  oem-table-id-high
-  oem-revision
-  creator-id
-  creator-revision)
-
-(defstruct (acpi-generic-address
-             (:area :wired))
-  address-space-id
-  register-bit-width
-  register-bit-offset
-  access-size
-  address)
-
-(defstruct (acpi-madt-table
-             (:area :wired)
-             (:include acpi-table-header))
-  local-interrupt-controller-address
-  flags
-  controllers)
 
 (defun acpi-parse-rsdp (rsdp-address)
   (map-physical-memory (align-down rsdp-address +4k-page-size+)
