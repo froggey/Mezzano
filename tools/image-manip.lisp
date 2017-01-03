@@ -181,15 +181,6 @@
     (write-sequence table output-stream)
     bml4-block))
 
-(defun generate-uuid ()
-  (let ((result (make-array 16 :element-type '(unsigned-byte 16))))
-    (dotimes (i 16)
-      (setf (aref result i) (case i
-                              (9 (logior #x40 (random 16)))
-                              (7 (logior (random 64) #x80))
-                              (t (random 256)))))
-    result))
-
 (defun flatten-image-stream (input-stream output-stream &key (input-offset 0) (output-offset 0) output-uuid)
   (let* ((input-header (decode-image-header (read-image-header input-stream input-offset)))
          (block-map (read-block-map input-stream input-offset (getf input-header :bml4)))
@@ -223,7 +214,9 @@
     ;; Generate a new header.
     (let ((output-header (copy-list input-header)))
       (cond ((null output-uuid)
-             (setf (getf output-header :uuid) (generate-uuid)))
+             (setf (getf output-header :uuid) (cold-generator::generate-uuid)))
+            ((stringp output-uuid)
+             (setf (getf output-header :uuid) (cold-generator::parse-uuid output-uuid)))
             ((not (eql output-uuid t))
              (setf (getf output-header :uuid) output-uuid)))
       (setf (getf output-header :bml4) output-bml4

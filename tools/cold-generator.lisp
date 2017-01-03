@@ -1134,9 +1134,31 @@
           (aref object 8) (aref object 9)
           (aref object 10) (aref object 11) (aref object 12) (aref object 13) (aref object 14) (aref object 15)))
 
+(defun parse-uuid (string)
+  (assert (eql (length string) 36))
+  (assert (eql (char string 8) #\-))
+  (assert (eql (char string 13) #\-))
+  (assert (eql (char string 18) #\-))
+  (assert (eql (char string 23) #\-))
+  (flet ((b (start)
+           (parse-integer string :radix 16 :start start :end (+ start 2))))
+    (vector
+     ;; First group. Byteswapped.
+     (b 6) (b 4) (b 2) (b 0)
+     ;; Second group. Byteswapped.
+     (b 11) (b 9)
+     ;; Third group. Byteswapped.
+     (b 16) (b 14)
+     ;; Fourth group. Not byteswapped.
+     (b 19) (b 21)
+     ;; Fifth group. Not byteswapped.
+     (b 24) (b 26) (b 28) (b 30) (b 32) (b 34))))
+
 (defun make-image (image-name &key extra-source-files header-path image-size map-file-name (architecture :x86-64) uuid)
-  (when (not uuid)
-    (setf uuid (generate-uuid)))
+  (cond ((stringp uuid)
+         (setf uuid (parse-uuid uuid)))
+        ((not uuid)
+         (setf uuid (generate-uuid))))
   (let* ((sys.c::*target-architecture* architecture)
          (sys.int::*features* (list* sys.c::*target-architecture* sys.int::*features*))
          (*wired-area-bump* +wired-area-base+)
