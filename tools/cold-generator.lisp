@@ -669,7 +669,7 @@
       ;; When a header is used, a full disk image is being created, not
       ;; a stand-alone image.
       ;; Set a reasonably sensible default image size if none was provided.
-      (setf image-size (* 256 1024 1024)))
+      (setf image-size (* 512 1024 1024)))
     (when image-size
       (decf image-size image-offset)
       (format t "Generating ~:D byte image.~%" image-size))
@@ -679,8 +679,8 @@
     (format t "FBL  at offset ~X~%" free-block-list)
     (when image-header-data
       (write-sequence image-header-data s)
-      ;; Update the size of the second partition entry, the Mezzano partiton.
-      (file-position s #x1DA)
+      ;; Update the size of the third partition entry, the Mezzano partiton.
+      (file-position s #x1EA)
       (nibbles:write-ub32/le (truncate image-size 512) s))
     (incf *store-bump* #x2000)
     (when image-size

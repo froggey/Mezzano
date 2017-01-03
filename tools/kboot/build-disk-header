@@ -5,20 +5,31 @@
 set -e
 set -x
 
-rm -f bootfs.img disk_header
+rm -f efibootfs.img bootfs.img disk-header.bin
 
-# Create the bootloader partition, just under 1MB.
-dd if=/dev/zero of=bootfs.img bs=512 count=2040
+# EFI partition.
+dd if=/dev/zero of=efibootfs.img bs=512 count=2048
+mkfs.vfat efibootfs.img
+mmd -i efibootfs.img ::efi
+mmd -i efibootfs.img ::efi/boot
+mcopy -i efibootfs.img kbootx64.efi ::efi/boot/bootx64.efi
+mcopy -i efibootfs.img kboot.cfg ::efi/boot/kboot.cfg
+
+# Create the bootloader partition.
+dd if=/dev/zero of=bootfs.img bs=512 count=2048
 mke2fs -t ext2 bootfs.img
 # debugfs doesn't seem to support images at arbitrary offsets, the partition must be created seperately.
 debugfs -w -f build-disk-header-debugfs-script.txt bootfs.img
 
 # Create the actual disk header.
-# mbr-and-partition-table.bin contains a normal mbr and two partitions.
-# Partition one is active, has type 0x83, starts at LBA 8 and is 2040 blocks in size.
-# Partition two has type 0x83, starts at LBA 2048 and can be of any size.
-# The cold generator will adjust the size of partition one when it creates the image.
-dd if=mbr-and-partition-table.bin of=disk_header
-dd if=bootfs.img of=disk_header bs=512 seek=8
+# mbr-and-partition-table.bin contains a normal mbr and three partitions.
+# Partition one has type 0x83, starts at LBA 2048, is 2048 sectors in size, and is used for the EFI loader.
+# Partition two is the bootable partition, has type 0x83, starts at LBA 4096, is 2048 blocks in size, and is used for the BIOS loader.
+# Partition three has type 0x83, starts at LBA 8192 and can be of any size.
+# The cold generator will adjust the size of partition three when it creates the image.
+dd if=/dev/zero of=disk-header.bin bs=512 count=8192
+dd if=mbr-and-partition-table.bin of=disk-header.bin conv=notrunc
+dd if=efibootfs.img of=disk-header.bin conv=notrunc bs=512 seek=2048
+dd if=bootfs.img of=disk-header.bin conv=notrunc bs=512 seek=4096
 
-kboot-install --target=bios --image=disk_header --offset=4096 --path=boot/kboot.bin --verbose
+kboot-install --target=bios --image=disk-header.bin --offset=2097152 --path=boot/kboot.bin --verbose
