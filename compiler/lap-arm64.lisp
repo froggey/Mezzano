@@ -74,6 +74,11 @@
       :d20 :d21 :d22 :d23 :d24 :d25 :d26 :d27 :d28 :d29
       :d30 :d31)
      :fp-64)
+    ((:q0 :q1 :q2 :q3 :q4 :q5 :q6 :q7 :q8 :q9
+      :q10 :q11 :q12 :q13 :q14 :q15 :q16 :q17 :q18 :q19
+      :q20 :q21 :q22 :q23 :q24 :q25 :q26 :q27 :q28 :q29
+      :q30 :q31)
+     :fp-128)
     (:wsp :wsp)
     (:sp :sp)
     (:wzr :wzr)
@@ -87,38 +92,38 @@
   (when restrict-to
     (assert (member (register-class register) restrict-to)))
   (ecase register
-    ((:x0 :w0 :d0 :s0) 0)
-    ((:x1 :w1 :d1 :s1) 1)
-    ((:x2 :w2 :d2 :s2) 2)
-    ((:x3 :w3 :d3 :s3) 3)
-    ((:x4 :w4 :d4 :s4) 4)
-    ((:x5 :w5 :d5 :s5) 5)
-    ((:x6 :w6 :d6 :s6) 6)
-    ((:x7 :w7 :d7 :s7) 7)
-    ((:x8 :w8 :d8 :s8) 8)
-    ((:x9 :w9 :d9 :s9) 9)
-    ((:x10 :w10 :d10 :s10) 10)
-    ((:x11 :w11 :d11 :s11) 11)
-    ((:x12 :w12 :d12 :s12) 12)
-    ((:x13 :w13 :d13 :s13) 13)
-    ((:x14 :w14 :d14 :s14) 14)
-    ((:x15 :w15 :d15 :s15) 15)
-    ((:x16 :w16 :d16 :s16) 16)
-    ((:x17 :w17 :d17 :s17) 17)
-    ((:x18 :w18 :d18 :s18) 18)
-    ((:x19 :w19 :d19 :s19) 19)
-    ((:x20 :w20 :d20 :s20) 20)
-    ((:x21 :w21 :d21 :s21) 21)
-    ((:x22 :w22 :d22 :s22) 22)
-    ((:x23 :w23 :d23 :s23) 23)
-    ((:x24 :w24 :d24 :s24) 24)
-    ((:x25 :w25 :d25 :s25) 25)
-    ((:x26 :w26 :d26 :s26) 26)
-    ((:x27 :w27 :d27 :s27) 27)
-    ((:x28 :w28 :d28 :s28) 28)
-    ((:x29 :w29 :d29 :s29) 29)
-    ((:x30 :w30 :d30 :s30) 30)
-    ((:wzr :xzr :sp :d31 :s31) 31)))
+    ((:x0  :w0  :d0  :s0  :q0) 0)
+    ((:x1  :w1  :d1  :s1  :q1) 1)
+    ((:x2  :w2  :d2  :s2  :q2) 2)
+    ((:x3  :w3  :d3  :s3  :q3) 3)
+    ((:x4  :w4  :d4  :s4  :q4) 4)
+    ((:x5  :w5  :d5  :s5  :q5) 5)
+    ((:x6  :w6  :d6  :s6  :q6) 6)
+    ((:x7  :w7  :d7  :s7  :q7) 7)
+    ((:x8  :w8  :d8  :s8  :q8) 8)
+    ((:x9  :w9  :d9  :s9  :q9) 9)
+    ((:x10 :w10 :d10 :s10 :q10) 10)
+    ((:x11 :w11 :d11 :s11 :q11) 11)
+    ((:x12 :w12 :d12 :s12 :q12) 12)
+    ((:x13 :w13 :d13 :s13 :q13) 13)
+    ((:x14 :w14 :d14 :s14 :q14) 14)
+    ((:x15 :w15 :d15 :s15 :q15) 15)
+    ((:x16 :w16 :d16 :s16 :q16) 16)
+    ((:x17 :w17 :d17 :s17 :q17) 17)
+    ((:x18 :w18 :d18 :s18 :q18) 18)
+    ((:x19 :w19 :d19 :s19 :q19) 19)
+    ((:x20 :w20 :d20 :s20 :q20) 20)
+    ((:x21 :w21 :d21 :s21 :q21) 21)
+    ((:x22 :w22 :d22 :s22 :q22) 22)
+    ((:x23 :w23 :d23 :s23 :q23) 23)
+    ((:x24 :w24 :d24 :s24 :q24) 24)
+    ((:x25 :w25 :d25 :s25 :q25) 25)
+    ((:x26 :w26 :d26 :s26 :q26) 26)
+    ((:x27 :w27 :d27 :s27 :q27) 27)
+    ((:x28 :w28 :d28 :s28 :q28) 28)
+    ((:x29 :w29 :d29 :s29 :q29) 29)
+    ((:x30 :w30 :d30 :s30 :q30) 30)
+    ((:xzr :wzr :d31 :s31 :q31 :sp) 31)))
 
 (defun parse-address (address)
   (assert (consp address))
@@ -773,35 +778,40 @@
   (multiple-value-bind (mode base offset)
       (parse-address address)
     (let* ((class (register-class r1))
-           (position (ecase class
-                      (:gpr-64 3)
-                      (:gpr-32 2)))
-           (opc (logior (ecase class
-                          (:gpr-64 #x80000000)
-                          (:gpr-32 #x00000000))
-                        (ecase mode
-                          (:pre
-                           #x01800000)
-                          (:post
-                           #x00800000)
-                          (:base-plus-immediate
-                           #x01000000))))
+           (addressing-mode (ecase mode
+                              (:pre
+                               #x01800000)
+                              (:post
+                               #x00800000)
+                              (:base-plus-immediate
+                               #x01000000)))
            (imm-value (or (resolve-immediate offset) 0)))
-      (assert (eql class (register-class r2)))
-      (ecase class
-        (:gpr-64
-         (assert (not (logtest imm-value #b111)))
-         (assert (<= -512 imm-value 504)))
-        (:gpr-32
-         (assert (not (logtest imm-value #b11)))
-         (assert (<= -256 imm-value 252))))
-      (emit-instruction (logior #x28000000
-                                opc
-                                load-bit
-                                (ash (ldb (byte 7 position) imm-value) 15)
-                                (ash (register-number r1) +rt-shift+)
-                                (ash (register-number r2) +rt2-shift+)
-                                (ash (register-number base) +rn-shift+)))
+      (multiple-value-bind (opc position)
+          (ecase class
+            (:gpr-64 (values #x80000000 3))
+            (:gpr-32 (values #x00000000 2))
+            (:fp-32  (values #x04000000 2))
+            (:fp-64  (values #x44000000 3))
+            (:fp-128 (values #x84000000 4)))
+        (assert (eql class (register-class r2)))
+        (ecase class
+          (:fp-128
+           (assert (not (logtest imm-value #b1111)))
+           (assert (<= -1024 imm-value 1008)))
+          ((:gpr-64 :fp-64)
+           (assert (not (logtest imm-value #b111)))
+           (assert (<= -512 imm-value 504)))
+          ((:gpr-32 :fp-32)
+           (assert (not (logtest imm-value #b11)))
+           (assert (<= -256 imm-value 252))))
+        (emit-instruction (logior #x28000000
+                                  opc
+                                  addressing-mode
+                                  load-bit
+                                  (ash (ldb (byte 7 position) imm-value) 15)
+                                  (ash (register-number r1) +rt-shift+)
+                                  (ash (register-number r2) +rt2-shift+)
+                                  (ash (register-number base) +rn-shift+))))
       t)))
 
 (define-instruction ldp (r1 r2 address)
@@ -1344,7 +1354,11 @@
     (:cntv-tval-el0
      (values #b11 #b011 #b1110 #b0011 #b000))
     (:cntvct-el0
-     (values #b11 #b011 #b1110 #b0000 #b010))))
+     (values #b11 #b011 #b1110 #b0000 #b010))
+    (:fpcr
+     (values #b11 #b011 #b0100 #b0100 #b000))
+    (:fpsr
+     (values #b11 #b011 #b0100 #b0100 #b001))))
 
 (define-instruction msr (name reg)
   (cond ((and (member name '(:spsel :daifset :daifclr))

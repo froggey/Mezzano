@@ -130,7 +130,9 @@
   ;; 128-256 Symbol binding cell cache.
   (defconstant +thread-symbol-cache-start+ 128)
   (defconstant +thread-symbol-cache-end+ 256)
-  ;; 256-426 free
+  ;; 256-424 free
+  (field arm64-fpsr 425 :type (unsigned-byte 32) :accessor sys.int::%object-ref-unsigned-byte-32)
+  (field arm64-fpcr 426 :type (unsigned-byte 32) :accessor sys.int::%object-ref-unsigned-byte-32)
   ;; 427-446 State save area.
   ;;    Used to save an interrupt frame when the thread has stopped to wait for a page.
   ;;    The registers are saved here, not on the stack, because the stack may not be paged in.
@@ -388,6 +390,8 @@ Interrupts must be off, the current thread must be locked."
           #x037F) ; FCW
     (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
           #x00001F80) ; MXCSR
+    (setf (thread-arm64-fpsr thread) 0
+          (thread-arm64-fpcr thread) 0)
     ;; Set up the initial register state.
     (let ((stack-pointer (+ (stack-base stack) (stack-size stack)))
           (trampoline #'thread-entry-trampoline))
@@ -577,6 +581,8 @@ Interrupts must be off, the current thread must be locked."
         #x037F) ; FCW
   (setf (ldb (byte 32 0) (sys.int::%object-ref-unsigned-byte-64 thread (+ +thread-fx-save-area+ 3)))
         #x00001F80) ; MXCSR
+  (setf (thread-arm64-fpsr thread) 0
+        (thread-arm64-fpcr thread) 0)
   ;; Flush the symbol cache.
   (dotimes (i (- +thread-symbol-cache-end+ +thread-symbol-cache-start+))
     (setf (sys.int::%object-ref-t thread (+ +thread-symbol-cache-start+ i)) 0)))
