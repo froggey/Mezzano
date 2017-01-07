@@ -349,8 +349,11 @@ Interrupts must be off, the current thread must be locked."
 
 (defun make-thread (function &key name initial-bindings (stack-size *default-stack-size*) (priority :normal))
   (declare (sys.c::closure-allocation :wired))
+  (check-type name (or null string))
   (check-type function (or function symbol))
   (check-type priority (member :supervisor :normal :low))
+  (when name
+    (setf name (mezzano.runtime::copy-string-in-area name :wired)))
   ;; Allocate-object will leave the thread's state variable initialized to 0.
   ;; The GC detects this to know when it's scanning a partially-initialized thread.
   (let* ((thread (mezzano.runtime::%allocate-object sys.int::+object-tag-thread+ 0 511 :wired))
