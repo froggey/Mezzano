@@ -33,7 +33,8 @@
 (defun copy-string-in-area (string &optional area)
   (cond ((sys.int::character-array-p string)
          (let* ((data (sys.int::%complex-array-storage string))
-                (len (sys.int::%object-header-data data))
+                (len (or (sys.int::%complex-array-fill-pointer string)
+                         (sys.int::%object-header-data data)))
                 (tag (sys.int::%object-tag data))
                 (elt-size (ecase tag
                             (#.sys.int::+object-tag-array-unsigned-byte-8+
