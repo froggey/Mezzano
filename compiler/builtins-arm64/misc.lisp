@@ -131,7 +131,8 @@
       (emit `(lap:add :x9 :x9 ,(ash 1 sys.int::+n-fixnum-bits+)))
       (emit-object-store :x9 :x28 :slot 23) ; miss count
       ;; Recompute the hash.
-      (emit `(lap:add :x9 :xzr :x0 :lsr 1)
+      (emit-object-load :x9 :x0 :slot sys.int::+symbol-value-cell-symbol+)
+      (emit `(lap:add :x9 :xzr :x9 :lsr 1)
             `(lap:and :x9 :x9 ,(ash (1- 128) 3)))
       ;; Write the entry into the cache.
       (emit `(lap:add :x9 :x9 ,(object-slot-displacement 128))
