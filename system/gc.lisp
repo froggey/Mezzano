@@ -82,8 +82,8 @@
 ;; threshold. The idea is to prevent swapping, with the assumption that a GC
 ;; cycle will be faster than thrashing.
 (defvar *gc-poll-interval* 0.1)
-(defvar *auto-gc-thread* (mezzano.supervisor:make-thread #'auto-gc-worker :name "Background GC"))
 (defvar *gc-memory-use-threshold* 0.1)
+(defvar *auto-gc-thread* (mezzano.supervisor:make-thread #'auto-gc-worker :name "Background GC"))
 
 (defun maybe-gc ()
   (multiple-value-bind (free total)
