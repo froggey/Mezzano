@@ -129,11 +129,15 @@
 (defun detect-virtio-input-devices ()
   (dolist (dev mezzano.supervisor:*virtio-input-devices*)
     (when (not (gethash dev *virtio-input-forwarders*))
-      (format t "Created input forwarder for ~S~%" dev)
+      (format t "Created input forwarder for ~A~%"
+              (with-output-to-string (s)
+                (print-unreadable-object (dev s :type t :identity t))))
       (setf (gethash dev *virtio-input-forwarders*)
             (mezzano.supervisor:make-thread (lambda ()
                                               (virtio-input-thread dev))
-                                            :name (format nil "Virtio-Input Forwarder for ~S" dev))))))
+                                            :name (format nil "Virtio-Input Forwarder for ~A"
+                                                          (with-output-to-string (s)
+                                                            (print-unreadable-object (dev s :type t :identity t)))))))))
 
 (mezzano.supervisor:add-boot-hook 'detect-virtio-input-devices)
 (detect-virtio-input-devices)
