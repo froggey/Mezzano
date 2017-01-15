@@ -283,7 +283,7 @@ This is required to make the GC interrupt safe."
                           layout-address layout-length
                           multiple-values incoming-arguments
                           block-or-tagbody-thunk extra-registers
-                          restart offset)
+                          offset restart)
   (when *gc-debug-scavenge-stack*
     (gc-log "offset: " offset)
     (if framep
