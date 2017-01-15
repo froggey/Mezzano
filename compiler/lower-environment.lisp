@@ -21,16 +21,18 @@
 (defvar *free-variables*)
 (defvar *environment*)
 (defvar *lambda-parents*)
+(defvar *current-closure-set*)
 
 (defun lower-environment (lambda)
   (let ((*environment-layout* (make-hash-table))
         (*environment-layout-dx* (make-hash-table))
         (*allow-dx-environment* 't)
         (*current-lambda* nil)
-        (*lambda-parents* (make-hash-table)))
+        (*lambda-parents* (make-hash-table))
+        (*free-variables* (compute-free-variable-sets lambda))
+        (*current-closure-set* '()))
     (compute-environment-layout lambda)
-    (let ((*free-variables* (compute-free-variable-sets lambda))
-          (*environment* '()))
+    (let ((*environment* '()))
       (lower-env-form lambda))))
 
 (defun quoted-form-p (form)
@@ -93,12 +95,15 @@ of statements opens a new contour."
   (maybe-add-environment-variable (info form))
   (let ((env-is-dx t))
     (let ((*active-environment-vector* (info form))
-          (*allow-dx-environment* t))
-      (loop for (go-tag stmt) in (statements form) do
+          (*allow-dx-environment* t)
+          (*current-closure-set* '()))
+      (loop
+         for (go-tag stmt) in (statements form) do
            (unless (finalize-environment-layout *active-environment-vector*)
              (setf env-is-dx nil))
            (setf *active-environment-vector* go-tag
-                 *allow-dx-environment* t)
+                 *allow-dx-environment* t
+                 *current-closure-set* '())
            (compute-environment-layout stmt))
       (unless (finalize-environment-layout *active-environment-vector*)
         (setf env-is-dx nil)))
@@ -140,17 +145,20 @@ of statements opens a new contour."
              (not (localp variable)))
     (push variable (gethash *active-environment-vector* *environment-layout*))))
 
+(defun lambda-is-dynamic-extent-p (lambda)
+  (or (eql (getf (lambda-information-plist lambda) 'extent) :dynamic)
+      (getf (lambda-information-plist lambda) 'declared-dynamic-extent)))
+
 (defun lambda-tree-is-dynamic-extent-p (lambda end)
   (cond ((eql lambda end)
          t)
         (t
-         (and (or (eql (getf (lambda-information-plist lambda) 'extent) :dynamic)
-                  (getf (lambda-information-plist lambda) 'declared-dynamic-extent))
+         (and (lambda-is-dynamic-extent-p lambda)
               (lambda-tree-is-dynamic-extent-p (gethash lambda *lambda-parents*) end)))))
 
 (defun finalize-environment-layout (env)
-  ;; Inner environments must be DX, and every variable in this environment
-  ;; must only be accessed by DX lambdas.
+  ;; Inner environments must be DX, and every variable (including the parent
+  ;; backlink) in this environment must only be accessed by DX lambdas.
   (when (and *allow-dx-environment*
              (not *perform-tce*)
              (every (lambda (var)
@@ -158,7 +166,8 @@ of statements opens a new contour."
                                (or (eql (lexical-variable-definition-point var) l)
                                    (lambda-tree-is-dynamic-extent-p l *current-lambda*)))
                              (lexical-variable-used-in var)))
-                    (gethash env *environment-layout*)))
+                    (gethash env *environment-layout*))
+             (every #'lambda-is-dynamic-extent-p *current-closure-set*))
     (setf (gethash env *environment-layout-dx*) t)
     t))
 
@@ -187,7 +196,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
     (setf (gethash lambda *lambda-parents*) *current-lambda*)
     (let ((*active-environment-vector* lambda)
           (*allow-dx-environment* t)
-          (*current-lambda* lambda))
+          (*current-lambda* lambda)
+          (*current-closure-set* '()))
       (assert (null (lambda-information-environment-arg lambda)))
       (check-simple-lambda-parameters lambda)
       (dolist (arg (lambda-information-required-args lambda))
@@ -206,6 +216,8 @@ Keyword arguments, non-constant init-forms and special variables are disallowed.
         (maybe-add-environment-variable (lambda-information-count-arg lambda)))
       (compute-environment-layout (lambda-information-body lambda))
       (setf env-is-dx (finalize-environment-layout lambda)))
+    (when (gethash lambda *free-variables*)
+      (push lambda *current-closure-set*))
     (unless env-is-dx
       (setf *allow-dx-environment* nil))))
 
