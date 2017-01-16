@@ -4,6 +4,7 @@
 (in-package :mezzano.supervisor)
 
 (sys.int::define-lap-function %%return-to-same-thread ()
+  (mezzano.lap.arm64:msr :spsel 0)
   (mezzano.lap.arm64:add :sp :x0 0)
   (mezzano.lap.arm64:orr :x29 :xzr :x1)
   (mezzano.lap.arm64:orr :x5 :xzr :xzr)
