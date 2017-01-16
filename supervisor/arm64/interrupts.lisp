@@ -93,6 +93,7 @@
   ;; Done, return.
   (mezzano.lap.arm64:ret)
   INTERRUPTS-DISABLED
+  (:gc :frame)
   ;; Call function, arguments were setup above.
   (mezzano.lap.arm64:ldr :x9 (:object :x6 0))
   (mezzano.lap.arm64:blr :x9)
