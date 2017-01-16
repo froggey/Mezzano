@@ -656,6 +656,9 @@ NAMESTRING as the second."
                 (t
                  (write type namestring))))))))
 
+(defmethod host-default-device ((host logical-host))
+  nil)
+
 (defun logical-pathname-translations (host)
   (let ((host (or (find-host host nil)
                   (error "Logical host ~S not yet defined." host))))
