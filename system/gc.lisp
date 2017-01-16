@@ -217,13 +217,22 @@ This is required to make the GC interrupt safe."
        "  n-values " n-values
        "  from " (if framep
                      (+ frame-pointer 16)
-                     (+ stack-pointer (* (1+ layout-length) 8)))))
+                     (+ stack-pointer (* (+ layout-length
+                                            #-arm64 1
+                                            #+arm64 0)
+                                         8)))))
     ;; There are N-VALUES values above the return address.
     (if framep
         ;; Skip saved fp and return address.
         (scavenge-many (+ frame-pointer 16) n-values)
         ;; Skip return address and any layout values.
-        (scavenge-many (+ stack-pointer (* (1+ layout-length) 8)) n-values))))
+        (scavenge-many (+ stack-pointer
+                          (cond #+arm64
+                                ((zerop layout-length)
+                                 0)
+                                (t
+                                 (* (1+ layout-length) 8))))
+                       n-values))))
 
 (defun scavenge-regular-stack-frame (frame-pointer stack-pointer framep
                                      layout-address layout-length
@@ -381,6 +390,9 @@ This is required to make the GC interrupt safe."
                 (psetf return-address (memref-unsigned-byte-64 frame-pointer 1)
                        stack-pointer (+ frame-pointer 16)
                        frame-pointer (memref-unsigned-byte-64 frame-pointer 0)))
+               #+arm64
+               ((zerop layout-length)
+                (mezzano.supervisor:panic "Tried to unwind through function with no available return address"))
                (t
                 ;; No frame, carefully pick out the new values.
                 (gc-log "Unwinding through no-frame function")
@@ -492,7 +504,19 @@ This is required to make the GC interrupt safe."
                                        (if pushed-values-register
                                            (mezzano.supervisor:thread-state-rcx-value thread)
                                            0)))
-      (cond ((not framep)
+      (cond #+arm64
+            ((and (not framep)
+                  (zerop layout-length))
+             ;; Special case: lr contains the return address and there is return address on the stack.
+             (scavenge-stack
+              ;; Stack pointer needs the return address popped off,
+              ;; and any layout variables.
+              stack-pointer
+              ;; Frame pointer should be unchanged.
+              frame-pointer
+              ;; Return address in x30.
+              (mezzano.supervisor:thread-state-cs thread)))
+            ((not framep)
              ;; No frame, carefully pick out the new values.
              (scavenge-stack
               ;; Stack pointer needs the return address popped off,
