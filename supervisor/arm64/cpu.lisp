@@ -88,6 +88,8 @@
   (mezzano.lap.arm64:stp :x3 :x2 (:pre :sp -16))
   (mezzano.lap.arm64:stp :x7 :x4 (:pre :sp -16))
   (mezzano.lap.arm64:stp :x14 :x13 (:pre :sp -16))
+  ;; Flush the pad slot.
+  (mezzano.lap.arm64:str :xzr (:sp #x98))
   ;; Read & save SP_EL0
   (mezzano.lap.arm64:mrs :x9 :sp-el0)
   (mezzano.lap.arm64:str :x9 (:sp #x90))
@@ -157,6 +159,8 @@
   (mezzano.lap.arm64:stp :x3 :x2 (:pre :sp -16))
   (mezzano.lap.arm64:stp :x7 :x4 (:pre :sp -16))
   (mezzano.lap.arm64:stp :x14 :x13 (:pre :sp -16))
+  ;; Flush the pad slot.
+  (mezzano.lap.arm64:str :xzr (:sp #x98))
   ;; Read & save SP.
   (mezzano.lap.arm64:add :x9 :sp 0)
   (mezzano.lap.arm64:str :x9 (:sp #x90))
@@ -172,7 +176,7 @@
   (mezzano.lap.arm64:orr :x7 :xzr :x29)
   (mezzano.lap.arm64:movz :x5 #.(ash 1 sys.int::+n-fixnum-bits+)) ; 1 arg.
   ;; Build frame.
-  (mezzano.lap.arm64:add :x29 :sp #x68)
+  (mezzano.lap.arm64:add :x29 :sp #x70)
   ;; Build interrupt frame object.
   (mezzano.lap.arm64:sub :sp :sp 16)
   (mezzano.lap.arm64:movz :x9 #.(ash sys.int::+object-tag-interrupt-frame+ sys.int::+object-type-shift+))
