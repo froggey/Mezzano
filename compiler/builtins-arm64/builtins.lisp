@@ -46,7 +46,7 @@
     (emit-trailer (overflow-label)
       (emit
        ;; Prod the sign flag.
-       `(lap:ands :xzr :x9 :x9)
+       `(lap:ands :xzr :x10 :x10)
        ;; Build bignum.
        `(lap:ldr :x7 (:function sys.int::%%make-bignum-64-x10))
        ;; Result needs a 128-bit bignum when the high bit is set.
