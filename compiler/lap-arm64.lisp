@@ -1704,3 +1704,24 @@
 (define-3op-float fsub #x1E203800)
 (define-3op-float fmul #x1E200800)
 (define-3op-float fdiv #x1E201800)
+
+(define-instruction fcvt (lhs rhs)
+  (let ((lhs-class (register-class lhs))
+        (rhs-class (register-class rhs)))
+    (multiple-value-bind (type opc)
+        (cond
+          ((and (eql lhs-class :fp-64)
+                (eql rhs-class :fp-32))
+           (values #b11 #b01))
+          ((and (eql lhs-class :fp-32)
+                (eql rhs-class :fp-64))
+           (values #b01 #b00))
+          (t
+           (error "Unsupported FCVT operand combination ~S and ~S."
+                  lhs rhs)))
+      (emit-instruction (logior #x1E224000
+                                (ash type 22)
+                                (ash opc 15)
+                                (ash (register-number rhs) +rn-shift+)
+                                (ash (register-number lhs) +rd-shift+)))
+      (return-from instruction t))))
